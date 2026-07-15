@@ -147,8 +147,9 @@ inside that directory. The other families have an explicit family block.
 [FAQ B1](#faq-b1-family-blocks) lists the selection rules.
 
 Before running CMB, background, or matter-power training, also read
-[FAQ D1](#faq-d1-paths). Several supporting filenames inside their family
-blocks currently need a path relative to `$ROOTDIR` or an absolute path.
+[FAQ D1](#faq-d1-paths). Supporting filenames inside those family blocks are
+read from the program's starting folder. The standard CoCoA startup makes the
+generated files available there.
 
 ## 4. Check the YAML syntax <a id="check-file"></a>
 
@@ -439,9 +440,9 @@ python "$D/compute_data_vectors/compute_cmb_covariance.py" \
   --output cmbcov_lcdm
 ```
 
-Make the training YAML name that same result. When training from `$ROOTDIR`,
-use a project-relative or absolute value, for example
-`data.cmb.covariance: projects/cmb/chains/cmbcov_lcdm.npz`.
+Make the training YAML name that same result. With the standard CoCoA startup
+links, keep the bare filename used by the training example:
+`data.cmb.covariance: cmbcov_lcdm.npz`.
 
 The data-generation guide explains the outputs and cost in
 [Why is the CMB covariance a separate calculation?](../compute_data_vectors/README.md#faq-a5-cmb-covariance).
@@ -459,12 +460,14 @@ The training programs treat four groups of paths differently:
 | `cosmolike_dataset` | A dataset below the selected `cosmolike_data_dir` |
 | Supporting filenames inside `cmb`, `grid`, and `grid2d` | Exactly the path written in the YAML, relative to the folder where the program starts |
 
-The documented commands start in `$ROOTDIR`. For these supporting filenames, use
-a path beginning with the project folder, such as
-`projects/lsst_y1/chains/dvs_train_mps_unifs_z.npy`. You may instead use an
-absolute path, which is the full path beginning with `/`. Do not write the
-literal text `$ROOTDIR` in one of these YAML values; these fields do not
-expand that environment variable.
+The documented commands start in `$ROOTDIR`, and the shipped YAMLs use bare
+supporting filenames. `start_cocoa.sh` makes the corresponding files available
+there through symbolic links; `stop_cocoa.sh` removes those links. A symbolic
+link is a short pointer to a file stored elsewhere. The files remain in their
+project `chains` folders, so no supporting data file is copied.
+
+This applies only to supporting data. You should still copy the YAML you want
+to edit into your project, as [Step 2](#copy-file) explains.
 
 This rule currently applies to:
 
@@ -473,11 +476,15 @@ This rule currently applies to:
 - `data.grid2d.z_file` and `data.grid2d.k_file`; and
 - `data.grid2d.train_base` and `data.grid2d.val_base`.
 
-A bare supporting filename means that the file is directly under `$ROOTDIR`.
-When the file is instead in the project's `chains` folder, replace the bare
-name in the project copy with a project-relative or absolute path. The five
-main input filenames may remain bare when their files are under the project's
-`chains` folder.
+A bare supporting name is read as `$ROOTDIR/<name>`, normally through the link
+created during startup. A project-relative path starts with `projects/...`;
+an absolute path is the full path beginning with `/`. Both are read exactly as
+written. Do not put the literal text `$ROOTDIR` in one of these YAML values
+because these fields do not expand environment variables.
+
+The five main input filenames in the first row of the table are different. A
+bare name there is resolved directly under the selected project's `chains`
+folder.
 
 ## FAQ D2. What should I check when a run stops at startup? <a id="faq-d2-startup-errors"></a>
 

@@ -66,23 +66,19 @@ The package layout and change-to-file guide live in
 
 ## 1. Install and check the environment <a id="start-install"></a>
 
-CoCoA SONIC normally lives inside an installed CoCoA project folder at
-`$ROOTDIR/external_modules/code/emulators_code_v2`. Install and compile CoCoA
-first by following the
-[CoCoA installation README](https://github.com/CosmoLike/cocoa#required_packages_conda),
-then activate that same environment before using an emulator driver:
+CoCoA SONIC normally lives inside a CoCoA installation at
+`$ROOTDIR/external_modules/code/emulators_code_v2`. Follow the
+[official CoCoA README](https://github.com/CosmoLike/cocoa/blob/main/README.md)
+to install, compile, and start CoCoA. Use its instructions to activate the
+environment and run `start_cocoa.sh`.
+
+After completing those instructions, `$ROOTDIR` is the top-level CoCoA folder.
+This CoCoA SONIC-specific check prints the options for one training program:
 
 ```bash
-bash
-conda activate cocoa
-cd /path/to/cocoa/Cocoa
-source start_cocoa.sh
-D=external_modules/code/emulators_code_v2
-python "$D/cosmic_shear_train_emulator.py" --help
+cd "$ROOTDIR"
+python external_modules/code/emulators_code_v2/cosmic_shear_train_emulator.py --help
 ```
-
-`start_cocoa.sh` defines `$ROOTDIR` and activates that project's private Python
-environment. Replace `/path/to/cocoa/Cocoa` with your installed CoCoA folder.
 
 The cosmic-shear path also needs the compiled CoCoA/CosmoLike installation.
 `--root` selects the project, while the YAML names the CosmoLike dataset files.

@@ -129,35 +129,23 @@ The appendices give theory blocks for the other adapters.
 
 ## 3. Copy the example <a id="copy-example"></a>
 
-Keep the shipped example unchanged. Copy it into your project so that later
-repository updates do not overwrite your work.
+The template is already included at
+`external_modules/code/emulators_code_v2/cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
+Using your editor or file manager, manually copy that file to a new name inside
+the LSST Y1 project. This guide uses the following destination:
 
-```bash
-cd "$ROOTDIR"
-D=external_modules/code/emulators_code_v2
-CONFIG_DIR=projects/lsst_y1/cobaya
-CONFIG="$CONFIG_DIR/my_emulator_evaluate.yaml"
-if test -e "$CONFIG"; then
-  printf 'STOP: %s already exists.\n' "$CONFIG"
-elif mkdir -p "$CONFIG_DIR" &&
-     cp "$D/cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml" "$CONFIG" &&
-     test -f "$CONFIG"; then
-  printf 'Copied to %s\n' "$CONFIG"
-else
-  printf '%s\n' 'STOP: the copy failed; no usable copy was confirmed.' >&2
-fi
+```text
+projects/lsst_y1/my_emulator_evaluate.yaml
 ```
 
-The commands above use the `lsst_y1` project because the example contains the
-LSST Y1 likelihood. If you use another project or likelihood, copy the file to
-that project and change the likelihood block too.
-
-The block creates the destination directory and copies the YAML only when the
-destination file is absent. It stops without changing an existing copy.
+Choose a filename that is not already present. The LSST Y1 project keeps its
+Cobaya YAML files directly in `projects/lsst_y1`; do not create a
+`projects/lsst_y1/cobaya` subfolder. If you use another project or likelihood,
+put the copy directly in that project and change the likelihood block too.
 
 ## 4. Edit your copy <a id="edit-copy"></a>
 
-Open `projects/lsst_y1/cobaya/my_emulator_evaluate.yaml` in a text editor.
+Open `projects/lsst_y1/my_emulator_evaluate.yaml` in a text editor.
 Make these changes:
 
 1. Replace `projects/lsst_y1/emulators/<run>/emul_v2` with your saved-emulator
@@ -188,7 +176,7 @@ training run together.
 After editing, check that the shipped placeholder is gone:
 
 ```bash
-CONFIG=projects/lsst_y1/cobaya/my_emulator_evaluate.yaml
+CONFIG=projects/lsst_y1/my_emulator_evaluate.yaml
 if ! test -f "$CONFIG"; then
   printf 'STOP: %s does not exist.\n' "$CONFIG" >&2
 elif grep -n '<run>' "$CONFIG"; then
@@ -208,7 +196,7 @@ fi
 First check the YAML indentation and punctuation:
 
 ```bash
-CONFIG=projects/lsst_y1/cobaya/my_emulator_evaluate.yaml
+CONFIG=projects/lsst_y1/my_emulator_evaluate.yaml
 python - "$CONFIG" <<'PY'
 from pathlib import Path
 import sys
@@ -230,7 +218,7 @@ sampler without calculating the likelihood:
 
 ```bash
 cd "$ROOTDIR"
-CONFIG=projects/lsst_y1/cobaya/my_emulator_evaluate.yaml
+CONFIG=projects/lsst_y1/my_emulator_evaluate.yaml
 cobaya-run --test --no-mpi "$CONFIG"
 ```
 
@@ -248,7 +236,7 @@ Run the copied file without `--test`:
 
 ```bash
 cd "$ROOTDIR"
-CONFIG=projects/lsst_y1/cobaya/my_emulator_evaluate.yaml
+CONFIG=projects/lsst_y1/my_emulator_evaluate.yaml
 cobaya-run --no-mpi "$CONFIG"
 ```
 

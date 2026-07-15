@@ -93,24 +93,22 @@ named `train_args`.
 
 ## Prepare the CoCoA environment
 
-Install and compile CoCoA first. The main
-[installation section](../README.md#start-install) gives the full setup.
-Then open a shell in the CoCoA folder and activate that installation:
+Follow the
+[official CoCoA README](https://github.com/CosmoLike/cocoa/blob/main/README.md)
+to install, compile, and start CoCoA. After completing those instructions,
+`$ROOTDIR` is the top-level CoCoA folder and its Python environment is active.
+
+Run the commands in this guide from `$ROOTDIR`. These two shortcuts name the
+package folder and the active CoCoA Python program:
 
 ```bash
-bash
-conda activate cocoa
-cd /path/to/cocoa/Cocoa
-source start_cocoa.sh
-
+cd "$ROOTDIR"
 D="$ROOTDIR/external_modules/code/emulators_code_v2"
 PYTHON="$ROOTDIR/.local/bin/python"
 ```
 
-`ROOTDIR` is the absolute path to the active CoCoA folder. Replace
-`/path/to/cocoa/Cocoa` with that folder on your computer. Run the generator
-commands from `$ROOTDIR` because the YAML files normally refer to CAMB and
-other CoCoA files with paths relative to this folder.
+The YAML files normally refer to CAMB and other CoCoA files with paths relative
+to this folder.
 
 Check the Python packages before starting a physics calculation. This command
 does not create files:
@@ -459,8 +457,14 @@ data:
   train_covmat: params_train_background_unifs.covmat
 ```
 
-These are bare filenames because the trainer resolves them under
-`$ROOTDIR/<project>/chains/`. The complete background trainer example is
+The five filenames directly under `data`—`train_dv`, `val_dv`, `train_params`,
+`val_params`, and `train_covmat`—are read from
+`$ROOTDIR/<project>/chains/`. The `z_file` name inside the `grid` group is
+instead read from the folder where training starts. With the documented
+`$ROOTDIR` launch, `start_cocoa.sh` makes that generated file available there
+through a symbolic link (a short pointer to the file in `chains`). The bare
+name therefore works without copying the data. The complete background trainer
+example is
 [`example_yamls/baosn_hubble_emulator.yaml`](../example_yamls/baosn_hubble_emulator.yaml).
 The CMB and matter-power trainer examples are
 [`cmb_emulator.yaml`](../example_yamls/cmb_emulator.yaml) and
