@@ -1088,15 +1088,17 @@ def gate_gsv_c(ctx):
   """save-rebuild-drift: a saved emulator reloads exactly, forever.
 
   WHAT: the save/rebuild contract (an emulator reconstructed from its
-  h5 file alone). WHY: a reload must ship the trained model exactly,
-  even if the code's default values drift later. HOW: train small,
-  save, rebuild, require the outputs bitwise-equal on a probe; then
-  patch a code default and rebuild unchanged; one factored and one NPCE
-  save round-trip too; a v1 file is refused (specs:
+  saved artifact pair). WHY: a reload must ship the trained model exactly,
+  even if the activation default drifts later, and the checkpoint must
+  not require the accelerator that trained it. HOW: train small; save and
+  rebuild the plain pair; inspect its raw state dict without load-time
+  relocation; require CPU tensors plus bitwise-equal outputs on a probe; then
+  round-trip the factored, NPCE, and conv-head pairs. Patch an activation
+  default and rebuild unchanged; old schema files are refused (specs:
   artifacts-inference-warmstart.md:86-93; gates-and-board.md:66-71).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
-  # the seven legs are asserted IN the child, which emits one ##AID each; this
+  # the nine legs are asserted IN the child, which emits one ##AID each; this
   # rc check is the child's single aggregate verdict, so it carries no aid of
   # its own (a wrapper cannot re-claim what the child proved).
   rc, out = ctx.run_check("ai/gates/checks/gsv_bitwise_drift.py")
@@ -2916,13 +2918,17 @@ BOARD = [
        title="Save/rebuild bitwise + drift",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="an emulator rebuilt from its saved file alone reproduces the "
+       maps="an emulator rebuilt from its saved artifact pair reproduces the "
             "live model's output exactly — for the plain, factored, "
-            "neural-PCE and conv-head variants — even when the code default "
-            "it was trained under has since changed, and a file the current "
-            "schema cannot honour is refused instead of guessed",
+            "neural-PCE and conv-head variants — while its nonempty, "
+            "tensor-only checkpoint is serialized on the CPU, even when an "
+            "activation default it was trained under has since changed; a "
+            "file the current schema cannot honour is refused instead of "
+            "guessed",
        evidence=(Assertion("save-rebuild-drift.plain-rebuild-matches-live",
                            "artifacts-inference-warmstart.md#save-rebuild-drift-plain-rebuild-matches-live"),
+                 Assertion("save-rebuild-drift.cpu-normalized-state",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-cpu-normalized-state"),
                  Assertion("save-rebuild-drift.factored-rebuild-matches-live",
                            "artifacts-inference-warmstart.md#save-rebuild-drift-factored-rebuild-matches-live"),
                  Assertion("save-rebuild-drift.npce-rebuild-matches-live",

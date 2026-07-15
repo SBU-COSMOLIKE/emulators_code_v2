@@ -1880,28 +1880,40 @@ message) is a separate unit; the leg keeps its own aid so the red names itself
 instead of hiding inside the composition group.
 
 <a id="save-rebuild-drift-evidence"></a>
-**save-rebuild-drift — an emulator rebuilt from its saved file alone reproduces
-the live model exactly, and a file the schema cannot honour is refused.**
+**save-rebuild-drift — an emulator rebuilt from its saved artifact pair reproduces
+the live model exactly, its checkpoint is CPU-normalized, and a file the
+schema cannot honour is refused.**
 
 - files: trains and saves four tiny emulators under a `gsv-` temp directory, and
   persists one of them (the plain variant) to
   `<driver_root>/chains/gates_emul_evaluate` for the cobaya-adapter gate's
   evaluate leg to load; reads the deploy dumps.
 - subprocess: `ai/gates/checks/gsv_bitwise_drift.py`.
-- metric: exact tensor equality between the live and rebuilt outputs; a raise
+- metric: exact tensor equality between the live and rebuilt outputs; exact CPU
+  device type for every value in a nonempty tensor-only raw state dict; a raise
   (with the message named) for each refusal.
-- legs: 7, named `save-rebuild-drift.plain-rebuild-matches-live`,
-  `.factored-rebuild-matches-live`, `.npce-rebuild-matches-live`,
-  `.head-rebuild-matches-live`, `.code-default-drift-ignored`,
-  `.v1-schema-refusal`, and `.old-head-artifact-refusal`.
-- evidence: all seven are asserted in the child, one `##AID` each; the wrapper's
+- legs: 9, named `save-rebuild-drift.plain-rebuild-matches-live`,
+  `.cpu-normalized-state`, `.factored-rebuild-matches-live`,
+  `.npce-rebuild-matches-live`, `.head-rebuild-matches-live`,
+  `.code-default-drift-ignored`, `.v1-schema-refusal`,
+  `.v2-schema-refusal`, and `.old-head-artifact-refusal`.
+- evidence: all nine are asserted in the child, one `##AID` each; the wrapper's
   rc check is the child's aggregate verdict and carries no aid.
-- owed: the whole gate needs cosmolike, a GPU and the deploy dumps, so it is
-  capability-skipped on the Mac. Its live green is WORKSTATION-OWED.
+- owed: the whole gate needs cosmolike, a CUDA GPU, and the deploy dumps, so it
+  is capability-skipped on the Mac. In particular, only a CUDA-trained save
+  can prove that CPU normalization moved a tensor rather than observing one
+  that was already on the CPU. Its live green is WORKSTATION-OWED.
 
 <a id="save-rebuild-drift-plain-rebuild-matches-live"></a>
 `save-rebuild-drift.plain-rebuild-matches-live` requires the plain variant's
 rebuilt output to equal the live model's output exactly on a probe.
+
+<a id="save-rebuild-drift-cpu-normalized-state"></a>
+`save-rebuild-drift.cpu-normalized-state` loads the just-written plain
+checkpoint without `map_location` and requires a nonempty dictionary whose
+values are all tensors and whose tensors all report `device.type == "cpu"`.
+Without load-time relocation, the observed device is the one serialized by
+`save_emulator`, not a destination selected by the check.
 
 <a id="save-rebuild-drift-factored-rebuild-matches-live"></a>
 `save-rebuild-drift.factored-rebuild-matches-live` requires the same for an
@@ -1918,9 +1930,10 @@ alone, with no dataset ini.
 
 <a id="save-rebuild-drift-code-default-drift-ignored"></a>
 `save-rebuild-drift.code-default-drift-ignored` monkeypatches
-`make_activation`'s `n_gates` default (3 -> 7) and the compile-mode default,
-rebuilds the plain save, and requires the output to be unchanged: the rebuild
-reads the file, not the code's current defaults.
+`make_activation`'s `n_gates` default (3 -> 7), rebuilds the plain save, and
+requires the output to be unchanged: the rebuild reads the file, not the
+activation code's current default. Compile-mode persistence is not claimed by
+this arm because rebuild is deliberately called with `compile_model=False`.
 
 <a id="save-rebuild-drift-v1-schema-refusal"></a>
 `save-rebuild-drift.v1-schema-refusal` forges `schema_version` to 1 and requires

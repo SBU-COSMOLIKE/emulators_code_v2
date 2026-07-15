@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """save-rebuild-drift: prove a saved emulator reloads exactly.
 
-This check defends one promise: an emulator rebuilt from its saved file
-behaves exactly like the one that was just trained, even if the code's
-default values change afterward. If that promise breaks, a reloaded model
+This check defends one promise: an emulator rebuilt from its saved artifact pair
+behaves exactly like the one that was just trained, even if the activation
+default changes afterward. If that promise breaks, a reloaded model
 quietly returns different numbers than the run that was published.
 
 How it works, in order:
@@ -13,14 +13,19 @@ How it works, in order:
      correcting network), and a conv-head one (rescnn: the training
      attach's bin split must PERSIST in the dv-geometry state — the
      2026-07-11 fix — for the head to rebuild without the dataset ini).
-  2. Save each, rebuild each from its saved file alone, and compare the
-     rebuilt model's output to the still-in-memory model's on the same
-     input rows. "Exactly" means torch.equal here: every output number
+  2. Save the plain emulator, rebuild it from its saved artifact pair, and
+     compare the rebuilt model's output to the still-in-memory model's on the
+     same input rows. "Exactly" means torch.equal here: every output number
      matches to the last bit.
-  3. The drift test: change a code default, rebuild once more, and confirm
-     the output is still identical. That can only hold if the rebuild reads
+  3. Read that just-saved weight file without ``map_location`` and require a
+     nonempty tensor-only state dict whose tensors are all on the CPU. This
+     observes the device recorded in the file, not a load-time relocation.
+  4. Repeat the save/rebuild comparison for the factored, neural-PCE, and
+     conv-head variants.
+  5. The drift test: change an activation default, rebuild once more, and
+     confirm the output is still identical. That can only hold if rebuild reads
      the saved file and ignores the changed default.
-  4. Confirm an old-format file (schema version 1) is refused, not silently
+  6. Confirm old-format files are refused, not silently
      mis-loaded — and a head save whose persisted bin split is deleted
      (an artifact predating the persistence) is refused naming the fix,
      never re-derived or crashed on.
@@ -49,7 +54,6 @@ from emulator import fixed_facts
 from emulator.activations import make_activation
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator
-import emulator.training as training
 
 FAILURES = []
 
@@ -287,7 +291,7 @@ def train_save(cfg, device, save_root, label, persist_root=None):
 
 
 def rebuilt_out(save_root, device, probe, *, compile_model=False):
-  """Rebuild the emulator from its saved file alone and run it on the probe.
+  """Rebuild the emulator from its saved artifact pair and run the probe.
 
   Returns the rebuilt model's output on the probe rows, the value the caller
   compares (bit for bit) against the still-in-memory model's output.
@@ -299,6 +303,45 @@ def rebuilt_out(save_root, device, probe, *, compile_model=False):
   model_r.eval()
   with torch.no_grad():
     return model_r(pgeom_r.encode(probe)).detach().clone()
+
+
+def report_saved_state_cpu(save_root, aid):
+  """Require the serialized state dict itself to contain only CPU tensors.
+
+  The load deliberately has no ``map_location`` argument. A mapped load could
+  move a CUDA checkpoint to the CPU and make the check pass without proving
+  that ``save_emulator`` normalized the file. ``weights_only`` keeps this
+  inspection on the state-dict surface written by this check.
+
+  Arguments:
+    save_root = path root whose ``.emul`` file was just written.
+    aid       = the one board-declared evidence id for this assertion.
+  """
+  n0 = len(FAILURES)
+  try:
+    state = torch.load(str(save_root) + ".emul", weights_only=True)
+  except Exception as exc:
+    report("saved state is a nonempty tensor-only CPU dict",
+           False,
+           type(exc).__name__ + ": " + str(exc))
+  else:
+    is_dict = type(state) is dict
+    is_nonempty = is_dict and len(state) > 0
+    non_tensors = []
+    non_cpu = []
+    if is_nonempty:
+      for key, value in state.items():
+        if not torch.is_tensor(value):
+          non_tensors.append(str(key))
+        elif value.device.type != "cpu":
+          non_cpu.append(str(key) + ":" + str(value.device))
+    ok = is_nonempty and len(non_tensors) == 0 and len(non_cpu) == 0
+    detail = ("type " + type(state).__name__
+              + "; tensors " + str(len(state) if is_dict else 0)
+              + "; non-tensors " + repr(non_tensors)
+              + "; non-CPU " + repr(non_cpu))
+    report("saved state is a nonempty tensor-only CPU dict", ok, detail)
+  emit_aid(aid, n0)
 
 
 def run_variant(name, cfg, device, tmp, persist_root=None, aid=None):
@@ -326,19 +369,19 @@ def run_variant(name, cfg, device, tmp, persist_root=None, aid=None):
 
 
 def main():
-  """Run the four save-rebuild checks, the drift test, and the refusals.
+  """Run four save-rebuild checks, CPU normalization, drift, and refusals.
 
-  In order: read the deploy paths; then, for the plain, factored,
-  neural-PCE, and conv-head variants, train a tiny emulator, save it,
-  rebuild it from the file, and require the rebuilt output to match the
-  live output to the last bit (the plain one is also saved to a stable
-  location for the board's cobaya-adapter evaluate leg; the head one
-  proves the persisted bin split reconstructs the ResCNN with no dataset
-  ini). Then the drift test on the plain save: patch make_activation's
-  n_gates default and the compile-mode default, rebuild, and require an
-  identical output. Last the two refusals: a schema-version-1 file, and
-  a head save with its persisted bin split deleted (a pre-persistence
-  artifact) — each must raise loudly. Any failed step prints a FAIL
+  In order: read the deploy paths; train, save, and rebuild the plain tiny
+  emulator; require bitwise-identical output on the same probe; then load its
+  ``.emul`` without device relocation and require a nonempty tensor-only CPU
+  state dict. Repeat the save/rebuild comparison for the factored, neural-PCE,
+  and conv-head variants. The plain artifact pair is also saved to a stable
+  location for the board's cobaya-adapter evaluate leg; the head pair proves
+  the persisted bin split reconstructs the ResCNN with no dataset ini. Then
+  patch ``make_activation``'s ``n_gates`` default, rebuild the plain pair, and
+  require identical output. Last, two old schema versions and a
+  head save with its persisted bin split deleted (a pre-persistence artifact)
+  must raise loudly. Any failed step prints a FAIL
   line; main returns 1 if any failed, else 0.
   """
   print("== save-rebuild-drift ==")
@@ -352,6 +395,9 @@ def main():
   plain_root, plain_probe = run_variant(
     "plain", tiny_config(data_dir), device, tmp, persist_root=evaluate_root,
     aid="save-rebuild-drift.plain-rebuild-matches-live")
+  report_saved_state_cpu(
+    save_root=plain_root,
+    aid="save-rebuild-drift.cpu-normalized-state")
   run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp,
               aid="save-rebuild-drift.factored-rebuild-matches-live")
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp,
@@ -369,19 +415,16 @@ def main():
   # n_gates (activations.py). If rebuild trusted the code default the
   # rebuilt gated_power activation would carry K=7 parameters and the
   # strict weight load / output would break; with the file-recorded
-  # n_gates=3 it rebuilds unchanged. The compile-mode default is patched
-  # too (a second, softer leg). The plain save uses gated_power (n_gates 3).
+  # n_gates=3 it rebuilds unchanged. The plain save uses gated_power
+  # (n_gates 3).
   n_drift = len(FAILURES)
   base_reb = rebuilt_out(plain_root, device, plain_probe)
   saved_defaults = make_activation.__defaults__
-  saved_compile = training.DEFAULT_COMPILE_MODE
   try:
     make_activation.__defaults__ = (7,)
-    training.DEFAULT_COMPILE_MODE = "reduce-overhead"
     drift_reb = rebuilt_out(plain_root, device, plain_probe)
   finally:
     make_activation.__defaults__ = saved_defaults
-    training.DEFAULT_COMPILE_MODE = saved_compile
   report("drift proof: rebuild ignores the monkeypatched n_gates default",
          torch.equal(base_reb, drift_reb),
          "make_activation n_gates default 3 -> 7 patched; max abs diff "
