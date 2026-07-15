@@ -12,6 +12,10 @@
 # files and commands tracked, just not this one
 .claude/settings.local.json
 
+# Linked checkouts plus the mailbox daemon's primary-worktree state, lock, and
+# interrupted atomic-write temporaries are repo-local runtime infrastructure.
+.claude/worktrees/
+
 # LaTeX scratch files.  Keep the reader-facing PDF and vector figures tracked;
 # these files are compiler state that is regenerated during every clean build.
 texnotes/*.aux

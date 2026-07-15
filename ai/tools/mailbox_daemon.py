@@ -18,14 +18,16 @@ inbound whose binding instruction explicitly says TERMINAL and no reply is
 owed ends without an outbound; ambiguity follows the ordinary outbound rule.
 
 What stays manual, on purpose:
-  - merges/pushes to main are ALWAYS the user's (the daemon never runs git);
+  - merges/pushes to main are ALWAYS the user's (the daemon's only Git write
+    is first-run creation of its repo-local coordination worktree + branch);
   - the daemon only dispatches messages; it never edits code or notes itself;
   - every dispatch's full CLI output is archived under ai/notes/relay/.
 
-Every path the daemon uses -- the mailbox, the relay logs, the working
-directory each agent starts in -- is DERIVED from this file's own location
-(it lives at <worktree>/ai/tools/), so a clone on another computer runs
-unedited and the worktree you launch it from is the one it coordinates.
+Every live action converges on one persisted primary coordination worktree.
+The first valid action creates or safely adopts it; later actions validate
+the saved Git identity and re-exec this file from that worktree. Architect and
+Implementer share its uncommitted code, notes, and index. Sol remains at the
+repository root as an independent review lane.
 AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
 `claude -p` runs one headless turn against the subscription; the session
 needs enough tool permission to work unattended (set via the harness
@@ -81,24 +83,23 @@ import tempfile
 import threading
 import time
 
-# All work and all mailbox traffic live in the SHARED WORKTREE (the branch
-# the agents actually develop on), never the bare main-repo checkout. That
-# worktree is DERIVED, never configured: this file lives at
-# <worktree>/ai/tools/mailbox_daemon.py, so the directory containing ai/ is the
-# worktree root. A clone on a new machine therefore runs unedited, and the
-# worktree you launch the watch FROM is the one whose mailbox it watches.
+# Once main() passes CLI validation, every live action proves that this file
+# lives in the saved primary coordination worktree (or re-execs the copy that
+# does). Paths below can therefore remain simple derivations while launcher
+# checkouts converge on one shared mailbox, notes tree, and index.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AI_ROOT = os.path.dirname(SCRIPT_DIR)
 WORKTREE = os.path.dirname(AI_ROOT)
 
 
 def repo_root_of(worktree):
-    """Return the repository root that owns a given worktree directory.
+    """Return the shared repository root that owns a worktree directory.
 
-    A Claude Code worktree sits at <repo>/.claude/worktrees/<name>, so the
-    repository is three directories up. When the daemon is instead run from
-    an ordinary checkout (no .claude/worktrees/ segment above it), that
-    checkout IS the repository and is returned unchanged.
+    A linked checkout's ``.git`` file points to its private administrative
+    directory, whose ``commondir`` identifies the main repository. Reading
+    those tiny Git-owned files avoids spawning Git during module import (and
+    keeps import-only tests pure). A real live action later re-proves the same
+    identity with Git itself.
 
     Arguments:
       worktree = the worktree root, i.e. the directory holding ai/tools/.
@@ -106,6 +107,38 @@ def repo_root_of(worktree):
     Returns:
       The absolute path of the repository root.
     """
+    worktree = os.path.abspath(worktree)
+    dot_git = os.path.join(worktree, ".git")
+    try:
+        dot_git_info = os.lstat(dot_git)
+    except OSError:
+        dot_git_info = None
+    if dot_git_info is not None and stat.S_ISDIR(dot_git_info.st_mode):
+        return worktree
+    if (dot_git_info is not None and stat.S_ISREG(dot_git_info.st_mode)
+            and dot_git_info.st_size <= 4096):
+        try:
+            with open(dot_git, "r", encoding="utf-8") as stream:
+                git_line = stream.read(4097).strip()
+            if git_line.startswith("gitdir: "):
+                git_directory = git_line[len("gitdir: "):]
+                if not os.path.isabs(git_directory):
+                    git_directory = os.path.join(worktree, git_directory)
+                git_directory = os.path.realpath(git_directory)
+                common_file = os.path.join(git_directory, "commondir")
+                common_info = os.lstat(common_file)
+                if (stat.S_ISREG(common_info.st_mode)
+                        and common_info.st_size <= 4096):
+                    with open(common_file, "r", encoding="utf-8") as stream:
+                        common = stream.read(4097).strip()
+                    if not os.path.isabs(common):
+                        common = os.path.join(git_directory, common)
+                    common = os.path.realpath(common)
+                    if os.path.basename(common) == ".git":
+                        return os.path.dirname(common)
+        except (OSError, UnicodeError):
+            pass
+
     worktrees_dir = os.path.dirname(worktree)          # <repo>/.claude/worktrees
     claude_dir = os.path.dirname(worktrees_dir)        # <repo>/.claude
     if (os.path.basename(worktrees_dir) == "worktrees"
@@ -190,6 +223,1235 @@ RENDEZVOUS_MINUTE_INTERVAL = 15
 SAFE_KILL_COUNTDOWN_SECONDS = 20
 WATCH_POLL_SECONDS = 20
 MAX_CYCLE_COUNT = 1000000
+
+# One durable coordination checkout belongs to the ROLE pair, not to either
+# Claude model.  A first live CLI action creates (or deliberately adopts) it;
+# later invocations validate this record and re-exec the daemon from there.
+# Sol remains in REPO_ROOT, so its review lane is still independent.
+PRIMARY_WORKTREE_NAME = "mailbox-primary"
+PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
+PRIMARY_STATE_NAME = ".mailbox-primary-worktree.json"
+PRIMARY_LOCK_NAME = ".mailbox-primary-worktree.lock"
+PRIMARY_STATE_SCHEMA = 1
+MAX_PRIMARY_STATE_BYTES = 16384
+MAX_PRIMARY_ARCHIVE_FILE_BYTES = 16 * 1024 * 1024
+MAX_PRIMARY_ARCHIVE_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_PRIMARY_ARCHIVE_ENTRIES = 10000
+PRIMARY_ARCHIVE_RUNTIME_LOCKS = frozenset({
+    ".dispatch.lock",
+    ".sequence.lock",
+    ".fix-only.lock",
+    ".skip-redteam.lock",
+})
+CURRENT_ADOPTION_SAFE_REASONS = frozenset({
+    "numbered mailbox history exists",
+    "relay evidence exists",
+    "live watcher or once lock is held",
+})
+
+
+class PrimaryWorktreeError(RuntimeError):
+    """A persisted coordination checkout is absent, unsafe, or ambiguous."""
+
+
+def _raise_walk_error(error):
+    """Make ``os.walk`` traversal failures explicit instead of suppressing."""
+    raise error
+
+
+def primary_state_paths(repository_root):
+    """Return every deterministic path used by primary-worktree bootstrap."""
+    repository = os.path.abspath(repository_root)
+    managed_root = os.path.join(repository, ".claude", "worktrees")
+    return {
+        "managed_root": managed_root,
+        "state": os.path.join(managed_root, PRIMARY_STATE_NAME),
+        "lock": os.path.join(managed_root, PRIMARY_LOCK_NAME),
+        "default_path": os.path.join(managed_root, PRIMARY_WORKTREE_NAME),
+        "default_branch": PRIMARY_BRANCH,
+    }
+
+
+def _plain_directory(path, label, create=False):
+    """Prove that ``path`` is one ordinary directory, optionally creating it."""
+    if not os.path.lexists(path):
+        if not create:
+            raise PrimaryWorktreeError(label + " does not exist: " + path)
+        try:
+            os.mkdir(path, 0o700)
+        except FileExistsError:
+            # Two clean-clone first runs can both observe the absent managed
+            # root before either opens the shared bootstrap lock. The winner's
+            # ordinary directory is accepted by the lstat proof below.
+            pass
+        except OSError as exc:
+            raise PrimaryWorktreeError(
+                "cannot create " + label + " " + path + ": " + str(exc))
+    try:
+        info = os.lstat(path)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot inspect " + label + " " + path + ": " + str(exc))
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise PrimaryWorktreeError(
+            label + " must be a real directory, not a redirect: " + path)
+    return (info.st_dev, info.st_ino)
+
+
+def _require_directory_identity(path, identity, label):
+    """Prove a locked directory pathname still names its original inode."""
+    try:
+        info = os.lstat(path)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot revalidate " + label + " " + path + ": " + str(exc))
+    if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
+            or (info.st_dev, info.st_ino) != identity):
+        raise PrimaryWorktreeError(
+            label + " changed while primary state was being prepared: "
+            + path)
+
+
+def _managed_primary_root(repository_root, create=False):
+    """Return the non-symlinked repo-local worktree container."""
+    repository = os.path.abspath(repository_root)
+    if os.path.realpath(repository) != repository:
+        raise PrimaryWorktreeError(
+            "repository root must not be reached through a symlink: "
+            + repository)
+    _plain_directory(path=repository, label="repository root")
+    claude_root = os.path.join(repository, ".claude")
+    _plain_directory(path=claude_root, label=".claude directory")
+    managed_root = os.path.join(claude_root, "worktrees")
+    _plain_directory(path=managed_root, label="managed worktree directory",
+                     create=create)
+    return managed_root
+
+
+def _run_git(repository_root, arguments, check=True):
+    """Run one argv-only Git command and return its completed process."""
+    command = ["git", "-C", os.path.abspath(repository_root)] + list(arguments)
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, check=False)
+    except OSError as exc:
+        raise PrimaryWorktreeError("cannot run git: " + str(exc))
+    if check and result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        if len(detail) > 1000:
+            detail = detail[:1000] + "..."
+        if detail:
+            detail = ": " + detail
+        raise PrimaryWorktreeError(
+            "git " + " ".join(arguments) + " failed" + detail)
+    return result
+
+
+def git_common_directory(checkout):
+    """Return the canonical Git common directory owning ``checkout``."""
+    result = _run_git(repository_root=checkout,
+                      arguments=["rev-parse", "--git-common-dir"])
+    try:
+        value = result.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "git common-directory output is not UTF-8: " + str(exc))
+    if not value:
+        raise PrimaryWorktreeError("git returned an empty common directory")
+    if not os.path.isabs(value):
+        value = os.path.join(os.path.abspath(checkout), value)
+    return os.path.realpath(value)
+
+
+def registered_worktrees(repository_root):
+    """Parse ``git worktree list --porcelain -z`` without path ambiguity."""
+    result = _run_git(
+        repository_root=repository_root,
+        arguments=["worktree", "list", "--porcelain", "-z"])
+    records = []
+    record = None
+    try:
+        fields = result.stdout.split(b"\x00")
+        for raw in fields:
+            if raw == b"":
+                if record is not None:
+                    records.append(record)
+                    record = None
+                continue
+            field = raw.decode("utf-8", errors="strict")
+            key, separator, value = field.partition(" ")
+            if key == "worktree":
+                if not separator or not value or record is not None:
+                    raise PrimaryWorktreeError(
+                        "malformed git worktree registry")
+                record = {"path": os.path.abspath(value), "flags": set()}
+                continue
+            if record is None:
+                raise PrimaryWorktreeError(
+                    "git worktree registry field precedes worktree path")
+            if key in {"HEAD", "branch"}:
+                if not separator or key in record:
+                    raise PrimaryWorktreeError(
+                        "duplicate or malformed worktree " + key + " field")
+                record[key] = value
+            else:
+                record["flags"].add(key)
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "git worktree registry is not UTF-8: " + str(exc))
+    if record is not None:
+        records.append(record)
+    if not records:
+        raise PrimaryWorktreeError("git reports no registered worktrees")
+    return records
+
+
+def _duplicate_key_refusal(pairs):
+    """JSON object hook which rejects duplicate state keys."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise PrimaryWorktreeError(
+                "primary-worktree state repeats key " + repr(key))
+        result[key] = value
+    return result
+
+
+def load_primary_state(path):
+    """Read one bounded, regular, exact-schema primary-worktree record."""
+    try:
+        initial = os.lstat(path)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot inspect primary-worktree state " + path + ": " + str(exc))
+    if stat.S_ISLNK(initial.st_mode) or not stat.S_ISREG(initial.st_mode):
+        raise PrimaryWorktreeError(
+            "primary-worktree state is not a regular file: " + path)
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot open primary-worktree state " + path + ": " + str(exc))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise PrimaryWorktreeError(
+                "primary-worktree state is not a regular file: " + path)
+        if before.st_size > MAX_PRIMARY_STATE_BYTES:
+            raise PrimaryWorktreeError(
+                "primary-worktree state exceeds "
+                + str(MAX_PRIMARY_STATE_BYTES) + " bytes: " + path)
+        payload = os.read(descriptor, MAX_PRIMARY_STATE_BYTES + 1)
+        after = os.fstat(descriptor)
+        current = os.lstat(path)
+        if ((initial.st_dev, initial.st_ino) != (before.st_dev, before.st_ino)
+                or (before.st_dev, before.st_ino)
+                != (after.st_dev, after.st_ino)
+                or (after.st_dev, after.st_ino)
+                != (current.st_dev, current.st_ino)
+                or after.st_size != len(payload)):
+            raise PrimaryWorktreeError(
+                "primary-worktree state changed while being read: " + path)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot read primary-worktree state " + path + ": " + str(exc))
+    finally:
+        os.close(descriptor)
+    if len(payload) > MAX_PRIMARY_STATE_BYTES:
+        raise PrimaryWorktreeError(
+            "primary-worktree state exceeds "
+            + str(MAX_PRIMARY_STATE_BYTES) + " bytes: " + path)
+    try:
+        text = payload.decode("utf-8", errors="strict")
+        state = json.loads(text, object_pairs_hook=_duplicate_key_refusal)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PrimaryWorktreeError(
+            "primary-worktree state is not exact UTF-8 JSON: " + str(exc))
+    if not isinstance(state, dict):
+        raise PrimaryWorktreeError("primary-worktree state must be an object")
+    expected = {"schema", "repository", "name", "path", "branch"}
+    if set(state) != expected:
+        raise PrimaryWorktreeError(
+            "primary-worktree state keys must be exactly "
+            + ", ".join(sorted(expected)))
+    if (type(state["schema"]) is not int
+            or state["schema"] != PRIMARY_STATE_SCHEMA):
+        raise PrimaryWorktreeError(
+            "unsupported primary-worktree state schema")
+    for key in ("repository", "name", "path", "branch"):
+        value = state[key]
+        if (not isinstance(value, str) or not value or "\x00" in value
+                or "\n" in value or "\r" in value):
+            raise PrimaryWorktreeError(
+                "invalid primary-worktree state field " + key)
+    if not os.path.isabs(state["repository"]):
+        raise PrimaryWorktreeError("state repository must be absolute")
+    if not os.path.isabs(state["path"]):
+        raise PrimaryWorktreeError("state path must be absolute")
+    if (state["name"] != os.path.basename(state["path"])
+            or state["name"] in {".", ".."}
+            or "/" in state["name"]):
+        raise PrimaryWorktreeError("state name must equal the path basename")
+    if not state["branch"].startswith("refs/heads/"):
+        raise PrimaryWorktreeError("state branch must be an attached head ref")
+    return state
+
+
+def _path_key(path):
+    """Return a stable lexical comparison key for a registered worktree."""
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _record_at_path(records, path):
+    """Return the unique registry record at ``path``, or ``None``."""
+    matches = [record for record in records
+               if _path_key(record["path"]) == _path_key(path)]
+    if len(matches) > 1:
+        raise PrimaryWorktreeError(
+            "git reports the worktree path more than once: " + path)
+    return matches[0] if matches else None
+
+
+def _managed_child_path(path, managed_root):
+    """Prove ``path`` is one direct, non-symlinked managed child."""
+    candidate = os.path.abspath(path)
+    if os.path.dirname(candidate) != os.path.abspath(managed_root):
+        raise PrimaryWorktreeError(
+            "primary worktree must be a direct child of " + managed_root
+            + ": " + candidate)
+    try:
+        info = os.lstat(candidate)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot inspect primary worktree " + candidate + ": " + str(exc))
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise PrimaryWorktreeError(
+            "primary worktree must be a real directory: " + candidate)
+    if os.path.dirname(os.path.realpath(candidate)) != os.path.realpath(
+            managed_root):
+        raise PrimaryWorktreeError(
+            "primary worktree escapes the managed directory: " + candidate)
+    return candidate
+
+
+def _validate_primary_record(record, branch, repository_root):
+    """Prove a registry record, checkout, branch, and daemon all agree."""
+    managed_root = _managed_primary_root(repository_root=repository_root)
+    if "prunable" in record["flags"]:
+        raise PrimaryWorktreeError(
+            "primary worktree is prunable: " + record["path"])
+    if "detached" in record["flags"] or "branch" not in record:
+        raise PrimaryWorktreeError(
+            "primary worktree must have an attached branch: " + record["path"])
+    if record["branch"] != branch:
+        raise PrimaryWorktreeError(
+            "primary branch mismatch at " + record["path"] + ": expected "
+            + branch + ", found " + record["branch"])
+    path = _managed_child_path(path=record["path"],
+                               managed_root=managed_root)
+    top = _run_git(repository_root=path,
+                   arguments=["rev-parse", "--show-toplevel"])
+    try:
+        top_path = top.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "worktree top-level output is not UTF-8: " + str(exc))
+    if os.path.realpath(top_path) != os.path.realpath(path):
+        raise PrimaryWorktreeError(
+            "registered primary top level does not match its path: " + path)
+    repository = git_common_directory(checkout=repository_root)
+    if git_common_directory(checkout=path) != repository:
+        raise PrimaryWorktreeError(
+            "primary worktree belongs to a different repository: " + path)
+    symbolic = _run_git(repository_root=path,
+                        arguments=["symbolic-ref", "-q", "HEAD"])
+    try:
+        symbolic_branch = symbolic.stdout.decode(
+            "utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "primary branch output is not UTF-8: " + str(exc))
+    if symbolic_branch != branch:
+        raise PrimaryWorktreeError(
+            "checked-out primary branch does not match state: " + path)
+    daemon = os.path.join(path, "ai", "tools", "mailbox_daemon.py")
+    try:
+        daemon_info = os.lstat(daemon)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "primary daemon is missing at " + daemon + ": " + str(exc))
+    if (stat.S_ISLNK(daemon_info.st_mode)
+            or not stat.S_ISREG(daemon_info.st_mode)):
+        raise PrimaryWorktreeError(
+            "primary daemon must be a regular non-symlink file: " + daemon)
+    return path
+
+
+def _atomic_write_primary_state(state, path):
+    """Publish primary authority by fsync + same-directory atomic replace."""
+    directory = os.path.dirname(path)
+    _plain_directory(path=directory, label="managed worktree directory")
+    payload = (json.dumps(state, sort_keys=True, indent=2) + "\n").encode(
+        "utf-8")
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=PRIMARY_STATE_NAME + ".tmp-", dir=directory)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory_flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        directory_descriptor = os.open(directory, directory_flags)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def validate_primary_state(state, repository_root, allow_move=False):
+    """Validate persisted authority; accept only a Git-authorized move."""
+    repository = git_common_directory(checkout=repository_root)
+    if state["repository"] != repository:
+        raise PrimaryWorktreeError(
+            "primary-worktree state names a different repository")
+    managed_root = _managed_primary_root(repository_root=repository_root)
+    stored_path = os.path.abspath(state["path"])
+    if os.path.dirname(stored_path) != managed_root:
+        raise PrimaryWorktreeError(
+            "saved primary path is outside the managed directory: "
+            + stored_path)
+    records = registered_worktrees(repository_root=repository_root)
+    record = _record_at_path(records=records, path=stored_path)
+    resolved = dict(state)
+    if record is None:
+        branch_matches = [item for item in records
+                          if item.get("branch") == state["branch"]]
+        if (len(branch_matches) != 1 or os.path.lexists(stored_path)):
+            raise PrimaryWorktreeError(
+                "saved primary path is no longer registered; state was "
+                "preserved for manual recovery: " + stored_path)
+        moved = branch_matches[0]
+        moved_path = _validate_primary_record(
+            record=moved, branch=state["branch"],
+            repository_root=repository_root)
+        resolved["path"] = moved_path
+        resolved["name"] = os.path.basename(moved_path)
+        if allow_move:
+            _atomic_write_primary_state(
+                state=resolved,
+                path=primary_state_paths(repository_root)["state"])
+            print("primary coordination worktree moved by git; saved "
+                  + moved_path, flush=True)
+        return resolved
+    _validate_primary_record(record=record, branch=state["branch"],
+                             repository_root=repository_root)
+    return resolved
+
+
+def _transport_evidence_at_notes(notes, reason_prefix=""):
+    """Inspect one current or pre-migration notes root without writing it."""
+    reasons = []
+    mailbox = os.path.join(notes, "mailbox")
+    relay = os.path.join(notes, "relay")
+    message_name = re.compile(r"\d+[a-z]?-to-[^.]+\.md$")
+
+    for label, root in (("mailbox", mailbox), ("relay", relay)):
+        if not os.path.lexists(root):
+            continue
+        try:
+            info = os.lstat(root)
+        except OSError as exc:
+            reasons.append(reason_prefix + label
+                           + " cannot be inspected: " + str(exc))
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            reasons.append(reason_prefix + label
+                           + " is redirected or irregular")
+            continue
+        visited = 0
+        found = None
+        try:
+            for directory, names, files in os.walk(
+                    root, followlinks=False, onerror=_raise_walk_error):
+                names.sort()
+                files.sort()
+                for name in list(names):
+                    visited += 1
+                    if visited > MAX_PRIMARY_ARCHIVE_ENTRIES:
+                        found = (reason_prefix + label
+                                 + " evidence scan exceeds "
+                                 + str(MAX_PRIMARY_ARCHIVE_ENTRIES)
+                                 + " entries")
+                        break
+                    entry = os.path.join(directory, name)
+                    entry_info = os.lstat(entry)
+                    if stat.S_ISLNK(entry_info.st_mode):
+                        found = (reason_prefix + label
+                                 + " contains a redirected directory")
+                        break
+                if found is not None:
+                    break
+                for name in files:
+                    visited += 1
+                    if visited > MAX_PRIMARY_ARCHIVE_ENTRIES:
+                        found = (reason_prefix + label
+                                 + " evidence scan exceeds "
+                                 + str(MAX_PRIMARY_ARCHIVE_ENTRIES)
+                                 + " entries")
+                        break
+                    entry = os.path.join(directory, name)
+                    entry_info = os.lstat(entry)
+                    if (stat.S_ISLNK(entry_info.st_mode)
+                            or not stat.S_ISREG(entry_info.st_mode)):
+                        found = (reason_prefix + label
+                                 + " contains an irregular entry")
+                        break
+                    if label == "relay":
+                        found = reason_prefix + "relay evidence exists"
+                        break
+                    relative = os.path.relpath(entry, root)
+                    if (os.path.dirname(relative) in {"", "."}
+                            and name in PRIMARY_ARCHIVE_RUNTIME_LOCKS):
+                        continue
+                    if message_name.fullmatch(name):
+                        found = (reason_prefix
+                                 + "numbered mailbox history exists")
+                    else:
+                        found = (reason_prefix
+                                 + "unrecognized mailbox entry exists")
+                    break
+                if found is not None:
+                    break
+        except OSError as exc:
+            found = (reason_prefix + label
+                     + " cannot be scanned: " + str(exc))
+        if found is not None:
+            reasons.append(found)
+
+    lock_probes = (
+        (".dispatch.lock", "live watcher or once lock is held"),
+        (".sequence.lock", "live sender or sequence lock is held"),
+    )
+    for lock_name, held_reason in lock_probes:
+        lock_path = os.path.join(mailbox, lock_name)
+        if not os.path.lexists(lock_path):
+            continue
+        flags = os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = None
+        try:
+            descriptor = os.open(lock_path, flags)
+            opened = os.fstat(descriptor)
+            current = os.lstat(lock_path)
+            if (not stat.S_ISREG(opened.st_mode)
+                    or (opened.st_dev, opened.st_ino)
+                    != (current.st_dev, current.st_ino)):
+                reasons.append(reason_prefix
+                               + lock_name
+                               + " is redirected or irregular")
+            else:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    reasons.append(reason_prefix + held_reason)
+                else:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError as exc:
+            reasons.append(reason_prefix
+                           + lock_name + " cannot be inspected: " + str(exc))
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+    return reasons
+
+
+def coordination_transport_evidence(worktree):
+    """Return current and pre-``ai/`` coordination evidence in a worktree."""
+    reasons = _transport_evidence_at_notes(
+        notes=os.path.join(worktree, "ai", "notes"))
+    reasons.extend(_transport_evidence_at_notes(
+        notes=os.path.join(worktree, "notes"),
+        reason_prefix="legacy pre-ai "))
+    return reasons
+
+
+def _primary_state_for_record(record, repository_root):
+    """Build the exact persisted record for one already-validated checkout."""
+    return {
+        "schema": PRIMARY_STATE_SCHEMA,
+        "repository": git_common_directory(checkout=repository_root),
+        "name": os.path.basename(record["path"]),
+        "path": os.path.abspath(record["path"]),
+        "branch": record["branch"],
+    }
+
+
+def _archived_transport_manifest(worktree):
+    """Return copyable archived-only transport, or ``None`` if unsafe.
+
+    A pre-primary installation may have completed messages under ``done/``
+    plus relay logs in main. Those immutable archives can be bridged into a
+    new primary without guessing queue state. Pending, inflight, failed,
+    redirected, irregular, or unrecognized mailbox content is never bridged.
+    """
+    notes = os.path.join(worktree, "ai", "notes")
+    mailbox = os.path.join(notes, "mailbox")
+    relay = os.path.join(notes, "relay")
+    message_name = re.compile(r"(\d+)[a-z]?-to-[^.]+\.md$")
+    manifest = []
+    visited = 0
+    total_bytes = 0
+    mailbox_sequences = set()
+
+    for label, root in (("mailbox", mailbox), ("relay", relay)):
+        if not os.path.lexists(root):
+            continue
+        try:
+            root_info = os.lstat(root)
+        except OSError:
+            return None
+        if stat.S_ISLNK(root_info.st_mode) or not stat.S_ISDIR(
+                root_info.st_mode):
+            return None
+        try:
+            for directory, names, files in os.walk(
+                    root, followlinks=False, onerror=_raise_walk_error):
+                names.sort()
+                files.sort()
+                for name in names:
+                    visited += 1
+                    if visited > MAX_PRIMARY_ARCHIVE_ENTRIES:
+                        return None
+                    entry_info = os.lstat(os.path.join(directory, name))
+                    if stat.S_ISLNK(entry_info.st_mode):
+                        return None
+                for name in files:
+                    visited += 1
+                    if visited > MAX_PRIMARY_ARCHIVE_ENTRIES:
+                        return None
+                    source = os.path.join(directory, name)
+                    entry_info = os.lstat(source)
+                    if (stat.S_ISLNK(entry_info.st_mode)
+                            or not stat.S_ISREG(entry_info.st_mode)):
+                        return None
+                    relative = os.path.relpath(source, root)
+                    if label == "mailbox":
+                        parts = relative.split(os.sep)
+                        if (len(parts) == 1
+                                and name in PRIMARY_ARCHIVE_RUNTIME_LOCKS):
+                            continue
+                        match = message_name.fullmatch(name)
+                        if (len(parts) < 2 or parts[0] != "done"
+                                or match is None):
+                            return None
+                        sequence = int(match.group(1))
+                        if sequence in mailbox_sequences:
+                            return None
+                        mailbox_sequences.add(sequence)
+                    if entry_info.st_size > MAX_PRIMARY_ARCHIVE_FILE_BYTES:
+                        return None
+                    total_bytes += entry_info.st_size
+                    if total_bytes > MAX_PRIMARY_ARCHIVE_TOTAL_BYTES:
+                        return None
+                    manifest.append((
+                        source, os.path.join(label, relative),
+                        entry_info.st_size, entry_info.st_dev,
+                        entry_info.st_ino, entry_info.st_mtime_ns))
+        except OSError:
+            return None
+    return sorted(manifest, key=lambda item: item[1])
+
+
+def _safe_main_archive_bridge(evidence, repository_root, default_path):
+    """Return whether all evidence is one resumable archived-main bridge."""
+    allowed_paths = {_path_key(repository_root), _path_key(default_path)}
+    allowed_reasons = {
+        "numbered mailbox history exists",
+        "relay evidence exists",
+    }
+    main_seen = False
+    for path, reasons in evidence:
+        if _path_key(path) not in allowed_paths:
+            return False
+        if not reasons or not set(reasons).issubset(allowed_reasons):
+            return False
+        if _path_key(path) == _path_key(repository_root):
+            main_seen = True
+    main_manifest = _archived_transport_manifest(worktree=repository_root)
+    if not main_seen or main_manifest is None or not main_manifest:
+        return False
+    if any(_path_key(path) == _path_key(default_path)
+           for path, _reasons in evidence):
+        default_manifest = _archived_transport_manifest(
+            worktree=default_path)
+        if default_manifest is None:
+            return False
+        main_by_relative = {
+            relative: (source, size)
+            for source, relative, size, _dev, _ino, _mtime in main_manifest
+        }
+        for (copied_source, relative, copied_size, _dev, _ino,
+             _mtime) in default_manifest:
+            legacy = main_by_relative.get(relative)
+            if (legacy is None or legacy[1] != copied_size
+                    or not _regular_files_equal(
+                        first=legacy[0], second=copied_source)):
+                return False
+    return True
+
+
+def _open_legacy_transport_lock(path, nonblocking):
+    """Open one regular legacy mailbox lock and take exclusive ownership."""
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot open legacy transport lock " + path + ": " + str(exc))
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(path)
+        if (not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise PrimaryWorktreeError(
+                "legacy transport lock is redirected or irregular: " + path)
+        operation = fcntl.LOCK_EX
+        if nonblocking:
+            operation |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(descriptor, operation)
+        except BlockingIOError:
+            raise PrimaryWorktreeError(
+                "legacy transport is live; stop its watcher before primary "
+                "bootstrap: " + path)
+        after = os.fstat(descriptor)
+        current = os.lstat(path)
+        if ((opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                or (after.st_dev, after.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise PrimaryWorktreeError(
+                "legacy transport lock changed while waiting: " + path)
+        return os.fdopen(descriptor, "r+", encoding="utf-8")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _release_legacy_transport_lock(lock_file):
+    """Release one legacy bridge lock."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def _ensure_plain_relative_directory(root, relative):
+    """Create a relative directory tree without accepting any redirect."""
+    _plain_directory(path=root, label="archive bridge root")
+    current = root
+    if not relative or relative == ".":
+        return current
+    for component in relative.split(os.sep):
+        if component in {"", ".", ".."}:
+            raise PrimaryWorktreeError(
+                "invalid archive bridge directory component")
+        current = os.path.join(current, component)
+        _plain_directory(path=current, label="archive bridge directory",
+                         create=True)
+    return current
+
+
+def _regular_files_equal(first, second):
+    """Compare two regular non-symlink files without following replacements."""
+    descriptors = []
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        for path in (first, second):
+            initial = os.lstat(path)
+            if (stat.S_ISLNK(initial.st_mode)
+                    or not stat.S_ISREG(initial.st_mode)):
+                return False
+            descriptor = os.open(path, flags)
+            opened = os.fstat(descriptor)
+            if ((initial.st_dev, initial.st_ino)
+                    != (opened.st_dev, opened.st_ino)
+                    or not stat.S_ISREG(opened.st_mode)):
+                os.close(descriptor)
+                return False
+            descriptors.append((descriptor, opened, path))
+        if descriptors[0][1].st_size != descriptors[1][1].st_size:
+            return False
+        while True:
+            left = os.read(descriptors[0][0], 1048576)
+            right = os.read(descriptors[1][0], 1048576)
+            if left != right:
+                return False
+            if not left:
+                break
+        for descriptor, opened, path in descriptors:
+            after = os.fstat(descriptor)
+            current = os.lstat(path)
+            if ((opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                    or (after.st_dev, after.st_ino)
+                    != (current.st_dev, current.st_ino)):
+                return False
+        return True
+    except OSError:
+        return False
+    finally:
+        for descriptor, _opened, _path in descriptors:
+            os.close(descriptor)
+
+
+def _copy_regular_archive_file(source, destination, expected_size):
+    """Idempotently publish one exact archive copy without overwriting."""
+    parent = os.path.dirname(destination)
+    if (expected_size < 0
+            or expected_size > MAX_PRIMARY_ARCHIVE_FILE_BYTES):
+        raise PrimaryWorktreeError(
+            "legacy archive exceeds the bounded copy size: " + source)
+    if os.path.lexists(destination):
+        if not _regular_files_equal(first=source, second=destination):
+            raise PrimaryWorktreeError(
+                "archive bridge destination conflicts with legacy bytes: "
+                + destination)
+        return
+    source_flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        source_flags |= os.O_NOFOLLOW
+    try:
+        source_initial = os.lstat(source)
+        if (stat.S_ISLNK(source_initial.st_mode)
+                or not stat.S_ISREG(source_initial.st_mode)):
+            raise PrimaryWorktreeError(
+                "legacy archive source is not a regular file: " + source)
+        source_descriptor = os.open(source, source_flags)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot open legacy archive " + source + ": " + str(exc))
+    temporary_descriptor = -1
+    temporary = None
+    try:
+        source_opened = os.fstat(source_descriptor)
+        if ((source_initial.st_dev, source_initial.st_ino)
+                != (source_opened.st_dev, source_opened.st_ino)
+                or source_opened.st_size != expected_size):
+            raise PrimaryWorktreeError(
+                "legacy archive changed before copy: " + source)
+        temporary_descriptor, temporary = tempfile.mkstemp(
+            prefix=".primary-archive-", dir=parent)
+        os.fchmod(temporary_descriptor, source_opened.st_mode & 0o777)
+        copied = 0
+        while copied < expected_size:
+            chunk = os.read(
+                source_descriptor, min(1048576, expected_size - copied))
+            if not chunk:
+                raise PrimaryWorktreeError(
+                    "legacy archive shortened during copy: " + source)
+            copied += len(chunk)
+            view = memoryview(chunk)
+            while view:
+                written = os.write(temporary_descriptor, view)
+                view = view[written:]
+        if os.read(source_descriptor, 1):
+            raise PrimaryWorktreeError(
+                "legacy archive grew during copy: " + source)
+        os.fsync(temporary_descriptor)
+        source_after = os.fstat(source_descriptor)
+        source_current = os.lstat(source)
+        if ((source_opened.st_dev, source_opened.st_ino)
+                != (source_after.st_dev, source_after.st_ino)
+                or (source_after.st_dev, source_after.st_ino)
+                != (source_current.st_dev, source_current.st_ino)
+                or source_after.st_size != expected_size
+                or source_after.st_size != os.fstat(
+                    temporary_descriptor).st_size):
+            raise PrimaryWorktreeError(
+                "legacy archive changed during copy: " + source)
+        os.close(temporary_descriptor)
+        temporary_descriptor = -1
+        try:
+            os.link(temporary, destination, follow_symlinks=False)
+        except FileExistsError:
+            if not _regular_files_equal(first=source, second=destination):
+                raise PrimaryWorktreeError(
+                    "archive bridge destination raced with different bytes: "
+                    + destination)
+        directory_flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        directory_descriptor = os.open(parent, directory_flags)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        os.close(source_descriptor)
+        if temporary_descriptor >= 0:
+            os.close(temporary_descriptor)
+        if temporary is not None:
+            try:
+                os.remove(temporary)
+            except FileNotFoundError:
+                pass
+
+
+def _publish_primary_record(record, repository_root, bridge_main=False,
+                            fence_empty_main=False):
+    """Publish one selected record behind the applicable legacy locks."""
+    state = _primary_state_for_record(
+        record=record, repository_root=repository_root)
+    state_file = primary_state_paths(repository_root)["state"]
+    if not bridge_main and not fence_empty_main:
+        _atomic_write_primary_state(state=state, path=state_file)
+        return state
+
+    mailbox = os.path.join(repository_root, "ai", "notes", "mailbox")
+    parent = os.path.dirname(mailbox)
+    _plain_directory(path=parent, label="legacy notes directory")
+    mailbox_identity = _plain_directory(
+        path=mailbox, label="legacy mailbox", create=True)
+    dispatch_lock = _open_legacy_transport_lock(
+        path=os.path.join(mailbox, ".dispatch.lock"), nonblocking=True)
+    sequence_lock = None
+    try:
+        sequence_lock = _open_legacy_transport_lock(
+            path=os.path.join(mailbox, ".sequence.lock"), nonblocking=True)
+        _require_directory_identity(
+            path=mailbox, identity=mailbox_identity,
+            label="legacy mailbox")
+        manifest = _archived_transport_manifest(worktree=repository_root)
+        if bridge_main and (manifest is None or not manifest):
+            raise PrimaryWorktreeError(
+                "legacy main transport is no longer archived-only; state "
+                "was not published")
+        if fence_empty_main and (manifest is None or manifest):
+            raise PrimaryWorktreeError(
+                "legacy main transport appeared before primary publication; "
+                "state was not published")
+        pre_ai_reasons = _transport_evidence_at_notes(
+            notes=os.path.join(repository_root, "notes"),
+            reason_prefix="legacy pre-ai ")
+        if pre_ai_reasons:
+            raise PrimaryWorktreeError(
+                "pre-migration main transport appeared before primary "
+                "publication; state was not published: "
+                + ", ".join(pre_ai_reasons))
+        copied_manifest = _archived_transport_manifest(
+            worktree=record["path"])
+        if copied_manifest is None:
+            raise PrimaryWorktreeError(
+                "primary contains active or irregular transport during "
+                "archive bridge; state was not published")
+        if bridge_main:
+            main_by_relative = {
+                relative: (source, size)
+                for source, relative, size, _dev, _ino, _mtime in manifest
+            }
+            for (copied_source, relative, copied_size, _dev, _ino,
+                 _mtime) in copied_manifest:
+                legacy = main_by_relative.get(relative)
+                if (legacy is None or legacy[1] != copied_size
+                        or not _regular_files_equal(
+                            first=legacy[0], second=copied_source)):
+                    raise PrimaryWorktreeError(
+                        "primary contains transport that is not an exact "
+                        "subset of the main archive; state was not published")
+        target_notes = os.path.join(record["path"], "ai", "notes")
+        if bridge_main:
+            for (source, relative, expected_size, _dev, _ino,
+                 _mtime) in manifest:
+                relative_parent = os.path.dirname(relative)
+                destination_parent = _ensure_plain_relative_directory(
+                    root=target_notes, relative=relative_parent)
+                destination = os.path.join(destination_parent,
+                                           os.path.basename(relative))
+                _copy_regular_archive_file(
+                    source=source, destination=destination,
+                    expected_size=expected_size)
+        final_manifest = _archived_transport_manifest(
+            worktree=repository_root)
+        if final_manifest != manifest:
+            raise PrimaryWorktreeError(
+                "legacy main archive changed during bridge; state was not "
+                "published")
+        if bridge_main:
+            for (source, relative, expected_size, _dev, _ino,
+                 _mtime) in final_manifest:
+                destination = os.path.join(target_notes, relative)
+                if (os.lstat(destination).st_size != expected_size
+                        or not _regular_files_equal(
+                            first=source, second=destination)):
+                    raise PrimaryWorktreeError(
+                        "primary archive copy failed final byte validation; "
+                        "state was not published: " + destination)
+        final_pre_ai_reasons = _transport_evidence_at_notes(
+            notes=os.path.join(repository_root, "notes"),
+            reason_prefix="legacy pre-ai ")
+        if final_pre_ai_reasons:
+            raise PrimaryWorktreeError(
+                "pre-migration main transport changed during primary "
+                "publication; state was not published: "
+                + ", ".join(final_pre_ai_reasons))
+        _require_directory_identity(
+            path=mailbox, identity=mailbox_identity,
+            label="legacy mailbox")
+        _validate_primary_record(
+            record=record, branch=record["branch"],
+            repository_root=repository_root)
+        _atomic_write_primary_state(state=state, path=state_file)
+    finally:
+        if sequence_lock is not None:
+            _release_legacy_transport_lock(lock_file=sequence_lock)
+        _release_legacy_transport_lock(lock_file=dispatch_lock)
+    if bridge_main:
+        print("bridged archived main-checkout mailbox and relay history into "
+              "the primary without deleting the originals", flush=True)
+    return state
+
+
+def _format_evidence(candidates):
+    """Format legacy coordination stores for one actionable refusal."""
+    return "; ".join(sorted(path + " (" + ", ".join(reasons) + ")"
+                            for path, reasons in candidates))
+
+
+def _branch_exists(repository_root, branch):
+    """Return whether an exact local branch ref already exists."""
+    result = _run_git(repository_root=repository_root,
+                      arguments=["show-ref", "--verify", "--quiet", branch],
+                      check=False)
+    if result.returncode not in {0, 1}:
+        raise PrimaryWorktreeError("cannot inspect primary branch collision")
+    return result.returncode == 0
+
+
+def provision_or_adopt_primary(repository_root, current_worktree):
+    """Select one primary checkout under the already-held bootstrap lock."""
+    paths = primary_state_paths(repository_root=repository_root)
+    _managed_primary_root(repository_root=repository_root, create=True)
+    records = registered_worktrees(repository_root=repository_root)
+    evidence = []
+    for record in records:
+        reasons = coordination_transport_evidence(worktree=record["path"])
+        if reasons:
+            evidence.append((os.path.abspath(record["path"]), reasons))
+    bridge_main = _safe_main_archive_bridge(
+        evidence=evidence, repository_root=repository_root,
+        default_path=paths["default_path"])
+
+    default_record = _record_at_path(
+        records=records, path=paths["default_path"])
+    if default_record is not None:
+        if default_record.get("branch") != PRIMARY_BRANCH:
+            raise PrimaryWorktreeError(
+                "default primary path is registered on another branch: "
+                + paths["default_path"])
+        foreign_evidence = [item for item in evidence
+                            if _path_key(item[0])
+                            != _path_key(paths["default_path"])]
+        if foreign_evidence and not bridge_main:
+            raise PrimaryWorktreeError(
+                "refusing interrupted-bootstrap recovery because other "
+                "coordination stores exist: "
+                + _format_evidence(foreign_evidence))
+        _validate_primary_record(record=default_record,
+                                 branch=PRIMARY_BRANCH,
+                                 repository_root=repository_root)
+        return _publish_primary_record(
+            record=default_record, repository_root=repository_root,
+            bridge_main=bridge_main, fence_empty_main=not bridge_main)
+
+    branch_records = [record for record in records
+                      if record.get("branch") == PRIMARY_BRANCH]
+    if branch_records:
+        raise PrimaryWorktreeError(
+            "primary branch is already checked out at an unexpected path: "
+            + ", ".join(sorted(record["path"] for record in branch_records)))
+    if os.path.lexists(paths["default_path"]):
+        raise PrimaryWorktreeError(
+            "default primary path exists but is not a registered worktree: "
+            + paths["default_path"])
+
+    current_record = _record_at_path(records=records, path=current_worktree)
+    if evidence:
+        if (not bridge_main and len(evidence) == 1
+                and current_record is not None
+                and _path_key(evidence[0][0]) == _path_key(current_worktree)
+                and set(evidence[0][1]).issubset(
+                    CURRENT_ADOPTION_SAFE_REASONS)
+                and current_record.get("branch") not in {None,
+                                                         "refs/heads/main"}
+                and os.path.dirname(os.path.abspath(current_worktree))
+                == paths["managed_root"]):
+            _validate_primary_record(
+                record=current_record, branch=current_record["branch"],
+                repository_root=repository_root)
+            print("adopting current coordination worktree and preserving its "
+                  "mailbox: " + os.path.abspath(current_worktree), flush=True)
+            return _publish_primary_record(
+                record=current_record, repository_root=repository_root)
+        if (not bridge_main and len(evidence) == 1
+                and current_record is not None
+                and _path_key(evidence[0][0])
+                == _path_key(current_worktree)):
+            raise PrimaryWorktreeError(
+                "current coordination worktree cannot be adopted because "
+                "its transport is pre-migration or unsafe; preserve and "
+                "deliberately migrate or repair it before retrying: "
+                + _format_evidence(evidence))
+        if not bridge_main:
+            raise PrimaryWorktreeError(
+                "existing coordination transport must be selected "
+                "explicitly; run the command once from the one intended "
+                "linked worktree. Candidates: " + _format_evidence(evidence))
+
+    if _branch_exists(repository_root=repository_root, branch=PRIMARY_BRANCH):
+        raise PrimaryWorktreeError(
+            "primary branch already exists without its registered default "
+            "worktree; refusing to reset or reuse it: " + PRIMARY_BRANCH)
+
+    short_branch = PRIMARY_BRANCH[len("refs/heads/"):]
+    _run_git(repository_root=repository_root,
+             arguments=["worktree", "add", "-b", short_branch,
+                        paths["default_path"], "main"])
+    refreshed = registered_worktrees(repository_root=repository_root)
+    created = _record_at_path(records=refreshed,
+                              path=paths["default_path"])
+    if created is None:
+        raise PrimaryWorktreeError(
+            "git created no registered primary worktree; no state was saved")
+    _validate_primary_record(record=created, branch=PRIMARY_BRANCH,
+                             repository_root=repository_root)
+    if not bridge_main:
+        appeared = []
+        for candidate in refreshed:
+            reasons = coordination_transport_evidence(
+                worktree=candidate["path"])
+            if reasons:
+                appeared.append((os.path.abspath(candidate["path"]), reasons))
+        if appeared:
+            raise PrimaryWorktreeError(
+                "coordination transport appeared during primary bootstrap; "
+                "the new worktree was preserved but state was not published: "
+                + _format_evidence(appeared))
+    print("created primary coordination worktree " + paths["default_path"]
+          + " on " + PRIMARY_BRANCH, flush=True)
+    return _publish_primary_record(
+        record=created, repository_root=repository_root,
+        bridge_main=bridge_main, fence_empty_main=not bridge_main)
+
+
+def _open_primary_lock(repository_root):
+    """Open and exclusively lock the repo-shared bootstrap inode."""
+    paths = primary_state_paths(repository_root=repository_root)
+    _managed_primary_root(repository_root=repository_root, create=True)
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(paths["lock"], flags, 0o600)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot open primary-worktree lock: " + str(exc))
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(paths["lock"])
+        if (not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise PrimaryWorktreeError(
+                "primary-worktree lock is redirected or irregular")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        after = os.fstat(descriptor)
+        current = os.lstat(paths["lock"])
+        if ((opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                or (after.st_dev, after.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise PrimaryWorktreeError(
+                "primary-worktree lock changed while waiting")
+        return os.fdopen(descriptor, "r+", encoding="utf-8")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _release_primary_lock(lock_file):
+    """Release the kernel-owned primary bootstrap lock."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def ensure_primary_execution(live_action, dry_run):
+    """Validate/provision primary state and re-exec when launched elsewhere.
+
+    This is deliberately a CLI-boundary operation.  Importing this module for
+    focused function tests remains pure; the real ``__main__`` call invokes it
+    after every CLI semantic check and before any mailbox path is touched.
+    """
+    paths = primary_state_paths(repository_root=REPO_ROOT)
+    state_exists = os.path.lexists(paths["state"])
+    if dry_run and not state_exists:
+        print("[dry-run] primary coordination worktree is not initialized; "
+              "a live action would create " + paths["default_path"]
+              + " on " + PRIMARY_BRANCH + " and save " + paths["state"]
+              + ". Previewing this launcher mailbox read-only.")
+        return None
+    if dry_run:
+        state = load_primary_state(path=paths["state"])
+        state = validate_primary_state(
+            state=state, repository_root=REPO_ROOT, allow_move=False)
+    elif live_action:
+        lock_file = _open_primary_lock(repository_root=REPO_ROOT)
+        try:
+            # A waiter must re-read after flock: another first run may have
+            # published the single authority while this process was blocked.
+            if os.path.lexists(paths["state"]):
+                state = load_primary_state(path=paths["state"])
+                state = validate_primary_state(
+                    state=state, repository_root=REPO_ROOT, allow_move=True)
+            else:
+                state = provision_or_adopt_primary(
+                    repository_root=REPO_ROOT, current_worktree=WORKTREE)
+        finally:
+            _release_primary_lock(lock_file=lock_file)
+    else:
+        return None
+
+    if os.path.realpath(WORKTREE) == os.path.realpath(state["path"]):
+        return state
+    daemon = os.path.join(state["path"], "ai", "tools",
+                          "mailbox_daemon.py")
+    print("routing this action to saved primary coordination worktree "
+          + state["path"] + " (" + state["branch"] + ")", flush=True)
+    try:
+        os.chdir(state["path"])
+        os.execv(sys.executable,
+                 [sys.executable, daemon] + list(sys.argv[1:]))
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot re-exec saved primary daemon " + daemon + ": " + str(exc))
+    raise PrimaryWorktreeError("saved primary daemon unexpectedly returned")
 
 
 def report_in_flight_status(count):
@@ -694,10 +1956,11 @@ AGENT_COMMANDS = build_agent_commands(
     sol_effort=DEFAULT_SOL_EFFORT,
     sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
 
-# The working directory each dispatched agent starts in. The Architect and
-# Implementer routes (legacy fable/opus keys) develop in this worktree; Sol
-# works from the repository root (its command carries the same root in its own
-# --cd), which is what puts it in a different lane -- see process_backlog().
+# The working directory each dispatched agent starts in. CLI bootstrap proves
+# WORKTREE is the persisted primary before dispatch begins. The Architect and
+# Implementer routes (legacy fable/opus keys) therefore share that worktree;
+# Sol works from the repository root (its command carries the same root in its
+# own --cd), which keeps it in a different lane -- see process_backlog().
 AGENT_CWD = {
     "fable": WORKTREE,
     "opus": WORKTREE,
@@ -769,10 +2032,13 @@ def backlog_ledger_count():
 PREAMBLE = (
     "You are invoked headlessly by ai/tools/mailbox_daemon.py (no human is\n"
     "watching this turn). Resolve your role per CLAUDE.md from the block\n"
-    "below. The substance is in the ai/notes/ entries the message cites --\n"
-    "read them first. Do the work per your role file. Ordinary rule: end\n"
+    "below. The substance is in entries under this exact notes directory:\n"
+    "    " + os.path.join(AI_ROOT, "notes") + "\n"
+    "Read the cited entries there first. Do the work per your role file.\n"
+    "Ordinary rule: end\n"
     "your turn by\n"
-    "(1) writing your substance to the appropriate ai/notes/ entry and\n"
+    "(1) writing your substance to the appropriate entry INSIDE the exact\n"
+    "notes directory above and\n"
     "(2) writing your outbound handoff block to a NEW file\n"
     "<seq>-to-<fable|opus|sol>.md using the next sequence number, INSIDE\n"
     "THIS EXACT DIRECTORY (your cwd may differ -- a relative ai/notes/mailbox\n"
@@ -2591,13 +3857,14 @@ def main():
                              "in failed/ (default: "
                              + str(DISPATCH_TIMEOUT_MINUTES) + ")")
     parser.add_argument("--claude-context", metavar="TOKENS",
-                        type=int, default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
+                        type=positive_int,
+                        default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
                         help="Architect and Implementer Claude turns compact "
                              "their context whenever it reaches this many "
                              "tokens (default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
-                        type=int, default=DEFAULT_SOL_CONTEXT_BUDGET,
+                        type=positive_int, default=DEFAULT_SOL_CONTEXT_BUDGET,
                         help="Sol turns compact their context whenever "
                              "it reaches this many tokens (default: "
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
@@ -2627,6 +3894,9 @@ def main():
         print("--send sol needs --ticket-kind closure or discovery; "
               "the daemon will not guess from prose")
         return 1
+    if args.send is not None and not args.unit:
+        print("--send needs --unit with the routing-summary text")
+        return 1
     primary_actions = sum((
         bool(args.once),
         bool(args.watch),
@@ -2640,6 +3910,18 @@ def main():
     if args.watch and args.dry_run:
         print("--dry-run is finite and cannot be combined with --watch")
         return 1
+
+    # Select the durable coordination checkout after EVERY semantic refusal
+    # and before command rebuilding, mailbox mkdir, lock, claim, or send.
+    # Import-based focused tests remain pure; the real CLI/subprocess path
+    # proves primary provisioning and re-exec end to end.
+    if __name__ == "__main__" and (primary_actions or args.dry_run):
+        try:
+            ensure_primary_execution(
+                live_action=bool(primary_actions), dry_run=args.dry_run)
+        except PrimaryWorktreeError as exc:
+            print("primary worktree error: " + str(exc))
+            return 1
 
     fix_only = args.fix_only is True
     skip_redteam = args.skip_redteam
@@ -2701,9 +3983,6 @@ def main():
         return 0 if queued else 1
 
     if args.send:
-        if not args.unit:
-            print("--send needs --unit with the routing-summary text")
-            return 1
         queued = send(
             agent=args.send,
             text=args.unit,

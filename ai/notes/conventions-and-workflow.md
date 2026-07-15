@@ -219,10 +219,11 @@ quota.
   `--no-red-team`). Their handoffs then travel directly to each other. The
   Architect's raw-evidence audit and exclusive `GO` / `NO-GO` authority remain
   mandatory; only the optional Sol lane is disabled.
-- In the Fable/Opus loop, the user relays
-  ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF blocks; role resolved ONCE
-  at session start (explicit assignment > received handoff > normal
-  session); model identity is a sanity check, not the dispatcher.
+- In the Fable/Opus loop, the mailbox relays ARCHITECT_HANDOFF /
+  IMPLEMENTER_HANDOFF blocks; the user may still paste a block as valid input.
+  Role is resolved ONCE at session start (explicit assignment > received
+  handoff > normal session); model identity is a sanity check, not the
+  dispatcher.
 - The Architect writes no function bodies but DOES write interfaces,
   schemas, and verbatim legacy numerics (paraphrased physics is how
   ports rot); blueprints state goals/contracts/edge-cases/gates,
@@ -260,6 +261,101 @@ quota.
 - The notes ritual: every milestone gets its note updates + MEMORY.md
   index line in the SAME turn, unprompted — an unrecorded milestone
   is unfinished work.
+
+### Persisted primary coordination worktree (binding, 2026-07-14)
+
+The mailbox daemon owns one persisted Claude coordination worktree shared by
+Architect and Implementer. Sharing is intentional: both roles must see the
+same uncommitted code, notes, and staged index, and their lane remains
+serialized. The saved route belongs to the roles, not their models. Changing
+`--architect-model` or `--implementer-model` never selects another worktree.
+Dispatched Sol continues to execute at `REPO_ROOT`.
+
+Clean-install defaults are exact:
+
+| Resource | Value |
+| --- | --- |
+| Name | `mailbox-primary` |
+| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Attached branch | `refs/heads/claude/mailbox-primary` |
+| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
+
+The state is ignored, repository-local infrastructure. Its schema version is
+`1`; it records the canonical Git common directory as `repository`, plus
+`name`, the absolute `path`, and the full `branch` ref. The daemon validates
+those fields against Git's registered worktrees on every reuse and re-executes
+`<saved-primary>/ai/tools/mailbox_daemon.py` with the original arguments,
+Python interpreter, and primary cwd before it touches the mailbox.
+
+```mermaid
+stateDiagram-v2
+  [*] --> ValidateCLI
+  ValidateCLI --> NoWrite: help, no action, invalid, or dry-run
+  ValidateCLI --> BootstrapLock: valid live action
+  BootstrapLock --> Reuse: valid saved state
+  BootstrapLock --> SelectPrimary: no state
+  SelectPrimary --> CreateDefault: clean installation
+  SelectPrimary --> BridgeMain: bounded archived-only main
+  SelectPrimary --> AdoptLegacy: safe current legacy
+  SelectPrimary --> Refuse: unsafe or ambiguous evidence
+  CreateDefault --> ReexecPrimary: verify and publish state
+  BridgeMain --> ReexecPrimary: copy, reverify, publish state
+  AdoptLegacy --> ReexecPrimary: preserve transport and publish state
+  Reuse --> ReexecPrimary: verify exact Git identity
+  ReexecPrimary --> SharedClaudeLane: Architect + Implementer
+  ReexecPrimary --> RepoRootLane: optional Sol
+  Refuse --> [*]: preserve state and every mailbox
+  NoWrite --> [*]
+```
+
+The live actions are `--watch`, `--once`, `--send`, and `--ping`. Complete CLI
+semantic validation comes first: missing `--unit`, a missing Sol ticket class,
+conflicting actions, and invalid option combinations refuse before
+provisioning. `--help`, a no-action preview, and all `--dry-run` forms create
+no ref, worktree, state, or lock. With no state, dry-run prints the proposed
+bootstrap and previews the launcher's mailbox read-only. With valid saved
+state, dry-run resolves and re-executes that primary read-only.
+
+Bootstrap must precede authoring uncommitted source notes on a clean clone. A
+new worktree starts from committed local `main` and cannot see a note written
+only in the launching checkout. Establish the primary with a valid live
+action, then create and update the source note inside the reported primary.
+
+Legacy adoption is deliberately narrow. When state is absent, one registered,
+attached, non-main worktree under the managed `.claude/worktrees/` root may be
+adopted only if the first live command is launched from that same worktree.
+This preserves its ignored mailbox and relay history. A live watcher or any
+numbered transport file found in another checkout's mailbox root, `failed/`,
+or `inflight/` makes bootstrap from elsewhere refuse and list all candidate
+paths. Active or ambiguous transport is never copied, merged, renumbered, or
+deleted. Evidence discovery covers both `ai/notes/{mailbox,relay}` and the
+pre-migration `notes/{mailbox,relay}` layout in every registered worktree;
+pre-migration evidence is named and never adopted or auto-bridged. A unique
+current-layout main-checkout store whose messages are all completed under
+`done/` and whose only other evidence is regular relay logs is the narrow
+automatic bridge: the daemon holds both legacy transport locks, copies every
+archive byte-for-byte into the new primary, retains the originals, and only
+then publishes state. Exact partial copies make an interrupted bridge
+resumable; conflicting bytes refuse. The bridge is bounded to 16 MiB per file
+and 64 MiB total, and duplicate numeric mailbox sequences refuse even when
+their route suffixes differ.
+
+An interrupted clean bootstrap or archived-main bridge may finish
+automatically: if the exact default path and branch are registered, the daemon
+revalidates the selected recovery and publishes state. A uniquely
+registered `git worktree move` of the saved branch to another managed path may
+also update state after full validation. A manual directory move, detached or
+wrong branch, missing or prunable worktree, deleted branch, corrupt state, or
+an existing unregistered branch refuses without falling back to the caller.
+
+Dirty, ahead, or diverged primary work is preserved. The daemon never stashes,
+cleans, resets, checks out, prunes, merges, fetches, pulls, or pushes. Any
+deliberate branch advance happens outside the daemon after preserving the
+mailbox and checking dirty/ahead/diverged state. Recovery begins by
+preserving the named state and transport paths, comparing them with
+`git worktree list --porcelain`, and restoring the registered path and branch;
+never “recover” by deleting the state or inventing a replacement primary.
 
 ### Notes-first inter-agent communication (hard user rule, 2026-07-13)
 

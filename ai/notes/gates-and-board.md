@@ -14767,3 +14767,79 @@ directory blocker and the macOS Python 3.9 test-helper incompatibility, then
 returned GO on the corrected snapshot. The unrelated pre-existing dirty
 incident note was excluded from this audit and landing. Verdict: **GO**; the
 optional Red Team mailbox unit is closed.
+
+## Persistent primary coordination worktree audit (Codex, 2026-07-14): GO
+
+The mailbox daemon now gives all headless Architect and Implementer actions
+one durable coordination home. The first valid live `--watch`, `--once`,
+`--send`, or `--ping` creates the registered worktree
+`.claude/worktrees/mailbox-primary` on `claude/mailbox-primary`, or deliberately
+adopts one safe existing Claude coordinator. It atomically saves the canonical
+Git repository, name, absolute path, and attached branch. Later live commands
+launched from any checkout validate those facts and re-execute the saved
+daemon in that primary before dispatch or mailbox mutation. Both Claude roles
+therefore share one index and uncommitted view; dispatched Sol remains at the
+repository root. Model selectors change executables, never worktree identity.
+
+Inspection remains genuinely read-only. Help, a no-action preview, every
+`--dry-run` form, and parser/semantic refusals create no branch, worktree,
+state, or bootstrap lock. Valid context budgets are positive integers before
+bootstrap. A repository-wide advisory bootstrap lock converges concurrent
+first launchers. Saved state has exact schema and byte bounds, rejects duplicate
+keys and unknown fields, refuses links and nonregular files, and is re-proved
+against Git's common directory, registered path, branch, and directory inode.
+A uniquely registered `git worktree move` is recovered; missing, detached,
+wrong-branch, manually moved, foreign, colliding, or ambiguous identity stops.
+No recovery path fetches, merges, pulls, pushes, cleans, stashes, resets, or
+falls back to the launching checkout.
+
+Bootstrap scans every registered checkout in both the current
+`ai/notes/{mailbox,relay}` layout and the pre-migration
+`notes/{mailbox,relay}` layout. Pending, inflight, failed, held-lock,
+redirected, unknown, pre-migration, or multi-store evidence is preserved and
+named in a refusal. The only automatic bridge is a unique current-layout main
+store containing completed `done/` messages and relay logs only. The bridge
+holds both legacy publication locks, revalidates the mailbox directory inode,
+accepts unique numeric sequences, limits each file to 16 MiB and the aggregate
+to 64 MiB, copies exact bytes without deleting originals, resumes only exact
+partial copies, and publishes state after a final locked evidence/Git check.
+The same publication fence catches a sender admitted after discovery. An
+interrupted clean create is recoverable without resetting its new branch.
+
+The live repository provides a necessary negative witness. Main contains
+current-layout numbered archive and relay history, while registered worktree
+`amazing-keller-e798b6` contains pre-`ai/` mailbox and relay evidence, including
+pending work. The first live action therefore refuses automatic selection and
+names that worktree. This is the required fail-closed result: the old queue is
+not abandoned, copied, renumbered, or deleted. Deliberate migration remains a
+separate user-authorized operation.
+
+Focused evidence on the audited snapshot:
+
+```text
+python3 -B ai/tests/tools_mailbox_daemon_primary_worktree_repro.py           rc 0  15/15 runtime; all mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_staleness_repro.py                  rc 0  18/18 runtime; 9/9 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_rendezvous_repro.py                 rc 0  20/20 runtime; 21/21 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_no_redteam_repro.py                 rc 0  18/18 runtime; 21/21 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_fix_only_repro.py                   rc 0  14/14 runtime; 20/20 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_dead_mailbox_repro.py               rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_role_models_repro.py                rc 0  5/5 runtime; 5/5 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_output_style_repro.py               rc 0  8/8 checks
+python3 -B ai/tests/tools_mailbox_daemon_redteam_repro.py                    rc 0  8/8 arms
+python3 -B ai/tests/tools_handoff_router_repro.py                            rc 0  all arms
+Cosmology Python -B -m unittest discover -s ai/tests -p 'test_*.py'          rc 0  44/44
+python3 -B ai/gates/checks/board_selftest.py                                 rc 0  ALL PASS
+python3 -B -m py_compile ai/tools/mailbox_daemon.py ai/tests/tools_mailbox_daemon_primary_worktree_repro.py  rc 0
+git diff --check                                                             rc 0
+```
+
+The dedicated witness covers all live entry points, exact cross-checkout
+reuse, safe current adoption, unsafe and pre-migration refusal, archived-main
+bridge and interrupted resume, file/aggregate/sequence bounds, concurrency,
+late-sender fencing, corrupt state, Git identity, move recovery, and the
+Architect/Implementer-versus-Sol topology. Its source mutations make dry-run
+purity, shared Claude routing, Sol isolation, strict state parsing, transport
+detection, global locking, publication fencing, containment, branch identity,
+and archive bounds load-bearing. Two independent final reviews returned GO;
+no P0/P1 defect remains. Verdict: **GO**; the persistent-primary unit is
+closed.

@@ -40,12 +40,48 @@ wrappers, or duplicate README.
 
 ## Quick start: complete one ticket
 
-Use `python3` in the commands below. Run them from the same coordination
-worktree so the sender and watcher see the same mailbox.
+Use `python3` in the commands below. You may run the mailbox command from any
+checkout. A live command resolves the repository's saved primary coordination
+worktree and continues there, so sender and watcher converge on one mailbox.
 
-### 1. Write the source note
+### 1. Preview the mailbox
 
-The note is the contract. The mailbox message will only point to it.
+```bash
+python3 ai/tools/mailbox_daemon.py --dry-run
+```
+
+Expected result: pending work, launch commands, and working directories are
+printed. Nothing is claimed, dispatched, written, or provisioned: every
+`--dry-run` form leaves the branch, worktree registry, state file, and lock
+untouched.
+
+### 2. Establish the primary on a clean clone
+
+Do this before writing an uncommitted source note. A new linked worktree starts
+from committed `main`; it cannot see an uncommitted note written in the
+checkout that launched it.
+
+After confirming that the preview has no pending messages, run:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --once
+```
+
+Expected result: on a clean installation, this valid live action creates
+`.claude/worktrees/mailbox-primary` on branch `claude/mailbox-primary`, saves
+that choice, re-executes there, reports `mailbox empty`, and exits. If the
+repository already has legacy transport data, follow the named adoption or
+recovery instruction instead of forcing a clean primary. One special case is
+automatic: a unique main-checkout store containing only completed `done/`
+messages and relay logs is copied byte-for-byte into the new primary while
+the originals remain untouched.
+
+### 3. Write the source note in the saved primary
+
+Open the resolved primary path reported by the live command. The note is the
+contract, and the mailbox message will only point to it. Keeping the note in
+the primary makes the same uncommitted content visible to Architect and
+Implementer.
 
 Here is a small, hypothetical unit:
 
@@ -66,16 +102,7 @@ Add `--version` without changing normal training behavior.
 Expected result: another session can understand the goal, boundary, and proof
 without relying on chat history.
 
-### 2. Preview the mailbox
-
-```bash
-python3 ai/tools/mailbox_daemon.py --dry-run
-```
-
-Expected result: pending work, launch commands, and working directories are
-printed. Nothing is claimed, dispatched, or written.
-
-### 3. Start the watcher
+### 4. Start the watcher
 
 This example uses Opus for the Architect route and Sonnet for the Implementer
 route:
@@ -86,9 +113,14 @@ python3 ai/tools/mailbox_daemon.py --watch \
   --implementer-model sonnet
 ```
 
-Expected result: the process polls this worktree's mailbox every 20 seconds.
-The flags select models for stable routes; they do not rename the routes or
-replace the role instructions carried by a valid handoff.
+Expected result: the command validates the saved location, re-executes there,
+and polls its mailbox every 20 seconds. Later live actions reuse the same
+location.
+
+The flags select models for stable routes; they do not rename the routes,
+replace the role instructions carried by a valid handoff, or select a
+different worktree. Architect and Implementer always share the saved primary.
+Dispatched Sol continues to run at `REPO_ROOT`.
 
 Omit both model flags for the historical Fable-Architect and Opus-Implementer
 defaults. Aliases and full Claude model IDs are accepted.
@@ -124,9 +156,9 @@ Expected result: the first cycle keeps its normal 20-second Ctrl-C window.
 At the second proven all-lanes-idle rendezvous, the watcher exits by itself
 before reopening admissions. Messages still waiting remain untouched.
 
-### 4. Send the unit to the Architect
+### 5. Send the unit to the Architect
 
-In a second terminal, from the same worktree:
+In a second terminal, from any checkout in the same repository:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --send fable \
@@ -137,7 +169,11 @@ Expected result: one numbered `to-fable` file is queued. The explicit sentence
 assigns the Architect role; `fable` selects its stable coordination route even
 when that route launches Opus.
 
-### 5. Follow the decision
+### 6. Follow the decision
+
+Run the status helper from the saved primary. Unlike a live mailbox-daemon
+action, this read-only helper does not select or re-execute the primary for
+you.
 
 ```bash
 python3 ai/tools/handoff_router.py --status
@@ -642,23 +678,35 @@ messages move to `failed/` rather than being inferred from prose.
 
 | Symptom | Likely meaning | First action |
 | --- | --- | --- |
-| Sent file never dispatches | Sender and watcher use different worktrees | Read the dead-mailbox warning; rerun both from one coordination tree |
+| First live command names legacy mailbox candidates and refuses | Pending, inflight, failed, live, redirected, or ambiguous transport cannot be bridged safely | Rerun once from the intended existing coordination worktree; preserve every named mailbox |
+| Primary-state validation refuses | Saved path, branch, or Git registry no longer agrees | Preserve the state and mailbox, then follow [fail-closed recovery](#fail-closed-recovery) |
 | Heartbeat advances but Claude log is tiny | Claude is buffering its reply | Keep watching the elapsed clock |
 | Log and clock stop | Child may be hung | Wait for timeout or inspect the process; do not interrupt outside a safe interval |
 | `inflight/` message blocks a lane | Archive outcome is ambiguous | Inspect source, archive, log, and identity before moving anything |
 | Sol discovery is refused | Demand is saturated or fix-only mode is active | Record the work in the backlog; use closure only for existing work |
-| Watch exits after a source edit | Its loaded daemon source became stale | Relaunch the watcher from the intended worktree |
-| Send warns that no watcher holds this mailbox | No live `--watch` polls that checkout | Start the watcher there or send from the watched checkout |
+| Watch exits after a source edit | Its loaded daemon source became stale | Relaunch it from any checkout; the command returns to the saved primary |
+| Send warns that no watcher holds this mailbox | No live `--watch` holds the primary mailbox lock | Start the watcher from any checkout; it converges on the same primary |
 
 <details>
-<summary>Dead-mailbox diagnosis</summary>
+<summary>Why old checkouts can still contain a dead mailbox</summary>
 
-Every checkout has its own `ai/notes/mailbox/`. A valid send from the main
-checkout cannot reach a watcher polling a Claude worktree's mailbox.
+Every checkout physically has its own `ai/notes/mailbox/`, but normal daemon
+actions no longer select transport state from the caller's current directory.
+They validate the saved primary and re-execute its daemon before touching a
+mailbox. A sender and watcher launched from different checkouts therefore
+converge on the same transport directory.
 
-After publication, the daemon checks the current mailbox's held
+After publication, the daemon checks the primary mailbox's held
 `.dispatch.lock`. If no exact live `watch pid N` owner exists, it warns and
 lists other watched mailboxes. It does not reroute or fail the send.
+
+An old checkout can still contain ignored transport files from before primary
+selection existed. The first live bootstrap never guesses how to combine
+them. It adopts one deliberately selected legacy coordinator or refuses and
+names the candidates. The only automatic bridge is a unique main-checkout
+store containing completed `done/` messages and relay logs only: those files
+are copied exactly into the new primary under both legacy transport locks,
+and the originals are retained. Nothing is merged, renumbered, or deleted.
 
 `--dry-run --send` and `--dry-run --ping` can print the same warning without
 creating or rewriting a lock.
@@ -672,50 +720,68 @@ creating or rewriting a lock.
 1. Clone the repository.
 2. Install and authenticate Claude Code. Install the Codex CLI when the
    optional Red Team or Sol second-Implementer route will be used.
-3. Create separate linked worktrees for independent interactive writers.
-4. Choose one Claude worktree as the coordination worktree.
-5. Update the two executable paths in `build_agent_commands()`.
-6. Run `python3 ai/tools/mailbox_daemon.py --dry-run` there.
-7. Inspect every reported command and working directory.
-8. Start `--watch`, optionally selecting Architect and Implementer models.
+3. Update the two executable paths in `build_agent_commands()` when this
+   machine installs Claude or Codex elsewhere.
+4. From any checkout, run `python3 ai/tools/mailbox_daemon.py --dry-run`.
+5. Inspect every reported command and working directory. The preview creates
+   no branch, worktree, state, or lock.
+6. Start `--watch`, optionally selecting Architect and Implementer models.
 
-The copy of `ai/tools/mailbox_daemon.py` you launch determines the mailbox,
-relay directory, repository root, and coordination working directory. There is
-no separate “coordination path” option.
+The first valid live `--watch`, `--once`, `--send`, or `--ping` chooses the
+primary. On a clean clone the deterministic defaults are:
+
+| Resource | Default |
+| --- | --- |
+| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Branch | `claude/mailbox-primary` (stored as `refs/heads/claude/mailbox-primary`) |
+| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
+
+The state is local repository infrastructure, not a file to commit or share.
+It records the canonical Git common directory plus the primary name, absolute
+path, and attached branch. Model flags never change those fields.
 
 ```bash
-cd /path/to/emulators_code_v2/.claude/worktrees/<coordination-worktree>
+cd /path/to/emulators_code_v2
 python3 ai/tools/mailbox_daemon.py --dry-run
 python3 ai/tools/mailbox_daemon.py --watch \
   --architect-model opus \
   --implementer-model sonnet
 ```
 
-Expected result: the preview names only paths inside the intended clone, then
-the watcher polls that same worktree.
+Expected result: the preview performs no bootstrap. The watcher creates or
+reuses the primary, validates it against Git's worktree registry, and
+re-executes `<saved-primary>/ai/tools/mailbox_daemon.py` with the original
+arguments and Python interpreter.
 
 ### Worktree topology
 
 ```mermaid
-flowchart TB
-  G["One git repository"] --> M["Main checkout"]
-  G --> C["Coordination worktree"]
-  G --> R["Optional interactive Codex worktree"]
-  C --> A["Architect route"]
-  C --> I["Implementer route"]
-  M --> S["Optional dispatched Sol route: REPO_ROOT"]
-  R --> X["Independent interactive review"]
-  A --> L["Serialized coordination lane"]
-  I --> L
+flowchart TD
+  C["Mailbox command from any checkout"] --> V{"Valid live action?"}
+  V -->|"No: help, preview, invalid, or dry-run"| Z["Exit or preview; write nothing"]
+  V -->|"Yes"| S{"Saved primary state?"}
+  S -->|"Present and valid"| R["Reuse saved primary"]
+  S -->|"Absent"| L{"First-run transport state?"}
+  L -->|"Clean clone"| N["Create mailbox-primary worktree + state"]
+  L -->|"Archived-only main store"| B["Copy exact archives; keep originals"]
+  L -->|"Safe current legacy"| D["Adopt current coordinator + state"]
+  L -->|"Unsafe or ambiguous"| F["Refuse safely; preserve every mailbox"]
+  N --> X["Re-exec in saved primary"]
+  B --> X
+  D --> X
+  R --> X
+  X --> A["Architect + Implementer: one serialized worktree"]
+  X --> O["Optional Sol: REPO_ROOT"]
 ```
 
-One worktree has one staged index. Writers sharing it must be serialized;
-writers in separate worktrees can operate without sweeping each other's staged
-edits into a commit.
+Architect and Implementer intentionally share one staged index and one set of
+uncommitted notes and code, so the daemon serializes their lane. The saved
+route is role-based, not model-based.
 
-The daemon currently starts dispatched Sol at `REPO_ROOT`; it does not select
-an optional Codex worktree. The separate Codex branch in the graph is only for
-an independently launched interactive session.
+The daemon starts dispatched Sol at `REPO_ROOT`; it does not select a Codex
+worktree. An independently launched interactive writer may still use a
+separate worktree without changing the saved mailbox primary.
 
 Ask an interactive writer to create its own worktree in its opening message:
 
@@ -728,6 +794,63 @@ For a Codex red-team branch:
 ```text
 Create your own git worktree, on a branch named codex/<topic>, and work from it.
 ```
+
+### Legacy adoption
+
+Existing installations may already have ignored mailbox and relay history in
+a non-main Claude coordination worktree. To preserve it, launch the first
+valid live action deliberately from that registered, attached worktree. The
+daemon may adopt it as the primary and saves its actual path and branch.
+
+Launching from elsewhere while another checkout has a live watcher, a
+numbered transport file under `mailbox/`, `done/`, `failed/`, or `inflight/`,
+or relay history refuses the bootstrap and names the candidate paths. This is
+deliberate: mailbox sequence and archive identity cannot be combined safely by
+guessing. Bootstrap checks both the current `ai/notes/{mailbox,relay}` layout
+and the pre-migration `notes/{mailbox,relay}` layout; old-layout evidence is
+named and always requires deliberate recovery. A unique current-layout store
+in the main checkout is bridged automatically only
+when every mailbox message is already in `done/`, no legacy dispatch lock is
+held, and the remaining evidence is regular relay history. The daemon copies
+those exact files, keeps the originals, and therefore preserves the next
+sequence without migrating active queue state. The bridge accepts at most
+16 MiB per file and 64 MiB overall. Duplicate numeric message sequences,
+including duplicates addressed to different routes, refuse before state is
+published.
+
+Historical incident transcripts may intentionally retain the path spellings
+that were true before the `ai/` migration. Treat those as preserved evidence,
+not as current commands or live-path documentation.
+
+### Fail-closed recovery
+
+The daemon never falls back to the caller's checkout when primary state is
+corrupt or inconsistent. It also never cleans, stashes, resets, checks out,
+prunes, or recreates a saved primary automatically.
+
+Use this recovery order:
+
+1. Preserve the reported state file, mailbox, and relay directories.
+2. Run `git worktree list --porcelain` and compare the reported worktree and
+   branch with the state named by the error.
+3. Restore the expected attached branch and registered path, or use
+   `git worktree move` when a move is intentional. Do not move the directory
+   directly in the filesystem.
+4. For a refused legacy bootstrap, rerun the live command from the one
+   intended existing coordinator. If the error names a pre-`ai/` path under
+   `notes/mailbox` or `notes/relay`, preserve it and migrate that coordinator
+   deliberately; never delete it merely to make bootstrap pass.
+5. Rerun the command. A uniquely registered `git worktree move` is accepted
+   and updates state; a detached, missing, wrong-branch, manually moved, or
+   ambiguous worktree continues to refuse until its Git identity is repaired.
+
+An interrupted clean bootstrap or archived-main bridge is resumable: if the
+exact default worktree is registered but state was not published, the next
+live action verifies it, accepts only byte-identical partial archive copies,
+and finishes publication. Dirty, ahead, or diverged primary work is
+preserved. The daemon never updates that branch automatically: it does not
+merge, fetch, pull, or push. Advance it deliberately only after preserving its
+mailbox and checking its dirty/ahead/diverged state.
 
 ### Configure executable paths
 

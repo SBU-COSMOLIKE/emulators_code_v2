@@ -36,6 +36,43 @@ only Architect and Implementer. That option removes the Sol lane, never this
 audit: Implementer evidence returns directly to you, and a `NO-GO` repair goes
 directly back to the Implementer.
 
+## Persisted coordination home
+
+Headless Architect and Implementer turns share one saved primary coordination
+worktree. This is a role boundary, not a model choice: changing
+`--architect-model` or `--implementer-model` never selects another tree.
+Dispatched Sol remains at `REPO_ROOT`.
+
+On a clean installation, the first valid live `--watch`, `--once`, `--send`,
+or `--ping` creates and saves:
+
+| Resource | Default |
+| --- | --- |
+| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Branch | `refs/heads/claude/mailbox-primary` |
+| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+
+Later live commands may start in any checkout, but they validate that record
+against Git and re-execute from the saved primary before dispatch or mailbox
+mutation. Write uncommitted source notes in that primary so both Claude roles
+see them. `--help`, a no-action preview, every `--dry-run` form, and invalid
+commands create no branch, worktree, state, or bootstrap lock.
+
+An existing registered, attached, non-main Claude coordination worktree may
+be adopted only when the first live command is deliberately launched from it.
+If transport history or a watcher exists elsewhere, bootstrap from another
+checkout refuses and names every candidate; it never copies or combines
+active mailboxes. A unique main-checkout archive containing only completed
+`done/` messages and relay logs is the narrow exception: exact copies seed the
+new primary while originals remain untouched. Detection includes old
+`notes/{mailbox,relay}` paths from before the `ai/` migration; those are named
+and never adopted or auto-bridged. A uniquely registered
+`git worktree move` is recoverable; corrupt
+state, a detached or wrong branch, a manual directory move, or an ambiguous
+worktree fails closed. Preserve the named state and transport paths and repair
+their Git identity; do not improvise a replacement tree, reset the shared
+index, or fall back to the caller's checkout.
+
 ## The loop
 
 ```

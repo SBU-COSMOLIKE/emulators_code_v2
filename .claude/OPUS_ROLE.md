@@ -22,6 +22,39 @@ started with `--skip-redteam` (alias `--no-red-team`) deliberately uses only
 Architect and Implementer. That changes the enabled route, not this execution
 contract or the Architect's mandatory audit.
 
+## Persisted coordination home
+
+Every headless Architect and Implementer turn executes in one saved primary
+coordination worktree. The route is role-based, not model-based: selecting
+Sonnet, Opus, Fable, or a full Claude model ID does not select another tree.
+Dispatched Sol remains at `REPO_ROOT`.
+
+On a clean installation, the first valid live `--watch`, `--once`, `--send`,
+or `--ping` creates
+`<REPO_ROOT>/.claude/worktrees/mailbox-primary` on
+`refs/heads/claude/mailbox-primary`. The daemon records it in
+`<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json`. Later commands
+may be launched from any checkout, but they validate and re-execute in that
+saved primary before dispatch or mailbox mutation. Uncommitted source notes
+and implementation work belong in that primary so both Claude roles see them.
+
+`--help`, a no-action preview, invalid commands, and every `--dry-run` form
+write no worktree, branch, state, or bootstrap lock. A first live command may
+adopt an existing registered, attached, non-main Claude coordinator only when
+launched deliberately from that worktree. Transport history found elsewhere
+causes a named refusal. The narrow exception is a unique main-checkout archive
+with completed `done/` messages and relay logs only: exact copies seed the new
+primary while the originals remain untouched. Active or ambiguous transport
+is never copied or combined. Pre-migration `notes/{mailbox,relay}` paths are
+also detected and named, but never adopted or auto-bridged.
+
+A uniquely registered `git worktree move` is recoverable. If state is corrupt,
+or the saved worktree is detached, missing, moved manually outside Git, on the
+wrong branch, or ambiguous, stop. Preserve the state and transport directories
+and repair the reported Git identity. Never create a replacement tree, clean
+or reset the shared index, or fall back to the checkout that launched the
+command.
+
 ## Operating Constraints
 
 1. **The blueprint is the contract.** Your authority is the latest
