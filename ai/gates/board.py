@@ -1110,6 +1110,34 @@ def gate_gsv_c(ctx):
                     + " (ai/gates/checks/gsv_bitwise_drift.py)")
 
 
+def gate_compile_recipe(ctx):
+  """compile-recipe: a CUDA rebuild consumes its persisted compile mode.
+
+  WHAT: the compile_mode field in a saved model recipe. WHY: rebuilding must
+  use the value the run persisted, not a current default or a hard-coded
+  coincidence. HOW: a standalone child writes two current schema-v3 scalar
+  artifacts with distinct modes, proves the CPU schema and verdict controls,
+  then on CUDA records and delegates the real torch.compile call for both
+  compile_model=True rebuilds and runs finite forwards. It proves call and
+  mode consumption, not PyTorch's internal optimization strategy (spec:
+  artifacts-inference-warmstart.md, "compile-recipe evidence").
+  """
+  # The child owns the CUDA capability boundary so its mandatory CUDA AID is
+  # emitted UNAVAILABLE, rather than silently disappearing on a CPU-only box.
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("ai/gates/checks/compile_recipe.py")
+  if ctx.dry:
+    return
+  if rc == 2:
+    reason = ("the mandatory two-mode CUDA lane is unavailable; run this "
+              "gate on a CUDA workstation supporting both compile modes")
+  else:
+    reason = "check exit code " + str(rc)
+  ctx.expect(label="compile-recipe child completed",
+             ok=(rc == 0),
+             detail=reason + " (ai/gates/checks/compile_recipe.py)")
+
+
 def gate_gct_c(ctx):
   """cobaya-adapter: inference reproduces training, so an MCMC is faithful.
 
@@ -2947,6 +2975,28 @@ BOARD = [
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
        needs=("torch", "cosmolike", "gpu")),
+  Gate(id="compile-recipe",
+       spec_code="GSV-D",
+       title="Persisted CUDA compile-mode consumption",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="two current schema-v3 scalar artifacts with distinct compile "
+            "modes each drive exactly one delegated torch.compile call on "
+            "a CUDA rebuild with their independently read saved value, and "
+            "each delegated non-identity result is the exact callable the "
+            "rebuild returns and runs finitely; CPU controls "
+            "reject a lost, duplicated, raising, substituted, or hard-coded "
+            "mode, an identity compiler, or a discarded result, and "
+            "production refuses a missing persisted field",
+       evidence=(Assertion("compile-recipe.observation-controls",
+                           "artifacts-inference-warmstart.md#compile-recipe-observation-controls"),
+                 Assertion("compile-recipe.cuda-persisted-modes",
+                           "artifacts-inference-warmstart.md#compile-recipe-cuda-persisted-modes")),
+       run=gate_compile_recipe,
+       manifest=Manifest(code=("emulator/results.py", "emulator/designs",
+                               "emulator/geometries", "emulator/losses"),
+                         inputs=()),
+       needs=("torch",)),
   Gate(id="cobaya-adapter",
        spec_code="GCT-C",
        title="Cobaya adapter parity",

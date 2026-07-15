@@ -1572,7 +1572,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
             **kwargs).to(device)
     m.load_state_dict(state, strict=True)
     m.eval()
-    cm = rc.get("compile_mode")
+    cm = _need(rc, "compile_mode", "model_recipe")
     if want_compile and device.type == "cuda" and cm is not None:
       m = torch.compile(m, mode=cm)
     return m

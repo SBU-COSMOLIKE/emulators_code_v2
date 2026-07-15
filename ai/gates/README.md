@@ -100,8 +100,8 @@ resume map); a crash loses only the in-flight test.
 ## The tests
 
 The `BOARD` list in `ai/gates/board.py` is the authoritative registry — count and
-name the tests from it, never from a number in prose (43 gates at this
-writing). Run `python ai/gates/run_board.py --list` for the live set with each
+name the tests from it, never from a number in prose. Run
+`python ai/gates/run_board.py --list` for the live set with each
 gate's current resume state. The table below describes the core tests; the
 most recent board-integrity and family gates (for example board-selftest,
 cli-strict, family-first, stage-ram, artifact-readback, generator-seed,

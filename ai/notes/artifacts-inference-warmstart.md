@@ -1953,6 +1953,50 @@ audit", FORK 3).
 from a head save (a pre-persistence artifact) and requires the rebuild to raise
 a `KeyError` naming the bin-split persistence — never to re-derive the split.
 
+<a id="compile-recipe-evidence"></a>
+**compile-recipe — a CUDA rebuild consumes the compile mode persisted in its
+artifact.**
+
+- files: writes opaque `case-a` and `case-b` current schema-v3 scalar artifact
+  pairs under temporary directories, one with `compile_mode: default` and one
+  with `compile_mode: reduce-overhead`; paths and sidecar labels do not encode
+  either mode, and the check reads no deploy data.
+- subprocess: `ai/gates/checks/compile_recipe.py`.
+- metric: the independently read saved modes; the ordered `torch.compile` mode,
+  eager-input, and delegated-result observations; identity and discarded-result
+  traces; compiler/rebuilt-forward exceptions; and finite callable outputs.
+- legs: 2, ordered as `compile-recipe.observation-controls` and
+  `compile-recipe.cuda-persisted-modes`.
+- evidence: the CPU leg writes and reads both real artifacts, exercises the
+  verdict's bad traces, and forges a missing field through production rebuild;
+  the CUDA leg records and delegates the real compiler call for both artifacts,
+  then binds each delegated result to production's exact returned callable.
+- owed: this box has `torch.compile` but no CUDA. The CPU leg runs here; the
+  second leg is explicitly non-green `UNAVAILABLE` until a CUDA workstation
+  supports both modes and executes both `compile_model=True` rebuilds. The
+  standalone fixture needs neither CosmoLike nor deploy dumps.
+
+<a id="compile-recipe-observation-controls"></a>
+`compile-recipe.observation-controls` requires two real current-schema saves to
+persist the two distinct modes. Its ordered verdict accepts one matching call
+per artifact and rejects a lost call, duplicate call, compiler/forward raise,
+swapped substitution, either hard-coded mode, an identity compiler result, and
+a rebuild that discards the delegated result. Deleting `compile_mode` from one
+otherwise-current recipe must make production `rebuild_emulator` raise a
+`KeyError` naming the field and the no-code-default rule.
+
+<a id="compile-recipe-cuda-persisted-modes"></a>
+`compile-recipe.cuda-persisted-modes` first runs a tiny CUDA compiled forward in
+both modes as the capability boundary. It then independently reads each saved
+mode, rebuilds each artifact with `compile_model=True`, and records exactly one
+matching call through a wrapper that delegates to the captured real
+`torch.compile`. The delegated result must not be the eager input, production's
+rebuild return must be that exact result, and it must produce a finite forward.
+After both capability probes succeed, any save, read, rebuild, compile, or
+forward exception is `FAIL`, not `UNAVAILABLE`. This leg proves that the saved
+value reaches the real call and production uses its returned callable; it does
+not claim a particular internal PyTorch optimization strategy.
+
 <a id="cobaya-adapter-evidence"></a>
 **cobaya-adapter — the predictor a cobaya theory block calls at sampling time
 reproduces the training-side data vector and scatters it into the layout the
