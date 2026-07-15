@@ -2,6 +2,7 @@
 
 import unittest
 
+from compute_data_vectors.dataset_manifest import scope_dataset_stem
 from compute_data_vectors.dataset_manifest import validate_run_control
 
 
@@ -57,6 +58,26 @@ class GeneratorRunControlTests(unittest.TestCase):
     control = validate_run_control(0, 0, 0)
     with self.assertRaises(Exception):
       control.append = 1
+
+  def test_dataset_stem_scope_separates_chain_only_from_full_outputs(self):
+    stem = "/tmp/example/chains/params_probe"
+    self.assertEqual(scope_dataset_stem(stem, "full"), stem)
+    self.assertEqual(
+      scope_dataset_stem(stem, "chain-only"),
+      stem + "_chain_only")
+    self.assertNotEqual(
+      scope_dataset_stem(stem, "full"),
+      scope_dataset_stem(stem, "chain-only"))
+
+  def test_dataset_stem_scope_rejects_unnormalized_inputs(self):
+    for stem in (None, "", 7):
+      with self.subTest(stem=stem):
+        with self.assertRaisesRegex(ValueError, "nonempty string"):
+          scope_dataset_stem(stem, "full")
+    for mode in (None, "chain", "FULL", 1):
+      with self.subTest(mode=mode):
+        with self.assertRaisesRegex(ValueError, "normalized generator"):
+          scope_dataset_stem("params", mode)
 
 
 if __name__ == "__main__":

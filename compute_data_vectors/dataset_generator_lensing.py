@@ -39,7 +39,10 @@ from generator_core import (GeneratorCore, capture_native_output,
 #
 #  Even on Uniform Sampling, the temperature parameter is needed to set hard boundary on parameters with Gaussian prior
 #
-#- For visualization purposes, setting `--chain 1` sets the script to generate the training parameters without computing the data vectors.
+#- For visualization purposes, `--chain 1` generates only the training
+#  parameters. It adds `_chain_only` to the output stem and writes `.1.txt`,
+#  `.paramnames`, `.covmat`, `.ranges`, and `.facts.yaml`; it neither computes
+#  nor reuses failure, data-vector, or axis files from a full run.
 #
 #- The output files are
 #

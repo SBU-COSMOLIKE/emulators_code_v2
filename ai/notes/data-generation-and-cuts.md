@@ -1922,11 +1922,12 @@ expression hidden in statement zero), shadow-binding, raw-setup, raw-mode, and
 setup-first mutations must all make this arm red.
 
 This is a bounded implementation slice, not Unit 8 closure. Dataset-manifest
-authentication, complete RNG continuation, atomic publication, and
-chain-only/full-bundle isolation remain open. The named-column and requested-
-checkpoint slices below now cover checkpoint readback and corrupt-load
-refusal. The word `resume` here still describes command state; exact prior-
-bundle identity requires the later manifest slice.
+authentication, complete RNG continuation, and atomic publication remain
+open. The chain-only/full location-and-census repair is the bounded, closed
+slice below. The named-column and requested-checkpoint
+slices below now cover checkpoint readback and corrupt-load refusal. The word
+`resume` here still describes command state; exact prior-bundle identity
+requires the later manifest slice.
 
 ### Unit 8 fail-closed-load slice: a requested checkpoint cannot become a fresh run
 
@@ -1994,11 +1995,52 @@ manifest and does not authenticate bytes or bind the whole configuration,
 mode, and RNG state to one generation. It validates named parameter order,
 background/MPS coordinates, and family dimensions, but cannot detect every
 same-shaped stale member. Atomic generation publication, exact-identity resume,
-safe stochastic continuation for append, and chain-only/full isolation remain
-open. Unit 56 still owns stored science-payload revalidation, Unit 82 owns
-canonical row authenticity, and Unit 87 owns weight/posterior/`chi2*` meaning.
-Until those slices land, this gate proves refusal behavior rather than full
-resume/append correctness.
+and safe stochastic continuation for append remain open. The bounded
+chain-only/full location-and-census repair is described immediately below; it
+does not provide those broader guarantees. Unit 56
+still owns stored science-payload revalidation, Unit 82 owns canonical row
+authenticity, and Unit 87 owns weight/posterior/`chi2*` meaning. Until those
+slices land, this gate proves refusal behavior rather than full resume/append
+correctness.
+
+### Unit 8 dataset-mode isolation slice: chain-only files cannot collide with a full dataset
+
+The generator has two dataset modes. A `full` run owns parameter rows, a
+failure mask, and data-vector files. A `chain-only` run owns parameter-side
+files only. This slice gives those two modes separate filenames and separate
+checkpoint censuses; it does not infer the mode from matching shapes, seeds,
+or row counts.
+
+<a id="generator-run-control-dataset-mode-isolation"></a>
+Every chain-only parameter, failure, and data-vector stem receives the literal
+suffix `_chain_only`. Scoping all three stems matters even though the
+chain-only path does not create failure or data-vector members: later code
+cannot borrow a full dataset's files merely because the unsuffixed names
+exist. Full-dataset stems remain unchanged, so this bounded repair does not
+rename existing full outputs.
+
+A requested chain-only resume or append requires exactly five parameter-side
+members: `.covmat`, `.paramnames`, `.ranges`, `.1.txt`, and the fixed-facts
+sidecar. Its loader returns after validating and reading that parameter table;
+it does not open a failure mask or any data-vector or axis file. Chain-only
+append likewise returns from the mode barrier before failure-mask or
+data-vector append work. A full resume or append keeps the complete
+family-specific census and behavior described by the fail-closed-load slice
+above.
+
+This bounded location-and-census slice is closed, not all of Unit 8. The
+focused suite covers both modes and both requested operations. Its fourth
+run-control AID executes the real loader and append barrier, while seventeen
+targeted mutations include unscoped stems, borrowed family members, a bypassed
+barrier, and moving that barrier into the fresh branch. The complete AI test
+suite and board self-test pass, and the final correctness, adversarial, and
+evidence reviews are GO after their findings were repaired.
+
+The slice does not authenticate checkpoint bytes, publish a multi-file
+generation atomically, continue the saved RNG stream during append, prove that
+stored rows came from one generation, or revalidate the scientific meaning of
+stored payloads. Those remain owned by the manifest/atomic-publication,
+RNG-continuation, row-authenticity, and payload-semantics work respectively.
 
 ### Unit 8 named-column slice: staging and pool sizing use the producer schema
 
@@ -2149,25 +2191,32 @@ hard-bounded and infinite-endpoint controls separate requested from effective
 support; and a mutation dropping temperature/resolved bounds recreates the
 collision and must red.
 
-## 25M-03 (CONFIRMED; Unit 8 chain/full isolation remains OPEN): chain-only mode can silently relabel an existing full dataset
+## 25M-03 (bounded location/census leg CLOSED; manifest transaction leg OPEN): chain-only mode could silently relabel an existing full dataset
 
 The documented `--chain 1` mode generates parameters for visualization
-without computing data vectors (`dataset_generator_lensing.py:42`). The
-actual order is unsafe. `GeneratorCore.__init__`
-(`generator_core.py:214-224`) always calls `__run_mcmc` on rank zero; a fresh
-run replaces the parameter chain, `.paramnames`, `.ranges`, and `.covmat`
-inside `__run_mcmc` (`:780-825`). Only after those writes does the constructor
-test `chain == 1` and skip `__generate_datavectors`. Old data-vector and
-failure files at the same stems are neither removed nor rebound.
+without computing data vectors (`dataset_generator_lensing.py:42`). In the
+confirmed pre-repair control flow, the order was unsafe. Rank zero replaced
+the parameter chain, `.paramnames`, `.ranges`, and `.covmat` at the same stems
+used by a full run, then skipped data-vector generation. Old data-vector and
+failure files at those stems were neither removed nor rebound.
 
-Concrete reachable wrong result: first publish a complete `--chain 0`
-dataset; then run the same stems/probe/temperature and row count with
-`--chain 1 --loadchk 0` under a different seed. The command successfully
-replaces every parameter row while retaining old finite data-vector rows and
-the old all-success failure file. Shapes and row counts still agree, so
-staging pairs new cosmology row `i` with old physics row `i`. This is a
-successful two-command corruption, not merely interrupted publication; it
-violates unit 82's row-authenticity contract and unit 8's file-set identity.
+The confirmed wrong result was reachable by publishing a complete
+`--chain 0` dataset and then running `--chain 1 --loadchk 0` with the same
+stems/probe/temperature and row count but a different seed. The second
+command replaced every parameter row while retaining the old finite
+data-vector rows and all-success failure file. Shapes and row counts still
+agreed, so staging could pair new cosmology row `i` with old physics row `i`.
+This was a successful two-command corruption, not merely interrupted
+publication, and violated unit 82's row-authenticity contract and unit 8's
+file-set identity.
+
+The bounded repair gives chain-only stems an explicit
+`_chain_only` suffix and limits requested chain-only load/append to the five
+parameter-side members. Its load and append paths must return before failure,
+data-vector, or axis I/O. That addresses the historical location and census
+collision without renaming full outputs. That location-and-census defect is
+closed. The five files are not yet authenticated as one committed generation,
+so the broader manifest transaction leg remains open.
 
 Required contract: chain-only output owns a distinct identity/location or
 refuses before mutation when any full-dataset member exists. Its transaction
@@ -2176,14 +2225,13 @@ failure, or axis members. Conversely, full generation cannot silently adopt a
 colliding chain-only bundle. The manifest records mode, and no safety decision
 is inferred from coincident seeds, rows, or dimensions.
 
-CPU red legs use the real public control flow with an identity producer
-`dv=f(parameters)`: snapshot a complete bundle, run chain-only with a second
-seed and the same stems, and require either a separately valid chain-only
-bundle or loud refusal with every full-bundle digest unchanged. Repeat with
-the same seed (coincidence is not identity) and a different row count (no
-partial damage before a later shape error). The mutation restores shared chain
-writes followed by the `if chain` data-vector skip; it must expose mismatched
-parameter/payload rows and red.
+The closed bounded gate proves separate reachable stems, an exact five-member
+chain-only census, the delegated full-family census, early loader returns, and
+the append branch's mode barrier. A mutation that moves the barrier into the
+fresh branch now turns the AID red. The future manifest/atomic-publication gate
+still owns the broader transaction witness with an identity producer
+`dv=f(parameters)`, full-bundle digests, same-seed coincidence controls, and
+crash-boundary tests.
 
 ## 25M-06 (Red Team CONFIRMED, awaiting Architect adjudication): the ranges sidecar collapses distinct bounds below the generator's own parameter precision
 

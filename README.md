@@ -2733,15 +2733,25 @@ one.
 ### Appending checkpoints safely
 
 A checkpoint is a multi-file set. Append writes its members sequentially.
-Before `--append`, separately preserve `.paramnames` and the background and
-matter-power axis sidecars. Keep an external copy of the entire set. A load
-exception can fall through to fresh generation on the same output roots, so
-stop that invocation immediately if checkpoint loading reports an exception.
+Before `--append`, keep an external copy of the entire set, including
+`.paramnames` and the background or matter-power axis sidecars. A requested
+resume or append now stops if a required file is missing or invalid; it never
+turns that error into fresh generation at the same filenames. Publication is
+still sequential rather than atomic, so an interrupted append can leave files
+from different moments. Restore the saved set before trying again.
 
 ### Output files
 
 `<T>` is the temperature tag for a tempered run and
 is `unifs` for a uniform run.
+
+The table shows the normal full-dataset names used by `--chain 0`. With
+`--chain 1`, the generator writes a parameter chain for plotting but does not
+compute data vectors. It adds `_chain_only` after the temperature or `unifs`
+tag and writes only five parameter-side files: `.1.txt`, `.paramnames`,
+`.covmat`, `.ranges`, and `.facts.yaml`. It does not create or reuse a failure
+file, data-vector file, or coordinate-axis file. This separate name prevents a
+chain-only run from replacing the parameters that belong to a full dataset.
 
 | file | content | consumed by |
 |---|---|---|
@@ -2749,6 +2759,7 @@ is `unifs` for a uniform run.
 | `<paramfile>_<probe>_<T>.paramnames` | first token declares every numeric column after `weights` and `lnp`; one trailing `*` marks a derived column | required column authority for staging and pool sizing, then `ParamGeometry` names, the HDF5 record and `get_requirements`. A legacy table without it is refused rather than guessed by position |
 | `<paramfile>_<probe>_<T>.covmat` | the parameter covariance | `data.train_covmat`, which defines the input-whitening basis |
 | `<paramfile>_<probe>_<T>.ranges` | the sampled bounds | getdist plotting of the training cloud |
+| `<paramfile>_<probe>_<T>.facts.yaml` | the generator family, fixed cosmology, parameter names and sampled support bound to the chain digest | staging and artifact provenance checks |
 | `<datavsfile>_<probe>_<T>.npy` | the stacked training targets | the trainer memory-maps it as `data.train_dv`. The generator table above lists each family's file set |
 | `<failfile>_<probe>_<T>.txt` | the flagged failed rows | `--loadchk 1` reruns to recompute them |
 

@@ -75,6 +75,7 @@ from emulator.parameter_table import resolve_parameter_table
 from compute_data_vectors.dataset_manifest import (
   load_checkpoint_or_refuse,
   require_checkpoint_members,
+  scope_dataset_stem,
   validate_run_control,
 )
 #-------------------------------------------------------------------------------
@@ -130,7 +131,8 @@ def make_cli_parser(prog):
                       required=True)
   parser.add_argument("--chain",
                       dest="chain",
-                      help="only compute and output train/test/val chain",
+                      help="write only the parameter chain under isolated "
+                           "*_chain_only filenames",
                       type=int,
                       choices=[0,1],
                       default=0)
@@ -591,6 +593,12 @@ class GeneratorCore:
       self.dvsf = f"{root}/chains/{datavsfile}_{self.probe}_unifs"
       self.paramsf = f"{root}/chains/{paramfile}_{self.probe}_unifs"
       self.failf = f"{root}/chains/{failfile}_{self.probe}_unifs"
+    self.dvsf = scope_dataset_stem(
+      self.dvsf, self.run_control.dataset_mode)
+    self.paramsf = scope_dataset_stem(
+      self.paramsf, self.run_control.dataset_mode)
+    self.failf = scope_dataset_stem(
+      self.failf, self.run_control.dataset_mode)
 
     #---------------------------------------------------------------------------
     # Validate fiducial is inside the sampling bounds (Gaussian sampling only)
@@ -797,21 +805,30 @@ class GeneratorCore:
   #-----------------------------------------------------------------------------
   # save/load checkpoint
   #-----------------------------------------------------------------------------
-  def __load_chk(self):
-    if self.run_control.operation == "fresh":
-      return False
-
-    checkpoint_members = self._dv_chk_files() + [
-      f"{self.failf}.txt",
+  def _checkpoint_member_paths(self):
+    """Return the exact checkpoint census for the normalized dataset mode."""
+    parameter_members = [
       f"{self.paramsf}.covmat",
       f"{self.paramsf}.paramnames",
       f"{self.paramsf}.ranges",
       f"{self.paramsf}.1.txt",
       f"{self.paramsf}{fixed_facts.SIDECAR_SUFFIX}",
     ]
+    if self.run_control.dataset_mode == "chain-only":
+      return parameter_members
+    if self.run_control.dataset_mode != "full":
+      raise ValueError(
+        "Unknown normalized generator dataset mode: "
+        + repr(self.run_control.dataset_mode))
+    return self._dv_chk_files() + [f"{self.failf}.txt"] + parameter_members
+
+  def __load_chk(self):
+    if self.run_control.operation == "fresh":
+      return False
+
     require_checkpoint_members(
       operation=self.run_control.operation,
-      members=checkpoint_members,
+      members=self._checkpoint_member_paths(),
       is_file=os.path.isfile)
 
     # load sample file begins ------------------------------------------------
@@ -844,6 +861,13 @@ class GeneratorCore:
         f"{expected_declarations!r}")
     self.samples = parameter_table.inputs
     # load sample file ends --------------------------------------------------
+
+    if self.run_control.dataset_mode == "chain-only":
+      print("Loaded chain-only models from chk")
+      if self.run_control.operation == "resume":
+        self.loadedsamples = True
+        self.loadedfromchk = True
+      return True
 
     # load fail file begins --------------------------------------------------
     with open(f"{self.failf}.txt", "r", encoding="ascii") as fail_handle:
@@ -887,6 +911,34 @@ class GeneratorCore:
     np.savetxt(f"{self.failf}.tmp.txt", self.failed.astype(np.uint8), fmt="%d")
     # save data vector file (from tmp) -----------------------------------------
     os.replace(f"{self.failf}.tmp.txt", f"{self.failf}.txt")
+
+  def _append_full_checkpoint_rows(self, nparams):
+    """Extend only a full dataset's failure mask and payload stores.
+
+    Chain-only append owns parameter-side members only. Its output stems are
+    already isolated, and this second mode check prevents a future refactor
+    from creating or borrowing failure/data-vector members in that namespace.
+    """
+    if self.run_control.dataset_mode == "chain-only":
+      return
+    if self.run_control.dataset_mode != "full":
+      raise ValueError(
+        "Unknown normalized generator dataset mode: "
+        + repr(self.run_control.dataset_mode))
+
+    fname = f"{self.failf}.txt"
+    failed = np.ones((nparams, 1), dtype=np.uint8)
+    with open(fname, "a") as f:
+      np.savetxt(f, failed.astype(np.uint8), fmt="%d")
+
+    self.failed = np.atleast_1d(np.loadtxt(fname, dtype=np.uint8))
+    self.failed = np.asarray(self.failed).astype(bool)
+    if self.failed.ndim != 1:
+      raise ValueError(f"failed must be 1D, got {self.failed.shape}")
+    if self.samples.shape[0] != self.failed.shape[0]:
+      raise ValueError(f"Incompatible samples/failed chk files")
+
+    self._dv_append(nparams)
 
   #-----------------------------------------------------------------------------
   # likelihood
@@ -1346,23 +1398,10 @@ class GeneratorCore:
           raise ValueError(f"samples must be 2D, got {self.samples.shape}")
         # append chain file ends -----------------------------------------------
 
-        # append fail file begins ----------------------------------------------
-        fname = f"{self.failf}.txt";
-        failed = np.ones((nparams, 1), dtype=np.uint8) # start w/ all failed
-        with open(fname, "a") as f: # append mode
-          np.savetxt(f, failed.astype(np.uint8), fmt="%d")
-
-        self.failed = np.atleast_1d(np.loadtxt(fname, dtype=np.uint8))
-        self.failed = np.asarray(self.failed).astype(bool)
-        if self.failed.ndim != 1:
-          raise ValueError(f"failed must be 1D, got {self.failed.shape}")
-
-        if self.samples.shape[0] != self.failed.shape[0]:
-          raise ValueError(f"Incompatible samples/failed chk files")
-        # append fail file begins ----------------------------------------------
-
-        # append dvs (with zeros; store-specific, row-count check inside) ------
-        self._dv_append(nparams)
+        # Full datasets extend their failure mask and payload stores. A
+        # chain-only append owns only the parameter-side files and returns from
+        # this helper before either full-dataset boundary can be touched.
+        self._append_full_checkpoint_rows(nparams)
 
         # update a parameter cov matrix ----------------------------------------
         with contextlib.redirect_stdout(io.StringIO()): # so getdist dont write in terminal

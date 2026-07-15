@@ -18,6 +18,7 @@ import tempfile
 import traceback
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from compute_data_vectors import dataset_manifest
 from compute_data_vectors.dataset_manifest import CheckpointLoadError
@@ -223,7 +224,7 @@ def _compile_generator(np_boundary=None, resolver=None):
 
 
 def _checkpoint_instance(generator_class, directory, operation,
-                         complete=False):
+                         complete=False, dataset_mode="full"):
   """Build one object at the checkpoint boundary, without running setup."""
   if operation == "fresh":
     loadchk, append = 0, 0
@@ -233,20 +234,36 @@ def _checkpoint_instance(generator_class, directory, operation,
     loadchk, append = 1, 1
   else:
     raise AssertionError("unknown operation " + repr(operation))
+  if dataset_mode == "full":
+    chain = 0
+  elif dataset_mode == "chain-only":
+    chain = 1
+  else:
+    raise AssertionError("unknown dataset mode " + repr(dataset_mode))
 
   root = Path(directory)
-  paramsf = root / "params"
-  failf = root / "fail"
-  dv = root / "dv.npy"
-  members = {
-    "data vector": dv,
-    "failure flags": Path(str(failf) + ".txt"),
+  paramsf = Path(dataset_manifest.scope_dataset_stem(
+    str(root / "params"), dataset_mode))
+  failf = Path(dataset_manifest.scope_dataset_stem(
+    str(root / "fail"), dataset_mode))
+  dvsf = dataset_manifest.scope_dataset_stem(
+    str(root / "dv"), dataset_mode)
+  dv = Path(dvsf + ".npy")
+  parameter_members = {
     "covariance": Path(str(paramsf) + ".covmat"),
     "parameter names": Path(str(paramsf) + ".paramnames"),
     "ranges": Path(str(paramsf) + ".ranges"),
     "chain": Path(str(paramsf) + ".1.txt"),
     "scientific facts": Path(str(paramsf) + ".facts.yaml"),
   }
+  if dataset_mode == "chain-only":
+    members = parameter_members
+  else:
+    members = {
+      "data vector": dv,
+      "failure flags": Path(str(failf) + ".txt"),
+      **parameter_members,
+    }
   if complete:
     for index, (name, path) in enumerate(members.items()):
       payload = "0\n" if name == "failure flags" else name + " sentinel\n"
@@ -257,10 +274,10 @@ def _checkpoint_instance(generator_class, directory, operation,
   instance = object.__new__(generator_class)
   instance.loadchk = loadchk
   instance.append = append
-  instance.run_control = validate_run_control(loadchk, append, 0)
+  instance.run_control = validate_run_control(loadchk, append, chain)
   instance.paramsf = str(paramsf)
   instance.failf = str(failf)
-  instance.dvsf = str(root / "dv")
+  instance.dvsf = dvsf
   instance.dtype = object()
   instance.sampled_params = ("p0", "p1")
   instance.loadedsamples = False
@@ -404,34 +421,89 @@ class GeneratorCheckpointRefusalTests(unittest.TestCase):
       self.assertIs(instance._GeneratorCore__load_chk(), False)
 
   def test_requested_resume_and_append_refuse_a_missing_member(self):
+    for dataset_mode in ("full", "chain-only"):
+      for operation in ("resume", "append"):
+        generator_class = _compile_generator()
+        with tempfile.TemporaryDirectory() as directory:
+          _, complete_members = _checkpoint_instance(
+            generator_class, directory, operation=operation, complete=True,
+            dataset_mode=dataset_mode)
+          member_names = tuple(complete_members)
+        for missing_name in member_names:
+          with self.subTest(mode=dataset_mode, operation=operation,
+                            missing=missing_name):
+            with tempfile.TemporaryDirectory() as directory:
+              resolver = _ResolverBoundary()
+              numpy_boundary = _FakeNumpy()
+              generator_class = _compile_generator(
+                np_boundary=numpy_boundary, resolver=resolver)
+              instance, members = _checkpoint_instance(
+                generator_class, directory, operation=operation,
+                complete=True, dataset_mode=dataset_mode)
+              missing = members[missing_name]
+              missing.unlink()
+              before = _snapshot(members)
+              with self.assertRaises(CheckpointLoadError) as refusal:
+                instance._GeneratorCore__load_chk()
+              self.assertIn(operation, str(refusal.exception))
+              self.assertIn(missing.name, str(refusal.exception))
+              self.assertIn("No existing dataset file was changed",
+                            str(refusal.exception))
+              self.assertEqual(resolver.calls, [])
+              self.assertEqual(numpy_boundary.loadtxt_calls, 0)
+              self.assertFalse(missing.exists())
+              self.assertEqual(_snapshot(members), before)
+
+  def test_chain_only_requested_load_uses_only_parameter_members(self):
+    expected_members = (
+      "covariance", "parameter names", "ranges", "chain",
+      "scientific facts")
+    real_open = open
     for operation in ("resume", "append"):
-      generator_class = _compile_generator()
-      with tempfile.TemporaryDirectory() as directory:
-        _, complete_members = _checkpoint_instance(
-          generator_class, directory, operation=operation, complete=True)
-        member_names = tuple(complete_members)
-      for missing_name in member_names:
-        with self.subTest(operation=operation, missing=missing_name):
-          with tempfile.TemporaryDirectory() as directory:
-            resolver = _ResolverBoundary()
-            numpy_boundary = _FakeNumpy()
-            generator_class = _compile_generator(
-              np_boundary=numpy_boundary, resolver=resolver)
-            instance, members = _checkpoint_instance(
-              generator_class, directory, operation=operation, complete=True)
-            missing = members[missing_name]
-            missing.unlink()
-            before = _snapshot(members)
-            with self.assertRaises(CheckpointLoadError) as refusal:
-              instance._GeneratorCore__load_chk()
-            self.assertIn(operation, str(refusal.exception))
-            self.assertIn(missing.name, str(refusal.exception))
-            self.assertIn("No existing dataset file was changed",
-                          str(refusal.exception))
-            self.assertEqual(resolver.calls, [])
-            self.assertEqual(numpy_boundary.loadtxt_calls, 0)
-            self.assertFalse(missing.exists())
-            self.assertEqual(_snapshot(members), before)
+      with self.subTest(operation=operation):
+        resolver = _ResolverBoundary()
+        generator_class = _compile_generator(resolver=resolver)
+        with tempfile.TemporaryDirectory() as directory:
+          instance, members = _checkpoint_instance(
+            generator_class, directory, operation=operation, complete=True,
+            dataset_mode="chain-only")
+          self.assertEqual(tuple(members), expected_members)
+          self.assertEqual(len(members), 5)
+
+          full_boundary_calls = []
+
+          def reject_full_boundary(name):
+            full_boundary_calls.append(name)
+            raise AssertionError(
+              "chain-only load touched full-dataset boundary " + name)
+
+          instance._dv_chk_files = lambda: reject_full_boundary("DV census")
+          instance._dv_load_chk = lambda: reject_full_boundary("DV load")
+          failure_path = os.path.normcase(os.path.abspath(
+            f"{instance.failf}.txt"))
+          failure_open_calls = []
+
+          def guarded_open(path, *args, **kwargs):
+            observed = os.path.normcase(os.path.abspath(os.fspath(path)))
+            if observed == failure_path:
+              failure_open_calls.append(observed)
+              raise AssertionError(
+                "chain-only load touched the failure-mask boundary")
+            return real_open(path, *args, **kwargs)
+
+          before = _snapshot(members)
+          with mock.patch("builtins.open", side_effect=guarded_open):
+            self.assertIs(instance._GeneratorCore__load_chk(), True)
+          self.assertEqual(full_boundary_calls, [])
+          self.assertEqual(failure_open_calls, [])
+          self.assertEqual(len(resolver.calls), 1)
+          self.assertEqual(_snapshot(members), before)
+          if operation == "resume":
+            self.assertTrue(instance.loadedsamples)
+            self.assertTrue(instance.loadedfromchk)
+          else:
+            self.assertFalse(instance.loadedsamples)
+            self.assertFalse(instance.loadedfromchk)
 
   def test_corrupt_checkpoint_load_exception_propagates(self):
     corrupt = ValueError("synthetic named-table width mismatch")

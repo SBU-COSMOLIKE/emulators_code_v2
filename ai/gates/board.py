@@ -1961,13 +1961,17 @@ def gate_generator_run_control(ctx):
   ``GeneratorCore.__init__`` with a filesystem mutation sentinel in place of
   setup. It proves the exact legal operation/mode matrix, the teaching refusal
   for append without load, and that validation dominates setup and full versus
-  chain-only routing. Eight in-memory mutations bind native types, the illegal
-  pair, statement-zero ordering, a direct validator-call RHS with no hidden
-  earlier evaluation, the sole production import, normalized setup assignments,
-  and normalized rather than raw mode routing.
-  This is the pre-mutation run-control slice of Unit 8. Dataset-manifest
-  authentication, RNG continuation, and chain/full bundle isolation remain
-  separate OPEN slices.
+  chain-only routing. It also AST-executes the real stem scoping, checkpoint
+  census, and requested-load branch: all three stems must be mode-scoped,
+  chain-only owns exactly five parameter members and never asks for a failure
+  or data-vector member, while full mode retains its delegated family census.
+  A valid
+  chain-only load returns immediately after parameter readback, and the later
+  append branch crosses one mode barrier before failure/data-vector I/O.
+  Seventeen
+  in-memory mutations bind those four AIDs to the production surfaces.
+  Dataset-manifest authentication, atomic publication, and RNG continuation
+  remain separate OPEN slices.
   """
   rc, out = ctx.run_check("ai/gates/checks/generator_run_control.py")
   if ctx.dry:
@@ -1991,9 +1995,10 @@ def gate_generator_checkpoint_refusal(ctx):
   cannot reach sampling, while a valid resume must avoid it. Isolated in-memory
   regressions remove each safety boundary; every affected AID must turn red.
 
-  This gate proves fail-closed command intent only. It does not claim dataset
-  manifest authentication, atomic multi-file publication, append RNG
-  continuation, or chain-only/full isolation.
+  This gate proves fail-closed command intent only. The separate
+  generator-run-control AID owns bounded chain-only/full location and census
+  isolation. Neither gate claims dataset-manifest authentication, atomic
+  multi-file publication, or append RNG continuation.
   """
   rc, out = ctx.run_check(
     "ai/gates/checks/generator_checkpoint_refusal.py")
@@ -2380,13 +2385,19 @@ BOARD = [
             "controls normalize to fresh, resume, or append and to full or "
             "chain-only mode; append without load receives a teaching "
             "refusal; and the production constructor validates before setup "
-            "or any output-path mutation. Eight targeted mutations bind bool "
+            "or any output-path mutation. Full and chain-only runs scope all "
+            "three stems separately; chain-only checkpoint readback owns "
+            "exactly five parameter members and touches no failure/data-vector "
+            "member, while full mode keeps its delegated family census. The "
+            "append branch crosses a mode barrier that returns before full-"
+            "dataset I/O in chain-only mode. Seventeen targeted mutations bind bool "
             "refusal, independent-append refusal, statement-zero order, a "
             "direct validator-call RHS, the sole validator binding, normalized "
-            "setup assignments, and "
-            "normalized rather than raw mode routing. "
-            "Manifest authentication, RNG continuation, and chain/full "
-            "bundle isolation remain outside this bounded gate",
+            "setup assignments, normalized rather than raw mode routing, "
+            "three-stem scoping, exact mode censuses, both loader returns, "
+            "the append call site, and its chain-only barrier. "
+            "Manifest authentication, atomic publication, and RNG continuation "
+            "remain outside this bounded gate",
        evidence=(Assertion(
                    "generator-run-control.binary-state",
                    "data-generation-and-cuts.md#generator-run-control-binary-state"),
@@ -2395,7 +2406,10 @@ BOARD = [
                    "data-generation-and-cuts.md#generator-run-control-append-requires-load"),
                  Assertion(
                    "generator-run-control.pre-mutation-refusal",
-                   "data-generation-and-cuts.md#generator-run-control-pre-mutation-refusal")),
+                   "data-generation-and-cuts.md#generator-run-control-pre-mutation-refusal"),
+                 Assertion(
+                   "generator-run-control.dataset-mode-isolation",
+                   "data-generation-and-cuts.md#generator-run-control-dataset-mode-isolation")),
        run=gate_generator_run_control,
        manifest=Manifest(
          code=("compute_data_vectors/generator_core.py",
@@ -2454,8 +2468,9 @@ BOARD = [
             "bytes/timestamps. A valid resume also avoids sampling. Removing "
             "the preflight, semantic checks, geometry checks, exception "
             "propagation, or operation routing must red the affected AID. "
-            "Manifest authentication, atomic publication, append RNG "
-            "continuation, and chain/full isolation remain OPEN",
+            "Bounded chain/full location and census isolation is owned by "
+            "generator-run-control; manifest authentication, atomic "
+            "publication, and append RNG continuation remain OPEN",
        evidence=(Assertion(
                    "checkpoint-refusal.missing-member",
                    "data-generation-and-cuts.md#checkpoint-refusal-missing-member"),

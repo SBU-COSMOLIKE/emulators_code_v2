@@ -13,6 +13,36 @@ class CheckpointLoadError(RuntimeError):
   """A requested checkpoint cannot be loaded without risking old output."""
 
 
+def scope_dataset_stem(stem, dataset_mode):
+  """Place chain-only outputs in a namespace distinct from full datasets.
+
+  Full datasets keep the historical stem supplied by the caller. Chain-only
+  datasets add one explicit suffix to every parameter, failure, and
+  data-vector stem.  Even though chain-only generation writes only parameter
+  members, scoping all three stems prevents later code from borrowing a full
+  dataset's payload or failure mask by path coincidence.
+
+  Arguments:
+    stem = nonempty output stem, including any parent directory.
+    dataset_mode = normalized ``full`` or ``chain-only`` mode.
+
+  Returns:
+    the unchanged full stem or the chain-only-scoped stem.
+
+  Raises:
+    ValueError when the stem or normalized mode is invalid.
+  """
+  if type(stem) is not str or not stem:
+    raise ValueError("dataset output stem must be a nonempty string; got "
+                     + repr(stem))
+  if dataset_mode == "full":
+    return stem
+  if dataset_mode == "chain-only":
+    return stem + "_chain_only"
+  raise ValueError("Unknown normalized generator dataset mode: "
+                   + repr(dataset_mode))
+
+
 @dataclass(frozen=True)
 class RunControl:
   """One normalized generator operation and dataset mode.
