@@ -1,5 +1,37 @@
 # AI-assisted development
 
+## Why split the work into three roles?
+
+If you can use Fable or Sol for every step without worrying about usage
+limits, you may not need this system. One of those models can plan, write,
+test, and review a change by itself.
+
+This guide is written for students who may have a basic account or limited
+paid access. AI models process text in **tokens**, small pieces of text that
+they read or write. An account may limit this use through tokens, messages, or
+cost. Implementation is the token-heavy part of this workflow: the model
+repeatedly reads files, writes code, runs tests, studies failures, and tries
+repairs.
+
+The roles let you assign the longest work to a model that costs less to use:
+
+- The **Architect** decides the design and writes complete instructions.
+- The **Implementer** follows those instructions and performs the longer
+  code-and-test work.
+- The optional **Red Team** checks one named change for mistakes and, if it
+  finds a defect, sends a detailed repair proposal back to the Architect.
+
+The Architect and Red Team do the independent reasoning. Their instructions
+must be detailed enough that the Implementer does not need to invent the
+design. The Implementer can therefore be a much simpler model.
+
+For example, if the account provides them and Fable use is unavailable, Opus
+can be the Architect while Sonnet or Haiku is the Implementer. Sol can be
+reserved for reviews of specific changes. The model choices belong to each
+run; use `--architect-model` and `--implementer-model` to change them. If the
+budget does not allow a Red Team review, a watch with `--skip-redteam` runs
+only the Architect and Implementer.
+
 This directory contains the tools that let several AI roles work on one
 scientific codebase without treating chat as the project record.
 
@@ -14,14 +46,15 @@ Agents work inside those boundaries.
 
 ### Main guide
 
-1. [Start here](#start-here)
-2. [Complete one small ticket](#complete-one-small-ticket)
-3. [Roles, models, and decisions](#roles-models-and-decisions)
-4. [Notes, tests, and gates](#notes-tests-and-gates)
-5. [Useful daily commands](#useful-daily-commands)
-6. [Fix-only watches](#fix-only-watches)
-7. [Runtime controls](#runtime-controls)
-8. [Exact command reference](#exact-command-reference)
+1. [Why split the work into three roles?](#why-split-the-work-into-three-roles)
+2. [Start here](#start-here)
+3. [Complete one small ticket](#complete-one-small-ticket)
+4. [Roles, models, and decisions](#roles-models-and-decisions)
+5. [Notes, tests, and gates](#notes-tests-and-gates)
+6. [Useful daily commands](#useful-daily-commands)
+7. [Fix-only watches](#fix-only-watches)
+8. [Runtime controls](#runtime-controls)
+9. [Exact command reference](#exact-command-reference)
 
 ### Common questions raised by developers
 
