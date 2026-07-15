@@ -224,12 +224,21 @@ quota.
   Role is resolved ONCE at session start (explicit assignment > received
   handoff > normal session); model identity is a sanity check, not the
   dispatcher.
-- The Architect writes no function bodies but DOES write interfaces,
-  schemas, and verbatim legacy numerics (paraphrased physics is how
-  ports rot); blueprints state goals/contracts/edge-cases/gates,
-  never steps; every handoff persists to ai/notes/ BEFORE emission — THE
-  NOTE IS THE SPEC OF RECORD; the Implementer executes the note even
-  when the relayed block lags it.
+- The Architect does not author functional code, but it DOES own every
+  consequential implementation decision. Its note contains a
+  decision-complete directive: exact worktree/branch/base, one visible
+  ``- `path::symbol`: exact edit`` bullet per file or test target, ordered
+  edits, interfaces, types and shapes, algorithms and
+  numerics, failure behavior, named tests and assertions, real validation
+  commands and expected results, forbidden alternatives, stop conditions,
+  and non-overlapping fan-out ownership. Its sibling `## Implementation
+  evidence / resume state` is the only place an Implementer appends results;
+  the validated packet's heading structure stays unchanged. This
+  is intentionally detailed enough for Sonnet, Haiku, an open-source model,
+  or another lower-capability Implementer to execute without designing. Every
+  handoff persists to ai/notes/ BEFORE emission — THE NOTE IS THE SPEC OF
+  RECORD; the Implementer executes the current note even when the relayed
+  block lags it.
 - Audit is FABLE DOMAIN (hard user rule): no milestone closes without
   Architect sign-off on RAW evidence (never summaries — repeated
   over-claims proved summaries unreliable); the Architect verifies
@@ -246,9 +255,14 @@ quota.
   counterexamples, and reports through `ARCHITECT_REDTEAM_HANDOFF` blocks
   ending exactly with `ARCHITECT_REDTEAM_HANDOFF ENDS`. Codex records its
   findings without impersonating or modifying the Architect's role and does
-  not merge to main.
-- Propose-don't-guess for design-sensitive layouts (a checkpoint
-  proposal in the note for ruling); partial units are an approved
+  not merge to main. A confirmed finding includes a detailed candidate repair
+  directive with root cause, exact symbols, ordered edits, invariants,
+  regression witness, commands, acceptance checks, exclusions, and stop
+  conditions. That candidate returns to the Architect; it is never sent
+  directly to an Implementer or treated as a self-executing ruling.
+- Block-don't-guess for design-sensitive choices: the Implementer reports the
+  exact missing fact or contradiction, and the Architect supplies a revised
+  complete directive. Partial units are an approved
   shape (coherent gated sub-increment + honest remainder); interface
   changes are always DECLARED as deviations; forward-walk the WHOLE
   driver path when adding a config branch; every stop ends with a
@@ -274,7 +288,9 @@ Architect and Implementer. Sharing is intentional: both roles must see the
 same uncommitted code, notes, and staged index, and their lane remains
 serialized. The saved route belongs to the roles, not their models. Changing
 `--architect-model` or `--implementer-model` never selects another worktree.
-Dispatched Sol continues to execute at `REPO_ROOT`.
+Normal Red Team Sol continues to execute at `REPO_ROOT`. An explicit
+second-Implementer assignment instead uses the exact linked non-main checkout
+named in the validated directive.
 
 Clean-install defaults are exact:
 
@@ -371,9 +387,21 @@ ignored by Git and remain readable in the local checkout.
 The note contains the complete reasoning and execution record: the bounded
 scope, scientific or numerical evidence, counterexample, contract, file and
 line anchors, changed files, branch or commit identity, raw-test locations,
-open obligations and acceptance conditions. A chat handoff is a compact
-routing summary. It cites the note and says what changed, what is ready for
-review and what remains blocked. It does not duplicate the full record.
+open obligations and acceptance conditions. Before implementation, its one
+current `## Implementation directive` also contains the exact ordered work
+packet defined in `.claude/FABLE_ROLE.md`. Before a confirmed Red Team finding
+returns, its one `## Repair directive` contains the exact candidate repair
+packet defined in `.codex/REDTEAM_ROLE.md`. The thinking role runs
+`ai/tools/handoff_contract.py` against that packet. This structural check does
+not replace scientific review; it prevents an empty goal summary from being
+mistaken for executable instructions.
+
+A chat handoff is a compact routing summary. It cites the note and says what
+changed, what is ready for review and what remains blocked. It does not
+duplicate the full record. Architect directives are binding for the
+Implementer. Red Team repair directives are candidates that return through
+the Architect for `GO` or `NO-GO`; normal Red Team output never bypasses that
+adjudication by routing a repair directly to the Implementer.
 
 This rule applies to findings, adjudications, implementation returns, audit
 holds, audit approvals, retractions and queue changes. A chat-only decision

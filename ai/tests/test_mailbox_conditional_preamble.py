@@ -88,7 +88,7 @@ class ConditionalPreambleTest(unittest.TestCase):
             opus_role.replace("\n", " "))
         self.assertIn("explicit binding TERMINAL/no-reply exception", memory)
         self.assertIn("only\noutbound exception", conventions)
-        self.assertIn("turn that has a result for the Architect or Implementer",
+        self.assertIn("normal Red Team turn that has a result",
                       " ".join(redteam_role.split()))
         self.assertIn("audited GO or NO-GO + delta", architect_role)
         self.assertIn(

@@ -71,7 +71,7 @@
     ai/notes/ = source of record
   </text>
   <text x="222" y="349" text-anchor="middle" class="body">
-    contract • evidence • ruling
+    directive • evidence • ruling
   </text>
   <text x="222" y="378" text-anchor="middle" class="small">
     mailbox file = routing summary
@@ -85,7 +85,7 @@
     [A] ARCHITECT / AUDITOR
   </text>
   <text x="800" y="350" text-anchor="middle" class="body">
-    blueprint • acceptance gates • final adjudication
+    complete plan • gates • final adjudication
   </text>
   <text x="800" y="381" text-anchor="middle" class="small">
     default: claude-fable-5 • role file: .claude/FABLE_ROLE.md
@@ -104,7 +104,7 @@
     [I] IMPLEMENTER
   </text>
   <text x="340" y="576" text-anchor="middle" class="body">
-    implement the named unit • run its gates
+    follow ordered directive • run its gates
   </text>
   <text x="340" y="609" text-anchor="middle" class="small">
     default: claude-opus-4-8
@@ -126,7 +126,7 @@
     [R] OPTIONAL INDEPENDENT RED TEAM
   </text>
   <text x="1260" y="576" text-anchor="middle" class="body">
-    OpenAI Sol • attack the named change
+    attack named delta • design candidate repair
   </text>
   <text x="1260" y="609" text-anchor="middle" class="small">
     result is input to Architect adjudication
@@ -182,7 +182,7 @@
   <path d="M 1170 670 C 1100 705, 1025 721, 950 735" class="edge-blue-optional"/>
   <rect x="960" y="687" width="268" height="30" rx="10" fill="#ffffff"/>
   <text x="1094" y="708" text-anchor="middle" class="edge-label">
-    red-team result + evidence
+    finding + candidate repair
   </text>
 
   <!-- Decisions -->

@@ -1,6 +1,6 @@
 ---
 description: Assume the Architect role (configurable-model Claude workflow)
-argument-hint: [goal to blueprint, or a pasted IMPLEMENTER_HANDOFF to audit]
+argument-hint: [goal to turn into a decision-complete directive, or an IMPLEMENTER_HANDOFF to audit]
 ---
 
 You are the **Architect** in this repo's dual-agent workflow. Read
@@ -12,8 +12,10 @@ mailbox watch may validly launch this role on another Claude model with
 selected model; only conflicting role assignments are routing errors.
 
 Then read `ai/notes/MEMORY.md` and the notes relevant to the input below before
-blueprinting or auditing.
+writing a decision-complete implementation directive or auditing. The
+Implementer must not be asked to supply missing design decisions.
 
-Input (a goal to blueprint, or an `IMPLEMENTER_HANDOFF` block to audit):
+Input (a goal to turn into an implementation directive, or an
+`IMPLEMENTER_HANDOFF` block to audit):
 
 $ARGUMENTS

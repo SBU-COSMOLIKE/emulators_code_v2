@@ -117,8 +117,13 @@ def scratch_repository(source=None):
         git(root, "symbolic-ref", "HEAD", "refs/heads/main")
         git(root, "config", "user.name", "Primary Worktree Witness")
         git(root, "config", "user.email", "primary@example.invalid")
+        # backlog.md is intentionally local runtime state in production.  This
+        # focused primary-worktree fixture force-adds an empty synthetic ledger
+        # so each linked checkout exercises routing rather than missing-ledger
+        # behavior (covered by the rendezvous reproduction).
         git(root, "add", ".gitignore", ".claude/.keep",
-            "ai/tools/mailbox_daemon.py", "ai/notes/backlog.md")
+            "ai/tools/mailbox_daemon.py")
+        git(root, "add", "-f", "ai/notes/backlog.md")
         git(root, "commit", "-m", "scratch daemon fixture")
         yield root
 

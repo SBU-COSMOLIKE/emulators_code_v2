@@ -3710,6 +3710,10 @@ unit, Sol may instead be assigned as a second Implementer. Prof. Miranda
 directs the scientific contracts, model architecture, public interface,
 testing requirements, and Python readability conventions.
 
+The Architect and Red Team are the thinking roles. They provide complete,
+ordered implementation or candidate-repair directives so the Implementer may
+be a simpler model and still work without inventing design decisions.
+
 That workflow is separate from the emulator library documented above, so it
 has its own guide. [`ai/README.md`](ai/README.md) explains the roles, mailbox
 program, model choices, and setup on another computer.

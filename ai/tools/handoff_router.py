@@ -16,24 +16,24 @@ communication rules intact:
     machine, and archives the raw log. The agents never get to invent that
     output. The Architect still re-runs evidence per its role file; the
     router's log is corroborating input, not the audit.
-  - ROLE FILES GOVERN: the prompts never restate role rules. Each session
-    resolves its role from the handoff block it receives (see CLAUDE.md).
-    The one required mode sentence -- the second-Implementer declaration --
-    is inserted verbatim when --mode second-implementer is passed.
+  - ROLE FILES GOVERN: each prompt names the exact role file. The long
+    directive remains in the cited note; the prompt reminds the receiver to
+    validate it rather than restating it. The one required mode sentence --
+    the second-Implementer declaration -- is inserted verbatim when
+    --mode second-implementer is passed.
 
 Flow (one unit per run):
 
-    blueprint note ready
+    validated directive ready
           |
           v
-    [1] copy the Opus routing prompt      -> paste into the Opus session
-    [2] capture IMPLEMENTER_HANDOFF       <- copy the block from Opus
+    [1] copy one Implementer prompt       -> Opus normally, Sol only when
+                                             --mode second-implementer
+    [2] capture IMPLEMENTER_HANDOFF       <- copy the one owner's block
     [3] run the local gates, archive log
-    [4] optionally copy the Sol prompt    -> paste into the Sol session
-        (red-team mode, or second-Implementer mode with
-         --mode second-implementer;
-         skipped entirely with --skip-redteam)
-    [5] capture the Sol handoff           <- copy the block from Sol
+    [4] optionally copy the Sol Red Team prompt (normal mode only;
+        skipped with --skip-redteam or when Sol owns implementation)
+    [5] capture the Red Team handoff       <- copy the block from Sol
     [6] copy the Fable routing prompt     -> paste into the Fable session
           |
           v
@@ -42,7 +42,7 @@ Flow (one unit per run):
 Usage:
 
     python ai/tools/handoff_router.py --note ai/notes/<ticket>.md \\
-        --section "SECOND-IMPLEMENTER ASSIGNMENT" \\
+        --section "Implementation directive" \\
         --mode second-implementer
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md            # full loop
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md --skip-redteam
@@ -64,6 +64,7 @@ import argparse
 import datetime
 import fcntl
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AI_ROOT = os.path.dirname(SCRIPT_DIR)
 REPO_ROOT = os.path.dirname(AI_ROOT)
 NOTES_DIR = os.path.join(AI_ROOT, "notes")
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from handoff_contract import DirectiveError
+from handoff_contract import validate_directive_file
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
 RUN_RESERVATIONS_DIR = os.path.join(RELAY_DIR, ".router-runs")
 ROUTER_LOCK_PATH = os.path.join(
@@ -242,28 +248,52 @@ def release_router_lock(lock_file):
 
 
 def resolve_note_path(note):
-    """Resolve a note argument from the router's repository, not the shell.
+    """Resolve one direct, non-symlink Markdown note under ``ai/notes``.
 
     Arguments:
-      note = an absolute path or a repository-relative note path.
+      note = an absolute path or repository-relative path naming a direct
+             child of this router checkout's ``ai/notes`` directory.
 
     Returns:
-      ``(path, display_path)`` with an absolute path for I/O and a compact
-      repository-relative path for prompts when the note is inside the repo.
+      ``(path, display_path)`` with an absolute path for I/O and the canonical
+      repository-relative path for prompts.
+
+    Raises:
+      DirectiveError when the path escapes the source-note directory, names a
+      transport subdirectory, uses a non-Markdown suffix, or is a symlink.
     """
     if os.path.isabs(note):
         path = os.path.abspath(note)
     else:
         path = os.path.abspath(os.path.join(REPO_ROOT, note))
-    try:
-        inside_repo = os.path.commonpath([REPO_ROOT, path]) == REPO_ROOT
-    except ValueError:
-        inside_repo = False
-    if inside_repo:
-        display_path = os.path.relpath(path, REPO_ROOT)
-    else:
-        display_path = path
-    return (path, display_path)
+    notes_path = os.path.abspath(NOTES_DIR)
+    notes_real = os.path.realpath(notes_path)
+    expected_notes_real = os.path.join(
+        os.path.realpath(REPO_ROOT), "ai", "notes")
+    if (os.path.islink(notes_path) or not os.path.isdir(notes_path)
+            or notes_real != expected_notes_real):
+        raise DirectiveError(
+            "Architect source-note directory must be this checkout's real "
+            "ai/notes directory, not a symlink or redirected path")
+    path_real = os.path.realpath(path)
+    if (os.path.dirname(path) != notes_path
+            or os.path.dirname(path_real) != notes_real):
+        raise DirectiveError(
+            "Architect source note must be a direct file inside this "
+            "router checkout's ai/notes directory")
+    if os.path.splitext(path)[1].casefold() != ".md":
+        raise DirectiveError("Architect source note must end in .md")
+    basename = os.path.basename(path)
+    if (len(basename.encode("utf-8")) > 255
+            or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._-]*\.md", basename)
+            is None):
+        raise DirectiveError(
+            "Architect source note must use a safe ASCII Markdown filename")
+    if os.path.islink(path) or path_real != os.path.join(
+            notes_real, os.path.basename(path)):
+        raise DirectiveError("Architect source note must not be a symlink")
+    return (path, os.path.relpath(path, REPO_ROOT))
 
 
 def archive(seq, name, text):
@@ -322,6 +352,73 @@ def run_gates(commands, seq):
         lines.append("")
     log_path = archive(seq, "gates-log", "\n".join(lines))
     return (log_path, all_green)
+
+
+def verify_execution_checkout(checkout):
+    """Bind this router process and its gate log to the declared checkout.
+
+    The manual router runs commands from its own repository root. A directive
+    naming another checkout must therefore use that checkout's copy of this
+    script, never test an implementation accidentally against main.
+    """
+    worktree = checkout["Worktree"]
+    if os.path.realpath(worktree) != os.path.realpath(REPO_ROOT):
+        raise DirectiveError(
+            "Execution checkout Worktree does not match this router; run "
+            "the router from " + worktree)
+
+    def git_value(arguments, label):
+        proc = subprocess.run(
+            ["git"] + arguments,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True)
+        if proc.returncode != 0:
+            raise DirectiveError(
+                "cannot verify Execution checkout " + label + ": "
+                + proc.stderr.strip())
+        return proc.stdout.strip()
+
+    top = git_value(["rev-parse", "--show-toplevel"], "worktree")
+    if os.path.realpath(top) != os.path.realpath(REPO_ROOT):
+        raise DirectiveError("Execution checkout is not this Git worktree")
+    git_dir = git_value(["rev-parse", "--git-dir"], "Git directory")
+    common_dir = git_value(
+        ["rev-parse", "--git-common-dir"], "common Git directory")
+
+    def absolute_git_path(path):
+        if not os.path.isabs(path):
+            path = os.path.join(REPO_ROOT, path)
+        return os.path.realpath(path)
+
+    if absolute_git_path(git_dir) == absolute_git_path(common_dir):
+        raise DirectiveError(
+            "Execution checkout must be a registered linked worktree, not "
+            "the repository's primary checkout")
+    records = git_value(
+        ["worktree", "list", "--porcelain"], "worktree registry")
+    registered = [line[len("worktree "):]
+                  for line in records.splitlines()
+                  if line.startswith("worktree ")]
+    if len([path for path in registered
+            if os.path.realpath(path) == os.path.realpath(REPO_ROOT)]) != 1:
+        raise DirectiveError(
+            "Execution checkout is not uniquely registered as a Git "
+            "worktree")
+    actual_ref = git_value(
+        ["symbolic-ref", "--quiet", "HEAD"], "branch")
+    expected_ref = checkout["Branch"]
+    if not expected_ref.startswith("refs/heads/"):
+        expected_ref = "refs/heads/" + expected_ref
+    if actual_ref != expected_ref:
+        raise DirectiveError(
+            "Execution checkout Branch mismatch: expected "
+            + checkout["Branch"] + ", found " + actual_ref)
+    actual_head = git_value(["rev-parse", "HEAD"], "base").lower()
+    if actual_head != checkout["Base"].lower():
+        raise DirectiveError(
+            "Execution checkout Base mismatch: expected "
+            + checkout["Base"] + ", found " + actual_head)
 
 
 def _git(args_list):
@@ -451,12 +548,14 @@ def main():
                              "(the substance; the prompt only points here)")
     parser.add_argument("--section",
                         default="",
-                        help="section title inside the note (optional)")
+                        help="optional exact section name; only "
+                             "'Implementation directive' is valid")
     parser.add_argument("--mode",
                         choices=["redteam", "second-implementer"],
                         default="redteam",
-                        help="Sol's mode: adversarial (default) or second "
-                             "Implementer (inserts the explicit declaration)")
+                        help="use ordinary Opus plus optional Sol review "
+                             "(default), or assign this unit to Sol instead "
+                             "of Opus with the explicit declaration")
     parser.add_argument("--skip-redteam", "--no-red-team",
                         dest="skip_redteam",
                         action="store_true",
@@ -479,9 +578,18 @@ def main():
     if not args.note:
         print("either --status or --note is required (see --help)")
         return 1
-    note_path, note_display = resolve_note_path(args.note)
-    if not os.path.isfile(note_path):
-        print("no such note: " + note_path)
+    if (args.section
+            and args.section.strip().casefold() != "implementation directive"):
+        print("--section may name only the validated 'Implementation "
+              "directive' section")
+        return 1
+    try:
+        note_path, note_display = resolve_note_path(args.note)
+        directive = validate_directive_file(role="architect", path=note_path)
+        verify_execution_checkout(
+            checkout=directive["execution_checkout"])
+    except DirectiveError as exc:
+        print("refused incomplete Architect directive: " + str(exc))
         return 1
     try:
         router_lock = acquire_router_lock()
@@ -489,27 +597,45 @@ def main():
         print(str(exc))
         return 1
     seq = reserve_run_sequence()
-    where = note_display
-    if args.section:
-        where += ' , section "' + args.section + '"'
-    total_steps = 3 if args.skip_redteam else 4
+    where = note_display + ', section "Implementation directive"'
+    total_steps = (3 if args.skip_redteam
+                   or args.mode == "second-implementer" else 4)
 
-    # [1] Opus routing prompt: a pointer, not a payload (notes-first).
-    opus_prompt = (
-        "### ARCHITECT_HANDOFF (relay)\n\n"
-        "The blueprint for your next unit is in " + where + " of this\n"
-        "repository. Read that entry (and the [[links]] it cites), execute\n"
-        "per your role file, and reply with your IMPLEMENTER_HANDOFF block\n"
-        "(a routing summary; your substance goes into the same note first).\n\n"
-        "### ENDS\n")
-    copy_to_clipboard(opus_prompt)
-    print("[1/" + str(total_steps) + "] Opus routing prompt copied -- "
-          "paste it into the Opus session.")
+    # [1] One execution owner receives this unit. Second-Implementer mode
+    # assigns it to Sol INSTEAD OF Opus; it never duplicates one directive.
+    if args.mode == "second-implementer":
+        implementer_prompt = (
+            "### ARCHITECT_HANDOFF (relay)\n\n"
+            + SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
+            + "The decision-complete Implementation directive is in "
+            + where + ". Read .codex/REDTEAM_ROLE.md for this explicit mode "
+            "switch, then .claude/OPUS_ROLE.md. Validate the directive and "
+            "verify its Execution checkout before editing. Execute this unit "
+            "as its only owner; do not perform a Red Team review. Append "
+            "evidence under the note's sibling evidence heading and reply "
+            "with IMPLEMENTER_HANDOFF.\n\n### ENDS\n")
+        implementer_name = "Sol second Implementer"
+        archive_name = "second-implementer"
+    else:
+        implementer_prompt = (
+            "### ARCHITECT_HANDOFF (relay)\n\n"
+            "The decision-complete Implementation directive for your next "
+            "unit is in " + where + " of this repository. Read "
+            ".claude/OPUS_ROLE.md, read that entry and its [[links]], run the "
+            "directive check, verify its Execution checkout, then follow its "
+            "ordered plan and reply with your IMPLEMENTER_HANDOFF block (a "
+            "routing summary; append substance under the sibling evidence "
+            "heading first).\n\n### ENDS\n")
+        implementer_name = "Opus"
+        archive_name = "implementer"
 
-    # [2] capture the Implementer's return.
-    opus_block = wait_for_block(header="### IMPLEMENTER_HANDOFF:",
-                                last_copied=opus_prompt)
-    path = archive(seq, "implementer", opus_block)
+    copy_to_clipboard(implementer_prompt)
+    print("[1/" + str(total_steps) + "] " + implementer_name
+          + " routing prompt copied -- paste it into that session.")
+    implementer_block = wait_for_block(
+        header="### IMPLEMENTER_HANDOFF:",
+        last_copied=implementer_prompt)
+    path = archive(seq, archive_name, implementer_block)
     print("      captured -> " + path)
 
     # [3] objective local gates (the anti-hallucination anchor).
@@ -519,31 +645,25 @@ def main():
     print("      gates " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
 
-    sol_block = ""
-    if not args.skip_redteam:
-        # [4] Sol routing prompt; the mode sentence is the ONLY inline rule.
-        if args.mode == "second-implementer":
-            mode_line = SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
-        else:
-            mode_line = ""
+    redteam_block = ""
+    if not args.skip_redteam and args.mode == "redteam":
         sol_prompt = (
             "### ARCHITECT_REDTEAM_HANDOFF (relay)\n\n"
-            + mode_line +
-            "The unit under review is specified in " + where + ". The\n"
-            "Implementer's return block is archived at " + path + " (a\n"
-            "transport copy; the agent-written note is the record). The\n"
-            "router's local gate log is at " + log_path + ".\n"
-            "Work per your role file and reply with your\n"
-            "ARCHITECT_REDTEAM_HANDOFF block; write your substance under\n"
-            "ai/notes/ first.\n\n"
+            "The named delta is specified in " + where + ". Read\n"
+            ".codex/REDTEAM_ROLE.md and stay within that delta. The\n"
+            "Implementer's return transport copy is at " + path + " and\n"
+            "the local gate log is at " + log_path + ". A confirmed\n"
+            "finding needs a validated, implementation-ready candidate\n"
+            "Repair directive in ai/notes/; return it to the Architect in\n"
+            "ARCHITECT_REDTEAM_HANDOFF, never directly to the Implementer.\n\n"
             "### ENDS\n")
         copy_to_clipboard(sol_prompt)
-        print("[3/4] Sol routing prompt copied (" + args.mode + " mode) -- "
+        print("[3/4] Sol routing prompt copied (redteam mode) -- "
               "paste it into the Sol session.")
-        sol_block = wait_for_block(
+        redteam_block = wait_for_block(
             header="### ARCHITECT_REDTEAM_HANDOFF:",
             last_copied=sol_prompt)
-        sol_path = archive(seq, "sol", sol_block)
+        sol_path = archive(seq, "sol", redteam_block)
         print("      captured -> " + sol_path)
 
     # [5] Fable routing prompt: point at everything; the audit is Fable's
@@ -553,8 +673,8 @@ def main():
         "### RELAY FOR AUDIT\n\n"
         "Unit spec: " + where + "\n"
         "Implementer return (transport copy): " + path + "\n"
-        + ("Sol return (transport copy): " + sol_path + "\n"
-           if sol_block else "")
+        + ("Red Team return (transport copy): " + sol_path + "\n"
+           if redteam_block else "")
         + "Router's local gate log: " + log_path + "\n\n"
         "Audit per your role file -- including your own re-runs of the\n"
         "evidence. The archived blocks and the gate log are inputs, not\n"

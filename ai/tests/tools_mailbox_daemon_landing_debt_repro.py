@@ -150,13 +150,14 @@ def arm_fable_grant_and_raw_suffix(source=None):
         consumed = daemon.dispatch(path=str(path), dry_run=False)
         prompt = calls[0][-1] if len(calls) == 1 else ""
         grant = daemon.agent_preamble(agent="fable")
-        other_roles_empty = (
-            daemon.agent_preamble(agent="opus") == ""
-            and daemon.agent_preamble(agent="sol") == "")
+        route_roles_bound = (
+            ".claude/OPUS_ROLE.md" in daemon.agent_preamble(agent="opus")
+            and ".codex/REDTEAM_ROLE.md" in
+            daemon.agent_preamble(agent="sol"))
         normalized = " ".join(grant.split())
         return (
             consumed
-            and other_roles_empty
+            and route_roles_bound
             and "ARCHITECT STANDING LANDING GRANT" in grant
             and "records GO" in grant
             and "THIS SAME TURN" in grant

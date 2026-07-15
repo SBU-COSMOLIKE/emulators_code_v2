@@ -45,6 +45,15 @@ handoff registers are local working records. They remain in the local checkout
 but are ignored by Git. Implementers and the Red Team write their ticket
 evidence there; mailbox and relay files remain transport copies.
 
+The model does not determine the responsibility. The Architect and Red Team
+are the thinking roles: they must resolve design choices and record complete,
+ordered implementation or repair directives in the temporary ticket note.
+The Implementer is the execution role and may be a less capable model; it
+follows the Architect's validated directive and returns a blocker instead of
+inventing missing architecture. A Red Team repair remains candidate input
+until the Architect adjudicates it. The exact packet formats live in
+`.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
+
 Mailbox routing retains the explicit binding TERMINAL/no-reply exception
 defined in `conventions-and-workflow.md`. An ambiguous instruction follows the
 ordinary outbound rule.

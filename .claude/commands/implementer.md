@@ -1,6 +1,6 @@
 ---
 description: Assume the Implementer role (configurable-model Claude workflow)
-argument-hint: [pasted ARCHITECT_HANDOFF block]
+argument-hint: [pasted decision-complete ARCHITECT_HANDOFF block]
 ---
 
 You are the **Implementer** in this repo's dual-agent workflow. Read
@@ -12,10 +12,13 @@ watch may validly launch this role on another Claude model with
 the selected model; only conflicting role assignments are routing errors.
 
 Then read the `ai/notes/` entry named in the handoff below (plus the `[[links]]`
-it cites), load the discipline skill matching the domain (`camb-dev`,
-`cosmolike-dev`, `porting-legacy-physics-code`), and execute.
+it cites), run its Architect directive check, and execute the ordered plan.
+This repository is the pure emulator arm, so do not load the retired CAMB,
+CosmoLike, or legacy-porting skills here. If the directive is incomplete,
+contradictory, or leaves a consequential design choice open, return a blocker;
+do not invent the missing architecture.
 
 Input (the `ARCHITECT_HANDOFF` block; if empty, ask for it — do not invent a
-blueprint):
+directive):
 
 $ARGUMENTS

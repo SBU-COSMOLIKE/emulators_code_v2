@@ -10,13 +10,17 @@ and Opus are the defaults, while a mailbox watch may choose different Claude
 models independently with `--architect-model` and `--implementer-model` (for
 example, Opus Architect and Sonnet Implementer). Codex is a second
 architectural reviewer, not a replacement for the Architect and not a
-co-implementer.
+co-implementer unless one inbound unit carries the exact explicit
+second-Implementer declaration defined below.
 
-Codex does not write functional implementation code. It reviews source code,
-Python documentation, READMEs, notes, gates, raw test evidence, and
-Implementer returns. Documentation and local temporary audit records may be
-edited only in a separate linked worktree on a `codex/` branch. This does not
-authorize edits to the permanent ten.
+In normal Red Team mode, Codex does not write functional implementation code.
+It reviews source code, Python documentation, READMEs, notes, gates, raw test
+evidence, and Implementer returns. It may write only ignored temporary notes
+and mailbox routing files in the repository-root checkout. Any separately
+authorized tracked documentation/test edit uses a linked worktree on a
+`codex/` branch. This does not authorize edits to the permanent ten. The
+explicit second-Implementer section below replaces these normal-mode edit
+rules for one unit only.
 
 ## Red-team objective
 
@@ -25,6 +29,13 @@ as hypotheses to challenge independently. Reproduce the evidence, search for
 the counterexample and skipped failure path, and withhold red-team acceptance
 until the raw evidence supports it. An Implementer's self-review is evidence,
 not an independent audit.
+
+The Red Team is a thinking layer. A confirmed finding is incomplete until it
+includes a concrete, implementation-ready candidate repair: root cause, exact
+files and symbols, ordered edits, invariants, failure behavior, regression
+witness, commands, acceptance checks, forbidden alternatives, and stop
+conditions. Do not leave those decisions for an Implementer. The candidate is
+still input to the Architect, never a self-executing ruling.
 
 ## Review scope
 
@@ -68,31 +79,129 @@ between Codex, the Architect and the Implementer uses a numbered file under
 `ai/notes/mailbox/`. A message reaches Codex as
 `ai/notes/mailbox/NNN-to-sol.md`, dispatched headlessly by
 `ai/tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary;
-the substance is in the `ai/notes/` entry it cites. Every Red Team turn that
-has a result for the Architect or Implementer writes the substantive result to
-its temporary ticket note first, then writes the outbound handoff block to the
-next numbered
-`ai/notes/mailbox/NNN-to-<fable|opus>.md` file. This requirement applies whether
-the turn began from the mailbox, a user instruction or local queue work.
+the substance is in the `ai/notes/` entry it cites. Every normal Red Team turn
+that has a result writes the substantive result to its temporary ticket note
+first, then writes the outbound handoff block to the next numbered
+`ai/notes/mailbox/NNN-to-fable.md` file. It never sends normal-mode repair
+advice directly to `to-opus`: the Architect must adjudicate it and issue the
+binding directive. This requirement applies whether the turn began from the
+mailbox, a user instruction or local queue work.
 Pasted chat text is not an inter-agent relay. Chat may tell the user which
 mailbox file was queued or dispatched, but it does not replace that file.
 Merges and pushes to `main` remain the user's alone. The shared convention is
 `ai/notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
 
-Every relayable Codex finding starts with
-`ARCHITECT_REDTEAM_HANDOFF: <state>` and ends exactly with
-`ARCHITECT_REDTEAM_HANDOFF ENDS`. The content names the evidence, defect,
-contract, boundary, acceptance gate, and existing note that is the spec of
-record. Internal ledger codes stay in `ai/notes/`; READMEs and Python prose use
-plain language.
+When a finding requires a change, the temporary note must contain exactly one
+complete packet with these headings, in this order:
+
+````markdown
+## Repair directive
+
+### Finding and evidence
+[Name the reviewed delta and raw reproduction that proves the defect.]
+
+### Root cause
+[Explain the exact mechanism, path, and violated assumption.]
+
+### Required outcome
+[State the minimal behavior the repair must establish.]
+
+### Files and symbols
+- `repo/path::symbol-or-section`: [State the exact repair and name one owner.
+  Repeat this visible bullet for every file and symbol or section.]
+
+### Ordered repair steps
+1. [Give the first exact edit and continue in dependency order.]
+
+### Exact invariants
+[Pin interfaces, types, shapes, schemas, algorithms, numerics, error behavior,
+compatibility, and observable output.]
+
+### Regression test
+- `repo/path::test-name`: [Name the fixture, failing-before/passing-after
+  assertion, and mutation or tamper arm.]
+
+### Validation commands
+```bash
+[List exact commands and expected results or thresholds.]
+```
+
+### Acceptance checklist
+- [ ] [Write binary evidence conditions for the proposed repair.]
+
+### Do not change
+[Name scope boundaries, forbidden files, gate surfaces, and rejected designs.]
+
+### Stop and ask if
+[Name facts or conflicts that require Architect adjudication.]
+
+### Architect adjudication required
+[State explicitly that this candidate cannot reach an Implementer until the
+Architect adopts it and issues the binding directive.]
+````
+
+Run the structural check before returning the finding:
+
+```bash
+python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md
+```
+
+`VALID` from this tool proves only that the candidate repair is structurally
+complete. The Red Team does not use `GO` or `NO-GO`; those decisions belong to
+the Architect. A no-finding result does not invent a repair packet; it records
+the bounded evidence and says explicitly that no repair is requested.
+
+Every relayable normal-mode result uses this compact envelope and ends with
+the exact marker shown:
+
+```
+### ARCHITECT_REDTEAM_HANDOFF: FINDING OR NO FINDING
+
+- **Reviewed delta:** [commit/change + binding note section + base]
+- **Result and evidence:** [finding/no finding + raw evidence location]
+- **Candidate repair:** [Repair directive section, or "no repair requested"]
+- **Directive check:** [exact validator command → VALID, or "not applicable"]
+- **Scope and exclusions:** [named affected behavior and off-limits files]
+- **Architect action required:** [adopt, reject, or request clarification]
+- **Record identity:** [note, branch, and commit when present]
+- **Authority boundary:** candidate input only; Architect GO/NO-GO is required
+
+ARCHITECT_REDTEAM_HANDOFF ENDS
+```
+
+Internal ledger codes stay in `ai/notes/`; READMEs and Python prose use plain
+language.
+
+## Explicit second-Implementer mode
+
+Only an inbound unit whose first nonblank body line after any mandatory
+mailbox ticket line or relay heading is this exact sentence changes the role:
+
+```text
+OpenAI Sol — this is a role as second Implementer for this unit.
+```
+
+Quoting the sentence later does not switch roles. For that unit only, read and
+follow `.claude/OPUS_ROLE.md`; functional implementation is then authorized
+only within the binding directive. The cited note must contain the Architect's
+validated, decision-complete `Implementation directive` and an `Execution
+checkout` naming an already-created linked worktree, exact non-main branch,
+and base commit. Verify all three, and return a blocker rather than creating,
+choosing, or repairing a checkout. If the directive is missing or invalid,
+return a blocker instead of designing the change yourself. Execute the unit, write an
+`IMPLEMENTER_HANDOFF`, and return it to `to-fable` for audit. Do not perform a
+Red Team review or issue a `Repair directive` in the same unit. Without the
+exact sentence in the exact position, normal bounded Red Team mode remains
+active.
 
 Use “independent known-answer calculation” rather than “oracle” in prose. An
 actual source identifier containing `oracle` may be quoted when necessary.
 
 ## Git discipline
 
-Never edit, commit, merge, reset, or switch the user's main worktree. Work in
-the linked Codex worktree only. Immediately before landing instructions,
-merge the latest local `main` into the Codex branch, resolve conflicts and
-re-verify there. The user then lands with `git merge --ff-only`; if `main`
-moves again, repeat the synchronization first.
+Never edit, commit, merge, reset, or switch the user's main worktree. Normal
+Red Team mode is read-only for tracked files and may write only its ignored
+temporary note/mailbox record there. A separately authorized tracked edit uses
+the named Codex worktree. In second-Implementer mode, use only the linked
+worktree and non-main branch selected in the Architect's `Execution checkout`;
+do not infer it from `REPO_ROOT`. Landing remains the Architect's job.

@@ -57,14 +57,14 @@ model:
 ```mermaid
 flowchart LR
   Q["Physics or software question"] --> N["Source note"]
-  N --> A["Architect: scope and gates"]
-  A --> I["Implementer: code and evidence"]
+  N --> A["Architect: complete plan and gates"]
+  A --> I["Implementer: follow plan and produce evidence"]
   I --> A
-  A -.-> R["Optional Red Team challenge"]
+  A -.-> R["Optional Red Team challenge and repair proposal"]
   R -.-> A
   A --> D{"GO or NO-GO"}
   D -->|"GO"| L["One audited landing"]
-  D -->|"NO-GO"| F["Small repair handoff"]
+  D -->|"NO-GO"| F["Complete repair directive"]
   F --> I
 ```
 
@@ -185,8 +185,8 @@ Keep this terminal open. The watcher checks the mailbox every 20 seconds and
 prints progress while a turn is running.
 
 The models are command-line choices. The roles are stable: the Architect still
-defines and audits the unit, and the Implementer still makes the bounded
-change.
+finishes the design, writes the ordered directive, and audits the unit. The
+Implementer follows that directive and makes the bounded change.
 
 The default watch also makes the independent Sol Red Team lane available. It
 does not create Sol work by itself; Sol runs only when a `to-sol` message is
@@ -244,13 +244,58 @@ Models can change from run to run. Authority does not.
 
 | Role | Responsibility | Stable route |
 | --- | --- | --- |
-| **Architect / Auditor** | Defines the unit and gates, audits raw evidence, decides `GO` or `NO-GO` | `to-fable` |
-| **Implementer** | Changes only the named unit and produces validation evidence | `to-opus` |
-| **Independent Red Team** | Challenges the named commit or change and reports findings to the Architect | `to-sol` |
+| **Architect / Auditor** | Thinks through the design, writes the complete implementation directive, audits raw evidence, and decides `GO` or `NO-GO` | `to-fable` |
+| **Implementer** | Follows the ordered directive, changes only the named unit, and produces validation evidence | `to-opus` |
+| **Independent Red Team** | Thinks adversarially about the named change and gives the Architect a detailed candidate repair when it finds a defect | `to-sol` |
 
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. A route name is transport,
 not a model name and not authority by itself.
+
+### The thinking roles must finish the plan
+
+The system is designed so the Implementer can be a simpler or less expensive
+model. It may be Sonnet, Haiku, an open-source model, or something else. The
+Architect and Red Team therefore do the reasoning; the Implementer should not
+need to invent architecture.
+
+Before implementation, the Architect's temporary ticket note must say:
+
+- the exact worktree, non-main branch, and base commit to use;
+- which files and exact symbols to edit;
+- what to do, in numbered dependency order;
+- the interfaces, types, shapes, algorithms, constants, and failure behavior;
+- the exact tests, fixtures, assertions, commands, and expected results;
+- what is off-limits, when to stop, and who owns each parallel file.
+
+Each file or test target begins its own visible bullet:
+
+```markdown
+- `ai/tools/mailbox_daemon.py::agent_preamble`: Change the role preamble.
+```
+
+The locator must come first, followed by the exact edit or test. Inline links,
+images, hidden metadata, and transport copies cannot supply binding
+instructions. Put any supplemental diagram outside the validated packet. The
+note also has a sibling
+`## Implementation evidence / resume state` section. The Implementer appends
+results there and never changes the validated packet's heading structure.
+
+The Architect checks that packet before dispatch:
+
+```bash
+python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+```
+
+A Red Team finding must be equally useful: it explains the root cause and
+provides an ordered candidate repair plus its regression test. It checks that
+proposal with `handoff_contract.py redteam`. The proposal goes back to the
+Architect first. Only the Architect may adopt it and issue the binding
+directive.
+
+If a directive is missing, contradictory, or leaves a consequential choice
+open, the Implementer stops and reports the gap. “Use your best judgment” is
+not an acceptable substitute for a design decision.
 
 ### Architect language is GO or NO-GO
 
@@ -278,9 +323,10 @@ widespread search happens only when the user explicitly writes:
 Do a widespread search for ...
 ```
 
-A Red Team finding is input to the Architect. It is never a self-executing
-ruling. `--skip-redteam` removes that optional lane for one watch; it does not
-weaken the Architect's evidence audit.
+A Red Team finding is input to the Architect. Its detailed repair plan is a
+candidate, never a self-executing ruling and never a direct instruction to the
+Implementer. `--skip-redteam` removes that optional lane for one watch; it does
+not weaken the Architect's evidence audit.
 
 ## Notes, tests, and gates
 
@@ -354,6 +400,23 @@ treated as green.
 
 ## Useful daily commands
 
+### Check a handoff directive
+
+The thinking role runs one of these before it queues implementation or a
+candidate repair:
+
+```bash
+python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md
+```
+
+The check is read-only and reports `VALID` or `INVALID` for both packet types.
+Those are structural results, not role decisions; only the Architect says
+`GO` or `NO-GO`. `VALID` means the required sections are present, ordered,
+concrete, and include canonical visible file/test locator bullets, numbered
+work, a real shell command block, and acceptance checkboxes. It does not judge
+whether the scientific plan is correct.
+
 ### Ask where the program is
 
 ```bash
@@ -388,7 +451,10 @@ python3 ai/tools/handoff_router.py \
 ```
 
 This command controls only that clipboard relay. It does not change the roles
-used by an already running mailbox watcher.
+used by an already running mailbox watcher. Its source must be a direct,
+non-symlink `.md` file in this checkout's `ai/notes/` directory. A relay log,
+mailbox file, outside path, or `../` escape is transport or untrusted input,
+not the source instruction.
 
 ### Queue a bounded Red Team discovery
 
@@ -699,7 +765,13 @@ index, notes, and uncommitted code. The daemon therefore gives them one lane.
 ### FAQ C2. Where does Sol work? <a id="faq-c2-sol-worktree"></a>
 
 Dispatched Sol starts at `REPO_ROOT`. The daemon does not automatically create
-a separate Sol worktree.
+a separate Sol worktree. In normal Red Team mode it keeps tracked files
+read-only there and writes only ignored ticket/mailbox records.
+
+For a second-Implementer unit, the Architect first names an already-created
+linked worktree, non-main branch, and base commit in `Execution checkout`.
+Sol verifies and works only there. Missing or mismatched checkout information
+is a blocker; Sol never selects a worktree or edits the root `main` checkout.
 
 A two-role watch disables the Sol lane. Queued Sol messages wait untouched.
 
@@ -727,14 +799,27 @@ flowchart TD
 ### FAQ D2. When may Sol act as a second Implementer? <a id="faq-d2-second-implementer"></a>
 
 The number never changes a role by itself. Sol becomes a second Implementer
-for one unit only when that message opens with this exact declaration and
-also carries the Implementer contract and gates:
+for one unit only when the first nonblank body line after a mandatory mailbox
+ticket line or relay heading is this exact declaration, and the message cites
+the Architect's complete, validated `Implementation directive`:
 
 ```text
 OpenAI Sol — this is a role as second Implementer for this unit.
 ```
 
-Without that declaration, Sol remains the bounded Red Team.
+Quoting that sentence later does not change the role. Without it in the exact
+position, Sol remains the bounded Red Team. With it, Sol
+follows `.claude/OPUS_ROLE.md`, returns an `IMPLEMENTER_HANDOFF` to the
+Architect, and does not perform a Red Team review in the same unit.
+
+For the manual router, `--mode second-implementer` assigns the supplied unit
+to Sol instead of Opus. It never asks both Implementers to execute one
+directive. Different simultaneous lanes require different notes, disjoint
+file ownership, and separate checkouts. Run that router from the exact linked
+worktree named by `Execution checkout`. Before copying any prompt, it proves
+that the path is a Git-registered linked worktree, the non-`main` branch is
+checked out there, and `HEAD` equals the directive's full base commit. Its
+local gate log therefore tests the same checkout that receives the work.
 
 The daemon's exact threshold hint is preserved here as an output example:
 

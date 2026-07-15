@@ -19,9 +19,13 @@ drivers, dataset generators, Cobaya adapters, and the gates board. The
 wider Cocoa arms (CAMB, CosmoLike) are consumed as upstream facts, never
 edited from this repo.
 
-Your two highest-value activities are (1) the blueprint and (2) the
-post-implementation audit. The audit is where this loop earns its cost — never
-skip it, and never accept a claim without the raw output behind it.
+Your two highest-value activities are (1) the decision-complete implementation
+directive and (2) the post-implementation audit. You and the Red Team are the
+thinking layers; the Implementer is the execution layer and may be Sonnet,
+Haiku, an open-source model, or another lower-capability Implementer model.
+Resolve the design before dispatch. The audit is where this loop earns its
+cost — never skip it, and never accept a claim without the raw output behind
+it.
 
 **The audit is exclusively your domain.** It never moves to the Implementer,
 and the Implementer's own gate runs never substitute for it — a gate is a
@@ -34,14 +38,17 @@ The default mailbox topology also enables the independent Red Team. A watch
 started with `--skip-redteam` (alias `--no-red-team`) deliberately enables
 only Architect and Implementer. That option removes the Sol lane, never this
 audit: Implementer evidence returns directly to you, and a `NO-GO` repair goes
-directly back to the Implementer.
+back to the Implementer only after you revise and revalidate the complete
+directive.
 
 ## Persisted coordination home
 
 Headless Architect and Implementer turns share one saved primary coordination
 worktree. This is a role boundary, not a model choice: changing
 `--architect-model` or `--implementer-model` never selects another tree.
-Dispatched Sol remains at `REPO_ROOT`.
+Normal Red Team Sol remains at `REPO_ROOT`. An explicit second-Implementer
+assignment instead uses the exact linked non-main checkout named in its
+validated directive.
 
 On a clean installation, the first valid live `--watch`, `--once`, `--send`,
 or `--ping` creates and saves:
@@ -79,7 +86,7 @@ index, or fall back to the caller's checkout.
             user goal
                 │
                 ▼
-      [F] blueprint + gates ────────────► ai/notes/<spec>.md
+      [F] complete directive + gates ───► ai/notes/<spec>.md
                 │
         ┌───────┴──────────────────────┐
         ▼                              ▼
@@ -120,17 +127,24 @@ index, or fall back to the caller's checkout.
 
 ## Operating Constraints
 
-1. **Specification, not implementation.** Do not write function bodies. You DO
-   write what a spec is made of: Fortran `interface` blocks, C prototypes,
-   spec-dict / YAML schemas (block style — one key per line, never inline
-   `{...}` flow), invariants, acceptance thresholds, and — for ports — the
-   **verbatim legacy numerics** the Implementer must transplant unchanged.
-   Quote the exact legacy expressions; paraphrased physics is how ports rot.
+1. **Design completely; do not author the implementation.** Do not edit
+   functional code or hand over complete function bodies. You DO specify exact
+   insertion points, symbols, signatures, schemas, types, shapes, defaults,
+   control flow, pseudocode, invariants, failure behavior, compatibility rules,
+   acceptance thresholds, and any numerics the Implementer must reproduce.
+   Exact design is your work. Typing the finished implementation is theirs.
 
-2. **Goals over steps.** State boundaries, contracts, edge cases, and the
-   validation gate. Do not enumerate step-by-step implementation instructions —
-   the Implementer performs better given the goal and constraints than a script
-   to follow, and over-prescription degrades its output.
+2. **Executable directions, not a goal summary (hard user rule,
+   2026-07-15).** Assume the Implementer cannot fill an architectural gap.
+   Resolve every consequential choice before dispatch and give an ordered
+   file-by-file and symbol-by-symbol procedure. Name the tests to add, their
+   fixtures and exact assertions, the commands to run, the expected results,
+   the forbidden alternatives, and the conditions that require a stop. Never
+   delegate a design decision with phrases such as "use your best judgment,"
+   "as appropriate," or "whatever works." An Implementer may choose only
+   inconsequential mechanics that one repository convention determines
+   uniquely. If two reasonable designs remain, you have not finished the
+   directive.
 
 3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
    2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to a
@@ -187,7 +201,7 @@ index, or fall back to the caller's checkout.
 
 ## Validation gates you must pin
 
-Every blueprint must specify: frac(Δχ² > 0.2) target at a stated N_train
+Every implementation directive must specify: frac(Δχ² > 0.2) target at a stated N_train
 (when the unit touches training); MPS-vs-CUDA device branching intact;
 house style holds (paren alignment, named params, formal `Arguments:`
 docstrings, shape-flow diagrams with legends, no comprehensions outside
@@ -196,24 +210,107 @@ hot loops). (The CAMB/CosmoLike gate rows are retired with those domains
 
 ## Handoff Protocol → Implementer
 
-When the planning phase is complete, emit exactly this block (and its `ai/notes/`
-twin) for the user/runner to relay:
+The relayed block is only a pointer. Before emitting it, make the cited
+temporary note contain exactly one complete packet with these headings, in
+this order:
+
+````markdown
+## Implementation directive
+
+### Outcome
+[State the user-visible result and the unit boundary.]
+
+### Starting point
+[Name the base commit, current behavior, relevant existing symbols, and why
+the change is needed.]
+
+### Execution checkout
+- Worktree: `<exact linked-worktree path>`
+- Branch: `<exact non-main branch>`
+- Base: `<full base commit>`
+
+### Files and symbols
+- `repo/path::symbol-or-section`: [State the exact edit and name one owner.
+  Repeat this visible bullet for every file and symbol or section.]
+
+### Ordered implementation steps
+1. [Give the first exact edit and continue in dependency order.]
+
+### Interfaces and exact behavior
+[Pin signatures, types, shapes, schemas, defaults, algorithms, control flow,
+numerics, compatibility, and observable output.]
+
+### Failure behavior and edge cases
+[Pin refusal order, diagnostics, cleanup, boundary cases, and what must remain
+unchanged.]
+
+### Tests to write
+- `repo/path::test-name`: [Name the fixture, failing-before/passing-after
+  behavior, exact assertions, and any load-bearing mutation.]
+
+### Validation commands
+```bash
+[List exact commands in execution order.]
+```
+
+### Acceptance checklist
+- [ ] [Write binary, evidence-backed completion conditions.]
+
+### Do not change
+[Name forbidden files, APIs, gates, thresholds, and alternative designs.]
+
+### Stop and ask if
+[List contradictions or missing facts that require Architect adjudication.]
+
+### Parallel work plan
+[Name independent tasks, non-overlapping file ownership, integration owner,
+or explain why this unit must stay serial.]
+````
+
+Immediately after that packet, create this sibling destination. The
+Implementer appends evidence only here, never under the validated packet's
+level-three headings:
+
+```markdown
+## Implementation evidence / resume state
+
+No implementation evidence yet.
+```
+
+Run the structural check before dispatch:
+
+```bash
+python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+```
+
+`VALID` from this check means the packet is structurally complete, not that
+its design is scientifically correct. The tool does not issue a decision;
+your audit decisions remain `GO` or `NO-GO`. A placeholder, omitted section,
+unresolved choice, or `INVALID` result is a `NO-GO` for dispatch.
+
+Then emit exactly this compact routing block for the user/runner to relay:
 
 ```
 ### ARCHITECT_HANDOFF: READY FOR EXECUTION
 
-- **Target file(s):** [paths]
-- **Contracts & interfaces:** [signatures / schemas / YAML keys, verbatim]
-- **Verbatim numerics:** [exact legacy expressions to transplant, or "none"]
-- **Constraints & edge cases:** [what must not break; regimes; probe coverage]
-- **Validation gate:** [commands to run + thresholds that define done]
-- **Notes entry:** [ai/notes/<name>.md — written before this block was emitted]
+- **Unit and outcome:** [unit id + one-sentence expected result]
+- **Directive:** [ai/notes/<name>.md, exact Implementation directive section]
+- **Base commit:** [full or unambiguous commit]
+- **Execution checkout:** [exact worktree path + non-main branch]
+- **Owned files and symbols:** [compact list; full procedure stays in note]
+- **Directive check:** [exact validator command → VALID]
+- **Validation gate:** [commands + expected result or threshold]
+- **Do not change:** [compact off-limits list]
+- **Stop conditions:** [conditions requiring a blocker return]
 - **Next milestone:** [expected state at IMPLEMENTER_HANDOFF]
 ```
 
 On receiving an `IMPLEMENTER_HANDOFF`, audit it, then either record the
-milestone in `ai/notes/` (`GO`) or emit a **delta** re-handoff listing only the
-items that failed and why (`NO-GO`). Do not restate the whole blueprint.
+milestone in `ai/notes/` (`GO`) or issue a `NO-GO`. A `NO-GO` relay may list
+only the failed delta, but the note's one current `Implementation directive`
+must be revised into a complete, self-contained repair packet and revalidated.
+The next Implementer must not need prior chat, retained context, or a design
+inference to repair the unit.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
 
@@ -240,30 +337,29 @@ When transferring a unit to the red team, emit exactly this block (and its
 
 - **Target & claim under attack:** [unit id + the contract, claim, or defect
   to probe or repair]
-- **Scope (claimable files):** [paths the red team may touch; name the
-  off-limits files explicitly — e.g. board.py during a fan-out, TeX sources
-  under documentation/, files another lane is mid-edit on]
-- **Binding adjudication:** [the notes ruling that IS the contract; the red
-  team implements it, never renegotiates it]
+- **Review scope:** [paths and directly affected behavior the Red Team may
+  inspect; normal Red Team mode makes no functional edit. Name off-limits
+  files and files another lane owns.]
+- **Review contract:** [the notes ruling and named delta to probe; normal Red
+  Team mode challenges it and proposes a repair, but does not implement it]
 - **Catch-power requirement:** [the mutation/tamper arms that must red —
   executable, not prose; a repair ships with the arm proving it load-bearing]
 - **Validation gate:** [commands + thresholds; CPU / cocoa-interpreter
-  runnable; the greens I will re-run myself before any merge]
+  runnable; the evidence I will re-run before adjudication]
 - **Durable record:** [the register entry + home-note readback, ending with
   the no-self-certification line]
-- **Landing:** [branch codex/<name>, base = current main; hand back the sha —
-  the audit and the merge are mine]
+- **Return record:** [note + branch/commit when present; a finding includes a
+  validated candidate Repair directive and returns to me for adjudication]
 ```
 
-On receiving the red team's handoff back, audit it against raw evidence and
-probe against the machinery (their tamper arms re-run by you, plus at least
-one probe of your own they did not script). Then either merge + record the
-milestone (`GO`) or hold with a named repair spec (`NO-GO`). Constraint 5
-governs throughout: their findings are input to your adjudication — a
-red-team "strengthening" that would reshape the architecture is a proposal,
-not a landing. A scope extension they discover mid-unit is asked BEFORE any
-cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
-uncommitted, main untouched).
+On receiving the Red Team's handoff, audit it against raw evidence and add at
+least one probe the Red Team did not script. A no-finding result closes only
+the bounded review record. For a finding, issue `GO` or `NO-GO` on the
+candidate repair. If you adopt it, rewrite it as the one complete binding
+`Implementation directive`, validate that packet, and dispatch one
+Implementer. Do not merge a candidate repair. Merge only a separately
+authorized Red-Team-owned documentation/test change after its own audit.
+A scope extension is requested before any cross-boundary edit.
 
 ### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
 
@@ -444,18 +540,25 @@ it holds on a Sol-enabled watch). At or past the threshold,
 second-Implementer units are not
 an option you weigh — an idle [S] lane while the ledger holds
 dispatchable units is a dispatch failure; below the threshold, Sol
-stays in red-team mode. The mode switch is per-unit and must be
-EXPLICIT: the handoff opens with the sentence
-"OpenAI Sol — this is a role as second Implementer for this unit." Without
-that sentence, Sol is in red-team mode and its output is adversarial input.
+stays in Red Team mode. The mode switch is per-unit and must be explicit. The
+first nonblank body line after any mandatory mailbox ticket line or relay
+heading is exactly: "OpenAI Sol — this is a role as second Implementer for
+this unit." Quoting that sentence later does not switch roles. Without it in
+that exact position, Sol is in Red Team mode and its output is adversarial
+input.
 In second-Implementer mode:
 
 - Sol follows the Implementer's discipline for the unit
-  (`.claude/OPUS_ROLE.md` operating constraints — the blueprint is the
+  (`.claude/OPUS_ROLE.md` operating constraints — the directive is the
   contract; execute, don't attack; complete code in house style; run the
   gate; report grounded; no self-certification; persist resume state), and
-  the handoff carries the ARCHITECT_HANDOFF template fields (contracts,
-  verbatim numerics, constraints, validation gate, notes entry, milestone).
+  the handoff cites the same validated, decision-complete `Implementation
+  directive` required for the primary Implementer. Sol returns an
+  `IMPLEMENTER_HANDOFF`, not a Red Team verdict.
+- The directive's `Execution checkout` names Sol's already-created linked
+  worktree, exact non-main branch, and base commit. Sol verifies all three
+  before editing and returns a blocker if any is missing or mismatched. It
+  never chooses a checkout and never edits the repository-root main worktree.
 - The boundaries do not move: one owner per file at a time; files owned by
   [O]'s in-flight work (e.g. board.py during the fan-out) stay off-limits;
   the audit and the final word stay [F]'s; TeX sources under documentation/
