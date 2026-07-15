@@ -24,6 +24,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[3]
 GENERATOR_CORE = ROOT / "compute_data_vectors" / "generator_core.py"
 POLICY_NAME = "nextafter-toward-interval-interior-v1"
+if str(ROOT) not in sys.path:
+  sys.path.insert(0, str(ROOT))
+from compute_data_vectors.dataset_manifest import (
+  UNIFORM_BOUNDARY_INTERIOR_POLICY as SHARED_POLICY_NAME,
+)
 MUTATIONS = (
   "endpoint-times-constant",
   "request-validation-bypass",
@@ -384,6 +389,10 @@ def load_helper(tree, mutation):
   policy_node = constant_assignment(
     tree=tree,
     name="UNIFORM_BOUNDARY_INTERIOR_POLICY")
+  if not isinstance(policy_node.value, ast.Name) \
+      or policy_node.value.id != "DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY":
+    raise AssertionError(
+      "GeneratorCore must bind the Unit-94 policy from dataset_manifest")
   helper_node = top_level_function(
     tree=tree,
     name="resolve_uniform_sampling_support")
@@ -395,7 +404,10 @@ def load_helper(tree, mutation):
     body=[copy.deepcopy(policy_node), helper_copy],
     type_ignores=[])
   ast.fix_missing_locations(module)
-  namespace = {"np": np}
+  namespace = {
+    "np": np,
+    "DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY": SHARED_POLICY_NAME,
+  }
   exec(
     compile(
       module,
@@ -404,6 +416,9 @@ def load_helper(tree, mutation):
     namespace)
   helper = namespace["resolve_uniform_sampling_support"]
   policy = namespace["UNIFORM_BOUNDARY_INTERIOR_POLICY"]
+  if SHARED_POLICY_NAME != POLICY_NAME:
+    raise AssertionError(
+      "dataset_manifest Unit-94 policy drifted from the ruled policy name")
   return helper, policy
 
 

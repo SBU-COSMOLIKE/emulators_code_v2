@@ -7,6 +7,387 @@ an invalid state before looking up paths or touching output.
 """
 
 from dataclasses import dataclass
+import math
+import re
+from types import MappingProxyType
+
+
+DATASET_REQUEST_SCHEMA = 1
+UNIFORM_BOUNDARY_INTERIOR_POLICY = (
+  "nextafter-toward-interval-interior-v1")
+DATASET_PROBE_FAMILIES = MappingProxyType({
+  "cs": "cosmolike",
+  "ggl": "cosmolike",
+  "gc": "cosmolike",
+  "cmblensed": "cmb",
+  "cmbunlensed": "cmb",
+  "background": "grid",
+  "mps": "grid2d",
+})
+DATASET_PROBE_GENERATORS = MappingProxyType({
+  "cs": "dataset_generator_lensing",
+  "ggl": "dataset_generator_lensing",
+  "gc": "dataset_generator_lensing",
+  "cmblensed": "dataset_generator_cmb",
+  "cmbunlensed": "dataset_generator_cmb",
+  "background": "dataset_generator_background",
+  "mps": "dataset_generator_mps",
+})
+DATASET_SAMPLING_POLICIES = MappingProxyType({
+  "uniform": MappingProxyType({
+    "algorithm": "uniform-box-v1",
+    "bit_generator": "PCG64",
+    "emcee_random": None,
+    "owner": "numpy.random.Generator",
+    "policy": "persist-complete-state-v1",
+  }),
+  "gaussian-mcmc": MappingProxyType({
+    "algorithm": "emcee-de-snooker-v1",
+    "bit_generator": "PCG64",
+    "emcee_random": "MT19937",
+    "owner": "numpy.random.Generator",
+    "policy": "persist-complete-state-v1",
+  }),
+})
+
+_REQUEST_KEYS = (
+  "dataset_mode", "family", "family_variant", "generator", "parameters",
+  "probe", "sampling", "schema", "scientific_contract_sha256")
+_SAMPLING_KEYS = (
+  "algorithm", "boundary_factor", "boundary_interior_policy",
+  "max_correlation", "mode", "rng", "seed", "temperature")
+_RNG_KEYS = ("bit_generator", "emcee_random", "owner", "policy")
+_PARAMETER_KEYS = ("configuration_sha256", "dtype", "names")
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+_PORTABLE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+_PARAMETER_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_MAX_STEM_LENGTH = 200
+_MAX_JSON_INTEGER_BITS = 3402
+_MAX_JSON_INTEGER_DIGITS = 1024
+
+
+def build_dataset_request_identity(*, dataset_mode, family, family_variant,
+                                   generator, probe, sampling_mode,
+                                   temperature, boundary_factor,
+                                   max_correlation, sampling_algorithm, seed,
+                                   rng_bit_generator, rng_emcee_random,
+                                   rng_policy,
+                                   boundary_interior_policy, ordered_names,
+                                   configuration_sha256,
+                                   scientific_contract_sha256):
+  """Build the immutable scientific request for one logical dataset.
+
+  This record says *which* rows and payload semantics a caller requested.  It
+  deliberately excludes run-control flags, requested batch size, committed row
+  count, and mutable random-number-generator state.  Those values describe a
+  transaction or one committed generation, not the invariant dataset request.
+  A later integration slice must publish complete continuation state as its own
+  authenticated member.
+
+  Requested and resolved support are also not copied into this object.  The
+  producer-authored ``.facts.yaml`` sidecar is their single source of truth.
+  ``scientific_contract_sha256`` binds the versioned stable projection owned by
+  ``emulator.fixed_facts.scientific_contract_digest``.  That projection omits
+  only the generation-specific chain digest, so a valid append keeps the same
+  request while the full sidecar member remains authenticated separately.
+  """
+  if type(ordered_names) is not list:
+    raise ValueError(
+      "ordered_names must be a nonempty native list, not an iterable that "
+      "could be split or reordered; got " + repr(ordered_names))
+  identity = {
+    "dataset_mode": dataset_mode,
+    "family": family,
+    "family_variant": family_variant,
+    "generator": generator,
+    "parameters": {
+      "configuration_sha256": configuration_sha256,
+      "dtype": "float32",
+      "names": list(ordered_names),
+    },
+    "probe": probe,
+    "sampling": {
+      "algorithm": sampling_algorithm,
+      "boundary_factor": boundary_factor,
+      "boundary_interior_policy": boundary_interior_policy,
+      "max_correlation": max_correlation,
+      "mode": sampling_mode,
+      "rng": {
+        "bit_generator": rng_bit_generator,
+        "emcee_random": rng_emcee_random,
+        "owner": "numpy.random.Generator",
+        "policy": rng_policy,
+      },
+      "seed": seed,
+      "temperature": temperature,
+    },
+    "schema": DATASET_REQUEST_SCHEMA,
+    "scientific_contract_sha256": scientific_contract_sha256,
+  }
+  validate_dataset_request_identity(identity)
+  return identity
+
+
+def validate_dataset_request_identity(identity):
+  """Validate one request identity without supplying any missing defaults.
+
+  The accepted object is intentionally strict enough to validate a record read
+  back from canonical JSON.  Unknown, missing, or wrongly typed fields refuse;
+  booleans never stand in for integers and nonfinite controls never enter a
+  manifest.
+  """
+  _require_exact_keys(identity, _REQUEST_KEYS, "dataset request identity")
+  if type(identity["schema"]) is not int \
+      or identity["schema"] != DATASET_REQUEST_SCHEMA:
+    raise ValueError(
+      "dataset request schema must be the native integer "
+      + str(DATASET_REQUEST_SCHEMA) + "; got " + repr(identity["schema"]))
+
+  dataset_mode = identity["dataset_mode"]
+  if dataset_mode not in ("full", "chain-only"):
+    raise ValueError(
+      "dataset request mode must be 'full' or 'chain-only'; got "
+      + repr(dataset_mode))
+
+  probe = _portable_string(identity["probe"], "dataset probe")
+  if probe not in DATASET_PROBE_FAMILIES:
+    raise ValueError("unknown dataset probe " + repr(probe))
+  family = identity["family"]
+  expected_family = DATASET_PROBE_FAMILIES[probe]
+  if family != expected_family:
+    raise ValueError(
+      "dataset probe " + repr(probe) + " belongs to family "
+      + repr(expected_family) + ", not " + repr(family))
+
+  variant = identity["family_variant"]
+  if family == "grid2d":
+    if variant not in ("native", "syren-base"):
+      raise ValueError(
+        "grid2d family variant must be 'native' or 'syren-base'; got "
+        + repr(variant))
+  elif variant != "standard":
+    raise ValueError(
+      "family " + repr(family) + " requires variant 'standard'; got "
+      + repr(variant))
+
+  generator = _portable_string(identity["generator"], "dataset generator")
+  expected_generator = DATASET_PROBE_GENERATORS[probe]
+  if generator != expected_generator:
+    raise ValueError(
+      "dataset probe " + repr(probe) + " requires generator "
+      + repr(expected_generator) + "; got " + repr(generator))
+  _require_digest(identity["scientific_contract_sha256"],
+                  "invariant scientific contract")
+
+  parameters = identity["parameters"]
+  _require_exact_keys(parameters, _PARAMETER_KEYS, "dataset parameters")
+  if parameters["dtype"] != "float32":
+    raise ValueError(
+      "dataset parameter dtype must be 'float32'; got "
+      + repr(parameters["dtype"]))
+  _require_digest(parameters["configuration_sha256"],
+                  "resolved configuration")
+  names = parameters["names"]
+  if type(names) is not list or not names:
+    raise ValueError(
+      "dataset parameter names must be a nonempty ordered JSON list")
+  if len(names) > 4096:
+    raise ValueError("dataset parameter-name list exceeds 4096 entries")
+  seen = set()
+  for name in names:
+    if type(name) is not str or len(name) > 256 \
+        or not _PARAMETER_NAME_RE.fullmatch(name):
+      raise ValueError(
+        "dataset parameter name must be a portable identifier; got "
+        + repr(name))
+    if name in seen:
+      raise ValueError("dataset parameter name is repeated: " + repr(name))
+    seen.add(name)
+
+  sampling = identity["sampling"]
+  _require_exact_keys(sampling, _SAMPLING_KEYS, "dataset sampling record")
+  mode = sampling["mode"]
+  if type(mode) is not str or mode not in DATASET_SAMPLING_POLICIES:
+    raise ValueError(
+      "sampling mode must be 'uniform' or 'gaussian-mcmc'; got "
+      + repr(mode))
+  policy = DATASET_SAMPLING_POLICIES[mode]
+  if sampling["algorithm"] != policy["algorithm"]:
+    raise ValueError(
+      "sampling mode " + repr(mode) + " requires algorithm "
+      + repr(policy["algorithm"]) + "; got "
+      + repr(sampling["algorithm"]))
+  _native_integer(sampling["temperature"], "sampling temperature", minimum=1)
+  _native_integer(sampling["seed"], "sampling seed", minimum=0)
+  boundary = _native_finite_float(
+    sampling["boundary_factor"], "sampling boundary factor")
+  if not 0.0 < boundary <= 1.0:
+    raise ValueError(
+      "sampling boundary factor must be in (0, 1]; got " + repr(boundary))
+
+  if mode == "uniform":
+    if sampling["max_correlation"] is not None:
+      raise ValueError(
+        "uniform sampling requires max_correlation=null; got "
+        + repr(sampling["max_correlation"]))
+    if sampling["boundary_interior_policy"] \
+        != UNIFORM_BOUNDARY_INTERIOR_POLICY:
+      raise ValueError(
+        "uniform sampling requires boundary-interior policy "
+        + repr(UNIFORM_BOUNDARY_INTERIOR_POLICY) + "; got "
+        + repr(sampling["boundary_interior_policy"]))
+  else:
+    correlation = _native_finite_float(
+      sampling["max_correlation"], "maximum sampling correlation")
+    if not 0.01 < correlation <= 1.0:
+      raise ValueError(
+        "maximum sampling correlation must be in (0.01, 1]; got "
+        + repr(correlation))
+    if sampling["boundary_interior_policy"] is not None:
+      raise ValueError(
+        "gaussian-mcmc sampling requires boundary_interior_policy=null; got "
+        + repr(sampling["boundary_interior_policy"]))
+
+  rng = sampling["rng"]
+  _require_exact_keys(rng, _RNG_KEYS, "dataset RNG policy")
+  for field in ("bit_generator", "emcee_random", "owner", "policy"):
+    if rng[field] != policy[field]:
+      raise ValueError(
+        "sampling mode " + repr(mode) + " requires RNG " + field + "="
+        + repr(policy[field]) + "; got " + repr(rng[field]))
+  return identity
+
+
+def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
+  """Return the exact semantic role-to-basename map for one request.
+
+  The stems are the already mode-scoped basenames used in the slot descriptor.
+  Full CMB publication intentionally requires a persisted integer multipole
+  axis.  The current generator does not yet write that member, so later
+  integration must add it or fail closed rather than infer coordinates from
+  array width.
+  """
+  validate_dataset_request_identity(identity)
+  stems = {}
+  for label, value in (("parameter", params_stem),
+                       ("data-vector", dvs_stem),
+                       ("failure", fail_stem)):
+    if type(value) is not str or len(value) > _MAX_STEM_LENGTH \
+        or not _STEM_RE.fullmatch(value) \
+        or value in (".", "..") or value.startswith("."):
+      raise ValueError(
+        label + " stem must be one portable, visible basename; got "
+        + repr(value))
+    stems[label] = value
+  if len({value.casefold() for value in stems.values()}) != 3:
+    raise ValueError(
+      "parameter, data-vector, and failure stems must be distinct on "
+      "case-insensitive filesystems")
+
+  params = stems["parameter"]
+  dvs = stems["data-vector"]
+  fail = stems["failure"]
+  members = {
+    "parameters.chain": params + ".1.txt",
+    "parameters.schema": params + ".paramnames",
+    "parameters.covariance": params + ".covmat",
+    "parameters.ranges": params + ".ranges",
+    "metadata.scientific-facts": params + ".facts.yaml",
+  }
+  if identity["dataset_mode"] == "chain-only":
+    _require_unique_member_paths(members)
+    return members
+
+  members["rows.failure-mask"] = fail + ".txt"
+  family = identity["family"]
+  if family == "cosmolike":
+    members["payload.cosmolike.vector"] = dvs + ".npy"
+  elif family == "cmb":
+    for spectrum in ("tt", "te", "ee", "pp"):
+      members["payload.cmb." + spectrum] = dvs + "_" + spectrum + ".npy"
+    members["axis.cmb.multipole"] = dvs + "_ell.npy"
+  elif family == "grid":
+    for quantity in ("h", "dm"):
+      members["payload.grid." + quantity] = dvs + "_" + quantity + ".npy"
+      members["axis.grid." + quantity + ".redshift"] = (
+        dvs + "_" + quantity + "_z.npy")
+  elif family == "grid2d":
+    members["payload.grid2d.pklin"] = dvs + "_pklin.npy"
+    members["payload.grid2d.boost"] = dvs + "_boost.npy"
+    members["axis.grid2d.redshift"] = dvs + "_z.npy"
+    members["axis.grid2d.wavenumber"] = dvs + "_k.npy"
+    if identity["family_variant"] == "syren-base":
+      members["base.grid2d.pklin"] = dvs + "_pklin_base.npy"
+      members["base.grid2d.boost"] = dvs + "_boost_base.npy"
+  else:
+    raise AssertionError("validated dataset family was not routed")
+  _require_unique_member_paths(members)
+  return members
+
+
+def _require_exact_keys(value, keys, label):
+  if type(value) is not dict:
+    raise ValueError(label + " must be a JSON object")
+  if any(type(key) is not str for key in value):
+    raise ValueError(label + " field names must all be strings")
+  missing = sorted(set(keys) - set(value))
+  unknown = sorted(set(value) - set(keys))
+  if missing or unknown:
+    raise ValueError(
+      label + " fields differ from the schema: missing=" + repr(missing)
+      + ", unknown=" + repr(unknown))
+
+
+def _portable_string(value, label):
+  if type(value) is not str or len(value) > 256 \
+      or not _PORTABLE_TOKEN_RE.fullmatch(value):
+    raise ValueError(label + " must be a bounded portable token; got "
+                     + repr(value))
+  return value
+
+
+def _require_digest(value, label):
+  if type(value) is not str or not _HEX64_RE.fullmatch(value):
+    raise ValueError(label + " SHA-256 must be 64 lower-case hex digits; got "
+                     + repr(value))
+
+
+def _native_integer(value, label, minimum):
+  if type(value) is not int:
+    raise ValueError(label + " must be a native integer >= " + str(minimum)
+                     + " (not bool); got " + repr(value))
+  if value.bit_length() > _MAX_JSON_INTEGER_BITS:
+    raise ValueError(
+      label + " exceeds the publication limit of "
+      + str(_MAX_JSON_INTEGER_BITS) + " bits")
+  if len(str(abs(value))) > _MAX_JSON_INTEGER_DIGITS:
+    raise ValueError(
+      label + " exceeds the publication limit of "
+      + str(_MAX_JSON_INTEGER_DIGITS) + " decimal digits")
+  if value < minimum:
+    raise ValueError(label + " must be a native integer >= " + str(minimum)
+                     + "; got " + repr(value))
+  return value
+
+
+def _require_unique_member_paths(members):
+  folded = {}
+  for role, relative in members.items():
+    key = relative.casefold()
+    if key in folded:
+      raise ValueError(
+        "dataset member paths collide on a case-insensitive filesystem: "
+        + repr(folded[key]) + " and " + repr(role) + " both select "
+        + repr(relative))
+    folded[key] = role
+
+
+def _native_finite_float(value, label):
+  if type(value) is not float or not math.isfinite(value):
+    raise ValueError(label + " must be a finite native float; got "
+                     + repr(value))
+  return value
 
 
 class CheckpointLoadError(RuntimeError):

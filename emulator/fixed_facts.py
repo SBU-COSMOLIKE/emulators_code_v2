@@ -85,6 +85,7 @@ SCHEMA_VERSION = 3
 # verbatim, so a key cannot be stripped on the way in.
 FIXED_FACTS_BLOCK_VERSION  = 1
 INPUT_DOMAIN_BLOCK_VERSION = 1
+SCIENTIFIC_CONTRACT_DIGEST_SCHEMA = 1
 
 # The (schema, fixed_facts grammar, input_domain grammar) triples this module
 # knows how to read. Any other combination is refused. Versions are values like
@@ -604,6 +605,143 @@ def parse_sidecar(text, where):
       "parsed as " + type(blocks).__name__ + ". " + MIGRATION)
   validate(blocks=blocks, where=where)
   return blocks
+
+
+def scientific_contract_digest(blocks, where="the scientific contract"):
+  """Digest the append-invariant science in one validated facts record.
+
+  The complete sidecar is generation-specific because
+  ``fixed_facts.dataset_id`` is the digest of the committed chain.  Appending
+  rows changes that value even when the requested science is unchanged.  A
+  dataset request therefore must not hash the complete sidecar and call that
+  result invariant.
+
+  This function is the single owner of the stable projection.  It validates
+  the same two producer blocks used everywhere else, copies every declared
+  value, removes only ``dataset_id``, adds the outer schema version, and hashes
+  canonical JSON bytes.  Requested and resolved support remain covered; no
+  consumer reconstructs or separately authors them.  The complete sidecar and
+  chain digest remain authenticated members of each published generation.
+
+  Arguments:
+    blocks = the two parsed blocks accepted by ``validate``.
+    where  = identity named in a refusal.
+
+  Returns:
+    the SHA-256 digest as 64 lower-case hexadecimal digits.
+
+  Raises:
+    ValueError when the record is invalid or cannot be represented as finite
+    canonical JSON.
+  """
+  import json
+
+  validate(blocks=blocks, where=where)
+  expected_groups = {FIXED_FACTS_GROUP, INPUT_DOMAIN_GROUP}
+  if set(blocks) != expected_groups:
+    raise ValueError(
+      where + " must contain exactly the two scientific-record groups")
+  if set(blocks[FIXED_FACTS_GROUP]) != set(FIXED_FACTS_KEYS):
+    raise ValueError(
+      where + " fixed_facts fields differ from the current grammar")
+  if set(blocks[INPUT_DOMAIN_GROUP]) != set(INPUT_DOMAIN_KEYS):
+    raise ValueError(
+      where + " input_domain fields differ from the current grammar")
+  facts = dict(blocks[FIXED_FACTS_GROUP])
+  del facts["dataset_id"]
+  projection = {
+    "contract_schema": SCIENTIFIC_CONTRACT_DIGEST_SCHEMA,
+    "fixed_facts": facts,
+    "input_domain": dict(blocks[INPUT_DOMAIN_GROUP]),
+    "schema_version": SCHEMA_VERSION,
+  }
+  budget = {"characters": 8 * 1024 * 1024, "nodes": 100000}
+  _validate_scientific_contract_value(
+    projection, path="$", depth=0, seen=set(), budget=budget)
+  try:
+    payload = json.dumps(
+      projection,
+      allow_nan=False,
+      ensure_ascii=True,
+      separators=(",", ":"),
+      sort_keys=True)
+  except (TypeError, ValueError) as exc:
+    raise ValueError(
+      where + " cannot form the finite canonical scientific contract: "
+      + str(exc)) from exc
+  return hashlib.sha256((payload + "\n").encode("ascii")).hexdigest()
+
+
+def _validate_scientific_contract_value(value, *, path, depth, seen, budget):
+  """Bound every value before canonical scientific-contract serialization."""
+  import math
+
+  if depth > 32:
+    raise ValueError(path + " exceeds the scientific-contract depth limit")
+  budget["nodes"] -= 1
+  if budget["nodes"] < 0:
+    raise ValueError("the scientific contract exceeds 100000 values")
+
+  if value is None or type(value) is bool:
+    return
+  if type(value) is str:
+    if len(value) > 1024 * 1024:
+      raise ValueError(path + " contains a string longer than 1 MiB")
+    budget["characters"] -= len(value)
+    if budget["characters"] < 0:
+      raise ValueError("the scientific contract exceeds 8 MiB of text")
+    return
+  if type(value) is int:
+    if value.bit_length() > 3402:
+      raise ValueError(path + " contains an integer longer than 3402 bits")
+    if len(str(abs(value))) > 1024:
+      raise ValueError(
+        path + " contains an integer longer than 1024 decimal digits")
+    return
+  if type(value) is float:
+    if not math.isfinite(value):
+      raise ValueError(path + " contains a non-finite number")
+    return
+  if type(value) is list:
+    if len(value) > 4096:
+      raise ValueError(path + " contains a list longer than 4096 values")
+    token = id(value)
+    if token in seen:
+      raise ValueError(path + " contains a recursive list")
+    seen.add(token)
+    try:
+      for index, item in enumerate(value):
+        _validate_scientific_contract_value(
+          item, path=path + "[" + str(index) + "]", depth=depth + 1,
+          seen=seen, budget=budget)
+    finally:
+      seen.remove(token)
+    return
+  if type(value) is dict:
+    if len(value) > 4096:
+      raise ValueError(path + " contains an object larger than 4096 fields")
+    token = id(value)
+    if token in seen:
+      raise ValueError(path + " contains a recursive object")
+    seen.add(token)
+    try:
+      for key, item in value.items():
+        if type(key) is not str:
+          raise ValueError(path + " contains a non-string object key")
+        if len(key) > 1024 * 1024:
+          raise ValueError(path + " contains an object key longer than 1 MiB")
+        budget["characters"] -= len(key)
+        if budget["characters"] < 0:
+          raise ValueError("the scientific contract exceeds 8 MiB of text")
+        _validate_scientific_contract_value(
+          item, path=path + "." + key, depth=depth + 1,
+          seen=seen, budget=budget)
+    finally:
+      seen.remove(token)
+    return
+  raise ValueError(
+    path + " contains unsupported scientific-contract value type "
+    + type(value).__name__)
 
 
 def validate(blocks, where, schema_version=SCHEMA_VERSION):

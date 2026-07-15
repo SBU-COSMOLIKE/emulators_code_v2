@@ -73,6 +73,8 @@ if _REPO_ROOT not in sys.path:
 from emulator import fixed_facts
 from emulator.parameter_table import resolve_parameter_table
 from compute_data_vectors.dataset_manifest import (
+  DATASET_PROBE_FAMILIES,
+  UNIFORM_BOUNDARY_INTERIOR_POLICY as DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY,
   load_checkpoint_or_refuse,
   require_checkpoint_members,
   scope_dataset_stem,
@@ -189,7 +191,7 @@ def make_cli_parser(prog):
 # Free Functions
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
-UNIFORM_BOUNDARY_INTERIOR_POLICY = "nextafter-toward-interval-interior-v1"
+UNIFORM_BOUNDARY_INTERIOR_POLICY = DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY
 
 
 def resolve_uniform_sampling_support(names, bounds):
@@ -320,13 +322,10 @@ def capture_native_output():
 # on its (z, k) grid, background the background functions on a z grid. A probe
 # missing from this table stops the run, because a dataset that cannot say which
 # family it feeds is a dataset no consumer can safely read.
-PROBE_FAMILY = {"cs":          "cosmolike",
-                "ggl":         "cosmolike",
-                "gc":          "cosmolike",
-                "cmblensed":   "cmb",
-                "cmbunlensed": "cmb",
-                "mps":         "grid2d",
-                "background":  "grid"}
+# One pure request-contract module owns this mapping so the publication
+# identity, family member census, and scientific sidecar cannot classify one
+# probe three different ways.
+PROBE_FAMILY = DATASET_PROBE_FAMILIES
 
 # The units the CMB driver asks cobaya for at every sample
 # (dataset_generator_cmb.py calls get_Cl(ell_factor=False, units="muK2")). The

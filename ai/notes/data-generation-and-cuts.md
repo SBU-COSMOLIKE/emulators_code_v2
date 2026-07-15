@@ -2139,9 +2139,101 @@ collection is intentionally deferred.
 The trust boundary is the repository owner plus compliant concurrent writers.
 The module rejects unsafe POSIX entries and modes, but it does not defend
 against the same account rewriting ancestor directories or manipulating ACLs
-during an operation. The exact scientific identity schema, family member maps,
-GeneratorCore rebinding, consumer pinning, copy-on-write resume/append, RNG
-continuation, and MPI integration all remain OPEN follow-on work.
+during an operation. GeneratorCore rebinding, consumer pinning, copy-on-write
+resume/append, RNG continuation, and MPI integration remain OPEN follow-on
+work.
+
+### Unit 8 request-contract slice: one invariant request selects exact members
+
+This slice defines the information that must be identical when a command asks
+to resume or append one logical dataset. It is deliberately a pure contract:
+the current generator does not publish through it yet. That separation lets the
+schema and every family census be tested without Cobaya, MPI, Torch, or a
+workstation dataset, while making the next integration fail closed instead of
+inventing identity during file copying.
+
+<a id="dataset-request-contract-identity"></a>
+`dataset-request-contract.identity` requires one strict schema with no missing
+or unknown fields. It binds full versus chain-only mode; generator, canonical
+family, probe, and family variant; uniform versus Gaussian-MCMC sampling;
+temperature, effective boundary factor, maximum-correlation applicability,
+the exact supported sampling algorithm, seed, NumPy PCG64 policy, and the
+Gaussian-only emcee MT19937 engine; plus the exact Unit-94 boundary-interior
+policy, ordered float32 parameter names, and SHA-256 digests of the resolved
+configuration and append-stable scientific contract. Immutable registries bind
+each probe to its one family and generator, and each sampling mode to its one
+algorithm/RNG policy. The request validator and `GeneratorCore` share the
+probe-family registry; integration must feed that validated family into the
+sidecar, slot, identity, and member census.
+
+The scientific-contract digest follows the permanent one-author ruling.
+Requested and resolved support live only in `<paramsf>.facts.yaml`;
+`fixed_facts.scientific_contract_digest` validates those producer blocks and
+hashes a versioned, resource-bounded canonical projection that copies every
+declared value except
+`fixed_facts.dataset_id`. That one excluded value is the committed chain digest
+and necessarily changes when rows are appended. The request therefore stays
+the same across a valid append, while each generation separately authenticates
+the complete sidecar and chain as manifest members. A consumer never rebuilds
+a second bounds mapping. Temperature remains explicit even when two
+hard-bounded runs happen to have identical support, so the 25M-02 collision
+cannot return.
+
+The resolved-configuration digest is not a hash of YAML spelling, comments, or
+absolute checkout paths. Its future producer must cover the resolved
+model/prior/theory/likelihood configuration, ordered Gaussian fiducial and
+covariance, all family geometry and switches, and every other row- or
+payload-affecting resolved setting. Referenced scientific files contribute
+content digests. This slice validates the digest field; the integration slice
+still owns that canonical producer.
+
+Run controls (`loadchk`, `append`, operation, and checkpoint frequency) are not
+scientific identity. Neither are the append row delta or committed total rows.
+Putting those mutable values in the invariant request would make a valid append
+unable to match its prior generation. Complete NumPy and, for Gaussian runs,
+emcee continuation state instead belongs in a separate authenticated generation
+member with its committed row count and chain digest. That state member and the
+one-shot `N+M` equivalence proof remain OPEN under 45M-81.
+
+<a id="dataset-request-contract-family-members"></a>
+`dataset-request-contract.family-members` maps stable semantic roles to the
+historical, already mode-scoped basenames. Every chain-only generation has
+exactly five members: chain, parameter schema, covariance, ranges, and facts.
+A full generation adds its failure mask and the following family files:
+
+| Family and variant | Additional semantic members | Total |
+|---|---|---:|
+| CosmoLike | one vector payload | 7 |
+| CMB | TT, TE, EE, PP payloads and one persisted integer multipole axis | 11 |
+| Grid | H and D_M payloads, each with its own redshift axis | 10 |
+| Grid2D native | linear-power and boost payloads, redshift axis, wavenumber axis | 10 |
+| Grid2D Syren base | native members plus the linear-power and boost base pair | 12 |
+
+The two Grid2D base members are an all-or-none variant, never independent
+optional files. Temporary files, locks, GetDist cache byproducts, and the
+publisher-created manifest/pointer are not semantic members and therefore
+refuse as extras in a finalized draft. Full CMB publication now requires
+`<dvsf>_ell.npy`; the current CMB generator does not yet write it. Integration
+must add that exact axis or stop with a targeted missing-axis error. Inferring
+multipoles from array width, covariance, filename, or `lrange` is not accepted.
+
+<a id="dataset-request-contract-mutation-controls"></a>
+`dataset-request-contract.mutation-controls` keeps this contract load-bearing.
+Fifteen in-memory source mutations must all be exposed: dropping temperature,
+sorting parameter names, accepting a wrong Unit-94 policy, allowing a Boolean
+seed, omitting scientific-contract digest validation, dropping the CMB axis,
+accepting only one Syren base member, borrowing full members in chain-only
+mode, splitting a string into parameter names, accepting a mismatched
+generator or sampling algorithm, omitting final case-insensitive member-path
+collision checks, accepting an integer the canonical publisher refuses,
+putting the generation-specific chain digest back into the invariant
+scientific projection, and bypassing that projection's recursive resource
+bounds.
+
+This closes only the invariant request and family-map foundation. GeneratorCore
+rebinding, facts/config production before output mutation, immutable fresh
+publication, authenticated continuation state, copy-on-write resume/append,
+reader pinning, and MPI coordination remain OPEN.
 
 ### Unit 8 named-column slice: staging and pool sizing use the producer schema
 

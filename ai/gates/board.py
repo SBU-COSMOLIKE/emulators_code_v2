@@ -2037,6 +2037,30 @@ def gate_dataset_publication(ctx):
            + " (ai/gates/checks/dataset_publication.py)")
 
 
+def gate_dataset_request_contract(ctx):
+  """dataset-request-contract: identity and family members are exact.
+
+  The CPU child runs 15 focused schema/member witnesses and 15 source
+  mutations. It proves a strict versioned invariant request, one-owner stable
+  scientific-contract digest, ordered names, exact mode-specific sampling and
+  RNG policy, immutable probe/family/generator registries, and the complete
+  chain-only/full semantic member map.
+
+  This is still a pure contract. GeneratorCore does not yet publish through it,
+  and authenticated continuation state, copy-on-write append, consumer pinning,
+  and MPI integration remain later Unit-8 work.
+  """
+  rc, out = ctx.run_check(
+    "ai/gates/checks/dataset_request_contract.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="dataset-request-contract child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/dataset_request_contract.py)")
+
+
 def gate_parameter_table(ctx):
   """parameter-table: parameter consumers select producer-declared names.
 
@@ -2559,6 +2583,43 @@ BOARD = [
        manifest=Manifest(
          code=("compute_data_vectors/dataset_publication.py",
                "ai/tests/test_dataset_publication.py"),
+         inputs=()),
+       needs=()),
+  Gate(id="dataset-request-contract",
+       spec_code="GEN-F",
+       title="Dataset requests and family members have one exact contract",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the bounded Unit-8 request-contract slice: strict canonical "
+            "fields bind full/chain-only mode, generator, canonical family, "
+            "probe, family variant, row-sampling policy, temperature, boundary "
+            "factor and Unit-94 interior policy, seed/RNG policy, ordered "
+            "float32 names, resolved-configuration digest, and the "
+            "fixed_facts-owned append-stable scientific projection without "
+            "re-authoring its support or treating the mutable chain digest as "
+            "request identity. "
+            "The same validated request selects exact semantic members for "
+            "CosmoLike, CMB, Grid, and Grid2D, including mandatory persisted "
+            "axes and the all-or-none Syren base pair; derived paths and the "
+            "stable projection are resource-bounded before serialization. "
+            "This does not claim "
+            "GeneratorCore publication, mutable RNG state, append continuity, "
+            "consumer pinning, or MPI integration",
+       evidence=(Assertion(
+                   "dataset-request-contract.identity",
+                   "data-generation-and-cuts.md#dataset-request-contract-identity"),
+                 Assertion(
+                   "dataset-request-contract.family-members",
+                   "data-generation-and-cuts.md#dataset-request-contract-family-members"),
+                 Assertion(
+                   "dataset-request-contract.mutation-controls",
+                   "data-generation-and-cuts.md#dataset-request-contract-mutation-controls")),
+       run=gate_dataset_request_contract,
+       manifest=Manifest(
+         code=("compute_data_vectors/dataset_manifest.py",
+               "compute_data_vectors/generator_core.py",
+               "emulator/fixed_facts.py",
+               "ai/tests/test_dataset_request_contract.py"),
          inputs=()),
        needs=()),
   Gate(id="cli-strict",
