@@ -1990,9 +1990,10 @@ def gate_parameter_table(ctx):
   AID terminals cover strict schema/layout resolution, refusal before the
   data-vector open, and staging/pool parity. Positional, missing-sidecar
   compatibility, moved/wrapped/ignored-result, staging-only positional, and
-  pool-only positional mutations must red. This gate covers staging and pool
-  sizing only; generator checkpoint/readback adoption and the no-cut pool-size
-  defect remain OPEN Unit-8 work.
+  pool-only positional mutations must red. Optional-cut-family witnesses also
+  require no cuts to mean the full table and active cuts to produce the exact
+  maximum stageable row count. Generator checkpoint/readback adoption remains
+  OPEN Unit-8 work.
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("ai/gates/checks/parameter_table.py")
@@ -2387,9 +2388,10 @@ BOARD = [
             "named inputs while scalar paths validate named outputs. "
             "Independent literal fixtures and positional, missing-sidecar "
             "compatibility, moved/wrapped/ignored-result, staging-only, and "
-            "pool-only mutations keep all three claims red-sensitive. This "
-            "gate covers staging and pool sizing only; generator checkpoint "
-            "and readback adoption plus no-cut pool sizing remain OPEN",
+            "pool-only mutations keep all three claims red-sensitive. Across "
+            "scalar, CMB, grid, and grid2d, an absent cut block means the full "
+            "table and active cuts give the exact maximum legal staging size. "
+            "Generator checkpoint and readback adoption remain OPEN",
        evidence=(Assertion(
                    "parameter-table.schema-and-layout",
                    "data-generation-and-cuts.md#parameter-table-schema-and-layout"),

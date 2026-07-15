@@ -1151,13 +1151,12 @@ its selected rows.  Borrowing geometry or a PCE fit from the largest point
 leaks information and invalidates the training-size effect measurement.
 
 \paragraph{Safe use of the training-size wrappers.}
-The scalar, CMB, background and matter-power wrappers call a pool counter that
-reads a \code{param\_cuts} bound even when that optional block is absent.  A
-no-cut configuration can therefore stop before the first sweep point even
-when its one-run driver succeeds.  Supply an explicit, valid
-\code{param\_cuts} block for these wrappers or run the requested row counts as
-separate one-run jobs.  Compare the reported available-pool count with the
-rows selected by staging before interpreting the learning curve.
+The scalar, CMB, background and matter-power wrappers accept either an active
+\code{param\_cuts} block or no block at all.  With no cuts, the available pool
+is the full named parameter table.  With active cuts, the pool counter and
+staging use the same named columns and physical bounds.  Consequently the
+reported pool is the exact largest legal training size, and a request for one
+row more is refused before training starts.
 
 \subsection{One-knob sweep}
 

@@ -194,10 +194,10 @@ producer, the MPS adapter, and gates.
 | `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | Thin wrappers over the cosmic-shear one-knob driver's `main(prog, family, out_default)`: the same `sweep:` block, multi-GPU + `--gpu-pack`. |
 | `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. Known lifecycle gap (fix queued): a worker failure before its training loop emits no result while the parent waits on a fixed number of un-timed queue reads; details in `ai/notes/training-stack.md`. |
 
-Known learning-curve gap (fix queued): the optional-cut families' wrappers reach
-`pool_size`, which currently indexes `omegabh2_hi` even when `param_cuts` is
-absent. Their no-cut examples can fail before training; the shared selection
-contract is in `ai/notes/data-generation-and-cuts.md`.
+Learning-curve ceilings use the same selection rule as staging. For scalar,
+CMB, grid and grid2d data, an absent `param_cuts` block means the full named
+parameter table is available; active windows reduce both `pool_size` and the
+largest legal `stage_train(n_train=...)` by the same survivor set.
 
 The naming rule for every driver is `<family>_<verb>_emulator.py` — what
 you are emulating comes first, always (the 2026-07-11 family-first
@@ -436,7 +436,7 @@ The run layer that ties everything together.
 - `validate_param_cuts` / `validate_sizes` / `validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_transfer` — the pure data-block validators, one per concern.
 - `resolve_phase_args` / `validate_sweep_paths` — the two-phase schedule resolution.
 - `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer.
-- `stage_train` / `stage_val` / `pool_size` — stage the sources and report the physical-cut pool size. The grid2d branch thins the k axis, forms law-space rows in bounded chunks, computes moments from the stored float32 payload, and uses an experiment-owned temporary memmap when the resident copy would exceed its memory budget.
+- `stage_train` / `stage_val` / `pool_size` — stage the sources and report their legal row ceiling (the full named table with no cuts, or the physical-window survivor count). The grid2d branch thins the k axis, forms law-space rows in bounded chunks, computes moments from the stored float32 payload, and uses an experiment-owned temporary memmap when the resident copy would exceed its memory budget.
 - `build_geometry` / `build_specs` — the input/output geometry + chi2 per family (the fine-tune pins live here); the `run_emulator` spec dicts.
 - `train` / `run` / `frac_above` — train on the staged data; the full pipeline; the sweep metric.
 - `print_design()` — the shared startup banner (family line included), so a stale YAML is caught at launch.

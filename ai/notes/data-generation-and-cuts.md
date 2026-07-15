@@ -789,25 +789,24 @@ sidecars plus `array_equal` guards are the minimum. Red legs use shifted,
 reversed, and permuted same-width axes and a swapped same-shaped val base;
 byte-identical separately written axes pass.
 
-### No-cut learning-curve pool counting is broken
+### Closed: no-cut learning-curve pool counting
 
-`EmulatorExperiment.pool_size` correctly recognizes that scalar, CMB,
-grid, and grid2d configs may omit `data.param_cuts`, assigns `{}`, and
-then immediately reads `pc["omegabh2_hi"]`. Their family
-`*_sweep_ntrain_emulator.py` wrappers call this before staging, so every
-shipped no-cut example can die with `KeyError` before its first point.
-The scalar branch also re-slices the chain positionally instead of
-using the same sidecar-resolved input columns as `load_scalar_source`.
+The original defect was that `EmulatorExperiment.pool_size` recognized
+that scalar, CMB, grid, and grid2d configs may omit `data.param_cuts`,
+assigned `{}`, and then read `pc["omegabh2_hi"]`. Their family
+`*_sweep_ntrain_emulator.py` wrappers could therefore die with `KeyError`
+before the first point. The scalar branch also re-sliced the chain
+positionally instead of using the sidecar-resolved input columns shared
+with `load_scalar_source`.
 
-Pool counting must reuse the exact staging selection contract: no cuts
-means the full row count; active cuts use the same named input columns,
-formulas, and bounds as `stage_train`; scalar inputs come from the
-sidecar resolver; and the reported pool must equal the maximum legal
-`stage_train(n_train=...)`. Add one cheap no-cut and one active-cut pool
-leg for each optional-cut family to its existing identity gate, plus a
-thin-wrapper invocation that reaches `pool_size` without a GPU training
-step. This is a small driver-truth unit, separate from bounded grid2d
-staging.
+The shared named-column resolver closed the scalar positional split, and
+the optional-cut parity slice closed the no-cut failure. Pool counting now
+reuses staging's selection contract: no cuts means the full row count;
+active cuts use the same named input columns, formulas, and bounds as
+`stage_train`; and the reported pool equals the maximum legal
+`stage_train(n_train=...)`. The parameter-table gate drives both states for
+all four optional-cut families and refuses `pool + 1` before downstream
+training or grid2d transformation.
 
 ## Nested data paths never resolve (red-team 2026-07-12, Architect-VERIFIED, open; the file-set authenticity cluster)
 
@@ -1941,7 +1940,7 @@ parameter table. Ordinary and scalar staging consume its named arrays, and
 `EmulatorExperiment.pool_size` calls the same resolver before applying the
 same physical cuts. This slice deliberately covers those staging/pool
 consumers only. Generator checkpoint reload and append readback have not yet
-adopted the resolver, and the separate no-cut `pool_size` defect remains OPEN.
+adopted the resolver.
 
 <a id="parameter-table-schema-and-layout"></a>
 `parameter-table.schema-and-layout` requires exact-stem sidecar lookup first,
@@ -1995,10 +1994,18 @@ mutates two consumers together. Both consumer modules must have exactly one
 resolver binding, their reviewed sibling-module import; shadow-binding
 mutations red the census.
 
+For every optional-cut family (scalar, CMB, grid, and grid2d), an absent
+`param_cuts` block is an executable no-cut state: `pool_size()` returns the
+full named table, `stage_train(n_train=pool_size())` succeeds, and one more row
+refuses. With the omega-baryon window active, both paths instead share the
+same independently known survivor ceiling. Restoring required-key lookup for
+`omegabh2_hi` must make the no-cut witness red. The grid2d witness keeps its
+real named loader and disk-backed source; only its downstream law-space
+transform is stubbed because it is not part of row selection.
+
 This gate does not close the whole 45M-68 contract. The generator checkpoint
-and append/readback call sites still need the shared resolver, and no-cut pool
-sizing still has its own queued acceptance work. Those OPEN items cannot be
-inferred from the three staging/pool AIDs above.
+and append/readback call sites still need the shared resolver. That OPEN work
+cannot be inferred from the three staging/pool AIDs above.
 
 ## 25M-01 (CLOSED by Unit 94 on current main): uniform sampling once shrank absolute coordinates instead of the legal interval
 

@@ -3370,8 +3370,9 @@ class EmulatorExperiment:
 
   def pool_size(self):
     """
-    Number of physically-cut training rows available, the natural top
-    of an N_train sweep.
+    Number of stageable training rows available, the natural top of an
+    N_train sweep. With no active physical window this is the full table;
+    otherwise it is the shared staging cut's survivor count.
 
     Resolves the training parameter file by its required .paramnames sidecar,
     keeps the modeled columns, applies
@@ -3403,12 +3404,12 @@ class EmulatorExperiment:
       output_names=(self.outputs if self._scalar else ()))
     C = table.inputs
     idx = np.arange(C.shape[0])
-    # phys_cut_idx (data_staging.py): keep rows inside the omega_b h^2
-    # bound plus the optional omegam2h2 / omegamh2 / omegamh2*ns
-    # windows (same cuts as stage_train); the report is unused here,
-    # only the survivor count.
+    # phys_cut_idx (data_staging.py): no bounds means the full table; active
+    # bounds keep rows inside the same omega_b h^2 / omegam2h2 / omegamh2 /
+    # omegamh2*ns windows as stage_train. The report is unused here; only the
+    # legal ceiling matters.
     phys, _ = phys_cut_idx(C=C, idx=idx, names=self.names,
-                           omegabh2_hi=pc["omegabh2_hi"],
+                           omegabh2_hi=pc.get("omegabh2_hi"),
                            omegabh2_lo=pc.get("omegabh2_lo"),
                            omegam2h2_lo=pc.get("omegam2h2_lo"),
                            omegam2h2_hi=pc.get("omegam2h2_hi"),

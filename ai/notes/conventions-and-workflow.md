@@ -931,15 +931,17 @@ check, and drop the dispatcher prose.
 ## Documentation Current-gap paragraphs: triage + the currency rule (Architect, 2026-07-13)
 
 documentation/emulator_code_guide.tex teaches the package with labeled
-"Current gap" paragraphs (20 as of 2026-07-13) so a reader never
-mistakes documented intent for shipped behavior. Architect triage of
-all 20 against HEAD:
+"Current gap" paragraphs so a reader never mistakes documented intent
+for shipped behavior. The original 2026-07-13 Architect triage catalogued
+20 such paragraphs; entries stay here as history when later work closes
+them:
 
 - SIXTEEN document known defects that already carry adjudicated unit
   specs — no new units were needed. Map (guide line -> owner):
   :450 config-surface totality -> units 23 + 29 + 59; :565 no-cut
-  sweep pool counting -> the data-selection-truth spec
-  (data-generation-and-cuts.md "No-cut learning-curve pool
+  sweep pool counting -> CLOSED 2026-07-15 by the shared named-column
+  resolver plus optional-cut pool/staging parity gate
+  (data-generation-and-cuts.md "Closed: no-cut learning-curve pool
   counting"); :604 parallel study parent -> the parallel-truth item
   (+ unit 55); :664 bake-off liveness -> the activation-bakeoff
   liveness item; :771 dataset certification -> checkpoint-set

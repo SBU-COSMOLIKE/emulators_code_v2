@@ -148,6 +148,81 @@ class ParamnamesResolutionTest(unittest.TestCase):
       self.assertEqual(staged["C"].shape, (pool, 2))
       self.assertEqual(staged["dv"].shape, (pool, 1))
 
+  def test_optional_cut_families_share_the_stageable_ceiling(self):
+    """No-cut and active-cut pools are the exact real staging ceilings."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "families.1.txt")
+      sidecar = os.path.join(tmp, "families.paramnames")
+      dv = os.path.join(tmp, "families.npy")
+      self._write_table(params, rows=[
+        [1, 0, 0.040, 50, 101],
+        [1, 0, 0.050, 80, 202],
+        [1, 0, 0.030, 60, 303],
+        [1, 0, 0.060, 90, 404],
+      ])
+      self._write_sidecar(sidecar, ["omegab", "H0", "target*"])
+      np.save(dv, np.asarray([
+        [1001, 1002],
+        [2001, 2002],
+        [3001, 3002],
+        [4001, 4002],
+      ], dtype=np.float32))
+
+      # omega_b h^2 is .010, .032, .0108, .0486 respectively, so the
+      # active window retains exactly rows 0 and 2.  None means the
+      # param_cuts key is genuinely absent, not present with null values.
+      scenarios = (("no-cuts", None, 4),
+                   ("active-cut", {"omegabh2_hi": 0.02}, 2))
+      for family in ("scalar", "cmb", "grid", "grid2d"):
+        for label, cuts, expected_pool in scenarios:
+          with self.subTest(family=family, scenario=label):
+            exp = EmulatorExperiment.__new__(EmulatorExperiment)
+            exp.data = {
+              "train_params": params,
+              "split_seed": 29,
+              "n_train": expected_pool,
+              "ram_frac": 1.0,
+            }
+            if family != "scalar":
+              exp.data["train_dv"] = dv
+            if cuts is not None:
+              exp.data["param_cuts"] = cuts
+            exp.names = ["omegab", "H0"]
+            exp.outputs = ["target"] if family == "scalar" else []
+            exp._scalar = family == "scalar"
+            exp._cmb = family == "cmb"
+            exp._grid = family == "grid"
+            exp._grid2d = family == "grid2d"
+            exp.quiet = True
+
+            # Grid2d's named loader and pool are real. Only its downstream
+            # law-space transform is stubbed; the witness records that it saw
+            # the real disk-backed dump and the exact selected ceiling.
+            law_calls = []
+            if exp._grid2d:
+              exp._grid2d_train_tmp = None
+              exp.grid2d = {"train_base": None}
+
+              def law_stub(*, src, base_path, with_means):
+                law_calls.append((len(src["idx"]),
+                                  isinstance(src["dv"], np.memmap),
+                                  base_path, with_means))
+                return None
+
+              exp._grid2d_law_rows = law_stub
+
+            pool = exp.pool_size()
+            staged = exp.stage_train(n_train=pool)
+
+            self.assertEqual(pool, expected_pool)
+            self.assertEqual(len(staged["idx"]), pool)
+            with self.assertRaises(ValueError):
+              exp.stage_train(n_train=pool + 1)
+            if exp._grid2d:
+              self.assertEqual(
+                law_calls, [(pool, True, None, True)],
+                "the refused pool+1 call must not reach the law transform")
+
 
 if __name__ == "__main__":
   unittest.main()

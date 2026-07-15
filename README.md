@@ -509,10 +509,11 @@ for all four families. In the pattern rows below, `<family>` may be `scalar`,
 | `cosmic_shear_bakeoff_activation_emulator.py` | cosmic shear | compare activation-family learning curves | multi-GPU pool |
 | `cosmic_shear_sweep_hyperparam_emulator.py` and `<family>_sweep_hyperparam_emulator.py` | all families | sweep one YAML setting | multi-GPU pool and `--gpu-pack` |
 
-**The non-cosmic-shear training-size wrappers require an explicit
-`param_cuts` block.** The worker-count calculation reads `omegabh2_hi` before
-the first training point. Add this block to every scalar, CMB, background or
-matter-power `sweep_ntrain` YAML.
+**The non-cosmic-shear training-size wrappers may omit `param_cuts`.** With no
+cut block, the available pool is the full named parameter table. With active
+cuts, the pool and staging paths use the same named columns and physical
+bounds, so `pool_size()` is the exact largest legal `N_train`. A request for
+one row more is refused before training starts.
 
 ---
 

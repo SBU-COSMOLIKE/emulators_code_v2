@@ -7,7 +7,8 @@ This CPU/Torch gate owns three deliberately separate claims:
   exact float32, two-dimensional named arrays;
 * ordinary staging validates that schema before it opens a data-vector dump;
 * ordinary/scalar staging and ``EmulatorExperiment.pool_size`` all consume the
-  same named inputs (and the scalar paths validate their named outputs).
+  same named inputs (and the scalar paths validate their named outputs), while
+  every optional-cut family treats an absent cut block as the full table.
 
 The expected arrays below are gate-owned literals, never values re-derived by
 the production resolver. Targeted in-memory regressions keep the claims
@@ -654,6 +655,34 @@ def _string_subscript(node, base_name, key):
           and node.slice.value == key)
 
 
+def _optional_dict_get(node, base_name, key):
+  """Tell whether ``node`` is exactly ``base_name.get(key)``."""
+  return (isinstance(node, ast.Call)
+          and isinstance(node.func, ast.Attribute)
+          and isinstance(node.func.value, ast.Name)
+          and node.func.value.id == base_name
+          and node.func.attr == "get"
+          and len(node.args) == 1
+          and isinstance(node.args[0], ast.Constant)
+          and node.args[0].value == key
+          and not node.keywords)
+
+
+def _pool_optional_cut_contract(pool):
+  """Require the leading cut bound to be optional like ``stage_train``."""
+  calls = [node for node in ast.walk(pool)
+           if _call_name(node) == "phys_cut_idx"]
+  if len(calls) != 1:
+    return False, "phys_cut_idx call count=" + str(len(calls))
+  values = [keyword.value for keyword in calls[0].keywords
+            if keyword.arg == "omegabh2_hi"]
+  if len(values) != 1:
+    return False, "omegabh2_hi keyword count=" + str(len(values))
+  if not _optional_dict_get(values[0], "pc", "omegabh2_hi"):
+    return False, "pool_size requires pc['omegabh2_hi'] in a no-cut family"
+  return True, "pool_size reads optional pc.get('omegabh2_hi')"
+
+
 def _callsite_census():
   """Pin all three current consumers and scalar output validation."""
   try:
@@ -710,13 +739,16 @@ def _callsite_census():
     pool_ok = pool_ok and len(pool_c_stores) == 1
     pool_ok = pool_ok and not any(
       _call_name(node) == "np.loadtxt" for node in ast.walk(pool))
+    optional_cut_ok, optional_cut_detail = _pool_optional_cut_contract(pool)
+    pool_ok = pool_ok and optional_cut_ok
     detail = ("bindings="
               + repr((staging_binding_ok, experiment_binding_ok))
               + " (" + staging_binding_detail + "; "
               + experiment_binding_detail + ")"
               + "; ordinary=" + str(ordinary_ok) + " (" + ordinary_detail + ")"
               + "; scalar=" + str(scalar_ok) + " (" + scalar_detail + ")"
-              + "; pool=" + str(pool_ok))
+              + "; pool=" + str(pool_ok)
+              + " (" + optional_cut_detail + ")")
     return (staging_binding_ok and experiment_binding_ok
             and ordinary_ok and scalar_ok and pool_ok), detail
   except Exception as exc:
@@ -734,6 +766,26 @@ def _binding_shadow_mutations_red():
     ok, _ = _resolver_binding_contract(mutated)
     results.append(not ok)
   return results == [True, True]
+
+
+def _optional_cut_lookup_mutation_red():
+  """Restore required-key lookup; the no-cut pool contract must reject it."""
+  mutated = copy.deepcopy(_tree(EXPERIMENT))
+  pool = _method(mutated, "EmulatorExperiment", "pool_size")
+  calls = [node for node in ast.walk(pool)
+           if _call_name(node) == "phys_cut_idx"]
+  if len(calls) != 1:
+    return False
+  keywords = [keyword for keyword in calls[0].keywords
+              if keyword.arg == "omegabh2_hi"]
+  if len(keywords) != 1:
+    return False
+  keywords[0].value = ast.Subscript(
+    value=ast.Name(id="pc", ctx=ast.Load()),
+    slice=ast.Constant(value="omegabh2_hi"),
+    ctx=ast.Load())
+  ok, _ = _pool_optional_cut_contract(pool)
+  return not ok
 
 
 def _ordinary_stage_contract(resolver=resolve_parameter_table):
@@ -872,6 +924,83 @@ def _stage_pool_contract(*, staging_resolver=resolve_parameter_table,
     return False, "stage/pool probe raised " + type(exc).__name__ + ": " + str(exc)
 
 
+def _optional_family_ceiling_contract():
+  """Drive no-cut and active-cut pool/staging parity for four families."""
+  try:
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "families.1.txt")
+      dv_path = os.path.join(tmp, "families.npy")
+      _write_table(params, [
+        [1, 0, 0.040, 50, 101],
+        [1, 0, 0.050, 80, 202],
+        [1, 0, 0.030, 60, 303],
+        [1, 0, 0.060, 90, 404],
+      ])
+      _write_sidecar(os.path.join(tmp, "families.paramnames"),
+                     ["omegab", "H0", "target*"])
+      np.save(dv_path, np.asarray([
+        [1001, 1002],
+        [2001, 2002],
+        [3001, 3002],
+        [4001, 4002],
+      ], dtype=np.float32))
+
+      # omega_b h^2 is .010, .032, .0108, .0486. The active window
+      # therefore retains exactly two rows; no cuts retains all four.
+      scenarios = (("no-cuts", None, 4),
+                   ("active-cut", {"omegabh2_hi": 0.02}, 2))
+      observed = []
+      for family in ("scalar", "cmb", "grid", "grid2d"):
+        for label, cuts, expected_pool in scenarios:
+          instance = EmulatorExperiment.__new__(EmulatorExperiment)
+          instance.data = {
+            "train_params": params,
+            "split_seed": 29,
+            "n_train": expected_pool,
+            "ram_frac": 1.0,
+          }
+          if family != "scalar":
+            instance.data["train_dv"] = dv_path
+          if cuts is not None:
+            instance.data["param_cuts"] = cuts
+          instance.names = ["omegab", "H0"]
+          instance.outputs = ["target"] if family == "scalar" else []
+          instance._scalar = family == "scalar"
+          instance._cmb = family == "cmb"
+          instance._grid = family == "grid"
+          instance._grid2d = family == "grid2d"
+          instance.quiet = True
+
+          law_calls = []
+          if instance._grid2d:
+            instance._grid2d_train_tmp = None
+            instance.grid2d = {"train_base": None}
+
+            def law_stub(*, src, base_path, with_means):
+              law_calls.append((len(src["idx"]),
+                                isinstance(src["dv"], np.memmap),
+                                base_path, with_means))
+              return None
+
+            instance._grid2d_law_rows = law_stub
+
+          pool = instance.pool_size()
+          staged = instance.stage_train(n_train=pool)
+          refused = _refuses(
+            lambda: instance.stage_train(n_train=pool + 1),
+            "requested n_keep")
+          grid2d_ok = (not instance._grid2d) or law_calls == [
+            (pool, True, None, True)]
+          ok = (pool == expected_pool
+                and len(staged["idx"]) == pool
+                and refused
+                and grid2d_ok)
+          observed.append((family, label, pool, ok))
+      return all(row[3] for row in observed), "family ceilings=" + repr(observed)
+  except Exception as exc:
+    return False, "optional-family probe raised " + type(exc).__name__ + ": " + str(exc)
+
+
 def _aid(aid, normal, mutation_red, detail):
   """Emit exactly one terminal for a board-declared evidence leg."""
   passed = normal and mutation_red
@@ -907,6 +1036,7 @@ def main():
   ordinary_ok, ordinary_detail = _ordinary_stage_contract()
   ordinary_mutant_ok, _ = _ordinary_stage_contract(_positional_resolver)
   parity_ok, parity_detail = _stage_pool_contract()
+  optional_ok, optional_detail = _optional_family_ceiling_contract()
   staging_mutant_ok, _ = _stage_pool_contract(
     staging_resolver=_positional_resolver,
     pool_resolver=resolve_parameter_table)
@@ -915,12 +1045,14 @@ def main():
     pool_resolver=_positional_resolver)
   parity = _aid(
     "parameter-table.stage-pool-parity",
-    census_ok and ordinary_ok and parity_ok,
+    census_ok and ordinary_ok and parity_ok and optional_ok,
     (_binding_shadow_mutations_red()
+     and _optional_cut_lookup_mutation_red()
      and (not ordinary_mutant_ok)
      and (not staging_mutant_ok)
      and (not pool_mutant_ok)),
-    census_detail + "; " + ordinary_detail + "; " + parity_detail)
+    census_detail + "; " + ordinary_detail + "; " + parity_detail
+    + "; " + optional_detail)
 
   if not (schema and pre_dv and parity):
     print("parameter-table: FAIL")
