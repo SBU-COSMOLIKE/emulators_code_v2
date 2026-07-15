@@ -40,7 +40,7 @@ from emulator.designs.plain import ResMLP
 from emulator.geometries.output import DataVectorGeometry
 from emulator.geometries.parameter import ParamGeometry
 from emulator.geometries.scalar import ScalarGeometry
-from emulator.data_staging import _scalar_columns
+from emulator.parameter_table import resolve_parameter_table
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
@@ -499,12 +499,13 @@ def check_from_targets_errors(device):
 
 
 def check_sidecar_errors(tmp):
-    """_scalar_columns raises on a duplicated .paramnames name."""
-    dup = os.path.join(tmp, "dup.paramnames")
-    with open(dup, "w") as f:
+    """The shared table resolver raises on duplicate normalized names."""
+    params = os.path.join(tmp, "dup.txt")
+    np.savetxt(params, np.asarray([[1.0, 0.0, 0.02, 70.0, 71.0]]))
+    with open(os.path.join(tmp, "dup.paramnames"), "w") as f:
         f.write("omegabh2 x\nH0* a\nH0* b\n")
     try:
-        _scalar_columns(dup, ["omegabh2"], ["H0"])
+        resolve_parameter_table(params, ["omegabh2"], ["H0"])
         report("duplicate sidecar name raises", False, "no raise")
     except ValueError:
         report("duplicate sidecar name raises", True, "ValueError")

@@ -284,17 +284,23 @@ research-scale fits that fit both memory budgets.
 One line per function / class / method. For full detail, read the docstring in
 the file itself; this is the index.
 
+### `emulator/parameter_table.py` <a name="apx-parameter_table"></a>
+
+Makes the producer's complete GetDist declaration the column authority.
+
+- `ResolvedParameterTable` — immutable record containing exact-2-D float32 input/output arrays, the parsed declarations, and the selected sidecar path.
+- `resolve_parameter_table(params_path, input_names, output_names=())` — require the exact-stem or numeric-chain-root `.paramnames`, validate every declared name/role and the full numeric width, then select inputs and derived outputs by name and requested order. There is no positional legacy fallback.
+
 ### `emulator/data_staging.py` <a name="apx-data_staging"></a>
 
 Turns on-disk dumps into in-memory "source" dicts.
 
-- `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx, dump_rows (+ means)}` (`dump_rows` = the staged rows' on-disk indices, for sibling-file alignment).
+- `load_source(...)` — orchestrator: resolve and validate the named parameter table before opening the dv memmap, cut the params, keep `N_train` rows, stage, and return `{C, dv, idx, dump_rows (+ means)}` (`dump_rows` = the staged rows' on-disk indices, for sibling-file alignment).
 - `load_scalar_source(...)` — the scalar sibling: inputs AND outputs are named columns of one parameter `.txt` (the getdist `.paramnames` sidecar locates them).
 - `stage_source(C, dv, idx, ram_frac)` — materialize the used rows in RAM if they fit, else keep the memmap (reindex local).
 - `phys_cut_idx(...)` — keep the rows inside every active physical-density window; returns `(kept_idx, report)`.
 - `stream_chunks` / `stream_stats` / `param_stats` — streamed per-column stats (the dump never loads whole).
 - `read_param_names(covmat_path, comment)` — parameter names from the covmat header line.
-- `check_paramnames` / `_scalar_columns` — the sidecar-vs-covmat naming integrity checks.
 
 ### `emulator/geometries/parameter.py` <a name="apx-geometries_parameter"></a>
 

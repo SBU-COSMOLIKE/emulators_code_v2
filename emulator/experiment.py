@@ -140,6 +140,7 @@ from torch.optim import lr_scheduler
 
 from .data_staging import (
   read_param_names, load_source, load_scalar_source, phys_cut_idx)
+from .parameter_table import resolve_parameter_table
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from .losses.core import make_chi2
 from .designs.plain import ResMLP, ResCNN, ResTRF
@@ -3372,7 +3373,8 @@ class EmulatorExperiment:
     Number of physically-cut training rows available, the natural top
     of an N_train sweep.
 
-    Loads the training parameter file, keeps the modeled columns, applies
+    Resolves the training parameter file by its required .paramnames sidecar,
+    keeps the modeled columns, applies
     the physical cuts (the omega_b h^2 bound and the optional
     omegam^2 h^2 window, same cuts as stage_train), counts the survivors.
     Order-independent, so no shuffle or staging.
@@ -3392,9 +3394,14 @@ class EmulatorExperiment:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]   # the validated physical-window bounds
-    # modeled parameter columns (drop leading weight / lnp and trailing
-    # chi2), as load_source does by default.
-    C   = np.loadtxt(d["train_params"], dtype="float32")[:, slice(2, -1)]
+    # Use the same named-column authority as staging. Scalar outputs are
+    # resolved too, so pool sizing cannot accept a table that stage_train
+    # would later reject; data-vector families request inputs only.
+    table = resolve_parameter_table(
+      params_path=d["train_params"],
+      input_names=self.names,
+      output_names=(self.outputs if self._scalar else ()))
+    C = table.inputs
     idx = np.arange(C.shape[0])
     # phys_cut_idx (data_staging.py): keep rows inside the omega_b h^2
     # bound plus the optional omegam2h2 / omegamh2 / omegamh2*ns

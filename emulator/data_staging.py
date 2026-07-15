@@ -14,10 +14,10 @@ a {C, dv, idx, (+means)} dict.
 
 The staging pipeline, per source (load_source top to bottom):
 
-    <params>.txt                    <dv>.npy
-       │  np.loadtxt                   │  np.load(mmap_mode="r")
+    <params>.txt + .paramnames      <dv>.npy
+       │  resolve by declared names    │  np.load(mmap_mode="r")
        ▼                               ▼
-    C  (N, cols)                    dv (N, total_size), on disk
+    C  (N, named inputs)            dv (N, total_size), on disk
        │  phys_cut_idx: the omegabh2 bound plus the optional
        │  omegam2h2 / omegamh2 / omegamh2*ns windows
        ▼
@@ -32,8 +32,10 @@ The staging pipeline, per source (load_source top to bottom):
        ▼
     source dict {C, dv, idx, C_mean, dv_mean}
 
-    (legend: N = rows in the dump; cols = the .txt columns
-     (weight, lnp, params, chi2); total_size = full dv length;
+    (legend: N = rows in the dump; the .txt begins with weight / lnp and
+     then every column declared by .paramnames; derived count and placement
+     come from that sidecar rather than a positional "last chi2" guess;
+     total_size = full dv length;
      n_keep = the absolute number of cut rows to stage (enforced
      here, after the cuts; load_source raises if the pool is
      smaller);
@@ -105,6 +107,7 @@ import psutil
 import torch
 
 from . import fixed_facts
+from .parameter_table import resolve_parameter_table
 
 
 def stream_chunks(idx, chunk):
@@ -555,82 +558,6 @@ def _find_sidecar(params_path, suffix):
   return None
 
 
-def check_paramnames(sidecar_path, covmat_names):
-  """
-  Cross-check a getdist .paramnames sidecar against the covmat-header names.
-
-  Two independent name sources exist: read_param_names reads the covmat
-  header; the <train_params>.paramnames sidecar declares the .txt columns.
-  They agree by generator construction, but a divergence would silently pair
-  wrong columns with wrong covmat rows in the whitening. When the sidecar is
-  present, its first column (the cobaya names, minus the trailing starred
-  derived entries getdist marks, e.g. chi2* — which the staging slice already
-  drops) must equal the covmat-header names ORDER INCLUDED; a mismatch is a
-  loud error naming both lists. Absent sidecar = no check (back-compatible),
-  handled by the caller (this reads a file it is told exists).
-
-  Arguments:
-    sidecar_path = path to the .paramnames file to read.
-    covmat_names = the covmat-header names (read_param_names), the order the
-                   whitening uses.
-
-  Returns:
-    the sidecar's non-derived name list (equals covmat_names on success).
-
-  Raises:
-    ValueError if the two lists differ (order included), naming both.
-  """
-  sidecar = []
-  with open(sidecar_path) as fh:
-    for line in fh:
-      line = line.strip()
-      if not line:
-        continue
-      first = line.split()[0]
-      # getdist marks derived params with a trailing * (chi2* etc.); the
-      # staging slice drops them, so they are not covmat columns.
-      if first.endswith("*"):
-        continue
-      sidecar.append(first)
-  covmat = list(covmat_names)
-  if sidecar != covmat:
-    raise ValueError(
-      "the .paramnames sidecar and the covmat header disagree on the "
-      "parameter names (order included), so the whitening would pair wrong "
-      f"columns with wrong covmat rows:\n"
-      f"  .paramnames:   {sidecar}\n"
-      f"  covmat header: {covmat}")
-  return sidecar
-
-
-def check_source_paramnames(params_path, covmat_names):
-  """
-  Cross-check a source's chain-root-aware .paramnames sidecar when present.
-
-  The ordinary data-vector staging path remains compatible with old datasets
-  that have no .paramnames sidecar: absence returns None and performs no
-  check. When a sidecar exists, numeric chain suffixes are resolved so
-  ``X.1.txt`` checks ``X.paramnames`` rather than silently skipping the
-  integrity check.
-
-  Arguments:
-    params_path  = parameter dump path (for example X.txt or X.1.txt).
-    covmat_names = covmat-header names in whitening order.
-
-  Returns:
-    the checked sidecar path, or None when no compatible sidecar exists.
-
-  Raises:
-    ValueError from ``check_paramnames`` when the sidecar and covmat names
-    disagree.
-  """
-  sidecar = _find_sidecar(params_path=params_path, suffix=".paramnames")
-  if sidecar is None:
-    return None
-  check_paramnames(sidecar_path=sidecar, covmat_names=covmat_names)
-  return sidecar
-
-
 def read_facts_sidecar(params_path):
   """
   Read the generator's scientific-record sidecar verbatim, or report none.
@@ -681,7 +608,7 @@ def read_facts_sidecar(params_path):
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
                 stage_dv=True,
-                param_cols=slice(2, -1), verbose=True,
+                verbose=True,
                 omegabh2_lo=None,
                 omegam2h2_lo=None, omegam2h2_hi=None,
                 omegamh2_lo=None, omegamh2_hi=None,
@@ -701,8 +628,8 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
 
   Arguments:
     dv_path     = .npy data-vector dump (memmapped).
-    params_path = parameter text file; param_cols selects the
-                  modeled columns.
+    params_path = parameter text file. Its required .paramnames sidecar
+                  selects and orders the modeled columns by name.
     names       = parameter column names (covmat order, the kept
                   columns); phys_cut_idx finds the omegab / H0
                   columns by them.
@@ -733,9 +660,6 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   then left at full width with global idx too (the two
                   must share one row numbering); _grid2d_law_rows
                   compacts both after the transform.
-    param_cols  = column selector for the loaded params (default
-                  slice(2, -1): drop the leading weight / lnp and
-                  the trailing chi2 column).
     verbose     = if True (default), print a one-line summary
                   (shapes, rows, in-RAM).
     omegabh2_lo  = optional lower bound on omega_b h^2 (None = no
@@ -764,11 +688,12 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # missing size is a plain TypeError at the call site).
   if gen is None:
     raise ValueError("load_source needs a torch.Generator (gen=)")
-  # naming-integrity cross-check: when a getdist .paramnames sidecar sits
-  # beside train_params, its non-derived first column must match the
-  # covmat-header `names` (order included), else the whitening pairs wrong
-  # columns with wrong covmat rows. Absent sidecar = no check.
-  check_source_paramnames(params_path=params_path, covmat_names=names)
+  # Resolve the parameter table before opening the data-vector dump.  The
+  # required .paramnames sidecar is the sole column authority: a missing,
+  # ambiguous, reordered, or width-inconsistent declaration therefore fails
+  # before a potentially enormous dv memmap is touched.
+  table = resolve_parameter_table(params_path=params_path,
+                                  input_names=names)
   # the scientific record the generator published beside this chain, carried
   # into the staged source as text and copied from there into the saved
   # emulator, never re-derived on the way. None when the dataset predates the
@@ -776,8 +701,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # passes the absence through and the saved file records no science at all.
   facts_yaml = read_facts_sidecar(params_path=params_path)
   dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
-  # keep only the modeled parameter columns (see param_cols).
-  C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]
+  C = table.inputs
   if C.shape[0] != dv.shape[0]:
     raise ValueError(
       f"incompatible files: {params_path} has {C.shape[0]} rows, "
@@ -883,73 +807,6 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   return src
 
 
-def _scalar_columns(sidecar_path, in_names, out_names):
-  """
-  Map input + output parameter names to their .txt column indices.
-
-  Reads the getdist .paramnames sidecar (required on the scalar path):
-  line i names the parameter in .txt column 2 + i, past the leading
-  weight / minuslogpost columns. Returns the input and output
-  column-index lists in the given name order, for load_scalar_source to
-  slice the .txt by name (the outputs are usually derived columns, so
-  a fixed slice like load_source's slice(2, -1) cannot locate them).
-
-  Arguments:
-    sidecar_path = path to the <params>.paramnames file.
-    in_names     = input parameter names (covmat / whitening order).
-    out_names    = output parameter names (the YAML data.outputs list).
-
-  Returns:
-    (in_cols, out_cols): two lists of int .txt column indices, aligned
-    with in_names and out_names.
-
-  Raises:
-    ValueError if a sidecar name is duplicated (the by-name lookup would
-    be ambiguous) or if any requested name is absent.
-  """
-  # the full column-name list in .txt order; getdist marks derived
-  # params with a trailing '*' (a scalar output is usually derived), so
-  # strip only that marker and keep the name.
-  full = []
-  with open(sidecar_path) as fh:
-    for line in fh:
-      line = line.strip()
-      if not line:
-        continue
-      first = line.split()[0]
-      full.append(first[:-1] if first.endswith("*") else first)
-
-  # a duplicated sidecar name makes .index() below silently
-  # take the first occurrence, pairing a name with the wrong column.
-  # Refuse it, naming the duplicates.
-  counts = {}
-  for nm in full:
-    counts[nm] = counts.get(nm, 0) + 1
-  dups = []
-  for nm, c in counts.items():
-    if c > 1:
-      dups.append(nm)
-  if dups:
-    raise ValueError(
-      f"the .paramnames sidecar {sidecar_path!r} has duplicate column "
-      f"names {sorted(dups)!r}; the by-name column lookup would be "
-      "ambiguous (which column is which output?)")
-
-  def _cols(want, role):
-    cols = []
-    for nm in want:
-      if nm not in full:
-        raise ValueError(
-          f"scalar {role} {nm!r} is not a column of the .paramnames "
-          f"sidecar {sidecar_path!r} (columns: {full})")
-      # +2: the .txt leads with weight and minuslogpost, so sidecar line
-      # i is .txt column 2 + i.
-      cols.append(2 + full.index(nm))
-    return cols
-
-  return _cols(in_names, "input"), _cols(out_names, "output")
-
-
 def load_scalar_source(params_path, in_names, out_names, n_keep,
                        gen=None, ram_frac=0.7, with_means=False,
                        verbose=True, omegabh2_hi=None,
@@ -963,9 +820,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   The scalar sibling of load_source: inputs and outputs are both named
   columns of the ONE parameter .txt (no dv .npy, no cosmolike). The
   getdist .paramnames sidecar is required here (the only way to locate
-  the output columns by name); its non-derived names must equal in_names
-  in order (check_paramnames), pinning the sampled block to the covmat /
-  whitening order before the by-name lookups. Physical-window cuts are
+  the output columns by name); the shared table resolver pins its
+  non-derived names to in_names and selects derived outputs by name.
+  Physical-window cuts are
   optional on this path (a scalar chain is already the target
   distribution, and the omega-windows reference params a scalar input set
   may not carry), so they run only when omegabh2_hi is given.
@@ -1002,29 +859,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   """
   if gen is None:
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
-  # the sidecar is required on the scalar path: it locates the output
-  # columns by name and pins the input block to the whitening order.
-  # Resolution follows getdist's own pairing: a generator dump
-  # pairs X.txt with X.paramnames (the exact stem), while a cobaya chain
-  # pairs X.1.txt with X.paramnames — ONE sidecar shared by every chain
-  # number, so the pure-integer suffix must be stripped to find it. Try
-  # the exact stem first, then the chain root; a miss names every
-  # candidate tried.
-  candidates = _sidecar_candidates(params_path=params_path,
-                                    suffix=".paramnames")
-  sidecar = _find_sidecar(params_path=params_path, suffix=".paramnames")
-  if sidecar is None:
-    raise ValueError(
-      f"scalar training needs a getdist .paramnames sidecar beside "
-      f"{params_path!r}; tried {candidates!r} (a cobaya chain X.1.txt "
-      "pairs with X.paramnames, a generator dump X.txt with "
-      "X.paramnames). The sidecar names the .txt columns so the output "
-      "parameters can be found by name")
-  # the non-derived sidecar names must equal in_names (order
-  # included), pinning the sampled block to the covmat / whitening order
-  # before the by-name lookups. check_paramnames raises on a mismatch.
-  check_paramnames(sidecar, in_names)
-  in_cols, out_cols = _scalar_columns(sidecar, in_names, out_names)
+  table = resolve_parameter_table(params_path=params_path,
+                                  input_names=in_names,
+                                  output_names=out_names)
 
   # the scientific record the generator published beside this chain
   # (read_facts_sidecar): copied as text, never re-derived here, and None when
@@ -1032,9 +869,8 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   # save_emulator, which stores the producer's own words in the emulator file.
   facts_yaml = read_facts_sidecar(params_path=params_path)
 
-  raw = np.loadtxt(params_path, dtype="float32")
-  C = raw[:, in_cols]       # input parameters, in in_names order
-  Y = raw[:, out_cols]      # output targets, in out_names order
+  C = table.inputs          # input parameters, in in_names order
+  Y = table.outputs         # output targets, in out_names order
 
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()

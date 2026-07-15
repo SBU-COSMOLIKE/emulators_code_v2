@@ -112,6 +112,18 @@ K6 = np.logspace(-4, 0.0, 6)
 GRID2D_MASK_DECLARATION = "dv_geometry_const_mask_sha256"
 
 
+def _write_paramnames(params_path, names=IN_NAMES):
+    """Write the chain-root sidecar required by named-column staging."""
+    stem = os.path.splitext(os.fspath(params_path))[0]
+    root, chain = os.path.splitext(stem)
+    if chain[1:].isdigit():
+        stem = root
+    with open(stem + ".paramnames", "w") as handle:
+        for name in names:
+            handle.write(name + " " + name + "\n")
+        handle.write("chi2* chi2\n")
+
+
 class MaskDeclarationModelConstructionReached(Exception):
     """The const-mask artifact reader reached model construction."""
 
@@ -379,7 +391,9 @@ def check_staging(tmp):
                             g.normal(67.0, 2.0, n),
                             g.normal(0.12, 0.005, n),
                             np.zeros(n)])
-    np.savetxt(os.path.join(tmp, "st_params.1.txt"), cols)
+    st_params = os.path.join(tmp, "st_params.1.txt")
+    np.savetxt(st_params, cols)
+    _write_paramnames(st_params)
     gen = torch.Generator().manual_seed(3)
     src = load_source(dv_path=os.path.join(tmp, "st_dv.npy"),
                       params_path=os.path.join(tmp, "st_params.1.txt"),
@@ -657,7 +671,9 @@ def check_bounded_staging(tmp):
                            g2.normal(67.0, 2.0, n2),
                            g2.normal(0.12, 0.005, n2),
                            np.zeros(n2)])
-    np.savetxt(os.path.join(tmp, "bs2_params.1.txt"), txt)
+    bs2_params = os.path.join(tmp, "bs2_params.1.txt")
+    np.savetxt(bs2_params, txt)
+    _write_paramnames(bs2_params)
 
     def stage_and_transform(ram_frac):
         gen = torch.Generator().manual_seed(9)
@@ -886,7 +902,9 @@ def _lifecycle_files(tmp, law):
     txt = np.column_stack([np.ones(n), np.zeros(n),
                            g.normal(2.1, 0.1, n), g.normal(67.0, 2.0, n),
                            g.normal(0.12, 0.005, n), np.zeros(n)])
-    np.savetxt(os.path.join(tmp, tag + "_params.1.txt"), txt)
+    lifecycle_params = os.path.join(tmp, tag + "_params.1.txt")
+    np.savetxt(lifecycle_params, txt)
+    _write_paramnames(lifecycle_params)
     g2 = {"quantity": "pklin", "units": "Mpc3", "law": law,
           "z_file": os.path.join(tmp, tag + "_z.npy"),
           "k_file": os.path.join(tmp, tag + "_k.npy"), "k_stride": 1}

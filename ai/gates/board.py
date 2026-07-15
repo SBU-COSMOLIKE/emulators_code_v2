@@ -1979,6 +1979,32 @@ def gate_generator_run_control(ctx):
            + " (ai/gates/checks/generator_run_control.py)")
 
 
+def gate_parameter_table(ctx):
+  """parameter-table: parameter consumers select producer-declared names.
+
+  WHAT: a CPU/Torch child drives the shared resolver, real ordinary/scalar
+  staging, and real pool sizing on literal parameter tables with zero,
+  multiple, and interleaved derived declarations. WHY: the old positional
+  ``[:, 2:-1]`` rule dropped a sampled column when no derived column existed
+  and admitted a derived column when more than one existed. HOW: three exact
+  AID terminals cover strict schema/layout resolution, refusal before the
+  data-vector open, and staging/pool parity. Positional, missing-sidecar
+  compatibility, moved/wrapped/ignored-result, staging-only positional, and
+  pool-only positional mutations must red. This gate covers staging and pool
+  sizing only; generator checkpoint/readback adoption and the no-cut pool-size
+  defect remain OPEN Unit-8 work.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("ai/gates/checks/parameter_table.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="parameter-table child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/parameter_table.py)")
+
+
 def gate_cli_strict(ctx):
   """cli-strict: a misspelled flag is a usage error, not a silent ignore.
 
@@ -2348,6 +2374,40 @@ BOARD = [
                "compute_data_vectors/dataset_manifest.py"),
          inputs=()),
        needs=()),
+  Gate(id="parameter-table",
+       spec_code="GEN-C",
+       title="Parameter tables are resolved by producer-declared names",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the Unit-8 named-column staging/pool slice: the complete "
+            "producer .paramnames declaration controls exact float32 2-D "
+            "input/output selection and missing/ambiguous schemas refuse; "
+            "ordinary staging resolves before opening the data-vector dump; "
+            "and ordinary/scalar staging plus pool_size consume the same "
+            "named inputs while scalar paths validate named outputs. "
+            "Independent literal fixtures and positional, missing-sidecar "
+            "compatibility, moved/wrapped/ignored-result, staging-only, and "
+            "pool-only mutations keep all three claims red-sensitive. This "
+            "gate covers staging and pool sizing only; generator checkpoint "
+            "and readback adoption plus no-cut pool sizing remain OPEN",
+       evidence=(Assertion(
+                   "parameter-table.schema-and-layout",
+                   "data-generation-and-cuts.md#parameter-table-schema-and-layout"),
+                 Assertion(
+                   "parameter-table.pre-dv-refusal",
+                   "data-generation-and-cuts.md#parameter-table-pre-dv-refusal"),
+                 Assertion(
+                   "parameter-table.stage-pool-parity",
+                   "data-generation-and-cuts.md#parameter-table-stage-pool-parity")),
+       run=gate_parameter_table,
+       manifest=Manifest(
+         code=("emulator/parameter_table.py",
+               "emulator/data_staging.py",
+               "emulator/experiment.py",
+               "emulator/designs",
+               "emulator/losses"),
+         inputs=()),
+       needs=("torch",)),
   Gate(id="cli-strict",
        spec_code="CLI-A",
        title="Every public executable rejects a misspelled flag",

@@ -81,9 +81,10 @@ def write_fixture(stem, n_rows, seed):
 
     Columns: weight, minuslogpost, H0, omegam, omegamh2, minusloglike. The
     GetDist .paramnames file names the parameter columns. H0 and omegam are
-    sampled. omegamh2 is derived and marked with a trailing '*', so
-    _scalar_columns finds the output column by name and check_paramnames pins
-    the sampled block.
+    sampled. omegamh2 and the trailing minusloglike diagnostic are derived and
+    marked with a trailing '*', so the shared named-column resolver finds the
+    requested output, accounts for every numeric column, and pins the sampled
+    block.
 
     Returns:
       the number of rows written.
@@ -112,6 +113,7 @@ def write_fixture(stem, n_rows, seed):
         f.write("H0\t H_0\n")
         f.write("omegam\t \\Omega_m\n")
         f.write("omegamh2*\t \\Omega_m h^2\n")
+        f.write("minusloglike*\t -\\log L\n")
     return n_rows
 
 
@@ -458,6 +460,10 @@ def check_parameter_window_banner(tmp):
     params_path = os.path.join(tmp, "window_params.txt")
     dv_path = os.path.join(tmp, "window_dv.npy")
     np.savetxt(params_path, parameter_table)
+    with open(os.path.join(tmp, "window_params.paramnames"), "w") as handle:
+        for name in ("H0", "omegab", "omegam", "ns"):
+            handle.write(name + " " + name + "\n")
+        handle.write("chi2* chi2\n")
     np.save(
         dv_path,
         np.arange(raw_count, dtype=np.float32).reshape(raw_count, 1),

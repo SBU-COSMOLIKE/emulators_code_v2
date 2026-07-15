@@ -2612,8 +2612,8 @@ is `unifs` for a uniform run.
 
 | file | content | consumed by |
 |---|---|---|
-| `<paramfile>_<probe>_<T>.1.txt` | columns `weights`, `lnp`, `<params>`, `chi2*` | staging drops the leading `weights` and `lnp` columns and the trailing `chi2*` columns |
-| `<paramfile>_<probe>_<T>.paramnames` | first column contains the Cobaya parameter names | `ParamGeometry` names, then the HDF5 record, then `get_requirements`. This is the parameter-naming chain |
+| `<paramfile>_<probe>_<T>.1.txt` | columns `weights`, `lnp`, then every column declared by the sidecar | the shared parameter-table resolver validates the complete declaration and width, then selects requested inputs and scalar derived outputs by name |
+| `<paramfile>_<probe>_<T>.paramnames` | first token declares every numeric column after `weights` and `lnp`; one trailing `*` marks a derived column | required column authority for staging and pool sizing, then `ParamGeometry` names, the HDF5 record and `get_requirements`. A legacy table without it is refused rather than guessed by position |
 | `<paramfile>_<probe>_<T>.covmat` | the parameter covariance | `data.train_covmat`, which defines the input-whitening basis |
 | `<paramfile>_<probe>_<T>.ranges` | the sampled bounds | getdist plotting of the training cloud |
 | `<datavsfile>_<probe>_<T>.npy` | the stacked training targets | the trainer memory-maps it as `data.train_dv`. The generator table above lists each family's file set |
@@ -2790,8 +2790,10 @@ chi2  =  r^T Cinv r
 ### Step 1: stage data with `data_staging.py`
 
 The training set pairs one physical parameter row with one target row. The
-parameter `.txt` file is parsed eagerly
-into a NumPy array. The target `.npy` file is opened as a file-backed memmap, so
+parameter `.txt` file is parsed eagerly into a NumPy array. Its complete
+`.paramnames` sidecar is required: staging validates names, derived roles,
+order and numeric width before opening the target. The target `.npy` file is
+then opened as a file-backed memmap, so
 selected rows can be read without loading the full target. Physical cuts and
 the requested row count choose the active rows. If those selected parameter
 and target rows fit the memory budget, staging copies them into compact RAM
@@ -2802,12 +2804,18 @@ payload remains file-backed. The result is a source dictionary containing
 ```
 1.  Stage the data                            load_source · data_staging.py
 
-      dv dump (.npy)                    params table (.txt)
-          │                                  │
-   np.load(mmap_mode=r)              loadtxt[:, 2:-1]
-   never loaded whole                drop weight / lnp / chi2 cols
-          │                                  │
-          └────────────────┬─────────────────┘
+      params table (.txt) + complete .paramnames declaration
+                           │
+                 resolve_parameter_table
+                 validate names · roles · order · full width
+                 select requested columns by name (exact-2-D float32)
+                           │
+                           ├───────────────┐
+                           │               │
+                         named C      dv dump (.npy)
+                           │          opened only after schema validation
+                           │          np.load(mmap_mode=r), never loaded whole
+                           └───────┬───────┘
                            ▼
                  seeded shuffle             randperm(n, gen)   (split_seed)
                            ▼

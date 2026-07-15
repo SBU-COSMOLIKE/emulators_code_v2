@@ -1927,10 +1927,78 @@ setup-first mutations must all make this arm red.
 
 This is a bounded implementation slice, not Unit 8 closure. The dataset
 manifest, exact resume/append authentication, corrupt-resume refusal, complete
-RNG continuation, chain-only/full-bundle isolation, and the shared named-column
-resolver remain open. In particular, the word `resume` above describes the
-validated command state; it does not yet claim that the prior bundle has been
-authenticated.
+RNG continuation, and chain-only/full-bundle isolation remain open. The
+staging/pool portion of the shared named-column resolver is the next bounded
+slice below; generator checkpoint/readback adoption remains open. In
+particular, the word `resume` above describes the validated command state; it
+does not yet claim that the prior bundle has been authenticated.
+
+### Unit 8 named-column slice: staging and pool sizing use the producer schema
+
+The shared torch-free `emulator/parameter_table.py` resolver now treats the
+producer's complete `.paramnames` declaration as the only authority for a
+parameter table. Ordinary and scalar staging consume its named arrays, and
+`EmulatorExperiment.pool_size` calls the same resolver before applying the
+same physical cuts. This slice deliberately covers those staging/pool
+consumers only. Generator checkpoint reload and append readback have not yet
+adopted the resolver, and the separate no-cut `pool_size` defect remains OPEN.
+
+<a id="parameter-table-schema-and-layout"></a>
+`parameter-table.schema-and-layout` requires exact-stem sidecar lookup first,
+numeric-chain-root lookup second, and no stripping of a nonnumeric dotted
+stem. Every nonblank declaration is retained with its derived marker and
+numeric column after the two GetDist bookkeeping columns. Normalized names,
+requested inputs, and requested outputs are unique; requested names are
+present; the complete nonderived sequence equals the requested input sequence
+including order; outputs are derived; and numeric width equals two plus the
+declaration count. Returned inputs and outputs are float32 and exactly 2-D,
+including one-row and zero-output tables. Gate-owned literal arrays cover the
+current generator layout, zero derived columns, and multiple derived columns
+interleaved with sampled inputs. A UTF-8 byte-order mark is accepted as
+transport syntax, not as part of the first name; repeated `*` and the invalid
+GetDist `?` marker refuse. Duplicate requested inputs/outputs, an extra
+nonderived declaration, and widths both one short and one long are executable
+refusal cases. A missing sidecar refuses with both candidate paths and
+migration instructions; it never activates an inferred positional format.
+Restoring `[:, 2:-1]` or a missing-sidecar compatibility guess must make this
+leg red.
+
+<a id="parameter-table-pre-dv-refusal"></a>
+`parameter-table.pre-dv-refusal` requires ordinary `load_source` to assign the
+direct resolver call before the direct data-vector `np.load`, then assign `C`
+from that resolver result. The real production loader is driven with both a
+missing and an invalid declaration while its data-vector open and staging
+boundaries are sentinels; both errors must leave the event list empty. The AST
+contract rejects a data-vector open moved before resolution, a resolver RHS
+wrapped around a hidden earlier evaluation, or a resolver result that is
+ignored in favor of another parameter source. It also censuses every
+data-vector `np.load` and staging call, so an extra open or a staging call
+inserted before resolution cannot pass beside the reviewed assignment. Each
+corresponding in-memory mutation must make the leg red.
+
+<a id="parameter-table-stage-pool-parity"></a>
+`parameter-table.stage-pool-parity` requires `load_source`,
+`load_scalar_source`, and `pool_size` each to make one direct shared-resolver
+assignment and consume its named inputs; the scalar staging and pool paths
+also pass the requested output names so an invalid target declaration cannot
+be counted as stageable. A literal scalar table places derived decoys before,
+between, and after the two sampled inputs. An active omega-baryon window has
+an independently known two-row survivor set; real pool sizing must count two,
+and real staging must return exactly those two named input rows and their two
+named target values. Real ordinary `load_source` also accepts independent
+zero-derived and interleaved/multiple-derived fixtures and returns the exact
+literal parameter and data-vector rows. Its isolated positional mutation must
+red. A scalar-staging-only positional resolver mutation is then run with the
+correct pool resolver, followed by a pool-only positional mutation with
+correct staging. None of the isolated mutations may pass; the gate never
+mutates two consumers together. Both consumer modules must have exactly one
+resolver binding, their reviewed sibling-module import; shadow-binding
+mutations red the census.
+
+This gate does not close the whole 45M-68 contract. The generator checkpoint
+and append/readback call sites still need the shared resolver, and no-cut pool
+sizing still has its own queued acceptance work. Those OPEN items cannot be
+inferred from the three staging/pool AIDs above.
 
 ## 25M-01 (CLOSED by Unit 94 on current main): uniform sampling once shrank absolute coordinates instead of the legal interval
 
