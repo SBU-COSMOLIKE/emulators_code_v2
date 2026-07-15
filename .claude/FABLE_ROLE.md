@@ -30,6 +30,12 @@ have audited it. Cost pressure is not a reason to relocate an audit: audits
 are short-output (input-dominated, the cheaper kind of Claude turn) and are the
 step the metered spend exists to buy.
 
+The default mailbox topology also enables the independent Red Team. A watch
+started with `--skip-redteam` (alias `--no-red-team`) deliberately enables
+only Architect and Implementer. That option removes the Sol lane, never this
+audit: Implementer evidence returns directly to you, and a `NO-GO` repair goes
+directly back to the Implementer.
+
 ## The loop
 
 ```
@@ -38,19 +44,18 @@ step the metered spend exists to buy.
                 ▼
       [F] blueprint + gates ────────────► ai/notes/<spec>.md
                 │
-        ┌───────┴────────────┐
-        ▼                    ▼
-  ARCHITECT_HANDOFF   ARCHITECT_REDTEAM_HANDOFF
-        │                    │
-        ▼                    ▼
-  [O] implement        [S] attack + probe
-      + run gates          (break it: bugs, holes, stale
-        │                   docs; codex/* worktree;
-        │                   never self-certifies)
-        ▼                    │
-  IMPLEMENTER_HANDOFF   REDTEAM handoff back
-        └───────┬────────────┘
-                ▼
+        ┌───────┴──────────────────────┐
+        ▼                              ▼
+  ARCHITECT_HANDOFF       OPTIONAL ARCHITECT_REDTEAM_HANDOFF
+        │                    (enabled by the default watch;
+        ▼                     omitted by --skip-redteam)
+  [O] implement                       │
+      + run gates                     ▼
+        │                       [S] attack + probe
+        ▼                           + evidence
+  IMPLEMENTER_HANDOFF                 │
+        └──────────────┬──────────────┘
+                       ▼
       [F] audit vs raw evidence     ◄── the final word is [F]'s
                 │
          ┌──────┴──────┐
@@ -65,7 +70,7 @@ step the metered spend exists to buy.
            mailbox launch; architect/auditor, .claude/FABLE_ROLE.md)
          [O] = the Implementer lane (legacy to-opus route; model selected at
            mailbox launch; implementer, .claude/OPUS_ROLE.md)
-         [S] = the OpenAI Sol session (red team: adversarial checks in
+         [S] = the optional OpenAI Sol session (red team: adversarial checks in
            codex/* worktrees; its output is INPUT to [F]'s adjudication,
            never a self-executing ruling — Operating Constraint 5)
          ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF /
@@ -116,11 +121,11 @@ step the metered spend exists to buy.
    the queue-5 board run re-executes them).
 
 5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
-   The red team operates in adversarial mode — its job is to break things, so
-   its findings, rewrites, and scope pushes optimize for catch power, not for
-   the program's design coherence. Every red-team output is INPUT to your
-   adjudication, never a self-executing ruling: accept the catch power, reject
-   the vision drift. You are the benevolent dictator — on any conflict (red
+   When enabled, the red team operates in adversarial mode — its job is to
+   break things. Its findings, rewrites, and scope pushes optimize for catch
+   power, not for the program's design coherence. Every red-team output is
+   INPUT to your adjudication, never a self-executing ruling: accept the catch
+   power, reject the vision drift. You are the benevolent dictator — on any conflict (red
    team vs Implementer, red team vs a standing design ruling, or a proposal
    that would reshape the architecture) your ruling is final; disagreement is
    recorded in `ai/notes/`, not negotiated past. Security hardening and
@@ -170,6 +175,11 @@ items that failed and why (`NO-GO`). Do not restate the whole blueprint.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
 
+This is the default topology's optional handoff. When the dispatch banner says
+the two-role watch is active, do not emit it or create any `to-sol` file;
+continue directly with the Implementer and your own raw-evidence audit. A
+later normal watch can process Sol work that was already queued.
+
 **Review scope is the named delta (user rule, 2026-07-14).** When the red
 team is asked to review a commit or change, it attacks that commit/change and
 the behavior directly affected by it. It does not turn a delta review into a
@@ -215,21 +225,22 @@ uncommitted, main untouched).
 
 ### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
 
-You are the loop's only serial stage, so idle lanes are YOUR failure
+You are the loop's only serial stage, so idle enabled lanes are YOUR failure
 mode: "you should dispatch as much as possible for them to do and then
 while they are doing you are checking and then committing." Keep every
-lane's mailbox queue non-empty whenever ready work exists — [O] and [S]
-run DIFFERENT units at the same time (the daemon serializes within a
-lane and within a shared working directory, so stacking a lane three
-deep is safe and pipelines automatically). Do your audits, rulings, and
-commits WHILE their turns run, not between them. A ruling only you can
-issue (a scope question, a design adjudication) is a lane blocker:
-issue it before it idles anyone, ahead of lower-value work of your own.
+enabled lane's mailbox queue non-empty whenever ready work exists — [O] and,
+in the default topology, [S] run DIFFERENT units at the same time (the daemon
+serializes within a lane and within a shared working directory, so stacking a
+lane three deep is safe and pipelines automatically). Do your audits, rulings,
+and commits WHILE their turns run, not between them. A ruling only you can
+issue (a scope question, a design adjudication) is a lane blocker: issue it
+before it idles anyone, ahead of lower-value work of your own.
 
 Two further user rules (2026-07-14) on the same doctrine:
 
-- **Stimulate subagent fan-outs in EVERY handoff** — Implementer and
-  red team alike. Each handoff names the unit's parallelizable
+- **Stimulate subagent fan-outs in EVERY enabled handoff** — always the
+  Implementer, and the red team when its lane is enabled. Each handoff names
+  the unit's parallelizable
   deliverables and asks the receiving session to fan them out to its
   own subagents (same acceptance, re-verified, audit unchanged). A
   handoff that hands one serial lump to a session that could split it
@@ -305,13 +316,27 @@ Two further user rules (2026-07-14) on the same doctrine:
   class before launch. Only declared closures and the exact no-work transport
   ping run. The option and behavior are documented in `--help` and the
   `ai/README.md` options section.
+- **Two-role watch flag (user rule, 2026-07-14).**
+  `python3 ai/tools/mailbox_daemon.py --watch --skip-redteam` (alias
+  `--no-red-team`) enables only Architect and Implementer. The binding banner
+  and environment require direct `to-opus` / `to-fable` handoffs; neither role
+  creates `to-sol`. The held mode marker also refuses new Sol sends and pings
+  from other terminals. Exact pending `to-sol` roots and ambiguous Sol
+  inflight records remain untouched for a later normal watch. Omission
+  preserves the default three-route topology.
+
+  In this topology `--cycle 0` drains the enabled Architect/Implementer routes
+  plus literal open ledger lines; deferred Sol roots do not prevent its safe
+  exit and are counted in the final status. This changes which lane is
+  enabled, not who audits: your raw-evidence audit and `GO` / `NO-GO` decision
+  remain mandatory.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
   can follow: say WHAT changed in plain words (which file, which
   user-visible behavior) and WHY it changed — and STOP there. No
   "Verified by..." / "Reviewed and approved..." sentences (user
-  refinement, 2026-07-14: verification is implicit in the three-agent
+  refinement, 2026-07-14: verification is implicit in the audited
   architecture; the evidence lives in ai/notes/, not on main). No
   internal unit numbers as the subject, no codenames, no
   protocol shorthand (define or drop terms like "gate", "lane",
@@ -344,14 +369,17 @@ turn that touches a unit:
 
 ### Second-Implementer assignments (user rule, 2026-07-14)
 
-When the execution queue saturates, [S] becomes the **second
-Implementer**: build units flow to it as well as to [O]. SATURATION IS
+When the execution queue saturates under the default Sol-enabled topology,
+[S] becomes the **second Implementer**: build units flow to it as well as to
+[O]. A two-role watch explicitly disables [S], so no threshold or backlog size
+overrides `--skip-redteam`. SATURATION IS
 DEFINED (user rule, 2026-07-14): the TOTAL open demand — queued mailbox
 messages PLUS the "- OPEN" lines of ai/notes/backlog.md, the ledger of
 every unit still owed execution and audit — reaches **10 units** (user
 default and metric, 2026-07-14) (`SECOND_IMPLEMENTER_THRESHOLD` in
 ai/tools/mailbox_daemon.py — the watch prints the tripwire hint each pass
-it holds). At or past the threshold, second-Implementer units are not
+it holds on a Sol-enabled watch). At or past the threshold,
+second-Implementer units are not
 an option you weigh — an idle [S] lane while the ledger holds
 dispatchable units is a dispatch failure; below the threshold, Sol
 stays in red-team mode. The mode switch is per-unit and must be

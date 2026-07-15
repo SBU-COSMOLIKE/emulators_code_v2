@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -350,6 +351,10 @@ def arm_second_implementer_mode():
           len(sol_prompts) == 1
           and sol_prompts[0].count(expected) == 1
           and "\n\n" + expected + "\n\n" in sol_prompts[0])
+        routed_output = routed_stream.getvalue()
+        full_progress_exact = all(
+          marker in routed_output
+          for marker in ("[1/4]", "[2/4]", "[3/4]", "[4/4]"))
 
         module.sys.argv = ["handoff_router.py", "--mode", "backup"]
         invalid_stream = io.StringIO()
@@ -366,11 +371,154 @@ def arm_second_implementer_mode():
         print("  ruled CLI value completes routing:", routed_rc == 0)
         print("  exact declaration routed once:",
               declaration_exact and prompt_exact)
+        print("  full-loop progress remains four steps:",
+              full_progress_exact)
         print("  retired backup value rejected:", backup_rejected)
         assert routed_rc == 0
         assert declaration_exact
         assert prompt_exact
+        assert full_progress_exact
         assert backup_rejected
+
+
+def arm_skip_redteam_aliases():
+    """Prove both skip spellings bypass Sol with truthful three-step output."""
+    aliases = ["--skip-redteam", "--no-red-team"]
+    for index, alias in enumerate(aliases):
+        with tempfile.TemporaryDirectory(
+                prefix="router-skip-redteam-") as tmp:
+            root = Path(tmp)
+            module, repo = load_scratch_router(
+              root, "scratch_router_skip_redteam_" + str(index))
+            note = repo / "ai" / "notes" / "spec.md"
+            note.write_text("scratch specification\n", encoding="utf-8")
+            module.ROUTER_LOCK_PATH = str(root / "router.lock")
+
+            copied = []
+            waited_headers = []
+            archived_names = []
+            gate_calls = []
+
+            def capture_copy(text):
+                copied.append(text)
+
+            def implementer_handoff(header, last_copied):
+                waited_headers.append(header)
+                assert last_copied == copied[-1]
+                return "### IMPLEMENTER_HANDOFF: DONE\n"
+
+            def archive_transport(seq, name, text):
+                archived_names.append(name)
+                return "ai/notes/relay/" + seq + "-" + name + ".md"
+
+            def green_gates(commands, seq):
+                gate_calls.append((commands, seq))
+                return "ai/notes/relay/" + seq + "-gates-log.md", True
+
+            module.copy_to_clipboard = capture_copy
+            module.wait_for_block = implementer_handoff
+            module.archive = archive_transport
+            module.run_gates = green_gates
+
+            original_argv = module.sys.argv
+            module.sys.argv = [
+              "handoff_router.py",
+              "--note", "ai/notes/spec.md",
+              alias,
+            ]
+            routed_stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(routed_stream):
+                    routed_rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+
+            routed_output = routed_stream.getvalue()
+            sol_prompt_copied = any(
+              text.startswith("### ARCHITECT_REDTEAM_HANDOFF")
+              for text in copied)
+            fable_prompt = copied[-1] if copied else ""
+            direct_audit = (
+              fable_prompt.startswith("### RELAY FOR AUDIT")
+              and "Implementer return (transport copy):" in fable_prompt
+              and "Sol return (transport copy):" not in fable_prompt)
+            progress_exact = all(
+              marker in routed_output
+              for marker in ("[1/3]", "[2/3]", "[3/3]"))
+            no_four_step_marker = "/4]" not in routed_output
+            skipped_cleanly = (
+              routed_rc == 0
+              and len(copied) == 2
+              and not sol_prompt_copied
+              and waited_headers == ["### IMPLEMENTER_HANDOFF:"]
+              and archived_names == ["implementer"]
+              and len(gate_calls) == 1
+              and direct_audit
+              and progress_exact
+              and no_four_step_marker)
+
+            print("ARM skip-redteam alias " + alias)
+            print("  Sol copy/wait/archive skipped:", skipped_cleanly)
+            print("  direct Architect audit prompt:", direct_audit)
+            print("  progress is exactly three steps:",
+                  progress_exact and no_four_step_marker)
+            assert skipped_cleanly
+
+    help_proc = subprocess.run(
+      [sys.executable, str(SOURCE), "--help"],
+      check=False,
+      capture_output=True,
+      text=True,
+    )
+    normalized_help = " ".join(help_proc.stdout.split())
+    help_exact = (
+      help_proc.returncode == 0
+      and "--skip-redteam, --no-red-team" in normalized_help
+      and "skip the entire Sol step" in normalized_help
+      and "Implementer -> local gates -> Architect" in normalized_help)
+    print("  both aliases and route are documented in --help:", help_exact)
+    assert help_exact
+
+
+def arm_skip_redteam_mode_conflict():
+    """Reject a Sol Implementer mode when the whole Sol step is disabled."""
+    aliases = ["--skip-redteam", "--no-red-team"]
+    expected = ("--skip-redteam/--no-red-team cannot be combined with "
+                "--mode second-implementer")
+    for index, alias in enumerate(aliases):
+        with tempfile.TemporaryDirectory(
+                prefix="router-skip-conflict-") as tmp:
+            root = Path(tmp)
+            module, _repo = load_scratch_router(
+              root, "scratch_router_skip_conflict_" + str(index))
+            side_effects = []
+
+            def forbidden_copy(text):
+                side_effects.append(text)
+
+            module.copy_to_clipboard = forbidden_copy
+            original_argv = module.sys.argv
+            module.sys.argv = [
+              "handoff_router.py",
+              alias,
+              "--mode", "second-implementer",
+            ]
+            refused_stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(refused_stream):
+                    refused_rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+
+            refused_output = refused_stream.getvalue()
+            refused_cleanly = (
+              refused_rc == 1
+              and expected in refused_output
+              and side_effects == [])
+            print("ARM skip-redteam conflict " + alias)
+            print("  second-Implementer mode rejected before routing:",
+                  refused_cleanly)
+            assert refused_cleanly
 
 
 def main():
@@ -382,6 +530,8 @@ def main():
     arm_clipboard_failure()
     arm_integrated_status()
     arm_second_implementer_mode()
+    arm_skip_redteam_aliases()
+    arm_skip_redteam_mode_conflict()
     print("ALL SCRATCH ROUTER REPRODUCTIONS PASS")
 
 

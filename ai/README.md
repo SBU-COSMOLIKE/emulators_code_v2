@@ -8,7 +8,7 @@ Prof. Miranda owns the scientific contracts, architecture, public interface,
 test requirements, and Python readability conventions. Agents work within
 those boundaries; they do not redefine them.
 
-![Command-line flags select Claude models for stable Architect and Implementer roles. The Architect sends a specification to the Implementer and a bounded review to Sol; both return evidence to the Architect, who decides GO or NO-GO.](notes/assets/role-model-agent-loop.svg)
+![Command-line flags select Claude models for stable Architect and Implementer roles. The default loop also uses an independent Red Team, while a two-role watch connects Architect and Implementer directly. The Architect always decides GO or NO-GO.](notes/assets/role-model-agent-loop.svg)
 
 ## Choose a path
 
@@ -93,6 +93,27 @@ replace the role instructions carried by a valid handoff.
 Omit both model flags for the historical Fable-Architect and Opus-Implementer
 defaults. Aliases and full Claude model IDs are accepted.
 
+The default watcher enables Architect, Implementer, and Sol. To run only the
+two Claude roles, use:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --skip-redteam
+```
+
+`--no-red-team` is an exact alias. The two-role watcher leaves every existing
+`to-sol` file byte-untouched for a later normal watch and refuses new Sol sends
+or pings while it is active. Architect and Implementer continue directly:
+implementation evidence goes to the Architect, and repair handoffs return to
+the Implementer.
+
+The Red Team is optional; the Architect's audit is not. The Architect still
+reruns the evidence and alone records `GO` or `NO-GO`.
+
+With `--skip-redteam --cycle 0`, “queue empty” means the enabled Architect and
+Implementer routes. The watcher exits after those routes and the open ledger
+drain, even if deferred `to-sol` files remain; its final status names their
+count instead of claiming that every lane is empty.
+
 To stop automatically after two global safe-stop cycles, add:
 
 ```bash
@@ -135,7 +156,7 @@ A **GO** names the accepted evidence and the exact squash boundary. A
 **NO-GO** leaves the unit held and records the smallest repair delta; nothing
 lands from that decision.
 
-The normal ticket looks like this over time:
+A ticket can use the default three-role topology or the two-role topology:
 
 ```mermaid
 sequenceDiagram
@@ -147,10 +168,10 @@ sequenceDiagram
   U->>A: Goal + source note
   A->>A: Write blueprint + gates
 
-  par Build
-    A->>I: ARCHITECT_HANDOFF
-    I-->>A: IMPLEMENTER_HANDOFF + gate logs
-  and Challenge
+  A->>I: ARCHITECT_HANDOFF
+  I-->>A: IMPLEMENTER_HANDOFF + gate logs
+
+  opt Default Red Team lane; omit with --skip-redteam
     A->>R: ARCHITECT_REDTEAM_HANDOFF
     R-->>A: Bounded findings + evidence
   end
@@ -177,7 +198,7 @@ Roles stay stable while models are replaceable.
 | --- | --- | --- |
 | **[A] Architect / Auditor** | Blueprint, acceptance gates, evidence audit, and explicit `GO` / `NO-GO` | `to-fable` |
 | **[I] Implementer** | The named implementation unit and its validation output | `to-opus` |
-| **[R] Independent Red Team** | Adversarial evidence about the named change | `to-sol` |
+| **[R] Optional Independent Red Team** | Adversarial evidence about the named change | `to-sol` |
 
 The Claude model flags bind models to the two Claude routes for that watcher.
 Neither a model nor a route assigns authority. The message must explicitly
@@ -194,13 +215,18 @@ audit verdict, and landing recommendation uses **GO** or **NO-GO**.
 - Words such as “pass” and “fail” may describe evidence, but never replace the
   decision label.
 
-The Red Team reviews the named commit or change and the behavior it directly
-affects. It does not widen that review into a library attack unless the user
-explicitly requests: `Do a widespread search for ...`.
+The default topology includes the Red Team. A watcher launched with
+`--skip-redteam` or `--no-red-team` disables the entire Sol route for that
+watch only. This does not change role authority, convert Sol into another
+role, or weaken the Architect's evidence audit.
+
+When enabled, the Red Team reviews the named commit or change and the behavior
+it directly affects. It does not widen that review into a library attack
+unless the user explicitly requests: `Do a widespread search for ...`.
 
 A Red Team finding is input to the Architect, not a self-executing ruling.
-Using models from two vendors gives that challenge a genuinely independent
-failure mode.
+When that optional lane is enabled, using models from two vendors gives the
+challenge a genuinely independent failure mode.
 
 The Architect owns the audited squash boundary. The actor who executes that
 landing or pushes it is controlled by the current user grant; without a grant,
@@ -303,6 +329,23 @@ python3 ai/tools/mailbox_daemon.py --send opus \
 
 Expected result: one `to-opus` message is published atomically.
 
+### Run a two-role manual relay
+
+```bash
+python3 ai/tools/handoff_router.py \
+  --note ai/notes/version-flag.md \
+  --skip-redteam
+```
+
+Expected result: the router captures the Implementer handoff, runs and
+archives the local gates, then copies the audit relay directly to the
+Architect. It does not prompt, wait for, or archive Sol. `--no-red-team` is
+the same option; omit either spelling for the default Red Team step.
+
+This manual-router option and the watcher option share a spelling, not process
+state. A running watcher controls mailbox dispatch; one handoff-router command
+controls only that clipboard relay.
+
 ### Queue a bounded Red Team review
 
 ```bash
@@ -400,7 +443,7 @@ stateDiagram-v2
   [*] --> Busy
   Busy --> FreezeAdmissions: 5 completed turns or 15 elapsed cycle minutes
   FreezeAdmissions --> DrainRunningTurns
-  DrainRunningTurns --> CycleBoundary: all lanes and preparations are idle
+  DrainRunningTurns --> CycleBoundary: enabled lanes and preparations are idle
   CycleBoundary --> AutomaticExit: requested cycle limit reached
   AutomaticExit --> [*]
   CycleBoundary --> SafeCountdown: more cycles remain
@@ -422,20 +465,21 @@ Choose the lifetime explicitly:
 | --- | --- |
 | `--watch` | Existing indefinite watcher; stop during a safe interval |
 | `--watch --cycle 2` | Exit automatically at the second global rendezvous |
-| `--watch --cycle 0` | Exit when the dispatch queue and literal `- OPEN` ledger lines are both empty |
+| `--watch --cycle 0` | Exit when all enabled routes and literal `- OPEN` ledger lines are empty |
+| `--watch --skip-redteam --cycle 0` | Drain Architect + Implementer and the ledger; report and defer queued Sol files |
 
 Zero mode observes the ledger; it does not manufacture tickets from ledger
 prose. Routed agents must still close those lines through the mailbox chain.
 
 Before declaring zero-mode completion, the watcher takes the same publication
 lock as daemon `--send`. It then verifies a stable regular UTF-8 ledger and
-checks the root queue while new daemon sends are blocked.
+checks the enabled root queue while new daemon sends are blocked.
 
 ```mermaid
 flowchart LR
   Sender["daemon --send"] --> SequenceLock[".sequence.lock"]
   Watcher["cycle-zero watcher"] --> SequenceLock
-  SequenceLock --> Verify["verify stable ledger + root queue"]
+  SequenceLock --> Verify["verify stable ledger + enabled root queue"]
   Verify -->|"work exists"| Continue["release barrier and keep watching"]
   Verify -->|"both empty"| ReleaseWatch["release fix-only and watch locks"]
   ReleaseWatch --> ReleaseBarrier["release publication barrier and exit"]
@@ -484,6 +528,12 @@ Zero mode uses this terminal status after the queue and ledger drain:
 cycle work complete after 1 cycle; all lanes idle; mailbox and ledger empty; watcher exiting safely.
 ```
 
+A two-role zero-mode exit names its narrower claim and deferred Sol count:
+
+```text
+cycle work complete after 1 cycle; Architect and Implementer lanes idle; enabled mailbox routes and ledger empty; 1 Sol message deferred; watcher exiting safely.
+```
+
 <details>
 <summary>Why the safe interval is race-resistant</summary>
 
@@ -511,7 +561,7 @@ is the serialized queue for one working directory.
 flowchart TB
   M["Pending mailbox message"] --> R{"Stable route"}
   R -->|"to-fable or to-opus"| C["Coordination working directory"]
-  R -->|"to-sol"| S["Sol working directory"]
+  R -->|"to-sol, when enabled"| S["Optional Sol working directory"]
   C --> CT["One Claude turn at a time"]
   S --> ST["Sol turn"]
   CT --> E["Architect evidence audit"]
@@ -521,9 +571,9 @@ flowchart TB
 Filenames impose strict order within a lane. Distinct working directories may
 run concurrently; routes that resolve to the same directory are serialized.
 
-True coordination/Sol parallelism therefore depends on launch topology. Use
-`--dry-run` and inspect each command's working directory before relying on two
-lanes.
+True coordination/Sol parallelism therefore depends on launch topology. A
+two-role watch has no enabled Sol lane. Otherwise, use `--dry-run` and inspect
+each command's working directory before relying on two lanes.
 
 ### Demand guard
 
@@ -554,6 +604,11 @@ That sentence is a per-unit role override. For that message Sol follows
 `.claude/OPUS_ROLE.md`, not the ordinary Red Team rule that forbids functional
 implementation. Without the explicit override, Sol remains the bounded Red
 Team described in `.codex/REDTEAM_ROLE.md`.
+
+A two-role watch is an explicit topology override: Sol is neither Red Team nor
+second Implementer while that watch runs. The threshold hint is suppressed,
+new Sol publications are refused, and already queued Sol files wait untouched
+for a later watcher launched without the option.
 
 <details>
 <summary>Exact saturated queue example</summary>
@@ -615,7 +670,8 @@ creating or rewriting a lock.
 ### Bootstrap checklist
 
 1. Clone the repository.
-2. Install and authenticate Claude Code and the Codex CLI.
+2. Install and authenticate Claude Code. Install the Codex CLI when the
+   optional Red Team or Sol second-Implementer route will be used.
 3. Create separate linked worktrees for independent interactive writers.
 4. Choose one Claude worktree as the coordination worktree.
 5. Update the two executable paths in `build_agent_commands()`.
@@ -644,10 +700,10 @@ the watcher polls that same worktree.
 flowchart TB
   G["One git repository"] --> M["Main checkout"]
   G --> C["Coordination worktree"]
-  G --> R["Optional interactive codex worktree"]
+  G --> R["Optional interactive Codex worktree"]
   C --> A["Architect route"]
   C --> I["Implementer route"]
-  M --> S["Dispatched Sol route: REPO_ROOT"]
+  M --> S["Optional dispatched Sol route: REPO_ROOT"]
   R --> X["Independent interactive review"]
   A --> L["Serialized coordination lane"]
   I --> L
@@ -731,6 +787,7 @@ code.
 | Claude route models | `--architect-model`, `--implementer-model` | Fable, Opus |
 | Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max` |
 | Sol effort | `--sol-effort` | `xhigh` |
+| Watch topology | `--skip-redteam`, `--no-red-team` | Architect + Implementer + Sol |
 | Turn timeout | `--dispatch-timeout` | 60 minutes |
 | Context compaction | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | Omitted: indefinite; `N>0`: stop at cycle N; `0`: drain ledger and queue |
@@ -761,8 +818,9 @@ offline and regression use.
 
 ```
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
-                         [--fix-only value] [--send AGENT] [--ping AGENT]
-                         [--unit UNIT] [--ticket-kind {closure,discovery}]
+                         [--skip-redteam] [--fix-only value] [--send AGENT]
+                         [--ping AGENT] [--unit UNIT]
+                         [--ticket-kind {closure,discovery}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
@@ -781,9 +839,14 @@ options:
   --once                process the current backlog and exit
   --watch               poll the mailbox every 20 seconds
   --cycle count         with --watch, exit safely after this many global
-                        rendezvous cycles; 0 waits until the dispatch queue
-                        and open ledger are empty; omitting the option keeps
-                        watching indefinitely
+                        rendezvous cycles; 0 waits until the enabled dispatch
+                        queue and open ledger are empty; omitting the option
+                        keeps watching indefinitely
+  --skip-redteam, --no-red-team
+                        with --watch, dispatch only Architect and Implementer
+                        routes; disable the entire Sol route and leave
+                        existing to-sol messages queued for a later normal
+                        watch
   --fix-only value      with --watch, close existing ledger work only; the
                         value accepts 1, true, or yes in any capitalization
   --send AGENT          queue a message to this agent and exit
@@ -829,7 +892,11 @@ options:
   actions.
 - `--cycle` accepts a nonnegative integer and is valid only with `--watch`.
 - Omitting `--cycle` differs from `--cycle 0`: omission watches indefinitely;
-  zero waits for the dispatch queue and open ledger to drain.
+  zero waits for the enabled dispatch routes and open ledger to drain.
+- `--skip-redteam` and `--no-red-team` are watch-only aliases. Omit them for
+  the default three-route topology.
+- A two-role watch preserves queued Sol files and refuses new Sol sends and
+  pings until that watch releases its topology lock.
 - Zero mode fails closed when it cannot verify a stable regular ledger. Daemon
   sends are serialized across its final queue-and-ledger cutoff.
 - `--unit` is required with `--send`.
@@ -839,3 +906,12 @@ options:
   before mailbox mutation.
 
 The live `--help` output is authoritative if explanatory prose ever drifts.
+
+The manual relay has its own live reference:
+
+```bash
+python3 ai/tools/handoff_router.py --help
+```
+
+Its same-named two-role option affects only that one clipboard relay; it does
+not change a running mailbox watcher.

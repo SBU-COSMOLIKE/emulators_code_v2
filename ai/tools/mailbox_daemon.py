@@ -38,6 +38,8 @@ Usage:
     python ai/tools/mailbox_daemon.py --watch          # poll every 20 s
     python ai/tools/mailbox_daemon.py --watch --cycle 2
                                                     # stop safely after 2 cycles
+    python ai/tools/mailbox_daemon.py --watch --skip-redteam
+                                                    # Architect + Implementer only
     python ai/tools/mailbox_daemon.py --send opus --unit "ai/notes/<spec>.md ..."
                                                     # drop a first message
     python ai/tools/mailbox_daemon.py --send sol --ticket-kind closure \
@@ -514,7 +516,8 @@ def strict_cycle_ledger_count():
     return count, None
 
 
-def acquire_cycle_completion_barrier(backlog_outcome):
+def acquire_cycle_completion_barrier(backlog_outcome,
+                                     skip_redteam=False):
     """Return a held send barrier only when cycle-zero work is verified done.
 
     Daemon sends serialize publication through ``.sequence.lock``. Holding
@@ -538,8 +541,10 @@ def acquire_cycle_completion_barrier(backlog_outcome):
         return None, "cannot lock mailbox publication: " + str(exc)
     try:
         ledger, error = strict_cycle_ledger_count()
-        waiting_before = pending_messages()
-        waiting_after = pending_messages()
+        waiting_before = enabled_pending_messages(
+            skip_redteam=skip_redteam)
+        waiting_after = enabled_pending_messages(
+            skip_redteam=skip_redteam)
     except OSError as exc:
         ledger = None
         error = "cannot verify pending mailbox messages: " + str(exc)
@@ -558,7 +563,8 @@ def release_cycle_completion_barrier(lock_file):
     lock_file.close()
 
 
-def report_cycle_limit_exit(completed_cycles, cycle_limit):
+def report_cycle_limit_exit(completed_cycles, cycle_limit,
+                            skip_redteam=False):
     """Report a positive cycle limit at a proven all-idle rendezvous."""
     waiting = len(pending_messages())
     ledger = backlog_ledger_count()
@@ -569,11 +575,22 @@ def report_cycle_limit_exit(completed_cycles, cycle_limit):
           + "); all lanes idle; watcher exiting safely; "
           + waiting_messages_text(count=waiting) + "; " + str(ledger)
           + " open ledger " + ledger_noun + " remain.", flush=True)
+    if skip_redteam:
+        report_deferred_sol_messages()
 
 
-def report_cycle_work_complete(completed_cycles):
+def report_cycle_work_complete(completed_cycles, skip_redteam=False):
     """Report explicit cycle mode draining both mailbox and literal ledger."""
     noun = "cycle" if completed_cycles == 1 else "cycles"
+    if skip_redteam:
+        deferred = len(deferred_sol_messages())
+        deferred_noun = "message" if deferred == 1 else "messages"
+        print("cycle work complete after " + str(completed_cycles) + " "
+              + noun + "; Architect and Implementer lanes idle; enabled "
+              "mailbox routes and ledger empty; " + str(deferred)
+              + " Sol " + deferred_noun
+              + " deferred; watcher exiting safely.", flush=True)
+        return
     print("cycle work complete after " + str(completed_cycles) + " " + noun
           + "; all lanes idle; mailbox and ledger empty; watcher exiting "
           "safely.", flush=True)
@@ -709,6 +726,8 @@ SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
 SOL_TICKET_HEADER = "MAILBOX-TICKET: "
 FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
 FIX_ONLY_LOCK_NAME = ".fix-only.lock"
+SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
+SKIP_REDTEAM_LOCK_NAME = ".skip-redteam.lock"
 
 # One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
 # witness/gate leg, and the notes audit record — a few hundred changed
@@ -805,6 +824,28 @@ def pending_messages():
     return found
 
 
+def enabled_pending_messages(skip_redteam=False):
+    """Return root messages eligible for this watch topology.
+
+    The ordinary three-role topology returns every dispatchable message.
+    A two-role watch excludes only exact ``to-sol`` roots; those files stay
+    in place for a later Sol-enabled watch.
+    """
+    backlog = pending_messages()
+    if not skip_redteam:
+        return backlog
+    return [path for path in backlog
+            if PENDING_MESSAGE_RE.match(os.path.basename(path)).group(1)
+            != "sol"]
+
+
+def deferred_sol_messages():
+    """Return exact pending Sol roots held by a two-role watch."""
+    return [path for path in pending_messages()
+            if PENDING_MESSAGE_RE.match(os.path.basename(path)).group(1)
+            == "sol"]
+
+
 def total_open_demand(backlog=None):
     """Return queued messages plus literal open lines in the ledger."""
     if backlog is None:
@@ -876,6 +917,14 @@ def fix_only_environment_active():
     return value.strip().lower() in {"1", "true", "yes"}
 
 
+def skip_redteam_environment_active():
+    """Return whether this send inherited a two-role watch contract."""
+    value = os.environ.get(SKIP_REDTEAM_ENVIRONMENT)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes"}
+
+
 def sol_ticket_refusal(ticket_kind, total, fix_only,
                        transport_valid=False):
     """Return the binding refusal reason for a Sol ticket, or ``None``."""
@@ -902,13 +951,16 @@ def sol_ticket_refusal(ticket_kind, total, fix_only,
     return None
 
 
-def inflight_lane_blockers():
+def inflight_lane_blockers(skip_redteam=False):
     """Return unresolved inflight agent messages grouped by cwd lane.
 
     Only exact dispatchable message names participate. A hand-made file or an
     archived ``-to-user`` note under inflight cannot block an agent lane, but
     an unresolved Fable message blocks Opus too because those recipients share
-    one working directory.
+    one working directory. Two-role mode may ignore a historical Sol blocker
+    only when Sol's cwd is separate from both enabled Claude cwd lanes. In an
+    ordinary checkout all routes can share the repository root, so that same
+    Sol blocker must continue to hold the shared tree closed.
     """
     blockers = {}
     seen = {}
@@ -925,7 +977,13 @@ def inflight_lane_blockers():
         match = PENDING_MESSAGE_RE.match(name)
         if match is None:
             continue
-        cwd = AGENT_CWD[match.group(1)]
+        agent = match.group(1)
+        cwd = AGENT_CWD[agent]
+        enabled_claude_cwds = {
+            AGENT_CWD["fable"], AGENT_CWD["opus"]}
+        if (skip_redteam and agent == "sol"
+                and cwd not in enabled_claude_cwds):
+            continue
         if cwd not in blockers:
             blockers[cwd] = []
             seen[cwd] = set()
@@ -1147,7 +1205,7 @@ def exact_duration(value):
 
 
 def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
-                    fix_only=False):
+                    fix_only=False, skip_redteam=False):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -1166,6 +1224,11 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
         lines.append(
             "fix-only watch: active; close existing ledger lines only; "
             "create no discovery tickets or new backlog lines.")
+    if skip_redteam:
+        lines.append(
+            "two-role watch: the Red Team and entire Sol route are disabled; "
+            "create no to-sol messages; route Implementer evidence to the "
+            "Architect and Architect repair handoffs to the Implementer.")
     lines.append("--- END DISPATCH CURRENCY ---")
     return "\n".join(lines) + "\n\n"
 
@@ -1361,6 +1424,21 @@ def fix_only_watch_is_active(mailbox=None):
     return held
 
 
+def skip_redteam_watch_is_active(mailbox=None):
+    """Return whether this mailbox has a live two-role watch marker."""
+    if mailbox is None:
+        mailbox = MAILBOX
+    held, _ = held_lock_probe(
+        mailbox=mailbox, lock_name=SKIP_REDTEAM_LOCK_NAME)
+    return held
+
+
+def skip_redteam_policy_active():
+    """Return whether this process or its mailbox is in two-role mode."""
+    return (skip_redteam_environment_active()
+            or skip_redteam_watch_is_active())
+
+
 def mailbox_candidates():
     """Return every mailbox whose watcher could serve this repository.
 
@@ -1552,13 +1630,109 @@ def release_fix_only_lock(lock_file):
     lock_file.close()
 
 
-def dispatch(path, dry_run, fix_only=False):
+def acquire_skip_redteam_lock_while_sequence_locked():
+    """Create the two-role mode marker after publishers are serialized."""
+    if not mailbox_path_is_unredirected(mailbox=MAILBOX):
+        print("cannot disable the red-team route on a redirected mailbox "
+              "path")
+        return None
+    lock_path = os.path.join(MAILBOX, SKIP_REDTEAM_LOCK_NAME)
+    flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK
+    flags = flags | getattr(os, "O_CLOEXEC", 0)
+    flags = flags | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        print("cannot disable the red-team route: " + str(exc))
+        return None
+    lock_file = os.fdopen(descriptor, "r+", encoding="utf-8")
+
+    def path_still_names_opened_inode(opened):
+        """Return whether the public mode path still names this descriptor."""
+        try:
+            current = os.lstat(lock_path)
+        except OSError:
+            return False
+        return (stat.S_ISREG(current.st_mode)
+                and (opened.st_dev, opened.st_ino)
+                == (current.st_dev, current.st_ino))
+
+    try:
+        opened = os.fstat(lock_file.fileno())
+        if (not stat.S_ISREG(opened.st_mode)
+                or not path_still_names_opened_inode(opened=opened)):
+            print("cannot disable the red-team route: mode lock is not an "
+                  "unchanged regular file")
+            lock_file.close()
+            return None
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError) as exc:
+        print("cannot disable the red-team route: its mode lock is already "
+              "held or unreadable (" + str(exc) + ")")
+        lock_file.close()
+        return None
+    if not path_still_names_opened_inode(opened=opened):
+        print("cannot disable the red-team route: mode lock path changed "
+              "while its lock was acquired")
+        release_skip_redteam_lock(lock_file=lock_file)
+        return None
+    try:
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write("two-role watch pid " + str(os.getpid()))
+        lock_file.flush()
+        os.fsync(lock_file.fileno())
+    except OSError as exc:
+        print("cannot disable the red-team route: could not publish its "
+              "owner (" + str(exc) + ")")
+        release_skip_redteam_lock(lock_file=lock_file)
+        return None
+    if not path_still_names_opened_inode(opened=opened):
+        print("cannot disable the red-team route: mode lock path changed "
+              "while its owner was published")
+        release_skip_redteam_lock(lock_file=lock_file)
+        return None
+    return lock_file
+
+
+def acquire_skip_redteam_lock():
+    """Atomically disable Sol dispatch relative to daemon message sends."""
+    # Refuse a redirected mailbox before creating even its sequence-lock
+    # file. The inner check stays binding because the path can still change
+    # between this preflight and publication of the mode marker.
+    if not mailbox_path_is_unredirected(mailbox=MAILBOX):
+        print("cannot disable the red-team route on a redirected mailbox "
+              "path")
+        return None
+    os.makedirs(MAILBOX, exist_ok=True)
+    sequence_path = os.path.join(MAILBOX, ".sequence.lock")
+    try:
+        with open(sequence_path, "a+", encoding="utf-8") as sequence_file:
+            fcntl.flock(sequence_file.fileno(), fcntl.LOCK_EX)
+            try:
+                return acquire_skip_redteam_lock_while_sequence_locked()
+            finally:
+                fcntl.flock(sequence_file.fileno(), fcntl.LOCK_UN)
+    except OSError as exc:
+        print("cannot disable the red-team route: sequence lock failed ("
+              + str(exc) + ")")
+        return None
+
+
+def release_skip_redteam_lock(lock_file):
+    """Release a lock returned by ``acquire_skip_redteam_lock``."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
     """Send one message file to its addressee's headless CLI.
 
     Arguments:
       path    = the mailbox message file.
       dry_run  = True to print the would-be command without running it.
       fix_only = True when the owning watch may launch declared closures only.
+      skip_redteam = True when the owning watch excludes every Sol turn.
 
     Returns:
       True when the dispatch ran (or would run) cleanly.
@@ -1568,6 +1742,10 @@ def dispatch(path, dry_run, fix_only=False):
     if agent_match is None:
         raise ValueError("not a pending agent message: " + path)
     agent = agent_match.group(1)
+    if skip_redteam and agent == "sol":
+        print("deferred " + name + ": this two-role watch has the Sol route "
+              "disabled; the root message remains untouched.")
+        return False
     # Take one policy snapshot before claim_message() removes this candidate.
     # Dispatch evaluates all OTHER current demand: the already-published
     # candidate must not turn an authorized 9 -> send into a self-refusal at
@@ -1693,7 +1871,8 @@ def dispatch(path, dry_run, fix_only=False):
         store_max=currency[0],
         newer_in_lane=currency[1],
         previous_timeout_minutes=prior_timeout,
-        fix_only=fix_only)
+        fix_only=fix_only,
+        skip_redteam=skip_redteam)
     # The dynamic banner precedes the byte-unchanged PREAMBLE. Consequently
     # PREAMBLE's --- MESSAGE --- delimiter remains immediately before the
     # exact raw mailbox body, and the body remains the prompt's exact suffix.
@@ -1728,6 +1907,10 @@ def dispatch(path, dry_run, fix_only=False):
             env[FIX_ONLY_ENVIRONMENT] = "1"
         else:
             env.pop(FIX_ONLY_ENVIRONMENT, None)
+        if skip_redteam:
+            env[SKIP_REDTEAM_ENVIRONMENT] = "1"
+        else:
+            env.pop(SKIP_REDTEAM_ENVIRONMENT, None)
         try:
             proc = subprocess.Popen(command,
                                     stdout=f,
@@ -1984,13 +2167,14 @@ def archive_consumed_message(dispatch_path):
     return True
 
 
-def drain_lane(paths, dry_run, fix_only=False):
+def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
     """Dispatch ONE agent's pending messages, in order (a worker body).
 
     Arguments:
       paths   = this agent's message files, already sorted by sequence.
       dry_run  = True to print the would-be commands without running them.
       fix_only = True to launch only declared Sol closures.
+      skip_redteam = True to exclude the Sol route from this watch.
     """
     all_consumed = True
     for path in paths:
@@ -2006,7 +2190,12 @@ def drain_lane(paths, dry_run, fix_only=False):
                 break
             _RENDEZVOUS_LOCAL.permit = permit
         try:
-            consumed = dispatch(path=path, dry_run=dry_run, fix_only=fix_only)
+            if skip_redteam:
+                consumed = dispatch(
+                    path=path, dry_run=dry_run, fix_only=fix_only,
+                    skip_redteam=True)
+            else:
+                consumed = dispatch(path=path, dry_run=dry_run, fix_only=fix_only)
         finally:
             if controller is not None:
                 try:
@@ -2022,11 +2211,12 @@ def drain_lane(paths, dry_run, fix_only=False):
     return all_consumed
 
 
-def process_backlog(dry_run, fix_only=False):
+def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     """Dispatch the whole backlog: lanes in PARALLEL, each lane in order.
 
-    The three agents are independent sessions, so Opus can execute a unit
-    while Sol attacks another -- but two messages to the SAME agent must
+    In the default topology the three agents are independent sessions, so
+    Opus can execute a unit while Sol attacks another -- but two messages to
+    the SAME agent must
     stay sequential (a lane is one conversation partner, not a pool), and
     two agents sharing a WORKING DIRECTORY must too: concurrent turns in
     one git tree race each other's index (the 2026-07-14 incident where a
@@ -2036,14 +2226,31 @@ def process_backlog(dry_run, fix_only=False):
     Arguments:
       dry_run  = True to print the would-be commands without running them.
       fix_only = True when a watch is closing existing ledger work only.
+      skip_redteam = True for a watch that dispatches only Claude routes.
 
     Returns:
       None when there was no backlog, True when every message was consumed
       (or would dispatch in a dry run), and False when any dispatch or done
       archive failed.
     """
-    backlog = pending_messages()
-    blockers = inflight_lane_blockers()
+    all_backlog = pending_messages()
+    if skip_redteam:
+        backlog = [path for path in all_backlog
+                   if PENDING_MESSAGE_RE.match(
+                       os.path.basename(path)).group(1) != "sol"]
+    else:
+        backlog = all_backlog
+    if skip_redteam:
+        blockers = inflight_lane_blockers(skip_redteam=True)
+    else:
+        blockers = inflight_lane_blockers()
+    if all_backlog:
+        if skip_redteam:
+            report_demand(backlog=all_backlog, skip_redteam=True)
+        else:
+            report_demand(backlog=all_backlog)
+    if skip_redteam:
+        report_deferred_sol_messages()
     if not backlog:
         if not blockers:
             return None
@@ -2052,7 +2259,6 @@ def process_backlog(dry_run, fix_only=False):
                 blocker_paths=blockers[cwd],
                 pending_count=0)
         return False
-    report_demand(backlog=backlog)
     lanes = {}
     for path in backlog:
         name = os.path.basename(path)
@@ -2069,11 +2275,16 @@ def process_backlog(dry_run, fix_only=False):
     lane_outcomes = {}
     outcome_lock = threading.Lock()
 
-    def drain_and_record(cwd, paths, dry_run, fix_only):
+    def drain_and_record(cwd, paths, dry_run, fix_only, skip_redteam):
         """Run one cwd lane and retain failure even if its worker raises."""
         try:
-            consumed = drain_lane(
-                paths=paths, dry_run=dry_run, fix_only=fix_only)
+            if skip_redteam:
+                consumed = drain_lane(
+                    paths=paths, dry_run=dry_run, fix_only=fix_only,
+                    skip_redteam=True)
+            else:
+                consumed = drain_lane(
+                    paths=paths, dry_run=dry_run, fix_only=fix_only)
         except Exception as exc:
             print("  !! dispatch lane failed: " + str(exc)
                   + "; lane is not consumed.")
@@ -2094,7 +2305,8 @@ def process_backlog(dry_run, fix_only=False):
                                   kwargs={"cwd": cwd,
                                           "paths": lanes[cwd],
                                           "dry_run": dry_run,
-                                          "fix_only": fix_only})
+                                          "fix_only": fix_only,
+                                          "skip_redteam": skip_redteam})
         worker.start()
         workers.append(worker)
     for worker in workers:
@@ -2104,7 +2316,17 @@ def process_backlog(dry_run, fix_only=False):
             and all(lane_outcomes.values()))
 
 
-def report_demand(backlog):
+def report_deferred_sol_messages():
+    """Print the exact number of root Sol messages held by this watch."""
+    deferred = len(deferred_sol_messages())
+    if deferred == 0:
+        return
+    noun = "message" if deferred == 1 else "messages"
+    print("red-team route disabled; leaving " + str(deferred) + " to-sol "
+          + noun + " queued and untouched.")
+
+
+def report_demand(backlog, skip_redteam=False):
     """Print the queue-depth line + the second-Implementer tripwire.
 
     The demand total is the queued mailbox messages PLUS the "- OPEN"
@@ -2128,7 +2350,7 @@ def report_demand(backlog):
           + " fable=" + str(depth["fable"])
           + " | open backlog (ai/notes/backlog.md): " + str(ledger)
           + " | total demand: " + str(total))
-    if total >= SECOND_IMPLEMENTER_THRESHOLD:
+    if total >= SECOND_IMPLEMENTER_THRESHOLD and not skip_redteam:
         print("  hint: total open demand is at or past "
               + str(SECOND_IMPLEMENTER_THRESHOLD) + " units; the red "
               "team is now the second implementer: build units flow to "
@@ -2198,6 +2420,9 @@ def send(agent, text, dry_run, ticket_kind=None):
         """Return a current Sol-send refusal without changing disk."""
         if agent != "sol":
             return None
+        if skip_redteam_policy_active():
+            return ("an active two-role watch has the Sol route disabled; "
+                    "wait for it to end or restart without --skip-redteam")
         transport_valid = (
             ticket_kind == "transport"
             and text == transport_ping_text(agent="sol"))
@@ -2264,7 +2489,11 @@ def send(agent, text, dry_run, ticket_kind=None):
                         continue
                     print("queued " + path)
                     warn_if_mailbox_unwatched()
-                    report_demand(backlog=pending_messages())
+                    if skip_redteam_policy_active():
+                        report_demand(
+                            backlog=pending_messages(), skip_redteam=True)
+                    else:
+                        report_demand(backlog=pending_messages())
                     return True
                 finally:
                     if os.path.isfile(temporary):
@@ -2299,8 +2528,15 @@ def main():
                         type=nonnegative_cycle_count, default=None,
                         help="with --watch, exit safely after this many "
                              "global rendezvous cycles; 0 waits until the "
-                             "dispatch queue and open ledger are empty; "
+                             "enabled dispatch queue and open ledger are "
+                             "empty; "
                              "omitting the option keeps watching indefinitely")
+    parser.add_argument("--skip-redteam", "--no-red-team",
+                        dest="skip_redteam", action="store_true",
+                        help="with --watch, dispatch only Architect and "
+                             "Implementer routes; disable the entire Sol "
+                             "route and leave existing to-sol messages "
+                             "queued for a later normal watch")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
                         help="with --watch, close existing ledger work only; "
@@ -2377,6 +2613,13 @@ def main():
     if args.cycle is not None and not args.watch:
         print("--cycle is valid only with --watch")
         return 1
+    if args.skip_redteam:
+        conflicting_action = (
+            not args.watch or args.once or args.send is not None
+            or args.ping is not None or args.dry_run)
+        if conflicting_action:
+            print("--skip-redteam is valid only with --watch")
+            return 1
     if args.ticket_kind is not None and args.send != "sol":
         print("--ticket-kind is valid only with --send sol")
         return 1
@@ -2399,6 +2642,7 @@ def main():
         return 1
 
     fix_only = args.fix_only is True
+    skip_redteam = args.skip_redteam
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
@@ -2417,16 +2661,32 @@ def main():
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model
               + " (legacy routes fable/opus)")
-        print("effort levels: architect/fable=" + args.fable_effort
-              + " implementer/opus=" + args.opus_effort
-              + " sol=" + args.sol_effort)
-        print("context budgets: architect/implementer="
-              + str(args.claude_context)
-              + " sol=" + str(args.sol_context)
-              + " tokens (a turn compacts at its budget)")
+        if skip_redteam:
+            print("effort levels: architect/fable=" + args.fable_effort
+                  + " implementer/opus=" + args.opus_effort
+                  + " sol=disabled")
+            print("context budgets: architect/implementer="
+                  + str(args.claude_context)
+                  + " sol=disabled (a Claude turn compacts at its budget)")
+            print("two-role watch: Red Team and the entire Sol route are "
+                  "disabled; existing to-sol messages stay queued and "
+                  "untouched")
+        else:
+            print("effort levels: architect/fable=" + args.fable_effort
+                  + " implementer/opus=" + args.opus_effort
+                  + " sol=" + args.sol_effort)
+            print("context budgets: architect/implementer="
+                  + str(args.claude_context)
+                  + " sol=" + str(args.sol_context)
+                  + " tokens (a turn compacts at its budget)")
         if args.cycle == 0:
-            print("cycle mode: drain dispatch queue and open ledger, then "
-                  "exit at a proven all-lanes-idle point")
+            if skip_redteam:
+                print("cycle mode: drain enabled Architect/Implementer "
+                      "routes and open ledger, then exit at a proven "
+                      "all-enabled-lanes-idle point")
+            else:
+                print("cycle mode: drain dispatch queue and open ledger, "
+                      "then exit at a proven all-lanes-idle point")
         elif args.cycle is not None:
             print("cycle mode: exit safely after " + str(args.cycle)
                   + " global rendezvous cycles")
@@ -2489,6 +2749,14 @@ def main():
             if fix_only_lock is None:
                 release_dispatch_lock(lock_file=dispatch_lock)
                 return 1
+        skip_redteam_lock = None
+        if skip_redteam:
+            skip_redteam_lock = acquire_skip_redteam_lock()
+            if skip_redteam_lock is None:
+                if fix_only_lock is not None:
+                    release_fix_only_lock(lock_file=fix_only_lock)
+                release_dispatch_lock(lock_file=dispatch_lock)
+                return 1
         print("watching " + MAILBOX + " (stop only when an all-lanes-idle "
               "line says Ctrl-C is safe; never stop while a turn is in "
               "flight)")
@@ -2521,9 +2789,18 @@ def main():
                     return 0
                 first_pass = False
                 if fix_only:
-                    backlog_outcome = process_backlog(dry_run=False, fix_only=True)
+                    if skip_redteam:
+                        backlog_outcome = process_backlog(
+                            dry_run=False, fix_only=True,
+                            skip_redteam=True)
+                    else:
+                        backlog_outcome = process_backlog(dry_run=False, fix_only=True)
                 else:
-                    backlog_outcome = process_backlog(dry_run=False)
+                    if skip_redteam:
+                        backlog_outcome = process_backlog(
+                            dry_run=False, skip_redteam=True)
+                    else:
+                        backlog_outcome = process_backlog(dry_run=False)
                 if (rendezvous.source_changed()
                         or os.path.getmtime(source_path) != source_stamp):
                     print("daemon source changed on disk; exiting so "
@@ -2534,20 +2811,32 @@ def main():
                     if args.cycle == 0:
                         barrier, completion_error = (
                             acquire_cycle_completion_barrier(
-                                backlog_outcome=backlog_outcome))
+                                backlog_outcome=backlog_outcome,
+                                skip_redteam=skip_redteam))
                         if barrier is not None:
                             cycle_completion_barrier = barrier
-                            report_cycle_work_complete(
-                                completed_cycles=completed_cycles)
+                            if skip_redteam:
+                                report_cycle_work_complete(
+                                    completed_cycles=completed_cycles,
+                                    skip_redteam=True)
+                            else:
+                                report_cycle_work_complete(
+                                    completed_cycles=completed_cycles)
                             return 0
                         if completion_error is not None:
                             report_cycle_completion_unverified(
                                 error=completion_error)
                     if (args.cycle is not None and args.cycle > 0
                             and completed_cycles >= args.cycle):
-                        report_cycle_limit_exit(
-                            completed_cycles=completed_cycles,
-                            cycle_limit=args.cycle)
+                        if skip_redteam:
+                            report_cycle_limit_exit(
+                                completed_cycles=completed_cycles,
+                                cycle_limit=args.cycle,
+                                skip_redteam=True)
+                        else:
+                            report_cycle_limit_exit(
+                                completed_cycles=completed_cycles,
+                                cycle_limit=args.cycle)
                         return 0
                     run_safe_kill_countdown(controller=rendezvous)
                     # Queued work resumes immediately after the manufactured
@@ -2556,11 +2845,17 @@ def main():
                 if args.cycle == 0 and rendezvous.all_idle():
                     barrier, completion_error = (
                         acquire_cycle_completion_barrier(
-                            backlog_outcome=backlog_outcome))
+                            backlog_outcome=backlog_outcome,
+                            skip_redteam=skip_redteam))
                     if barrier is not None:
                         cycle_completion_barrier = barrier
-                        report_cycle_work_complete(
-                            completed_cycles=completed_cycles)
+                        if skip_redteam:
+                            report_cycle_work_complete(
+                                completed_cycles=completed_cycles,
+                                skip_redteam=True)
+                        else:
+                            report_cycle_work_complete(
+                                completed_cycles=completed_cycles)
                         return 0
                     if completion_error is not None:
                         report_cycle_completion_unverified(
@@ -2578,10 +2873,17 @@ def main():
             _ACTIVE_WATCH_RENDEZVOUS = None
             if fix_only_lock is not None:
                 release_fix_only_lock(lock_file=fix_only_lock)
-            release_dispatch_lock(lock_file=dispatch_lock)
-            if cycle_completion_barrier is not None:
-                release_cycle_completion_barrier(
-                    lock_file=cycle_completion_barrier)
+            if skip_redteam_lock is None:
+                release_dispatch_lock(lock_file=dispatch_lock)
+                if cycle_completion_barrier is not None:
+                    release_cycle_completion_barrier(
+                        lock_file=cycle_completion_barrier)
+            else:
+                release_dispatch_lock(lock_file=dispatch_lock)
+                release_skip_redteam_lock(lock_file=skip_redteam_lock)
+                if cycle_completion_barrier is not None:
+                    release_cycle_completion_barrier(
+                        lock_file=cycle_completion_barrier)
 
     print("choose one of --dry-run / --once / --watch / --send (see --help)")
     return 1

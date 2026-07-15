@@ -207,12 +207,18 @@ quota.
   convention; EVERY YAML change (keys, values, comments, alignment)
   is reported as a paste-ready block in context, never prose.
 
-## The Fable/Opus workflow + the independent Codex red team
+## The Architect/Implementer workflow + optional independent Codex red team
 
-- The main Architect is Fable (`.claude/FABLE_ROLE.md`); the Implementer is
-  Opus (`.claude/OPUS_ROLE.md`). Codex is a separate, independent red-team
-  reviewer (`.codex/REDTEAM_ROLE.md`), not a replacement for Fable and never
-  an Opus co-implementer.
+- The Architect and Implementer roles use `.claude/FABLE_ROLE.md` and
+  `.claude/OPUS_ROLE.md`; their default models remain Fable and Opus. Codex is
+  the default topology's separate, independent Red Team
+  (`.codex/REDTEAM_ROLE.md`), not a replacement for the Architect and never an
+  undeclared co-implementer.
+- A watch may deliberately use only Architect and Implementer with
+  `python3 ai/tools/mailbox_daemon.py --watch --skip-redteam` (exact alias:
+  `--no-red-team`). Their handoffs then travel directly to each other. The
+  Architect's raw-evidence audit and exclusive `GO` / `NO-GO` authority remain
+  mandatory; only the optional Sol lane is disabled.
 - In the Fable/Opus loop, the user relays
   ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF blocks; role resolved ONCE
   at session start (explicit assignment > received handoff > normal
@@ -233,12 +239,13 @@ quota.
   verdict, invents an Architect probe, or claims Architect
   co-authorship; audit text is written only by the Architect, after
   the audit.
-- Codex independently red-teams the code, Python documentation, READMEs,
-  notes, gates, and Implementer returns. It challenges green evidence,
-  searches for skipped failure paths and counterexamples, and reports through
-  `ARCHITECT_REDTEAM_HANDOFF` blocks ending exactly with
-  `ARCHITECT_REDTEAM_HANDOFF ENDS`. Codex records its findings without
-  impersonating or modifying Fable's role and does not merge to main.
+- When enabled, Codex independently red-teams the named code, Python
+  documentation, READMEs, notes, gates, or Implementer return. It challenges
+  green evidence, searches the bounded scope for skipped failure paths and
+  counterexamples, and reports through `ARCHITECT_REDTEAM_HANDOFF` blocks
+  ending exactly with `ARCHITECT_REDTEAM_HANDOFF ENDS`. Codex records its
+  findings without impersonating or modifying the Architect's role and does
+  not merge to main.
 - Propose-don't-guess for design-sensitive layouts (a checkpoint
   proposal in the note for ruling); partial units are an approved
   shape (coherent gated sub-increment + honest remainder); interface
@@ -256,8 +263,9 @@ quota.
 
 ### Notes-first inter-agent communication (hard user rule, 2026-07-13)
 
-The detailed message between Fable, the Implementer and the Red Team must be
-written to the appropriate `ai/notes/` file before its chat handoff is emitted.
+Every detailed message among the enabled Architect, Implementer, and optional
+Red Team roles must be written to the appropriate `ai/notes/` file before its
+chat handoff is emitted.
 The note contains the complete reasoning and execution record: the bounded
 scope, scientific or numerical evidence, counterexample, contract, file and
 line anchors, changed files, branch or commit identity, raw-test locations,
@@ -287,18 +295,29 @@ each to its addressee's headless CLI and moves it to
 `ai/notes/mailbox/done/`. Mailbox files are routing summaries under the
 notes-first rule. The substance stays in the cited note.
 
-The mailbox is the required channel for every communication between Fable,
-Opus and Sol. This includes turns started by a user instruction, local queue
-work and a prior mailbox dispatch. An agent with a relayable result writes the
-substance to `ai/notes/` first, then writes the routing handoff to the next
-numbered mailbox file. Pasted chat text does not substitute for the mailbox;
-chat may report the queued or dispatched filename to the user. A direct
-status intended only for the user may use `NNN-to-user.md`, which the daemon
-does not dispatch. Merges and pushes to main remain the user's alone. The only
+The mailbox is the required channel for every communication among the roles
+enabled by the current watch. This includes turns started by a user
+instruction, local queue work and a prior mailbox dispatch. An agent with a
+relayable result writes the substance to `ai/notes/` first, then writes the
+routing handoff to the next numbered mailbox file. In two-role mode the only
+agent routes are Architect to Implementer and Implementer to Architect; no
+child creates a `to-sol` message.
+
+The default watch enables all three routes. A two-role watch publishes a held
+mode marker, leaves existing `to-sol` roots untouched, and refuses new Sol
+sends and pings until it exits. `--skip-redteam --cycle 0` treats only the
+enabled Architect and Implementer routes as dispatch work: it exits after
+those routes and the literal open ledger drain, and truthfully reports any Sol
+files deferred for a later normal watch.
+
+Pasted chat text does not substitute for the mailbox; chat may report the
+queued or dispatched filename to the user. A direct status intended only for
+the user may use `NNN-to-user.md`, which the daemon does not dispatch. Merges
+and pushes to main remain the user's alone. The only
 outbound exception is an inbound whose binding instruction explicitly says
-the thread is TERMINAL and no reply is owed; honor that instruction without
-manufacturing a receipt. Ambiguity follows the ordinary rule and requires an
-outbound.
+the thread is TERMINAL and
+no reply is owed; honor that instruction without manufacturing a receipt.
+Ambiguity follows the ordinary rule and requires an outbound.
 
 ### Mandatory-mailbox binding record (2026-07-13)
 

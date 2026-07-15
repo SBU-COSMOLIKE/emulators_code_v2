@@ -3,9 +3,9 @@
      aria-labelledby="title description">
   <title id="title">Role-based AI development loop</title>
   <desc id="description">Command-line flags select Claude models for stable
-  Architect and Implementer roles. The Architect sends a specification to the
-  Implementer and a bounded review to Sol; both return evidence to the
-  Architect, who decides GO or NO-GO.</desc>
+  Architect and Implementer roles. The default loop adds a bounded review by
+  Sol; a two-role watch omits that optional lane. The Architect always decides
+  GO or NO-GO.</desc>
 
   <defs>
     <marker id="arrow" markerWidth="12" markerHeight="12" refX="10"
@@ -29,6 +29,8 @@
       .mono { font: 600 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #27364b; }
       .edge { fill: none; stroke: #27364b; stroke-width: 3; marker-end: url(#arrow); }
       .edge-blue { fill: none; stroke: #1665a8; stroke-width: 3; marker-end: url(#blue-arrow); }
+      .edge-optional { fill: none; stroke: #27364b; stroke-width: 3; stroke-dasharray: 12 8; marker-end: url(#arrow); }
+      .edge-blue-optional { fill: none; stroke: #1665a8; stroke-width: 3; stroke-dasharray: 12 8; marker-end: url(#blue-arrow); }
       .record { fill: none; stroke: #7a8798; stroke-width: 2.5; stroke-dasharray: 8 8; }
       .edge-label { font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #27364b; letter-spacing: 0.3px; }
       .pill { font: 600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #27364b; }
@@ -121,7 +123,7 @@
         fill="#f2ebff" stroke="#7251a5" stroke-width="3"
         filter="url(#shadow)"/>
   <text x="1260" y="541" text-anchor="middle" class="box-title">
-    [R] INDEPENDENT RED TEAM
+    [R] OPTIONAL INDEPENDENT RED TEAM
   </text>
   <text x="1260" y="576" text-anchor="middle" class="body">
     OpenAI Sol • attack the named change
@@ -132,10 +134,10 @@
   <text x="1260" y="634" text-anchor="middle" class="small">
     role file: .codex/REDTEAM_ROLE.md
   </text>
-  <rect x="1162" y="646" width="196" height="30" rx="15"
+  <rect x="1140" y="646" width="240" height="30" rx="15"
         fill="#e4d8f8" stroke="#9b7ac5"/>
   <text x="1260" y="667" text-anchor="middle" class="pill">
-    route: to-sol
+    optional route: to-sol
   </text>
 
   <!-- Architect outbound arrows -->
@@ -145,10 +147,10 @@
     ARCHITECT_HANDOFF
   </text>
 
-  <path d="M 975 420 C 1035 458, 1095 475, 1155 500" class="edge"/>
+  <path d="M 975 420 C 1035 458, 1095 475, 1155 500" class="edge-optional"/>
   <rect x="987" y="438" width="328" height="30" rx="10" fill="#ffffff"/>
   <text x="1151" y="459" text-anchor="middle" class="edge-label">
-    ARCHITECT_REDTEAM_HANDOFF
+    OPTIONAL REDTEAM HANDOFF
   </text>
 
   <!-- Notes links -->
@@ -177,7 +179,7 @@
     IMPLEMENTER_HANDOFF
   </text>
 
-  <path d="M 1170 670 C 1100 705, 1025 721, 950 735" class="edge-blue"/>
+  <path d="M 1170 670 C 1100 705, 1025 721, 950 735" class="edge-blue-optional"/>
   <rect x="960" y="687" width="268" height="30" rx="10" fill="#ffffff"/>
   <text x="1094" y="708" text-anchor="middle" class="edge-label">
     red-team result + evidence
@@ -216,9 +218,9 @@
   <rect x="620" y="930" width="360" height="66" rx="14"
         fill="#f7f2ff" stroke="#b49bd4" stroke-width="2"/>
   <text x="800" y="956" text-anchor="middle" class="small">
-    Red Team: named change only.
+    Two-role: Architect ↔ Implementer direct.
   </text>
   <text x="800" y="981" text-anchor="middle" class="small">
-    Widespread search requires explicit user wording.
+    Omit Sol with --skip-redteam.
   </text>
 </svg>

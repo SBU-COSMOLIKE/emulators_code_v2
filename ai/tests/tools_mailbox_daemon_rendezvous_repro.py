@@ -1325,14 +1325,16 @@ def arm_source_mutations():
             "cycle completion barrier released before watch lock",
             lambda text: replace_exact(
                 text,
-                "            release_dispatch_lock(lock_file=dispatch_lock)\n"
-                "            if cycle_completion_barrier is not None:\n"
-                "                release_cycle_completion_barrier(\n"
-                "                    lock_file=cycle_completion_barrier)\n",
-                "            if cycle_completion_barrier is not None:\n"
-                "                release_cycle_completion_barrier(\n"
-                "                    lock_file=cycle_completion_barrier)\n"
-                "            release_dispatch_lock(lock_file=dispatch_lock)\n"),
+                "            if skip_redteam_lock is None:\n"
+                "                release_dispatch_lock(lock_file=dispatch_lock)\n"
+                "                if cycle_completion_barrier is not None:\n"
+                "                    release_cycle_completion_barrier(\n"
+                "                        lock_file=cycle_completion_barrier)\n",
+                "            if skip_redteam_lock is None:\n"
+                "                if cycle_completion_barrier is not None:\n"
+                "                    release_cycle_completion_barrier(\n"
+                "                        lock_file=cycle_completion_barrier)\n"
+                "                release_dispatch_lock(lock_file=dispatch_lock)\n"),
             arm_zero_cycle_cutoff_serializes_sender,
         ),
         (

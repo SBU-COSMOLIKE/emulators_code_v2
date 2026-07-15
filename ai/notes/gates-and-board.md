@@ -14697,3 +14697,73 @@ prove queue and ledger gating, serialize sends on both sides of the final
 cutoff, reject two distinct concurrent ledger changes, and bound a pre-open
 regular-to-FIFO replacement. Parser arms cover negative, noninteger,
 non-watch, and `--fix-only` combinations. Verdict: **GO**.
+
+## Optional Red Team mailbox topology audit (Codex, 2026-07-14): GO
+
+The mailbox watcher and the manual clipboard relay may now run a two-role
+Architect/Implementer loop. `--skip-redteam` and its `--no-red-team` alias are
+explicit opt-ins; omission preserves the default Architect, Implementer, and
+Sol Red Team topology. The watcher option is valid only with `--watch`, may be
+combined with `--fix-only` and `--cycle`, and propagates a direct two-role
+binding to both Claude children. The manual relay skips every Sol copy, wait,
+and archive step and returns the Implementer's evidence directly to the
+Architect for the mandatory GO/NO-GO audit. Its second-Implementer mode is
+rejected before side effects because that mode assigns work to Sol.
+
+While a two-role watch owns the mode marker, new Sol sends and pings are
+refused before publication. Activation and `--send` share the sequence lock
+and recheck the live regular marker after acquiring it, closing both orderings
+of the publication race. The marker is opened without following links,
+verified before and after its advisory lock, and held for the complete watch.
+Failure to acquire any combined watch lock and exceptions after acquisition
+release every lock. Existing root `to-sol` messages are never claimed,
+rewritten, or archived; a later ordinary watch consumes them normally.
+
+Cycle zero evaluates only enabled Architect/Implementer roots plus the strict
+ledger. A deferred Sol root alone therefore cannot prevent the requested
+two-role run from completing. Positive cycle boundaries retain their existing
+meaning. Inflight Sol work is ignored only when its configured working
+directory is distinct from both enabled Claude lanes; in the normal shared
+checkout it remains a blocker, preventing a disabled route from racing an
+enabled child in the same tree. The default three-role behavior, demand
+threshold, route names, model selectors, and ordinary safe-stop contract are
+unchanged.
+
+Focused evidence on the corrected snapshot:
+
+```text
+python3 -B ai/tests/tools_mailbox_daemon_no_redteam_repro.py                 rc 0  18/18 runtime; 21/21 mutations killed
+Cocoa Python -B ai/tests/tools_mailbox_daemon_no_redteam_repro.py           rc 0  18/18 runtime; 21/21 mutations killed
+/usr/bin/python3 -B ai/tests/tools_mailbox_daemon_no_redteam_repro.py        rc 0  18/18 runtime; 21/21 mutations killed
+python3 -B ai/tests/tools_handoff_router_repro.py                           rc 0  all arms
+Cocoa Python -B ai/tests/tools_handoff_router_repro.py                      rc 0  all arms
+/usr/bin/python3 -B ai/tests/tools_handoff_router_repro.py                  rc 0  all arms
+python3 -B ai/tests/tools_mailbox_daemon_rendezvous_repro.py                rc 0  20/20 runtime; 21/21 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_fix_only_repro.py                  rc 0  14/14 runtime; 20/20 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_dead_mailbox_repro.py              rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_staleness_repro.py                 rc 0  18/18 runtime; 9/9 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_role_models_repro.py               rc 0  5/5 runtime; 5/5 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_output_style_repro.py              rc 0  8/8 checks
+python3 -B ai/tests/tools_mailbox_daemon_redteam_repro.py                   rc 0  8/8 arms
+Cocoa Python -B -m unittest discover -s ai/tests -v                        rc 0  44/44
+python3 -B ai/gates/checks/board_selftest.py                                rc 0  ALL PASS
+python3 -B ai/gates/run_board.py --list                                     rc 0
+python3 -B -m compileall -q ai/tools ai/tests                               rc 0
+xmllint --noout ai/notes/assets/role-model-agent-loop.svg                   rc 0
+git diff --check                                                            rc 0
+```
+
+The focused witness proves full-topology omission, deferred-Sol byte and inode
+identity, later resumption, real combined fix-only dispatch and child
+bindings, cycle-zero completion, direct-dispatch defense, live-send refusal,
+both publication races, marker substitution, acquisition/exception cleanup,
+and separate versus shared working-directory inflight behavior. Twenty-one
+armed source mutations make each boundary load-bearing. The role guides,
+README, workflow note, live help, and accessible SVG agree on the optional
+branch and preserve the Architect's sole GO/NO-GO authority.
+
+Independent named-delta audit found and caused repair of the shared-working-
+directory blocker and the macOS Python 3.9 test-helper incompatibility, then
+returned GO on the corrected snapshot. The unrelated pre-existing dirty
+incident note was excluded from this audit and landing. Verdict: **GO**; the
+optional Red Team mailbox unit is closed.

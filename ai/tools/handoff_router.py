@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Clipboard relay for the three-agent loop (Fable / Opus / Sol web sessions).
+"""Clipboard relay for the audited Architect / Implementer agent loop.
 
 The user runs each agent in its own web session (subscription plans, no API).
+The default route also includes the independent Sol Red Team; passing
+``--skip-redteam`` or ``--no-red-team`` makes that third session optional.
 This router removes the copy/paste bookkeeping while KEEPING the program's
 communication rules intact:
 
@@ -27,7 +29,7 @@ Flow (one unit per run):
     [1] copy the Opus routing prompt      -> paste into the Opus session
     [2] capture IMPLEMENTER_HANDOFF       <- copy the block from Opus
     [3] run the local gates, archive log
-    [4] copy the Sol routing prompt       -> paste into the Sol session
+    [4] optionally copy the Sol prompt    -> paste into the Sol session
         (red-team mode, or second-Implementer mode with
          --mode second-implementer;
          skipped entirely with --skip-redteam)
@@ -44,6 +46,7 @@ Usage:
         --mode second-implementer
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md            # full loop
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md --skip-redteam
+    python ai/tools/handoff_router.py --note ai/notes/<spec>.md --no-red-team
 
 The gate commands default to the board's cheap surfaces and can be replaced
 with the unit's own validation gate:
@@ -436,7 +439,8 @@ def status_report():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Clipboard relay for the Fable/Opus/Sol loop")
+        description="Clipboard relay for the Architect/Implementer loop "
+                    "with an optional Sol Red Team")
     parser.add_argument("--status",
                         action="store_true",
                         help="print the mechanical program status (branches, "
@@ -453,9 +457,11 @@ def main():
                         default="redteam",
                         help="Sol's mode: adversarial (default) or second "
                              "Implementer (inserts the explicit declaration)")
-    parser.add_argument("--skip-redteam",
+    parser.add_argument("--skip-redteam", "--no-red-team",
+                        dest="skip_redteam",
                         action="store_true",
-                        help="route Opus -> gates -> Fable, no Sol step")
+                        help="skip the entire Sol step and route Implementer "
+                             "-> local gates -> Architect")
     parser.add_argument("--gate-cmd",
                         action="append",
                         default=[],
@@ -463,6 +469,10 @@ def main():
                              "default board surfaces")
     args = parser.parse_args()
 
+    if args.skip_redteam and args.mode == "second-implementer":
+        print("--skip-redteam/--no-red-team cannot be combined with "
+              "--mode second-implementer")
+        return 1
     if args.status:
         status_report()
         return 0
@@ -482,6 +492,7 @@ def main():
     where = note_display
     if args.section:
         where += ' , section "' + args.section + '"'
+    total_steps = 3 if args.skip_redteam else 4
 
     # [1] Opus routing prompt: a pointer, not a payload (notes-first).
     opus_prompt = (
@@ -492,8 +503,8 @@ def main():
         "(a routing summary; your substance goes into the same note first).\n\n"
         "### ENDS\n")
     copy_to_clipboard(opus_prompt)
-    print("[1/4] Opus routing prompt copied -- paste it into the Opus "
-          "session.")
+    print("[1/" + str(total_steps) + "] Opus routing prompt copied -- "
+          "paste it into the Opus session.")
 
     # [2] capture the Implementer's return.
     opus_block = wait_for_block(header="### IMPLEMENTER_HANDOFF:",
@@ -503,7 +514,7 @@ def main():
 
     # [3] objective local gates (the anti-hallucination anchor).
     commands = args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS
-    print("[2/4] running the local validation gates:")
+    print("[2/" + str(total_steps) + "] running the local validation gates:")
     log_path, all_green = run_gates(commands=commands, seq=seq)
     print("      gates " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
@@ -550,7 +561,8 @@ def main():
         "the audit.\n\n"
         "### ENDS\n")
     copy_to_clipboard(fable_prompt)
-    print("[4/4] Fable routing prompt copied -- paste it into the Fable "
+    print("[" + str(total_steps) + "/" + str(total_steps)
+          + "] Fable routing prompt copied -- paste it into the Fable "
           "session for the verdict.")
     release_router_lock(router_lock)
     return 0
