@@ -1,0 +1,982 @@
+# Generate training and validation data
+
+This folder creates the numerical tables used to train and check an emulator.
+An **emulator** is a neural network that learns to reproduce a slow physics
+calculation much more quickly. These programs create its examples; they do
+not train the neural network.
+
+Each full generator run draws cosmological parameter values, calls CAMB or
+CosmoLike once for each row, and saves the parameters and calculated
+observables. **CAMB** calculates quantities such as the expansion history,
+matter power, and CMB spectra for a cosmology. **CosmoLike** predicts survey
+observables such as cosmic shear and galaxy clustering.
+
+These calls can take far longer than an emulator training step. A production
+run can also write many gigabytes of data.
+
+Use an existing checked dataset when one is available. Run these programs
+only when the scientific model, sampled region, output grid, and random seeds
+have been chosen for a new dataset.
+
+> **A generator command is not a preview.** It starts the physics calculations
+> and writes files under `$ROOTDIR/<project>/chains/`. A fresh run can replace
+> files that already use the same output names.
+
+Here `<project>` means the folder supplied with `--root`. The worked example
+below uses `projects/generator_example`.
+
+```text
+generator YAML + command-line choices
+                  |
+                  v
+         sampled cosmologies
+                  |
+                  v
+     CAMB or CosmoLike calculation
+                  |
+          +-------+--------+
+          |                |
+          v                v
+  parameter table     observable arrays
+          |                |
+          +-------+--------+
+                  |
+                  v
+       check every failure flag
+                  |
+                  v
+       emulator trainer YAML
+```
+
+The YAML used here describes the physics calculation and the sampled
+cosmologies. The later trainer YAML points to the saved tables and describes
+the neural network. They are different files even though both contain a block
+named `train_args`.
+
+## Contents
+
+### Main guide
+
+1. [Prepare the CoCoA environment](#prepare-the-cocoa-environment)
+2. [Choose the physics generator](#choose-the-physics-generator)
+3. [Run the first 200-row calculation](#run-the-first-200-row-calculation)
+4. [Check the saved rows](#check-the-saved-rows)
+5. [Create a separate validation set](#create-a-separate-validation-set)
+6. [Point the trainer at the files](#point-the-trainer-at-the-files)
+
+### Common questions raised by developers
+
+**[Appendices about generator inputs and outputs](#appendices-about-generator-inputs-and-outputs)**
+
+- [FAQ A1. How is a generator YAML different from a trainer YAML?](#faq-a1-generator-yaml)
+- [FAQ A2. What does each physics generator require and write?](#faq-a2-physics-families)
+- [FAQ A3. How are the output filenames constructed?](#faq-a3-output-names)
+- [FAQ A4. What is in the parameter and failure files?](#faq-a4-common-files)
+- [FAQ A5. Why is the CMB covariance a separate calculation?](#faq-a5-cmb-covariance)
+
+**[Appendices about sampling and computing](#appendices-about-sampling-and-computing)**
+
+- [FAQ B1. What is the difference between uniform and tempered sampling?](#faq-b1-sampling-modes)
+- [FAQ B2. What does each command-line option mean?](#faq-b2-command-options)
+- [FAQ B3. Can I create only the parameter rows?](#faq-b3-chain-only)
+- [FAQ B4. How do serial and MPI runs differ?](#faq-b4-mpi)
+- [FAQ B5. How much memory and disk space will a run need?](#faq-b5-memory-disk)
+
+**[Appendices about failures and interrupted runs](#appendices-about-failures-and-interrupted-runs)**
+
+- [FAQ C1. What should I do when a row fails?](#faq-c1-failed-row)
+- [FAQ C2. How do I resume a stopped run?](#faq-c2-resume)
+- [FAQ C3. How do I add more rows?](#faq-c3-append)
+- [FAQ C4. Which files in this folder are commands?](#faq-c4-program-files)
+
+---
+
+## Prepare the CoCoA environment
+
+Install and compile CoCoA first. The main
+[installation section](../README.md#start-install) gives the full setup.
+Then open a shell in the CoCoA folder and activate that installation:
+
+```bash
+bash
+conda activate cocoa
+cd /path/to/cocoa/Cocoa
+source start_cocoa.sh
+
+D="$ROOTDIR/external_modules/code/emulators_code_v2"
+PYTHON="$ROOTDIR/.local/bin/python"
+```
+
+`ROOTDIR` is the absolute path to the active CoCoA folder. Replace
+`/path/to/cocoa/Cocoa` with that folder on your computer. Run the generator
+commands from `$ROOTDIR` because the YAML files normally refer to CAMB and
+other CoCoA files with paths relative to this folder.
+
+Check the Python packages before starting a physics calculation. This command
+does not create files:
+
+```bash
+"$PYTHON" -c "import cobaya, emcee, getdist, mpi4py, numpy, psutil, yaml; print('generator imports: OK')"
+```
+
+The expected final line is:
+
+```text
+generator imports: OK
+```
+
+The cosmic-shear, galaxy-lensing, and galaxy-clustering generator also needs
+the compiled CosmoLike installation. The other three generators need the
+CAMB installation named by their YAML.
+
+Before every new run, write these choices in a lab notebook or a project note
+outside `chains/`. For example, use
+`$ROOTDIR/projects/generator_example/DATASET_NOTES.md`. Record:
+
+- the generator YAML and the exact code version;
+- the training or validation purpose;
+- the number of rows;
+- the output names;
+- the random seed;
+- whether sampling is uniform or tempered, and the fraction of each allowed
+  parameter interval retained by `--boundary`;
+- the expected time and disk use.
+
+This command prints the code version as a Git commit ID. Paste its output into
+the same note:
+
+```bash
+git -C "$D" rev-parse HEAD
+```
+
+Do not start a fresh run if its three output names belong to an existing
+dataset that must be kept.
+
+## Choose the physics generator
+
+Choose one row. A **probe** is the observable family named by
+`train_args.probe` in the generator YAML.
+
+| Observable to calculate | Program | Accepted probe | Main output |
+| --- | --- | --- | --- |
+| Cosmic shear | `dataset_generator_lensing.py` | `cs` | one CosmoLike data-vector array |
+| Galaxy-galaxy lensing | `dataset_generator_lensing.py` | `ggl` | one CosmoLike data-vector array |
+| Galaxy clustering | `dataset_generator_lensing.py` | `gc` | one CosmoLike data-vector array |
+| CMB spectra | `dataset_generator_cmb.py` | `cmblensed` or `cmbunlensed` | TT, TE, EE, and lensing-potential arrays |
+| Expansion history | `dataset_generator_background.py` | `background` | $H(z)$ and radial comoving-distance $\chi(z)$ arrays |
+| Matter power | `dataset_generator_mps.py` | `mps` | linear $P(k,z)$ and nonlinear-boost arrays |
+
+One generator run can write several physical quantities. A later emulator
+normally learns one of them. For example, the background generator writes
+both $H(z)$ and $\chi(z)$, but the Hubble emulator reads only the $H(z)$ file.
+
+The background program is used below because it requests background
+quantities only. The example still performs 200 real CAMB calculations.
+
+## Run the first 200-row calculation
+
+This worked example varies $H_0$, the present expansion rate. It calculates
+$H(z)$ on one eight-point redshift grid and radial comoving distance
+$\chi(z)$ on a second eight-point grid. In a spatially flat cosmology,
+$\chi(z)$ equals the transverse comoving distance $D_M(z)$; they differ when
+spatial curvature is allowed to vary.
+
+Run these commands from `$ROOTDIR` after completing the environment step.
+The first command creates the folder that will hold the generator YAML:
+
+```bash
+mkdir -p "$ROOTDIR/projects/generator_example/generator"
+```
+
+Save the following file as
+`$ROOTDIR/projects/generator_example/generator/background_minimal.yaml`:
+
+```yaml
+likelihood:
+  background_anchor:
+    external: "lambda _self: 0.0"
+    requires:
+      Hubble:
+        z: [0.1]
+        units: km/s/Mpc
+
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+
+params:
+  H0:
+    prior:
+      min: 60.0
+      max: 75.0
+    latex: H_0
+  ombh2:
+    value: 0.02237
+  omch2:
+    value: 0.1200
+  mnu:
+    value: 0.06
+  w:
+    value: -1.0
+
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 1.0, 8]
+  z_rec: [1000.0, 1200.0, 8]
+```
+
+**Cobaya** is the program that joins parameter choices, physics calculations,
+and comparisons with observations. It requires a `likelihood` block before it
+will evaluate a theory. The example's `background_anchor` adds no
+observational constraint: its small function always returns zero. Its
+`requires` entry asks Cobaya for one Hubble value, which makes Cobaya call
+CAMB.
+
+The `theory` block selects CAMB. Its `path` is read relative to `$ROOTDIR`, so
+the example uses the CAMB installation inside CoCoA.
+
+The `params` block states which cosmological parameters vary and which stay
+fixed. Here only $H_0$ varies; `prior.min` and `prior.max` are its allowed
+limits. `latex` is only its display label.
+
+The generator reads `train_args`. `probe: background` selects the background
+calculation, while `ord` gives the saved column order for the varied
+parameters. Each redshift entry is
+`[lowest redshift, highest redshift, number of points]`.
+
+Use new output names for this run:
+
+```bash
+cd "$ROOTDIR"
+
+"$PYTHON" "$D/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile dvs_train \
+  --paramfile params_train \
+  --failfile failed_train \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+`--unif 1` draws directly from the finite $H_0$ interval. `--seed 1234`
+fixes the random draws so the parameter table can be reproduced from the same
+YAML and code. The programs require at least 200 rows. This command runs in
+one process; [FAQ B4](#faq-b4-mpi) shows how to use more processes.
+
+The command creates `projects/generator_example/chains/` and writes the
+training files there. It may print progress and messages from CAMB. A zero
+shell return code means the program reached its normal end; it does not prove
+that every individual physics row succeeded. Check the failure file next.
+
+## Check the saved rows
+
+A failed physics calculation is stored as a row of zeros. The matching line
+in the failure file is `1`. A successful row has a failure flag of `0`.
+
+Run this check from `$ROOTDIR`. It reads the first example's files and changes
+nothing:
+
+```bash
+"$PYTHON" - <<'PY'
+from pathlib import Path
+import numpy as np
+
+folder = Path("projects/generator_example/chains")
+prefix = "background_unifs"
+
+params = np.atleast_2d(np.loadtxt(
+    folder / f"params_train_{prefix}.1.txt"))
+failures = np.atleast_1d(np.loadtxt(
+    folder / f"failed_train_{prefix}.txt", dtype=np.uint8))
+hubble = np.load(
+    folder / f"dvs_train_{prefix}_h.npy", allow_pickle=False)
+distance = np.load(
+    folder / f"dvs_train_{prefix}_dm.npy", allow_pickle=False)
+hubble_z = np.load(
+    folder / f"dvs_train_{prefix}_h_z.npy", allow_pickle=False)
+distance_z = np.load(
+    folder / f"dvs_train_{prefix}_dm_z.npy", allow_pickle=False)
+
+if params.shape[0] != failures.size:
+    raise SystemExit("FAIL: parameter and failure row counts differ")
+if hubble.shape != (failures.size, hubble_z.size):
+    raise SystemExit("FAIL: H(z) array and redshift grid disagree")
+if distance.shape != (failures.size, distance_z.size):
+    raise SystemExit("FAIL: chi(z) array and redshift grid disagree")
+if not set(np.unique(failures)).issubset({0, 1}):
+    raise SystemExit("FAIL: failure file contains a value other than 0 or 1")
+if failures.any():
+    raise SystemExit(f"FAIL: {int(failures.sum())} physics rows failed")
+
+print(
+    f"PASS: {failures.size} parameter rows, "
+    f"H {hubble.shape}, chi {distance.shape}, no failed rows"
+)
+PY
+```
+
+For this YAML, a fully successful result prints:
+
+```text
+PASS: 200 parameter rows, H (200, 8), chi (200, 8), no failed rows
+```
+
+Do not give an array to a trainer while its failure file contains `1`. Resume
+the calculation as described in [FAQ C2](#faq-c2-resume), then rerun the
+check.
+
+## Create a separate validation set
+
+The generators have no `--train` or `--validation` switch. Training and
+validation are two different invocations.
+
+Use three different output names and a different seed for validation. A
+different filename alone does not create new cosmologies. The validation rows
+must be absent from the training rows so that the validation score tests
+predictions at unseen points.
+
+```text
+one reviewed generator YAML
+          |
+          +-- training:   names contain train, seed 1234,
+          |               full allowed parameter intervals
+          |
+          +-- validation: names contain val, seed 5678,
+                          central 90% of each allowed interval
+```
+
+The next command uses `--boundary 0.9`. The program removes five percent from
+each end of every parameter interval, leaving the central 90 percent of each
+interval. This value is an example for the worked dataset, not a universal
+physics choice. Record the value chosen for a production study.
+
+```bash
+cd "$ROOTDIR"
+
+"$PYTHON" "$D/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile dvs_val \
+  --paramfile params_val \
+  --failfile failed_val \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 5678 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0 \
+  --boundary 0.9
+```
+
+The following check reads the validation files, checks their shapes and
+failure flags, and confirms that no validation cosmology is also a training
+cosmology. Run it from `$ROOTDIR` without editing it:
+
+```bash
+"$PYTHON" - <<'PY'
+from pathlib import Path
+import numpy as np
+
+folder = Path("projects/generator_example/chains")
+prefix = "background_unifs"
+train_params = np.atleast_2d(np.loadtxt(
+    folder / f"params_train_{prefix}.1.txt"))[:, 2:-1]
+validation_params = np.atleast_2d(np.loadtxt(
+    folder / f"params_val_{prefix}.1.txt"))[:, 2:-1]
+failures = np.atleast_1d(np.loadtxt(
+    folder / f"failed_val_{prefix}.txt", dtype=np.uint8))
+hubble = np.load(
+    folder / f"dvs_val_{prefix}_h.npy", allow_pickle=False)
+distance = np.load(
+    folder / f"dvs_val_{prefix}_dm.npy", allow_pickle=False)
+hubble_z = np.load(
+    folder / f"dvs_val_{prefix}_h_z.npy", allow_pickle=False)
+distance_z = np.load(
+    folder / f"dvs_val_{prefix}_dm_z.npy", allow_pickle=False)
+
+if validation_params.shape[0] != failures.size:
+    raise SystemExit("FAIL: parameter and failure row counts differ")
+if hubble.shape != (failures.size, hubble_z.size):
+    raise SystemExit("FAIL: H(z) array and redshift grid disagree")
+if distance.shape != (failures.size, distance_z.size):
+    raise SystemExit("FAIL: chi(z) array and redshift grid disagree")
+if not set(np.unique(failures)).issubset({0, 1}):
+    raise SystemExit("FAIL: failure file contains a value other than 0 or 1")
+if failures.any():
+    raise SystemExit(f"FAIL: {int(failures.sum())} physics rows failed")
+
+training_rows = {tuple(row) for row in train_params}
+overlap = sum(tuple(row) in training_rows for row in validation_params)
+if overlap:
+    raise SystemExit(
+        f"FAIL: {overlap} validation rows also occur in the training set")
+print(
+    f"PASS: {failures.size} validation rows, valid shapes, "
+    "no failures, and no training overlap"
+)
+PY
+```
+
+The first two columns in a parameter table are chain bookkeeping values. The
+last column is `chi2*`. The check therefore compares only the cosmological
+parameter columns between them.
+
+For a production run, increase `--nparams` only after the 200-row calculation
+has produced the expected file set, array shapes, physical variation, and
+zero failure flags.
+
+## Point the trainer at the files
+
+The emulator trainer reads filenames from its own YAML. For the background
+example, an $H(z)$ trainer would contain this `data` block:
+
+```yaml
+data:
+  grid:
+    quantity: Hubble
+    units: km/s/Mpc
+    law: log_offset
+    offset: 0.0
+    z_file: dvs_train_background_unifs_h_z.npy
+
+  train_dv:     dvs_train_background_unifs_h.npy
+  val_dv:       dvs_val_background_unifs_h.npy
+  train_params: params_train_background_unifs.1.txt
+  val_params:   params_val_background_unifs.1.txt
+  train_covmat: params_train_background_unifs.covmat
+```
+
+These are bare filenames because the trainer resolves them under
+`$ROOTDIR/<project>/chains/`. The complete background trainer example is
+[`example_yamls/baosn_hubble_emulator.yaml`](../example_yamls/baosn_hubble_emulator.yaml).
+The CMB and matter-power trainer examples are
+[`cmb_emulator.yaml`](../example_yamls/cmb_emulator.yaml) and
+[`mps_boost_emulator.yaml`](../example_yamls/mps_boost_emulator.yaml).
+
+Those three files configure emulator training. Do not pass them to a program
+in this folder as generator YAMLs.
+
+The main README explains how to
+[train the saved tables](../README.md#start-run) and gives the longer
+[training-data discussion](../README.md#18-generating-the-training-set).
+
+---
+
+# Common questions raised by developers
+
+# Appendices about generator inputs and outputs <a id="appendices-about-generator-inputs-and-outputs"></a>
+
+## FAQ A1. How is a generator YAML different from a trainer YAML? <a id="faq-a1-generator-yaml"></a>
+
+A generator YAML tells Cobaya which physics program to call, which parameters
+to vary, and which observable grid to save. Cobaya is the program that joins
+those parameters, the physics calculation, and any comparison with
+observations. The generator itself requires these top-level blocks:
+
+| Block | Meaning here |
+| --- | --- |
+| `params` | varied and fixed cosmological parameters |
+| `likelihood` | a comparison with observations, or a small function that returns zero when no observational constraint is wanted but a theory calculation must still run |
+| `train_args` | the probe, parameter order, output grid, and allowed sampling intervals used by the generator |
+
+The supplied physics configurations normally also include a `theory` block.
+For the background, matter-power, and CMB families, that block selects and
+configures CAMB. A CosmoLike configuration may obtain its theory through its
+configured components instead.
+
+Every generator needs `train_args.probe` and `train_args.ord`. With
+`--unif 0`, it also needs `fiducial`, a list of reference parameter values,
+and `params_covmat_file`, the parameter covariance file beside the YAML.
+
+A trainer YAML describes the saved arrays, neural network, loss, optimizer,
+and training schedule. Its top-level `data` block points to the files created
+here. The trainer's `train_args` block controls neural-network training; it is
+not read by these generators.
+
+## FAQ A2. What does each physics generator require and write? <a id="faq-a2-physics-families"></a>
+
+### CosmoLike data vectors
+
+`dataset_generator_lensing.py` accepts `cs`, `ggl`, or `gc`. The first
+likelihood in its generator YAML must supply CosmoLike's `get_datavector`
+method.
+
+It writes one array:
+
+```text
+<data-name>_<probe>_<sampling-tag>.npy
+```
+
+The array shape is `(number of cosmologies, data-vector length)`. Each row is
+one flat CosmoLike vector. This path needs a compiled CoCoA and CosmoLike
+installation.
+
+### CMB spectra
+
+`dataset_generator_cmb.py` accepts `cmblensed` or `cmbunlensed`. Its
+`train_args` block adds:
+
+```yaml
+train_args:
+  probe: cmblensed
+  ord:
+    - [As, ns, H0]
+  lrange: [2, 5000]
+```
+
+`lrange` includes both endpoints and must satisfy
+`2 <= lowest multipole < highest multipole`. One CAMB call produces four
+arrays:
+
+```text
+<data-name>_tt.npy
+<data-name>_te.npy
+<data-name>_ee.npy
+<data-name>_pp.npy
+```
+
+Each shape is `(number of cosmologies, highest-lowest+1)`. TT, TE, and EE are
+raw $C_\ell$ in $\mu\mathrm{K}^2$. PP is the raw dimensionless
+lensing-potential spectrum.
+
+The program does not write a separate multipole array; the current coordinate
+record is `train_args.lrange`. The CMB covariance used by the trainer must
+cover the same multipoles.
+
+One CMB emulator learns one spectrum file. It does not combine all four files
+into one target.
+
+### Background expansion
+
+`dataset_generator_background.py` requires:
+
+```yaml
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 3.0, 120]
+  z_rec: [1000.0, 1200.0, 24]
+```
+
+Each grid needs positive increasing limits and at least eight points. The
+low-redshift grid must end below the beginning of the recombination grid.
+
+The program writes:
+
+```text
+<data-name>_h.npy       H(z), in km/s/Mpc
+<data-name>_h_z.npy     redshifts for H(z)
+<data-name>_dm.npy      radial comoving distance chi(z), in Mpc
+<data-name>_dm_z.npy    redshifts for chi(z)
+```
+
+One emulator learns either the Hubble array or the distance array.
+
+### Matter power
+
+`dataset_generator_mps.py` requires:
+
+```yaml
+train_args:
+  probe: mps
+  ord:
+    - [As, ns, H0]
+  z_segments:
+    - [0.0, 2.0, 16, false]
+  k_log10: [-4.0, 1.0, 40]
+  extrap_kmax: 10.0
+  write_syren_base: false
+```
+
+Each redshift entry is
+`[lowest z, highest z, number of points, include highest endpoint]`. The
+combined grid must increase without repeated values and must contain at least
+four points. `k_log10` defines a logarithmic wavenumber grid with at least
+eight points. `extrap_kmax` must reach the highest requested $k$.
+
+Use the YAML booleans `true` or `false` without quotation marks for
+`write_syren_base`.
+
+The program always writes:
+
+```text
+<data-name>_pklin.npy   linear P(k,z), in Mpc^3
+<data-name>_boost.npy   P_nonlinear/P_linear, dimensionless
+<data-name>_z.npy       redshift coordinates
+<data-name>_k.npy       wavenumber coordinates
+```
+
+With `write_syren_base: true`, it also writes `pklin_base` and `boost_base`
+arrays. Every surface row is flattened in redshift-then-wavenumber order. Its
+length is `number of redshifts * number of wavenumbers`.
+
+## FAQ A3. How are the output filenames constructed? <a id="faq-a3-output-names"></a>
+
+All outputs go under:
+
+```text
+$ROOTDIR/<--root>/chains/
+```
+
+`--datavsfile`, `--paramfile`, and `--failfile` are names, not output
+directories. The program removes any parent folder and extension supplied in
+those values. For example, `--datavsfile trial.npy` becomes the name `trial`.
+
+Uniform sampling, `--unif 1`, adds:
+
+```text
+_<probe>_unifs
+```
+
+Tempered sampling, `--unif 0`, adds:
+
+```text
+_<probe>_<temperature>
+```
+
+The worked training command therefore turns `params_train` into
+`params_train_background_unifs` before adding `.1.txt`, `.covmat`, and the
+other parameter-file extensions.
+
+A fresh run does not ask before replacing an existing file with the same
+resolved name. Use names that identify the scientific dataset and whether it
+is training or validation data.
+
+## FAQ A4. What is in the parameter and failure files? <a id="faq-a4-common-files"></a>
+
+Every full generator run writes these files in addition to its physical
+arrays:
+
+| File ending | Contents |
+| --- | --- |
+| `.1.txt` | chain weight, saved log probability (`lnp`), sampled parameters in `ord` order, and `chi2*`, which is `-2 * lnp` |
+| `.paramnames` | the declared name and display label for each numeric parameter column |
+| `.ranges` | the sampled lower and upper bounds |
+| `.covmat` | covariance of the saved parameter rows |
+| `.facts.yaml` | generator family, fixed cosmology, parameter order, requested and used bounds, and a digest of the parameter table |
+| failure `.txt` | one `0` or `1` for each physical row; `1` means the calculation failed |
+
+On a fresh run, the first comment line in `.1.txt` records the sampling seed
+and random-number generator. Append mode adds rows without adding its new seed
+to that header, so record every append seed in the project note described in
+the main guide. A uniform run stores `1` as a placeholder `lnp`; a tempered
+run stores emcee's log probability. The asterisk marks `chi2*` as a derived
+GetDist column rather than a sampled parameter.
+
+Physical arrays use 32-bit floating-point numbers. The parameter table is
+decimal text written from the sampled values. Keep the parameter files,
+physical arrays, coordinate arrays, and failure file together. They describe
+one dataset.
+
+## FAQ A5. Why is the CMB covariance a separate calculation? <a id="faq-a5-cmb-covariance"></a>
+
+The CMB spectrum generator varies cosmologies and writes TT, TE, EE, and PP
+rows. The CMB covariance program instead evaluates one fixed flat
+$\Lambda$CDM cosmology for a chosen experiment. Its noise, beam, and sky
+fraction belong to the experiment rather than to each training row.
+
+Copy the shipped configuration into the project before editing it. These
+commands create the project folder and one YAML file:
+
+```bash
+mkdir -p "$ROOTDIR/projects/cmb/generator"
+cp "$D/example_yamls/cmb_covariance_lcdm.yaml" \
+  "$ROOTDIR/projects/cmb/generator/cmb_covariance_lcdm.yaml"
+```
+
+Review the fixed cosmology, `lmax`, noise, beam, and `fsky`. Then run the
+serial covariance program from `$ROOTDIR`:
+
+```bash
+cd "$ROOTDIR"
+
+"$PYTHON" "$D/compute_data_vectors/compute_cmb_covariance.py" \
+  --root projects/cmb \
+  --fileroot generator \
+  --yaml cmb_covariance_lcdm.yaml \
+  --output cmb_covariance
+```
+
+This writes or replaces:
+
+```text
+$ROOTDIR/projects/cmb/chains/cmb_covariance.npz
+```
+
+Gaussian mode performs one fiducial CAMB calculation. It writes the
+multipole coordinates, per-spectrum standard deviations, Gaussian
+cross-spectrum terms, fiducial spectra, and a JSON provenance record inside
+the `.npz` file.
+
+`cov_args.nongaussian.enabled: true` adds six dense covariance blocks. Its
+re-lensing count is:
+
+```text
+number of lensing bands * number of step sizes * 4
+```
+
+The six saved blocks alone need about
+`6 * number_of_multipoles^2 * 8` bytes. The calculation also builds larger
+temporary matrices. Check the requested memory and time before enabling this
+mode. The current CMB trainer reads the diagonal scales and fiducial spectra;
+it does not read the optional dense blocks.
+
+The spectrum generator's `lrange` and the covariance file's `ell` array must
+describe the same multipoles.
+
+---
+
+# Appendices about sampling and computing <a id="appendices-about-sampling-and-computing"></a>
+
+## FAQ B1. What is the difference between uniform and tempered sampling? <a id="faq-b1-sampling-modes"></a>
+
+`--unif 1` draws each parameter inside allowed intervals derived from the
+Cobaya prior. For a finite prior, each interval begins with the stated lower
+and upper bounds. The generator replaces infinite endpoints using `--temp`,
+applies `--boundary` when requested, and moves off the exact endpoints by one
+floating-point step.
+
+Uniform mode is the better first run because it does not start an emcee chain.
+The output name ends in `_unifs`.
+
+`--unif 0` uses **emcee**, a Python program that explores nearby parameter
+combinations with many linked random walks. Those walks begin around a
+**fiducial cosmology**, the reference parameter values recorded in the YAML.
+Their scale comes from the covariance file named by
+`train_args.params_covmat_file`.
+
+Temperature widens the explored region, and `--maxcorr` limits correlations
+in that covariance. The output name ends in the numeric temperature.
+
+A small requested row count does not make `--unif 0` a small trial. The code
+prepares at least five million emcee candidate rows before selecting the
+requested rows. Use uniform sampling for the first end-to-end calculation.
+
+`--boundary VALUE` contracts each allowed parameter interval only when
+`0 < VALUE < 1`. The value is the fraction that remains. For example, `0.9`
+keeps the central 90 percent.
+
+Omission keeps the entire interval. Values outside that open range also keep
+the entire interval rather than causing an error, so do not use `1.0` as a
+visible validation marker.
+
+## FAQ B2. What does each command-line option mean? <a id="faq-b2-command-options"></a>
+
+The four dataset generators share this command interface. Required means the
+argument parser refuses to start without the option.
+
+| Option | Required | Meaning and accepted value |
+| --- | --- | --- |
+| `--root` | yes | project folder below `$ROOTDIR` |
+| `--fileroot` | yes | folder below the project that contains the generator YAML and any parameter covariance file |
+| `--yaml` | yes | filename below `--fileroot`; this interface does not accept an arbitrary absolute YAML path |
+| `--datavsfile` | yes | base name for the physical arrays |
+| `--paramfile` | yes | base name for the parameter files |
+| `--failfile` | yes | base name for the row-failure file |
+| `--chain` | no | `0` for a full dataset; `1` for parameter files only; default `0` |
+| `--nparams` | yes | requested total rows for a fresh run, or requested added rows for append; required but ignored for resume; integer at least 200 |
+| `--unif` | yes | `1` to draw independent points across the resolved allowed intervals; `0` to use the linked emcee walks described in FAQ B1 |
+| `--temp` | no | integer at least 1; default 128; always pass it so the chosen sampling intervals can be reconstructed from the command |
+| `--maxcorr` | no | tempered-mode correlation limit; default 0.15; must satisfy `0.01 < value <= 1` |
+| `--loadchk` | no | `1` to load the existing complete file set; default `0` |
+| `--freqchk` | no | rows between intermediate saves; default 5000 and minimum 1000 |
+| `--append` | no | `1` to add new rows after loading; default `0`; requires `--loadchk 1` |
+| `--boundary` | no | remaining fraction of each parameter interval when strictly between 0 and 1; otherwise keep the entire interval |
+| `--seed` | yes | non-negative integer used for random draws in a fresh or append invocation |
+
+Unknown or misspelled options are refused. The three legal run-control pairs
+are:
+
+```text
+--loadchk 0 --append 0   start a fresh result set
+--loadchk 1 --append 0   load it and retry failed rows
+--loadchk 1 --append 1   load it and add new rows
+```
+
+## FAQ B3. Can I create only the parameter rows? <a id="faq-b3-chain-only"></a>
+
+Yes. `--chain 1` samples parameters but skips every CAMB or CosmoLike target
+calculation. It adds `_chain_only` to the names and writes only:
+
+```text
+.1.txt
+.paramnames
+.ranges
+.covmat
+.facts.yaml
+```
+
+It does not create or reuse a failure file, physical array, or coordinate
+array. A chain-only result is not training data.
+
+## FAQ B4. How do serial and MPI runs differ? <a id="faq-b4-mpi"></a>
+
+MPI starts several Python processes for one command. One process is called a
+**rank**. Rank 0 samples the cosmologies, calculates the first row to learn the
+output shape, sends the remaining rows to workers, and writes the files.
+
+The worked command starts one rank and calculates every row in that process.
+To run four ranks, place `mpirun -n 4` before the same command:
+
+```bash
+mpirun -n 4 "$PYTHON" \
+  "$D/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile dvs_mpi_trial \
+  --paramfile params_mpi_trial \
+  --failfile failed_mpi_trial \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 9012 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+This is another real 200-row calculation and writes a new dataset. Do not run
+it merely to inspect the command form.
+
+In an MPI run, one row may use at most 1,800 seconds before rank 0 marks the
+active work failed, saves a checkpoint, and stops the MPI job. Workers have
+300 seconds to confirm shutdown. The serial path has no matching per-row
+timer. `compute_cmb_covariance.py` is serial and should not be placed under
+`mpirun`.
+
+## FAQ B5. How much memory and disk space will a run need? <a id="faq-b5-memory-disk"></a>
+
+Every physical target uses 32-bit floating-point values, or four bytes per
+number. A first storage estimate is:
+
+```text
+number of rows * numbers per row * 4 bytes * number of target arrays
+```
+
+For CMB, there are four target arrays. For matter power, there are two target
+arrays, or four when both Syren base arrays are requested. A matter-power row
+contains `number of redshifts * number of wavenumbers` values in each array.
+
+The program keeps target arrays in memory only when its estimate is below 75
+percent of the currently available memory. Otherwise it uses disk-backed
+NumPy arrays and prints that disk access will be slower. Appending may need a
+temporary copy while an array grows, so free disk should exceed the final
+dataset estimate.
+
+The estimate does not include CAMB, CosmoLike, MPI-process memory, parameter
+files, checkpoints, or temporary covariance matrices. Measure the 200-row run
+before setting the production row count.
+
+---
+
+# Appendices about failures and interrupted runs <a id="appendices-about-failures-and-interrupted-runs"></a>
+
+## FAQ C1. What should I do when a row fails? <a id="faq-c1-failed-row"></a>
+
+Most per-row physics errors do not stop the complete run. The program writes
+zeros for that target row, writes `1` at the same position in the failure
+file, and continues. A physical target can also contain real zeros, so the
+target array alone cannot identify a failed row.
+
+The first row determines each target's shape. If that row fails, the program
+cannot create the arrays and stops the job.
+
+For later failures:
+
+1. Read the printed exception and correct the scientific or numerical cause.
+2. Keep the complete result set together.
+3. Resume with `--loadchk 1 --append 0` and the same names and YAML.
+4. Rerun the failure-file and shape check.
+5. Give the files to a trainer only after every flag is `0`.
+
+## FAQ C2. How do I resume a stopped run? <a id="faq-c2-resume"></a>
+
+Reuse the same YAML, output names, `--unif`, `--temp`, `--maxcorr`, and
+`--boundary` choices. Supply the fresh-run seed recorded in the `.1.txt`
+header as well so the recovery command preserves a consistent record. Then
+change only the run controls:
+
+```text
+--loadchk 1 --append 0
+```
+
+Resume loads the existing parameter rows; it does not redraw them from the
+seed. The loader requires every expected parameter, failure, and physical
+file, plus coordinate files for the families that write them. It checks row
+counts and declared parameter columns.
+
+The loader also requires the covariance, ranges, and facts files, but does not
+repeat every scientific validation of their contents. If a required file is
+missing or invalid, the command stops without treating the request as a fresh
+run. A successful resume recalculates only rows whose failure flag is `1`.
+
+Keep a copy of the full result set before recovery work. The files are saved
+one after another, so an interruption can leave files from different save
+moments.
+
+## FAQ C3. How do I add more rows? <a id="faq-c3-append"></a>
+
+Append mode uses:
+
+```text
+--loadchk 1 --append 1
+```
+
+`--nparams` is the requested number of added rows. A tempered run can add
+fewer if it cannot find enough unique samples. Reuse the same YAML, output
+names, `--unif`, `--temp`, `--maxcorr`, and `--boundary` choices, but record a
+new seed. Reusing the original seed can repeat parameter draws because each
+invocation starts its random-number generator from the supplied seed.
+
+Before appending:
+
+1. Copy every parameter, failure, physical, coordinate, and facts file.
+2. Check that the copy opens and has the same file count as the original.
+3. Record the new seed and requested row count.
+4. Run append mode.
+5. Check row counts, failure flags, and array shapes again.
+
+Append changes several files one after another. It is not one indivisible
+write. When storage permits, a fresh larger dataset under new names is easier
+to compare with the old one.
+
+## FAQ C4. Which files in this folder are commands? <a id="faq-c4-program-files"></a>
+
+Run these files by path:
+
+| File | User action |
+| --- | --- |
+| `dataset_generator_lensing.py` | generate CosmoLike vectors |
+| `dataset_generator_cmb.py` | generate CMB spectrum rows |
+| `dataset_generator_background.py` | generate $H(z)$ and radial comoving-distance $\chi(z)$ rows |
+| `dataset_generator_mps.py` | generate matter-power rows |
+| `compute_cmb_covariance.py` | calculate one CMB experiment covariance |
+
+Do not run these helper modules as commands:
+
+| File | Purpose inside the programs |
+| --- | --- |
+| `generator_core.py` | shared options, sampling, file writing, and MPI work |
+| `dataset_manifest.py` | file-set and run-control validation helpers |
+| `dataset_publication.py` | tested file-saving helper that is not yet used by the four generators |
+
+Current generator runs write the normal files directly under `chains/`.
+The two helper files in this table are not commands. In particular,
+`dataset_publication.py` does not change how the four generators currently
+save or replace their results.
