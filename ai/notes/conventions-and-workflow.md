@@ -258,9 +258,11 @@ quota.
   commit sentences; only main is ever pushed (branches stay local;
   the workstation pulls main); occasional explicit TIME-BOXED
   branch-commit authorizations exist — never assumed, never extended.
-- The notes ritual: every milestone gets its note updates + MEMORY.md
-  index line in the SAME turn, unprompted — an unrecorded milestone
-  is unfinished work.
+- Ticket substance and resume state go to a local temporary note in the same
+  turn. Only the Architect decides whether an accepted fix changes a general
+  property in the permanent ten; only then does the Architect edit that note
+  and, when useful for discovery, `MEMORY.md`. Milestones do not create
+  permanent-note churn.
 
 ### Persisted primary coordination worktree (binding, 2026-07-14)
 
@@ -360,8 +362,9 @@ never “recover” by deleting the state or inventing a replacement primary.
 ### Notes-first inter-agent communication (hard user rule, 2026-07-13)
 
 Every detailed message among the enabled Architect, Implementer, and optional
-Red Team roles must be written to the appropriate `ai/notes/` file before its
-chat handoff is emitted.
+Red Team roles must be written to its local temporary ticket file under
+`ai/notes/` before its chat handoff is emitted. Those working records are
+ignored by Git and remain readable in the local checkout.
 The note contains the complete reasoning and execution record: the bounded
 scope, scientific or numerical evidence, counterexample, contract, file and
 line anchors, changed files, branch or commit identity, raw-test locations,
@@ -373,8 +376,9 @@ This rule applies to findings, adjudications, implementation returns, audit
 holds, audit approvals, retractions and queue changes. A chat-only decision
 is not durable and cannot be treated as the program's current instruction.
 When a summary and its cited note disagree, the current note is the source of
-record. `ai/notes/MEMORY.md` continues to tell a cold reader which topic note or
-registry to open first.
+record. The Architect alone decides whether the accepted result changes one of
+the ten permanent general-property notes. `ai/notes/MEMORY.md` indexes only
+that permanent knowledge; it is not a ticket registry.
 
 Relay transport copies (Fable addendum, 2026-07-14): the clipboard router
 `ai/tools/handoff_router.py` archives every captured chat block under
@@ -893,9 +897,16 @@ mutation without consulting a note ledger.
 ## Structured evidence map — gate contract anchors (45M-72 foundation)
 
 The board's structured evidence map (`Gate.evidence`) pins each migrated
-gate to a stable, runner-validated anchor in its home note; the mechanism
-and the audited rollout are documented in `gates-and-board.md`. The two
-workflow-side gates anchor here:
+gate to a stable, runner-validated anchor in its permanent home note. Local
+gate-board records may preserve a run history, but the executable board never
+depends on those local files. The workflow-side gates anchor here:
+
+<a id="board-selftest-exit-truth"></a>
+**board-selftest (BRD-A) — the runner reports what actually ran.**
+Dependency skips, unknown or conflicting selectors, compile-lane skips, stale
+or edited stored logs, unresolved evidence anchors, duplicate assertion ids,
+and malformed anchor shapes all produce a non-green result. A stored PASS is
+reusable only while its cited raw log and digest remain intact.
 
 <a id="cli-strict-strict-parse"></a>
 **cli-strict (CLI-A) — every public executable rejects a misspelled flag.**

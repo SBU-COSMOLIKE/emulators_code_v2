@@ -14,8 +14,9 @@ co-implementer.
 
 Codex does not write functional implementation code. It reviews source code,
 Python documentation, READMEs, notes, gates, raw test evidence, and
-Implementer returns. Documentation and audit records may be edited only in a
-separate linked worktree on a `codex/` branch.
+Implementer returns. Documentation and local temporary audit records may be
+edited only in a separate linked worktree on a `codex/` branch. This does not
+authorize edits to the permanent ten.
 
 ## Red-team objective
 
@@ -51,8 +52,11 @@ The red-team pass asks, at minimum:
 ## Handoff protocol
 
 **Notes-first communication is a hard rule.** Substantive communication
-between Codex, the Architect and the Implementer lives in the appropriate
-file under `ai/notes/` before any chat relay is sent. The note carries the full
+between Codex, the Architect and the Implementer lives in a local temporary
+ticket file under `ai/notes/` before any chat relay is sent. The exact ten
+permanent notes are listed in `ai/README.md`; the Red Team never edits them.
+The Architect alone decides whether an accepted fix changes their general
+knowledge. The temporary note carries the full
 contract, evidence, open obligations, file and line anchors, branch or commit
 identity and acceptance conditions. A pasted `ARCHITECT_REDTEAM_HANDOFF` is
 only a short routing summary with a direct note pointer. Chat text never
@@ -66,7 +70,8 @@ between Codex, the Architect and the Implementer uses a numbered file under
 `ai/tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary;
 the substance is in the `ai/notes/` entry it cites. Every Red Team turn that
 has a result for the Architect or Implementer writes the substantive result to
-`ai/notes/` first, then writes the outbound handoff block to the next numbered
+its temporary ticket note first, then writes the outbound handoff block to the
+next numbered
 `ai/notes/mailbox/NNN-to-<fable|opus>.md` file. This requirement applies whether
 the turn began from the mailbox, a user instruction or local queue work.
 Pasted chat text is not an inter-agent relay. Chat may tell the user which

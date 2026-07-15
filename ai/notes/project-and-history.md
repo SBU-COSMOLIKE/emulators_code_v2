@@ -2,8 +2,9 @@
 
 Consolidated 2026-07-11 from ~85 topic notes (retired; every old note
 survives in git history — `git log --follow ai/notes/<old-name>.md`).
-Read ai/notes/MEMORY.md first, then state-2026-07-11-and-next.md for
-where things stand.
+Read `ai/notes/MEMORY.md` first. Current execution state belongs in the local
+`ai/notes/backlog.md`; transfer it between developers with the offline handoff
+documented in `ai/README.md`, not through a committed state ledger.
 
 ## What this is
 

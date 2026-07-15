@@ -128,7 +128,7 @@ class Assertion:
              line names both the gate to rerun and the leg that failed.
     anchor = the home-note anchor the leg encodes, in the form
              "<note>.md#<marker>", where the marker is the aid with
-             "." -> "-" (e.g. "gates-and-board.md#board-selftest-exit-truth"
+             "." -> "-" (e.g. "conventions-and-workflow.md#board-selftest-exit-truth"
              for aid "board-selftest.exit-truth"). validate_evidence
              enforces that transform, so the aid <-> anchor map is one
              mechanical string rule. The marker is an explicit
@@ -2210,7 +2210,7 @@ BOARD = [
        spec_code="BRD-A",
        title="Board runner reports the truth about what ran",
        tier=TIER_BACKLOG,
-       home="gates-and-board",
+       home="conventions-and-workflow",
        maps="the board-truth campaign: a dependency-skipped selected gate "
             "exits nonzero and runs no body; an unknown --gate / --from / "
             "--force-rerun id is a usage error with a suggestion and a "
@@ -2223,7 +2223,7 @@ BOARD = [
             "and a bad anchor / missing note / duplicate id / malformed anchor "
             "are each rejected) (the red legs plus the valid controls)",
        evidence=(Assertion("board-selftest.exit-truth",
-                           "gates-and-board.md#board-selftest-exit-truth"),),
+                           "conventions-and-workflow.md#board-selftest-exit-truth"),),
        run=gate_board_selftest,
        manifest=Manifest(code=(), inputs=()),
        needs=()),

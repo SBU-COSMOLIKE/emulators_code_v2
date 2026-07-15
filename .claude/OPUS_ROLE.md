@@ -91,8 +91,11 @@ command.
    sign-off, even when all gates pass.
 
 6. **Persist state — NOTES-FIRST (hard user rule, 2026-07-14).** Append your
-   substance to the same `ai/notes/` entry the blueprint named (resume state)
-   BEFORE emitting the chat block: the relayed `IMPLEMENTER_HANDOFF` is a
+   substance to the same local temporary `ai/notes/` entry the blueprint named
+   (resume state) BEFORE emitting the chat block. Never edit the permanent ten
+   listed in `ai/README.md`; deciding whether they need an update and making
+   that update belong exclusively to the Architect. The relayed
+   `IMPLEMENTER_HANDOFF` is a
    compact routing summary that cites its note, and when a summary and its
    note disagree, the current note is the source of record. Canonical shared
    statement: `ai/notes/conventions-and-workflow.md`, "Notes-first inter-agent

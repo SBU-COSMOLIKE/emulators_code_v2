@@ -17,6 +17,7 @@ those boundaries; they do not redefine them.
 | Run one complete ticket | [Quick start](#quick-start-complete-one-ticket) |
 | Understand who decides | [Roles and authority](#roles-and-authority) |
 | Queue or inspect work | [Daily recipes](#daily-recipes) |
+| Email unfinished work | [Package an unfinished backlog](#package-an-unfinished-backlog) |
 | Read a long-running watch | [Reading a running watch](#reading-a-running-watch) |
 | Understand concurrency | [Queues, lanes, and demand](#queues-lanes-and-demand) |
 | Install the loop elsewhere | [Install on another machine](#install-on-another-machine) |
@@ -29,7 +30,7 @@ All AI-assisted development support lives under one root:
 | Path | Purpose |
 | --- | --- |
 | `ai/README.md` | This operating guide |
-| `ai/notes/` | Durable specifications, evidence, decisions, and mailbox state |
+| `ai/notes/` | Permanent knowledge plus local ticket and transport records |
 | `ai/tests/` | Unit tests and focused regression reproductions |
 | `ai/gates/` | The validation board, checks, configurations, and logs |
 | `ai/tools/` | Mailbox and status utilities |
@@ -69,12 +70,13 @@ python3 ai/tools/mailbox_daemon.py --once
 
 Expected result: on a clean installation, this valid live action creates
 `.claude/worktrees/mailbox-primary` on branch `claude/mailbox-primary`, saves
-that choice, re-executes there, reports `mailbox empty`, and exits. If the
-repository already has legacy transport data, follow the named adoption or
-recovery instruction instead of forcing a clean primary. One special case is
-automatic: a unique main-checkout store containing only completed `done/`
-messages and relay logs is copied byte-for-byte into the new primary while
-the originals remain untouched.
+that choice, re-executes there, reports `mailbox empty`, and exits.
+
+If the repository already has legacy transport data, follow the named
+adoption or recovery instruction instead of forcing a clean primary. One
+special case is automatic: a unique main-checkout store containing only
+completed `done/` messages and relay logs is copied byte-for-byte into the new
+primary while the originals remain untouched.
 
 ### 3. Write the source note in the saved primary
 
@@ -279,7 +281,7 @@ summary; the cited note is the durable source of truth.
 
 | Surface | Purpose |
 | --- | --- |
-| `ai/notes/` | Blueprints, findings, verdicts, repair deltas, and the backlog |
+| `ai/notes/` | Permanent library knowledge and local ticket evidence |
 | `ai/notes/mailbox/` | Numbered routing messages and their lifecycle archives |
 | `ai/notes/relay/` | Raw dispatch logs |
 | `ai/tests/` | Reproductions and regression checks |
@@ -288,6 +290,92 @@ summary; the cited note is the durable source of truth.
 
 If a note and a message disagree, the note wins. Sessions forget; repository
 records let a human or later session resume.
+
+Exactly ten Markdown notes are permanent repository knowledge:
+
+1. `MEMORY.md`
+2. `artifacts-inference-warmstart.md`
+3. `conventions-and-workflow.md`
+4. `data-generation-and-cuts.md`
+5. `families-background-mps.md`
+6. `families-scalar-cmb.md`
+7. `models-and-designs.md`
+8. `project-and-history.md`
+9. `training-stack.md`
+10. `user-didactics-and-python-voice.md`
+
+The backlog, gate board, dated audits, incident reports, state notes, and
+handoff registers are local working records. Do not add them to a GitHub
+commit.
+
+The Architect alone decides whether an accepted change alters a general
+property recorded by the permanent ten, and the Architect owns that edit.
+Implementers and the Red Team write temporary ticket evidence only.
+
+### Package an unfinished backlog
+
+An interrupted developer can send unfinished work without forwarding a chat
+history or committing local notes. The bundle is a deterministic `.tar.xz`
+attachment with an exact Git base and SHA-256 inventory.
+
+```mermaid
+flowchart LR
+  L["Local backlog + temporary evidence"] --> P["pack"]
+  P --> X["Email .tar.xz"]
+  X --> R["read: validate without writing"]
+  R --> I["import: fresh local review directory"]
+  I --> A{"Architect review"}
+  A -->|ticket evidence| W["Resume the fix"]
+  A -->|general property changed| N["Architect updates a permanent note"]
+```
+
+Put ordinary supporting files under `ai/notes/backlog-support/`. The packer
+also includes the backlog and every top-level temporary Markdown note. It
+does not copy the permanent ten, mailbox queues, or relay logs; the recorded
+Git commit supplies permanent knowledge, while transport copies add no new
+substance.
+
+Preview the exact selection without writing:
+
+```bash
+python3 ai/tools/backlog_bundle.py pack --dry-run
+```
+
+Create the ignored email attachment:
+
+```bash
+python3 ai/tools/backlog_bundle.py pack
+```
+
+Use repeatable `--include REPO_RELATIVE_FILE` options for a patch, image, or
+other file that does not belong in `backlog-support/`. Symlinks, special
+files, permanent notes, files outside the repository, changing inputs, and
+dirty permanent-note worktree bytes are refused.
+
+A custom archive path inside the repository must already match an ignore
+rule. An unignored output is refused before any file is created.
+
+The recipient first reads and fully validates the attachment:
+
+```bash
+python3 ai/tools/backlog_bundle.py read path/to/backlog-....tar.xz
+```
+
+`read` does not write. It checks one bounded XZ stream, the USTAR structure,
+portable paths, the exact manifest, byte counts, and every payload digest.
+Checksums detect corruption, not authorship, so compare the printed archive
+SHA-256 with the sender through another channel.
+
+To stage the received files for review:
+
+```bash
+python3 ai/tools/backlog_bundle.py import path/to/backlog-....tar.xz
+```
+
+Import requires the same repository and the recorded Git base. It writes only
+to a new ignored directory under `ai/backlog-imports/<bundle-id>/`; it never
+overwrites live notes or applies code. `inspect` and `unpack` are the longer
+spellings of `read` and `import`.
 
 ### From finding to protection
 
@@ -708,10 +796,12 @@ lists other watched mailboxes. It does not reroute or fail the send.
 An old checkout can still contain ignored transport files from before primary
 selection existed. The first live bootstrap never guesses how to combine
 them. It adopts one deliberately selected legacy coordinator or refuses and
-names the candidates. The only automatic bridge is a unique main-checkout
-store containing completed `done/` messages and relay logs only: those files
-are copied exactly into the new primary under both legacy transport locks,
-and the originals are retained. Nothing is merged, renumbered, or deleted.
+names the candidates.
+
+The only automatic bridge is a unique main-checkout store containing completed
+`done/` messages and relay logs only. Those files are copied exactly into the
+new primary under both legacy transport locks, and the originals are retained.
+Nothing is merged, renumbered, or deleted.
 
 `--dry-run --send` and `--dry-run --ping` can print the same warning without
 creating or rewriting a lock.
@@ -811,17 +901,21 @@ Launching from elsewhere while another checkout has a live watcher, a
 numbered transport file under `mailbox/`, `done/`, `failed/`, or `inflight/`,
 or relay history refuses the bootstrap and names the candidate paths. This is
 deliberate: mailbox sequence and archive identity cannot be combined safely by
-guessing. Bootstrap checks both the current `ai/notes/{mailbox,relay}` layout
-and the pre-migration `notes/{mailbox,relay}` layout; old-layout evidence is
-named and always requires deliberate recovery. A unique current-layout store
-in the main checkout is bridged automatically only
-when every mailbox message is already in `done/`, no legacy dispatch lock is
-held, and the remaining evidence is regular relay history. The daemon copies
-those exact files, keeps the originals, and therefore preserves the next
-sequence without migrating active queue state. The bridge accepts at most
-16 MiB per file and 64 MiB overall. Duplicate numeric message sequences,
-including duplicates addressed to different routes, refuse before state is
-published.
+guessing.
+
+Bootstrap checks both the current `ai/notes/{mailbox,relay}` layout and the
+pre-migration `notes/{mailbox,relay}` layout. Old-layout evidence is named and
+always requires deliberate recovery.
+
+A unique current-layout store in the main checkout is bridged automatically
+only when every mailbox message is already in `done/`, no legacy dispatch lock
+is held, and the remaining evidence is regular relay history. The daemon copies
+those exact files and keeps the originals, preserving the next sequence without
+migrating active queue state.
+
+The bridge accepts at most 16 MiB per file and 64 MiB overall. Duplicate
+numeric message sequences, including duplicates addressed to different routes,
+refuse before state is published.
 
 Historical incident transcripts may intentionally retain the path spellings
 that were true before the `ai/` migration. Treat those as preserved evidence,
@@ -852,10 +946,12 @@ Use this recovery order:
 An interrupted clean bootstrap or archived-main bridge is resumable: if the
 exact default worktree is registered but state was not published, the next
 live action verifies it, accepts only byte-identical partial archive copies,
-and finishes publication. Dirty, ahead, or diverged primary work is
-preserved. The daemon never updates that branch automatically: it does not
-merge, fetch, pull, or push. Advance it deliberately only after preserving its
-mailbox and checking its dirty/ahead/diverged state.
+and finishes publication.
+
+Dirty, ahead, or diverged primary work is preserved. The daemon never updates
+that branch automatically: it does not merge, fetch, pull, or push. Advance it
+deliberately only after preserving its mailbox and checking its
+dirty/ahead/diverged state.
 
 ### Configure executable paths
 

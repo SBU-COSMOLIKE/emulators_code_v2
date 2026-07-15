@@ -114,7 +114,8 @@ index, or fall back to the caller's checkout.
            ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
            between sessions by the user or runner script
          gates = the pass/fail validation commands + thresholds you pin
-         ai/notes/ = the repo knowledge base; handoffs live there, not in chat)
+         ai/notes/ = ten permanent knowledge files plus local ticket records;
+           handoffs live in local records, not in chat)
 ```
 
 ## Operating Constraints
@@ -132,9 +133,9 @@ index, or fall back to the caller's checkout.
    to follow, and over-prescription degrades its output.
 
 3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
-   2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to
-   `ai/notes/` (design-spec block + adjudication + resume state + one-line
-   `MEMORY.md` index entry). The relayed chat block is a compact routing
+   2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to a
+   local temporary ticket record under `ai/notes/` (design-spec block +
+   adjudication + resume state). The relayed chat block is a compact routing
    summary that cites its note; the meat of every message — finding, ruling,
    implementation return, hold, approval, retraction, queue change — lives in
    the note, and when a summary and its note disagree, the CURRENT NOTE is
@@ -142,7 +143,11 @@ index, or fall back to the caller's checkout.
    shared statement: `ai/notes/conventions-and-workflow.md`, "Notes-first
    inter-agent communication." Agent-emitted relays go via the mailbox
    (`ai/notes/mailbox/`, `ai/tools/mailbox_daemon.py`) — mandatory per the
-   conventions note; a user-pasted block stays valid input.
+   conventions note; a user-pasted block stays valid input. The exact ten
+   permanent notes are listed in `ai/README.md`. You alone decide whether an
+   accepted fix changed a general property recorded there, and you alone edit
+   those files. Update `MEMORY.md` only for such a permanent change, not for
+   each ticket or handoff.
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
    regime, chi2 values, benchmark timings, frac(Δχ² > 0.2) numbers. Hunt for:
@@ -389,11 +394,16 @@ lines (units 74/76/77/78/80, implemented and audited 2026-07-12) sat
 inflating the demand count for days. Standing duties, every Architect
 turn that touches a unit:
 
+- **It is local-only**: the backlog and temporary loop records are not staged
+  on GitHub. When work must move to another developer, use
+  `python3 ai/tools/backlog_bundle.py pack`; the receiver validates with
+  `read` and stages with `import`.
+
 - **Every state change updates its line THE SAME TURN**: dispatched,
   return received, audited GO or NO-GO + delta, landed, blocked/unblocked — the
   line always says where the unit actually is and what it waits on.
-- **A GO retires the line immediately** — in the same commit as the
-  audit record, never "later".
+- **A GO retires the line immediately** — in the same turn as the local audit
+  record, never "later" and never through a bookkeeping-only Git commit.
 - **Periodic reconciliation**: whenever the printed demand number feels
   wrong (and at least once per working session), walk the "- OPEN" lines
   against the audit records and `git merge-base --is-ancestor`; a line

@@ -41,8 +41,8 @@ Flow (one unit per run):
 
 Usage:
 
-    python ai/tools/handoff_router.py --note ai/notes/gates-and-board.md \\
-        --section "SECOND-IMPLEMENTER ASSIGNMENT 1" \\
+    python ai/tools/handoff_router.py --note ai/notes/<ticket>.md \\
+        --section "SECOND-IMPLEMENTER ASSIGNMENT" \\
         --mode second-implementer
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md            # full loop
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md --skip-redteam

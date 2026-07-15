@@ -32,9 +32,9 @@ EmulatorExperiment.from_config -> run -> save_emulator -> rebuild_emulator.
 The dumps and the save locations come from ai/gates/board_config.json; the
 dump directory follows the driver's <root>/chains convention.
 
-Home notes: artifacts-inference-warmstart.md:86-93 and
-gates-and-board.md:66-71 (the factored and neural-PCE saves are
-there so the saved geometry type and the PCE data both survive a reload).
+Home note: ai/notes/artifacts-inference-warmstart.md, "save-rebuild-drift."
+The factored and neural-PCE saves are included so the saved geometry type and
+the PCE data both survive a reload.
 """
 
 import json

@@ -76,9 +76,11 @@ delegation choice:
   numerics.
 - **`ai/notes/`**: the Architect reads broadly (index first, then the relevant
   notes); the Implementer reads the entry named in its handoff plus the
-  `[[links]]` it cites. Writers: Architect = design specs and milestone
-  records; Implementer = resume state appended to the handoff's entry
-  (`.md` files are fine). The ONE carve-out (USER RULE 2026-07-13): the
+  `[[links]]` it cites. Exactly ten general-property notes are permanent, as
+  listed in `ai/README.md`. Only the Architect decides whether an accepted
+  change requires one of those notes to change, and only the Architect edits
+  it. Implementer and Red Team evidence goes to a local temporary ticket note,
+  never a permanent note. The ONE carve-out (USER RULE 2026-07-13): the
   `documentation/` TeX sources are red-team-owned — neither the Architect nor
   the Implementer edits them; a landing that changes taught behavior NAMES
   the affected guide passage in its notes entry instead.
@@ -96,5 +98,6 @@ full streams to log files, a debug switch restores them), machines
 the ROOTDIR environment. Its voice-and-why companion is
 `ai/notes/user-didactics-and-python-voice.md` — who the reader is and
 the register code and docs are written in; read it BEFORE writing
-either. The `ai/notes/` ritual: every milestone gets a note plus a
-`MEMORY.md` index line, unprompted.
+either. `MEMORY.md` changes only when the Architect determines that an
+accepted fix changed permanent repository knowledge; ticket milestones do
+not create permanent-note churn.

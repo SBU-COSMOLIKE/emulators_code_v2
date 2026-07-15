@@ -658,7 +658,8 @@ def check_evidence_map():
     # mutation 1: an anchor whose marker is not declared in the note is caught.
     # The aid->anchor transform is satisfied (bad.leg -> bad-leg), so the
     # unresolved marker is the only defect this leg isolates.
-    bad = _evidence_gate("bad", "bad.leg", "gates-and-board.md#bad-leg")
+    bad = _evidence_gate(
+        "bad", "bad.leg", "conventions-and-workflow.md#bad-leg")
     ok, errs = run_board.validate_evidence([bad])
     report("an unresolved anchor marker is rejected", not ok,
            errs[0] if errs else "")
@@ -674,7 +675,7 @@ def check_evidence_map():
     # mutation 3: two gates sharing an assertion id is caught (board-wide
     # uniqueness, so a leg's id names exactly one leg). The shared aid's anchor
     # resolves and satisfies the transform, so the duplicate is the only defect.
-    real_anchor = "gates-and-board.md#board-selftest-exit-truth"
+    real_anchor = "conventions-and-workflow.md#board-selftest-exit-truth"
     dup_a = _evidence_gate("dupA", "board-selftest.exit-truth", real_anchor)
     dup_b = _evidence_gate("dupB", "board-selftest.exit-truth", real_anchor)
     ok, errs = run_board.validate_evidence([dup_a, dup_b])
@@ -682,7 +683,7 @@ def check_evidence_map():
            errs[0] if errs else "")
 
     # mutation 4: an anchor missing the '#<marker>' shape is caught.
-    mal = _evidence_gate("mal", "mal.leg", "gates-and-board.md")
+    mal = _evidence_gate("mal", "mal.leg", "conventions-and-workflow.md")
     ok, errs = run_board.validate_evidence([mal])
     report("a malformed anchor (no #marker) is rejected", not ok,
            errs[0] if errs else "")
@@ -692,7 +693,7 @@ def check_evidence_map():
     # the aid<->anchor transform violation (the second naming convention this
     # rollout kills).
     xform = _evidence_gate("xform", "xform.leg",
-                          "gates-and-board.md#board-selftest-exit-truth")
+                          "conventions-and-workflow.md#board-selftest-exit-truth")
     ok, errs = run_board.validate_evidence([xform])
     has_transform_err = False
     for e in errs:

@@ -872,9 +872,9 @@ def validate_evidence(gates):
 # field plus its static validation). A gate declares only the ROOTS of its
 # dependency graph; the deriver below walks the transitive repo-local closure.
 # The digest rewrite that consumes the closure and the per-gate population are
-# later phases. The full design is ai/notes/gates-and-board.md "Queue 1b ...
-# PROPOSAL". No gate declares a manifest yet, so validate_manifests(BOARD) is a
-# no-op over the live board; board-selftest drives it on fabricated gates.
+# later phases. The accepted design is encoded by validate_manifests below.
+# No gate declares a manifest yet, so validation is a no-op over the live
+# board; board-selftest drives it on fabricated gates.
 # --------------------------------------------------------------------------
 
 # The always-hashed shared harness: a change to the runner or the registry can
