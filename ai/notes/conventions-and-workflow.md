@@ -253,11 +253,14 @@ quota.
   changes are always DECLARED as deviations; forward-walk the WHOLE
   driver path when adding a config branch; every stop ends with a
   relayable handoff block.
-- Git: the user runs all commit/merge/push; sessions leave
-  uncommitted diffs + print the complete landing blocks with concrete
-  commit sentences; only main is ever pushed (branches stay local;
-  the workstation pulls main); occasional explicit TIME-BOXED
-  branch-commit authorizations exist — never assumed, never extended.
+- Git: without an explicit grant, the user runs commit/merge/push and
+  sessions return the audited boundary plus concrete landing instructions.
+  The sole standing exception is every Fable daemon dispatch: its Architect
+  creates and pushes exactly one squash commit per audited GO unit in that
+  same turn, after the foreign-commit STOP walk. No other lane inherits the
+  grant. The daemon serializes Fable and Sol turns because both can touch the
+  main checkout; Opus and Sol remain parallel. Only main is pushed; working
+  branches stay local.
 - Ticket substance and resume state go to a local temporary note in the same
   turn. Only the Architect decides whether an accepted fix changes a general
   property in the permanent ten; only then does the Architect edit that note
@@ -413,7 +416,9 @@ files deferred for a later normal watch.
 Pasted chat text does not substitute for the mailbox; chat may report the
 queued or dispatched filename to the user. A direct status intended only for
 the user may use `NNN-to-user.md`, which the daemon does not dispatch. Merges
-and pushes to main remain the user's alone. The only
+and pushes require a user grant. Every Fable-lane dispatch carries the narrow
+standing grant to land an audited GO unit in that same Architect turn after
+the mandatory foreign-commit STOP walk; no other lane inherits it. The only
 outbound exception is an inbound whose binding instruction explicitly says
 the thread is TERMINAL and
 no reply is owed; honor that instruction without manufacturing a receipt.
@@ -978,23 +983,19 @@ remaining paragraphs against code and hands its findings to the red
 team the same way — the Architect reads and audits the guide, only
 the red team writes it.
 
-## Landing-block resync ritual (2026-07-13)
+## Post-squash resync ritual (updated 2026-07-15)
 
-The user's landing merges create merge commits on main that never flow
-back to the working branch, so the branch and main DIVERGE after every
-landing; the next `git merge` is then a true merge (editor prompt,
-surprise merge commit) instead of a fast-forward — the "this caused
-problems" incident of 2026-07-13. The fix is a standing ritual: after
-a landing merges (and at Architect turn start when main moved), the
-worktree branch is fast-forwarded up to main FROM THE WORKTREE —
+An accepted unit becomes an independent squash commit on main. The working
+branch retains its fine-grained commits, so the two histories intentionally
+diverge even when their trees match. Immediately after the Architect pushes
+the one-unit landing, it returns to the working branch and runs:
 
-    git merge --ff-only main
+    git merge main
 
-— which is content-identical (the merge commit adds ancestry only),
-preserves any uncommitted work in the shared tree, and fails harmlessly
-(`--ff-only`) if new branch commits landed meanwhile. With the branch
-resynced, every subsequent landing block fast-forwards. Landing blocks
-themselves stay the user's four lines, unchanged.
+This local merge-back records the squash commit in the working branch and
+makes the next `git diff main..<working-branch>` describe only new content.
+`--ff-only` is wrong here because divergence after a squash is expected. The
+working branch remains local; only main is pushed.
 
 ### Guide review of 2026-07-13 (user-authorized Architect edit)
 

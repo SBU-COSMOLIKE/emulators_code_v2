@@ -18,8 +18,11 @@ inbound whose binding instruction explicitly says TERMINAL and no reply is
 owed ends without an outbound; ambiguity follows the ordinary outbound rule.
 
 What stays manual, on purpose:
-  - merges/pushes to main are ALWAYS the user's (the daemon's only Git write
-    is first-run creation of its repo-local coordination worktree + branch);
+  - merges/pushes to main require an explicit user grant. The one standing
+    grant carried by every Architect dispatch is narrow: an Architect audit
+    that records GO lands that audited unit in the same turn, after the
+    mandatory foreign-commit STOP walk. Implementer and Red Team turns never
+    inherit that grant;
   - the daemon only dispatches messages; it never edits code or notes itself;
   - every dispatch's full CLI output is archived under ai/notes/relay/.
 
@@ -233,6 +236,7 @@ PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 PRIMARY_STATE_NAME = ".mailbox-primary-worktree.json"
 PRIMARY_LOCK_NAME = ".mailbox-primary-worktree.lock"
 PRIMARY_STATE_SCHEMA = 1
+MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
 MAX_PRIMARY_STATE_BYTES = 16384
 MAX_PRIMARY_ARCHIVE_FILE_BYTES = 16 * 1024 * 1024
 MAX_PRIMARY_ARCHIVE_TOTAL_BYTES = 64 * 1024 * 1024
@@ -2002,6 +2006,11 @@ SKIP_REDTEAM_LOCK_NAME = ".skip-redteam.lock"
 # ancestry forever, so commit counts overstate the debt permanently.
 # report_landing_debt() prints the meter with every demand report.
 LANDING_DEBT_LINE_LIMIT = 400
+LANDING_DEBT_STATE_NAME = ".landing-debt-state.json"
+LANDING_DEBT_STATE_SCHEMA = 1
+MAX_LANDING_DEBT_STATE_BYTES = 16384
+MAX_AUTOMATIC_MESSAGE_SCAN_BYTES = 65536
+AUTOMATIC_LANDING_DEBT_MARKER = "MAILBOX-AUTO: landing-debt-v1"
 
 # One sequence grammar owns both allocation and dispatch-time currency. The
 # optional letter is historical (messages such as 0107a); the recipient is
@@ -2056,10 +2065,28 @@ PREAMBLE = (
     "explicitly says the thread is TERMINAL and no reply is owed, write no\n"
     "outbound merely to satisfy this wrapper. Ambiguity follows the ordinary\n"
     "rule: record the substance and write the outbound.\n"
-    "Merges and pushes to main remain\n"
-    "the user's alone -- print a landing block in the note instead of\n"
-    "running one.\n\n"
+    "Git landing authority is role-specific. Obey an Architect-only standing\n"
+    "grant when one immediately precedes this common wrapper; without such a\n"
+    "grant, do not merge or push.\n\n"
     "--- MESSAGE ---\n")
+
+ARCHITECT_LANDING_PREAMBLE = (
+    "ARCHITECT STANDING LANDING GRANT (user ruling 2026-07-14):\n"
+    "When this audit turn records GO, perform that audited unit's squash\n"
+    "landing to main and push it in THIS SAME TURN; do not merely print a\n"
+    "landing block. Before EVERY squash, run `git log main..<branch> "
+    "--oneline` and walk every foreign commit. Any commit not covered by an\n"
+    "Architect GO is a STOP: abort the whole-branch squash, then land only a\n"
+    "fully audited subset or wait. Land exactly one audited unit per squash\n"
+    "commit and merge main back into the working branch after landing. This\n"
+    "grant belongs only to the Architect lane.\n\n")
+
+
+def agent_preamble(agent):
+    """Return role-specific standing text that precedes the common wrapper."""
+    if agent == "fable":
+        return ARCHITECT_LANDING_PREAMBLE
+    return ""
 
 
 def next_seq():
@@ -2991,7 +3018,87 @@ def release_skip_redteam_lock(lock_file):
     lock_file.close()
 
 
+def main_checkout_turn_lock_path():
+    """Return the one ignored lock shared by every repository worktree."""
+    repository = os.path.abspath(REPO_ROOT)
+    _plain_directory(path=repository, label="repository root")
+    claude_root = os.path.join(repository, ".claude")
+    _plain_directory(path=claude_root, label=".claude directory", create=True)
+    managed_root = os.path.join(claude_root, "worktrees")
+    _plain_directory(
+        path=managed_root, label="managed worktree directory", create=True)
+    return os.path.join(managed_root, MAIN_CHECKOUT_TURN_LOCK_NAME)
+
+
+def acquire_main_checkout_turn_lock():
+    """Serialize Fable landing authority with every Sol main-checkout turn."""
+    try:
+        lock_path = main_checkout_turn_lock_path()
+    except (OSError, PrimaryWorktreeError) as exc:
+        print("cannot serialize the main checkout: " + str(exc))
+        return None
+    flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        print("cannot serialize the main checkout: " + str(exc))
+        return None
+    lock_file = os.fdopen(descriptor, "r+", encoding="utf-8")
+    try:
+        opened = os.fstat(lock_file.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("main-checkout turn lock is not a regular file")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        current = os.lstat(lock_path)
+        if (not stat.S_ISREG(current.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise OSError("main-checkout turn lock path changed")
+    except OSError as exc:
+        print("cannot serialize the main checkout: " + str(exc))
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_file.close()
+        return None
+    return lock_file
+
+
+def release_main_checkout_turn_lock(lock_file):
+    """Release a Fable/Sol main-checkout turn lock."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
+    """Serialize main-checkout-capable roles, then run one dispatch."""
+    match = PENDING_MESSAGE_RE.match(os.path.basename(path))
+    if match is None:
+        raise ValueError("not a pending agent message: " + path)
+    agent = match.group(1)
+    if dry_run or agent == "opus":
+        return dispatch_under_main_checkout_lock(
+            path=path, dry_run=dry_run, fix_only=fix_only,
+            skip_redteam=skip_redteam)
+    lock_file = acquire_main_checkout_turn_lock()
+    if lock_file is None:
+        print("refused " + os.path.basename(path) + ": the Fable/Sol "
+              "main-checkout turn lock could not be proved; root message "
+              "left untouched.")
+        return False
+    try:
+        return dispatch_under_main_checkout_lock(
+            path=path, dry_run=dry_run, fix_only=fix_only,
+            skip_redteam=skip_redteam)
+    finally:
+        release_main_checkout_turn_lock(lock_file=lock_file)
+
+
+def dispatch_under_main_checkout_lock(
+        path, dry_run, fix_only=False, skip_redteam=False):
     """Send one message file to its addressee's headless CLI.
 
     Arguments:
@@ -3139,10 +3246,13 @@ def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
         previous_timeout_minutes=prior_timeout,
         fix_only=fix_only,
         skip_redteam=skip_redteam)
-    # The dynamic banner precedes the byte-unchanged PREAMBLE. Consequently
-    # PREAMBLE's --- MESSAGE --- delimiter remains immediately before the
-    # exact raw mailbox body, and the body remains the prompt's exact suffix.
-    command = AGENT_COMMANDS[agent] + [banner + PREAMBLE + message]
+    # The dynamic banner precedes the byte-unchanged PREAMBLE. The
+    # role-specific banner sits between them. Consequently PREAMBLE's
+    # --- MESSAGE --- delimiter remains immediately before the exact raw
+    # mailbox body, and the body remains the prompt's exact suffix. Only the
+    # Architect route receives landing authority.
+    command = AGENT_COMMANDS[agent] + [
+        banner + agent_preamble(agent=agent) + PREAMBLE + message]
 
     print("dispatching " + name + " -> " + agent + " ...")
     # Stream the agent's output straight into the relay log AS IT RUNS
@@ -3487,7 +3597,9 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     two agents sharing a WORKING DIRECTORY must too: concurrent turns in
     one git tree race each other's index (the 2026-07-14 incident where a
     live edit was swept into another agent's commit). So the parallel unit
-    is the cwd: Fable+Opus (same worktree) serialize; Sol runs alongside.
+    is the cwd: Fable+Opus (same worktree) serialize. Sol can run alongside
+    Opus, but every Fable and Sol turn shares the repository-wide
+    main-checkout lock because a Fable landing mutates the tree Sol reviews.
 
     Arguments:
       dry_run  = True to print the would-be commands without running them.
@@ -3625,11 +3737,45 @@ def report_demand(backlog, skip_redteam=False):
     report_landing_debt()
 
 
-def report_landing_debt():
+def landing_debt_snapshot():
+    """Measure the current branch's content delta from main.
+
+    Returns a mapping with ``available``, ``stat``, and ``changed_lines``.
+    Git failures remain data instead of disappearing: every demand report
+    must still print one truthful debt line when the main ref is unavailable.
+    """
+    proc = subprocess.run(
+        ["git", "diff", "--shortstat", "main..HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=WORKTREE)
+    if proc.returncode != 0:
+        return {
+            "available": False,
+            "stat": "",
+            "changed_lines": 0,
+            "returncode": proc.returncode,
+        }
+    shortstat = proc.stdout.strip()
+    changed_lines = 0
+    # --shortstat prints e.g. "3 files changed, 120 insertions(+), 4
+    # deletions(-)"; debt is the total content lines touched either way.
+    for count, _keyword in re.findall(
+            r"(\d+) (insertion|deletion)", shortstat):
+        changed_lines = changed_lines + int(count)
+    return {
+        "available": True,
+        "stat": shortstat,
+        "changed_lines": changed_lines,
+        "returncode": 0,
+    }
+
+
+def report_landing_debt(snapshot=None):
     """Print how much branch content has not yet landed on main.
 
     The milestone that must land is ONE FULL AUDIT TRAIL: the feature,
-    its witness or gate leg, and the notes audit record. Debt past
+    its witness or gate leg, and the audit decision. Debt past
     LANDING_DEBT_LINE_LIMIT changed lines means an audited unit is
     sitting unlanded, which is how the 12,000-line batch landing of
     2026-07-14 happened (user rule: land at every audit-GO boundary,
@@ -3637,32 +3783,393 @@ def report_landing_debt():
     against main -- a commit count would never drop after a squash
     landing, because squashing leaves the original branch commits
     outside main's ancestry.
+
+    Returns the structured snapshot so callers may reuse the measurement.
     """
-    proc = subprocess.run(["git", "diff", "--shortstat", "main", "HEAD"],
-                          capture_output=True,
-                          text=True,
-                          cwd=WORKTREE)
-    if proc.returncode != 0:
-        # no main ref (fresh clone mid-setup): the debt line is a
-        # courtesy meter, not a gate -- stay silent rather than crash.
-        return
-    stat = proc.stdout.strip()
-    if stat == "":
+    if snapshot is None:
+        snapshot = landing_debt_snapshot()
+    if not snapshot["available"]:
+        print("landing debt: unavailable; git diff --shortstat main..branch "
+              "exited " + str(snapshot["returncode"]))
+        return snapshot
+    if snapshot["stat"] == "":
         print("landing debt: none; the branch and main hold the "
               "same content")
-        return
-    # --shortstat prints e.g. " 3 files changed, 120 insertions(+), 4
-    # deletions(-)"; the debt is the total lines touched either way.
-    changed_lines = 0
-    for count, keyword in re.findall(r"(\d+) (insertion|deletion)", stat):
-        changed_lines = changed_lines + int(count)
-    print("landing debt: " + stat + " vs main")
-    if changed_lines > LANDING_DEBT_LINE_LIMIT:
+        return snapshot
+    print("landing debt: " + snapshot["stat"] + " vs main")
+    if snapshot["changed_lines"] > LANDING_DEBT_LINE_LIMIT:
         print("  hint: more than " + str(LANDING_DEBT_LINE_LIMIT)
               + " unlanded lines means at least one full audit trail "
               "is overdue; squash-land the audited unit(s) to main "
               "now, one unit per commit "
               "(.claude/FABLE_ROLE.md, Landing granularity).")
+    return snapshot
+
+
+def landing_debt_state_path():
+    """Return the ignored per-mailbox deduplication state path."""
+    return os.path.join(MAILBOX, LANDING_DEBT_STATE_NAME)
+
+
+def fsync_directory(directory):
+    """Make a completed same-directory namespace transition durable."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(directory, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def acquire_landing_debt_sequence_lock():
+    """Acquire the publication lock without following or blocking on devices."""
+    lock_path = os.path.join(MAILBOX, ".sequence.lock")
+    try:
+        parent = os.lstat(MAILBOX)
+        if not stat.S_ISDIR(parent.st_mode):
+            raise OSError("mailbox is not a regular directory")
+        flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        print("landing-debt auto-handoff blocked: sequence lock failed ("
+              + str(exc) + ").")
+        return None
+    lock_file = os.fdopen(descriptor, "r+", encoding="utf-8")
+    try:
+        opened = os.fstat(lock_file.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("sequence lock is not a regular file")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        parent_after = os.lstat(MAILBOX)
+        current = os.lstat(lock_path)
+        if ((parent.st_dev, parent.st_ino)
+                != (parent_after.st_dev, parent_after.st_ino)
+                or not stat.S_ISDIR(parent_after.st_mode)
+                or not stat.S_ISREG(current.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (current.st_dev, current.st_ino)):
+            raise OSError("sequence lock path changed")
+    except OSError as exc:
+        print("landing-debt auto-handoff blocked: sequence lock failed ("
+              + str(exc) + ").")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_file.close()
+        return None
+    return lock_file
+
+
+def release_landing_debt_sequence_lock(lock_file):
+    """Release a landing-debt sequence lock."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def stable_regular_bytes(path, maximum_bytes, label, missing_ok=False,
+                         complete=True):
+    """Read one bounded, nonblocking, unchanged file or leading prefix."""
+    try:
+        before = os.lstat(path)
+    except FileNotFoundError:
+        if missing_ok:
+            return None
+        raise ValueError(label + " disappeared before it could be read")
+    except OSError as exc:
+        raise ValueError("cannot inspect " + label + ": " + str(exc)) \
+            from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError(label + " is not a regular file")
+    if complete and before.st_size > maximum_bytes:
+        raise ValueError(label + " is too large")
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("cannot open " + label + ": " + str(exc)) from exc
+    try:
+        opened = os.fstat(descriptor)
+        identity = (before.st_dev, before.st_ino)
+        if (not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino) != identity
+                or opened.st_size != before.st_size
+                or opened.st_mtime_ns != before.st_mtime_ns):
+            raise ValueError(label + " changed while it was opened")
+        chunks = []
+        remaining = maximum_bytes + 1 if complete else maximum_bytes
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining = remaining - len(chunk)
+        raw = b"".join(chunks)
+        after_open = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        after_path = os.lstat(path)
+    except OSError as exc:
+        raise ValueError(label + " changed after it was read") from exc
+    if ((complete and len(raw) > maximum_bytes)
+            or (after_open.st_dev, after_open.st_ino) != identity
+            or (after_path.st_dev, after_path.st_ino) != identity
+            or not stat.S_ISREG(after_path.st_mode)
+            or after_open.st_size != before.st_size
+            or after_path.st_size != before.st_size
+            or after_open.st_mtime_ns != before.st_mtime_ns
+            or after_path.st_mtime_ns != before.st_mtime_ns
+            or (complete and len(raw) != before.st_size)):
+        raise ValueError(label + " changed while it was read")
+    return raw
+
+
+def unique_json_object(pairs):
+    """Build one JSON object while refusing every duplicate key."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key: " + str(key))
+        result[key] = value
+    return result
+
+
+def read_landing_debt_state():
+    """Read and validate the active landing-debt episode state.
+
+    Missing state starts generation one. Malformed, redirected, or oversized
+    state is a blocker, never permission to flood another Architect message.
+    """
+    raw = stable_regular_bytes(
+        path=landing_debt_state_path(),
+        maximum_bytes=MAX_LANDING_DEBT_STATE_BYTES,
+        label="landing-debt state",
+        missing_ok=True)
+    if raw is None:
+        return {"schema": LANDING_DEBT_STATE_SCHEMA,
+                "generation": 1, "active": False}
+    try:
+        payload = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=unique_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError,
+            OverflowError, ValueError) as exc:
+        raise ValueError("landing-debt state is invalid JSON") from exc
+    generation = payload.get("generation") \
+        if isinstance(payload, dict) else None
+    active = payload.get("active") if isinstance(payload, dict) else None
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "generation", "active"}
+            or payload.get("schema") != LANDING_DEBT_STATE_SCHEMA
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+            or generation > MAX_CYCLE_COUNT
+            or not isinstance(active, bool)):
+        raise ValueError("landing-debt state has an invalid schema")
+    return {"schema": LANDING_DEBT_STATE_SCHEMA,
+            "generation": generation, "active": active}
+
+
+def write_landing_debt_state(state):
+    """Publish validated debt state through an fsynced atomic replacement."""
+    os.makedirs(MAILBOX, exist_ok=True)
+    payload = (json.dumps(state, sort_keys=True, separators=(",", ":"))
+               + "\n").encode("utf-8")
+    handle, temporary = tempfile.mkstemp(
+        prefix=".landing-debt-", dir=MAILBOX)
+    try:
+        os.fchmod(handle, 0o600)
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, landing_debt_state_path())
+        fsync_directory(directory=MAILBOX)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def automatic_landing_debt_marker(generation):
+    """Return the stable identity of one high-debt episode's message."""
+    return (AUTOMATIC_LANDING_DEBT_MARKER
+            + " generation=" + str(generation))
+
+
+def automatic_landing_debt_message(snapshot, generation):
+    """Build the bounded landing-only instruction for the Architect lane."""
+    return (
+        automatic_landing_debt_marker(generation=generation) + "\n"
+        "LANDING-ONLY ARCHITECT TURN. The watcher measured "
+        + str(snapshot["changed_lines"]) + " changed content lines ("
+        + snapshot["stat"] + ") against main, past the "
+        + str(LANDING_DEBT_LINE_LIMIT) + "-line limit. Do no implementation "
+        "and no broad review. Audit each unadjudicated unit in this bounded "
+        "debt, then land each GO unit as its own squash commit. Before EVERY "
+        "squash run `git log main..<branch> --oneline`; any foreign commit "
+        "without an Architect GO is a STOP, so abort that whole-branch "
+        "squash and land only a fully audited subset or wait. Push each "
+        "accepted landing and merge main back into the working branch. "
+        "Binding: after all audited units land, this thread is TERMINAL and "
+        "no reply is owed; if a STOP remains, write only the bounded audit "
+        "handoff needed to clear it.\n")
+
+
+def automatic_landing_debt_message_exists(generation):
+    """Return whether this episode's marker exists in any mailbox state."""
+    marker = automatic_landing_debt_marker(
+        generation=generation).encode("ascii")
+    if not os.path.isdir(MAILBOX):
+        return False
+    for directory, child_directories, names in os.walk(
+            MAILBOX, followlinks=False, onerror=_raise_walk_error):
+        child_directories[:] = [
+            name for name in child_directories
+            if not os.path.islink(os.path.join(directory, name))]
+        for name in names:
+            if re.fullmatch(r"\d+[a-z]?-to-fable\.md", name) is None:
+                continue
+            path = os.path.join(directory, name)
+            prefix = stable_regular_bytes(
+                path=path,
+                maximum_bytes=len(marker) + 1,
+                label="Fable message " + name,
+                complete=False)
+            if prefix not in (marker, marker + b"\n"):
+                continue
+            raw = stable_regular_bytes(
+                path=path,
+                maximum_bytes=MAX_AUTOMATIC_MESSAGE_SCAN_BYTES,
+                label="Fable message " + name)
+            lines = raw.splitlines()
+            if lines and lines[0] == marker:
+                if (len(lines) < 2
+                        or not lines[1].startswith(
+                            b"LANDING-ONLY ARCHITECT TURN.")):
+                    raise ValueError(
+                        "automatic landing-debt marker has an invalid body "
+                        "in " + path)
+                return True
+    return False
+
+
+def publish_message_locked(agent, payload, attempts=20):
+    """Atomically publish one message while the caller holds sequence lock."""
+    for _ in range(attempts):
+        path = os.path.join(
+            MAILBOX, next_seq() + "-to-" + agent + ".md")
+        handle, temporary = tempfile.mkstemp(prefix=".message-", dir=MAILBOX)
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                if not payload.endswith("\n"):
+                    stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                # Same-directory hard-link publication never replaces a
+                # manually created destination or exposes partial bytes.
+                os.link(temporary, path)
+            except FileExistsError:
+                continue
+            # The state may suppress replay only after the directory entry
+            # itself survives a crash, not merely the payload inode.
+            fsync_directory(directory=MAILBOX)
+            return path
+        finally:
+            if os.path.isfile(temporary):
+                os.remove(temporary)
+    return None
+
+
+def reconcile_landing_debt_handoff(snapshot=None):
+    """Measure one watch pass and queue at most one handoff per debt episode.
+
+    The active state remains set after the message moves to inflight, done, or
+    failed, so repeated high-debt passes cannot flood Fable. Once content debt
+    returns to or below the limit, the next generation is armed for a future
+    independent high-debt episode.
+
+    Returns the structured measurement made by this watch pass.
+    """
+    if snapshot is None:
+        snapshot = landing_debt_snapshot()
+    if not snapshot["available"]:
+        return snapshot
+    os.makedirs(MAILBOX, exist_ok=True)
+    lock_file = acquire_landing_debt_sequence_lock()
+    if lock_file is None:
+        return snapshot
+    try:
+        try:
+            state = read_landing_debt_state()
+        except ValueError as exc:
+            print("landing-debt auto-handoff blocked: " + str(exc)
+                  + ".")
+            return snapshot
+        if snapshot["changed_lines"] <= LANDING_DEBT_LINE_LIMIT:
+            episode_seen = state["active"]
+            if not episode_seen:
+                try:
+                    episode_seen = automatic_landing_debt_message_exists(
+                        generation=state["generation"])
+                except (OSError, ValueError) as exc:
+                    print("landing-debt auto-handoff blocked: "
+                          + str(exc) + ".")
+                    return snapshot
+            if episode_seen:
+                if state["generation"] >= MAX_CYCLE_COUNT:
+                    print("landing-debt auto-handoff blocked: episode "
+                          "generation limit reached.")
+                    return snapshot
+                state = {
+                    "schema": LANDING_DEBT_STATE_SCHEMA,
+                    "generation": state["generation"] + 1,
+                    "active": False,
+                }
+                write_landing_debt_state(state=state)
+            return snapshot
+        if state["active"]:
+            return snapshot
+        try:
+            marker_exists = automatic_landing_debt_message_exists(
+                generation=state["generation"])
+        except (OSError, ValueError) as exc:
+            print("landing-debt auto-handoff blocked: " + str(exc)
+                  + ".")
+            return snapshot
+        if marker_exists:
+            # Crash recovery can observe a linked marker from a publisher
+            # that died before its directory fsync. Make that marker
+            # durable before state is allowed to suppress a replay.
+            fsync_directory(directory=MAILBOX)
+            state["active"] = True
+            write_landing_debt_state(state=state)
+            return snapshot
+        payload = automatic_landing_debt_message(
+            snapshot=snapshot, generation=state["generation"])
+        path = publish_message_locked(agent="fable", payload=payload)
+        if path is None:
+            print("landing-debt auto-handoff could not claim a sequence "
+                  "number after 20 tries.")
+            return snapshot
+        print("queued automatic landing-debt handoff " + path)
+        state["active"] = True
+        # Do not dispatch the durable marker until active state is also
+        # durable. An exception stops this watch pass with the message
+        # still pending; a later pass adopts its exact marker first.
+        write_landing_debt_state(state=state)
+        return snapshot
+    finally:
+        release_landing_debt_sequence_lock(lock_file=lock_file)
 
 
 def send(agent, text, dry_run, ticket_kind=None):
@@ -3733,26 +4240,9 @@ def send(agent, text, dry_run, ticket_kind=None):
                 print("refused --send sol: " + reason + ".")
                 return False
             for _ in range(20):
-                path = os.path.join(
-                    MAILBOX,
-                    next_seq() + "-to-" + agent + ".md")
-                handle, temporary = tempfile.mkstemp(
-                    prefix=".message-",
-                    dir=MAILBOX)
-                try:
-                    with os.fdopen(handle, "w", encoding="utf-8") as f:
-                        f.write(payload)
-                        if not payload.endswith("\n"):
-                            f.write("\n")
-                        f.flush()
-                        os.fsync(f.fileno())
-                    try:
-                        # The same-directory link publishes a complete inode
-                        # atomically and refuses to replace a manually created
-                        # destination.
-                        os.link(temporary, path)
-                    except FileExistsError:
-                        continue
+                path = publish_message_locked(
+                    agent=agent, payload=payload, attempts=1)
+                if path is not None:
                     print("queued " + path)
                     warn_if_mailbox_unwatched()
                     if skip_redteam_policy_active():
@@ -3761,9 +4251,6 @@ def send(agent, text, dry_run, ticket_kind=None):
                     else:
                         report_demand(backlog=pending_messages())
                     return True
-                finally:
-                    if os.path.isfile(temporary):
-                        os.remove(temporary)
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     print("could not claim a sequence number after 20 tries; "
@@ -4067,6 +4554,11 @@ def main():
                           "the next start runs it (relaunch --watch).")
                     return 0
                 first_pass = False
+                # This watch-only hook runs on idle and busy passes alike.
+                # Above-limit content debt publishes one deduplicated
+                # Architect landing-only turn before the pass snapshots the
+                # pending queue; --once, --dry-run, and --send never invoke it.
+                reconcile_landing_debt_handoff()
                 if fix_only:
                     if skip_redteam:
                         backlog_outcome = process_backlog(

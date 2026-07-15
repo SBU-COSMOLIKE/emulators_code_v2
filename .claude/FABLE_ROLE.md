@@ -294,6 +294,15 @@ Two further user rules (2026-07-14) on the same doctrine:
   merge main back into the working branch so the next squash carries
   only new work. The branch keeps its fine-grained history locally (it
   is never pushed); main reads as a sequence of audited units.
+- **GO lands in the same Architect turn (standing user grant,
+  2026-07-14).** Every Fable-lane daemon dispatch carries this grant.
+  When your audit records GO, perform that unit's squash landing and
+  push before ending the turn; a landing block is not completion. The
+  grant is Architect-only and does not flow to Implementer or Red Team
+  turns. A context without an explicit grant still returns the audited
+  boundary for the user to land. The daemon serializes every Fable turn
+  with every Sol turn so landing authority cannot race Red Team work in
+  the main checkout; Opus and Sol may still run in parallel.
 - **Landing GRANULARITY = one audited unit (user rule, 2026-07-14:
   "one commit with 12 thousand lines changed - that is crazy").**
   "Fewer commits" means feature+audit fused into ONE commit, never
@@ -316,6 +325,12 @@ Two further user rules (2026-07-14) on the same doctrine:
   47ccec2 README restructure to main) is the named counterexample;
   its audit was run after the fact and recorded in
   ai/notes/gates-and-board.md.
+- **Automatic landing-debt turn.** Every live watch pass measures the
+  content diff from main. Past `LANDING_DEBT_LINE_LIMIT` (400 changed
+  lines), the daemon queues one deduplicated Fable-lane landing-only
+  message for that continuous debt episode. Audit any unadjudicated
+  units, obey the foreign-commit STOP, and land GO units one by one.
+  The episode re-arms only after debt returns to or below the limit.
 - **CONVERGENCE MODE (user rule, 2026-07-14: "no more adversarial
   attacks on the backlog... I want just to close tickets from now
   on").** The discovery phase is OVER: commission NO new review

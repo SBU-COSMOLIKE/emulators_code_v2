@@ -202,6 +202,7 @@ sequenceDiagram
   participant A as Architect
   participant I as Implementer
   participant R as Red Team
+  participant M as Main
 
   U->>A: Goal + source note
   A->>A: Write blueprint + gates
@@ -215,7 +216,11 @@ sequenceDiagram
   end
 
   alt Evidence satisfies gates
-    A-->>U: GO
+    A->>A: Record GO for the named unit
+    A->>A: Foreign-commit STOP walk
+    A->>M: One audited-unit squash and push
+    A->>A: Merge main back into working branch
+    A-->>U: GO + landed commit
   else Evidence is missing or failing
     A->>I: NO-GO + bounded repair delta
   end
@@ -266,13 +271,28 @@ A Red Team finding is input to the Architect, not a self-executing ruling.
 When that optional lane is enabled, using models from two vendors gives the
 challenge a genuinely independent failure mode.
 
-The Architect owns the audited squash boundary. The actor who executes that
-landing or pushes it is controlled by the current user grant; without a grant,
-the agent returns the audited SHA and landing instructions to the user.
+The Architect owns the audited squash boundary. Every Fable-lane daemon
+dispatch carries the user's standing grant: a GO audit performs its one-unit
+squash landing and push in the same turn after the foreign-commit STOP walk.
+The Implementer and Red Team never inherit this authority.
 
-Git authority and audit ownership are separate. Merge instructions in the
-Architect role apply only under an active grant; the daemon's default is to
-return a landing block rather than infer permission from the role.
+Fable and Sol turns share a main-checkout mutex, so a landing cannot race Red
+Team work there. Opus and Sol still run in parallel when their working
+directories are independent.
+
+Other contexts still require an explicit grant and otherwise return the
+audited SHA plus landing instructions. Git authority and audit ownership stay
+separate even when the same Architect turn performs both actions.
+
+Every watch pass measures changed content against main. Above 400 lines, the
+daemon queues one Fable landing-only turn for that continuous debt episode;
+repeated passes do not flood the lane. Every demand report prints the meter,
+including an `unavailable` line when Git cannot measure it.
+
+The measurement is `git diff --shortstat main..<working-branch>`; changed
+lines are insertions plus deletions. The STOP walk is
+`git log main..<branch> --oneline`. Any commit without Architect GO aborts a
+whole-branch squash; the Architect lands only an audited subset or waits.
 
 ## Records, tests, and gates
 
