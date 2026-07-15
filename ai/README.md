@@ -93,6 +93,16 @@ replace the role instructions carried by a valid handoff.
 Omit both model flags for the historical Fable-Architect and Opus-Implementer
 defaults. Aliases and full Claude model IDs are accepted.
 
+To stop automatically after two global safe-stop cycles, add:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --cycle 2
+```
+
+Expected result: the first cycle keeps its normal 20-second Ctrl-C window.
+At the second proven all-lanes-idle rendezvous, the watcher exits by itself
+before reopening admissions. Messages still waiting remain untouched.
+
 ### 4. Send the unit to the Architect
 
 In a second terminal, from the same worktree:
@@ -388,13 +398,62 @@ progress continuously, so its log often grows throughout the turn.
 ```mermaid
 stateDiagram-v2
   [*] --> Busy
-  Busy --> FreezeAdmissions: 5 completed turns or 15 busy minutes
+  Busy --> FreezeAdmissions: 5 completed turns or 15 elapsed cycle minutes
   FreezeAdmissions --> DrainRunningTurns
-  DrainRunningTurns --> SafeCountdown: all lanes and preparations are idle
+  DrainRunningTurns --> CycleBoundary: all lanes and preparations are idle
+  CycleBoundary --> AutomaticExit: requested cycle limit reached
+  AutomaticExit --> [*]
+  CycleBoundary --> SafeCountdown: more cycles remain
   SafeCountdown --> Busy: 20-second window expires
   Busy --> SafePoll: ordinary idle poll
   SafePoll --> Busy: 20-second poll expires
 ```
+
+A cycle begins when the watcher starts or the preceding manufactured
+countdown closes. It ends at the next K/M global rendezvous, after every
+admitted preparation and running child has drained.
+
+The ordinary idle poll is still a safe Ctrl-C opportunity, but it is not a
+cycle boundary. In cycle mode it also does not erase accumulated K/M progress.
+
+Choose the lifetime explicitly:
+
+| Invocation | Lifetime |
+| --- | --- |
+| `--watch` | Existing indefinite watcher; stop during a safe interval |
+| `--watch --cycle 2` | Exit automatically at the second global rendezvous |
+| `--watch --cycle 0` | Exit when the dispatch queue and literal `- OPEN` ledger lines are both empty |
+
+Zero mode observes the ledger; it does not manufacture tickets from ledger
+prose. Routed agents must still close those lines through the mailbox chain.
+
+Before declaring zero-mode completion, the watcher takes the same publication
+lock as daemon `--send`. It then verifies a stable regular UTF-8 ledger and
+checks the root queue while new daemon sends are blocked.
+
+```mermaid
+flowchart LR
+  Sender["daemon --send"] --> SequenceLock[".sequence.lock"]
+  Watcher["cycle-zero watcher"] --> SequenceLock
+  SequenceLock --> Verify["verify stable ledger + root queue"]
+  Verify -->|"work exists"| Continue["release barrier and keep watching"]
+  Verify -->|"both empty"| ReleaseWatch["release fix-only and watch locks"]
+  ReleaseWatch --> ReleaseBarrier["release publication barrier and exit"]
+```
+
+A send that lands before this cutoff prevents exit. A send already waiting
+behind the barrier publishes only after the watch lock is gone, so its normal
+“no active watch” warning remains truthful.
+
+If the ledger is missing, nonregular, unreadable, unstable during the read,
+or invalid UTF-8, zero mode stays active and explains that completion could
+not be verified. It never converts an unverifiable ledger into zero work.
+The open is nonblocking, so a concurrent FIFO replacement is rejected instead
+of hanging the watcher.
+
+This publication cutoff covers messages created through daemon `--send`.
+Creating root mailbox files manually bypasses that protocol and should be
+done before starting zero mode.
 
 The unsafe status is exact:
 
@@ -410,6 +469,19 @@ all lanes idle; safe to Ctrl-C for 19s more; 3 messages waiting.
 
 ```text
 all lanes idle; safe to Ctrl-C for this 20s poll; no messages waiting.
+```
+
+A positive cycle limit replaces the final countdown with an immediate safe
+exit. For example:
+
+```text
+cycle limit reached (2/2 cycles); all lanes idle; watcher exiting safely; 3 messages waiting; 4 open ledger jobs remain.
+```
+
+Zero mode uses this terminal status after the queue and ledger drain:
+
+```text
+cycle work complete after 1 cycle; all lanes idle; mailbox and ledger empty; watcher exiting safely.
 ```
 
 <details>
@@ -661,6 +733,7 @@ code.
 | Sol effort | `--sol-effort` | `xhigh` |
 | Turn timeout | `--dispatch-timeout` | 60 minutes |
 | Context compaction | `--claude-context`, `--sol-context` | 500000 tokens each |
+| Watch lifetime | `--cycle` | Omitted: indefinite; `N>0`: stop at cycle N; `0`: drain ledger and queue |
 
 Higher effort spends more tokens and wall-clock time. Model selection and
 effort are independent: choosing Sonnet does not silently change the
@@ -687,7 +760,7 @@ offline and regression use.
 
 
 ```
-usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch]
+usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
                          [--fix-only value] [--send AGENT] [--ping AGENT]
                          [--unit UNIT] [--ticket-kind {closure,discovery}]
                          [--architect-model MODEL] [--implementer-model MODEL]
@@ -707,6 +780,10 @@ options:
                         writing it
   --once                process the current backlog and exit
   --watch               poll the mailbox every 20 seconds
+  --cycle count         with --watch, exit safely after this many global
+                        rendezvous cycles; 0 waits until the dispatch queue
+                        and open ledger are empty; omitting the option keeps
+                        watching indefinitely
   --fix-only value      with --watch, close existing ledger work only; the
                         value accepts 1, true, or yes in any capitalization
   --send AGENT          queue a message to this agent and exit
@@ -750,6 +827,11 @@ options:
 
 - `--once`, `--watch`, `--send`, and `--ping` are mutually exclusive primary
   actions.
+- `--cycle` accepts a nonnegative integer and is valid only with `--watch`.
+- Omitting `--cycle` differs from `--cycle 0`: omission watches indefinitely;
+  zero waits for the dispatch queue and open ledger to drain.
+- Zero mode fails closed when it cannot verify a stable regular ledger. Daemon
+  sends are serialized across its final queue-and-ledger cutoff.
 - `--unit` is required with `--send`.
 - A public Sol send also requires `--ticket-kind closure|discovery`.
 - `--dry-run` modifies finite actions without writing state.

@@ -14642,3 +14642,58 @@ git diff --check                                        rc 0
 
 Verdict: **GO**. The study-support package move is closed. The unrelated
 pre-existing dirty incident note was excluded from this audit and landing.
+
+## Daemon cycle-bounded watch shutdown audit (Codex, 2026-07-14): GO
+
+The quoted safe-stop line belongs to `ai/tools/mailbox_daemon.py`, not the
+manual handoff router. A cycle starts at watch launch or when the preceding
+manufactured 19..0 countdown closes. It ends at the next K=5/M=15 global
+rendezvous after every admitted preparation and child has drained.
+
+The new `--cycle` option is deliberately distinguishable from omission.
+Omitting it preserves the existing indefinite watch. A positive value exits
+at that numbered manufactured rendezvous before admissions reopen, leaving
+later root-message bytes untouched. Zero exits only after both dispatchable
+root messages and literal `- OPEN` ledger lines are gone, then exits idle.
+
+The zero-mode cutoff holds the same `.sequence.lock` used by daemon `--send`
+from its final scans until the fix-only and dispatch/watch locks are released.
+A send published before the cutoff is observed and prevents exit. A sender
+waiting behind it publishes only after the watch lock is gone, preserving the
+truth of the existing no-active-watch warning.
+
+Ledger verification fails closed. The final read requires a bounded regular
+UTF-8 file with stable descriptor metadata and the same live-path inode after
+the read. Missing/nonregular ledgers, atomic replacement, and same-inode
+modification keep the watcher active with a controlled diagnostic.
+
+Ordinary 20-second idle polls remain manual Ctrl-C opportunities but do not
+count as cycles. In explicit cycle mode they no longer reset accumulated K/M
+progress, preventing sparse work from postponing a manufactured boundary
+forever. The final return stays inside the existing watch `try`; no running
+child is killed.
+
+Focused evidence:
+
+```text
+python3 -B ai/tests/tools_mailbox_daemon_rendezvous_repro.py                 rc 0  20/20 runtime; 21/21 mutations killed
+Cocoa Python -B ai/tests/tools_mailbox_daemon_rendezvous_repro.py           rc 0  20/20 runtime; 21/21 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_fix_only_repro.py                  rc 0  14/14 runtime; 20/20 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_output_style_repro.py              rc 0  8/8 checks
+python3 -B ai/tests/tools_mailbox_daemon_role_models_repro.py               rc 0  5/5 runtime; 5/5 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_dead_mailbox_repro.py              rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_staleness_repro.py                 rc 0  18/18 runtime; 9/9 mutations killed
+python3 -B ai/tests/tools_mailbox_daemon_redteam_repro.py                   rc 0  8/8 arms
+python3 -B ai/tests/tools_handoff_router_repro.py                           rc 0  all arms
+Cocoa Python -B -m unittest discover -s ai/tests -v                        rc 0  44/44
+python3 -B ai/gates/checks/board_selftest.py                                rc 0  ALL PASS
+python3 -B -m compileall -q ai/tools ai/tests                               rc 0
+git diff --check                                                            rc 0
+```
+
+The positive witness stops `--cycle 2` at rendezvous two and proves the third
+queued file is byte-identical. Zero-mode witnesses span an ordinary idle poll,
+prove queue and ledger gating, serialize sends on both sides of the final
+cutoff, reject two distinct concurrent ledger changes, and bound a pre-open
+regular-to-FIFO replacement. Parser arms cover negative, noninteger,
+non-watch, and `--fix-only` combinations. Verdict: **GO**.

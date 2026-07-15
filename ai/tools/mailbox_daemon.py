@@ -36,6 +36,8 @@ Usage:
     python ai/tools/mailbox_daemon.py --dry-run        # show what would run
     python ai/tools/mailbox_daemon.py --once           # process backlog, exit
     python ai/tools/mailbox_daemon.py --watch          # poll every 20 s
+    python ai/tools/mailbox_daemon.py --watch --cycle 2
+                                                    # stop safely after 2 cycles
     python ai/tools/mailbox_daemon.py --send opus --unit "ai/notes/<spec>.md ..."
                                                     # drop a first message
     python ai/tools/mailbox_daemon.py --send sol --ticket-kind closure \
@@ -174,6 +176,7 @@ DISPATCH_TIMEOUT_MINUTES = 60
 MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
 MAX_TIMEOUT_HISTORY_BYTES = 262144
 MAX_TIMEOUT_HISTORY_EVENTS = 1000
+MAX_BACKLOG_LEDGER_BYTES = 16777216
 
 # A watch periodically manufactures one GLOBAL safe-stop opportunity.  Five
 # completed child turns is frequent compared with the multi-minute turns this
@@ -184,6 +187,7 @@ RENDEZVOUS_DISPATCH_INTERVAL = 5
 RENDEZVOUS_MINUTE_INTERVAL = 15
 SAFE_KILL_COUNTDOWN_SECONDS = 20
 WATCH_POLL_SECONDS = 20
+MAX_CYCLE_COUNT = 1000000
 
 
 def report_in_flight_status(count):
@@ -398,15 +402,21 @@ def run_safe_kill_countdown(controller):
     controller.reset_after_safe_opportunity()
 
 
-def report_ordinary_safe_poll(controller):
-    """Mark the existing idle poll delay as an ordinary safe opportunity."""
+def report_ordinary_safe_poll(controller, reset_cadence=True):
+    """Mark the existing idle poll delay as an ordinary safe opportunity.
+
+    An unbounded watch preserves the historical reset after every ordinary
+    idle poll. A cycle-bounded watch does not reset here: ordinary polls are
+    safe Ctrl-C opportunities, but only a due K/M rendezvous ends a cycle.
+    """
     if not controller.all_idle():
         return False
     waiting = len(pending_messages())
     print("all lanes idle; safe to Ctrl-C for this "
           + str(WATCH_POLL_SECONDS) + "s poll; "
           + waiting_messages_text(count=waiting) + ".", flush=True)
-    controller.reset_after_safe_opportunity()
+    if reset_cadence:
+        controller.reset_after_safe_opportunity()
     return True
 
 
@@ -422,6 +432,157 @@ def positive_int(value):
             "value must be a positive integer no larger than "
             + str(MAX_DISPATCH_TIMEOUT_MINUTES))
     return parsed
+
+
+def nonnegative_cycle_count(value):
+    """Parse an argparse cycle count, including zero's drain-all meaning."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "cycle count must be a nonnegative integer") from exc
+    if parsed < 0 or parsed > MAX_CYCLE_COUNT:
+        raise argparse.ArgumentTypeError(
+            "cycle count must be a nonnegative integer no larger than "
+            + str(MAX_CYCLE_COUNT))
+    return parsed
+
+
+def strict_cycle_ledger_count():
+    """Read the cycle-zero ledger fail-closed from one verified regular file."""
+    try:
+        before = os.lstat(BACKLOG_LEDGER)
+    except OSError as exc:
+        return None, "cannot stat backlog ledger: " + str(exc)
+    if not stat.S_ISREG(before.st_mode):
+        return None, "backlog ledger is not a regular file"
+    if before.st_size > MAX_BACKLOG_LEDGER_BYTES:
+        return None, "backlog ledger is too large to verify"
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags = flags | os.O_CLOEXEC
+    if hasattr(os, "O_NONBLOCK"):
+        flags = flags | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags = flags | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(BACKLOG_LEDGER, flags)
+    except OSError as exc:
+        return None, "cannot open backlog ledger: " + str(exc)
+    try:
+        opened = os.fstat(descriptor)
+        if (not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != before.st_dev
+                or opened.st_ino != before.st_ino):
+            return None, "backlog ledger changed identity while opening"
+        chunks = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            size = size + len(chunk)
+            if size > MAX_BACKLOG_LEDGER_BYTES:
+                return None, "backlog ledger grew too large while reading"
+            chunks.append(chunk)
+        try:
+            text = b"".join(chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            return None, "backlog ledger is not valid UTF-8: " + str(exc)
+        metadata_before = (
+            opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)
+        try:
+            current = os.lstat(BACKLOG_LEDGER)
+        except OSError as exc:
+            return None, "cannot restat backlog ledger: " + str(exc)
+        if (not stat.S_ISREG(current.st_mode)
+                or current.st_dev != opened.st_dev
+                or current.st_ino != opened.st_ino):
+            return None, "backlog ledger changed identity while reading"
+        after_identity = os.fstat(descriptor)
+        metadata_after_identity = (
+            after_identity.st_size, after_identity.st_mtime_ns,
+            after_identity.st_ctime_ns)
+        if metadata_after_identity != metadata_before:
+            return None, "backlog ledger changed while verifying identity"
+    except OSError as exc:
+        return None, "cannot verify backlog ledger: " + str(exc)
+    finally:
+        os.close(descriptor)
+    count = sum(1 for line in text.splitlines()
+                if line.startswith("- OPEN"))
+    return count, None
+
+
+def acquire_cycle_completion_barrier(backlog_outcome):
+    """Return a held send barrier only when cycle-zero work is verified done.
+
+    Daemon sends serialize publication through ``.sequence.lock``. Holding
+    that lock from the final queue/ledger scan until the watch lock is released
+    gives zero mode a real cutoff: a racing send either lands before the scan
+    and prevents exit, or lands after the watcher is no longer advertised.
+    """
+    if backlog_outcome is False:
+        return None, None
+    lock_path = os.path.join(MAILBOX, ".sequence.lock")
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "a+", encoding="utf-8")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    except OSError as exc:
+        if lock_file is not None:
+            try:
+                lock_file.close()
+            except OSError:
+                pass
+        return None, "cannot lock mailbox publication: " + str(exc)
+    try:
+        ledger, error = strict_cycle_ledger_count()
+        waiting_before = pending_messages()
+        waiting_after = pending_messages()
+    except OSError as exc:
+        ledger = None
+        error = "cannot verify pending mailbox messages: " + str(exc)
+        waiting_before = []
+        waiting_after = []
+    if error is None and ledger == 0 and not waiting_before and not waiting_after:
+        return lock_file, None
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+    return None, error
+
+
+def release_cycle_completion_barrier(lock_file):
+    """Release the final cycle-zero send barrier after watch-lock release."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def report_cycle_limit_exit(completed_cycles, cycle_limit):
+    """Report a positive cycle limit at a proven all-idle rendezvous."""
+    waiting = len(pending_messages())
+    ledger = backlog_ledger_count()
+    cycle_noun = "cycle" if completed_cycles == 1 else "cycles"
+    ledger_noun = "job" if ledger == 1 else "jobs"
+    print("cycle limit reached (" + str(completed_cycles) + "/"
+          + str(cycle_limit) + " " + cycle_noun
+          + "); all lanes idle; watcher exiting safely; "
+          + waiting_messages_text(count=waiting) + "; " + str(ledger)
+          + " open ledger " + ledger_noun + " remain.", flush=True)
+
+
+def report_cycle_work_complete(completed_cycles):
+    """Report explicit cycle mode draining both mailbox and literal ledger."""
+    noun = "cycle" if completed_cycles == 1 else "cycles"
+    print("cycle work complete after " + str(completed_cycles) + " " + noun
+          + "; all lanes idle; mailbox and ledger empty; watcher exiting "
+          "safely.", flush=True)
+
+
+def report_cycle_completion_unverified(error):
+    """Explain why zero mode stayed live instead of claiming completion."""
+    print("cycle zero cannot verify completion: " + error
+          + "; watcher remains active.", flush=True)
 
 
 def truthy_fix_only(value):
@@ -2134,6 +2295,12 @@ def main():
                         help="process the current backlog and exit")
     parser.add_argument("--watch", action="store_true",
                         help="poll the mailbox every 20 seconds")
+    parser.add_argument("--cycle", metavar="count",
+                        type=nonnegative_cycle_count, default=None,
+                        help="with --watch, exit safely after this many "
+                             "global rendezvous cycles; 0 waits until the "
+                             "dispatch queue and open ledger are empty; "
+                             "omitting the option keeps watching indefinitely")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
                         help="with --watch, close existing ledger work only; "
@@ -2207,6 +2374,9 @@ def main():
         if conflicting_action:
             print("--fix-only is valid only with --watch by itself")
             return 1
+    if args.cycle is not None and not args.watch:
+        print("--cycle is valid only with --watch")
+        return 1
     if args.ticket_kind is not None and args.send != "sol":
         print("--ticket-kind is valid only with --send sol")
         return 1
@@ -2254,6 +2424,12 @@ def main():
               + str(args.claude_context)
               + " sol=" + str(args.sol_context)
               + " tokens (a turn compacts at its budget)")
+        if args.cycle == 0:
+            print("cycle mode: drain dispatch queue and open ledger, then "
+                  "exit at a proven all-lanes-idle point")
+        elif args.cycle is not None:
+            print("cycle mode: exit safely after " + str(args.cycle)
+                  + " global rendezvous cycles")
 
     if args.ping:
         ping_text = transport_ping_text(agent=args.ping)
@@ -2330,6 +2506,8 @@ def main():
             source_path=source_path, source_stamp=source_stamp)
         _ACTIVE_WATCH_RENDEZVOUS = rendezvous
         first_pass = True
+        completed_cycles = 0
+        cycle_completion_barrier = None
         try:
             while True:
                 # Preserve the existing first-pass call shape for finite
@@ -2343,21 +2521,53 @@ def main():
                     return 0
                 first_pass = False
                 if fix_only:
-                    process_backlog(dry_run=False, fix_only=True)
+                    backlog_outcome = process_backlog(dry_run=False, fix_only=True)
                 else:
-                    process_backlog(dry_run=False)
+                    backlog_outcome = process_backlog(dry_run=False)
                 if (rendezvous.source_changed()
                         or os.path.getmtime(source_path) != source_stamp):
                     print("daemon source changed on disk; exiting so "
                           "the next start runs it (relaunch --watch).")
                     return 0
                 if rendezvous.window_ready():
+                    completed_cycles = completed_cycles + 1
+                    if args.cycle == 0:
+                        barrier, completion_error = (
+                            acquire_cycle_completion_barrier(
+                                backlog_outcome=backlog_outcome))
+                        if barrier is not None:
+                            cycle_completion_barrier = barrier
+                            report_cycle_work_complete(
+                                completed_cycles=completed_cycles)
+                            return 0
+                        if completion_error is not None:
+                            report_cycle_completion_unverified(
+                                error=completion_error)
+                    if (args.cycle is not None and args.cycle > 0
+                            and completed_cycles >= args.cycle):
+                        report_cycle_limit_exit(
+                            completed_cycles=completed_cycles,
+                            cycle_limit=args.cycle)
+                        return 0
                     run_safe_kill_countdown(controller=rendezvous)
                     # Queued work resumes immediately after the manufactured
                     # window rather than paying an extra ordinary poll delay.
                     continue
+                if args.cycle == 0 and rendezvous.all_idle():
+                    barrier, completion_error = (
+                        acquire_cycle_completion_barrier(
+                            backlog_outcome=backlog_outcome))
+                    if barrier is not None:
+                        cycle_completion_barrier = barrier
+                        report_cycle_work_complete(
+                            completed_cycles=completed_cycles)
+                        return 0
+                    if completion_error is not None:
+                        report_cycle_completion_unverified(
+                            error=completion_error)
                 ordinary_safe = report_ordinary_safe_poll(
-                    controller=rendezvous)
+                    controller=rendezvous,
+                    reset_cadence=args.cycle is None)
                 time.sleep(WATCH_POLL_SECONDS)
                 if ordinary_safe:
                     # The next loop may spawn lane workers.  Expire the
@@ -2369,6 +2579,9 @@ def main():
             if fix_only_lock is not None:
                 release_fix_only_lock(lock_file=fix_only_lock)
             release_dispatch_lock(lock_file=dispatch_lock)
+            if cycle_completion_barrier is not None:
+                release_cycle_completion_barrier(
+                    lock_file=cycle_completion_barrier)
 
     print("choose one of --dry-run / --once / --watch / --send (see --help)")
     return 1

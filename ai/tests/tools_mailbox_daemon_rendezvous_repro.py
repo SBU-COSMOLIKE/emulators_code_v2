@@ -95,6 +95,8 @@ def scratch_daemon(source=None):
             "opus": str(root / "shared-lane"),
             "sol": str(root / "sol-lane"),
         }
+        daemon._production_warn_if_mailbox_unwatched = (
+            daemon.warn_if_mailbox_unwatched)
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.report_demand = lambda backlog: None
         daemon.report_landing_debt = lambda: None
@@ -173,10 +175,14 @@ def countdown_lines(output):
 
 def expected_countdown(waiting):
     """Return the binding 19..0 twenty-line countdown."""
-    noun = "message" if waiting == 1 else "messages"
+    if waiting == 0:
+        count_text = "no messages waiting"
+    else:
+        noun = "message" if waiting == 1 else "messages"
+        count_text = str(waiting) + " " + noun + " waiting"
     return [
         "all lanes idle; safe to Ctrl-C for " + str(remaining)
-        + "s more; " + str(waiting) + " " + noun + " waiting."
+        + "s more; " + count_text + "."
         for remaining in range(COUNTDOWN_SECONDS - 1, -1, -1)
     ]
 
@@ -671,6 +677,498 @@ def arm_once_and_dry_run_are_unaffected(source=None):
     return passed
 
 
+def arm_cycle_argument_contract(source=None):
+    """Cycle counts are nonnegative, watch-only, and fix-only compatible."""
+    with scratch_daemon(source=source) as (daemon, _, _):
+        nonwatch_rc, nonwatch_output, _, nonwatch_error = call_main(
+            daemon, ["--cycle", "1"])
+        negative_rc, _, negative_stderr, negative_error = call_main(
+            daemon, ["--watch", "--cycle", "-1"])
+        invalid_rc, _, invalid_stderr, invalid_error = call_main(
+            daemon, ["--watch", "--cycle", "two"])
+        valid_rc, valid_output, _, valid_error = call_main(
+            daemon, ["--watch", "--fix-only", "yes", "--cycle", "0"])
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        passed = (
+            nonwatch_error is None and nonwatch_rc == 1
+            and "--cycle is valid only with --watch" in nonwatch_output
+            and negative_rc is None
+            and isinstance(negative_error, SystemExit)
+            and negative_error.code == 2
+            and "cycle count must be a nonnegative integer" in negative_stderr
+            and invalid_rc is None
+            and isinstance(invalid_error, SystemExit)
+            and invalid_error.code == 2
+            and "cycle count must be a nonnegative integer" in invalid_stderr
+            and valid_error is None and valid_rc == 0 and released
+            and not daemon.fix_only_watch_is_active()
+            and "fix-only watch active" in valid_output
+            and "cycle mode: drain dispatch queue and open ledger"
+            in valid_output
+            and "cycle work complete after 0 cycles" in valid_output)
+        print("cycle parser/action contract=" + str(passed))
+        return passed
+
+
+def arm_omitted_cycle_remains_unbounded(source=None):
+    """Omitting the option preserves the ordinary indefinite watch."""
+    with scratch_daemon(source=source) as (daemon, _, _):
+        clock = ControlledClock()
+        clock.raise_on_poll = True
+        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(daemon, ["--watch"])
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        passed = (
+            rc is None and isinstance(error, KeyboardInterrupt) and released
+            and "all lanes idle; safe to Ctrl-C for this 20s poll; "
+            "no messages waiting." in output
+            and "cycle mode:" not in output
+            and "watcher exiting safely" not in output)
+        print("omitted cycle remains unbounded=" + str(passed))
+        return passed
+
+
+def arm_positive_cycle_limit_preserves_queue(source=None):
+    """The Nth manufactured rendezvous exits with later bytes untouched."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        first = write_pending(mailbox, "0001-to-fable.md", "first body\n")
+        second = write_pending(mailbox, "0002-to-fable.md", "second body\n")
+        third = write_pending(mailbox, "0003-to-fable.md", "third body\n")
+        third_bytes = third.read_bytes()
+        launches = []
+        clock = ControlledClock()
+
+        def fake_dispatch(path, dry_run, fix_only=False):
+            del dry_run, fix_only
+            with simulated_child_turn(daemon):
+                target = pathlib.Path(path)
+                launches.append(target.name)
+                target.unlink()
+                return True
+
+        daemon.dispatch = fake_dispatch
+        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "2"])
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        terminal = (
+            "cycle limit reached (2/2 cycles); all lanes idle; watcher "
+            "exiting safely; 1 message waiting; 0 open ledger jobs remain.")
+        passed = (
+            error is None and rc == 0 and released
+            and launches == [first.name, second.name]
+            and not first.exists() and not second.exists()
+            and third.exists() and third.read_bytes() == third_bytes
+            and countdown_lines(output) == expected_countdown(waiting=2)
+            and output.count("safe interval ended; not safe to stop.") == 1
+            and terminal in output)
+        print("positive cycle limit preserves queue=" + str(passed))
+        return passed
+
+
+def arm_positive_cycle_waits_for_exact_boundary(source=None):
+    """Positive N is exact, even when cycle one empties all requested work."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
+        # The first 20-second countdown resets this deadline to t=40. One
+        # ordinary 20-second poll then makes rendezvous two due without work.
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1.0 / 3.0
+        first = write_pending(mailbox, "0001-to-fable.md", "only body\n")
+        launches = []
+        clock = ControlledClock()
+
+        def fake_dispatch(path, dry_run, fix_only=False):
+            del dry_run, fix_only
+            with simulated_child_turn(daemon):
+                target = pathlib.Path(path)
+                launches.append(target.name)
+                target.unlink()
+                return True
+
+        daemon.dispatch = fake_dispatch
+        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "2"])
+        terminal = (
+            "cycle limit reached (2/2 cycles); all lanes idle; watcher "
+            "exiting safely; no messages waiting; 0 open ledger jobs remain.")
+        passed = (
+            error is None and rc == 0 and launches == [first.name]
+            and not first.exists()
+            and countdown_lines(output) == expected_countdown(waiting=0)
+            and output.count(
+                "all lanes idle; safe to Ctrl-C for this 20s poll; "
+                "no messages waiting.") == 1
+            and output.count("safe interval ended; not safe to stop.") == 2
+            and "cycle work complete" not in output and terminal in output)
+        print("positive cycle waits for exact boundary=" + str(passed))
+        return passed
+
+
+def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
+    """Zero waits for ledger+queue; an ordinary poll does not end a cycle."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
+        backlog.write_text("- OPEN cycle witness\n", encoding="utf-8")
+        first = write_pending(mailbox, "0001-to-fable.md", "first body\n")
+        queued = []
+        launches = []
+        clock = ControlledClock()
+
+        def add_second_after_ordinary_poll(fake_clock):
+            del fake_clock
+            if not queued:
+                queued.append(write_pending(
+                    mailbox, "0002-to-fable.md", "second body\n"))
+
+        clock.on_poll = add_second_after_ordinary_poll
+
+        def fake_dispatch(path, dry_run, fix_only=False):
+            del dry_run, fix_only
+            with simulated_child_turn(daemon):
+                target = pathlib.Path(path)
+                launches.append(target.name)
+                target.unlink()
+                if target.name == "0002-to-fable.md":
+                    backlog.write_text(
+                        "- CLOSED cycle witness\n", encoding="utf-8")
+                return True
+
+        daemon.dispatch = fake_dispatch
+        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "0"])
+        passed = (
+            error is None and rc == 0
+            and queued and launches == [first.name, queued[0].name]
+            and not first.exists() and not queued[0].exists()
+            and daemon.backlog_ledger_count() == 0
+            and countdown_lines(output) == []
+            and output.count(
+                "all lanes idle; safe to Ctrl-C for this 20s poll; "
+                "no messages waiting.") == 1
+            and output.count("safe interval ended; not safe to stop.") == 1
+            and "cycle work complete after 1 cycle; all lanes idle; mailbox "
+            "and ledger empty; watcher exiting safely." in output)
+        print("zero cycle drains ledger and preserves cadence=" + str(passed))
+        return passed
+
+
+def arm_zero_cycle_waits_for_queue(source=None):
+    """Zero does not call an idle rendezvous complete while a file waits."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        first = write_pending(mailbox, "0001-to-fable.md", "first body\n")
+        second = write_pending(mailbox, "0002-to-fable.md", "second body\n")
+        launches = []
+        clock = ControlledClock()
+
+        def fake_dispatch(path, dry_run, fix_only=False):
+            del dry_run, fix_only
+            with simulated_child_turn(daemon):
+                target = pathlib.Path(path)
+                launches.append(target.name)
+                target.unlink()
+                return True
+
+        daemon.dispatch = fake_dispatch
+        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "0"])
+        passed = (
+            error is None and rc == 0
+            and launches == [first.name, second.name]
+            and not first.exists() and not second.exists()
+            and countdown_lines(output) == expected_countdown(waiting=1)
+            and "cycle work complete after 2 cycles; all lanes idle; mailbox "
+            "and ledger empty; watcher exiting safely." in output)
+        print("zero cycle waits for queue=" + str(passed))
+        return passed
+
+
+def arm_zero_cycle_send_before_cutoff_is_seen(source=None):
+    """A daemon send before the completion cutoff prevents early exit."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 999
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        clock = ControlledClock()
+        launches = []
+        injected = []
+        real_process_backlog = daemon.process_backlog
+
+        def inject_after_empty_pass(dry_run, fix_only=False):
+            outcome = real_process_backlog(
+                dry_run=dry_run, fix_only=fix_only)
+            if not injected and outcome is None:
+                injected.append(daemon.send(
+                    agent="opus", text="arrived before cutoff",
+                    dry_run=False))
+            return outcome
+
+        def fake_dispatch(path, dry_run, fix_only=False):
+            del dry_run, fix_only
+            with simulated_child_turn(daemon):
+                target = pathlib.Path(path)
+                launches.append(target.name)
+                target.unlink()
+                return True
+
+        daemon.process_backlog = inject_after_empty_pass
+        daemon.dispatch = fake_dispatch
+        install_clock_and_stamp(
+            daemon, clock=clock, stop_when=lambda: False)
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "0"])
+        passed = (
+            error is None and rc == 0 and injected == [True]
+            and launches == ["0001-to-opus.md"]
+            and daemon.pending_messages() == []
+            and not (mailbox / "0001-to-opus.md").exists()
+            and "cycle work complete after 0 cycles; all lanes idle; mailbox "
+            "and ledger empty; watcher exiting safely." in output)
+        print("send before cycle-zero cutoff is observed=" + str(passed))
+        return passed
+
+
+def arm_zero_cycle_cutoff_serializes_sender(source=None):
+    """A sender behind the cutoff publishes only after watch-lock release."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        sender_at_lock = threading.Event()
+        sender_acquired_lock = threading.Event()
+        sender_done = threading.Event()
+        watch_released = threading.Event()
+        sender_threads = []
+        sender_result = {}
+        observations = {}
+
+        real_flock = daemon.fcntl.flock
+
+        def observed_flock(descriptor, operation):
+            if (threading.current_thread().name == "cycle-cutoff-sender"
+                    and operation == daemon.fcntl.LOCK_EX):
+                sender_at_lock.set()
+            return real_flock(descriptor, operation)
+
+        daemon.fcntl = AttributeProxy(daemon.fcntl, flock=observed_flock)
+        real_next_seq = daemon.next_seq
+
+        def observed_next_seq():
+            if threading.current_thread().name == "cycle-cutoff-sender":
+                sender_acquired_lock.set()
+            return real_next_seq()
+
+        daemon.next_seq = observed_next_seq
+
+        def observed_warning():
+            observations["live_at_warning"] = (
+                daemon.dispatch_lock_is_live_watch(mailbox=str(mailbox)))
+            daemon._production_warn_if_mailbox_unwatched()
+
+        daemon.warn_if_mailbox_unwatched = observed_warning
+
+        def run_sender():
+            try:
+                sender_result["queued"] = daemon.send(
+                    agent="opus", text="arrived after cutoff",
+                    dry_run=False)
+            finally:
+                sender_done.set()
+
+        real_report = daemon.report_cycle_work_complete
+
+        def report_with_waiting_sender(completed_cycles):
+            sender = threading.Thread(
+                target=run_sender, name="cycle-cutoff-sender", daemon=True)
+            sender_threads.append(sender)
+            sender.start()
+            observations["sender_reached_lock"] = sender_at_lock.wait(
+                timeout=2.0)
+            observations["sender_blocked"] = (
+                not sender_acquired_lock.wait(timeout=0.1)
+                and sender.is_alive() and daemon.pending_messages() == [])
+            observations["watch_live_before_exit"] = (
+                daemon.dispatch_lock_is_live_watch(mailbox=str(mailbox)))
+            real_report(completed_cycles=completed_cycles)
+
+        daemon.report_cycle_work_complete = report_with_waiting_sender
+        real_release_dispatch = daemon.release_dispatch_lock
+
+        def observed_release_dispatch(lock_file):
+            real_release_dispatch(lock_file=lock_file)
+            watch_released.set()
+
+        daemon.release_dispatch_lock = observed_release_dispatch
+        real_release_barrier = daemon.release_cycle_completion_barrier
+
+        def observed_release_barrier(lock_file):
+            observations["watch_released_before_barrier"] = (
+                watch_released.is_set())
+            real_release_barrier(lock_file=lock_file)
+            observations["sender_finished_after_barrier"] = (
+                sender_done.wait(timeout=2.0))
+
+        daemon.release_cycle_completion_barrier = observed_release_barrier
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "0"])
+        for sender in sender_threads:
+            sender.join(timeout=2.0)
+        pending = daemon.pending_messages()
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        passed = (
+            error is None and rc == 0 and released
+            and observations.get("sender_reached_lock")
+            and observations.get("sender_blocked")
+            and observations.get("watch_live_before_exit")
+            and observations.get("watch_released_before_barrier")
+            and observations.get("sender_finished_after_barrier")
+            and observations.get("live_at_warning") is False
+            and sender_result.get("queued") is True
+            and len(pending) == 1
+            and pathlib.Path(pending[0]).read_bytes()
+            == b"arrived after cutoff\n"
+            and "cycle work complete after 0 cycles" in output
+            and "warning: no active watch is polling this mailbox" in output)
+        print("cycle-zero cutoff serializes sender=" + str(passed))
+        return passed
+
+
+def arm_cycle_ledger_fail_closed(source=None):
+    """Missing and nonregular ledgers keep zero mode active and diagnostic."""
+    results = []
+    for case in ("missing", "nonregular"):
+        with scratch_daemon(source=source) as (daemon, _, _):
+            backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
+            backlog.unlink()
+            if case == "nonregular":
+                backlog.mkdir()
+            clock = ControlledClock()
+            clock.raise_on_poll = True
+            install_clock_and_stamp(
+                daemon, clock=clock, stop_when=lambda: False)
+            rc, output, _, error = call_main(
+                daemon, ["--watch", "--cycle", "0"])
+            retry_lock = daemon.acquire_dispatch_lock(mode="once")
+            released = retry_lock is not None
+            if retry_lock is not None:
+                daemon.release_dispatch_lock(lock_file=retry_lock)
+            expected = (
+                "cannot stat backlog ledger" if case == "missing"
+                else "backlog ledger is not a regular file")
+            results.append(
+                rc is None and isinstance(error, KeyboardInterrupt)
+                and released and expected in output
+                and "watcher remains active" in output
+                and "cycle work complete" not in output
+                and "mailbox and ledger empty" not in output)
+    passed = results == [True, True]
+    print("cycle-zero ledger failures stay active=" + str(passed))
+    return passed
+
+
+def arm_cycle_ledger_read_stability(source=None):
+    """A ledger changed during the bounded read cannot prove completion."""
+    results = []
+    for case in ("replacement", "same-inode"):
+        with scratch_daemon(source=source) as (daemon, _, _):
+            backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
+            real_os = daemon.os
+            real_read = real_os.read
+            changed = []
+
+            def racing_read(descriptor, size):
+                chunk = real_read(descriptor, size)
+                if chunk == b"" and not changed:
+                    changed.append(True)
+                    if case == "replacement":
+                        replacement = backlog.with_suffix(".replacement")
+                        replacement.write_text(
+                            "- OPEN arrived during read\n", encoding="utf-8")
+                        real_os.replace(replacement, backlog)
+                    else:
+                        backlog.write_text(
+                            "- OPEN arrived same inode\n", encoding="utf-8")
+                return chunk
+
+            daemon.os = AttributeProxy(real_os, read=racing_read)
+            count, error = daemon.strict_cycle_ledger_count()
+            if case == "replacement":
+                expected_error = "changed identity while reading"
+            else:
+                expected_error = "changed while verifying identity"
+            results.append(
+                changed == [True] and count is None and error is not None
+                and expected_error in error
+                and backlog.read_text(encoding="utf-8").startswith("- OPEN"))
+    passed = results == [True, True]
+    print("cycle ledger read stability=" + str(passed))
+    return passed
+
+
+def arm_cycle_ledger_preopen_fifo_is_bounded(source=None):
+    """A regular-to-FIFO replacement before open cannot block zero mode."""
+    with scratch_daemon(source=source) as (daemon, _, _):
+        backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
+        real_os = daemon.os
+        real_open = real_os.open
+        replacements = []
+        result = {}
+
+        def replacing_open(path, flags, *args):
+            if path == daemon.BACKLOG_LEDGER and not replacements:
+                backlog.unlink()
+                real_os.mkfifo(backlog)
+                replacements.append(flags)
+            return real_open(path, flags, *args)
+
+        daemon.os = AttributeProxy(real_os, open=replacing_open)
+
+        def run_reader():
+            result["value"] = daemon.strict_cycle_ledger_count()
+
+        reader = threading.Thread(
+            target=run_reader, name="cycle-ledger-fifo-reader", daemon=True)
+        reader.start()
+        reader.join(timeout=0.2)
+        bounded = not reader.is_alive()
+        if reader.is_alive():
+            # Best-effort cleanup for a mutant that omitted O_NONBLOCK. The
+            # thread is daemonized, so a platform that cannot pair it here
+            # still cannot wedge the witness process.
+            try:
+                writer = real_os.open(
+                    backlog, real_os.O_WRONLY | real_os.O_NONBLOCK)
+            except OSError:
+                writer = None
+            reader.join(timeout=0.2)
+            if writer is not None:
+                real_os.close(writer)
+        count, error = result.get("value", (None, None))
+        passed = (
+            bounded and len(replacements) == 1
+            and bool(replacements[0] & real_os.O_NONBLOCK)
+            and count is None and error is not None
+            and "changed identity while opening" in error)
+        print("cycle ledger pre-open FIFO is bounded=" + str(passed))
+        return passed
+
+
 def replace_exact(source, old, new):
     """Return a single-site source mutant, else None when not armed."""
     if source.count(old) != 1:
@@ -736,6 +1234,134 @@ def arm_source_mutations():
                 "        waiting = 1\n"),
             arm_dispatch_cadence_global_window,
         ),
+        (
+            "omitted cycle becomes zero mode",
+            lambda text: replace_exact(
+                text,
+                "type=nonnegative_cycle_count, default=None",
+                "type=nonnegative_cycle_count, default=0"),
+            arm_omitted_cycle_remains_unbounded,
+        ),
+        (
+            "positive cycle limit is off by one",
+            lambda text: replace_exact(
+                text,
+                "completed_cycles >= args.cycle",
+                "completed_cycles > args.cycle"),
+            arm_positive_cycle_limit_preserves_queue,
+        ),
+        (
+            "ordinary poll resets bounded cadence",
+            lambda text: replace_exact(
+                text,
+                "reset_cadence=args.cycle is None",
+                "reset_cadence=True"),
+            arm_zero_cycle_drains_ledger_and_preserves_cadence,
+        ),
+        (
+            "positive cycle drains early at rendezvous",
+            lambda text: replace_exact(
+                text,
+                "                    if args.cycle == 0:\n"
+                "                        barrier, completion_error = (\n",
+                "                    if args.cycle is not None:\n"
+                "                        barrier, completion_error = (\n"),
+            arm_positive_cycle_waits_for_exact_boundary,
+        ),
+        (
+            "positive cycle drains early between rendezvous",
+            lambda text: replace_exact(
+                text,
+                "                if args.cycle == 0 and rendezvous.all_idle():",
+                "                if args.cycle is not None and rendezvous.all_idle():"),
+            arm_positive_cycle_waits_for_exact_boundary,
+        ),
+        (
+            "zero mode ignores ledger",
+            lambda text: replace_exact(
+                text,
+                "    if error is None and ledger == 0 and not waiting_before "
+                "and not waiting_after:\n",
+                "    if error is None and not waiting_before "
+                "and not waiting_after:\n"),
+            arm_zero_cycle_drains_ledger_and_preserves_cadence,
+        ),
+        (
+            "cycle completion ignores waiting queue",
+            lambda text: replace_exact(
+                text,
+                "    if error is None and ledger == 0 and not waiting_before "
+                "and not waiting_after:\n",
+                "    if error is None and ledger == 0:\n"),
+            arm_zero_cycle_waits_for_queue,
+        ),
+        (
+            "missing ledger is treated as empty",
+            lambda text: replace_exact(
+                text,
+                '        return None, "cannot stat backlog ledger: " + str(exc)',
+                "        return 0, None"),
+            arm_cycle_ledger_fail_closed,
+        ),
+        (
+            "nonregular ledger is treated as empty",
+            lambda text: replace_exact(
+                text,
+                '        return None, "backlog ledger is not a regular file"',
+                "        return 0, None"),
+            arm_cycle_ledger_fail_closed,
+        ),
+        (
+            "cycle completion publication lock omitted",
+            lambda text: replace_exact(
+                text,
+                '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
+                "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n",
+                '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
+                "        pass  # publication lock omitted\n"),
+            arm_zero_cycle_cutoff_serializes_sender,
+        ),
+        (
+            "cycle completion barrier released before watch lock",
+            lambda text: replace_exact(
+                text,
+                "            release_dispatch_lock(lock_file=dispatch_lock)\n"
+                "            if cycle_completion_barrier is not None:\n"
+                "                release_cycle_completion_barrier(\n"
+                "                    lock_file=cycle_completion_barrier)\n",
+                "            if cycle_completion_barrier is not None:\n"
+                "                release_cycle_completion_barrier(\n"
+                "                    lock_file=cycle_completion_barrier)\n"
+                "            release_dispatch_lock(lock_file=dispatch_lock)\n"),
+            arm_zero_cycle_cutoff_serializes_sender,
+        ),
+        (
+            "ledger replacement after read is ignored",
+            lambda text: replace_exact(
+                text,
+                '            return None, "backlog ledger changed identity '
+                'while reading"',
+                "            pass  # ledger replacement ignored"),
+            arm_cycle_ledger_read_stability,
+        ),
+        (
+            "same-inode ledger mutation after read is ignored",
+            lambda text: replace_exact(
+                text,
+                '            return None, "backlog ledger changed while '
+                'verifying identity"',
+                "            pass  # ledger metadata mutation ignored"),
+            arm_cycle_ledger_read_stability,
+        ),
+        (
+            "ledger open can block on FIFO replacement",
+            lambda text: replace_exact(
+                text,
+                '    if hasattr(os, "O_NONBLOCK"):\n'
+                "        flags = flags | os.O_NONBLOCK\n",
+                ""),
+            arm_cycle_ledger_preopen_fifo_is_bounded,
+        ),
     ]
     failures = []
     for label, mutator, probe in cases:
@@ -765,6 +1391,20 @@ def main():
         ("mid-pass source change", arm_source_change_stops_mid_pass),
         ("production dispatch hooks", arm_production_dispatch_lifecycle),
         ("finite modes", arm_once_and_dry_run_are_unaffected),
+        ("cycle arguments", arm_cycle_argument_contract),
+        ("cycle omitted", arm_omitted_cycle_remains_unbounded),
+        ("cycle positive", arm_positive_cycle_limit_preserves_queue),
+        ("cycle positive exact", arm_positive_cycle_waits_for_exact_boundary),
+        ("cycle zero", arm_zero_cycle_drains_ledger_and_preserves_cadence),
+        ("cycle zero queue", arm_zero_cycle_waits_for_queue),
+        ("cycle zero pre-cutoff send",
+         arm_zero_cycle_send_before_cutoff_is_seen),
+        ("cycle zero cutoff sender",
+         arm_zero_cycle_cutoff_serializes_sender),
+        ("cycle zero ledger fail-closed", arm_cycle_ledger_fail_closed),
+        ("cycle ledger read stability", arm_cycle_ledger_read_stability),
+        ("cycle ledger pre-open FIFO",
+         arm_cycle_ledger_preopen_fifo_is_bounded),
         ("source mutations", arm_source_mutations),
     ]
     failures = []
