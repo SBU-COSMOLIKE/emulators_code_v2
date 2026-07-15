@@ -1892,7 +1892,47 @@ sentinel and red. Placement: the generator publication/provenance
 cluster (with the 45M-81 amendment and units 68/82/87); production
 generation blocked on the cluster.
 
-## 25M-01 (Red Team CONFIRMED, awaiting Architect adjudication): uniform sampling shrinks absolute coordinates instead of the legal interval
+### Unit 8 run-control slice: validation now dominates setup
+
+The generator now normalizes its three binary controls through one pure,
+immutable `RunControl` before it looks up `ROOTDIR`, reads configuration, or
+calls setup. `None` retains the CLI defaults. Every supplied value must be a
+native non-Boolean integer `0` or `1`.
+
+<a id="generator-run-control-binary-state"></a>
+The legal `(loadchk, append)` states are exactly `(0, 0)` fresh, `(1, 0)`
+resume, and `(1, 1)` append. The independent `chain` axis records either
+`full` or `chain-only`; it does not change the operation. The normalized
+record is frozen. The gate's Boolean-coercion mutation must fail this arm.
+
+<a id="generator-run-control-append-requires-load"></a>
+`append=1, loadchk=0` now raises a teaching error that names both values and
+explains that append extends a validated prior dataset; it never means fresh
+generation at the same output path. An independent-flags mutation must make
+this arm red.
+
+<a id="generator-run-control-pre-mutation-refusal"></a>
+The board check executes the production constructor with setup replaced by a
+filesystem mutation sentinel. Invalid intent must raise with no setup event or
+sentinel file. Legal full generation reaches setup, sampling, and data-vector
+work; legal chain-only reaches setup and sampling but not data-vector work.
+The check also requires a direct validator assignment to be constructor
+statement zero,
+with its exact three CLI attributes, and its only module binding to be the
+`dataset_manifest` import. Setup must consume normalized append/load values.
+Deliberately forcing the normalized mode to disagree with raw `chain` proves
+the final branch consumes the record. Prefix, wrapped-RHS (a preceding
+expression hidden in statement zero), shadow-binding, raw-setup, raw-mode, and
+setup-first mutations must all make this arm red.
+
+This is a bounded implementation slice, not Unit 8 closure. The dataset
+manifest, exact resume/append authentication, corrupt-resume refusal, complete
+RNG continuation, chain-only/full-bundle isolation, and the shared named-column
+resolver remain open. In particular, the word `resume` above describes the
+validated command state; it does not yet claim that the prior bundle has been
+authenticated.
+
+## 25M-01 (CLOSED by Unit 94 on current main): uniform sampling once shrank absolute coordinates instead of the legal interval
 
 Public reachability is any generator invocation with `--unif 1` and a
 finite ordered sampled-parameter prior. In `generator_core.py:742-750`, the
@@ -1928,7 +1968,7 @@ translated controls agree; a float32-adjacent interval is handled
 representably; and a mutation restoring endpoint-times-constant reproduces
 the shrink/inversion and must red.
 
-## 25M-02 (Red Team CONFIRMED, awaiting Architect adjudication): temperature changes uniform support but is erased from output identity
+## 25M-02 (CONFIRMED; Unit 8 identity persistence remains OPEN): temperature changes uniform support but is erased from output identity
 
 `dataset_generator_lensing.py:40` teaches that `--temp` is needed even for
 uniform sampling. The implementation confirms why: `generator_core.py:362-375`
@@ -1964,7 +2004,7 @@ hard-bounded and infinite-endpoint controls separate requested from effective
 support; and a mutation dropping temperature/resolved bounds recreates the
 collision and must red.
 
-## 25M-03 (Red Team CONFIRMED, awaiting Architect adjudication): chain-only mode can silently relabel an existing full dataset
+## 25M-03 (CONFIRMED; Unit 8 chain/full isolation remains OPEN): chain-only mode can silently relabel an existing full dataset
 
 The documented `--chain 1` mode generates parameters for visualization
 without computing data vectors (`dataset_generator_lensing.py:42`). The

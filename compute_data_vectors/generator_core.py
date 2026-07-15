@@ -71,6 +71,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
   sys.path.insert(0, _REPO_ROOT)
 from emulator import fixed_facts
+from compute_data_vectors.dataset_manifest import validate_run_control
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Command line args (shared by every driver; the driver passes its prog name)
@@ -351,7 +352,12 @@ class GeneratorCore:
   # init
   #-----------------------------------------------------------------------------
   def __init__(self, cli_args):
+    run_control = validate_run_control(
+      loadchk=cli_args.loadchk,
+      append=cli_args.append,
+      chain=cli_args.chain)
     self.args = cli_args
+    self.run_control = run_control
     self.setup = False
     self.__setup_flags()
 
@@ -359,7 +365,7 @@ class GeneratorCore:
     rank = comm.Get_rank()
     if rank == 0:
       self.__run_mcmc()
-    if not self.args.chain == 1:
+    if self.run_control.dataset_mode == "full":
       self.__generate_datavectors()
 
   def __setup_flags(self):
@@ -374,7 +380,7 @@ class GeneratorCore:
     fileroot = f"{root}/{self.args.fileroot.rstrip('/')}"
     Path(f"{root}/chains").mkdir(parents=True, exist_ok=True)
 
-    self.append = 0 if self.args.append is None else self.args.append
+    self.append = self.run_control.append
     self.bounds = None           # the support the sampler drew from (resolved)
     self.bounds_requested = None # the support the prior declared (requested)
     self.bounds_adj = (
@@ -392,7 +398,7 @@ class GeneratorCore:
     self.failf = None
     self.fiducial = None
     self.inv_covmat = None
-    self.loadchk = 0 if self.args.loadchk is None else self.args.loadchk
+    self.loadchk = self.run_control.loadchk
     self.loadedfromchk = False  # check if loaded from checkpoint sucessfully
     self.loadedsamples = False  # check loaded samples sucessfully
     self.maxcorr = 0.15 if self.args.maxcorr is None else self.args.maxcorr

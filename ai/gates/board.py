@@ -1954,6 +1954,31 @@ def gate_generator_seed(ctx):
              + " (ai/gates/checks/generator_seed.py)")
 
 
+def gate_generator_run_control(ctx):
+  """generator-run-control: unsafe append intent refuses before setup.
+
+  The child imports the pure production validator and AST-executes the real
+  ``GeneratorCore.__init__`` with a filesystem mutation sentinel in place of
+  setup. It proves the exact legal operation/mode matrix, the teaching refusal
+  for append without load, and that validation dominates setup and full versus
+  chain-only routing. Eight in-memory mutations bind native types, the illegal
+  pair, statement-zero ordering, a direct validator-call RHS with no hidden
+  earlier evaluation, the sole production import, normalized setup assignments,
+  and normalized rather than raw mode routing.
+  This is the pre-mutation run-control slice of Unit 8. Dataset-manifest
+  authentication, RNG continuation, and chain/full bundle isolation remain
+  separate OPEN slices.
+  """
+  rc, out = ctx.run_check("ai/gates/checks/generator_run_control.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="generator-run-control child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/generator_run_control.py)")
+
+
 def gate_cli_strict(ctx):
   """cli-strict: a misspelled flag is a usage error, not a silent ignore.
 
@@ -2291,6 +2316,37 @@ BOARD = [
                            "data-generation-and-cuts.md#generator-seed-owned-rng"),),
        run=gate_generator_seed,
        manifest=Manifest(code=(), inputs=()),
+       needs=()),
+  Gate(id="generator-run-control",
+       spec_code="GEN-B",
+       title="Generator run controls refuse before output mutation",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the Unit-8 pre-mutation run-control slice: exact native 0/1 "
+            "controls normalize to fresh, resume, or append and to full or "
+            "chain-only mode; append without load receives a teaching "
+            "refusal; and the production constructor validates before setup "
+            "or any output-path mutation. Eight targeted mutations bind bool "
+            "refusal, independent-append refusal, statement-zero order, a "
+            "direct validator-call RHS, the sole validator binding, normalized "
+            "setup assignments, and "
+            "normalized rather than raw mode routing. "
+            "Manifest authentication, RNG continuation, and chain/full "
+            "bundle isolation remain outside this bounded gate",
+       evidence=(Assertion(
+                   "generator-run-control.binary-state",
+                   "data-generation-and-cuts.md#generator-run-control-binary-state"),
+                 Assertion(
+                   "generator-run-control.append-requires-load",
+                   "data-generation-and-cuts.md#generator-run-control-append-requires-load"),
+                 Assertion(
+                   "generator-run-control.pre-mutation-refusal",
+                   "data-generation-and-cuts.md#generator-run-control-pre-mutation-refusal")),
+       run=gate_generator_run_control,
+       manifest=Manifest(
+         code=("compute_data_vectors/generator_core.py",
+               "compute_data_vectors/dataset_manifest.py"),
+         inputs=()),
        needs=()),
   Gate(id="cli-strict",
        spec_code="CLI-A",
