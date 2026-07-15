@@ -71,7 +71,12 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
   sys.path.insert(0, _REPO_ROOT)
 from emulator import fixed_facts
-from compute_data_vectors.dataset_manifest import validate_run_control
+from emulator.parameter_table import resolve_parameter_table
+from compute_data_vectors.dataset_manifest import (
+  load_checkpoint_or_refuse,
+  require_checkpoint_members,
+  validate_run_control,
+)
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Command line args (shared by every driver; the driver passes its prog name)
@@ -653,6 +658,23 @@ class GeneratorCore:
     """Files the checkpoint loader must find before trusting a chk."""
     return [f"{self.dvsf}.npy"]
 
+  def _load_axis_checkpoint(self, path, expected, label):
+    """Load one read-only axis sidecar and match the configured coordinates."""
+    observed = np.load(path, allow_pickle=False)
+    expected = np.asarray(expected)
+    if observed.ndim != 1:
+      raise ValueError(
+        f"checkpoint axis {label} must be 1D, got {observed.shape}")
+    if observed.shape != expected.shape:
+      raise ValueError(
+        f"checkpoint axis {label} has shape {observed.shape}, expected "
+        f"{expected.shape} from train_args")
+    if not np.array_equal(observed, expected):
+      raise ValueError(
+        f"checkpoint axis {label} disagrees with the configured train_args "
+        "coordinates")
+    return observed
+
   def _dv_load_chk(self):
     """Load the data-vector store from its checkpoint files (RAM-aware)."""
     arr = np.load(f"{self.dvsf}.npy",
@@ -776,42 +798,86 @@ class GeneratorCore:
   # save/load checkpoint
   #-----------------------------------------------------------------------------
   def __load_chk(self):
-    rtnvar = False
-    if self.loadchk == 1:
-      loadchk = all([os.path.isfile(x) for x in self._dv_chk_files() +
-                                                [f"{self.failf}.txt",
-                                                 f"{self.paramsf}.covmat",
-                                                 f"{self.paramsf}.ranges",
-                                                 f"{self.paramsf}.1.txt"]])
-      if loadchk:
-        # load sample file begins ----------------------------------------------
-        # row 0/1 rows are weights, lnp. Last row is chi2
-        self.samples = np.atleast_2d(np.loadtxt(f"{self.paramsf}.1.txt",
-                                                dtype=self.dtype))[:,2:-1]
-        if self.samples.ndim != 2:
-          raise ValueError(f"samples must be 2D, got {self.samples.shape}")
-        # load sample file ends ------------------------------------------------
+    if self.run_control.operation == "fresh":
+      return False
 
-        # load fail file begins ------------------------------------------------
-        self.failed = np.atleast_1d(np.loadtxt(f"{self.failf}.txt",
-                                               dtype=np.uint8))
-        self.failed = np.asarray(self.failed).astype(bool)
-        if self.failed.ndim != 1:
-          raise ValueError(f"failed must be 1D, got {self.failed.shape}")
+    checkpoint_members = self._dv_chk_files() + [
+      f"{self.failf}.txt",
+      f"{self.paramsf}.covmat",
+      f"{self.paramsf}.paramnames",
+      f"{self.paramsf}.ranges",
+      f"{self.paramsf}.1.txt",
+      f"{self.paramsf}{fixed_facts.SIDECAR_SUFFIX}",
+    ]
+    require_checkpoint_members(
+      operation=self.run_control.operation,
+      members=checkpoint_members,
+      is_file=os.path.isfile)
 
-        if self.samples.shape[0] != self.failed.shape[0]:
-          raise ValueError(f"Incompatible samples/failed chk files")
-        # load fail file ends --------------------------------------------------
+    # load sample file begins ------------------------------------------------
+    # The producer-authored .paramnames sidecar owns the numeric layout. It
+    # requires the complete non-derived sequence to match train_args.ord and
+    # validates the two bookkeeping columns plus every declared column before
+    # returning the sampled inputs.
+    checkpoint_input_names = tuple(self.sampled_params)
+    parameter_table = resolve_parameter_table(
+      params_path=f"{self.paramsf}.1.txt",
+      input_names=checkpoint_input_names)
+    expected_sidecar = os.path.normcase(os.path.abspath(
+      f"{self.paramsf}.paramnames"))
+    observed_sidecar = os.path.normcase(os.path.abspath(
+      parameter_table.sidecar_path))
+    if observed_sidecar != expected_sidecar:
+      raise ValueError(
+        "generator checkpoint readback must use its producer-owned "
+        f".paramnames sidecar {expected_sidecar!r}; the resolver selected "
+        f"unexpected shadow path {observed_sidecar!r}")
+    expected_declarations = tuple(
+      (name, False, 2 + index)
+      for index, name in enumerate(checkpoint_input_names)
+    ) + (("chi2", True, 2 + len(checkpoint_input_names)),)
+    if parameter_table.declarations != expected_declarations:
+      raise ValueError(
+        "checkpoint .paramnames must declare exactly the sampled parameters "
+        "in train_args order followed by chi2*; got "
+        f"{parameter_table.declarations!r}, expected "
+        f"{expected_declarations!r}")
+    self.samples = parameter_table.inputs
+    # load sample file ends --------------------------------------------------
 
-        # load datavectors (store-specific; row-count checks live inside) ------
-        self._dv_load_chk()
+    # load fail file begins --------------------------------------------------
+    with open(f"{self.failf}.txt", "r", encoding="ascii") as fail_handle:
+      # The producer writes one ASCII token per physical line.  Text-file
+      # iteration accepts the platform newline forms, but (unlike
+      # ``str.splitlines``) does not reinterpret vertical tab, form feed, or
+      # other control characters as extra producer records.
+      failure_tokens = [
+        line[:-1] if line.endswith("\n") else line
+        for line in fail_handle
+      ]
+    invalid_failure_tokens = [
+      (line_number, token)
+      for line_number, token in enumerate(failure_tokens, start=1)
+      if token not in ("0", "1")]
+    if invalid_failure_tokens:
+      raise ValueError(
+        "failed checkpoint lines must be the literal producer tokens '0' or "
+        f"'1'; invalid lines are {invalid_failure_tokens!r}")
+    self.failed = np.asarray(
+      [token == "1" for token in failure_tokens], dtype=bool)
 
-        print("Loaded models from chk")
-        if self.append == 0:
-          self.loadedsamples = True
-          self.loadedfromchk = True
-        rtnvar = True
-    return rtnvar
+    if self.samples.shape[0] != self.failed.shape[0]:
+      raise ValueError(f"Incompatible samples/failed chk files")
+    # load fail file ends ----------------------------------------------------
+
+    # load datavectors (store-specific; row-count checks live inside) --------
+    self._dv_load_chk()
+
+    print("Loaded models from chk")
+    if self.run_control.operation == "resume":
+      self.loadedsamples = True
+      self.loadedfromchk = True
+    return True
 
   def __save_chk(self):
     # save data vector file (store-specific) ------------------------------------
@@ -1094,14 +1160,11 @@ class GeneratorCore:
   # run mcmc
   #-----------------------------------------------------------------------------
   def __run_mcmc(self):
-    try:
-      loadedfromchk = self.__load_chk()
-    except Exception as e:
-      sys.stderr.write(f"[load_chk] failed: {e}\n")
-      traceback.print_exc(file=sys.stderr)
-      loadedfromchk = False
+    load_checkpoint_or_refuse(
+      operation=self.run_control.operation,
+      loader=self.__load_chk)
 
-    if (loadedfromchk == False) or (loadedfromchk == True and self.append == 1):
+    if self.run_control.operation in ("fresh", "append"):
       ndim     = len(self.sampled_params)
       names    = list(self.sampled_params)
 
@@ -1163,7 +1226,7 @@ class GeneratorCore:
                                f"Values: {dict(zip(self.sampled_params, x))}")
       w = np.ones((nparams,1), dtype=self.dtype)
       chi2 = -2*lnp
-      if not loadedfromchk:
+      if self.run_control.operation == "fresh":
         # Output some debug messaging ------------------------------------------
         if not self.unif == 1:
           try:
@@ -1261,7 +1324,7 @@ class GeneratorCore:
       else:
         # ----------------------------------------------------------------------
         # ----------------------------------------------------------------------
-        # This option = loadedfromchk == True and self.append == 1
+        # This branch is reachable only for a successfully loaded append.
         # ----------------------------------------------------------------------
         # ----------------------------------------------------------------------
         # append chain file begins ---------------------------------------------

@@ -141,6 +141,11 @@ def _load_numeric_table(params_path):
     raise ValueError(
       f"the parameter table {os.fspath(params_path)!r} is empty; at least one "
       "sample row is required")
+  if not np.isfinite(table).all():
+    raise ValueError(
+      f"the parameter table {os.fspath(params_path)!r} contains nonfinite "
+      "numeric values; every bookkeeping, sampled, and derived cell must be "
+      "finite")
   return table
 
 

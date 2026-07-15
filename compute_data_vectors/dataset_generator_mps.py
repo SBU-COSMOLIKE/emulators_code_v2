@@ -184,10 +184,20 @@ class dataset(GeneratorCore):
     files = []
     for q in self._quantities():
       files.append(f"{self.dvsf}_{q}.npy")
+    files.extend((f"{self.dvsf}_z.npy", f"{self.dvsf}_k.npy"))
     return files
 
   def _dv_load_chk(self):
     """Load every per-quantity store (RAM-aware, one shared policy)."""
+    self._load_axis_checkpoint(
+      path=f"{self.dvsf}_z.npy",
+      expected=self.z_mps,
+      label="mps redshift")
+    self._load_axis_checkpoint(
+      path=f"{self.dvsf}_k.npy",
+      expected=self.k_mps,
+      label="mps wavenumber")
+
     RAMneed = self.samples.nbytes + self.failed.nbytes
     for q in self._quantities():
       arr = np.load(f"{self.dvsf}_{q}.npy",

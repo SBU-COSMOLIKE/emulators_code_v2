@@ -9,6 +9,10 @@ an invalid state before looking up paths or touching output.
 from dataclasses import dataclass
 
 
+class CheckpointLoadError(RuntimeError):
+  """A requested checkpoint cannot be loaded without risking old output."""
+
+
 @dataclass(frozen=True)
 class RunControl:
   """One normalized generator operation and dataset mode.
@@ -106,3 +110,72 @@ def validate_run_control(loadchk, append, chain):
     chain=normalized_chain,
     operation=operation,
     dataset_mode=dataset_mode)
+
+
+def require_checkpoint_members(operation, members, is_file):
+  """Require every named member when resume or append was requested.
+
+  ``fresh`` is the only operation allowed to proceed without an existing
+  checkpoint.  The filesystem predicate is supplied by the caller so this
+  module stays importable in small CPU-only checks without acquiring a path or
+  generator dependency.
+
+  Arguments:
+    operation = ``fresh``, ``resume``, or ``append``.
+    members = ordered paths that form the current checkpoint census.
+    is_file = callable returning whether one path is an existing file.
+
+  Returns:
+    the ordered member tuple.  Returning the census makes it straightforward
+    for later manifest work to consume the exact same list.
+
+  Raises:
+    CheckpointLoadError when a requested checkpoint member is missing.
+    ValueError when the operation is not one of the normalized operations.
+  """
+  if operation not in ("fresh", "resume", "append"):
+    raise ValueError("Unknown normalized generator operation: "
+                     + repr(operation))
+
+  checkpoint_members = tuple(members)
+  if operation == "fresh":
+    return checkpoint_members
+
+  missing = [path for path in checkpoint_members if not is_file(path)]
+  if missing:
+    raise CheckpointLoadError(
+      "Cannot " + operation + " the requested dataset because checkpoint "
+      "members are missing: " + ", ".join(str(path) for path in missing)
+      + ". No existing dataset file was changed.")
+  return checkpoint_members
+
+
+def load_checkpoint_or_refuse(operation, loader):
+  """Run one checkpoint loader without converting failure into a fresh run.
+
+  A historical broad exception handler treated every missing, truncated, or
+  shape-incompatible checkpoint as if the user had requested fresh generation.
+  This boundary keeps intent explicit: only ``fresh`` may produce the false
+  ``not loaded`` result; resume and append either return ``True`` or raise.
+  """
+  try:
+    loaded = loader()
+  except Exception as exc:
+    if operation == "fresh":
+      raise
+    raise CheckpointLoadError(
+      "Cannot " + operation + " the requested dataset because its checkpoint "
+      "could not be validated: " + str(exc)
+      + ". No existing dataset file was changed.") from exc
+
+  if operation == "fresh":
+    if loaded:
+      raise CheckpointLoadError(
+        "Fresh generation unexpectedly loaded an existing checkpoint.")
+    return False
+  if loaded is not True:
+    raise CheckpointLoadError(
+      "Cannot " + operation + " the requested dataset because the checkpoint "
+      "loader did not confirm a complete checkpoint. No existing dataset "
+      "file was changed.")
+  return True

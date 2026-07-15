@@ -172,6 +172,12 @@ class dataset(GeneratorCore):
                          f"got {self.datavectors[spec].shape}")
       if self.datavectors[spec].shape[0] != self.samples.shape[0]:
         raise ValueError(f"Incompatible samples/datavector ({spec}) chk files")
+      expected_width = int(self.lrange[1] - self.lrange[0] + 1)
+      if self.datavectors[spec].shape[1] != expected_width:
+        raise ValueError(
+          f"chk datavectors ({spec}) have "
+          f"{self.datavectors[spec].shape[1]} columns but train_args names "
+          f"a {expected_width}-multipole range; the chk and the YAML disagree")
 
   def _dv_save(self):
     """Flush all four stores to disk (tmp file + atomic replace each)."""

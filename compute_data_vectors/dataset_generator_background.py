@@ -148,10 +148,17 @@ class dataset(GeneratorCore):
     files = []
     for q in QUANTITIES:
       files.append(f"{self.dvsf}_{q}.npy")
+      files.append(f"{self.dvsf}_{q}_z.npy")
     return files
 
   def _dv_load_chk(self):
     """Load both per-quantity stores (RAM-aware, one shared policy)."""
+    for q in QUANTITIES:
+      self._load_axis_checkpoint(
+        path=f"{self.dvsf}_{q}_z.npy",
+        expected=self._grid_of(q),
+        label=q + " redshift")
+
     RAMneed = self.samples.nbytes + self.failed.nbytes
     for q in QUANTITIES:
       arr = np.load(f"{self.dvsf}_{q}.npy",

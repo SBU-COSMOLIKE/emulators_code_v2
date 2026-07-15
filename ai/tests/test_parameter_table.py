@@ -204,6 +204,21 @@ class ParameterTableTest(unittest.TestCase):
       with self.assertRaisesRegex(ValueError, "is empty"):
         resolve_parameter_table(params, ["a"])
 
+  def test_every_numeric_column_must_be_finite(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "finite.txt")
+      sidecar = os.path.join(tmp, "finite.paramnames")
+      self._write_sidecar(sidecar, ["a", "chi2*"])
+      for column, value in ((0, np.nan), (1, np.inf),
+                            (2, np.nan), (3, -np.inf)):
+        with self.subTest(column=column, value=value):
+          row = np.asarray([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)
+          row[0, column] = value
+          self._write_table(params, row)
+          with self.assertRaisesRegex(
+              ValueError, "nonfinite.*every bookkeeping, sampled, and derived"):
+            resolve_parameter_table(params, ["a"], ["chi2"])
+
   def test_missing_sidecar_names_candidates_and_migration(self):
     with tempfile.TemporaryDirectory() as tmp:
       params = os.path.join(tmp, "legacy.3.txt")

@@ -159,28 +159,28 @@ making generator readiness depend on one derived MPS quantity.
   column must match the covmat-header names ORDER INCLUDED; mismatch
   is a loud error naming both lists.
 
-## Red-team staging gaps (verified 2026-07-12, open)
+## Remaining checkpoint-publication gaps (updated 2026-07-15)
 
 ### A checkpoint is not yet one committed dataset
 
 The checkpoint census and publication order do not describe one atomic
 generation of the dataset:
 
-- `__load_chk` requires the parameter chain, ranges, covmat, fail file,
-  and the family's data-vector members, but omits `.paramnames` and the
-  background/MPS grid sidecars. A resumed MPS or background job can thus
-  accept a checkpoint whose axis files are missing or stale; the trainer
-  later reads those files as the column coordinates.
+- The requested-load preflight now includes `.paramnames`, scientific facts,
+  every family payload, and the background/MPS grid sidecars. Named parameter
+  layout, literal `0`/`1` failure-flag lines, configured background/MPS axes, and family
+  widths are validated before append can sample. There is still no manifest
+  tying those independently read files to one generation or authenticating
+  their bytes. Same-shaped stale payloads, covariance, ranges, or facts can
+  therefore remain internally plausible.
 - Multi-member families replace/flush each `.npy` independently. Append
   first extends the parameter text, then the fail file, then each data
   member in sequence. A process death can expose a mixture of old and new
   generations; row counts catch some interruptions but same-shaped stale
   members and old sidecars remain admissible.
-- Most seriously, `__run_mcmc` catches ANY checkpoint-load exception,
-  prints it, sets `loadedfromchk = False`, and continues down the fresh-run
-  path using the SAME output roots. With `--loadchk 1 --append 1`, a
-  partial append or missing member can therefore turn an intended resume
-  into a from-scratch replacement of the old chain and dump set.
+- Requested resume/append failures now stop and retain their original cause;
+  they cannot be converted into fresh generation. This closes the former
+  overwrite fallback, but it does not make multi-file append atomic.
 
 Required contract: a manifest binds every member (params, paramnames,
 ranges, covmat, fail flags, all quantity arrays, every axis sidecar) to a
@@ -192,18 +192,15 @@ failure after each append/publication boundary, remove or swap an axis
 sidecar, permute same-width parameter order, and prove both loud refusal
 and survival of the previous good generation.
 
-### The ordinary `.1.txt` naming check is bypassed
+### The ordinary `.1.txt` naming check is now shared
 
-The generator writes `X.1.txt` and `X.paramnames`. Ordinary
-`load_source` looks only for `X.1.paramnames`, so the advertised
-sidecar-vs-covmat order check is skipped on the standard generated
-file name. `load_scalar_source` already contains the correct resolver:
-try the exact stem, then strip a purely numeric chain suffix and try
-the chain root. One shared resolver must serve both loaders. The gate
-uses `X.1.txt` + `X.paramnames` with a deliberately permuted order and
-requires `load_source` to reject it. Generated training data should
-require the sidecar; any legacy no-sidecar escape must be explicit and
-loud in the banner, never inferred from absence.
+The generator writes `X.1.txt` and `X.paramnames`. The shared
+`emulator/parameter_table.py` resolver tries the exact stem and then strips a
+purely numeric chain suffix. Ordinary staging, scalar staging, pool sizing,
+and generator checkpoint readback now all use it. The parameter-table gate
+proves the staging/pool consumers; checkpoint-refusal proves generator
+readback, including exact sampled-parameter order and the final `chi2*`
+declaration. Missing producer metadata has no positional fallback.
 
 ### Grid2d staging defeats its own memory ladder
 
@@ -1924,13 +1921,84 @@ the final branch consumes the record. Prefix, wrapped-RHS (a preceding
 expression hidden in statement zero), shadow-binding, raw-setup, raw-mode, and
 setup-first mutations must all make this arm red.
 
-This is a bounded implementation slice, not Unit 8 closure. The dataset
-manifest, exact resume/append authentication, corrupt-resume refusal, complete
-RNG continuation, and chain-only/full-bundle isolation remain open. The
-staging/pool portion of the shared named-column resolver is the next bounded
-slice below; generator checkpoint/readback adoption remains open. In
-particular, the word `resume` above describes the validated command state; it
-does not yet claim that the prior bundle has been authenticated.
+This is a bounded implementation slice, not Unit 8 closure. Dataset-manifest
+authentication, complete RNG continuation, atomic publication, and
+chain-only/full-bundle isolation remain open. The named-column and requested-
+checkpoint slices below now cover checkpoint readback and corrupt-load
+refusal. The word `resume` here still describes command state; exact prior-
+bundle identity requires the later manifest slice.
+
+### Unit 8 fail-closed-load slice: a requested checkpoint cannot become a fresh run
+
+Resume and append now have a different failure meaning from fresh generation.
+Fresh generation may begin when no checkpoint exists. If the user explicitly
+asks to resume or append, the loader must confirm the current checkpoint or
+stop. It may never reinterpret missing or damaged input as permission to replace
+the dataset at the same filenames.
+
+<a id="checkpoint-refusal-missing-member"></a>
+The current pre-manifest census includes every family data-vector member plus
+failure flags, covariance, parameter names, ranges, the chain, and the
+scientific-facts sidecar. Fresh mode returns `not loaded` without looking for
+them. Resume and append name every missing member in a teaching error and say
+that no existing dataset file was changed. The focused gate removes each of the
+seven generic members in turn for both requested operations; all fourteen
+cases must refuse before parsing or writing, with every surviving member's
+bytes and modification time unchanged. A mutation that restores the old
+behavior by deleting the member preflight must turn this arm red. The same arm
+executes each family's production census, including background/MPS axes and
+both MPS base-file modes.
+
+<a id="checkpoint-refusal-corrupt-load"></a>
+Once the census exists, named-table validation errors remain errors. The
+generator uses the shared producer-schema resolver, which requires every
+bookkeeping, sampled, and derived numeric cell to be finite. The generator then
+requires exactly the sampled parameters in `train_args` order followed by
+`chi2*`, and requires the resolver to have selected the producer-owned root
+sidecar rather than an unexpected `X.1.paramnames` shadow. Every failure-flag
+line must be exactly the producer token `0` or `1`; numerically similar text is
+not accepted. A resolver error, one nonfinite value in each numeric column
+role, a shadow sidecar, a mislabeled derived column, and each of `2`, `1e-400`,
+near-one decimals, `-0`, and embedded control separators must all stop before
+sampling. The parser accepts ordinary LF, CRLF, and bare-CR physical lines but
+does not reinterpret vertical tab, form feed, or ASCII record separators as
+producer lines. The requested operation wraps each error while retaining its
+cause and preserving every checkpoint byte and modification time. Mutations
+that swallow the resolver error or remove the finiteness and semantic checks
+must turn this arm red.
+
+<a id="checkpoint-refusal-no-fresh-fallback"></a>
+The sampling decision consumes the normalized operation, not an exception-
+derived Boolean. Only `fresh` may enter the fresh writer; `append` may enter its
+separate branch only after a successful load; `resume` writes nothing. The gate
+places a sentinel at the first fresh operation and makes both requested loaders
+raise. The original error must remain in the exception chain and the sentinel
+must stay untouched. A mutation that catches the error and touches fresh work
+must turn this arm red. A valid-resume control must set both loaded-state flags
+without touching sampling; a separate mutation that routes resume into the
+fresh/append sampler must also turn this arm red.
+
+<a id="checkpoint-refusal-family-geometry"></a>
+Background and MPS checkpoints persist their coordinate arrays beside the
+payloads. The loader now requires those axes to be one-dimensional, to have
+the configured shape, and to equal the configured coordinates exactly. CMB
+has no persisted multipole-axis file, so its loader instead requires every
+spectrum width to equal the configured inclusive `lrange`. The family-geometry
+arm executes valid controls plus a changed background coordinate, a short MPS
+axis, and a short CMB spectrum. Removing the axis and width checks must turn
+the arm red. This does not claim an authenticated CMB axis; that needs a
+persisted identity or manifest in a later slice.
+
+This remains a bounded safety slice. The current census is not a dataset
+manifest and does not authenticate bytes or bind the whole configuration,
+mode, and RNG state to one generation. It validates named parameter order,
+background/MPS coordinates, and family dimensions, but cannot detect every
+same-shaped stale member. Atomic generation publication, exact-identity resume,
+safe stochastic continuation for append, and chain-only/full isolation remain
+open. Unit 56 still owns stored science-payload revalidation, Unit 82 owns
+canonical row authenticity, and Unit 87 owns weight/posterior/`chi2*` meaning.
+Until those slices land, this gate proves refusal behavior rather than full
+resume/append correctness.
 
 ### Unit 8 named-column slice: staging and pool sizing use the producer schema
 
@@ -1938,9 +2006,10 @@ The shared torch-free `emulator/parameter_table.py` resolver now treats the
 producer's complete `.paramnames` declaration as the only authority for a
 parameter table. Ordinary and scalar staging consume its named arrays, and
 `EmulatorExperiment.pool_size` calls the same resolver before applying the
-same physical cuts. This slice deliberately covers those staging/pool
-consumers only. Generator checkpoint reload and append readback have not yet
-adopted the resolver.
+same physical cuts. The parameter-table gate deliberately covers those
+staging/pool consumers. Generator checkpoint reload and append readback now
+use the same resolver; the separate checkpoint-refusal gate owns that call
+site and its exact generator schema.
 
 <a id="parameter-table-schema-and-layout"></a>
 `parameter-table.schema-and-layout` requires exact-stem sidecar lookup first,
@@ -1949,7 +2018,7 @@ stem. Every nonblank declaration is retained with its derived marker and
 numeric column after the two GetDist bookkeeping columns. Normalized names,
 requested inputs, and requested outputs are unique; requested names are
 present; the complete nonderived sequence equals the requested input sequence
-including order; outputs are derived; and numeric width equals two plus the
+including order; outputs are derived; numeric width equals two plus the
 declaration count. Returned inputs and outputs are float32 and exactly 2-D,
 including one-row and zero-output tables. Gate-owned literal arrays cover the
 current generator layout, zero derived columns, and multiple derived columns
@@ -2003,9 +2072,10 @@ same independently known survivor ceiling. Restoring required-key lookup for
 real named loader and disk-backed source; only its downstream law-space
 transform is stubbed because it is not part of row selection.
 
-This gate does not close the whole 45M-68 contract. The generator checkpoint
-and append/readback call sites still need the shared resolver. That OPEN work
-cannot be inferred from the three staging/pool AIDs above.
+This gate does not by itself close the whole 45M-68 contract. Generator
+checkpoint and append/readback now use the shared resolver, but that evidence
+belongs to checkpoint-refusal and cannot be inferred from the three
+staging/pool AIDs above. Manifest identity and atomic append remain open.
 
 ## 25M-01 (CLOSED by Unit 94 on current main): uniform sampling once shrank absolute coordinates instead of the legal interval
 

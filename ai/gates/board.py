@@ -1979,6 +1979,33 @@ def gate_generator_run_control(ctx):
            + " (ai/gates/checks/generator_run_control.py)")
 
 
+def gate_generator_checkpoint_refusal(ctx):
+  """generator-checkpoint-refusal: requested loads never become fresh runs.
+
+  The CPU child AST-executes the production checkpoint loader, family
+  checkpoint geometry, and the first sampling decision with small filesystem
+  and NumPy boundaries. Fresh mode may report that no checkpoint exists.
+  Resume and append must refuse a missing member, invalid named-table layout,
+  a shadow sidecar, nonfinite numeric cells, nonliteral failure-flag tokens,
+  mismatched persisted axes, and a wrong-width CMB store. Requested failures
+  cannot reach sampling, while a valid resume must avoid it. Isolated in-memory
+  regressions remove each safety boundary; every affected AID must turn red.
+
+  This gate proves fail-closed command intent only. It does not claim dataset
+  manifest authentication, atomic multi-file publication, append RNG
+  continuation, or chain-only/full isolation.
+  """
+  rc, out = ctx.run_check(
+    "ai/gates/checks/generator_checkpoint_refusal.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="generator-checkpoint-refusal child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/generator_checkpoint_refusal.py)")
+
+
 def gate_parameter_table(ctx):
   """parameter-table: parameter consumers select producer-declared names.
 
@@ -1992,8 +2019,8 @@ def gate_parameter_table(ctx):
   compatibility, moved/wrapped/ignored-result, staging-only positional, and
   pool-only positional mutations must red. Optional-cut-family witnesses also
   require no cuts to mean the full table and active cuts to produce the exact
-  maximum stageable row count. Generator checkpoint/readback adoption remains
-  OPEN Unit-8 work.
+  maximum stageable row count. Generator checkpoint/readback now consumes the
+  same resolver; its fail-closed evidence belongs to checkpoint-refusal.
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("ai/gates/checks/parameter_table.py")
@@ -2391,7 +2418,8 @@ BOARD = [
             "pool-only mutations keep all three claims red-sensitive. Across "
             "scalar, CMB, grid, and grid2d, an absent cut block means the full "
             "table and active cuts give the exact maximum legal staging size. "
-            "Generator checkpoint and readback adoption remain OPEN",
+            "Generator checkpoint/readback adoption is proved separately by "
+            "checkpoint-refusal",
        evidence=(Assertion(
                    "parameter-table.schema-and-layout",
                    "data-generation-and-cuts.md#parameter-table-schema-and-layout"),
@@ -2410,6 +2438,47 @@ BOARD = [
                "emulator/losses"),
          inputs=()),
        needs=("torch",)),
+  Gate(id="checkpoint-refusal",
+       spec_code="GEN-D",
+       title="Requested checkpoint failures stop before fresh generation",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the bounded Unit-8 fail-closed-load slice: fresh mode may report "
+            "checkpoint absence, while requested resume/append require every "
+            "member in each current family census; named-table layout, an "
+            "unexpected exact-stem sidecar, nonfinite cells, and failure-flag "
+            "corruption refuse; "
+            "background/MPS axes and CMB "
+            "width match the configured geometry; and no requested-load "
+            "failure may reach sampling or change surviving checkpoint "
+            "bytes/timestamps. A valid resume also avoids sampling. Removing "
+            "the preflight, semantic checks, geometry checks, exception "
+            "propagation, or operation routing must red the affected AID. "
+            "Manifest authentication, atomic publication, append RNG "
+            "continuation, and chain/full isolation remain OPEN",
+       evidence=(Assertion(
+                   "checkpoint-refusal.missing-member",
+                   "data-generation-and-cuts.md#checkpoint-refusal-missing-member"),
+                 Assertion(
+                   "checkpoint-refusal.corrupt-load",
+                   "data-generation-and-cuts.md#checkpoint-refusal-corrupt-load"),
+                 Assertion(
+                   "checkpoint-refusal.no-fresh-fallback",
+                   "data-generation-and-cuts.md#checkpoint-refusal-no-fresh-fallback"),
+                 Assertion(
+                   "checkpoint-refusal.family-geometry",
+                   "data-generation-and-cuts.md#checkpoint-refusal-family-geometry")),
+       run=gate_generator_checkpoint_refusal,
+       manifest=Manifest(
+         code=("compute_data_vectors/generator_core.py",
+               "compute_data_vectors/dataset_manifest.py",
+               "compute_data_vectors/dataset_generator_background.py",
+               "compute_data_vectors/dataset_generator_cmb.py",
+               "compute_data_vectors/dataset_generator_mps.py",
+               "emulator/fixed_facts.py",
+               "emulator/parameter_table.py"),
+         inputs=()),
+       needs=()),
   Gate(id="cli-strict",
        spec_code="CLI-A",
        title="Every public executable rejects a misspelled flag",
