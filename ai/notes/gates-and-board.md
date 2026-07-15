@@ -14843,3 +14843,54 @@ detection, global locking, publication fencing, containment, branch identity,
 and archive bounds load-bearing. Two independent final reviews returned GO;
 no P0/P1 defect remains. Verdict: **GO**; the persistent-primary unit is
 closed.
+
+## Documentation tree rename audit (Codex, 2026-07-15): GO
+
+The live `texnotes/` tree now exists only as `documentation/`, and the root
+`activation_functions_teaching.nb` now lives beside those materials as
+`documentation/activation_functions_teaching.nb`. All 22 tracked artifacts
+have one destination. Eighteen are byte-identical to their old-path source;
+the only expected content changes are the guide's current asset/build paths,
+the two figure-script examples, and the rebuilt guide PDF. The notebook itself
+is byte-identical. No compatibility directory, duplicate, or root-level
+notebook remains.
+
+Current README links, TeX includes, scratch ignores, guide-currency notes, and
+role instructions resolve through `documentation/`. Custody remains narrow:
+TeX sources under that directory are red-team-owned; moving the Mathematica
+notebook there does not silently broaden the custody rule. Dated audit commands
+and historical scope statements retain their original `texnotes/` spelling so
+their evidence remains executable against the commits it describes. A scan
+outside those historical notes finds no operational old-path consumer.
+
+The guide builds from the repository root in two clean `pdflatex` passes. The
+longer destination name initially exposed one overfull path; using a breakable
+`\path{documentation/emulator_code_guide.pdf}` removes it. The final log has no
+LaTeX/package warning, undefined or multiply-defined reference, overfull box,
+emergency, or fatal line. The tracked PDF is 83 pages, contains no embedded
+`texnotes` path, and all 83 rendered thumbnails plus the changed page were
+visually inspected without clipping, missing artwork, overlap, or blank pages.
+
+Focused evidence on the frozen content:
+
+```text
+python documentation/make_figures.py                                      rc 0  12 builders
+python documentation/render_readme_previews.py                            rc 0  4 previews
+python -B -m py_compile documentation/make_figures.py \
+  documentation/render_readme_previews.py                                 rc 0
+pdflatex ... documentation/emulator_code_guide.tex (two passes)           rc 0, 83 pages, no warning/overfull/undefined/fatal line
+README documentation-target census                                        10/10 resolve
+TeX artwork/figure target census                                           12/12 resolve
+python3 -B ai/gates/checks/board_selftest.py                               rc 0  ALL PASS
+python3 -B ai/gates/run_board.py --list                                    rc 0
+Cosmology Python -B -m unittest discover -s ai/tests -p 'test_*.py'        rc 0  44/44
+```
+
+The full board preflight was also attempted under the Cosmology Python. Torch
+imports, but CUDA, CosmoLike, Cobaya, configured `ROOTDIR`, the driver root,
+and external YAML tree are unavailable on this Mac; those existing workstation
+requirements remain owed and do not touch this filesystem-only unit. Both
+independent read-only reviews returned GO. The unrelated dirty mailbox incident
+note remains excluded and byte-exact at SHA-256
+`f3a28e1e9ec4f4b9bd68c0cf1e863f444bc7b0a95420a3609a5364c7ab868810`.
+Verdict: **GO**; the documentation-tree rename is closed.

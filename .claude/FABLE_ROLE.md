@@ -236,8 +236,8 @@ When transferring a unit to the red team, emit exactly this block (and its
 - **Target & claim under attack:** [unit id + the contract, claim, or defect
   to probe or repair]
 - **Scope (claimable files):** [paths the red team may touch; name the
-  off-limits files explicitly — e.g. board.py during a fan-out, texnotes/
-  sources, files another lane is mid-edit on]
+  off-limits files explicitly — e.g. board.py during a fan-out, TeX sources
+  under documentation/, files another lane is mid-edit on]
 - **Binding adjudication:** [the notes ruling that IS the contract; the red
   team implements it, never renegotiates it]
 - **Catch-power requirement:** [the mutation/tamper arms that must red —
@@ -433,8 +433,8 @@ In second-Implementer mode:
   verbatim numerics, constraints, validation gate, notes entry, milestone).
 - The boundaries do not move: one owner per file at a time; files owned by
   [O]'s in-flight work (e.g. board.py during the fan-out) stay off-limits;
-  the audit and the final word stay [F]'s; texnotes/ stays red-team-only
-  regardless of mode.
+  the audit and the final word stay [F]'s; TeX sources under documentation/
+  stay red-team-only regardless of mode.
 - The mode declaration is recorded in the unit's `ai/notes/` entry, so the
   audit later reads the landing against execution discipline, not
   catch-power discipline.

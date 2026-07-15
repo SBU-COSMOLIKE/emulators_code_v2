@@ -8,8 +8,8 @@ PNG is a fixed-resolution preview of that source.
 
 Run both commands from the repository root::
 
-    python texnotes/make_figures.py
-    python texnotes/render_readme_previews.py
+    python documentation/make_figures.py
+    python documentation/render_readme_previews.py
 
 The preferred renderer is Poppler's ``pdftoppm`` command.  When it is absent,
 Ghostscript's ``gs`` renders the same PDF at the same resolution.  Either way

@@ -912,9 +912,9 @@ YAML trains; the per-family wrappers accept their own block. The census
 confirms the four cosmic_shear drivers default `family=cosmolike`, always
 check, and drop the dispatcher prose.
 
-## Texnotes Current-gap paragraphs: triage + the currency rule (Architect, 2026-07-13)
+## Documentation Current-gap paragraphs: triage + the currency rule (Architect, 2026-07-13)
 
-texnotes/emulator_code_guide.tex teaches the package with labeled
+documentation/emulator_code_guide.tex teaches the package with labeled
 "Current gap" paragraphs (20 as of 2026-07-13) so a reader never
 mistakes documented intent for shipped behavior. Architect triage of
 all 20 against HEAD:
@@ -950,7 +950,7 @@ all 20 against HEAD:
   families-background-mps.md "USER RULING (2026-07-13)").
 
 THE CURRENCY RULE + GUIDE CUSTODY (binding; ownership corrected by
-USER RULE the same day): texnotes/emulator_code_guide.tex is
+USER RULE the same day): documentation/emulator_code_guide.tex is
 RED-TEAM-OWNED — neither the Architect nor the Implementer edits it
 (user instruction, 2026-07-13). A landing that changes behavior
 taught by a Current-gap paragraph therefore does NOT carry the guide

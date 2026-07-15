@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Build every vector figure used by ``emulator_code_guide.tex``.
 
-The manuscript uses the generated PDF files in ``texnotes/figures`` directly.
+The manuscript uses the generated PDF files in ``documentation/figures`` directly.
 This script uses ReportLab's PDF drawing primitives, so every line, curve,
 arrow, and label remains vector artwork.  No screen capture or raster image is
 embedded in the paper.
 
 Run from the repository root with the bundled document runtime::
 
-    python texnotes/make_figures.py
+    python documentation/make_figures.py
 
 Each ``make_figure_*`` function owns one numbered figure.  Keeping one owner
 per figure makes the plotted values, explanatory labels, and manuscript file

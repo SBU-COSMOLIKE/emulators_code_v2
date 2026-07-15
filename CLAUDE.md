@@ -79,7 +79,7 @@ delegation choice:
   `[[links]]` it cites. Writers: Architect = design specs and milestone
   records; Implementer = resume state appended to the handoff's entry
   (`.md` files are fine). The ONE carve-out (USER RULE 2026-07-13): the
-  `texnotes/` TeX sources are red-team-owned — neither the Architect nor
+  `documentation/` TeX sources are red-team-owned — neither the Architect nor
   the Implementer edits them; a landing that changes taught behavior NAMES
   the affected guide passage in its notes entry instead.
 

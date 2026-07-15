@@ -18,9 +18,9 @@
 
 # LaTeX scratch files.  Keep the reader-facing PDF and vector figures tracked;
 # these files are compiler state that is regenerated during every clean build.
-texnotes/*.aux
-texnotes/*.log
-texnotes/*Notes.bib
+documentation/*.aux
+documentation/*.log
+documentation/*Notes.bib
 
 # agent relay transport (never committed)
 ai/notes/mailbox/
