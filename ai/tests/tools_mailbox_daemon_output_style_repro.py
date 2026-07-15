@@ -14,7 +14,7 @@ import types
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
-README_PATH = AI_ROOT / "README.md"
+README_PATH = AI_ROOT / "tools" / "README.md"
 ALLOWED_TERMINAL_ACRONYMS = {
     "AGENT", "CLI", "MINUTES", "NUL", "TOKENS", "UTF",
 }

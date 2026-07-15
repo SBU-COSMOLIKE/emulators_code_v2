@@ -14,7 +14,8 @@ production inference.
 CoCoA SONIC fits fast emulators to tables produced by slower cosmology codes.
 An emulator is a trained approximation that reproduces an expensive
 calculation quickly enough to use inside parameter inference.
-Start with one existing training YAML and one `*_train_emulator.py` driver.
+Start with one existing training YAML configuration file and one
+`*_train_emulator.py` driver.
 The detailed mathematics, campaign tools, family guides, and implementation
 diagrams are retained in the [question-led appendices](#faq-appendices).
 
@@ -65,7 +66,7 @@ The package layout and change-to-file guide live in
 
 ## 1. Install and check the environment <a id="start-install"></a>
 
-CoCoA SONIC normally lives inside a CoCoA checkout at
+CoCoA SONIC normally lives inside an installed CoCoA project folder at
 `$ROOTDIR/external_modules/code/emulators_code_v2`. Install and compile CoCoA
 first by following the
 [CoCoA installation README](https://github.com/CosmoLike/cocoa#required_packages_conda),
@@ -80,9 +81,8 @@ D=external_modules/code/emulators_code_v2
 python "$D/cosmic_shear_train_emulator.py" --help
 ```
 
-`start_cocoa.sh` defines `$ROOTDIR` and activates that checkout's private
-Python environment. Replace `/path/to/cocoa/Cocoa` with your installed CoCoA
-folder.
+`start_cocoa.sh` defines `$ROOTDIR` and activates that project's private Python
+environment. Replace `/path/to/cocoa/Cocoa` with your installed CoCoA folder.
 
 The cosmic-shear path also needs the compiled CoCoA/CosmoLike installation.
 `--root` selects the project, while the YAML names the CosmoLike dataset files.
@@ -3715,5 +3715,7 @@ ordered implementation or candidate-repair directives so the Implementer may
 be a simpler model and still work without inventing design decisions.
 
 That workflow is separate from the emulator library documented above, so it
-has its own guide. [`ai/README.md`](ai/README.md) explains the roles, mailbox
-program, model choices, and setup on another computer.
+has its own guides. [`ai/README.md`](ai/README.md) explains the roles and walks
+through a first ticket. [`ai/tools/README.md`](ai/tools/README.md) helps the
+user choose a command, understand what it changes, stop it safely, recover
+from common problems, and transfer unfinished local work.
