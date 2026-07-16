@@ -10,11 +10,17 @@ The filenames inside these templates are examples. The training arrays,
 parameter tables, and saved models are not stored in this folder.
 
 ```mermaid
-flowchart TD
-  A["Choose what to predict"] --> B["Copy the closest file"]
-  B --> C["Change data and run settings"]
-  C --> D["Check the YAML syntax"]
-  D --> E["Run the matching program"]
+flowchart TB
+  A["1. Choose<br/>the physical result"]
+  B["2. Copy<br/>one example YAML"]
+  C["3. Edit<br/>data and run settings"]
+  D["4. Check<br/>the YAML syntax"]
+  E["5. Run<br/>the matching program"]
+
+  A --> B
+  B --> C
+  C --> D
+  D --> E
 ```
 
 In words: choose the physical quantity first, copy its example, change the
