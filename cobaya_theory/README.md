@@ -22,7 +22,7 @@ CoCoA SONIC currently uses NumPy 1.x. Keep the supplied CoCoA environment; do
 not upgrade it to NumPy 2.
 
 ```mermaid
-flowchart LR
+flowchart TD
   C["Cobaya chooses parameters"] --> A["The adapter runs the configured saved emulators"]
   A --> P["The emulator returns a prediction"]
   P --> L["The likelihood scores the prediction"]
@@ -257,8 +257,8 @@ this likelihood can run together. It does not prove emulator accuracy across
 all allowed parameter ranges. Compare the emulator with **held-out validation
 data**—examples that were not used for training—before starting an MCMC.
 
-The [main CoCoA SONIC guide](../README.md#run-the-saved-emulator-in-a-cobaya-mcmc)
-shows how to change a checked evaluate file into an MCMC file.
+After the validation comparison passes, follow the
+[evaluate-to-MCMC procedure](#faq-b8) below.
 
 ---
 
@@ -272,9 +272,10 @@ specific error.
 
 ## FAQ A1. Why does one saved emulator have two files? <a id="faq-a1"></a>
 
-The `.h5` file records the network recipe, parameter names, training ranges,
-output description, and fixed scientific settings. The `.emul` file records
-the learned network weights.
+The `.h5` file records the model settings needed to rebuild the network,
+parameter names, `input_domain` (the parameter region sampled during data
+generation), output description, and fixed scientific settings. The `.emul`
+file records the learned network weights.
 
 The adapter opens both files when Cobaya starts. Moving one file is allowed
 only if you move its matching partner and keep the shared root. Never combine
@@ -346,16 +347,25 @@ settings with the active Cobaya settings. A **fixed setting** is a quantity
 held constant rather than sampled. A mismatch stops startup.
 
 At each prediction, every network input recorded in a saved file must be named
-and inside that file's training range. Extra values requested by an adapter,
-such as `fast_params` or the Syren inputs used by the matter-power adapter,
-do not have a saved training range in that adapter.
+and inside that file's `input_domain`. This block records one lower and one
+upper bound for each parameter sampled by the data generator. Extra values
+requested by an adapter, such as `fast_params` or the Syren inputs used by the
+matter-power adapter, do not have a saved `input_domain` bound in that adapter.
 
 Cobaya passes parameters by name, so their YAML order does not choose the
 network order. Missing saved input names and saved inputs outside their
-recorded ranges are refused.
+`input_domain` bounds are refused.
 
-These checks catch file and configuration disagreements. They do not measure
-the emulator's validation accuracy.
+The `input_domain` is not the range of rows that actually trained the network.
+Training can remove generated rows with `data.param_cuts` and then retain only
+the requested training and validation rows; those later choices do not change
+`input_domain`. A point that passes this boundary check may still be far from
+the retained rows, so the check does not prove interpolation.
+
+Here, **interpolation** means predicting between nearby examples used to fit
+the network. Before an MCMC, inspect the retained-row coverage after cuts and
+require held-out validation to meet the analysis accuracy target across the
+planned priors.
 
 ## FAQ A5. Which device should I request? <a id="faq-a5"></a>
 
@@ -530,6 +540,46 @@ The intended EMUL2 pair uses the `syren_linear` formula for `pklin` and
 Run them in that order: setup-only check, one-point evaluation, validation
 comparison, then MCMC.
 
+To convert the checked evaluate file into an MCMC file:
+
+1. From `$ROOTDIR`, use an editor or file manager to manually copy the checked
+   YAML to a new filename under `$ROOTDIR/projects/<project>/`. For this
+   guide, copy `projects/lsst_y1/my_emulator_evaluate.yaml` to
+   `projects/lsst_y1/my_emulator_mcmc.yaml`.
+2. In the copy, keep the checked `likelihood`, `params`, and `theory` blocks,
+   including the saved-emulator roots. Remove the complete `evaluate` entry,
+   including its `N` and `override` entries, and make `mcmc` the only child of
+   `sampler`. Supply the MCMC settings from a scientifically reviewed Cobaya
+   file for this project.
+3. Recheck the sampled parameters' priors and proposal settings, which control
+   how the MCMC suggests its next moves. MCMC draws points from the `params`
+   configuration; it does not use the deleted one-point `override`. Keep the
+   planned priors within the retained-row coverage where held-out validation
+   meets the target described in [FAQ A4](#faq-a4).
+4. Change `output` to a new prefix. Do not add `force: true` or start with
+   `--force`, because either can overwrite files from an earlier run.
+
+The repository's
+[internal MCMC smoke file](../ai/gates/configs/cobaya-adapter-mcmc.yaml) shows
+the verified block shape and the keys `max_samples`, `burn_in`, and
+`max_tries`. Its values run only a short connection check with 500 samples and
+no burn-in; they are not settings for a scientific chain. If the project has
+no reviewed MCMC settings, choose its stopping, burn-in, and proposal policy
+with the analysis owners before running.
+
+Check the converted file once, then start the MCMC from `$ROOTDIR`:
+
+```bash
+cd "$ROOTDIR"
+CONFIG=projects/lsst_y1/my_emulator_mcmc.yaml
+cobaya-run --test --no-mpi "$CONFIG"
+cobaya-run "$CONFIG"
+```
+
+The second command repeatedly evaluates the likelihood and writes the chain
+under the new `output` prefix. A completed command still requires the usual
+convergence checks and does not replace the held-out emulator validation.
+
 ## FAQ B9. May I reuse an output name? <a id="faq-b9"></a>
 
 Use a new `output` prefix for a changed experiment. An old
@@ -685,7 +735,7 @@ They answer different questions.
 | The saved emulator belongs in another adapter | The file predicts another physical family | Return to the chooser table |
 | Saved settings do not match the Cobaya model | Files and current fixed cosmology disagree | Use files trained for this model or correct the YAML |
 | A parameter is not provided | A saved input name cannot reach the adapter | Compare saved names with `params` and calculated names |
-| A value lies outside the training range | The requested point exceeds saved limits | Correct the point or train for a wider range |
+| A value lies outside the sampled generator region | The requested point exceeds the saved `input_domain` bounds | Correct the point or generate data over the needed region, then retrain |
 | Requested spectrum or multipole is unavailable | A cosmic-microwave-background file or stored $\ell$ range is missing | Add the correct spectrum or reduce the request |
 | Requested redshift is unavailable | The point lies outside the background-expansion windows | Check both saved redshift ranges |
 | Matter-power grids differ | The `pklin` and `boost` files use different axes | Use a pair generated on the same grid |
@@ -714,15 +764,18 @@ Move to an MCMC only after all of these are true:
 
 - the YAML syntax check and `cobaya-run --test` pass;
 - the one-point evaluation finishes with finite prior and likelihood values;
-- held-out validation meets the accuracy requirement for the analysis;
-- the saved training ranges contain the planned priors;
+- held-out validation meets the accuracy requirement across the planned
+  priors;
+- the saved sampled generator region contains the planned priors;
+- the training and validation rows retained after `param_cuts` cover the
+  planned priors closely enough to test that region;
 - units, parameter names, and fixed cosmology agree;
 - background-expansion runs are flat and matter-power runs account for the
   `sigma8` definition;
 - the MCMC uses a new output prefix.
 
-The [main README](../README.md#run-the-saved-emulator-in-a-cobaya-mcmc)
-contains the short MCMC conversion. Its appendices explain
+The conversion steps are in [FAQ B8](#faq-b8). The main README appendices
+explain
 [scalar outputs](../README.md#14-scalar-derived-parameter-emulators),
 [CMB spectra](../README.md#15-emulating-cmb-spectra-tt--te--ee--phi-phi),
 [background quantities](../README.md#16-emulating-the-expansion-history-hz-bao-and-sn-distances),
@@ -730,10 +783,160 @@ and [matter power](../README.md#17-emulating-the-matter-power-spectrum-hybrid-in
 
 ## FAQ D5. Can I call a saved emulator without Cobaya? <a id="faq-d5"></a>
 
-Yes. Use `EmulatorPredictor` when a Python script needs a prediction but no
-likelihood or Cobaya sampler. The
-[direct-scripting appendix](../README.md#23-appendix-scripting-a-saved-emulator-without-cobaya)
-gives the current Python interface and return shapes.
+Yes. Use `EmulatorPredictor` for a plot, a check at one parameter point, a
+profile scan, or a Python loop over many points. A **profile scan** varies one
+parameter while holding the others fixed. The predictor checks that every
+requested point lies inside the saved `input_domain`: one lower and one upper
+bound for each parameter sampled by the data generator.
 
-Use the adapters in this folder when Cobaya must decide parameter values,
-connect predictions to a likelihood, and write sampling output.
+This boundary does not record which generated rows later survived
+`data.param_cuts` or which rows were retained for training. Passing it does
+not prove that the network is interpolating between nearby retained rows or
+that its error is acceptable. Inspect the retained-row coverage and held-out
+validation before using a direct prediction in a scientific result.
+
+Use the adapters in this folder when Cobaya must choose the points, pass the
+prediction to a likelihood, or write MCMC output.
+
+### Load one saved root
+
+A saved **root** is the common path before `.h5` and `.emul`. For example,
+the root
+
+```text
+$ROOTDIR/projects/lsst_y1/emulators/thetaH0/emul_v2
+```
+
+names these two files:
+
+```text
+emul_v2.h5
+emul_v2.emul
+```
+
+Start CoCoA as described in [Prepare CoCoA](#prepare-cocoa). Save the
+following script as `$ROOTDIR/direct_emulator_example.py`. Replace
+`artifact_root` with the root from your own training run. Replace `point` with
+one value for every name printed by `predictor.names`.
+
+```python
+import os
+import sys
+
+repository_path = os.path.join(
+    os.environ["ROOTDIR"],
+    "external_modules/code/emulators_code_v2",
+)
+sys.path.insert(0, repository_path)
+
+from emulator.inference import EmulatorPredictor
+
+artifact_root = os.path.join(
+    os.environ["ROOTDIR"],
+    "projects/lsst_y1/emulators/thetaH0/emul_v2",
+)
+predictor = EmulatorPredictor(artifact_root, device="cpu")
+
+print("required inputs:", predictor.names)
+
+# This point fits a scalar emulator whose inputs have these three names.
+point = {
+    "omegabh2": 0.02238,
+    "omegach2": 0.1201,
+    "thetastar": 1.04109,
+}
+result = predictor.predict(point)
+print("prediction:", result)
+```
+
+Run it from `$ROOTDIR`:
+
+```bash
+python direct_emulator_example.py
+```
+
+A successful scalar example first prints `required inputs: [...]`, then a
+`prediction: {...}` dictionary. The script reads the two saved files and does
+not change either one. A missing input name raises an error that names the
+missing parameter. A point outside the `input_domain` region sampled by the
+data generator is also refused; a point inside it still needs the retained-row
+and validation checks above.
+
+`device="cpu"` works without a GPU. Use `device="cuda"` on a machine with a
+configured CUDA device. The optional `compile_model` argument is `False` by
+default because compilation usually costs more time than it saves for
+single-point calls.
+
+### Read the return value
+
+`predictor.predict(point)` returns a different Python object for each physical
+family. The axes and quantity names are also available on the predictor.
+
+| Saved family | Return value | How to read it |
+| --- | --- | --- |
+| Cosmic-shear data vector | One-dimensional NumPy array | The default contains the saved probe section. Construct the predictor with `dv_return="3x2pt"` to place retained entries in the full 3x2pt layout and fill omitted positions with zero. |
+| Named scalar outputs | `{name: value}` dictionary of Python floats | `predictor.output_names` lists the returned names. A profile scan reads the needed value from this dictionary at each point. |
+| CMB spectrum | One-dimensional NumPy array | `predictor.ell` is the matching multipole grid and `predictor.units` gives the stored units. The saved amplitude law has already been reversed, so the array contains physical $C_\ell$ values. |
+| Background function | `{"z": grid, "<quantity>": values}` | `predictor.quantity` names the function and `predictor.units` gives its units. A `Hubble` result is in km/s/Mpc. |
+| Matter-power grid | `{"z": grid, "k": grid, "<quantity>": surface}` | The surface has shape `(number of z points, number of k points)`. `predictor.law` states whether it is the raw surface or a stored log-ratio. The direct predictor does not multiply a Syren base back into that surface. |
+
+For a matter-power artifact with `predictor.law == "syren_linear"`, the
+returned `pklin` surface is $\log(P/P_{\rm Syren})$. For
+`predictor.law == "syren_halofit"`, the returned `boost` surface is the
+corresponding stored log-ratio. The `emul_mps` Cobaya adapter performs the
+base reconstruction described in [FAQ C5](#faq-c5).
+
+### Use scalar outputs in a profile scan
+
+A scalar emulator returns named values. The common `thetaH0` emulator, for
+example, returns `H0` and `omegam`:
+
+```python
+output = predictor.predict({
+    "omegabh2": 0.02238,
+    "omegach2": 0.1201,
+    "thetastar": 1.04109,
+})
+h0 = output["H0"]
+omega_m = output["omegam"]
+```
+
+Evaluate this block once for each profile point. Keep every point inside the
+sampled generator region recorded by the saved emulator; `predict` refuses a
+point outside that region. Also keep the scan within the region covered by
+rows retained after `param_cuts`, and check held-out errors there.
+
+### Turn a saved Hubble curve into distances
+
+A background emulator returns its function on the stored redshift grid. For a
+`Hubble` artifact, the shared helper in `emulator/background.py` integrates
+that curve and returns distance functions:
+
+```python
+from emulator.background import distance_interpolators
+
+output = predictor.predict(point)
+distances = distance_interpolators(
+    z_grid=output["z"],
+    h_grid=output["Hubble"],
+)
+
+luminosity_distance = distances["dl"](1.5)  # Mpc
+hubble_at_half = distances["H"](0.5)         # km/s/Mpc
+```
+
+Use this block only with a predictor whose `quantity` is `Hubble`. The helper
+uses the same flat-universe distance calculation as `emul_baosn`.
+
+### Check the saved-file version
+
+The `.h5` file stores a `schema_version` number that identifies its file
+format. The current `EmulatorPredictor` accepts version 3 only. It refuses a
+file with no version or a different version instead of guessing which
+information the file contains.
+
+Older `.joblib`, `.pt`, and file-format-version-2 files are not inputs to this
+predictor. Regenerate the training data so the producer writes its
+`.facts.yaml` record, then retrain and save the emulator with the current
+code. Such files cannot be upgraded in place because they do not contain the
+fixed-cosmology and `input_domain` records that the current reader checks.

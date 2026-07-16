@@ -460,11 +460,14 @@ data:
 The five filenames directly under `data`—`train_dv`, `val_dv`, `train_params`,
 `val_params`, and `train_covmat`—are read from
 `$ROOTDIR/<project>/chains/`. The `z_file` name inside the `grid` group is
-instead read from the folder where training starts. With the documented
-`$ROOTDIR` launch, `start_cocoa.sh` makes that generated file available there
+instead read from the folder where training starts.
+
+With the documented `$ROOTDIR` launch, `start_cocoa.sh` makes that
+generated file available there
 through a symbolic link (a short pointer to the file in `chains`). The bare
-name therefore works without copying the data. The complete background trainer
-example is
+name therefore works without copying the data.
+
+The complete background trainer example is
 [`example_yamls/baosn_hubble_emulator.yaml`](../example_yamls/baosn_hubble_emulator.yaml).
 The CMB and matter-power trainer examples are
 [`cmb_emulator.yaml`](../example_yamls/cmb_emulator.yaml) and
@@ -473,9 +476,9 @@ The CMB and matter-power trainer examples are
 Those three files configure emulator training. Do not pass them to a program
 in this folder as generator YAMLs.
 
-The main README explains how to
-[train the saved tables](../README.md#start-run) and gives the longer
-[training-data discussion](../README.md#18-generating-the-training-set).
+After generating and checking the tables, follow the main README to
+[train the saved tables](../README.md#start-run). The appendices below are the
+detailed reference for generating those tables.
 
 ---
 
@@ -724,7 +727,106 @@ $ROOTDIR/projects/cmb/chains/cmb_covariance.npz
 Gaussian mode performs one fiducial CAMB calculation. It writes the
 multipole coordinates, per-spectrum standard deviations, Gaussian
 cross-spectrum terms, fiducial spectra, and a JSON provenance record inside
-the `.npz` file.
+the `.npz` file. Here **fiducial** means the fixed reference cosmology, and
+**provenance** means the saved record of how the file was made.
+
+### Which Gaussian covariance does the file contain?
+
+The Gaussian calculation uses raw angular power spectra, denoted by
+$C_\ell^{XY}$. Here $X$ and $Y$ are either temperature $T$ or E-mode
+polarization $E$. TT, TE, and EE spectra and their noise powers are in
+$\mu\mathrm{K}^2$, where $\mu\mathrm{K}$ means microkelvin. The PP spectrum,
+$C_\ell^{PP}=C_\ell^{\phi\phi}$, is the dimensionless lensing-potential
+spectrum.
+
+The experiment YAML gives a map-noise amplitude $\Delta_{XY}$ in
+$\mu\mathrm{K}$-arcmin and a beam full width at half maximum $b$ in
+arcminutes. Let
+
+$$
+q={\pi\over 180\times60}
+$$
+
+convert arcminutes to radians. The program calculates the instrumental noise
+power
+
+$$
+N_\ell^{XY}=(q\Delta_{XY})^2
+\exp\!\left[{\ell(\ell+1)(qb)^2\over8\ln 2}\right]
+$$
+
+for TT, TE, and EE. The configured names are `delta_tt`, `delta_te`,
+`delta_ee`, and `beam_fwhm`. A zero `delta_te` means that the temperature and
+polarization map noise is uncorrelated. The program also requires
+$\Delta_{TE}^2\leq\Delta_{TT}\Delta_{EE}$; otherwise the two-field noise
+covariance is not physically valid.
+
+Define the signal-plus-noise spectra and the number of observed modes as
+
+$$
+\overline C_\ell^{XY}=C_\ell^{XY}+N_\ell^{XY},
+\qquad
+d_\ell=(2\ell+1)f_{\rm sky}.
+$$
+
+The symbols in these equations mean:
+
+| Symbol | Meaning |
+| --- | --- |
+| $\ell$ | integer angular multipole, from 2 through the configured `lmax` |
+| $X,Y,W,Z$ | field labels: temperature $T$ or E-mode polarization $E$ |
+| $q$ | conversion from arcminutes to radians, $\pi/(180\times60)$ |
+| $\Delta_{XY}$ | configured map-noise amplitude for fields $X,Y$, in $\mu\mathrm{K}$-arcmin |
+| $b$ | configured beam full width at half maximum, in arcminutes |
+| $\ln 2$ | natural logarithm of 2, used in the Gaussian beam factor |
+| $C_\ell^{XY}$ | fiducial signal spectrum returned by CAMB for fields $X$ and $Y$ |
+| $N_\ell^{XY}$ | beam-amplified instrumental noise power calculated above |
+| $\overline C_\ell^{XY}$ | signal plus noise, $C_\ell^{XY}+N_\ell^{XY}$ |
+| $f_{\rm sky}$ | fraction of the sky observed by the experiment; the YAML requires $0<f_{\rm sky}\leq1$ |
+| $d_\ell$ | approximate number of measured modes at multipole $\ell$ after the sky-fraction correction |
+| $V_\ell^{XY}$ | Gaussian variance of the named spectrum at one multipole |
+| $\sigma_\ell^{XY}$ | positive error scale saved in the `.npz`, equal to $\sqrt{V_\ell^{XY}}$ |
+| $G_\ell^{XY,WZ}$ | saved Gaussian covariance between two different spectra at the same multipole |
+
+The four per-spectrum variances are
+
+$$
+\begin{aligned}
+V_\ell^{TT} &={2(\overline C_\ell^{TT})^2\over d_\ell},\\
+V_\ell^{TE} &={\overline C_\ell^{TT}\overline C_\ell^{EE}
+                    +(\overline C_\ell^{TE})^2\over d_\ell},\\
+V_\ell^{EE} &={2(\overline C_\ell^{EE})^2\over d_\ell},\\
+V_\ell^{PP} &={2(C_\ell^{PP})^2\over d_\ell}.
+\end{aligned}
+$$
+
+Gaussian mode also saves the same-multipole cross-spectrum blocks
+
+$$
+\begin{aligned}
+G_\ell^{TT,TE} &={2\overline C_\ell^{TT}\overline C_\ell^{TE}\over d_\ell},\\
+G_\ell^{TT,EE} &={2(\overline C_\ell^{TE})^2\over d_\ell},\\
+G_\ell^{TE,EE} &={2\overline C_\ell^{EE}\overline C_\ell^{TE}\over d_\ell}.
+\end{aligned}
+$$
+
+These arrays are saved as `gauss_tt_te`, `gauss_tt_ee`, and
+`gauss_te_ee`. Gaussian mode treats different multipoles as uncorrelated. The
+optional non-Gaussian calculation described below adds correlations between
+multipoles.
+
+The PP variance above follows the saved-file policy that the program calls
+V1. It contains cosmic variance but omits lensing reconstruction noise
+$N_\ell^{(0)}$, the noise from reconstructing the lensing potential from CMB
+maps. The provenance record saves this omission under `pp_noise_n0`.
+
+This equation is not a general PP covariance formula. Adding reconstruction
+noise requires a new declared policy and a newly generated covariance file.
+
+All of these equations use one fixed flat-$\Lambda$CDM fiducial cosmology and
+the sky-fraction mode-counting approximation. They use raw $C_\ell$, not the
+$\ell(\ell+1)C_\ell/(2\pi)$ plotting convention. The trainer reads the four
+saved `sigma_*` arrays as its diagonal error scales.
 
 `cov_args.nongaussian.enabled: true` adds six dense covariance blocks. Its
 re-lensing count is:
@@ -747,6 +849,32 @@ describe the same multipoles.
 # Appendices about sampling and computing <a id="appendices-about-sampling-and-computing"></a>
 
 ## FAQ B1. What is the difference between uniform and tempered sampling? <a id="faq-b1-sampling-modes"></a>
+
+### Why should the sampled region extend past the posterior?
+
+The **posterior** is the region of parameter space favored after combining a
+prior with the data likelihood. The **training support** is the region covered
+by the cosmologies supplied to the emulator. A later inference run should not
+need the emulator to predict beyond that training support.
+
+[![Conceptual two-parameter picture with a posterior-like ellipse inside a broader training region](../documentation/figures/fig03_training_cloud.png)](../documentation/figures/fig03_training_cloud.pdf)
+
+The two axes stand for any two sampled cosmological parameters. The blue
+ellipse is a posterior-like region. The wider orange region is the intended
+training coverage. This is a teaching picture, not a contour measured from a
+saved dataset.
+
+For tempered sampling, `--temp` broadens the covariance used by the linked
+random walks in emcee, the sampling program described below. `--maxcorr`
+limits the magnitude of its correlations, which prevents the sampled region
+from remaining extremely thin across a strong parameter degeneracy. A
+**degeneracy** is a direction in which several parameter combinations give
+similar likelihood values.
+
+Validation rows should remain inside the training support. A valid
+`--boundary` value below one contracts each allowed interval before those
+rows are drawn. Uniform sampling follows the final allowed intervals rather
+than the ellipses in this picture.
 
 `--unif 1` draws each parameter inside allowed intervals derived from the
 Cobaya prior. For a finite prior, each interval begins with the stated lower
