@@ -188,6 +188,7 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
 from emulator.results import executed_composition, save_emulator
+from emulator.warmstart import finetune_provenance_attrs
 
 
 def run_tag(cfg, exp):
@@ -397,13 +398,13 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
            "device":      str(exp.device),
            "train_dv":    os.path.basename(cfg["data"]["train_dv"]),
            "val_dv":      os.path.basename(cfg["data"]["val_dv"])}
-  # fine-tune warm start: stamp the resolved source path root and the
-  # extra parameter names (space-joined, "" when the new space adds none) as
-  # root attrs, so the saved artifact records what it was fine-tuned from. A
-  # plain run adds neither (its artifact stays byte-identical).
-  if exp._finetune is not None:
-    attrs["finetuned_from"] = exp._finetune.root
-    attrs["finetune_extra_names"] = " ".join(exp._finetune_extra_names)
+  # Both training drivers use one assembler for fine-tune provenance. A
+  # plain run adds nothing; a fine-tune run records its source and ordered
+  # extra parameter names.
+  attrs.update(
+    finetune_provenance_attrs(
+      source=exp._finetune,
+      extra_names=exp._finetune_extra_names))
   # transfer learning: the saved main model is the correction net, so
   # the frozen base is embedded whole (recipe + weights + both geometries +
   # form / space) as a transfer_base group, and the provenance root attrs

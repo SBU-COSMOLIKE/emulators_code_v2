@@ -2267,21 +2267,21 @@ def training_loop_batched(nepochs,
                        + " batch@" + str(s) + " grad_norm="
                        + repr(float(grad_norm))])
         optimizer.step()
-        # weight-average update (once ema is live): theta_bar <-
-        # beta*theta_bar + (1-beta)*theta, a handful of fused foreach
-        # launches (~tens of us vs the ~2 ms step). In-place on
-        # theta_bar (a private buffer, not graph-captured), reading the
-        # just-stepped params; no_grad, no autograd trail.
-        if theta_bar is not None:
-          with torch.no_grad():
-            torch._foreach_lerp_(theta_bar, ema_params, 1.0 - beta)
         # decoupled L2-SP anchor (finetune.anchor / transfer.refine): a
         # post-step pull toward the reference weights, W <- W - lr*lambda*
         # mask*(W - W_0), read the per-group lr; None = no anchor, byte-
-        # identical. After the ema update so the average sees the anchored
-        # weights (the shipped model).
+        # identical. Apply it before the average so the saved average sees
+        # the same anchored weights as the live model.
         if anchor is not None:
           anchor.apply(optimizer)
+        # weight-average update (once ema is live): theta_bar <-
+        # beta*theta_bar + (1-beta)*theta, a handful of fused foreach
+        # launches (~tens of us vs the ~2 ms step). In-place on theta_bar (a
+        # private buffer, not graph-captured), reading the stepped and then
+        # anchored parameters; no_grad, no autograd trail.
+        if theta_bar is not None:
+          with torch.no_grad():
+            torch._foreach_lerp_(theta_bar, ema_params, 1.0 - beta)
         # host float64 accumulation: read the scalar loss to the
         # host and multiply by bs there, so the product cannot overflow a
         # float32 before the sum. loss is already finite (the guard above).

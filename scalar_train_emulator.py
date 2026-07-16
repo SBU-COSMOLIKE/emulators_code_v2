@@ -90,6 +90,7 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
 from emulator.results import executed_composition, save_emulator
+from emulator.warmstart import finetune_provenance_attrs
 
 
 def run_tag(cfg, exp):
@@ -217,6 +218,12 @@ def main():
            "outputs":      " ".join(exp.outputs),
            "train_params": os.path.basename(cfg["data"]["train_params"]),
            "val_params":   os.path.basename(cfg["data"]["val_params"])}
+  # Match every other training family: a fine-tuned scalar artifact must
+  # identify the source artifact and its ordered extra parameter names.
+  attrs.update(
+    finetune_provenance_attrs(
+      source=exp._finetune,
+      extra_names=exp._finetune_extra_names))
   pce = exp.chi2fn.pce if exp.pce_opts is not None else None
   composition_mode, transfer_refined = executed_composition(
     pce=pce, transfer_base=None)

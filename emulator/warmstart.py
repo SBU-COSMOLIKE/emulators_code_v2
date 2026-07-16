@@ -142,6 +142,56 @@ class FinetuneSource:
     self.ia           = ia
 
 
+def finetune_provenance_attrs(
+    *,
+    source,
+    extra_names):
+  """Build the two saved attributes that identify a fine-tune source.
+
+  Both training drivers call this function before saving an emulator. A
+  plain run has no source and receives no fine-tune attributes. A fine-tune
+  run records the resolved source path and the ordered names of parameters
+  added by the new run.
+
+  Arguments:
+    source      = the ``FinetuneSource`` used by the run, or ``None`` for a
+                  plain run.
+    extra_names = the ordered extra parameter names. This may be empty when
+                  the new run keeps the source parameter space unchanged.
+
+  Returns:
+    an empty dict for a plain run, or the exact two root attributes required
+    for a fine-tuned artifact.
+
+  Raises:
+    ValueError if a fine-tune source has no usable path or an extra parameter
+    name is empty or is not text.
+    TypeError if ``extra_names`` is not a sequence of names.
+  """
+  if source is None:
+    return {}
+
+  root = getattr(source, "root", None)
+  if not isinstance(root, str) or not root:
+    raise ValueError(
+      "fine-tune provenance needs a nonempty resolved source path")
+  if extra_names is None or isinstance(extra_names, (str, bytes)):
+    raise TypeError(
+      "fine-tune provenance extra_names must be a sequence of names")
+
+  checked_names = []
+  for name in extra_names:
+    if not isinstance(name, str) or not name:
+      raise ValueError(
+        "fine-tune provenance contains an empty or non-text parameter name")
+    checked_names.append(name)
+
+  return {
+    "finetuned_from": root,
+    "finetune_extra_names": " ".join(checked_names),
+  }
+
+
 def validate_finetune_config(cfg, train_args, rescale, activation_flag):
   """Check the finetune YAML surface, raising a loud error on any violation.
 
