@@ -1,25 +1,64 @@
-# Developer tests and reproductions
+# Small tests for data handling, training rules, and AI tools
 
-This folder checks that a code change keeps a previously accepted behavior.
-Most files run on the CPU and finish without starting a training job. The
-longer files rebuild tool failures inside temporary folders so they do not use
-the live AI mailbox, the project folders that hold requests between roles.
+The Python files in this folder check one behavior at a time. For example, one
+test confirms that a parameter table with one row keeps the two-dimensional
+shape expected by the training programs. Another test damages a saved progress
+file inside a temporary folder and confirms that the loader refuses it without
+changing the original files.
 
-For tests that train a model or require configured scientific data, use the
-[`ai/gates/` board](../gates/README.md) instead.
+The AI development roles normally run these tests while repairing or adding a
+feature. A user can run the same commands to see the result. A test answers one
+narrow question such as the two examples above. A gate decides whether the
+complete set of evidence for a larger library promise is ready to accept. The
+next section explains why both levels are useful.
+
+Most checks run on the central processing unit (CPU) without training a model.
+Checks that need files create temporary copies and delete them afterward, so
+they do not change training data or requests saved by the AI tools.
+
+Some final decisions need a configured scientific installation, a graphics
+processing unit (GPU), or several checks taken together. The
+[`ai/gates/` guide](../gates/README.md) explains how those decisions are made.
 
 ## Contents
 
-1. [Run the usual test set](#run-the-usual-test-set)
-2. [Choose a test, reproduction, or gate](#choose-a-test-reproduction-or-gate)
-3. [Read the result](#read-the-result)
-4. [What do these files use or change?](#what-do-these-files-use-or-change)
-5. [Find the file that covers a behavior](#find-the-file-that-covers-a-behavior)
-6. [Scientific and data test inventory](#scientific-and-data-test-inventory)
-7. [AI workflow and policy test inventory](#ai-workflow-and-policy-test-inventory)
-8. [Direct reproduction inventory](#direct-reproduction-inventory)
-9. [How agents use these files](#how-agents-use-these-files)
-10. [Add or update a test](#add-or-update-a-test)
+1. [Why are tests and gates different?](#why-are-tests-and-gates-different)
+2. [Run the usual test set](#run-the-usual-test-set)
+3. [Choose a test, reproduction, or gate](#choose-a-test-reproduction-or-gate)
+4. [Read the result](#read-the-result)
+5. [What do these files use or change?](#what-do-these-files-use-or-change)
+6. [Find the file that covers a behavior](#find-the-file-that-covers-a-behavior)
+7. [Scientific and data test inventory](#scientific-and-data-test-inventory)
+8. [AI workflow and policy test inventory](#ai-workflow-and-policy-test-inventory)
+9. [Direct reproduction inventory](#direct-reproduction-inventory)
+10. [How agents use these files](#how-agents-use-these-files)
+11. [Add or update a test](#add-or-update-a-test)
+
+## Why are tests and gates different?
+
+A **test** checks one small behavior. For example, one test can confirm that a
+table with one row keeps its two-dimensional shape. Small tests run often
+while code is being written because a failure points close to the line that
+needs attention.
+
+A **gate** answers a larger question: is there enough evidence to accept one
+promise about the library? A gate may run several tests and stand-alone
+failure examples. It also checks that none of the required checks disappeared.
+When the promise needs a GPU or configured scientific data, the gate records
+that requirement. It reports `UNAVAILABLE` rather than calling an unperformed
+check a pass.
+
+The distinction is similar to work in a laboratory. One measurement checks
+one part of an experiment. The final sign-off checks that every required
+measurement was made under the right conditions. A test is the measurement;
+a gate is the sign-off. A gate often calls tests from this folder, so the two
+systems support each other.
+
+Keeping both levels has two practical benefits:
+
+- A failed test identifies a small problem quickly.
+- A gate prevents a final decision from using only the convenient tests while
+  omitting required data, hardware, or failure cases.
 
 ## Run the usual test set
 
@@ -148,7 +187,9 @@ line matched; it does not mean Python ran a test.
 
 Use the tables below when the search term appears in several files. The first
 two tables list modules found by `unittest discover`. The third lists scripts
-that must be called directly.
+that must be called directly. Each description follows the same order: the
+file or small input created by the test, the action performed, and the result
+that must be accepted or refused.
 
 ## Scientific and data test inventory
 
@@ -164,26 +205,26 @@ emulator result file.
 
 | File | What it checks |
 | --- | --- |
-| `test_background_grid_contract.py` | Accepted background quantity/unit pairs, finite offsets, saved geometry facts, and agreement with the Cobaya background reader. |
-| `test_batching_sizing.py` | The target array's exact byte cost in batch sizing and refusal when one complete batch cannot fit. |
-| `test_cmb_checkpoint_axis.py` | The exact CMB multipole axis saved with a progress file and refusal of missing, shifted, repeated, or malformed axes before spectra are read. |
-| `test_data_staging_paramnames.py` | How `.paramnames` files are chosen for numbered chains and plain data tables, plus the shared maximum row count for loading data. |
-| `test_d5_training_behavior_witnesses.py` | CPU checks for the training-gate numerical witnesses: annealing values and joins, complete head-phase learning-rate cadence, the first live EMA record, ReLU/Tanh learning against dead and mean-only controls, and changing versus frozen trunk digests. |
-| `test_dataset_publication.py` | Generated-data folders that cannot change after acceptance, SHA-256 checks of each file, competing writers, crash points, path escape attempts, links, and corrupted files. |
-| `test_dataset_request_contract.py` | The exact scientific request fields and generated member names for each supported family and sampling mode. |
-| `test_finetune_post_step_and_provenance.py` | The pull toward saved fine-tune weights happens after the optimizer step, the moving weight average sees that pull, and both drivers save the same origin facts. |
-| `test_generator_checkpoint_refusal.py` | Missing or corrupt requested progress files refuse instead of silently starting fresh, and each family names its required files and axes. |
-| `test_generator_member_binding.py` | Each generator binds its real driver, output family, variant, and exact progress-file names before it looks for an existing file. |
-| `test_generator_payload_success.py` | A generated row is marked successful only after its array shape, finite values, stored number format, and exact contents are checked again after saving; each family also checks its expected array shape. |
-| `test_generator_run_control.py` | The three generation operations, chain-only choice, strict integer switches, and the complete saved run-control record. |
-| `test_grid2d_const_mask.py` | Construction, storage, and validation of the Grid2D constant-column mask. |
-| `test_grid2d_staging_row_contract.py` | Exact original row counts and preservation of one randomly selected row order for memory-resident and disk-backed Grid2D data. |
-| `test_parameter_table.py` | Strict `.paramnames` parsing, input/output column selection, derived columns, widths, and finite numeric values. |
-| `test_results_composition_mode.py` | Agreement among the named sections saved in the result, the YAML settings after defaults are filled in, and the exact `plain`, `npce`, or `transfer` label before model construction. |
-| `test_results_const_mask_declaration.py` | A caller cannot replace the writer's Grid2D constant-column fact, and its exact saved SHA-256 value is checked. |
-| `test_results_rebuild_fixed_facts_names.py` | Saved input names are checked before model weights are loaded during rebuild. |
-| `test_trf_token_width.py` | Transformer models refuse one feature per token and retain valid behavior at two features per token. |
-| `test_warmstart_perturbed_finite.py` | Warm-start comparison rows name NaN or infinite encoded inputs and outputs instead of misreporting another quantity. |
+| `test_background_grid_contract.py` | Builds small background-data settings for `Hubble` in `km/s/Mpc` and `D_M` in `Mpc`, then sends those settings through the training geometry and the Cobaya reader. The correct pairs and finite offsets pass; an unknown unit, a Boolean or infinite offset, or altered saved center and scale values must stop before the program uses the background data. |
+| `test_batching_sizing.py` | Creates a three-row toy batch with two inputs and either 7 or 14 stored target values. It checks the exact number of bytes required for `float32` and `float64` targets, confirms that this number changes the selected batch count, and requires a clear refusal when the available memory cannot hold one whole batch. |
+| `test_cmb_checkpoint_axis.py` | Writes temporary CMB progress files containing the `tt`, `te`, `ee`, and `pp` spectra and the integer multipole values that label their columns. A correct axis loads every spectrum without changing the files; a missing, shifted, repeated, wrong-length, or wrong-number-format axis must stop loading before even the first spectrum is read. |
+| `test_data_staging_paramnames.py` | Creates examples such as a numbered chain `train.1.txt` with shared names in `train.paramnames`, and a plain table with names beside its exact filename. It checks which names file wins, stops before opening a data vector when the names are absent or disagree, and confirms that all staging paths use the same maximum number of rows. |
+| `test_d5_training_behavior_witnesses.py` | Runs small CPU calculations that stand in for the longer training gate. The checks pin the annealing values at every join, the learning-rate change after training only the final layers, the first moving-average record, and learning by the ReLU and Tanh models instead of a dead or mean-only control. They also calculate identifiers from the exact values in the earlier shared layers and confirm that those layers change during joint training but stay fixed while only the final layers learn. |
+| `test_dataset_publication.py` | Builds a nested generated-data folder in a temporary directory, accepts it as a read-only saved generation, and then tries damaged files, extra files, links, path escapes, interrupted writes, and two writers switching the active generation. It requires every accepted file to match its recorded size and SHA-256 value, and it checks that later resume or append work begins from new private writable copies rather than modifying the accepted files. |
+| `test_dataset_request_contract.py` | Builds uniform- and Gaussian-sampling requests for every supported scientific family, converts each request to the exact saved JSON bytes, and lists every file that request must generate. Changing a scientific field must change those bytes, while invalid bounds, duplicate parameter names, missing family files, or a wrong sampling field must refuse; settings used only to manage the write must not pretend to change the scientific request. |
+| `test_finetune_post_step_and_provenance.py` | Trains a tiny one-weight model for one step and compares the order of three actions: the optimizer update, the pull back toward the saved starting weight, and the moving average of recent weights. The pull must occur after the update and before the average, and the fine-tune and transfer drivers must save the same facts about which earlier emulator supplied the starting weights. |
+| `test_generator_checkpoint_refusal.py` | Creates complete, missing, and damaged progress-file sets for each data generator. Starting a new run may find no progress files, but an explicit resume or append request must require the exact files and axis lengths for that family; a bad requested set must stop instead of silently starting a new calculation, and chain-only mode must read only its parameter files. |
+| `test_generator_member_binding.py` | Gives each real generator a family, variant, output filename prefix, and full or chain-only choice, then asks which absolute filenames it owns before any file is opened. The returned list must match that generator's actual progress-file methods; a family sent to the wrong generator, an invalid Boolean setting, or an unsafe filename prefix must stop before the program checks whether any candidate file exists. |
+| `test_generator_payload_success.py` | Gives the generators small valid and invalid arrays, saves the valid arrays once, and reads them back from disk. A row becomes successful only when its shape, finite numbers, stored number format, and read-back values all match; overflow, a changed saved value, a wrong CMB spectrum count, wrong background keys, or matter-power files inconsistent with the selected mode must leave the row failed without rewriting an existing bad file. |
+| `test_generator_run_control.py` | Tries the command-line switches for a new run, resume, append, full output, and chain-only output. Only native integer `0` or `1` values are accepted, append without resume is refused, the saved decision cannot later be edited, and chain-only output receives a different filename stem so it cannot overwrite a full generated set. |
+| `test_grid2d_const_mask.py` | Creates a two-redshift by three-wavenumber Grid2D surface and marks the coordinates whose stored value must replace a network prediction. It checks that even an all-false mask is explicitly saved and restored, that a real low-wavenumber mask survives a save/load round trip, and that a missing, wrong-shaped, or wrong-number-format mask refuses instead of being guessed. |
+| `test_grid2d_staging_row_contract.py` | Creates the same Grid2D rows once in memory and once in a disk-backed NumPy file, then selects rows with the same random seed. Both routes must preserve the identical selected order and must reject a claimed original row count that is zero, non-integer, or different from the rows actually present before allocating the staged result. |
+| `test_parameter_table.py` | Writes one-row, multirow, reordered, and malformed parameter tables beside realistic `.paramnames` files. It checks that a one-row table stays two-dimensional, derived output columns are found by name, numbered chains use the correct shared names file, and duplicate names, missing columns, a wrong table width, an empty table, or any NaN or infinite value stops with a useful error. |
+| `test_results_composition_mode.py` | Creates small in-memory emulator result files for plain output, NPCE output, frozen transfer, and refined transfer. Before a model is built, the reader must find the correct `plain`, `npce`, or `transfer` label, the required saved sections, and matching YAML settings after defaults have been filled in; missing labels, forbidden sections, wrong value types, or a label inferred only from which section happens to exist must refuse. |
+| `test_results_const_mask_declaration.py` | Saves a Grid2D constant-coordinate mask and the SHA-256 value calculated from its exact ordered bytes. The result writer owns this fact: a caller may repeat the same declaration, but changing one mask position, changing the saved identifier, using it for non-Grid2D data, or omitting it from an older result format must refuse. |
+| `test_results_rebuild_fixed_facts_names.py` | Creates an emulator result whose saved input names either agree or disagree across two internal records, then starts a rebuild. Matching names may reach model-weight loading; changing both records together must still stop first when the saved geometry has the original names, so compatible-looking model weights cannot hide a result file that describes different inputs. |
+| `test_trf_token_width.py` | Builds tiny Transformer configurations with one feature or two features in each token. One feature is refused before ordinary layer construction because the old block produced an output independent of its input, while both supported two-feature configurations must still construct and respond to changed inputs. |
+| `test_warmstart_perturbed_finite.py` | Feeds valid, NaN, and infinite comparison rows to the fine-tune and transfer warm-start paths. Valid rows keep the prior numerical result; a bad input after conversion or a bad output after conversion back to physical values must report the correct row and quantity immediately. Deliberately removing either check must make the test fail by reproducing the older misleading diagnosis. |
 
 ## AI workflow and policy test inventory
 
@@ -192,15 +233,15 @@ mailbox watcher, and repository protection tools.
 
 | File | What it checks |
 | --- | --- |
-| `test_handoff_contract.py` | Required sections and evidence in Architect and Red Team instructions, UTF-8 source-note limits, severity, character limits, and the single program allowed to validate those instructions. |
-| `test_mailbox_conditional_preamble.py` | Terminal prompts require a reply only when another mailbox message is expected. |
-| `test_mailbox_daemon_architect_entrypoint.py` | The public send and ping commands address only the Architect while the watcher can still send approved internal messages to other roles. |
-| `test_mailbox_daemon_severity.py` | The high, medium, or low threshold for new problems; default medium behavior; the same setting reaching each launched role; and fix-only or disabled-Red-Team modes overriding it. |
-| `test_permanent_note_guard.py` | The SHA-256 identifier for exact permanent-note bytes detects changes in current files, files selected for the next commit, saved commits, extra note files, files replaced by links to other paths, or the guard program. |
-| `test_permanent_note_style_contract.py` | Permanent notes keep neutral current-language rules, unique Markdown link targets, and no dated ticket diary. |
-| `test_role_directive_contract.py` | The user contacts only the Architect, thinking roles supply detailed instructions, and execution roles cannot edit permanent notes. |
-| `test_tests_readme_inventory.py` | The inventory tables name every immediate Python file in `ai/tests/` and name no file that is absent. |
-| `test_ticket_change_guard.py` | Exact added-plus-deleted character counting, a valid saved starting version, a clean saved result when a positive limit is active, limits on how much file content the counter reads, and refusal of binary or non-UTF-8 changes. |
+| `test_handoff_contract.py` | Writes sample Architect and Red Team instruction files, then passes them to the same validator used by the mailbox tools. A valid file must contain the ordered plan, exact files and commands, evidence destination, severity decision, and character limit; missing sections, placeholders, hidden Markdown, an oversized or non-UTF-8 note that holds the ticket details, or a different validator program must refuse without changing the instruction file. |
+| `test_mailbox_conditional_preamble.py` | Builds one prompt for a role that must send work onward and one terminal prompt for a role whose job ends there. Only the first may require a reply message; the terminal prompt must say that no reply is required and must not contain a second general instruction that contradicts that ending. |
+| `test_mailbox_daemon_architect_entrypoint.py` | Runs public `send` and `ping` commands in a temporary mailbox and inspects the files they create. A user request must create exactly one message to the Architect with the original text and chosen severity; public commands that address the Implementer or Red Team must refuse with no new file, while the watcher may still deliver the Architect's internal messages to those roles. |
+| `test_mailbox_daemon_severity.py` | Sends discovery requests with no severity and with `high`, `medium`, or `low`, then records which value each started role receives. Missing values become `medium`, malformed headers never launch work, and fix-only mode or a disabled Red Team must remain stronger than a request to search at low severity. |
+| `test_permanent_note_guard.py` | Copies the eleven permanent notes and their guard into a temporary Git repository, records the approved project version, and then changes one boundary at a time. The guard must pass the untouched copy but refuse edited current files, edits chosen for the next commit, edits already committed, an extra tracked note, a note replaced by a link, a changed guard program, or a shortened starting-version identifier. |
+| `test_permanent_note_style_contract.py` | Reads every permanent note as text and checks rules that make the notes useful after the current ticket is gone. The files must use neutral present-tense language, avoid dates and personal diary labels, provide unique stable link targets, and never depend on a temporary audit or backlog file. |
+| `test_role_directive_contract.py` | Reads the role templates, mailbox prompts, validator text, and reader guide together. It checks that the user speaks only to the Architect, the Architect and Red Team provide detailed repair steps and evidence, the Implementer stops rather than inventing a design, character limits never excuse unreadable code, and neither the Implementer nor Red Team may edit permanent notes. |
+| `test_tests_readme_inventory.py` | Lists every immediate `.py` file in `ai/tests/` and extracts the backticked filenames from these inventory tables. The two sets must be identical, so adding a test without explaining it here, documenting a file that does not exist, or listing the same file twice makes the test fail. |
+| `test_ticket_change_guard.py` | Creates small Git histories containing added, deleted, renamed, replaced, Unicode, binary, and non-UTF-8 files, then applies the ticket's `--max` character limit. A positive limit must count added plus deleted characters from the exact clean starting version and refuse hidden, oversized, binary, or unreadable changes; zero must mean no size limit, and measuring must not change the list of files already chosen for the next commit. |
 
 ## Direct reproduction inventory
 
@@ -210,20 +251,20 @@ code when its witness fails.
 
 | File | What it rebuilds inside temporary folders |
 | --- | --- |
-| `finite_contract_cuda_wording_repro.py` | A read-only check that the finite-contract gate's failure message names the machine still required to compile and run CUDA. |
-| `tools_backlog_bundle_repro.py` | Backlog packing and import through `.tar.xz`, unchanged file contents after packing and unpacking, existing outputs, changed protected files, links, archive names that escape the import folder, malformed archives, and size limits. |
-| `tools_handoff_router_repro.py` | Manual handoff routing in temporary repositories: working folder, sequence, lock, clipboard, directive, evidence, character-limit, severity, role, and source-note refusals. |
-| `tools_mailbox_daemon_dead_mailbox_repro.py` | Warnings when no watcher is running, held or outdated locks, read-only preview, other running watchers, links that point a required folder elsewhere, pipe files that can block a reader, and send/ping behavior. |
-| `tools_mailbox_daemon_fix_only_repro.py` | Whether fix-only mode starts repair requests while leaving new-problem requests waiting, what happens when two terminals try to enable that mode at the same time, the same rule reaching each started role, runs with only an Architect and Implementer, deliberately damaged source copies, and README/help agreement. |
-| `tools_mailbox_daemon_landing_debt_repro.py` | Detection of an accepted fix that has not reached `main`, creation of only one repair request, locks, malformed saved state, recovery, and repeated watcher passes. |
-| `tools_mailbox_daemon_max_repro.py` | The ticket `--max` character limit, default zero, accepted and refused values, inherited settings, terminal report, and the same limit reaching every started role. |
-| `tools_mailbox_daemon_no_redteam_repro.py` | Two-role watches, deferred Sol requests, work-folder separation, combined fix-only mode, lock cleanup, simultaneous sends, and deliberately damaged source copies. |
-| `tools_mailbox_daemon_output_style_repro.py` | Exact terminal refusal, waiting-count, and progress text; matching README examples; and detection of separator or all-capital wording changes. |
-| `tools_mailbox_daemon_primary_worktree_repro.py` | Creation and reuse of separate Claude and Sol work folders in temporary Git folders, checks of saved folder records, simultaneous setup, movement of old mailbox files into the new work folders, and name-collision refusal. |
-| `tools_mailbox_daemon_redteam_repro.py` | Read-only preview, only one watcher taking a message, complete file writes before a message becomes visible, unique message numbers across roles, malformed message bodies, and literal placeholder text. |
-| `tools_mailbox_daemon_rendezvous_repro.py` | The watcher's safe-stop countdown, the point after started roles finish, `--cycle` values, waiting work, simultaneous sends, and malformed backlog refusal. |
-| `tools_mailbox_daemon_role_models_repro.py` | Architect and Implementer model defaults, aliases, validation, command construction, role routing, and deliberately damaged source copies. |
-| `tools_mailbox_daemon_staleness_repro.py` | Program-file changes during a run, timeouts, retries, finished-file ordering, requests left in the work-in-progress `inflight/` folder, required files replaced by links to other paths, malformed timeout records, and deliberately damaged source copies. |
+| `finite_contract_cuda_wording_repro.py` | Runs the finite-number gate on a machine that cannot perform its required CUDA compilation. The gate must report that this machine check is still unavailable and name the missing CUDA action; it must not print wording that could be mistaken for a scientific pass. |
+| `tools_backlog_bundle_repro.py` | Creates a backlog and supporting files, packs them into `.tar.xz`, imports that archive into a new temporary folder, and compares every byte. It also tries an existing destination, changed protected files, links, names that escape the destination, malformed archives, and oversized inputs; each unsafe case must stop without replacing the receiver's files. |
+| `tools_handoff_router_repro.py` | Creates a temporary Git repository and sends sample Architect, Implementer, and Red Team handoffs through the manual router. It checks the selected working folder, message order, lock cleanup, clipboard option, detailed directive and evidence sections, severity and character-limit values, and refusal of a wrong role, bad source note, or malformed instruction file. |
+| `tools_mailbox_daemon_dead_mailbox_repro.py` | Starts with no watcher, then with live, held, and outdated lock files, and runs preview, send, and ping commands. The user must receive the correct warning without a blocking read; a second live watcher, a required folder replaced by a link, or a pipe file that could wait forever must refuse safely. |
+| `tools_mailbox_daemon_fix_only_repro.py` | Places one repair request and one request to discover a new problem in a temporary mailbox, then starts the watcher with fix-only mode. Only the repair may start, simultaneous attempts to enable the mode must agree, each role must receive the rule, two-role operation must still work, and changed copies of the daemon or disagreement between `--help` and the README must be detected. |
+| `tools_mailbox_daemon_landing_debt_repro.py` | Builds a history where a fix was accepted in a role's branch but never reached `main`, then runs repeated watcher passes. Exactly one repair request must be created until the fix lands; held locks and malformed saved records must not duplicate the request, and a corrected record must let later passes recover. |
+| `tools_mailbox_daemon_max_repro.py` | Starts tickets with an omitted, zero, positive, malformed, and conflicting `--max` value. The default must be zero, a positive value must appear in the terminal and in every role's environment, and malformed or disagreed values must stop before a role starts. |
+| `tools_mailbox_daemon_no_redteam_repro.py` | Starts a watcher with the Red Team disabled while Architect and Implementer requests are waiting. Those two roles must use separate saved work folders, Red Team requests must remain waiting, fix-only mode and simultaneous sends must stay safe, locks must be removed at the end, and a changed daemon copy must refuse. |
+| `tools_mailbox_daemon_output_style_repro.py` | Runs ordinary waits, refusals, and progress reports and compares the exact terminal text with the examples in the README. The check catches unclear separator lines, unexplained all-capital messages, wrong waiting counts, or documentation that promises output the program no longer prints. |
+| `tools_mailbox_daemon_primary_worktree_repro.py` | Uses temporary Git repositories to create and then reuse one separate Claude work folder and one separate Sol work folder. It checks the saved folder records, simultaneous first-time setup, movement of older mailbox files into the selected folders, and refusal when an existing branch or folder name would point at the wrong place. |
+| `tools_mailbox_daemon_redteam_repro.py` | Sends several Red Team messages while preview mode and competing watcher processes are active. A message must be completely written before it becomes visible, only one watcher may claim it, message numbers must remain unique, and malformed bodies or unreplaced placeholder text must refuse without losing another message. |
+| `tools_mailbox_daemon_rendezvous_repro.py` | Starts short-lived fake roles and observes the watcher's safe-stop countdown after all started roles finish; this finished point is what the command calls a cycle boundary. It checks `--cycle 0`, positive cycle counts, new messages arriving during the countdown, two simultaneous senders, and refusal when the backlog file cannot be understood. |
+| `tools_mailbox_daemon_role_models_repro.py` | Selects model names and aliases for the Architect and Implementer, then inspects the exact commands the watcher would launch for each role. Defaults, valid aliases, invalid names, and role routing must agree, and changing a copied daemon source file must stop the run rather than launching an unverified command. |
+| `tools_mailbox_daemon_staleness_repro.py` | Starts fake role commands that finish, time out, retry, or leave a request in the `inflight/` folder, which holds a message while one role is working on it. It checks finished-file order and recovery, and it requires refusal when a program file changes during the run, a required file becomes a link, a timeout record is malformed, or a copied daemon no longer matches its approved bytes. |
 
 ## How agents use these files
 

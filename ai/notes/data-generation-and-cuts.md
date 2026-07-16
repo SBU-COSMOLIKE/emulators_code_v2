@@ -512,6 +512,66 @@ published member through it.
 A source mutation at any acquisition or copy boundary refuses. Retained source
 descriptors cannot change the sealed generation.
 
+<a id="dataset-publication-copy-on-write-continuation"></a>
+### Copy-on-write continuation
+
+#### Rule
+
+`begin_dataset_continuation` authenticates the requested active generation
+before creating a new draft. It opens every published member before copying
+the first member and keeps those file handles open until the complete copy has
+been checked. Each copy has the authenticated size and SHA-256, a different
+inode from its source, mode `0600`, and one filename. The draft and its member
+directories have mode `0700` and exactly the declared files and directories.
+Copied files and the complete draft directory tree are synchronized before
+the function returns.
+
+The source member handles and their named paths are rechecked after the last
+copy. The manifest bytes, manifest SHA-256, read-only directory modes, and
+complete source census are read and checked again at that point. The manifest
+is authenticated by content; the operation does not claim that the manifest's
+inode stays unchanged throughout the copy.
+
+The returned `ContinuationDraft` retains the original
+`ActiveGeneration.active_sha256`. If another writer selects generation B while
+a continuation copies generation A, the A copy may finish, but a later
+publication with A's saved active-record SHA-256 must refuse and leave B
+active. That later publication refusal keeps the completed A draft for
+inspection or retry.
+
+A refusal while `begin_dataset_continuation` is preparing the copy asks for
+best-effort removal of only the new draft. If that cleanup fails, the partial
+draft may remain in the work folder. Preparation and cleanup do not change the
+active record, the published source, or another draft in the same work folder.
+
+#### Why
+
+A hardlink or other writable alias would let continuation work change a
+published dataset. Refreshing the saved active-record SHA-256 after a competing
+writer succeeds would let stale work replace that writer's result. Separate
+files and the original saved value prevent both failures.
+
+#### Implementation boundary
+
+This helper prepares a safe mutable copy only. Generator routing, saved random
+state, Message Passing Interface coordination, training-reader pinning, and
+old-generation removal require separate integration and evidence.
+
+#### Acceptance evidence
+
+- Request identity and the complete member map refuse before a draft exists.
+- Nested members copy with identical bytes but different inodes and private
+  writable modes.
+- Writable, replaced, linked, changed, missing, extra, or wrongly sized source
+  and draft entries refuse.
+- Instrumentation proves member-file synchronization and final synchronization
+  of every draft directory plus the work folder.
+- Copy, validation, and file-close failures ask for best-effort removal of only
+  the new draft; a cleanup failure may leave that draft for inspection.
+- A concurrent A-to-B switch returns A's original saved value, and a later
+  stale publication refuses while B remains active and keeps the completed A
+  draft.
+
 <a id="dataset-publication-atomic-switch"></a>
 ### Atomic active pointer
 

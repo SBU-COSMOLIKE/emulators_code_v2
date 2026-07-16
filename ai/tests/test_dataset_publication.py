@@ -11,6 +11,7 @@ from unittest import mock
 import warnings
 
 import compute_data_vectors.dataset_publication as publication
+from compute_data_vectors.dataset_publication import begin_dataset_continuation
 from compute_data_vectors.dataset_publication import begin_dataset_generation
 from compute_data_vectors.dataset_publication import canonical_json_bytes
 from compute_data_vectors.dataset_publication import DatasetPublicationError
@@ -501,6 +502,535 @@ class DatasetPublicationTests(unittest.TestCase):
           (loaded.member("chain").path.read_bytes(),
            loaded.member("facts").path.read_bytes()),
           (b"chain-old", b"facts-old"))
+
+  def test_continuation_copies_nested_members_to_private_independent_files(self):
+    slot = self._slot("continuation_private")
+    active, identity, members = self._publish(slot, "continuation-private")
+    source_payloads = {
+      member.role: member.path.read_bytes() for member in active.members}
+
+    continuation = begin_dataset_continuation(
+      slot, expected_identity=identity, expected_members=members)
+
+    self.assertIsInstance(continuation, publication.ContinuationDraft)
+    self.assertEqual(continuation.source.generation, active.generation)
+    self.assertEqual(
+      continuation.source.active_sha256, active.active_sha256)
+    for member in continuation.source.members:
+      with self.subTest(role=member.role):
+        destination = continuation.draft.member_path(member.relative_path)
+        source_status = os.lstat(member.path)
+        destination_status = os.lstat(destination)
+        self.assertEqual(destination.read_bytes(), source_payloads[member.role])
+        self.assertNotEqual(
+          (destination_status.st_dev, destination_status.st_ino),
+          (source_status.st_dev, source_status.st_ino))
+        self.assertEqual(destination_status.st_nlink, 1)
+        self.assertEqual(stat.S_IMODE(destination_status.st_mode), 0o600)
+    for path in (
+        continuation.draft.path,
+        continuation.draft.files_path,
+        continuation.draft.files_path / "metadata"):
+      with self.subTest(private_directory=path):
+        self.assertEqual(stat.S_IMODE(os.lstat(path).st_mode), 0o700)
+
+    mutable_chain = continuation.draft.member_path("params.1.txt")
+    mutable_chain.write_bytes(b"changed-private-copy")
+    self.assertEqual(active.member("chain").path.read_bytes(),
+                     b"chain-continuation-private")
+    self.assertEqual(slot.active_path.read_bytes(),
+                     canonical_json_bytes({
+                       "generation": active.generation,
+                       "manifest_sha256": active.manifest_sha256,
+                       "schema": publication.PUBLICATION_SCHEMA,
+                       "slot_id": slot.slot_id,
+                     }))
+
+  def test_continuation_syncs_private_files_and_complete_draft_tree(self):
+    slot = self._slot("continuation_sync")
+    _, identity, members = self._publish(slot, "continuation-sync")
+    real_file_sync = publication._fsync_regular_file
+    real_directory_sync = publication._fsync_directory
+    events = []
+
+    def path_for_descriptor(descriptor):
+      descriptor_status = os.fstat(descriptor)
+      identity_key = (descriptor_status.st_dev, descriptor_status.st_ino)
+      if slot.work_path.exists():
+        for candidate in slot.work_path.rglob("*"):
+          try:
+            candidate_status = os.lstat(candidate)
+          except OSError:
+            continue
+          if (candidate_status.st_dev, candidate_status.st_ino) == identity_key:
+            return candidate
+      return None
+
+    def record_file_sync(descriptor):
+      result = real_file_sync(descriptor)
+      path = path_for_descriptor(descriptor)
+      events.append(("file", path, stat.S_IMODE(os.fstat(descriptor).st_mode)))
+      return result
+
+    def record_directory_sync(path):
+      result = real_directory_sync(path)
+      events.append(("directory", Path(path), None))
+      return result
+
+    with mock.patch.object(
+        publication, "_fsync_regular_file",
+        side_effect=record_file_sync), mock.patch.object(
+          publication, "_fsync_directory",
+          side_effect=record_directory_sync):
+      continuation = begin_dataset_continuation(
+        slot, expected_identity=identity, expected_members=members)
+
+    destinations = {
+      continuation.draft.member_path(relative)
+      for relative in members.values()}
+    file_events = [
+      (index, path, mode)
+      for index, (kind, path, mode) in enumerate(events)
+      if kind == "file"]
+    self.assertEqual({path for _, path, _ in file_events}, destinations)
+    self.assertTrue(file_events)
+    self.assertTrue(all(mode == 0o600 for _, _, mode in file_events))
+    final_file_sync = max(index for index, _, _ in file_events)
+    directories_after_files = {
+      path for index, (kind, path, _) in enumerate(events)
+      if index > final_file_sync and kind == "directory"}
+    self.assertTrue({
+      continuation.draft.files_path / "metadata",
+      continuation.draft.files_path,
+      continuation.draft.path,
+      slot.work_path,
+    }.issubset(directories_after_files))
+
+  def test_continuation_authenticates_request_before_creating_draft(self):
+    slot = self._slot("continuation_auth_first")
+    _, identity, members = self._publish(slot, "continuation-auth-first")
+    original_work = sorted(path.name for path in slot.work_path.iterdir())
+    requests = (
+      ({"dataset": "wrong", "seed": 17}, members, "identity"),
+      (identity, {"chain": "params.1.txt"}, "roles differ"),
+      (identity, {"chain": "wrong.txt", "facts": "metadata/facts.yaml"},
+       "requested basename/path"),
+    )
+    for expected_identity, expected_members, message in requests:
+      with self.subTest(message=message):
+        with self.assertRaisesRegex(DatasetPublicationError, message):
+          begin_dataset_continuation(
+            slot,
+            expected_identity=expected_identity,
+            expected_members=expected_members)
+        self.assertEqual(
+          sorted(path.name for path in slot.work_path.iterdir()),
+          original_work)
+
+  def test_continuation_copy_failure_cleans_only_new_draft(self):
+    slot = self._slot("continuation_copy_failure")
+    active, identity, members = self._publish(
+      slot, "continuation-copy-failure")
+    sibling = begin_dataset_generation(slot)
+    sibling.member_path("keep.bin").write_bytes(b"keep-this-sibling")
+    sibling_status = os.lstat(sibling.path)
+    original_active = slot.active_path.read_bytes()
+    original_work = sorted(path.name for path in slot.work_path.iterdir())
+    original_copy = publication._copy_open_member_to_mutable_draft
+    copies = [0]
+
+    def fail_after_one_copy(source_fd, destination, *, label):
+      copies[0] += 1
+      if copies[0] == 2:
+        raise DatasetPublicationError("injected continuation copy failure")
+      return original_copy(source_fd, destination, label=label)
+
+    with mock.patch.object(
+        publication, "_copy_open_member_to_mutable_draft",
+        side_effect=fail_after_one_copy):
+      with self.assertRaisesRegex(
+          DatasetPublicationError, "injected continuation copy failure"):
+        begin_dataset_continuation(
+          slot, expected_identity=identity, expected_members=members)
+
+    self.assertEqual(slot.active_path.read_bytes(), original_active)
+    self.assertEqual(
+      sorted(path.name for path in slot.work_path.iterdir()), original_work)
+    self.assertEqual(sibling.member_path("keep.bin").read_bytes(),
+                     b"keep-this-sibling")
+    self.assertEqual(
+      (os.lstat(sibling.path).st_dev, os.lstat(sibling.path).st_ino),
+      (sibling_status.st_dev, sibling_status.st_ino))
+    loaded = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(loaded.generation, active.generation)
+
+  def test_continuation_rechecks_every_source_after_complete_copy(self):
+    slot = self._slot("continuation_source_epoch")
+    _, identity, members = self._publish(slot, "continuation-source-epoch")
+    source = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    target = source.member("facts").path
+    original_copy = publication._copy_open_member_to_mutable_draft
+    copies = [0]
+
+    def touch_source_after_first_copy(source_fd, destination, *, label):
+      result = original_copy(source_fd, destination, label=label)
+      copies[0] += 1
+      if copies[0] == 1:
+        payload = target.read_bytes()
+        os.chmod(target, 0o600, follow_symlinks=False)
+        target.write_bytes(payload)
+        os.chmod(target, 0o444, follow_symlinks=False)
+      return result
+
+    with mock.patch.object(
+        publication, "_copy_open_member_to_mutable_draft",
+        side_effect=touch_source_after_first_copy):
+      with self.assertRaisesRegex(DatasetPublicationError,
+                                  "changed across the complete dataset copy"):
+        begin_dataset_continuation(
+          slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(list(slot.work_path.iterdir()), [])
+    loaded = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(loaded.member("facts").path.read_bytes(),
+                     b"facts-continuation-source-epoch")
+
+  def test_continuation_rechecks_first_member_after_last_copy(self):
+    slot = self._slot("continuation_final_recheck")
+    active, identity, members = self._publish(
+      slot, "continuation-final-recheck")
+    first_source = active.member("chain").path
+    first_payload = first_source.read_bytes()
+    original_copy = publication._copy_open_member_to_mutable_draft
+    copies = [0]
+
+    def change_first_source_during_second_copy(
+        source_fd, destination, *, label):
+      result = original_copy(source_fd, destination, label=label)
+      copies[0] += 1
+      if copies[0] == 2:
+        self._replace_read_only_file(first_source, first_payload)
+      return result
+
+    with mock.patch.object(
+        publication, "_copy_open_member_to_mutable_draft",
+        side_effect=change_first_source_during_second_copy):
+      with self.assertRaisesRegex(
+          DatasetPublicationError,
+          "member chain source changed across the complete dataset copy"):
+        begin_dataset_continuation(
+          slot, expected_identity=identity, expected_members=members)
+
+    self.assertEqual(list(slot.work_path.iterdir()), [])
+    loaded = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(loaded.member("chain").path.read_bytes(), first_payload)
+
+  def test_continuation_refuses_writable_source_after_active_load(self):
+    slot = self._slot("continuation_writable_after_load")
+    active, identity, members = self._publish(
+      slot, "continuation-writable-after-load")
+    original_load = publication.load_active_generation
+    target = active.member("chain").path
+    original_work = list(slot.work_path.iterdir())
+
+    def load_then_make_writable(*args, **kwargs):
+      loaded = original_load(*args, **kwargs)
+      os.chmod(target, 0o600, follow_symlinks=False)
+      return loaded
+
+    try:
+      with mock.patch.object(
+          publication, "load_active_generation",
+          side_effect=load_then_make_writable):
+        with self.assertRaisesRegex(DatasetPublicationError, "writable"):
+          begin_dataset_continuation(
+            slot, expected_identity=identity, expected_members=members)
+    finally:
+      os.chmod(target, 0o444, follow_symlinks=False)
+    self.assertEqual(list(slot.work_path.iterdir()), original_work)
+    loaded = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(loaded.generation, active.generation)
+
+  def test_continuation_refuses_same_byte_source_path_replacement(self):
+    slot = self._slot("continuation_path_replacement")
+    active, identity, members = self._publish(
+      slot, "continuation-path-replacement")
+    target = active.member("facts").path
+    replacement = self.root / "same-byte-replacement.bin"
+    replacement.write_bytes(target.read_bytes())
+    os.chmod(replacement, 0o444, follow_symlinks=False)
+    original_inode = os.lstat(target).st_ino
+    original_copy = publication._copy_open_member_to_mutable_draft
+    copies = [0]
+
+    def replace_path_after_first_copy(source_fd, destination, *, label):
+      result = original_copy(source_fd, destination, label=label)
+      copies[0] += 1
+      if copies[0] == 1:
+        os.chmod(target.parent, 0o755, follow_symlinks=False)
+        os.replace(replacement, target)
+        os.chmod(target.parent, 0o555, follow_symlinks=False)
+      return result
+
+    with mock.patch.object(
+        publication, "_copy_open_member_to_mutable_draft",
+        side_effect=replace_path_after_first_copy):
+      with self.assertRaisesRegex(DatasetPublicationError,
+                                  "changed across the complete dataset copy"):
+        begin_dataset_continuation(
+          slot, expected_identity=identity, expected_members=members)
+    self.assertNotEqual(os.lstat(target).st_ino, original_inode)
+    self.assertEqual(list(slot.work_path.iterdir()), [])
+    loaded = load_active_generation(
+      slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(loaded.member("facts").path.read_bytes(),
+                     b"facts-continuation-path-replacement")
+
+  def test_continuation_requires_exact_mutable_copy_census(self):
+    for attack in ("missing", "extra"):
+      with self.subTest(attack=attack):
+        slot = self._slot("continuation_copy_" + attack)
+        _, identity, members = self._publish(
+          slot, "continuation-copy-" + attack)
+        original_copy = publication._copy_open_member_to_mutable_draft
+        copies = [0]
+
+        def change_copy_census(source_fd, destination, *, label):
+          result = original_copy(source_fd, destination, label=label)
+          copies[0] += 1
+          if copies[0] == 2:
+            files_path = Path(destination)
+            while files_path.name != publication.FILES_NAME:
+              files_path = files_path.parent
+            if attack == "missing":
+              os.unlink(destination)
+            else:
+              (files_path / "extra.bin").write_bytes(b"extra")
+          return result
+
+        with mock.patch.object(
+            publication, "_copy_open_member_to_mutable_draft",
+            side_effect=change_copy_census):
+          with self.assertRaisesRegex(DatasetPublicationError,
+                                      "source draft census differs"):
+            begin_dataset_continuation(
+              slot, expected_identity=identity, expected_members=members)
+        self.assertEqual(list(slot.work_path.iterdir()), [])
+
+  def test_continuation_refuses_nonprivate_copy_modes(self):
+    for attack in ("file", "directory"):
+      with self.subTest(attack=attack):
+        slot = self._slot("continuation_mode_" + attack)
+        _, identity, members = self._publish(
+          slot, "continuation-mode-" + attack)
+        original_copy = publication._copy_open_member_to_mutable_draft
+        copies = [0]
+
+        def weaken_mode_after_final_copy(source_fd, destination, *, label):
+          result = original_copy(source_fd, destination, label=label)
+          copies[0] += 1
+          if copies[0] == 2:
+            if attack == "file":
+              os.chmod(destination, 0o640, follow_symlinks=False)
+            else:
+              os.chmod(Path(destination).parent, 0o710,
+                       follow_symlinks=False)
+          return result
+
+        with mock.patch.object(
+            publication, "_copy_open_member_to_mutable_draft",
+            side_effect=weaken_mode_after_final_copy):
+          with self.assertRaisesRegex(
+              DatasetPublicationError,
+              "mode-0600|mode 0700"):
+            begin_dataset_continuation(
+              slot, expected_identity=identity, expected_members=members)
+        self.assertEqual(list(slot.work_path.iterdir()), [])
+
+  def test_continuation_close_failure_attempts_all_and_refuses_success(self):
+    descriptors = [os.open(os.devnull, os.O_RDONLY) for _ in range(2)]
+    real_close = publication.os.close
+    close_calls = []
+
+    def close_all_but_report_first(descriptor):
+      close_calls.append(descriptor)
+      real_close(descriptor)
+      if descriptor == descriptors[0]:
+        raise OSError("injected first close report")
+
+    opened = {
+      "first": (descriptors[0], None, None),
+      "second": (descriptors[1], None, None),
+    }
+    with mock.patch.object(
+        publication.os, "close", side_effect=close_all_but_report_first):
+      with self.assertRaisesRegex(
+          DatasetPublicationError, "injected first close report"):
+        publication._close_active_member_descriptors(opened)
+    self.assertEqual(close_calls, descriptors)
+    for descriptor in descriptors:
+      with self.assertRaises(OSError):
+        os.fstat(descriptor)
+
+    slot = self._slot("continuation_close_failure")
+    _, identity, members = self._publish(slot, "continuation-close-failure")
+    real_close_members = publication._close_active_member_descriptors
+
+    def close_members_then_refuse(opened_members):
+      real_close_members(opened_members)
+      raise DatasetPublicationError("injected continuation close failure")
+
+    with mock.patch.object(
+        publication, "_close_active_member_descriptors",
+        side_effect=close_members_then_refuse):
+      with self.assertRaisesRegex(
+          DatasetPublicationError, "injected continuation close failure"):
+        begin_dataset_continuation(
+          slot, expected_identity=identity, expected_members=members)
+    self.assertEqual(list(slot.work_path.iterdir()), [])
+
+  def test_continuation_refuses_size_digest_lies_and_hardlink_copy(self):
+    for attack in ("size", "digest", "hardlink"):
+      with self.subTest(attack=attack):
+        slot = self._slot("continuation_" + attack)
+        active, identity, members = self._publish(
+          slot, "continuation-" + attack)
+        original_copy = publication._copy_open_member_to_mutable_draft
+
+        def attacked_copy(source_fd, destination, *, label):
+          role = label[len("member "):]
+          member = active.member(role)
+          if attack in ("size", "digest"):
+            size, digest = original_copy(
+              source_fd, destination, label=label)
+            if attack == "size":
+              return size + 1, digest
+            return size, "0" * 64
+          os.link(member.path, destination)
+          return member.size, member.sha256
+
+        with mock.patch.object(
+            publication, "_copy_open_member_to_mutable_draft",
+            side_effect=attacked_copy):
+          with self.assertRaises(DatasetPublicationError):
+            begin_dataset_continuation(
+              slot, expected_identity=identity, expected_members=members)
+        self.assertEqual(list(slot.work_path.iterdir()), [])
+        loaded = load_active_generation(
+          slot, expected_identity=identity, expected_members=members)
+        self.assertEqual(loaded.generation, active.generation)
+
+  def test_continuation_rechecks_manifest_generation_census_and_modes(self):
+    attacks = (
+      "manifest", "census", "manifest_writable", "files_writable")
+    for attack in attacks:
+      with self.subTest(attack=attack):
+        slot = self._slot("continuation_source_" + attack)
+        active, identity, members = self._publish(
+          slot, "continuation-source-" + attack)
+        generation_path, manifest_path = self._manifest_paths(active)
+        original_manifest = manifest_path.read_bytes()
+        extra = generation_path / "files" / "extra.bin"
+        original_copy = publication._copy_open_member_to_mutable_draft
+        copies = [0]
+
+        def alter_generation_after_first_copy(source_fd, destination, *, label):
+          result = original_copy(source_fd, destination, label=label)
+          copies[0] += 1
+          if copies[0] == 1:
+            if attack == "manifest":
+              self._replace_read_only_file(
+                manifest_path, original_manifest + b"corruption")
+            elif attack == "census":
+              files_path = generation_path / "files"
+              os.chmod(files_path, 0o755, follow_symlinks=False)
+              extra.write_bytes(b"extra")
+              os.chmod(extra, 0o444, follow_symlinks=False)
+              os.chmod(files_path, 0o555, follow_symlinks=False)
+            elif attack == "manifest_writable":
+              os.chmod(manifest_path, 0o644, follow_symlinks=False)
+            else:
+              os.chmod(generation_path / "files", 0o755,
+                       follow_symlinks=False)
+          return result
+
+        try:
+          with mock.patch.object(
+              publication, "_copy_open_member_to_mutable_draft",
+              side_effect=alter_generation_after_first_copy):
+            with self.assertRaisesRegex(
+                DatasetPublicationError,
+                "manifest changed|file census differs|writable"):
+              begin_dataset_continuation(
+                slot, expected_identity=identity, expected_members=members)
+        finally:
+          if attack == "manifest":
+            self._replace_read_only_file(manifest_path, original_manifest)
+          elif attack == "manifest_writable":
+            os.chmod(manifest_path, 0o444, follow_symlinks=False)
+          elif attack == "files_writable":
+            os.chmod(generation_path / "files", 0o555,
+                     follow_symlinks=False)
+          elif os.path.lexists(extra):
+            files_path = generation_path / "files"
+            os.chmod(files_path, 0o755, follow_symlinks=False)
+            extra.unlink()
+            os.chmod(files_path, 0o555, follow_symlinks=False)
+        self.assertEqual(list(slot.work_path.iterdir()), [])
+        loaded = load_active_generation(
+          slot, expected_identity=identity, expected_members=members)
+        self.assertEqual(loaded.generation, active.generation)
+
+  def test_continuation_keeps_pinned_token_across_concurrent_switch(self):
+    slot = self._slot("continuation_concurrent")
+    first, first_identity, members = self._publish(
+      slot, "continuation-first")
+    winner_identity = {"dataset": "continuation-winner", "seed": 23}
+    winner = self._draft(slot, {
+      "params.1.txt": b"chain-continuation-winner",
+      "metadata/facts.yaml": b"facts-continuation-winner",
+    })
+    original_copy = publication._copy_open_member_to_mutable_draft
+    switched = [None]
+
+    def switch_after_first_copy(source_fd, destination, *, label):
+      result = original_copy(source_fd, destination, label=label)
+      if switched[0] is None:
+        switched[0] = publish_dataset_generation(
+          winner,
+          identity=winner_identity,
+          members=members,
+          expected_active_sha256=first.active_sha256)
+      return result
+
+    with mock.patch.object(
+        publication, "_copy_open_member_to_mutable_draft",
+        side_effect=switch_after_first_copy):
+      continuation = begin_dataset_continuation(
+        slot, expected_identity=first_identity, expected_members=members)
+
+    self.assertEqual(continuation.source.generation, first.generation)
+    self.assertEqual(
+      continuation.source.active_sha256, first.active_sha256)
+    self.assertEqual(
+      continuation.draft.member_path("params.1.txt").read_bytes(),
+      b"chain-continuation-first")
+    with self.assertRaisesRegex(DatasetPublicationError,
+                                "active generation changed"):
+      publish_dataset_generation(
+        continuation.draft,
+        identity=first_identity,
+        members=members,
+        expected_active_sha256=continuation.source.active_sha256)
+    fresh = load_active_generation(
+      slot, expected_identity=winner_identity, expected_members=members)
+    self.assertEqual(fresh.generation, switched[0].generation)
+    self.assertEqual(fresh.member("chain").path.read_bytes(),
+                     b"chain-continuation-winner")
 
   def test_compare_and_swap_refuses_a_stale_writer(self):
     slot = self._slot("cas")

@@ -9,7 +9,10 @@ that integration will use:
 * sealing copies an exact member census into new exclusive inodes, hashes the
   copies, and makes the installed generation read-only;
 * one canonical ``active.json`` record is replaced last; and
-* readers pin that record once, then verify and use only its immutable files.
+* readers pin that record once, then verify and use only its immutable files;
+  and
+* continuation makes new private writable copies while retaining the original
+  active-record SHA-256 value for a later lost-update check.
 
 There are deliberately no per-file "current" links.  Switching several links
 one by one would let a reader combine members from different generations.
@@ -159,6 +162,14 @@ class ActiveGeneration:
     if len(matches) != 1:
       raise KeyError(role)
     return matches[0]
+
+
+@dataclass(frozen=True)
+class ContinuationDraft:
+  """A verified immutable source and its independent mutable copy."""
+
+  source: ActiveGeneration
+  draft: DraftGeneration
 
 
 def canonical_json_bytes(value):
@@ -588,6 +599,61 @@ def load_active_generation(slot, *, expected_identity, expected_members):
     manifest_sha256=active["manifest_sha256"],
     identity_json=identity_json,
     members=tuple(published_members))
+
+
+def begin_dataset_continuation(slot, *, expected_identity, expected_members,
+                               generation=None):
+  """Copy one authenticated active generation into a private mutable draft.
+
+  Arguments:
+    slot: Location and fixed description of the saved dataset.
+    expected_identity: Exact scientific settings and run settings expected in
+      the saved manifest.
+    expected_members: Exact mapping from each member's purpose to its relative
+      path inside the generation.
+    generation: Optional name for the new draft. Omission makes a fresh random
+      name.
+
+  The active generation is fully checked before a draft is created. Every
+  source member then remains open until all copies and directory checks are
+  complete. A source-member replacement, link, mode change, size change, byte
+  change, or added/missing member refuses the operation. The named manifest
+  bytes, digest, and full directory contents are read and checked again after
+  the copies; the manifest file itself is not held open during the copy.
+
+  Returns:
+    A ``ContinuationDraft`` containing the checked read-only source and its
+    separate writable draft. ``source.active_sha256`` is the SHA-256 value
+    calculated from the exact saved ``active.json`` bytes. A later publication
+    passes this value back so it can refuse if another writer selected a newer
+    active generation in the meantime.
+
+  Raises:
+    DatasetPublicationError: The active generation, a source member, the final
+      source recheck, or the private copy does not match the required state.
+
+  Side effects:
+    Success creates private mode-0700 directories and mode-0600 member copies.
+    A refusal while this function prepares the continuation asks for
+    best-effort removal of only that new draft. If removal itself fails, the
+    partial draft may remain in the work folder for inspection. The active
+    record and the published source generation are never changed by this
+    function. A refusal during a later publication is outside this cleanup
+    step and keeps the completed continuation draft.
+  """
+  source = load_active_generation(
+    slot,
+    expected_identity=expected_identity,
+    expected_members=expected_members)
+  draft = None
+  try:
+    draft = begin_dataset_generation(slot, generation=generation)
+    _copy_active_members_to_draft(source, draft)
+    return ContinuationDraft(source=source, draft=draft)
+  except BaseException:
+    if draft is not None:
+      _best_effort_remove_new_tree(draft.path, draft.slot.work_path)
+    raise
 
 
 _ACTIVE_KEYS = frozenset((
@@ -1028,6 +1094,197 @@ def _copy_member_files(source, sealed, members):
   finally:
     for descriptor, _, _ in opened.values():
       os.close(descriptor)
+
+
+def _copy_active_members_to_draft(source, draft):
+  """Copy one authenticated generation without aliasing any source inode."""
+  opened = {}
+  copy_completed = False
+  member_map = {
+    member.role: member.relative_path for member in source.members}
+  try:
+    # Acquire every member before copying the first.  This makes the later
+    # all-descriptor recheck one complete set of held source members rather
+    # than a sequence of individually plausible files.
+    for member in source.members:
+      descriptor, token = _open_authenticated_member(member)
+      opened[member.role] = (descriptor, member, token)
+
+    for role in sorted(opened):
+      descriptor, member, _ = opened[role]
+      destination = draft.member_path(member.relative_path)
+      size, digest = _copy_open_member_to_mutable_draft(
+        descriptor, destination, label="member " + role)
+      if size != member.size or digest != member.sha256:
+        raise DatasetPublicationError(
+          "member " + role
+          + " changed after active-generation authentication")
+
+    _require_unchanged_active_generation(source)
+    for role in sorted(opened):
+      descriptor, member, token = opened[role]
+      _require_unchanged_authenticated_member(descriptor, member, token)
+    _require_exact_source_draft_census(draft, member_map)
+    _require_private_continuation_tree(draft, member_map)
+    _fsync_tree_directories(draft.path)
+    _fsync_directory(draft.slot.work_path)
+    copy_completed = True
+  finally:
+    try:
+      _close_active_member_descriptors(opened)
+    except BaseException:
+      # Keep the original validation/copy refusal when both work and cleanup
+      # fail. If all work succeeded, a close failure still refuses the public
+      # operation so the caller never receives a possibly leaked source.
+      if copy_completed:
+        raise
+
+
+def _close_active_member_descriptors(opened):
+  """Attempt every held close and report the first close failure afterward."""
+  first_failure = None
+  for descriptor, _, _ in opened.values():
+    try:
+      os.close(descriptor)
+    except OSError as exc:
+      if first_failure is None:
+        first_failure = exc
+  if first_failure is not None:
+    raise DatasetPublicationError(
+      "could not close every immutable continuation source: "
+      + str(first_failure)) from first_failure
+
+
+def _open_authenticated_member(member):
+  """Open one published member and bind its path, inode, mode, and size."""
+  flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+  descriptor = None
+  label = "member " + member.role
+  try:
+    descriptor = os.open(member.path, flags)
+    status = os.fstat(descriptor)
+    named = os.lstat(member.path)
+    if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1 \
+        or stat.S_ISLNK(named.st_mode) \
+        or (status.st_dev, status.st_ino) != (named.st_dev, named.st_ino):
+      raise DatasetPublicationError(
+        label + " is not one stable immutable source file")
+    if hasattr(os, "getuid") and status.st_uid != os.getuid():
+      raise DatasetPublicationError(
+        label + " immutable source is not owned by the current user")
+    if status.st_mode & 0o222:
+      raise DatasetPublicationError(
+        label + " immutable source is writable")
+    if status.st_size != member.size:
+      raise DatasetPublicationError(
+        label + " immutable source size changed before continuation")
+    return descriptor, _source_epoch_token(status)
+  except DatasetPublicationError:
+    if descriptor is not None:
+      os.close(descriptor)
+    raise
+  except OSError as exc:
+    if descriptor is not None:
+      os.close(descriptor)
+    raise DatasetPublicationError(
+      "could not open " + label + " for continuation: " + str(exc)) from exc
+
+
+def _require_unchanged_authenticated_member(descriptor, member, before_token):
+  """Recheck one held published descriptor after the final member copy."""
+  _require_unchanged_source_member(
+    descriptor, member.path, before_token, label="member " + member.role)
+  status = os.fstat(descriptor)
+  if status.st_mode & 0o222 or status.st_size != member.size \
+      or (hasattr(os, "getuid") and status.st_uid != os.getuid()):
+    raise DatasetPublicationError(
+      "member " + member.role
+      + " no longer matches its immutable continuation source")
+
+
+def _copy_open_member_to_mutable_draft(source_fd, destination, *, label):
+  """Copy one open immutable member into a new independent mode-0600 file."""
+  destination_flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                       | getattr(os, "O_NOFOLLOW", 0))
+  destination_fd = None
+  try:
+    os.lseek(source_fd, 0, os.SEEK_SET)
+    source_status = os.fstat(source_fd)
+    destination_fd = os.open(destination, destination_flags, 0o600)
+    digest = hashlib.sha256()
+    copied = 0
+    while True:
+      block = os.read(source_fd, 1024 * 1024)
+      if not block:
+        break
+      digest.update(block)
+      view = memoryview(block)
+      written = 0
+      while written < len(view):
+        count = os.write(destination_fd, view[written:])
+        if count <= 0:
+          raise OSError("short continuation write")
+        written += count
+      copied += len(block)
+    os.fchmod(destination_fd, 0o600)
+    _fsync_regular_file(destination_fd)
+    destination_status = os.fstat(destination_fd)
+    if not stat.S_ISREG(destination_status.st_mode) \
+        or destination_status.st_nlink != 1 \
+        or destination_status.st_size != copied \
+        or stat.S_IMODE(destination_status.st_mode) != 0o600 \
+        or (source_status.st_dev, source_status.st_ino) == (
+          destination_status.st_dev, destination_status.st_ino):
+      raise DatasetPublicationError(
+        label + " continuation copy is not one independent private file")
+    return copied, digest.hexdigest()
+  except DatasetPublicationError:
+    raise
+  except OSError as exc:
+    raise DatasetPublicationError(
+      "could not copy " + label + " for continuation: " + str(exc)) from exc
+  finally:
+    if destination_fd is not None:
+      os.close(destination_fd)
+
+
+def _require_unchanged_active_generation(source):
+  """Re-read the named manifest, immutable directories, and exact census."""
+  generation_path = source.slot.generations_path / source.generation
+  _require_read_only_directory(generation_path, "generation directory")
+  _require_read_only_directory(
+    generation_path / FILES_NAME, "generation files directory")
+  manifest_bytes = _read_regular_bytes(
+    generation_path / MANIFEST_NAME, _MAX_MANIFEST_BYTES,
+    "dataset manifest", require_read_only=True)
+  if hashlib.sha256(manifest_bytes).hexdigest() != source.manifest_sha256:
+    raise DatasetPublicationError(
+      "immutable source manifest changed across the continuation copy")
+  _require_exact_generation_census(
+    generation_path,
+    {member.relative_path for member in source.members})
+
+
+def _require_private_continuation_tree(draft, members):
+  """Require exact owner-only modes for a returned mutable continuation."""
+  directory_paths = [draft.path, draft.files_path]
+  for relative in sorted(_expected_member_directories(members.values())):
+    directory_paths.append(
+      draft.files_path.joinpath(*PurePosixPath(relative).parts))
+  for path in directory_paths:
+    status = _require_private_directory(path, "continuation draft directory")
+    if stat.S_IMODE(status.st_mode) != 0o700:
+      raise DatasetPublicationError(
+        "continuation draft directory must have mode 0700: " + str(path))
+  for relative in members.values():
+    path = draft.files_path.joinpath(*PurePosixPath(relative).parts)
+    status = os.lstat(path)
+    if not stat.S_ISREG(status.st_mode) or stat.S_ISLNK(status.st_mode) \
+        or status.st_nlink != 1 or stat.S_IMODE(status.st_mode) != 0o600 \
+        or (hasattr(os, "getuid") and status.st_uid != os.getuid()):
+      raise DatasetPublicationError(
+        "continuation member must be one owner-only mode-0600 file: "
+        + str(path))
 
 
 def _open_source_member(path, *, label):

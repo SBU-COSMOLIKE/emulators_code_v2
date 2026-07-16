@@ -518,11 +518,28 @@ shows the exact commands and the saved ticket lines.
 All important instructions belong in notes. Mailbox messages should be short
 summaries that cite the relevant section.
 
-A **test** checks one behavior. The [developer test guide](tests/README.md)
-explains the CPU test modules, stand-alone reproductions, temporary-file rules,
-and exact commands. A **gate** is a repeatable acceptance command with a
-required result. The **validation board** lists and runs those gates so the
-Architect can audit machine output instead of trusting a summary.
+The three checking tools have different jobs:
+
+- A **test** asks one small question. For example,
+  `test_parameter_table.py` gives the loader a table with one row and confirms
+  that the loader returns a two-dimensional table. The
+  [test guide](tests/README.md) explains each test file and gives the commands
+  that run it.
+
+- A **gate** checks whether one larger promise has enough evidence for the
+  Architect to accept it. For example, the dataset-publication gate runs the
+  44 small publication tests. One test changes an already-copied file while a
+  second file is being copied and requires the operation to stop. The gate
+  prints `PASS` or `FAIL` for each of its six required results. A gate is
+  therefore a command with a named question and a result that has been decided
+  in advance; it is not a general request to “check the code.”
+
+- The **validation board** is the saved list of all gates. For example,
+  `python3 ai/gates/run_board.py --list` prints each gate's name and its saved
+  status, such as `not run` or a current `PASS`. When a gate is actually run,
+  its output reports `UNAVAILABLE` if required data or hardware is missing.
+  The Architect uses the list and the actual gate output when deciding `GO` or
+  `NO-GO`.
 
 Git's `main` branch is the public sequence of accepted project versions. Each
 accepted fix enters `main` as one commit containing the fix, its tests, and

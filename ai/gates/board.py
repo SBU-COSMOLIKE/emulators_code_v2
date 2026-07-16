@@ -2028,18 +2028,22 @@ def gate_generator_checkpoint_refusal(ctx):
 def gate_dataset_publication(ctx):
   """dataset-publication: one active record selects one sealed generation.
 
-  The CPU child runs the complete focused publication suite and folds its 30
-  witnesses into five exact AID terminals. It proves stable slot identity,
-  canonical bounded records, exact role/path/file/directory censuses, a
-  whole-draft source epoch and sealed-copy isolation, full-active-record CAS,
+  The CPU child runs the complete focused publication suite and folds its 44
+  witnesses into six exact AID terminals. It proves stable slot identity,
+  canonical bounded records, exact role/path/file/directory censuses, one
+  complete set of held source-member files, sealed-copy isolation, a
+  whole-active-record change check,
   old-or-new pointer visibility, read-only authentication, retry-safe sync
-  ordering, and bounded cleanup. The callback campaign is explicitly an
+  ordering, bounded cleanup, and an authenticated private writable copy for
+  later resume or append work. The continuation keeps the original saved
+  active-record SHA-256 value so a later publication refuses after another
+  writer selects a newer generation. The callback campaign is explicitly an
   in-process fault witness rather than a power-loss recovery simulation.
 
   This is the transaction/resolver foundation only. GeneratorCore and training
   consumers still use their existing flat paths; domain identity, family maps,
-  consumer pinning, copy-on-write resume/append, RNG continuation, and MPI
-  binding remain later Unit-8 slices.
+  consumer pinning, GeneratorCore resume/append routing, RNG continuation, and
+  MPI binding remain later Unit-8 slices.
   """
   rc, out = ctx.run_check("ai/gates/checks/dataset_publication.py")
   if ctx.dry:
@@ -2573,8 +2577,16 @@ BOARD = [
             "readers from complete A to complete B only after a read-only "
             "generation is authenticated; and retry-safe file/directory sync "
             "plus bounded pre/post-commit cleanup preserve truthful outcomes. "
+            "A continuation authenticates that source before creating a new "
+            "draft, holds every source member open through the complete copy, "
+            "and returns only separate mode-0600 files under mode-0700 "
+            "directories after exact source and destination rechecks. It "
+            "retains the original active-record SHA-256 value so a later "
+            "publication refuses rather than replacing a concurrently selected "
+            "generation. "
             "This does not claim GeneratorCore/consumer integration, exact "
-            "scientific identity, append RNG continuation, or power-recovery "
+            "scientific identity, GeneratorCore append/resume routing, append "
+            "RNG continuation, or power-recovery "
             "behavior beyond the documented surviving-pointer contract: "
             "before the slot-directory sync, recovery may expose A, B, or no "
             "active pointer; any surviving authenticated pointer names one "
@@ -2593,7 +2605,10 @@ BOARD = [
                    "data-generation-and-cuts.md#dataset-publication-atomic-switch"),
                  Assertion(
                    "dataset-publication.durability-and-recovery",
-                   "data-generation-and-cuts.md#dataset-publication-durability-and-recovery")),
+                   "data-generation-and-cuts.md#dataset-publication-durability-and-recovery"),
+                 Assertion(
+                   "dataset-publication.copy-on-write-continuation",
+                   "data-generation-and-cuts.md#dataset-publication-copy-on-write-continuation")),
        run=gate_dataset_publication,
        manifest=Manifest(
          code=("compute_data_vectors/dataset_publication.py",

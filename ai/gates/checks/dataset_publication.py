@@ -2,7 +2,7 @@
 """Run the CPU evidence arms for immutable dataset-generation publication.
 
 The production module has no Torch, MPI, Cobaya, or workstation dependency.
-This check groups its focused unittest witnesses into the five exact assertions
+This check groups its focused unittest witnesses into the six exact assertions
 declared by the board and emits one reserved ``##AID`` terminal for each arm.
 The census below is deliberately exhaustive: adding a focused test without
 assigning it to an evidence arm makes the check fail instead of silently
@@ -28,6 +28,7 @@ LEG_AIDS = (
   "dataset-publication.sealed-epoch",
   "dataset-publication.atomic-switch",
   "dataset-publication.durability-and-recovery",
+  "dataset-publication.copy-on-write-continuation",
 )
 
 
@@ -71,6 +72,22 @@ ARMS = {
     "test_sync_order_makes_generation_durable_before_active_switch",
     "test_directory_creation_retry_resyncs_existing_parent",
     "test_durability_helpers_call_platform_primitives",
+  ),
+  "dataset-publication.copy-on-write-continuation": (
+    "test_continuation_copies_nested_members_to_private_independent_files",
+    "test_continuation_syncs_private_files_and_complete_draft_tree",
+    "test_continuation_authenticates_request_before_creating_draft",
+    "test_continuation_copy_failure_cleans_only_new_draft",
+    "test_continuation_rechecks_every_source_after_complete_copy",
+    "test_continuation_rechecks_first_member_after_last_copy",
+    "test_continuation_refuses_writable_source_after_active_load",
+    "test_continuation_refuses_same_byte_source_path_replacement",
+    "test_continuation_requires_exact_mutable_copy_census",
+    "test_continuation_refuses_nonprivate_copy_modes",
+    "test_continuation_close_failure_attempts_all_and_refuses_success",
+    "test_continuation_refuses_size_digest_lies_and_hardlink_copy",
+    "test_continuation_rechecks_manifest_generation_census_and_modes",
+    "test_continuation_keeps_pinned_token_across_concurrent_switch",
   ),
 }
 

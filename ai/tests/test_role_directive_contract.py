@@ -295,6 +295,19 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("NO-GO", self.readme_contract)
         self.assertIn("Hard-zero words", self.readme_contract)
         self.assertIn("Do not use an AI detector", self.readme_contract)
+        self.assertIn("Abstraction examples", self.readme_contract)
+        self.assertIn("Use real examples to explain abstractions",
+                      self.readme_contract)
+        self.assertIn("a concrete input, filename, setting, command",
+                      self.readme_contract)
+        self.assertIn("the result the user can observe",
+                      self.readme_contract)
+        self.assertIn("`test_parameter_table.py` gives the loader a table",
+                      self.ai_readme)
+        self.assertIn("the dataset-publication gate runs",
+                      self.ai_readme)
+        self.assertIn("**validation board** is the saved list of all gates",
+                      self.ai_readme)
 
     def test_every_python_change_uses_the_mandatory_style_gate(self):
         contract_path = "ai/notes/python-changes-go-no-go.md"

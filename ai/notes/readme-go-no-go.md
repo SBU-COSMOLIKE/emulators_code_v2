@@ -167,6 +167,7 @@ The Architect answers these questions before dispatch.
 | Placement | Names the README location or the exact Python comment, docstring, help, or diagnostic location and explains why it belongs there | Leaves placement, heading order, comment location, or docstring scope to the Implementer |
 | Source of truth | Names the exact code, shipped file, command, or current policy that supports each behavior | Relies on memory, chat, an old README statement, or a temporary audit note |
 | Vocabulary | Lists the non-physics technical words the passage needs and gives a plain definition or replacement for each | Assumes that a later section, glossary, or software background will rescue an undefined term |
+| Abstraction examples | Identifies every new broad idea and supplies one or two real repository examples that will make the idea concrete | Says only “add an example,” leaves the Implementer to invent one, or permits a broad title or definition with no real case |
 | Edit plan | Names every file, heading, paragraph, table, diagram, link, and exact-output block that may change | Gives a broad file-level request and asks the Implementer to choose the structure |
 | Examples | Supplies or identifies a real copy-paste example, where to run it, whether it changes files, and the visible successful result | Requests an illustrative example that need not pass the real parser or command |
 | Visual choice | For a README, states which sequence, branch, comparison, or feedback loop a diagram will clarify; otherwise records `not applicable` for Python-only prose | Requests “more graphs” without naming the relationship each graph must show, or omits the applicability decision |
@@ -184,6 +185,7 @@ best judgment.”
 | Direct answer | A README opens with the heading's answer or action; Python prose starts with the callable's action, the comment's reason, or the diagnostic's problem | The passage begins with background, history, or an abstract system description |
 | Cold-reader test | A physics undergraduate can restate the passage and identify the next action without opening another section | Understanding depends on software-engineering or AI knowledge that the passage never supplies |
 | Local definitions | Every unfamiliar term is replaced or defined in concrete words at its first use in that section | A definition uses another undefined term or points only to a distant definition |
+| Examples for abstractions | A broad idea is followed or introduced by one or two real cases that name an input or file, the action, and the visible result | The reader receives only a broad label, a circular definition, or a toy example when a current repository case exists |
 | One job per paragraph | Each paragraph explains one action, fact, warning, or consequence | One paragraph mixes setup, mechanism, exception, and recovery |
 | Manageable length | Ordinary prose is split before it becomes a wall of text; a paragraph over four sentences or about 100 words has a recorded reason to remain whole | Long prose is retained only because it is technically correct or appears in an appendix |
 | Parentheses | Parentheses contain a short definition, symbol, unit, or acronym | Removing a parenthetical would remove an essential rule or a second argument |
@@ -194,6 +196,43 @@ best judgment.”
 Use the **novice paraphrase test** for every definition: ask whether the target
 reader could say the same fact in ordinary words. If not, the definition is
 still too technical.
+
+### Use real examples to explain abstractions
+
+An **abstraction** is a broad name or rule that covers several concrete cases.
+Terms such as **test**, **gate**, **publication**, **identity**, and **code
+change** are abstractions when the surrounding text does not yet show what the
+reader can see or do.
+
+For a README, a definition alone is not enough. The Architect gives `GO` only
+when each unfamiliar abstraction has one or two nearby examples from the
+current repository. Each example names:
+
+1. a concrete input, filename, setting, command, or program state;
+2. the exact action performed; and
+3. the result the user can observe.
+
+For example, “a test checks one behavior” is still broad. A concrete example
+can say that one test gives a parameter table a single row and confirms that
+the training program still receives a two-dimensional table. A second example
+can say that another test damages a saved progress file in a temporary folder
+and confirms that loading stops without changing the original files. Those
+cases let the reader understand the general word **test**.
+
+A broad README title also follows this rule. “Checks for code changes” receives
+`NO-GO` unless the opening immediately names the kinds of changes or gives real
+examples. “Tests for data handling, training rules, and AI tools” tells the
+reader what the folder actually checks.
+
+After the examples, the prose returns to the general rule and states the
+boundary that the examples illustrate. An example must not look like the only
+supported case. An analogy may help after the real cases are present, but an
+analogy never replaces repository examples.
+
+Use one example when one case makes the rule clear. Use two when a contrast is
+the lesson, such as ordinary success versus refusal, or a small test versus a
+final gate. More examples receive `GO` only when each adds a different boundary
+the reader needs.
 
 Terms that repeatedly failed this test include `lane`, `drain`, `ledger`,
 `identity`, `schema`, `dispatch`, `publication`, `state transition`,
@@ -664,6 +703,8 @@ Every covered prose review records the applicable evidence below:
   checks;
 - balanced Markdown fences and HTML detail blocks;
 - parsing or execution of every changed copy-paste example;
+- a source or focused test that confirms every repository example used to
+  explain an abstraction;
 - a GitHub-compatible render and visual inspection of every changed Mermaid
   diagram;
 - exact help or output parity when quoted program text changes;
