@@ -38,6 +38,7 @@ loaded whole.
 """
 
 import copy
+import hashlib
 import math
 import time
 
@@ -515,6 +516,103 @@ def make_scheduler(optimizer, sched_opts):
     if k != "cls":
       extra[k] = v
   return cls(optimizer, **extra)
+
+
+def _training_trunk(model):
+  """Return the parameter-owning trunk used by a two-phase model.
+
+  Correction models keep their shared dense trunk in one of two documented
+  places: ``mlp`` for the plain correction designs and ``model`` for the
+  factored designs.  A compiled model forwards these attribute reads to its
+  wrapped module.  Keeping this lookup in one helper makes the phase-boundary
+  witness hash the same object that the parameter census calls the trunk.
+
+  Raises:
+    ValueError if the model has no recognized trunk.  A digest of the full
+    model would be misleading here because a changing head could hide a
+    frozen trunk.
+  """
+  trunk = getattr(model, "mlp", None)
+  if trunk is None:
+    trunk = getattr(model, "model", None)
+  if trunk is None:
+    raise ValueError(
+      "phase-boundary trunk digest needs model.mlp or model.model; "
+      "refusing to hash the full model")
+  return trunk
+
+
+def _parameter_digest(module):
+  """Return a canonical SHA-256 digest of one module's finite parameters.
+
+  Names, dtypes, shapes, and exact tensor bytes enter the digest in sorted
+  parameter-name order.  Those labels prevent two differently shaped
+  parameter sets with the same flat bytes from sharing a witness.  The raw
+  bytes are read on the CPU only at a phase boundary, never once per epoch.
+
+  Returns:
+    ``(hex_digest, scalar_count)``.  ``hex_digest`` has 64 lowercase
+    hexadecimal characters and ``scalar_count`` is the number of parameter
+    values covered.
+
+  Raises:
+    ValueError for an empty parameter set or a NaN/Inf parameter.  Publishing
+    a digest for either case would turn missing or corrupt state into evidence.
+  """
+  named = list(module.named_parameters())
+  named.sort(key=lambda item: item[0])
+  if len(named) == 0:
+    raise ValueError("phase-boundary trunk digest found no parameters")
+
+  digest = hashlib.sha256()
+  scalar_count = 0
+  for name, parameter in named:
+    value = parameter.detach().cpu().contiguous()
+    if value.numel() == 0:
+      raise ValueError(
+        "phase-boundary trunk digest found an empty parameter " + repr(name))
+    if not bool(torch.isfinite(value).all()):
+      raise ValueError(
+        "phase-boundary trunk digest found NaN/Inf in " + repr(name))
+
+    name_bytes = name.encode("utf-8")
+    dtype_bytes = str(value.dtype).encode("ascii")
+    shape_bytes = (",".join(str(int(size)) for size in value.shape)
+                   .encode("ascii"))
+    for field in (name_bytes, dtype_bytes, shape_bytes):
+      digest.update(len(field).to_bytes(8, byteorder="big", signed=False))
+      digest.update(field)
+    # Viewing the contiguous storage as bytes also works for bfloat16, which
+    # NumPy 1.x cannot represent as a numeric array.
+    raw = value.view(torch.uint8).numpy().tobytes(order="C")
+    digest.update(len(raw).to_bytes(8, byteorder="big", signed=False))
+    digest.update(raw)
+    scalar_count += value.numel()
+
+  return digest.hexdigest(), scalar_count
+
+
+def _phase2_digest_line(phase, before, after, parameter_count):
+  """Format the one machine-readable trunk record for phase 2."""
+  return ("phase-boundary trunk digest: phase=" + str(phase)
+          + " before=" + str(before)
+          + " after=" + str(after)
+          + " parameters=" + str(int(parameter_count))
+          + " finite=1")
+
+
+def _ema_first_live_line(epoch, schedule, beta, steps_per_epoch,
+                         raw_median, averaged_median,
+                         raw_mean, averaged_mean):
+  """Format the one numerical record from EMA's first live epoch."""
+  return ("ema first-live: epoch=" + str(int(epoch))
+          + " schedule=" + format(float(schedule), ".17g")
+          + " beta=" + format(float(beta), ".17g")
+          + " steps_per_epoch=" + str(int(steps_per_epoch))
+          + " raw_median=" + format(float(raw_median), ".17g")
+          + " averaged_median=" + format(float(averaged_median), ".17g")
+          + " raw_mean=" + format(float(raw_mean), ".17g")
+          + " averaged_mean=" + format(float(averaged_mean), ".17g"))
 
 
 # the eight keys a per-phase override block (train_args.trunk / .head) may
@@ -2118,6 +2216,13 @@ def training_loop_batched(nepochs,
 
   for epoch in range(1, nepochs + 1):
     t_epoch = time.perf_counter()
+    ema_started_this_epoch = False
+    ema_schedule = None
+    if ema_on:
+      if ema_s_opts is None:
+        ema_schedule = 1.0
+      else:
+        ema_schedule = anneal_value(epoch=epoch, opts=ema_s_opts)
     # warmup before this epoch trains: epoch e (of W) runs at
     # base*e/W, so epoch 1 uses base/W, protecting exactly the
     # steps warmup exists for. (It used to be applied after the
@@ -2137,8 +2242,7 @@ def training_loop_batched(nepochs,
     # theta_bar + the scratch buffers, then the per-step update starts;
     # before this, ema_on runs the loop as usual.
     if (ema_on and theta_bar is None and epoch > warmup_epochs
-        and (ema_s_opts is None
-             or anneal_value(epoch=epoch, opts=ema_s_opts) > 0.0)):
+        and ema_schedule > 0.0):
       theta_bar      = []
       ema_tmp        = []
       best_theta_bar = []
@@ -2146,6 +2250,7 @@ def training_loop_batched(nepochs,
         theta_bar.append(p.detach().clone())
         ema_tmp.append(p.detach().clone())
         best_theta_bar.append(p.detach().clone())
+      ema_started_this_epoch = True
     model.train()
     perm = tidx[torch.randperm(ntrain).numpy()]
 
@@ -2175,8 +2280,7 @@ def training_loop_batched(nepochs,
     # note above). Only when ema.anneal is present; without it beta stays the
     # one-time target (byte-identical). The lerp reads this beta below.
     if ema_s_opts is not None:
-      s_ema = anneal_value(epoch=epoch, opts=ema_s_opts)
-      beta = derive_ema_beta(horizon_epochs=horizon * s_ema,
+      beta = derive_ema_beta(horizon_epochs=horizon * ema_schedule,
                              steps_per_epoch=steps_per_epoch)
 
     # epoch training loss, accumulated on-device
@@ -2305,6 +2409,18 @@ def training_loop_batched(nepochs,
         torch._foreach_copy_(ema_params, ema_tmp)      # restore theta
     else:
       median, mean, frac = raw_median, raw_mean, raw_frac
+
+    # One numerical record marks the first epoch that actually used the
+    # average.  It is deliberately not an every-epoch trace: the ordinary
+    # epoch line already carries the selected metrics, while this one record
+    # lets a gate verify the live boundary, scheduled horizon, derived beta,
+    # and both raw/averaged validation values.
+    if ema_started_this_epoch and not silent:
+      print(_ema_first_live_line(
+        epoch=epoch, schedule=ema_schedule, beta=beta,
+        steps_per_epoch=steps_per_epoch,
+        raw_median=raw_median, averaged_median=median,
+        raw_mean=raw_mean, averaged_mean=mean))
     # the scheduler always steps on the raw median (== median when ema is
     # off), so its plateau dynamics never change.
     sched_median = raw_median
@@ -2947,6 +3063,20 @@ def run_emulator(train_set,
     if model_phase is not None:
       model.set_train_phase(model_phase)
 
+    # Phase 2 is the only place where freeze_trunk changes the intended
+    # parameter updates.  Capture the shared trunk after phase 1 restored its
+    # best weights and before phase 2 builds its optimizer.  The matching
+    # digest below is taken after phase 2 restores its own best state.  One
+    # before/after record per two-phase run is enough; hashing every epoch
+    # would add synchronization and noise without strengthening the check.
+    phase2_trunk = None
+    phase2_digest_before = None
+    phase2_parameter_count = None
+    if phase == "head" and not silent:
+      phase2_trunk = _training_trunk(model)
+      (phase2_digest_before,
+       phase2_parameter_count) = _parameter_digest(phase2_trunk)
+
     # per-pass knob resolution: each pass restarts the lr at its base
     # (never the other phase's decayed floor) and falls back to the run
     # defaults; the symmetric trunk: / head: blocks override them for
@@ -3101,6 +3231,16 @@ def run_emulator(train_set,
                                  ema=ema_pass,
                                  berhu=berhu_pass,
                                  anchor=anchor_obj)
+    if phase2_trunk is not None:
+      digest_after, parameter_count_after = _parameter_digest(phase2_trunk)
+      if parameter_count_after != phase2_parameter_count:
+        raise ValueError(
+          "phase-boundary trunk parameter count changed during phase 2: "
+          + str(phase2_parameter_count) + " before, "
+          + str(parameter_count_after) + " after")
+      print(_phase2_digest_line(
+        phase=model_phase, before=phase2_digest_before, after=digest_after,
+        parameter_count=parameter_count_after))
     # histories concatenate across phases: one continuous per-epoch
     # record, as a single-pass run produces. ema re-initializes inside
     # each pass (theta_bar at the pass's own warmup end), so the average

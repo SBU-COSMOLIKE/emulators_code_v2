@@ -168,6 +168,7 @@ emulator result file.
 | `test_batching_sizing.py` | The target array's exact byte cost in batch sizing and refusal when one complete batch cannot fit. |
 | `test_cmb_checkpoint_axis.py` | The exact CMB multipole axis saved with a progress file and refusal of missing, shifted, repeated, or malformed axes before spectra are read. |
 | `test_data_staging_paramnames.py` | How `.paramnames` files are chosen for numbered chains and plain data tables, plus the shared maximum row count for loading data. |
+| `test_d5_training_behavior_witnesses.py` | CPU checks for the training-gate numerical witnesses: annealing values and joins, complete head-phase learning-rate cadence, the first live EMA record, ReLU/Tanh learning against dead and mean-only controls, and changing versus frozen trunk digests. |
 | `test_dataset_publication.py` | Generated-data folders that cannot change after acceptance, SHA-256 checks of each file, competing writers, crash points, path escape attempts, links, and corrupted files. |
 | `test_dataset_request_contract.py` | The exact scientific request fields and generated member names for each supported family and sampling mode. |
 | `test_finetune_post_step_and_provenance.py` | The pull toward saved fine-tune weights happens after the optimizer step, the moving weight average sees that pull, and both drivers save the same origin facts. |

@@ -1,5 +1,6 @@
 # relu-tanh-norm, leg 1 (spec: ai/notes/models-and-designs.md:99-101):
-# tanh + per_feature norm. The banner names the norm; the loss descends.
+# ReLU + per_feature norm. This is the ReLU half of the paired gate; the
+# affine YAML supplies the Tanh half.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
@@ -51,7 +52,7 @@ train_args:
   model:
     name: resmlp
     activation:
-      type: tanh
+      type: relu
     norm: per_feature
     mlp:
       width:    128

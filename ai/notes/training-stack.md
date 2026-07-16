@@ -763,8 +763,8 @@ The ResCNN two-phase control exits with status zero.
 <a id="head-scheduler-override-evidence"></a>
 **Head scheduler override.** The override command exits zero and prints the
 resolved head-scheduler status line. A reference comparison, when configured,
-uses nonempty exact output-line lists. Scheduler cadence requires a numerical
-counting assertion and cannot be inferred from a status output line.
+uses nonempty exact output-line lists. The fixture forces a plateau only in the
+30-epoch head phase so the gate can count every learning-rate transition.
 
 <a id="head-scheduler-override-golden-selected-text-equality"></a>
 The phase, epoch, and best output-line lists from the current and reference
@@ -778,9 +778,11 @@ The command output contains the exact line `[head overrides: scheduler]` for
 the fixture.
 
 <a id="head-scheduler-override-lr-cut-cadence"></a>
-Cadence evidence requires the expected number and location of learning-rate
-cuts from a counting scheduler. Printed inspection instructions are
-`UNAVAILABLE`, not a pass.
+The gate must parse exactly head epochs 1 through 30. After the eight-epoch
+warmup, the learning rate stays fixed through epoch 19, changes once at epoch
+20, and then stays fixed through epoch 30. The new value must equal `0.8` times
+the pre-cut value. A missing epoch, an early or late cut, or a second cut fails
+the assertion.
 
 ### Production diagnostic command
 
@@ -989,9 +991,12 @@ The command output contains the exact line `anneal: hold 5 + 10 cosine` for the
 fixture.
 
 <a id="berhu-anneal-schedule-behavior"></a>
-The direct evaluator must prove hold behavior, strict interior ramp values,
-continuity, and the full-shape endpoint. A status output line is not this
-evidence.
+The CPU witness calls the production `anneal_value` function for the configured
+zero-to-one cosine schedule. Epochs 4, 5, 6, 10, 15, and 16 must return,
+respectively, `0`, `0`, `0.024471741852423234`, `0.5`, `1`, and `1` within the
+declared numerical tolerance. Probes immediately to the left and right of
+epochs 5 and 15 must also establish continuity. A constant schedule or a ramp
+that begins one epoch early fails this assertion.
 
 <a id="ema-anneal-evidence"></a>
 **EMA anneal.** The command exits and names both the horizon and schedule.
@@ -1009,16 +1014,27 @@ The EMA-anneal public command exits zero.
 The command output contains the exact lines `ema: horizon 3 epochs` and
 `anneal: hold 5 + 10 cosine` for the fixture.
 
+<a id="ema-anneal-schedule-behavior"></a>
+The CPU witness applies the same known-answer values and continuity checks as
+`berhu-anneal.schedule-behavior` to the production schedule selected by the EMA
+configuration. This proves the shared schedule function and the EMA fixture's
+schedule inputs; it does not replace the full training run.
+
 <a id="ema-anneal-live-point-metrics"></a>
-The first live EMA metric must be parsed and compared with the resolved
-schedule. Unparsed log inspection is `UNAVAILABLE`.
+The production run must print exactly one `ema first-live` record. It must occur
+at epoch 6, carry schedule value `0.024471741852423234`, name a positive number
+of optimizer steps, and contain finite raw and averaged validation means and
+medians. The gate independently recomputes beta as
+`1 - 1 / (3 * schedule * steps_per_epoch)`, with the production zero floor for
+a sub-step window, and requires the printed beta to match.
 
 ### Joint-training evidence
 
 <a id="joint-training-evidence"></a>
 **Joint training.** Joint and frozen-trunk control commands exit and print the
-resolved phases. Direct parameter-state checks prove trunk updates, and a
-numerical comparison proves phase-handoff continuity.
+resolved phases. Each command prints one finite phase-boundary digest of the
+shared trunk before and after phase 2. The gate compares the digest strings
+instead of trusting a printed changed/unchanged label.
 
 <a id="joint-training-golden-selected-text-equality"></a>
 A configured reference comparison uses nonempty exact output-line lists after
@@ -1037,13 +1053,17 @@ An exact command-output line names the joint phase.
 <a id="joint-training-control-exit-zero"></a>
 The `freeze_trunk: true` control exits zero.
 
-<a id="joint-training-epoch-time-order"></a>
-Timing order requires a defined comparison and bound. Printed final lines
-alone are `UNAVAILABLE`.
+<a id="joint-training-joint-trunk-digest-change"></a>
+The `freeze_trunk: false` run must print one phase `joint` record whose before
+and after SHA-256 digests differ. The digest covers the trunk parameter names,
+dtypes, shapes, and exact bytes in sorted name order and refuses empty or
+nonfinite parameter sets. A head-only change cannot satisfy this assertion.
 
-<a id="joint-training-handoff-loss-continuity"></a>
-Continuity requires numerical comparison at the phase boundary. Inspection
-instructions alone are `UNAVAILABLE`.
+<a id="joint-training-frozen-trunk-digest-identity"></a>
+The `freeze_trunk: true` control must print one phase `head` record whose before
+and after trunk digests are exactly equal. The parameter count must stay
+positive and unchanged. This is parameter-state evidence; it makes no timing
+or phase-handoff loss claim.
 
 ### Weight-decay evidence
 

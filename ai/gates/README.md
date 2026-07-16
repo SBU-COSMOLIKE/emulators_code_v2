@@ -122,9 +122,9 @@ not all appear here yet.
 | ema-anneal | the EMA average appears only after the hold, at the live point |
 | param-window-cuts | a tight density window trains end to end and the pool shrinkage matches the banner |
 | triangle-shading | (optional) the synthetic four-window triangle shades exactly the coverage panels |
-| joint-training | freeze_trunk false trains trunk and head together; phase-2 time sits above the frozen control |
+| joint-training | the phase-2 trunk digest changes when `freeze_trunk: false` and stays identical in the frozen control |
 | head-activation-pin | a pinned gated_power head shows in the model-spec banner; the illegal pin errors |
-| relu-tanh-norm | tanh with the per_feature / affine norm knob; the banner names the norm and the loss descends |
+| relu-tanh-norm | ReLU with `per_feature` and Tanh with `affine`; CPU witnesses check finite learning, while full drivers check workstation routing. |
 | weight-decay-census | weight decay touches exactly the Linear / Conv1d / BinLinear weight matrices |
 | npce-training | NPCE residual and ratio train, the exclusivity errors fire, a 2-point n_train sweep refits per point |
 | artifact-composition | required plain / NPCE / transfer mode and refined fact agree with exact HDF5 groups and resolved YAML before construction; presence-only artifacts refuse |

@@ -345,10 +345,11 @@ unfrozen-head configuration exits nonzero and its captured output contains
 <a id="relu-tanh-norm-evidence"></a>
 ### Acceptance evidence: `relu-tanh-norm`
 
-**Rule.** The registered gate runs two configurations that request `tanh` and
-checks the reported norm names. Process completion and startup text establish
-configuration routing only; they cannot prove numerical loss descent or ReLU
-behavior.
+**Rule.** The registered gate pairs `relu` with `per_feature` normalization and
+`tanh` with `affine` normalization. A deterministic CPU child tests the real
+activation and normalization factories on a small nonlinear regression. The
+two full scientific configurations separately prove driver reachability when
+the required workstation is available.
 
 - files: reads `ai/gates/configs/relu-tanh-norm-per-feature.yaml`,
   `ai/gates/configs/relu-tanh-norm-affine.yaml`, and the cosmic-shear
@@ -362,28 +363,33 @@ behavior.
   but this gate does not read those products back; the gate runner writes the
   gate's raw log.
 - subprocess: runs `cosmic_shear_train_emulator.py` once for the
-  `tanh`/`per_feature` configuration and once for the `tanh`/`affine`
-  configuration. A golden leg supplied with a pinned base runs the candidate
-  and pinned drivers once each. There is no separate `ai/gates/checks/` child.
-- metric: per-leg.  The executable legs use exact zero-exit predicates and
-  literal selected-text containment.  The conditional golden leg compares
-  selected log lines after removing their trailing wall-clock field; it is not
-  a raw-byte comparison, and the helper does not require either selected-line
-  list to be nonempty.
-- legs: 5, named `relu-tanh-norm.golden-selected-text-equality`,
+  `relu`/`per_feature` configuration and once for the `tanh`/`affine`
+  configuration. The board also runs
+  `ai/gates/checks/d5_training_behaviors.py --gate relu-tanh-norm`. A golden
+  leg supplied with a pinned base runs the candidate and pinned drivers once
+  each.
+- metric: per-leg. The CPU child checks exact ReLU/Tanh values, identity
+  initialization of the selected norms, finite strict loss descent, and a
+  final loss below half the mean-only predictor's loss. The driver legs use
+  exact zero-exit predicates and literal selected-text containment. The
+  conditional golden leg compares selected log lines after removing their
+  trailing wall-clock field; it is not a raw-byte comparison, and both
+  selected-line lists must be nonempty.
+- legs: 7, named `relu-tanh-norm.golden-selected-text-equality`,
   `relu-tanh-norm.per-feature-config-exit-zero`,
   `relu-tanh-norm.per-feature-text-present`,
   `relu-tanh-norm.affine-config-exit-zero`, and
-  `relu-tanh-norm.affine-text-present`.
-- acceptance boundary: four process/text legs are executable when the Torch,
-  CosmoLike, and GPU requirements are available. Epoch histories in raw
-  subprocess output do not prove descent because no assertion compares their
-  loss values. Golden selected-text equality requires a reviewed pinned base
-  and nonempty selected-line lists.
-- capability boundary: a manifest-bound GPU run is required. ReLU behavior
-  requires a ReLU-specific run, and loss descent requires a numerical
-  assertion over the epoch history. Neither claim follows from configuration
-  text or a zero process exit.
+  `relu-tanh-norm.affine-text-present`, plus
+  `relu-tanh-norm.relu-finite-descent` and
+  `relu-tanh-norm.tanh-finite-descent`.
+- acceptance boundary: the two CPU legs establish factory-level numerical
+  behavior on the fixed small regression. They do not claim that the complete
+  cosmic-shear jobs ran. The four process/text legs require Torch, CosmoLike,
+  and a GPU. Golden selected-text equality additionally requires a reviewed
+  pinned base and nonempty selected-line lists.
+- capability boundary: the CPU child requires Torch. The separate full-driver
+  legs remain workstation evidence and must not be inferred from the CPU
+  result.
 
 <a id="relu-tanh-norm-golden-selected-text-equality"></a>
 `relu-tanh-norm.golden-selected-text-equality` requires a configured base
@@ -394,7 +400,7 @@ evidence.
 
 <a id="relu-tanh-norm-per-feature-config-exit-zero"></a>
 `relu-tanh-norm.per-feature-config-exit-zero` — the process whose YAML requests
-`tanh` with `per_feature` normalization exits with status zero.
+`relu` with `per_feature` normalization exits with status zero.
 
 <a id="relu-tanh-norm-per-feature-text-present"></a>
 `relu-tanh-norm.per-feature-text-present` — that process's captured output
@@ -407,6 +413,18 @@ contains the literal text `per_feature`.
 <a id="relu-tanh-norm-affine-text-present"></a>
 `relu-tanh-norm.affine-text-present` — that process's captured output contains
 the literal text `affine`.
+
+<a id="relu-tanh-norm-relu-finite-descent"></a>
+`relu-tanh-norm.relu-finite-descent` — the production ReLU and per-feature
+normalization factories have their exact initial behavior, and their fixed
+small regression finishes with a finite loss below both its initial loss and
+half the mean-only loss. A dead network and a mean-only result fail.
+
+<a id="relu-tanh-norm-tanh-finite-descent"></a>
+`relu-tanh-norm.tanh-finite-descent` — the production Tanh and affine
+normalization factories have their exact initial behavior, and their fixed
+small regression finishes with a finite loss below both its initial loss and
+half the mean-only loss. A dead network and a mean-only result fail.
 
 ## Factored IA (what "factored" means)
 

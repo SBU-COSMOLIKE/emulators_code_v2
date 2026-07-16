@@ -554,10 +554,12 @@ def gate_gh_e(ctx):
 
   WHAT: a head: scheduler block with patience 10 against a run default
   of 25. WHY: the override must act on that phase only. HOW: the override
-  smoke exits zero and prints the "[head overrides: scheduler]" banner; the
-  golden no-phase-blocks selected-text equality is UNAVAILABLE while
-  golden_bases has no configured base, and the patience-10 lr-cut cadence is
-  UNAVAILABLE (logged instruction only, no cadence comparison)
+  smoke exits zero and prints the "[head overrides: scheduler]" banner. Its
+  head-only scheduler has a deliberately forced plateau, so the parser must
+  find all 30 head epochs, exactly one post-warmup LR transition, and the
+  factor-0.8 cut at epoch 20 (warmup 8, patience 10). The golden
+  no-phase-blocks selected-text equality is UNAVAILABLE while golden_bases
+  has no configured base
   (spec: training-stack.md:262-279).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
@@ -566,19 +568,21 @@ def gate_gh_e(ctx):
               yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)",
               aid="head-scheduler-override.golden-selected-text-equality")
-  out = _smoke_driver(ctx=ctx,
-                      config_key="head-scheduler-override-config",
-                      required_banners=["[head overrides: scheduler]"],
-                      exit_aid="head-scheduler-override.driver-exit-zero",
-                      banner_aid="head-scheduler-override.override-banner-present")
+  out = _smoke_driver(
+    ctx=ctx,
+    config_key="head-scheduler-override-config",
+    required_banners=["[head overrides: scheduler]"],
+    exit_aid="head-scheduler-override.driver-exit-zero",
+    banner_aid="head-scheduler-override.override-banner-present")
   if ctx.dry:
     return
-  ctx.unavailable(aid="head-scheduler-override.lr-cut-cadence",
-                  label="head-scheduler-override lr-cut cadence",
-                  reason="the head phase's first lr cut should land on the "
-                         "patience-10 cadence (vs 25), but the gate only prints "
-                         "an instruction to inspect the lr-cut epoch spacing "
-                         "(training-stack.md:265) and runs no cadence comparison")
+  ok, detail = logscan.head_lr_cadence(
+    text=out, phase="head", phase_epochs=30, warmup_epochs=8,
+    patience=10, factor=0.8)
+  ctx.expect(aid="head-scheduler-override.lr-cut-cadence",
+             label="head phase has exactly the patience-10 LR cadence",
+             ok=ok,
+             detail=detail)
 
 
 def gate_ge_c(ctx):
@@ -685,15 +689,21 @@ def gate_gba_c(ctx):
   WHAT: the berHu anneal (plain sqrt blending into berHu over a
   hold-then-ramp schedule). WHY: the tail votes should arrive after the
   trim schedule has absorbed the worst outliers, without a jolt at the
-  ramp start. HOW: a run shows the banner "anneal: hold 5 + 10 cosine"
-  (smoke-exit-zero + anneal-banner), plus a golden no-anneal run
-  (golden-selected-text-equality, UNAVAILABLE while its base is null).
-  The hold-boundary continuity and full-berHu-by-epoch-15 shape are named
-  by the note but not measured here, so schedule-behavior is UNAVAILABLE
-  (logged-only, no comparison runs)
+  ramp start. HOW: a CPU child calls the production anneal_value function at
+  independent known-answer epochs and both joins (schedule-behavior). A full
+  run shows the banner "anneal: hold 5 + 10 cosine" (smoke-exit-zero +
+  anneal-banner), plus a golden no-anneal run (golden-selected-text-equality,
+  UNAVAILABLE while its base is null)
   (spec: training-stack.md#berhu-anneal-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
+  rc, _ = ctx.run_check(
+    "ai/gates/checks/d5_training_behaviors.py",
+    extra=("--gate", "berhu-anneal"))
+  if not ctx.dry:
+    ctx.expect(label="berhu-anneal CPU schedule witness exits zero",
+               ok=(rc == 0),
+               detail="check exit code " + str(rc))
   _golden_leg(ctx=ctx,
               gate_id="berhu-anneal",
               yaml_name="cosmic_shear_train_emulator.yaml",
@@ -704,13 +714,6 @@ def gate_gba_c(ctx):
                 required_banners=["anneal: hold 5 + 10 cosine"],
                 exit_aid="berhu-anneal.smoke-exit-zero",
                 banner_aid="berhu-anneal.anneal-banner")
-  ctx.unavailable(
-    aid="berhu-anneal.schedule-behavior",
-    label="berhu-anneal schedule continuity + full-shape epoch",
-    reason="the note names hold-boundary continuity (epoch 5->6) and "
-           "s=1 (full berHu) by epoch 15, but this gate runs no such "
-           "comparison -- the schedule inspection is logged-only, not "
-           "measured (training-stack.md#berhu-anneal-schedule-behavior)")
 
 
 def gate_gme_c(ctx):
@@ -721,31 +724,44 @@ def gate_gme_c(ctx):
   epochs would poison the shipped weights. HOW: the smoke exits zero
   (smoke-exit-zero) and its banners name the horizon and the schedule --
   both "ema: horizon 3 epochs" and "anneal: hold 5 + 10 cosine"
-  (ema-anneal-banners); the golden no-anneal selected-text equality
-  (golden-selected-text-equality) is UNAVAILABLE while golden_bases has
-  no configured base; and the average's first-live-point metrics
-  (live-point-metrics) are UNAVAILABLE -- described in the note (epoch
-  6+), but this gate parses and asserts no metric-appearance comparison
+  (ema-anneal-banners); a CPU child checks the production schedule before,
+  at, within, and after the ramp (schedule-behavior); the golden no-anneal
+  selected-text equality is UNAVAILABLE while golden_bases has no configured
+  base. The production run emits one first-live numerical record, and the
+  live-point-metrics leg recomputes beta and requires finite raw/average
+  metrics at epoch 6
   (spec: training-stack.md#ema-anneal-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
+  rc, _ = ctx.run_check(
+    "ai/gates/checks/d5_training_behaviors.py",
+    extra=("--gate", "ema-anneal"))
+  if not ctx.dry:
+    ctx.expect(label="ema-anneal CPU schedule witness exits zero",
+               ok=(rc == 0),
+               detail="check exit code " + str(rc))
   _golden_leg(ctx=ctx,
               gate_id="ema-anneal",
               yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best|ema)",
               aid="ema-anneal.golden-selected-text-equality")
-  _smoke_driver(ctx=ctx,
-                config_key="ema-anneal-config",
-                required_banners=["ema: horizon 3 epochs",
-                                  "anneal: hold 5 + 10 cosine"],
-                exit_aid="ema-anneal.smoke-exit-zero",
-                banner_aid="ema-anneal.ema-anneal-banners")
-  ctx.unavailable(aid="ema-anneal.live-point-metrics",
-                  label="ema-anneal averaged-metric first-live epoch",
-                  reason="the note describes the averaged metrics first "
-                         "appearing at the live point (epoch 6+), but this "
-                         "gate parses no metrics and runs no metric-appearance "
-                         "comparison (training-stack.md#ema-anneal-live-point-metrics)")
+  smoke = _smoke_driver(
+    ctx=ctx,
+    config_key="ema-anneal-config",
+    required_banners=["ema: horizon 3 epochs",
+                      "anneal: hold 5 + 10 cosine"],
+    exit_aid="ema-anneal.smoke-exit-zero",
+    banner_aid="ema-anneal.ema-anneal-banners")
+  if ctx.dry:
+    return
+  ok, detail = logscan.ema_first_live(
+    text=smoke, expected_epoch=6,
+    expected_schedule=0.024471741852423234,
+    horizon_epochs=3.0)
+  ctx.expect(aid="ema-anneal.live-point-metrics",
+             label="EMA first-live epoch has finite raw/average metrics",
+             ok=ok,
+             detail=detail)
 
 
 def gate_item27(ctx):
@@ -818,10 +834,10 @@ def gate_gft_c(ctx):
   matched by regex not pinned) and "phase 'joint'" (joint-phase-banner);
   the freeze_trunk:true control run exits zero (control-exit-zero). The
   golden absent-key selected-text equality (golden-selected-text-equality)
-  is UNAVAILABLE while golden_bases has no configured base. The phase-2
-  epoch-time ordering (epoch-time-order) and the handoff loss continuity
-  (handoff-loss-continuity) are UNAVAILABLE: both are printed for
-  inspection only, with no ordering or continuity comparison run
+  is UNAVAILABLE while golden_bases has no configured base. Each production
+  run prints one phase-2 trunk digest record. The gate compares the hashes
+  itself: joint training must change the finite trunk, while the frozen
+  control must preserve it exactly
   (spec: training-stack.md#joint-training-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
@@ -853,27 +869,18 @@ def gate_gft_c(ctx):
              label="joint-training freeze_trunk:true control run completes",
              ok=(rc_c == 0),
              detail="control exit code " + str(rc_c))
-  joint_epochs = logscan.matching_lines(text=out, pattern=r"^epoch")
-  control_epochs = logscan.matching_lines(text=out_c, pattern=r"^epoch")
-  joint_last = joint_epochs[-1] if len(joint_epochs) > 0 else "(no epoch line)"
-  control_last = (control_epochs[-1] if len(control_epochs) > 0
-                  else "(no epoch line)")
-  ctx.log("joint-training phase-2 epoch time, side by side (the sanity signal is the "
-          "joint time ABOVE the control, the trunk backward returned):")
-  ctx.log("  joint (freeze_trunk:false):  " + joint_last)
-  ctx.log("  control (freeze_trunk:true): " + control_last)
-  ctx.unavailable(aid="joint-training.epoch-time-order",
-                  label="joint-training phase-2 epoch-time order (joint > control)",
-                  reason="the joint phase-2 epoch time should sit visibly above "
-                         "the freeze_trunk:true control (the trunk backward ran), "
-                         "but the gate only prints the two last epoch lines "
-                         "(training-stack.md:211-228) and runs no ordering "
-                         "comparison")
-  ctx.unavailable(aid="joint-training.handoff-loss-continuity",
-                  label="joint-training handoff loss continuity",
-                  reason="loss continuity across the phase-1->phase-2 handoff "
-                         "(training-stack.md:226-228) is an inspection "
-                         "instruction, not a numerical assertion in this gate")
+  joint_ok, joint_detail = logscan.phase2_trunk_digest(
+    text=out, expected_phase="joint", should_change=True)
+  ctx.expect(aid="joint-training.joint-trunk-digest-change",
+             label="joint phase changes the finite trunk parameter digest",
+             ok=joint_ok,
+             detail=joint_detail)
+  control_ok, control_detail = logscan.phase2_trunk_digest(
+    text=out_c, expected_phase="head", should_change=False)
+  ctx.expect(aid="joint-training.frozen-trunk-digest-identity",
+             label="frozen head phase preserves the trunk digest exactly",
+             ok=control_ok,
+             detail=control_detail)
 
 
 def gate_gha_f(ctx):
@@ -930,15 +937,22 @@ def gate_gan_c(ctx):
   """relu-tanh-norm: the plain activations work, with the norm knob.
 
   WHAT: the parameter-free relu/tanh activations plus the norm knob
-  (per_feature / affine). WHY: tanh needs the per_feature saturation
-  guard, and the classic affine baseline must still work. HOW: a tanh +
-  per_feature run and a tanh + affine run each exit zero and name their
-  norm in the banner; plus the golden absent-key run. The runs' epoch
-  histories are printed but no assertion compares their loss values, so
-  loss descent is logged-only, not asserted evidence
+  (per_feature / affine). WHY: both fixed activations must pass a numerical
+  learning check, and the two norm choices must remain usable. HOW: a CPU
+  child checks exact activation values, identity norm initialization, finite
+  strict descent, and a mean-only baseline for ReLU+per_feature and
+  Tanh+affine. Separate full drivers each exit zero and name their norm; the
+  golden absent-key run remains conditional on its configured base
   (spec: models-and-designs.md#relu-tanh-norm-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
+  rc, _ = ctx.run_check(
+    "ai/gates/checks/d5_training_behaviors.py",
+    extra=("--gate", "relu-tanh-norm"))
+  if not ctx.dry:
+    ctx.expect(label="relu-tanh-norm CPU learning witnesses exit zero",
+               ok=(rc == 0),
+               detail="check exit code " + str(rc))
   _golden_leg(ctx=ctx,
               gate_id="relu-tanh-norm",
               yaml_name="cosmic_shear_train_emulator.yaml",
@@ -2301,8 +2315,8 @@ BOARD = [
        tier=TIER_BACKLOG,
        home="training-stack",
        maps="the head-scheduler override driver exits zero and prints its "
-            "override banner, while the golden selected-text equality and the "
-            "lr-cut cadence remain conditional evidence",
+            "override banner; a forced plateau then produces exactly one "
+            "factor-0.8 head LR cut at the patience-10 location",
        evidence=(Assertion("head-scheduler-override.golden-selected-text-equality",
                            "training-stack.md#head-scheduler-override-golden-selected-text-equality"),
                  Assertion("head-scheduler-override.driver-exit-zero",
@@ -2891,9 +2905,9 @@ BOARD = [
        title="berHu anneal schedule",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="the configured berHu-anneal run exits clean and names its "
-            "anneal schedule banner; the schedule's continuity and "
-            "full-shape epoch are not measured here.",
+       maps="the production anneal function matches independent values before, "
+            "at, within and after the configured ramp and stays continuous at "
+            "both joins; the full run exits clean and names that schedule",
        evidence=(Assertion("berhu-anneal.golden-selected-text-equality",
                            "training-stack.md#berhu-anneal-golden-selected-text-equality"),
                  Assertion("berhu-anneal.smoke-exit-zero",
@@ -2911,15 +2925,18 @@ BOARD = [
        title="EMA anneal schedule",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="the EMA-anneal training smoke exits zero and prints both its "
-            "\"ema: horizon 3 epochs\" horizon banner and its \"anneal: hold "
-            "5 + 10 cosine\" schedule banner",
+       maps="the production EMA schedule matches independent values at both "
+            "joins and across the ramp; the full run exits zero, names the "
+            "schedule, and records finite raw/average metrics when EMA first "
+            "becomes live",
        evidence=(Assertion("ema-anneal.golden-selected-text-equality",
                            "training-stack.md#ema-anneal-golden-selected-text-equality"),
                  Assertion("ema-anneal.smoke-exit-zero",
                            "training-stack.md#ema-anneal-smoke-exit-zero"),
                  Assertion("ema-anneal.ema-anneal-banners",
                            "training-stack.md#ema-anneal-ema-anneal-banners"),
+                 Assertion("ema-anneal.schedule-behavior",
+                           "training-stack.md#ema-anneal-schedule-behavior"),
                  Assertion("ema-anneal.live-point-metrics",
                            "training-stack.md#ema-anneal-live-point-metrics")),
        run=gate_gme_c,
@@ -2969,11 +2986,10 @@ BOARD = [
        title="freeze_trunk-false joint training",
        tier=TIER_NEW_FEATURES,
        home="training-stack",
-       maps="the joint freeze_trunk:false run and the freeze_trunk:true "
-            "control run each exit zero, the joint run prints its two-phase "
-            "and phase-'joint' banners, while the golden selected-text "
-            "equality, the phase-2 epoch-time ordering, and the handoff loss "
-            "continuity remain conditional or inspection-only evidence",
+       maps="the joint freeze_trunk:false run and freeze_trunk:true control "
+            "each exit zero; one canonical phase-2 trunk digest must change "
+            "for joint training and remain exactly identical for the frozen "
+            "control",
        evidence=(Assertion("joint-training.golden-selected-text-equality",
                            "training-stack.md#joint-training-golden-selected-text-equality"),
                  Assertion("joint-training.joint-exit-zero",
@@ -2984,10 +3000,10 @@ BOARD = [
                            "training-stack.md#joint-training-joint-phase-banner"),
                  Assertion("joint-training.control-exit-zero",
                            "training-stack.md#joint-training-control-exit-zero"),
-                 Assertion("joint-training.epoch-time-order",
-                           "training-stack.md#joint-training-epoch-time-order"),
-                 Assertion("joint-training.handoff-loss-continuity",
-                           "training-stack.md#joint-training-handoff-loss-continuity")),
+                 Assertion("joint-training.joint-trunk-digest-change",
+                           "training-stack.md#joint-training-joint-trunk-digest-change"),
+                 Assertion("joint-training.frozen-trunk-digest-identity",
+                           "training-stack.md#joint-training-frozen-trunk-digest-identity")),
        run=gate_gft_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.joint-training-config",
@@ -3021,9 +3037,9 @@ BOARD = [
        title="relu/tanh with the norm knob",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="the tanh+per_feature and tanh+affine drivers each exit zero and "
-            "name their norm in the banner, while the golden selected-text "
-            "equality stays unavailable with no configured base",
+       maps="deterministic CPU witnesses give ReLU+per_feature and Tanh+affine "
+            "finite strict loss descent below a mean-only baseline; separate "
+            "full drivers each exit zero and name their norm",
        evidence=(Assertion("relu-tanh-norm.golden-selected-text-equality",
                            "models-and-designs.md#relu-tanh-norm-golden-selected-text-equality"),
                  Assertion("relu-tanh-norm.per-feature-config-exit-zero",
@@ -3033,7 +3049,11 @@ BOARD = [
                  Assertion("relu-tanh-norm.affine-config-exit-zero",
                            "models-and-designs.md#relu-tanh-norm-affine-config-exit-zero"),
                  Assertion("relu-tanh-norm.affine-text-present",
-                           "models-and-designs.md#relu-tanh-norm-affine-text-present")),
+                           "models-and-designs.md#relu-tanh-norm-affine-text-present"),
+                 Assertion("relu-tanh-norm.relu-finite-descent",
+                           "models-and-designs.md#relu-tanh-norm-relu-finite-descent"),
+                 Assertion("relu-tanh-norm.tanh-finite-descent",
+                           "models-and-designs.md#relu-tanh-norm-tanh-finite-descent")),
        run=gate_gan_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.relu-tanh-norm-per-feature",
