@@ -143,6 +143,34 @@ class dataset(GeneratorCore):
     """The stored grid for one quantity tag ("h" -> z_sn, "dm" -> z_rec)."""
     return self.z_sn if quantity == "h" else self.z_rec
 
+  def _dv_payload_names(self):
+    """Return the exact background quantities required from each sample."""
+    return QUANTITIES
+
+  def _dv_payload_mapping(self, payload):
+    """Return one background payload dict for shared row validation."""
+    if type(payload) is not dict:
+      raise ValueError(
+        "a background payload must be a dict with 'h' and 'dm' arrays; got "
+        f"{type(payload).__name__}")
+    return payload
+
+  def _dv_expected_payload_shape(self, name):
+    """Return the configured redshift-row shape for one background member."""
+    if name not in QUANTITIES:
+      raise ValueError(
+        f"unknown background payload member {name!r}; expected one of "
+        f"{QUANTITIES!r}")
+    return (len(self._grid_of(name)),)
+
+  def _dv_payload_store(self, name):
+    """Return the 2D checkpoint store for one background member."""
+    if name not in QUANTITIES:
+      raise ValueError(
+        f"unknown background payload member {name!r}; expected one of "
+        f"{QUANTITIES!r}")
+    return self.datavectors[name]
+
   def _dv_chk_files(self):
     """Files the checkpoint loader must find before trusting a chk."""
     files = []

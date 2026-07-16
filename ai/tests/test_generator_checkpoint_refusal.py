@@ -297,6 +297,12 @@ def _checkpoint_instance(generator_class, directory, operation,
   instance.loadedfromchk = False
   instance._dv_chk_files = lambda: [str(dv)]
   instance._dv_load_chk = lambda: None
+
+  def skip_data_vector_rows():
+    """Skip rows because this fixture replaces the real store loader."""
+    return None
+
+  instance._validate_loaded_success_rows = skip_data_vector_rows
   return instance, members
 
 

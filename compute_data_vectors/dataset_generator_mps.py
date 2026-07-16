@@ -176,6 +176,37 @@ class dataset(GeneratorCore):
       return ("pklin", "boost", "pklin_base", "boost_base")
     return ("pklin", "boost")
 
+  def _dv_payload_names(self):
+    """Return the exact matter-power members required from each sample."""
+    return self._quantities()
+
+  def _dv_payload_mapping(self, payload):
+    """Return one matter-power payload dict for shared row validation."""
+    if type(payload) is not dict:
+      raise ValueError(
+        "a matter-power payload must be a dict with the configured quantity "
+        f"arrays; got {type(payload).__name__}")
+    return payload
+
+  def _dv_expected_payload_shape(self, name):
+    """Return the flattened (redshift, wavenumber) row shape."""
+    quantities = self._quantities()
+    if name not in quantities:
+      raise ValueError(
+        f"unknown matter-power payload member {name!r}; expected one of "
+        f"{quantities!r}")
+    width = len(self.z_mps) * len(self.k_mps)
+    return (width,)
+
+  def _dv_payload_store(self, name):
+    """Return the 2D checkpoint store for one matter-power member."""
+    quantities = self._quantities()
+    if name not in quantities:
+      raise ValueError(
+        f"unknown matter-power payload member {name!r}; expected one of "
+        f"{quantities!r}")
+    return self.datavectors[name]
+
   #-----------------------------------------------------------------------------
   # data-vector store: per-quantity 2D files -> {dvsf}_<q>.npy
   #-----------------------------------------------------------------------------

@@ -136,6 +136,40 @@ class dataset(GeneratorCore):
   #-----------------------------------------------------------------------------
   # data-vector store: four per-spectrum 2D arrays -> {dvsf}_<spec>.npy
   #-----------------------------------------------------------------------------
+  def _dv_payload_names(self):
+    """Return the four required spectrum members in stored row order."""
+    return SPECTRA
+
+  def _dv_payload_mapping(self, payload):
+    """Split one exact (spectrum, multipole) array into named rows."""
+    if not isinstance(payload, np.ndarray):
+      raise ValueError(
+        "a CMB payload must be a NumPy array with one row per spectrum; got "
+        f"{type(payload).__name__}")
+    expected_shape = (len(SPECTRA), self._multipole_axis().shape[0])
+    if payload.shape != expected_shape:
+      raise ValueError(
+        f"a CMB payload has shape {payload.shape}, expected {expected_shape} "
+        "for (tt, te, ee, pp) on train_args.lrange")
+    mapping = {}
+    for spectrum_index, spectrum in enumerate(SPECTRA):
+      mapping[spectrum] = payload[spectrum_index]
+    return mapping
+
+  def _dv_expected_payload_shape(self, name):
+    """Return the configured multipole-row shape for one spectrum."""
+    if name not in SPECTRA:
+      raise ValueError(
+        f"unknown CMB payload member {name!r}; expected one of {SPECTRA!r}")
+    return (self._multipole_axis().shape[0],)
+
+  def _dv_payload_store(self, name):
+    """Return the 2D checkpoint store for one spectrum member."""
+    if name not in SPECTRA:
+      raise ValueError(
+        f"unknown CMB payload member {name!r}; expected one of {SPECTRA!r}")
+    return self.datavectors[name]
+
   def _multipole_axis(self):
     """Return every configured CMB multipole as a 1D int64 array."""
     lmin = int(self.lrange[0])
@@ -325,9 +359,9 @@ class dataset(GeneratorCore):
     np.save(f"{self.dvsf}_ell.npy", multipoles)
 
   def _dv_write(self, i, dvs):
-    """Write one (4, nell) payload at row i of each per-spectrum store."""
-    for j, spec in enumerate(SPECTRA):
-      self.datavectors[spec][i] = dvs[j]
+    """Write one validated spectrum mapping to row i of every store."""
+    for spec in SPECTRA:
+      self.datavectors[spec][i] = dvs[spec]
 
   def _dv_zero(self, i):
     """Zero row i of each per-spectrum store (a failed sample)."""

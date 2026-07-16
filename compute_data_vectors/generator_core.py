@@ -30,6 +30,9 @@ The subclass surface (everything a driver may override):
                               cobaya model exists (so a driver may also
                               add model requirements here).
     _compute_dvs_from_sample  one sample -> one data-vector payload.
+    _dv_payload_names / _dv_payload_mapping /
+    _dv_expected_payload_shape / _dv_payload_store
+                              the exact payload members and their stores.
     _dv_alloc / _dv_write / _dv_zero / _dv_save / _dv_load_chk /
     _dv_append / _dv_chk_files
                               the data-vector STORE. The defaults below
@@ -659,6 +662,236 @@ class GeneratorCore:
                     dtype=int)
 
   #-----------------------------------------------------------------------------
+  # successful payload contract
+  #-----------------------------------------------------------------------------
+  def _dv_payload_names(self):
+    """Return the exact member names for one computed payload."""
+    return ("vector",)
+
+  def _dv_payload_mapping(self, payload):
+    """Map one flat lensing payload to the shared member representation."""
+    if not isinstance(payload, np.ndarray):
+      raise ValueError(
+        "a flat data-vector payload must be a NumPy array; got "
+        f"{type(payload).__name__}. Return one nonempty 1D array")
+    return {"vector": payload}
+
+  def _dv_expected_payload_shape(self, name):
+    """Return a configured row shape, or None for an inferred flat width."""
+    if name != "vector":
+      raise ValueError(
+        f"unknown flat data-vector payload member {name!r}; expected "
+        "'vector'")
+    return None
+
+  def _dv_payload_store(self, name):
+    """Return the 2D store that owns one flat payload member."""
+    if name != "vector":
+      raise ValueError(
+        f"unknown flat data-vector payload member {name!r}; expected "
+        "'vector'")
+    return self.datavectors
+
+  def _prepare_payload_mapping(self, payload_mapping, use_storage):
+    """Cast and validate every member of one data-vector payload.
+
+    Arguments:
+      payload_mapping = raw member names and array-shaped values.
+      use_storage = when true, take each target dtype and row shape from the
+        allocated store. When false, use self.dtype and configured shapes
+        before first-row allocation.
+
+    Returns:
+      A new mapping whose arrays have the target dtype and exact row shapes.
+
+    Raises:
+      ValueError when names, shapes, dtypes, or finite values cannot satisfy
+      the family contract. The method does not change a store or failure flag.
+    """
+    if type(payload_mapping) is not dict:
+      raise ValueError(
+        "the internal data-vector payload mapping must be a dict; got "
+        f"{type(payload_mapping).__name__}")
+
+    expected_names = self._dv_payload_names()
+    observed_names = tuple(payload_mapping.keys())
+    if set(observed_names) != set(expected_names):
+      raise ValueError(
+        f"data-vector payload members are {observed_names!r}, expected "
+        f"exactly {expected_names!r}. Return every required member once and "
+        "remove extra members")
+
+    prepared = {}
+    for name in expected_names:
+      configured_shape = self._dv_expected_payload_shape(name)
+      if use_storage:
+        storage = self._dv_payload_store(name)
+        if storage.ndim != 2:
+          raise ValueError(
+            f"data-vector store {name!r} must be 2D, got {storage.shape}. "
+            "Use a valid checkpoint or allocate the store again")
+        target_dtype = np.dtype(storage.dtype)
+        configured_dtype = np.dtype(self.dtype)
+        if target_dtype != configured_dtype:
+          raise ValueError(
+            f"data-vector store {name!r} has dtype {target_dtype}, expected "
+            f"the configured dtype {configured_dtype}. Use a checkpoint "
+            "written with the current generator configuration")
+        expected_shape = tuple(storage.shape[1:])
+        if configured_shape is not None:
+          configured_shape = tuple(configured_shape)
+          if expected_shape != configured_shape:
+            raise ValueError(
+              f"data-vector store {name!r} has row shape {expected_shape}, "
+              f"expected {configured_shape} from train_args. Use a matching "
+              "checkpoint")
+      else:
+        target_dtype = np.dtype(self.dtype)
+        expected_shape = configured_shape
+
+      if not np.issubdtype(target_dtype, np.number):
+        raise ValueError(
+          f"data-vector store {name!r} has nonnumeric dtype {target_dtype}; "
+          "use a checkpoint with numeric payload arrays")
+      try:
+        with np.errstate(over="ignore", invalid="ignore"):
+          cast_value = np.array(
+            payload_mapping[name],
+            copy=True,
+            dtype=target_dtype)
+      except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+          f"data-vector payload member {name!r} cannot be cast to storage "
+          f"dtype {target_dtype}; return a numeric array") from error
+
+      if expected_shape is None:
+        if cast_value.ndim != 1 or cast_value.shape[0] < 1:
+          raise ValueError(
+            f"data-vector payload member {name!r} must be a nonempty 1D "
+            f"array, got {cast_value.shape}")
+        expected_shape = cast_value.shape
+      expected_shape = tuple(expected_shape)
+      if cast_value.shape != expected_shape:
+        raise ValueError(
+          f"data-vector payload member {name!r} has shape "
+          f"{cast_value.shape}, expected {expected_shape}. Return the exact "
+          "configured row shape")
+      if not np.isfinite(cast_value).all():
+        raise ValueError(
+          f"data-vector payload member {name!r} contains a nonfinite value "
+          f"after casting to storage dtype {target_dtype}; correct the "
+          "scientific calculation before retrying the row")
+      prepared[name] = cast_value
+    return prepared
+
+  def _stored_payload_mapping(self, index):
+    """Copy one row from every family store into the shared representation."""
+    stored = {}
+    for name in self._dv_payload_names():
+      storage = self._dv_payload_store(name)
+      stored[name] = np.array(storage[index], copy=True)
+    return stored
+
+  def _accept_payload_row(self, index, payload, write_row,
+                          allocation_rows=None):
+    """Validate one payload row before recording it as successful.
+
+    Arguments:
+      index = zero-based row in the failure mask and data-vector stores.
+      payload = one raw family payload for a new result. Use None only when
+        checking an existing successful checkpoint row.
+      write_row = true for a newly computed row; false for read-only
+        checkpoint validation.
+      allocation_rows = total rows to allocate before the first write, or
+        None when the stores already exist.
+
+    Returns:
+      None. A new row has failed[index] cleared only after exact readback.
+
+    Raises:
+      ValueError when the interface, payload, store, or readback is invalid.
+      Validation of an existing checkpoint row does not write any file.
+    """
+    if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
+      raise ValueError(
+        f"data-vector row index must be an integer, got {index!r}")
+    row_index = int(index)
+    if self.failed.ndim != 1:
+      raise ValueError(
+        f"data-vector failure mask must be 1D, got {self.failed.shape}")
+    if row_index < 0 or row_index >= self.failed.shape[0]:
+      raise ValueError(
+        f"data-vector row index {row_index} is outside the failure mask "
+        f"with {self.failed.shape[0]} rows")
+    if type(write_row) is not bool:
+      raise ValueError(
+        f"write_row must be true or false, got {write_row!r}")
+
+    if write_row:
+      if payload is None:
+        raise ValueError("a new successful row requires a computed payload")
+      payload_mapping = self._dv_payload_mapping(payload)
+    else:
+      if payload is not None or allocation_rows is not None:
+        raise ValueError(
+          "read-only checkpoint validation requires payload=None and "
+          "allocation_rows=None")
+      payload_mapping = self._stored_payload_mapping(row_index)
+
+    if allocation_rows is not None:
+      if isinstance(allocation_rows, bool) or not isinstance(
+          allocation_rows, (int, np.integer)):
+        raise ValueError(
+          f"allocation_rows must be an integer, got {allocation_rows!r}")
+      allocation_rows = int(allocation_rows)
+      if allocation_rows != self.failed.shape[0]:
+        raise ValueError(
+          f"allocation_rows is {allocation_rows}, but the failure mask has "
+          f"{self.failed.shape[0]} rows")
+      self._prepare_payload_mapping(
+        payload_mapping=payload_mapping,
+        use_storage=False)
+      self._dv_alloc(nrows=allocation_rows, first_dvs=payload)
+
+    prepared = self._prepare_payload_mapping(
+      payload_mapping=payload_mapping,
+      use_storage=True)
+    if write_row:
+      self._dv_write(i=row_index, dvs=prepared)
+
+    stored_mapping = self._stored_payload_mapping(row_index)
+    stored = self._prepare_payload_mapping(
+      payload_mapping=stored_mapping,
+      use_storage=True)
+    for name in self._dv_payload_names():
+      if stored[name].dtype != prepared[name].dtype:
+        raise ValueError(
+          f"stored data-vector member {name!r} has dtype "
+          f"{stored[name].dtype}, expected {prepared[name].dtype} after "
+          "storing the row")
+      stored_bytes = np.ascontiguousarray(stored[name]).tobytes(order="C")
+      prepared_bytes = np.ascontiguousarray(
+        prepared[name]).tobytes(order="C")
+      if stored_bytes != prepared_bytes:
+        raise ValueError(
+          f"stored data-vector member {name!r} differs from the exact "
+          "cast payload bytes after storing the row; keep the row marked "
+          "failed and repair the store before retrying")
+
+    if write_row:
+      self.failed[row_index] = False
+
+  def _validate_loaded_success_rows(self):
+    """Validate every checkpoint row whose saved failure flag is false."""
+    for index in range(self.failed.shape[0]):
+      if self.failed[index]:
+        continue
+      self._accept_payload_row(
+        index=index,
+        payload=None,
+        write_row=False)
+
+  #-----------------------------------------------------------------------------
   # data-vector store (default: the single 2D array at {dvsf}.npy)
   #-----------------------------------------------------------------------------
   def _dv_chk_files(self):
@@ -795,7 +1028,7 @@ class GeneratorCore:
 
   def _dv_write(self, i, dvs):
     """Write one computed payload at row i."""
-    self.datavectors[i] = dvs
+    self.datavectors[i] = dvs["vector"]
 
   def _dv_zero(self, i):
     """Zero row i (a failed sample)."""
@@ -895,6 +1128,7 @@ class GeneratorCore:
 
     # load datavectors (store-specific; row-count checks live inside) --------
     self._dv_load_chk()
+    self._validate_loaded_success_rows()
 
     print("Loaded models from chk")
     if self.run_control.operation == "resume":
@@ -1464,11 +1698,12 @@ class GeneratorCore:
         except Exception:
           raise RuntimeError(f"Failed in _compute_dvs_from_sample\n"
                              f"Cannot determine datavector length.")
-        self._dv_alloc(nrows=nparams, first_dvs=dvs)
+        self._accept_payload_row(
+          index=0,
+          payload=dvs,
+          write_row=True,
+          allocation_rows=nparams)
         # Allocate data vectors end --------------------------------------------
-
-        self._dv_write(0, dvs)      # first data vector was already computed
-        self.failed[0] = False      # first data vector was already computed
 
         idx = np.arange(1, nparams) # indexes to compute data vectors
       else:
@@ -1477,7 +1712,10 @@ class GeneratorCore:
       for i in idx:
         try:
           dvs = self._compute_dvs_from_sample(self.samples[i])
-          self.failed[i] = False
+          self._accept_payload_row(
+            index=i,
+            payload=dvs,
+            write_row=True)
         except Exception as e: # set datavector to zero and continue
           self.failed[i] = True
           self._dv_zero(i)
@@ -1487,7 +1725,6 @@ class GeneratorCore:
           sys.stderr.write(f"[Rank 0] Traceback: {traceback.format_exc(limit=8)}\n")
           sys.stderr.flush()
           continue
-        self._dv_write(i, dvs)
         if i % self.freqchk == 0 and i > 0:
           print(f"Model number: {i+1} (total: {nparams}) - checkpoint", flush=True)
           self.__save_chk()
@@ -1520,11 +1757,13 @@ class GeneratorCore:
             sys.stderr.write(traceback.format_exc())   # <-- the actual cause
             sys.stderr.flush()
             comm.Abort(1)
-          self._dv_alloc(nrows=nparams, first_dvs=dvs)
+          self._accept_payload_row(
+            index=0,
+            payload=dvs,
+            write_row=True,
+            allocation_rows=nparams)
           # Allocate data vectors end ------------------------------------------
 
-          self._dv_write(0, dvs)        # first data vector was already computed
-          self.failed[0] = False        # first data vector was already computed
           completed[0] = True           # first data vector was already computed
           idx0 = np.arange(1, nparams)  # indexes to compute data vectors
         else:
@@ -1563,8 +1802,20 @@ class GeneratorCore:
                                f"[Rank 0] Traceback: {payload}\n")
               sys.stderr.flush()
             else:
-              self._dv_write(idx, payload)
-              self.failed[idx] = False
+              try:
+                self._accept_payload_row(
+                  index=idx,
+                  payload=payload,
+                  write_row=True)
+              except Exception as error:
+                self._dv_zero(idx)
+                self.failed[idx] = True
+                sys.stderr.write(
+                  f"[Rank 0] Worker {src} returned an invalid data-vector "
+                  f"payload at idx={idx}\n"
+                  f"[Rank 0] Exception type: {type(error).__name__}\n"
+                  f"[Rank 0] Exception message: {error}\n")
+                sys.stderr.flush()
             completed[idx] = True
 
             if not self.loadedfromchk:
@@ -1621,8 +1872,20 @@ class GeneratorCore:
                                f"(MPI) Msg: {payload}\n")
               sys.stderr.flush()
             else:
-              self._dv_write(idx, payload)
-              self.failed[idx] = False
+              try:
+                self._accept_payload_row(
+                  index=idx,
+                  payload=payload,
+                  write_row=True)
+              except Exception as error:
+                self._dv_zero(idx)
+                self.failed[idx] = True
+                sys.stderr.write(
+                  f"[Rank 0] Worker {src} returned an invalid data-vector "
+                  f"payload at idx={idx}\n"
+                  f"[Rank 0] Exception type: {type(error).__name__}\n"
+                  f"[Rank 0] Exception message: {error}\n")
+                sys.stderr.flush()
             completed[idx] = True
             if src in active: # Remove worker from active list
               del active[src]
