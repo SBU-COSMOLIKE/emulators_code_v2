@@ -2969,6 +2969,148 @@ class EmulatorExperiment:
              f"n_val {d.get('n_val')} (enforced after param_cuts)")
 
   # --- staging + geometry (the expensive, cached pieces) ---
+  def _grid2d_row_mapping(self, src):
+    """Validate and resolve the Grid2D row coordinate systems.
+
+    ``load_source`` can hand this class either the complete disk-backed raw
+    dump or a compact resident copy. The disk-backed form uses global row
+    indices. The resident form stores selected rows in increasing disk order
+    and uses local indices to recover the original seeded selection order.
+    This helper proves that both forms describe the same one-to-one mapping
+    before the Grid2D transform reads or allocates target rows.
+
+    Arguments:
+      src = the source dictionary from ``load_source``. It contains ``C`` and
+            ``dv`` arrays, the seeded ``idx`` mapping, increasing distinct
+            ``dump_rows``, and the native integer ``source_n_rows`` count from
+            the original row-aligned parameter and target dumps.
+
+    Returns:
+      ``(source_n_rows, dump_rows, read_rows, output_idx)``. ``read_rows``
+      visits the compact storage in increasing disk order. ``output_idx``
+      visits the transformed output in the original seeded order. Therefore
+      ``dump_rows[output_idx]`` is the selected disk-row sequence in both the
+      resident and disk-backed forms.
+
+    Raises:
+      ValueError when a required field is absent, a row count or coordinate
+      is invalid, the selection contains a repeat, or resident and disk-backed
+      row coordinate systems have been mixed. The function performs no file
+      writes and does not allocate the transformed target matrix.
+    """
+    required = ("C", "dv", "idx", "dump_rows", "source_n_rows")
+    for key in required:
+      if key not in src:
+        raise ValueError(
+          "the Grid2D source is missing " + repr(key) + "; stage it with "
+          "load_source so row identity can be verified before the law "
+          "transform")
+
+    source_n_rows = src["source_n_rows"]
+    if type(source_n_rows) is not int or source_n_rows < 1:
+      raise ValueError(
+        "Grid2D source_n_rows must be a native integer >= 1, got "
+        + repr(source_n_rows) + "; reload the original row-aligned dumps")
+
+    raw = src["dv"]
+    parameters = src["C"]
+    raw_shape = getattr(raw, "shape", None)
+    parameter_shape = getattr(parameters, "shape", None)
+    if raw_shape is None or len(raw_shape) != 2:
+      raise ValueError(
+        "the Grid2D raw target must be a two-dimensional row matrix; "
+        "reload the original data-vector dump")
+    if parameter_shape is None or len(parameter_shape) != 2:
+      raise ValueError(
+        "the Grid2D parameter source must be a two-dimensional row matrix; "
+        "reload the original parameter table")
+
+    dump_rows = np.asarray(src["dump_rows"])
+    if dump_rows.ndim != 1:
+      raise ValueError(
+        "Grid2D dump_rows must be one-dimensional disk-row coordinates")
+    if not np.issubdtype(dump_rows.dtype, np.integer):
+      raise ValueError(
+        "Grid2D dump_rows must contain integers, got dtype "
+        + str(dump_rows.dtype))
+    if dump_rows.size < 1:
+      raise ValueError("Grid2D dump_rows must select at least one row")
+    dump_rows = dump_rows.astype("int64", copy=False)
+    if int(dump_rows[0]) < 0 or int(dump_rows[-1]) >= source_n_rows:
+      raise ValueError(
+        "Grid2D dump_rows must stay inside original row range [0, "
+        + str(source_n_rows) + "); got [" + str(int(dump_rows[0])) + ", "
+        + str(int(dump_rows[-1])) + "]")
+    if dump_rows.size > 1 and not np.all(dump_rows[1:] > dump_rows[:-1]):
+      raise ValueError(
+        "Grid2D dump_rows must be strictly increasing and distinct; "
+        "restage the source rather than sorting or deduplicating it here")
+
+    n_used = int(dump_rows.size)
+    idx = np.asarray(src["idx"])
+    if idx.ndim != 1:
+      raise ValueError(
+        "Grid2D idx must be a one-dimensional seeded row mapping")
+    if not np.issubdtype(idx.dtype, np.integer):
+      raise ValueError(
+        "Grid2D idx must contain integers, got dtype " + str(idx.dtype))
+    if int(idx.size) != n_used:
+      raise ValueError(
+        "Grid2D idx has " + str(int(idx.size)) + " entries but dump_rows "
+        "has " + str(n_used) + "; every selected row must appear once")
+    idx = idx.astype("int64", copy=False)
+
+    if isinstance(raw, np.memmap):
+      raw_rows = int(raw_shape[0])
+      parameter_rows = int(parameter_shape[0])
+      if raw_rows != source_n_rows:
+        raise ValueError(
+          "the disk-backed Grid2D raw dump has " + str(raw_rows)
+          + " rows but the original source has " + str(source_n_rows)
+          + "; raw and parameter dumps must have exactly equal row counts")
+      if parameter_rows != source_n_rows:
+        raise ValueError(
+          "the disk-backed Grid2D parameter table has "
+          + str(parameter_rows) + " rows but the original source has "
+          + str(source_n_rows)
+          + "; raw and parameter dumps must have exactly equal row counts")
+      if not np.array_equal(np.sort(idx), dump_rows):
+        raise ValueError(
+          "disk-backed Grid2D idx must be a permutation of dump_rows; "
+          "the seeded selection contains a missing, repeated, or foreign row")
+      read_rows = dump_rows.copy()
+      output_idx = np.searchsorted(dump_rows, idx)
+      seeded_disk_rows = idx.copy()
+    else:
+      raw_rows = int(raw_shape[0])
+      parameter_rows = int(parameter_shape[0])
+      if raw_rows != n_used:
+        raise ValueError(
+          "the resident Grid2D raw copy has " + str(raw_rows)
+          + " rows but dump_rows selects " + str(n_used)
+          + "; a compact copy must contain every selected row exactly once")
+      if parameter_rows != n_used:
+        raise ValueError(
+          "the resident Grid2D parameter copy has " + str(parameter_rows)
+          + " rows but dump_rows selects " + str(n_used)
+          + "; parameters and targets must share compact storage rows")
+      local_rows = np.arange(n_used, dtype="int64")
+      if not np.array_equal(np.sort(idx), local_rows):
+        raise ValueError(
+          "resident Grid2D idx must be a permutation of local rows [0, "
+          + str(n_used) + "); the compact selection contains a missing, "
+          "repeated, or global row coordinate")
+      read_rows = local_rows
+      output_idx = idx.copy()
+      seeded_disk_rows = dump_rows[idx]
+
+    recovered_disk_rows = dump_rows[output_idx]
+    if not np.array_equal(recovered_disk_rows, seeded_disk_rows):
+      raise ValueError(
+        "Grid2D row mapping did not recover the seeded disk-row order; "
+        "restage the source before training")
+    return source_n_rows, dump_rows, read_rows, output_idx
+
   def _grid2d_law_rows(self, src, base_path, with_means):
     """Form a grid2d source's law-space rows without ever holding the
     unthinned selection.
@@ -2995,7 +3137,7 @@ class EmulatorExperiment:
            ▼  merge (count, mean, M2) over the STORED float32 rows
         law_rows[a:b]  (<=chunk, width)  float32, RAM or temp memmap
            ▼
-        src {C compacted, dv = law_rows, idx = arange, dv_mean}
+        src {C compacted, dv = law_rows, idx = seeded local map, dv_mean}
         self._grid2d_z / _k = the kept axes; _center / _scale = moments
 
     (legend: N = staged rows; nz*nk = full grid width; width =
@@ -3008,9 +3150,10 @@ class EmulatorExperiment:
       src        = the load_source dict to transform in place (the
                    grid2d path stages it with stage_dv False, so
                    src["dv"] is the raw MEMMAP and src["C"] is the full
-                   params; src["dump_rows"] gives the disk rows). A
-                   RAM-staged source (resident compact dv, arange idx)
-                   is also accepted — the reads then index locally.
+                   params; src["dump_rows"] gives the sorted disk rows and
+                   src["source_n_rows"] gives the original source count). A
+                   RAM-staged source is also accepted. Its ``idx`` is the
+                   local permutation that preserves the seeded order.
       base_path  = the *_base dump path (None under law "none").
       with_means = if True (train), stream dv_mean and the geometry
                    moments (self._grid2d_center / _scale); if False
@@ -3024,8 +3167,8 @@ class EmulatorExperiment:
       file is unlinked before the error propagates.
 
     Raises:
-      ValueError on a raw/base width mismatch against the sidecars, a
-      base dump too short to hold the staged disk rows, or non-positive
+      ValueError on an invalid row mapping, a raw/base row-count or width
+      mismatch against the original source and sidecars, or non-positive
       values where the law takes a log (checked per chunk).
     """
     g2 = self.grid2d
@@ -3034,6 +3177,14 @@ class EmulatorExperiment:
     k = np.asarray(np.load(g2["k_file"], allow_pickle=False),
                    dtype="float64").reshape(-1)
     nz, nk = int(z.size), int(k.size)
+    # Resolve and validate both row-coordinate systems before inspecting the
+    # raw width or allocating the transformed target. This also turns a
+    # missing or one-dimensional raw payload into the intended focused
+    # ValueError instead of an incidental KeyError or shape IndexError.
+    source_n_rows, dump_rows, read_rows, output_idx = (
+      self._grid2d_row_mapping(src=src)
+    )
+    n_used = int(dump_rows.shape[0])
     raw = src["dv"]
     if int(raw.shape[1]) != nz * nk:
       raise ValueError(
@@ -3041,16 +3192,6 @@ class EmulatorExperiment:
         "but the z_file/k_file sidecars name a " + str(nz) + " x "
         + str(nk) + " = " + str(nz * nk) + " grid; the dump and its "
         "sidecars must come from the same generator run")
-    # the disk rows of the staged set (base alignment) and the matching
-    # read index into `raw` / src["C"]: a memmap source is indexed by
-    # those disk rows; a RAM-staged compact source already holds them in
-    # this order, so a local arange walks the same rows.
-    dump_rows = np.asarray(src["dump_rows"])
-    n_used    = int(dump_rows.shape[0])
-    if isinstance(raw, np.memmap):
-      read_rows = dump_rows
-    else:
-      read_rows = np.arange(n_used)
     # the kept columns FIRST, before any data read: every k_stride-th
     # wavenumber with the top edge always kept, flattened z-outer.
     stride = int(g2.get("k_stride", 1))
@@ -3067,18 +3208,22 @@ class EmulatorExperiment:
       base = None
     else:
       base = np.load(base_path, mmap_mode="r", allow_pickle=False)
+      if base.ndim != 2:
+        raise ValueError(
+          "the base dump " + repr(base_path)
+          + " must be a two-dimensional row matrix")
       if int(base.shape[1]) != nz * nk:
         raise ValueError(
           "the base dump " + repr(base_path) + " has "
           + str(int(base.shape[1])) + " columns, the raw dump "
           + str(nz * nk) + "; they must come from the same generator "
           "run (the *_base sibling)")
-      if int(base.shape[0]) <= int(dump_rows.max()):
+      if int(base.shape[0]) != source_n_rows:
         raise ValueError(
           "the base dump " + repr(base_path) + " has "
-          + str(int(base.shape[0])) + " rows but the staging needs "
-          "disk row " + str(int(dump_rows.max())) + "; the base is not "
-          "the raw dump's row-aligned *_base sibling")
+          + str(int(base.shape[0])) + " rows but the original raw source has "
+          + str(source_n_rows) + "; the base must have exactly the raw "
+          "dump's row count and order")
     # the thinned result: RAM if it fits ram_frac of free memory, else a
     # disk-backed temp memmap. Its path is RETURNED (None when resident)
     # so the caller (stage_train / stage_val) owns the lifetime and can
@@ -3149,7 +3294,7 @@ class EmulatorExperiment:
       raise
     src["C"]   = np.asarray(src["C"][read_rows])
     src["dv"]  = law_rows
-    src["idx"] = np.arange(n_used)
+    src["idx"] = output_idx
     if with_means:
       # population variance (ddof 0) from the stable accumulator; the
       # clamp only absorbs the bounded round-off residue of an exactly

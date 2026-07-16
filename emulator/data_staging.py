@@ -680,9 +680,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
     a source dict ready for build_loaders / run_emulator: "C" the staged
     parameters, "dv" the staged data vectors, "idx" the loader index,
     "dump_rows" the disk rows the staged rows came from (see the comment at
-    the return), "facts_yaml" the generator's scientific record as text (None
-    when the dataset published none), plus "C_mean" / "dv_mean" when
-    with_means.
+    the return), "source_n_rows" the exact row count shared by the original
+    parameter and data-vector dumps, "facts_yaml" the generator's scientific
+    record as text (None when the dataset published none), plus "C_mean" /
+    "dv_mean" when with_means.
   """
   # require a generator (n_keep is a required positional arg, so a
   # missing size is a plain TypeError at the call site).
@@ -777,6 +778,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
          "dv": dv_src,
          "idx": idx_src,
          "dump_rows": np.sort(np.unique(np.asarray(idx))),
+         "source_n_rows": int(n),
          "facts_yaml": facts_yaml}
   if with_means:
     # param_stats returns (offset, scale); the "_" discards the sample

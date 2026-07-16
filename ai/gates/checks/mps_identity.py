@@ -17,8 +17,10 @@ Legs:
     section used to carry);
   - the STAGING law transform through the REAL load_source +
     _grid2d_law_rows: law rows == log(raw / base) with the base dump
-    aligned by dump_rows through a real shuffled staging; the k_stride
-    thinning keeps the top edge; the positivity and width guards;
+    aligned by dump_rows through a real shuffled staging; resident and
+    disk-backed results preserve the same nontrivial seeded row order;
+    exact original raw/base row counts are required before target allocation;
+    the k_stride thinning keeps the top edge; the positivity and width guards;
   - the BOUNDED staging on the production 122 x 2,000 grid (k_stride
     10, tiny memory budget, guarded memmap reads): every raw + base
     read is row-chunked and column-thinned (never the unthinned
@@ -414,6 +416,8 @@ def check_staging(tmp):
     exp._grid2d_center = None
     exp._grid2d_scale = None
     dump_rows = np.array(src["dump_rows"])
+    seeded_disk_rows = dump_rows[np.asarray(src["idx"])]
+    seeded_local_rows = np.asarray(src["idx"]).copy()
     exp._grid2d_law_rows(src=src, base_path=os.path.join(tmp,
                                                          "st_base.npy"),
                          with_means=True)
@@ -431,10 +435,16 @@ def check_staging(tmp):
     ok = (np.array_equal(src["dv"], stored_reference_rows)
           and np.array_equal(exp._grid2d_k, K6[kept_k])
           and src["dv"].shape == (40, nz * kept_k.size)
-          and np.array_equal(src["idx"], np.arange(40))
+          and np.array_equal(src["idx"], seeded_local_rows)
+          and np.array_equal(dump_rows[src["idx"]], seeded_disk_rows)
+          and not np.array_equal(src["idx"], np.arange(40))
+          and np.array_equal(
+              src["dv"][src["idx"]],
+              stored_reference_rows[seeded_local_rows],
+          )
           and (nk - 1) in kept_k)
-    report("staging law transform: base-aligned + strided + top edge",
-           ok, "shape %s" % (src["dv"].shape,))
+    report("staging law transform: seeded order + base alignment + stride",
+           ok, "shape %s; plain arange rejected" % (src["dv"].shape,))
     ok2 = np.array_equal(src["dv_mean"], stored_reference_mean)
     report("staging recomputes dv_mean over law rows", ok2, "")
     # positivity guard
@@ -488,6 +498,10 @@ class _GuardProxy:
     @property
     def dtype(self):
         return self._arr.dtype
+
+    @property
+    def ndim(self):
+        return self._arr.ndim
 
     def __getitem__(self, key):
         if not (isinstance(key, tuple) and len(key) == 2):
@@ -578,10 +592,12 @@ def check_bounded_staging(tmp):
     expmod._GRID2D_CHUNK_BYTES = width * 8 * 16
     bound = max(1, expmod._GRID2D_CHUNK_BYTES // (width * 8))
     raw_reads, base_reads = [], []
+    seeded_local = np.roll(np.arange(n_used, dtype="int64"), 7)
     src = {"C": C_compact,
            "dv": _GuardProxy(raw_compact, cols, bound, raw_reads),
-           "idx": np.arange(n_used),
-           "dump_rows": dump_rows}
+           "idx": seeded_local.copy(),
+           "dump_rows": dump_rows,
+           "source_n_rows": n_raw}
     exp = EmulatorExperiment.__new__(EmulatorExperiment)
     exp.grid2d = {"quantity": "pklin", "units": "Mpc3",
                   "law": "syren_linear",
@@ -620,6 +636,20 @@ def check_bounded_staging(tmp):
         np.array_equal(got, stored_reference_rows),
         "max|d| %.1e"
         % float(np.abs(got - stored_reference_rows).max()),
+    )
+    report(
+        "bounded staging: resident loader preserves seeded row order",
+        np.array_equal(src["idx"], seeded_local)
+        and not np.array_equal(src["idx"], np.arange(n_used))
+        and np.array_equal(
+            src["dump_rows"][src["idx"]],
+            dump_rows[seeded_local],
+        )
+        and np.array_equal(
+            np.asarray(src["dv"])[src["idx"]],
+            stored_reference_rows[seeded_local],
+        ),
+        "nontrivial local permutation survives; plain arange rejected",
     )
     report(
         "bounded staging: streamed mean equals the known answer",
@@ -696,14 +726,19 @@ def check_bounded_staging(tmp):
         e._grid2d_center = None
         e._grid2d_scale = None
         dump2 = np.array(s["dump_rows"])
+        seeded2 = np.array(s["idx"])
         e._grid2d_law_rows(src=s,
                            base_path=os.path.join(tmp, "bs2_base.npy"),
                            with_means=True)
         want2 = np.log(raw2[dump2].astype("float64")
                        / base2[dump2].astype("float64"))
-        return s, raw_is_memmap, want2
+        want_seeded2 = np.log(raw2[seeded2].astype("float64")
+                              / base2[seeded2].astype("float64"))
+        return s, raw_is_memmap, want2, seeded2, want_seeded2
 
-    src_lo, raw_mm, want2 = stage_and_transform(1e-12)
+    src_lo, raw_mm, want2, seeded2, want_seeded2 = (
+        stage_and_transform(1e-12)
+    )
     report("bounded staging: stage_dv keeps the raw dump a memmap",
            raw_mm, "raw is np.memmap on load")
     report("bounded staging: memmap branch, tiny budget stays disk-backed",
@@ -711,11 +746,82 @@ def check_bounded_staging(tmp):
            and np.allclose(np.asarray(src_lo["dv"]),
                            want2.astype("float32"), rtol=0, atol=0),
            "result %s" % type(src_lo["dv"]).__name__)
-    src_hi, _, _ = stage_and_transform(0.7)
+    report("bounded staging: memmap loader preserves seeded row order",
+           not np.array_equal(src_lo["idx"], np.arange(src_lo["idx"].size))
+           and np.array_equal(
+               src_lo["dump_rows"][src_lo["idx"]], seeded2)
+           and np.array_equal(
+               np.asarray(src_lo["dv"])[src_lo["idx"]],
+               want_seeded2.astype("float32")),
+           "global selection becomes the matching local permutation")
+    src_hi, _, _, seeded_hi, want_seeded_hi = stage_and_transform(0.7)
     report("bounded staging: memmap branch, ample budget is resident",
            isinstance(src_hi["dv"], np.ndarray)
            and not isinstance(src_hi["dv"], np.memmap),
            "result %s" % type(src_hi["dv"]).__name__)
+    report("bounded staging: RAM/disk results expose identical loader order",
+           np.array_equal(seeded_hi, seeded2)
+           and np.array_equal(src_hi["idx"], src_lo["idx"])
+           and np.array_equal(
+               np.asarray(src_hi["dv"])[src_hi["idx"]],
+               want_seeded_hi.astype("float32"))
+           and np.array_equal(
+               np.asarray(src_hi["dv"])[src_hi["idx"]],
+               np.asarray(src_lo["dv"])[src_lo["idx"]]),
+           "same seeded cosmology at every loader position")
+
+    # Exact row equality is a scientific identity, not a lower-bound check.
+    # N-1 and N+1 siblings can still contain every selected row, so merely
+    # checking max(dump_rows) would accept them. This three-way fixture makes
+    # only the exact N-row sibling legal.
+    base_count_results = []
+    for delta in (-1, 0, 1):
+        probe_path = os.path.join(tmp, "bs2_base_count_%+d.npy" % delta)
+        if delta < 0:
+            probe_base = base2[:n2 + delta]
+        elif delta > 0:
+            probe_base = np.concatenate(
+                [base2, np.ones((delta, base2.shape[1]), dtype="float32")],
+                axis=0,
+            )
+        else:
+            probe_base = base2
+        np.save(probe_path, probe_base)
+        probe = load_source(
+            dv_path=os.path.join(tmp, "bs2_dv.npy"),
+            params_path=os.path.join(tmp, "bs2_params.1.txt"),
+            names=IN_NAMES,
+            omegabh2_hi=None,
+            n_keep=40,
+            gen=torch.Generator().manual_seed(9),
+            ram_frac=0.7,
+            with_means=True,
+            stage_dv=False,
+            verbose=False,
+        )
+        probe_exp = EmulatorExperiment.__new__(EmulatorExperiment)
+        probe_exp.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                            "law": "syren_linear",
+                            "z_file": os.path.join(tmp, "bs2_z.npy"),
+                            "k_file": os.path.join(tmp, "bs2_k.npy"),
+                            "k_stride": 1}
+        probe_exp.data = {"ram_frac": 0.7}
+        probe_exp.log = lambda *a, **k: None
+        probe_exp._grid2d_z = probe_exp._grid2d_k = None
+        probe_exp._grid2d_center = probe_exp._grid2d_scale = None
+        try:
+            probe_exp._grid2d_law_rows(
+                src=probe,
+                base_path=probe_path,
+                with_means=False,
+            )
+            base_count_results.append(delta == 0)
+        except ValueError as error:
+            base_count_results.append(
+                delta != 0 and "exactly the raw" in str(error)
+            )
+    report("bounded staging: base row count accepts only exact N",
+           all(base_count_results), "N-1 refuses, N passes, N+1 refuses")
 
 
 def _run_law_none(tmp, raw_compact, z, k, chunk_bytes=None):
@@ -740,7 +846,8 @@ def _run_law_none(tmp, raw_compact, z, k, chunk_bytes=None):
     src = {"C": np.zeros((n, N_IN), dtype="float32"),
            "dv": raw_compact.copy(),
            "idx": np.arange(n),
-           "dump_rows": np.arange(n)}
+           "dump_rows": np.arange(n),
+           "source_n_rows": n}
     saved = expmod._GRID2D_CHUNK_BYTES
     if chunk_bytes is not None:
         expmod._GRID2D_CHUNK_BYTES = int(chunk_bytes)
@@ -848,7 +955,8 @@ def check_stable_moments(tmp, device):
     expL._grid2d_scale = None
     dumpL = np.arange(n3)
     srcL = {"C": np.zeros((n3, N_IN), dtype="float32"),
-            "dv": rawL.copy(), "idx": dumpL, "dump_rows": dumpL}
+            "dv": rawL.copy(), "idx": dumpL, "dump_rows": dumpL,
+            "source_n_rows": n3}
     expL._grid2d_law_rows(src=srcL,
                           base_path=os.path.join(tmp, "sml_base.npy"),
                           with_means=True)

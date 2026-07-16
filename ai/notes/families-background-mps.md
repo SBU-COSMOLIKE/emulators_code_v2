@@ -684,6 +684,21 @@ reference. Positivity, bounded reads, disk/RAM choice, whole-selection, and
 mean-before-cast mutations are covered. Both `rtol` and `atol` are explicit in
 discriminating comparisons.
 
+The loader records the original source row count before making a compact
+copy. A disk-backed raw target and its parameter table must each have exactly
+that many rows. A compact in-memory raw target and parameter table must each
+have exactly the selected-row count. Every required base dump must have the
+original source row count. These checks run before the transformed target is
+allocated.
+
+`dump_rows` keeps the selected disk rows in increasing storage order. `idx`
+keeps the seeded selection as a permutation of that storage. The law transform
+preserves `idx` in both the disk-backed and in-memory paths, so both paths show
+the training loader the same cosmology at every position. The evidence uses a
+nontrivial order, refuses N−1 and N+1 raw, parameter, or base rows while N
+passes, and fails if the transform replaces the seeded permutation with plain
+`arange`.
+
 <a id="mps-identity-stable-streamed-moments"></a>
 ### Stable streamed moments
 
