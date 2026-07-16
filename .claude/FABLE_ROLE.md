@@ -602,9 +602,12 @@ Two further user rules (2026-07-14) on the same doctrine:
   handoff that hands one serial lump to a session that could split it
   is leaving speed on the table.
 - **Squash landings to main.** Main history stays coarse: one squash
-  commit per landed unit, carrying the feature AND its audit record
-  together — `git merge --squash <branch>` in the main checkout, one
-  commit message naming unit + audit verdict, push. Immediately after,
+  commit per accepted fix, carrying the fix, its tests, and any required
+  tracked documentation together. The local audit record remains under
+  `ai/notes/` and is never staged. Intermediate attempts, unrelated rule
+  adjustments, and ledger-only edits never receive a main commit. Use
+  `git merge --squash <branch>` in the main checkout, write one commit
+  message naming the fix, and push. Immediately after,
   merge main back into the working branch so the next squash carries
   only new work. The branch keeps its fine-grained history locally (it
   is never pushed); main reads as a sequence of audited units.

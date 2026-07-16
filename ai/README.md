@@ -522,6 +522,15 @@ A **test** checks one behavior. A **gate** is a repeatable acceptance command
 with a required result. The **validation board** lists and runs those gates so
 the Architect can audit machine output instead of trusting a summary.
 
+Git's `main` branch is the public sequence of accepted project versions. Each
+accepted fix enters `main` as one commit containing the fix, its tests, and
+any tracked documentation it requires. The Architect combines intermediate
+branch commits before adding the fix; Git calls this a **squash**. Intermediate
+attempts do not get their own main commit.
+
+Local status updates and unrelated workflow-rule edits also stay out of
+`main`.
+
 Exactly eleven Markdown notes are permanent repository knowledge:
 
 1. `MEMORY.md`
