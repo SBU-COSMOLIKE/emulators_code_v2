@@ -50,9 +50,10 @@ Agents work inside those boundaries.
 2. [Start here](#start-here)
 3. [Complete one small ticket](#complete-one-small-ticket)
 4. [Roles, models, and decisions](#roles-models-and-decisions)
-5. [Notes, tests, and gates](#notes-tests-and-gates)
-6. [Fix-only watches](#fix-only-watches)
-7. [Choose and run a command-line tool](tools/README.md)
+5. [Choose which discoveries may become tickets](#choose-which-discoveries-may-become-tickets)
+6. [Notes, tests, and gates](#notes-tests-and-gates)
+7. [Fix-only watches](#fix-only-watches)
+8. [Choose and run a command-line tool](tools/README.md)
 
 ### Common questions raised by developers
 
@@ -242,6 +243,12 @@ python3 ai/tools/mailbox_daemon.py --watch --skip-redteam
 `--no-red-team` is another name for the same option. Existing `to-sol` files
 remain waiting for a later three-role watch.
 
+The discovery severity defaults to `medium`. Add, for example,
+`--severity high` to the watch command when discoveries created during that
+run should use the stricter setting. Each discovery request saves its own
+setting, so restarting the watcher does not change a request that is already
+waiting.
+
 ### 5. Send the ticket to the Architect
 
 In another terminal, from any project folder that Git recognizes:
@@ -417,6 +424,53 @@ Architect must decide whether to use it.
 `--skip-redteam` removes that optional role for one watch. It does not weaken
 the Architect's evidence review.
 
+## Choose which discoveries may become tickets
+
+Here, a **discovery** is a request for the Red Team to inspect one named
+change for a new bug that could become a separate piece of work.
+
+**Severity** means how much harm a bug can cause. For discovery work,
+`--severity` states the minimum severity the user wants considered for a new
+ticket. The default is `medium`.
+
+| Setting | A discovered bug may be proposed as a ticket when… |
+| --- | --- |
+| `high` | It severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. |
+| `medium` | It meets the high rule, or it can affect normal operation and the Red Team can show a probable way for it to occur. A merely theoretical or improbable edge case does not qualify. |
+| `low` | It is a concrete discovered bug, including an improbable edge case. The Red Team must still name the code path and evidence; an unsupported guess is not a discovered bug. |
+
+Severity and likelihood answer different questions. Severity asks how much
+harm the bug causes. Likelihood asks whether a user can probably reach it
+during normal work. No numerical probability calculation is required. The Red
+Team names the input, action, or failure path that supports `probable` or
+`improbable`.
+
+Every discovery result records five items:
+
+1. the user's saved severity setting;
+2. the Red Team's `high`, `medium`, or `low` rating;
+3. whether the bug is probable or improbable;
+4. the evidence for that likelihood; and
+5. whether the result meets the user's setting.
+
+The Red Team does not open a backlog ticket. It sends this assessment and its
+evidence to the Architect. The Architect accepts, upgrades, or downgrades the
+rating with a written reason, then records the final `GO` or `NO-GO` ticket
+decision. This gives the Architect the final decision without hiding the Red
+Team's original assessment.
+
+The setting controls whether a newly found problem becomes separate work. It
+does not make an unsafe current change acceptable: a defect in the named
+change can still make that change `NO-GO`. It also does not widen the search.
+A library-wide search still needs the user's explicit “Do a widespread search
+for ...” request.
+
+`--fix-only` is stronger than every severity value and permits no discovery.
+A two-role watch started with `--skip-redteam` or `--no-red-team` has no Red
+Team. A discovery is also refused when ten or more known items are waiting;
+close recorded work first. The [tool guide](tools/README.md#choose-the-minimum-discovery-severity)
+shows the exact commands and the saved ticket lines.
+
 ## Notes, tests, and gates
 
 ### Notes are the source of truth
@@ -551,6 +605,7 @@ Here, **closure** means finishing work that is already recorded. **Discovery**
 means asking Sol to search for a new problem.
 
 Existing closure work remains eligible, while new Sol discovery is refused.
+Even `--severity low` cannot override fix-only mode.
 The [tool guide](tools/README.md#fix-only-watches) explains the accepted values,
 how another terminal learns the same rule, stored-message checks, and
 combinations with cycle and two-role options.

@@ -17,6 +17,7 @@ from ai.tools.handoff_contract import MAX_NOTE_BYTES
 from ai.tools.handoff_contract import REQUIRED_SECTIONS
 from ai.tools.handoff_contract import main
 from ai.tools.handoff_contract import resolve_character_limit
+from ai.tools.handoff_contract import resolve_discovery_severity
 from ai.tools.handoff_contract import validate_directive_file
 from ai.tools.handoff_contract import validate_directive_text
 
@@ -91,7 +92,13 @@ def bounded_bodies(limit, planned=None, guard_tool="ai/tools/ticket_change_guard
 
 REDTEAM_BODIES = {
     "Finding and evidence": (
-        "Commit 0123456 accepts a missing directive; raw test exits zero."),
+        "Commit 0123456 accepts a missing directive; raw test exits zero.\n"
+        "- User severity setting: `medium`\n"
+        "- Red Team severity: `medium`\n"
+        "- Likelihood: `probable`\n"
+        "- Likelihood evidence: A normal missing-section input reaches the "
+        "unchecked dispatch path.\n"
+        "- Meets user setting: `yes`"),
     "Root cause": (
         "The dispatch path checks transport bytes but not the cited packet."),
     "Required outcome": (
@@ -156,6 +163,89 @@ class HandoffContractTests(unittest.TestCase):
                     role=role, text=packet(role=role))
                 self.assertEqual(
                     result["character_change_budget"]["limit"], 0)
+
+    def test_redteam_severity_assessment_is_ordered_and_consistent(self):
+        result = validate_directive_text(
+            role="redteam", text=packet(role="redteam"))
+        self.assertEqual(
+            result["discovery_severity_assessment"],
+            {
+                "user_setting": "medium",
+                "redteam_severity": "medium",
+                "likelihood": "probable",
+                "likelihood_evidence": (
+                    "A normal missing-section input reaches the unchecked "
+                    "dispatch path."),
+                "meets_user_setting": "yes",
+            })
+
+        base = REDTEAM_BODIES["Finding and evidence"]
+        invalid = {
+            "missing": base.replace(
+                "- Red Team severity: `medium`\n", ""),
+            "duplicate": base + "\n- Likelihood: `probable`",
+            "reordered": base.replace(
+                "- Red Team severity: `medium`\n"
+                "- Likelihood: `probable`\n",
+                "- Likelihood: `probable`\n"
+                "- Red Team severity: `medium`\n"),
+            "wrong value": base.replace(
+                "- Red Team severity: `medium`",
+                "- Red Team severity: `critical`"),
+            "weak evidence": base.replace(
+                "A normal missing-section input reaches the unchecked "
+                "dispatch path.", "Rare."),
+            "contradiction": base.replace(
+                "- User severity setting: `medium`",
+                "- User severity setting: `high`"),
+            "malformed duplicate": (
+                base + "\n- User severity setting: high"),
+            "case-variant duplicate": (
+                base + "\n- user severity setting: `medium`"),
+        }
+        for name, finding in invalid.items():
+            with self.subTest(name=name):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="redteam",
+                        text=packet(
+                            role="redteam",
+                            bodies={"Finding and evidence": finding}))
+
+        matrix = (
+            ("high", "high", "probable", "yes"),
+            ("high", "medium", "probable", "no"),
+            ("medium", "high", "improbable", "yes"),
+            ("medium", "medium", "probable", "yes"),
+            ("medium", "medium", "improbable", "no"),
+            ("medium", "low", "probable", "no"),
+            ("low", "low", "improbable", "yes"),
+        )
+        for user_setting, redteam_severity, likelihood, meets in matrix:
+            with self.subTest(
+                    user=user_setting, redteam=redteam_severity,
+                    likelihood=likelihood):
+                finding = base.replace(
+                    "- User severity setting: `medium`",
+                    "- User severity setting: `" + user_setting + "`")
+                finding = finding.replace(
+                    "- Red Team severity: `medium`",
+                    "- Red Team severity: `" + redteam_severity + "`")
+                finding = finding.replace(
+                    "- Likelihood: `probable`",
+                    "- Likelihood: `" + likelihood + "`")
+                finding = finding.replace(
+                    "- Meets user setting: `yes`",
+                    "- Meets user setting: `" + meets + "`")
+                parsed = validate_directive_text(
+                    role="redteam",
+                    text=packet(
+                        role="redteam",
+                        bodies={"Finding and evidence": finding}),
+                    expected_severity=user_setting)
+                self.assertEqual(
+                    parsed["discovery_severity_assessment"]
+                    ["meets_user_setting"], meets)
 
     def test_character_change_budget_is_exact_and_policy_matched(self):
         bounded = bounded_bodies(limit=1200, planned=1100)
@@ -1466,6 +1556,61 @@ class HandoffContractTests(unittest.TestCase):
         with self.assertRaisesRegex(
                 DirectiveError, "does not match MAILBOX_MAX_CHARACTERS"):
             resolve_character_limit(cli_value=24, environment_value="25")
+
+    def test_mailbox_environment_binds_redteam_discovery_severity(self):
+        high_finding = REDTEAM_BODIES["Finding and evidence"].replace(
+            "User severity setting: `medium`",
+            "User severity setting: `high`").replace(
+                "Red Team severity: `medium`",
+                "Red Team severity: `high`")
+        high_packet = packet(
+            role="redteam",
+            bodies={"Finding and evidence": high_finding})
+        with tempfile.TemporaryDirectory() as directory:
+            note = Path(directory) / "redteam.md"
+            note.write_text(high_packet, encoding="utf-8")
+            with mock.patch.dict(
+                    os.environ,
+                    {"MAILBOX_DISCOVERY_SEVERITY": "high"}, clear=False):
+                result = validate_directive_file(
+                    role="redteam", path=note)
+                self.assertEqual(
+                    result["discovery_severity_assessment"]["user_setting"],
+                    "high")
+                with self.assertRaisesRegex(
+                        DirectiveError, "does not match the run-time"):
+                    validate_directive_text(
+                        role="redteam", text=packet(role="redteam"),
+                        expected_severity="high")
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = main(argv=[
+                        "redteam", str(note), "--severity", "low"])
+                self.assertEqual(rc, 1)
+                self.assertIn("does not match", output.getvalue())
+
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("MAILBOX_DISCOVERY_SEVERITY", None)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = main(argv=[
+                        "redteam", str(note), "--severity", "high"])
+                self.assertEqual(rc, 0)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rc = main(argv=[
+                        "architect", str(note), "--severity", "high"])
+                self.assertEqual(rc, 1)
+                self.assertIn("only for a Red Team", output.getvalue())
+
+        self.assertEqual(
+            resolve_discovery_severity(
+                cli_value=None, environment_value=None), "medium")
+        for invalid in ("", " HIGH ", "High", "critical"):
+            with self.subTest(invalid=repr(invalid)), self.assertRaisesRegex(
+                    DirectiveError, "must be exactly"):
+                resolve_discovery_severity(
+                    cli_value=None, environment_value=invalid)
 
 
 if __name__ == "__main__":

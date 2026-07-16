@@ -1039,7 +1039,8 @@ def mutate_skip_activation_without_sequence_lock(source):
 
 def mutate_drop_skip_final_send_recheck(source):
     """Remove the Sol policy probe made inside sequence publication."""
-    start = source.find("def send(agent, text, dry_run, ticket_kind=None):")
+    start = source.find(
+        "def send(agent, text, dry_run, ticket_kind=None, severity=None):")
     end = source.find("\ndef ", start + 1)
     if start < 0 or end < 0:
         return None
@@ -1047,7 +1048,7 @@ def mutate_drop_skip_final_send_recheck(source):
     old = (
         "            reason = refusal_now()\n"
         "            if reason is not None:\n"
-        "                print(\"refused --send sol: \" + reason + \".\")\n"
+        "                print(\"refused --send \" + agent + \": \" + reason + \".\")\n"
         "                return False\n"
         "            for _ in range(20):\n")
     new = "            for _ in range(20):\n"
@@ -1144,9 +1145,13 @@ def arm_source_mutations():
             "dynamic banner drops topology",
             lambda text: replace_exact(
                 text,
-                "        skip_redteam=skip_redteam)\n"
+                "        skip_redteam=skip_redteam,\n"
+                "        discovery_severity=effective_discovery_severity,\n"
+                "        saved_discovery=(ticket_kind == \"discovery\"))\n"
                 "    # The dynamic banner precedes",
-                "        skip_redteam=False)\n"
+                "        skip_redteam=False,\n"
+                "        discovery_severity=effective_discovery_severity,\n"
+                "        saved_discovery=(ticket_kind == \"discovery\"))\n"
                 "    # The dynamic banner precedes"),
             arm_two_role_watch_preserves_sol,
         ),

@@ -362,6 +362,9 @@ def arm_all_live_actions_bootstrap(source=None):
         ("watch", ["--watch", "--cycle", "0"]),
         ("send", ["--send", "fable", "--unit",
                   "Coordinate the committed scratch unit."]),
+        ("discovery", ["--send", "sol", "--ticket-kind", "discovery",
+                       "--severity", "high", "--unit",
+                       "Review the committed scratch change."]),
         ("ping", ["--ping", "fable"]),
     ]
     results = []
@@ -372,10 +375,17 @@ def arm_all_live_actions_bootstrap(source=None):
             primary = default_primary(root)
             sol = default_sol(root)
             acted_in_primary = True
-            if label in ("send", "ping"):
+            if label in ("send", "discovery", "ping"):
                 acted_in_primary = (
                     len(pending_markdown(primary)) == 1
                     and pending_markdown(root) == [])
+                if label == "discovery" and acted_in_primary:
+                    acted_in_primary = (
+                        pending_markdown(primary)[0].read_text(
+                            encoding="utf-8")
+                        .startswith(
+                            "MAILBOX-TICKET: discovery\n"
+                            "MAILBOX-SEVERITY: high\n\n"))
             records = worktree_records(root)
             passed = (
                 rc == 0 and stderr == ""
@@ -396,6 +406,41 @@ def arm_all_live_actions_bootstrap(source=None):
                   + " rc=" + str(rc)
                   + " output=" + repr(stdout[-180:]))
     return all(results)
+
+
+def arm_stale_primary_protocol_refuses(source=None):
+    """Refuse re-exec when the saved daemon lacks the current protocol."""
+    marker = "MAILBOX_PROTOCOL_VERSION = 1"
+    if source is None or source.count(marker) != 1:
+        return False
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        stale_source = source.replace(
+            marker, "MAILBOX_PROTOCOL_VERSION = 0", 1)
+        write_exact(
+            primary / "ai" / "tools" / "mailbox_daemon.py",
+            stale_source.encode("utf-8"))
+        git(primary, "add", "ai/tools/mailbox_daemon.py")
+        git(primary, "commit", "-m", "scratch stale mailbox protocol")
+        state_before = state_path(root).read_bytes()
+        root_before = root_checkout_identity(root)
+        rc, stdout, _stderr = invoke(
+            root,
+            ["--send", "sol", "--ticket-kind", "discovery",
+             "--severity", "high", "--unit", "Review one named change."])
+        passed = (
+            rc != 0
+            and "does not support discovery severity" in stdout
+            and pending_markdown(root) == []
+            and pending_markdown(primary) == []
+            and state_path(root).read_bytes() == state_before
+            and root_checkout_identity(root) == root_before)
+        print("stale primary protocol refusal=" + str(passed)
+              + " rc=" + str(rc))
+        return passed
 
 
 def arm_help_dry_run_and_invalid_are_zero_write(source=None):
@@ -1815,6 +1860,17 @@ def mutation_cases(source):
         "                 [sys.executable, daemon] + list(sys.argv[1:]))",
         "        return state  # mutation: action continues in caller",
         arm_all_live_actions_bootstrap)
+    add("stale primary protocol accepted",
+        "    if protocol_declarations != [\n"
+        "            str(MAILBOX_PROTOCOL_VERSION).encode(\"ascii\")]:\n"
+        "        raise PrimaryWorktreeError(\n"
+        "            \"saved primary daemon does not support discovery severity; \"\n"
+        "            \"update that non-main worktree from main without discarding \"\n"
+        "            \"its local work, then retry: \" + primary_path)",
+        "    if False:\n"
+        "        raise PrimaryWorktreeError(\n"
+        "            \"mutation accepts a stale primary protocol\")",
+        arm_stale_primary_protocol_refuses)
     return cases
 
 
@@ -1842,6 +1898,8 @@ def main():
     source = DAEMON_PATH.read_text(encoding="utf-8")
     runtime = [
         ("all live actions", arm_all_live_actions_bootstrap),
+        ("stale primary protocol refusal",
+         arm_stale_primary_protocol_refuses),
         ("zero-write inspection", arm_help_dry_run_and_invalid_are_zero_write),
         ("cross-checkout reuse", arm_reuse_and_cross_checkout_converge),
         ("existing coordinator adoption",

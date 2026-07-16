@@ -201,6 +201,21 @@ CHARACTER_BUDGET_ROWS = (
     re.compile(r"^- Planned maximum: `([0-9]+)`$"),
     re.compile(r"^- Readability plan: (.+)$"),
 )
+REDTEAM_SEVERITY_ROWS = (
+    ("User severity setting",
+     re.compile(r"^- User severity setting: `(high|medium|low)`$")),
+    ("Red Team severity",
+     re.compile(r"^- Red Team severity: `(high|medium|low)`$")),
+    ("Likelihood",
+     re.compile(r"^- Likelihood: `(probable|improbable)`$")),
+    ("Likelihood evidence",
+     re.compile(r"^- Likelihood evidence: (.+)$")),
+    ("Meets user setting",
+     re.compile(r"^- Meets user setting: `(yes|no)`$")),
+)
+DISCOVERY_SEVERITIES = ("high", "medium", "low")
+DEFAULT_DISCOVERY_SEVERITY = "medium"
+DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 TICKET_CHANGE_GUARD = "ai/tools/ticket_change_guard.py"
 
 
@@ -921,6 +936,67 @@ def _require_character_change_budget(body, expected_max):
     }
 
 
+def _require_redteam_severity_assessment(body, expected_user_severity=None):
+    """Return the five ordered discovery-assessment fields."""
+    structural = _binding_markdown_text(text=body)
+    lines = [line for line in structural.split("\n") if line.strip()]
+    positions = []
+    values = {}
+    for name, pattern in REDTEAM_SEVERITY_ROWS:
+        reserved = re.compile(
+            r"^- " + re.escape(name) + r"[ \t]*:", re.IGNORECASE)
+        candidates = [(index, line) for index, line in enumerate(lines)
+                      if reserved.match(line) is not None]
+        matches = [(index, pattern.fullmatch(line))
+                   for index, line in candidates
+                   if pattern.fullmatch(line) is not None]
+        if len(candidates) != 1 or len(matches) != 1:
+            raise DirectiveError(
+                "section 'Finding and evidence' requires exactly one "
+                "canonical '- " + name + ": ...' row")
+        index, match = matches[0]
+        positions.append(index)
+        values[name] = match.group(1).strip()
+    if positions != sorted(positions):
+        raise DirectiveError(
+            "section 'Finding and evidence' severity rows are out of order")
+    if not _has_substantive_payload(
+            values["Likelihood evidence"],
+            minimum_alphanumeric=16,
+            minimum_words=3):
+        raise DirectiveError(
+            "section 'Finding and evidence' needs substantive likelihood "
+            "evidence")
+    user_setting = values["User severity setting"]
+    if (expected_user_severity is not None
+            and user_setting != expected_user_severity):
+        raise DirectiveError(
+            "section 'Finding and evidence' User severity setting "
+            + user_setting + " does not match the run-time --severity value "
+            + expected_user_severity)
+    redteam_severity = values["Red Team severity"]
+    likelihood = values["Likelihood"]
+    qualifies = (
+        user_setting == "low"
+        or redteam_severity == "high"
+        or (user_setting == "medium"
+            and redteam_severity == "medium"
+            and likelihood == "probable"))
+    expected_meets = "yes" if qualifies else "no"
+    if values["Meets user setting"] != expected_meets:
+        raise DirectiveError(
+            "section 'Finding and evidence' says Meets user setting "
+            + values["Meets user setting"] + " but its severity and "
+            "likelihood require " + expected_meets)
+    return {
+        "user_setting": user_setting,
+        "redteam_severity": redteam_severity,
+        "likelihood": likelihood,
+        "likelihood_evidence": values["Likelihood evidence"],
+        "meets_user_setting": values["Meets user setting"],
+    }
+
+
 def _command_blocks(body):
     """Return ``(tag, lines)`` for closed shell fences in one section."""
     blocks = []
@@ -1203,7 +1279,8 @@ def _require_commands(body):
         "syntax-valid, resolvable command")
 
 
-def validate_directive_text(role, text, expected_max=0):
+def validate_directive_text(role, text, expected_max=0,
+                            expected_severity=None):
     """Validate one note's Architect or Red Team directive packet.
 
     Arguments:
@@ -1211,6 +1288,9 @@ def validate_directive_text(role, text, expected_max=0):
              ``redteam`` for an advisory repair directive.
       text = complete Markdown note text.
       expected_max = exact nonnegative run-time character-change limit.
+      expected_severity = exact user setting for a Red Team discovery. When
+                          omitted, only the row's internal consistency is
+                          checked.
 
     Returns:
       A parsed dictionary containing the role, packet title, character-change
@@ -1259,6 +1339,10 @@ def validate_directive_text(role, text, expected_max=0):
         _require_evidence_destination(text=text, packet_title=title)
     else:
         _require_locator(bodies=bodies, heading="Regression test")
+        result["discovery_severity_assessment"] = (
+            _require_redteam_severity_assessment(
+                body=bodies["Finding and evidence"],
+                expected_user_severity=expected_severity))
 
     step_heading = ("Ordered implementation steps" if role == "architect"
                     else "Ordered repair steps")
@@ -1290,8 +1374,15 @@ def validate_directive_text(role, text, expected_max=0):
     return result
 
 
-def validate_directive_file(role, path, expected_max=0):
+def validate_directive_file(role, path, expected_max=0,
+                            expected_severity=None):
     """Read and validate one bounded UTF-8 directive note."""
+    if role == "redteam":
+        expected_severity = resolve_discovery_severity(
+            cli_value=expected_severity)
+    elif expected_severity is not None:
+        raise DirectiveError(
+            "--severity is valid only for a Red Team directive")
     authoritative_contract = os.environ.get("MAILBOX_HANDOFF_CONTRACT")
     if authoritative_contract is not None:
         actual_contract = os.path.realpath(os.path.abspath(__file__))
@@ -1375,7 +1466,8 @@ def validate_directive_file(role, path, expected_max=0):
     except UnicodeDecodeError as exc:
         raise DirectiveError("cannot read directive note as UTF-8: " + str(exc))
     return validate_directive_text(
-        role=role, text=text, expected_max=expected_max)
+        role=role, text=text, expected_max=expected_max,
+        expected_severity=expected_severity)
 
 
 def nonnegative_character_limit(value):
@@ -1416,6 +1508,30 @@ def resolve_character_limit(cli_value, environment_value=None):
     return cli_value
 
 
+def resolve_discovery_severity(cli_value, environment_value=None):
+    """Bind a Red Team severity value to the mailbox run setting."""
+    if (cli_value is not None
+            and cli_value not in DISCOVERY_SEVERITIES):
+        raise DirectiveError(
+            "command-line --severity must be high, medium, or low")
+    if environment_value is None:
+        environment_value = os.environ.get(
+            DISCOVERY_SEVERITY_ENVIRONMENT)
+    if (environment_value is not None
+            and environment_value not in DISCOVERY_SEVERITIES):
+        raise DirectiveError(
+            DISCOVERY_SEVERITY_ENVIRONMENT
+            + " must be exactly high, medium, or low")
+    if cli_value is None:
+        return (DEFAULT_DISCOVERY_SEVERITY
+                if environment_value is None else environment_value)
+    if environment_value is not None and cli_value != environment_value:
+        raise DirectiveError(
+            "command-line --severity " + cli_value + " does not match "
+            + DISCOVERY_SEVERITY_ENVIRONMENT + " " + environment_value)
+    return cli_value
+
+
 def parse_args(argv=None):
     """Parse the read-only directive-validation command line."""
     parser = argparse.ArgumentParser(
@@ -1427,6 +1543,11 @@ def parse_args(argv=None):
         type=nonnegative_character_limit, default=None,
         help="character-change limit that the directive must match; when "
              "omitted, use MAILBOX_MAX_CHARACTERS if present, otherwise 0")
+    parser.add_argument(
+        "--severity", choices=DISCOVERY_SEVERITIES, default=None,
+        help="user's discovery threshold for a Red Team directive; when "
+             "omitted, use MAILBOX_DISCOVERY_SEVERITY if present, "
+             "otherwise medium")
     return parser.parse_args(argv)
 
 
@@ -1435,8 +1556,15 @@ def main(argv=None):
     args = parse_args(argv=argv)
     try:
         expected_max = resolve_character_limit(cli_value=args.max)
+        if args.severity is not None and args.role != "redteam":
+            raise DirectiveError(
+                "--severity is valid only for a Red Team directive")
+        expected_severity = (
+            resolve_discovery_severity(cli_value=args.severity)
+            if args.role == "redteam" else None)
         validate_directive_file(
-            role=args.role, path=args.note, expected_max=expected_max)
+            role=args.role, path=args.note, expected_max=expected_max,
+            expected_severity=expected_severity)
     except DirectiveError as exc:
         print(args.role + " directive: INVALID: " + str(exc))
         return 1

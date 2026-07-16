@@ -32,12 +32,16 @@ the counterexample and skipped failure path, and withhold red-team acceptance
 until the raw evidence supports it. An Implementer's self-review is evidence,
 not an independent audit.
 
-The Red Team is a thinking layer. A confirmed finding is incomplete until it
-includes a concrete, implementation-ready candidate repair: root cause, exact
-files and symbols, ordered edits, invariants, failure behavior, regression
-witness, commands, acceptance checks, forbidden alternatives, and stop
-conditions. Do not leave those decisions for an Implementer. The candidate is
-still input to the Architect, never a self-executing ruling.
+The Red Team is a thinking layer. A confirmed discovery that meets the user's
+saved severity setting is incomplete until it includes a concrete,
+implementation-ready candidate repair: root cause, exact files and symbols,
+ordered edits, invariants, failure behavior, regression witness, commands,
+acceptance checks, forbidden alternatives, and stop conditions. Do not leave
+those decisions for an Implementer. A finding below the saved setting still
+records its evidence and severity assessment, but requests no new ticket or
+Implementer job. If the Architect upgrades it, a complete repair packet is
+required before implementation. Every candidate is input to the Architect,
+never a self-executing ruling.
 
 Write that candidate so a lower-capability Implementer can execute it without
 supplying missing design. The dispatch banner names the binding run-time
@@ -94,6 +98,42 @@ The red-team pass asks, at minimum:
   temporary arrays, and all simultaneously resident objects?
 - Do docstrings and notes describe current code rather than intended code?
 
+## Discovery severity
+
+Severity means how much harm a bug can cause. For a discovery ticket, the
+exact `MAILBOX-SEVERITY` value is the user's minimum severity for opening new
+work. The dispatch banner and `MAILBOX_DISCOVERY_SEVERITY` repeat the saved
+value. If a legacy ticket has no severity line, its value is `medium`.
+
+- `high`: a bug qualifies only if it **severely impacts core functionality,
+  causes data loss, halts system operations, or makes the science wrong**.
+- `medium`: every high-severity bug qualifies. A less severe bug qualifies
+  only when it can affect normal operation and the Red Team can show a
+  probable way for it to occur. A merely theoretical or improbable edge case
+  does not qualify as medium.
+- `low`: any concrete discovered bug may qualify, including an improbable
+  edge case. Concrete means the Red Team can name the code path and evidence;
+  an unsupported guess is not a discovered bug.
+
+Keep harm and likelihood separate. Every discovery result records these exact
+fields in its temporary note and relay:
+
+```text
+User severity setting: high|medium|low
+Red Team severity: high|medium|low
+Likelihood: probable|improbable
+Likelihood evidence: <normal input, action, or failure path>
+Meets user setting: yes|no
+```
+
+The user setting does not authorize a wider search. The named-change rule
+still applies unless the user explicitly requests a widespread search.
+`--fix-only` forbids every discovery regardless of severity, and a two-role
+watch has no Red Team. The Red Team does not add a backlog line or open a
+ticket. It sends the assessment to the Architect.
+The Architect accepts, upgrades, or downgrades the rating with an
+evidence-based reason and makes the final `GO` or `NO-GO` ticket decision.
+
 ## Handoff protocol
 
 **Notes-first communication is a hard rule.** Substantive communication
@@ -138,6 +178,14 @@ complete packet with these headings, in this order:
 
 ### Finding and evidence
 [Name the reviewed delta and raw reproduction that proves the defect.]
+Replace each `LEVEL` with exactly `high`, `medium`, or `low`; replace
+`LIKELIHOOD` with `probable` or `improbable`; replace `ANSWER` with `yes` or
+`no`. Keep the five rows in this order.
+- User severity setting: `LEVEL`
+- Red Team severity: `LEVEL`
+- Likelihood: `LIKELIHOOD`
+- Likelihood evidence: [Name the normal input, action, or failure path.]
+- Meets user setting: `ANSWER`
 
 ### Root cause
 [Explain the exact mechanism, path, and violated assumption.]
@@ -191,9 +239,11 @@ Architect adopts it and issues the binding directive.]
 ````
 
 Run the structural check before returning the finding. Replace `RUNTIME_N`
-with the exact decimal printed in the dispatch or manual-router prompt. A
-headless mailbox turn also receives that value as
-`MAILBOX_MAX_CHARACTERS`; never substitute the candidate estimate.
+with the exact decimal printed in the dispatch or manual-router prompt. For a
+manual relay, replace `LEVEL` with that prompt's exact `high`, `medium`, or
+`low` value. A headless mailbox turn receives both binding values as
+`MAILBOX_MAX_CHARACTERS` and `MAILBOX_DISCOVERY_SEVERITY`; never substitute a
+candidate estimate or your own severity choice.
 
 In a mailbox turn, run the absolute path in `MAILBOX_HANDOFF_CONTRACT` and the
 exact absolute note path from the message or `MAILBOX_SHARED_NOTES`; never
@@ -204,7 +254,8 @@ current repository root.
 ```bash
 python3 "$MAILBOX_HANDOFF_CONTRACT" redteam \
   "$MAILBOX_SHARED_NOTES"/<ticket>.md \
-  --max RUNTIME_N
+  --max RUNTIME_N \
+  --severity "$MAILBOX_DISCOVERY_SEVERITY"
 ```
 
 For a manual session without those mailbox variables, run:
@@ -212,7 +263,8 @@ For a manual session without those mailbox variables, run:
 ```bash
 python3 ai/tools/handoff_contract.py redteam \
   ai/notes/<ticket>.md \
-  --max RUNTIME_N
+  --max RUNTIME_N \
+  --severity LEVEL
 ```
 
 `VALID` from this tool proves only that the candidate repair is structurally
@@ -228,6 +280,11 @@ the exact marker shown:
 
 - **Reviewed delta:** [commit/change + binding note section + base]
 - **Result and evidence:** [finding/no finding + raw evidence location]
+- **User severity setting:** [high, medium, or low]
+- **Red Team severity:** [high, medium, or low]
+- **Likelihood:** [probable or improbable]
+- **Likelihood evidence:** [normal input, action, or failure path]
+- **Meets user setting:** [yes or no]
 - **Candidate repair:** [Repair directive section, or "no repair requested"]
 - **Character-change result:** [positive limit: ticket_change_guard.py →
   added, deleted, total, and binding limit; zero limit:

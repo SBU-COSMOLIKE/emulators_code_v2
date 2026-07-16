@@ -264,6 +264,31 @@ index, or fall back to the caller's checkout.
    currency.** The final word cuts both ways — it never excuses an unprobed
    premise of your own.
 
+5a. **Discovery severity is the user's ticket rule (user rule,
+    2026-07-15).** Severity means how much harm a bug can cause. Each
+    discovery ticket saves `MAILBOX-SEVERITY: LEVEL`, replacing `LEVEL` with
+    exactly `high`, `medium`, or `low`; the default is `medium`. Preserve that
+    exact user setting through the Red Team return and your decision.
+
+    - `high` admits only a bug that severely impacts core functionality,
+      causes data loss, halts system operations, or makes the science wrong.
+    - `medium` also admits a less severe bug that can affect normal operation
+      through a probable path. A merely theoretical or improbable edge case
+      is not medium.
+    - `low` permits any concrete discovered bug, including an improbable edge
+      case. An unsupported guess is not a discovery.
+
+    Require the Red Team to record `User severity setting`, `Red Team
+    severity`, `Likelihood: probable|improbable`, `Likelihood evidence`, and
+    `Meets user setting: yes|no`. Audit harm and likelihood independently.
+    Then record `Architect severity decision: accept|upgrade|downgrade`, the
+    final rating, your evidence-based reason, and `Ticket decision: GO|NO-GO`.
+    A rating below the user's setting does not become a ticket unless your
+    evidence supports an explicit upgrade. The Red Team never opens or
+    rejects the backlog ticket; you make that final decision. Severity never overrides
+    `--fix-only`, the disabled Sol route, the demand limit, or the named-change
+    scope rule.
+
 6. **Decisions are GO / NO-GO (user rule, 2026-07-14).** State every
    architectural ruling, audit verdict, and landing decision with one of
    those two labels. `GO` means the named unit may advance; `NO-GO` means it
@@ -464,6 +489,10 @@ When transferring a unit to the red team, emit exactly this block (and its
   files and files another lane owns.]
 - **Review contract:** [the notes ruling and named delta to probe; normal Red
   Team mode challenges it and proposes a repair, but does not implement it]
+- **User severity setting:** [high, medium, or low; copy the saved discovery
+  value, or the dispatch default when this bounded review may propose new work]
+- **Required assessment:** [Red Team severity, probable/improbable likelihood,
+  likelihood evidence, and whether the result meets the user setting]
 - **Catch-power requirement:** [the mutation/tamper arms that must red —
   executable, not prose; a repair ships with the arm proving it load-bearing]
 - **Validation gate:** [commands + thresholds; CPU / cocoa-interpreter
@@ -475,13 +504,17 @@ When transferring a unit to the red team, emit exactly this block (and its
 ```
 
 On receiving the Red Team's handoff, audit it against raw evidence and add at
-least one probe the Red Team did not script. A no-finding result closes only
-the bounded review record. For a finding, issue `GO` or `NO-GO` on the
-candidate repair. If you adopt it, rewrite it as the one complete binding
+least one probe the Red Team did not script. Verify all five required severity
+fields. Record whether you accept, upgrade, or downgrade the Red Team rating,
+the final rating, an evidence-based reason, and the final `GO` or `NO-GO`
+ticket decision. A no-finding result closes only the bounded review record. A
+below-setting result opens no ticket unless your evidence supports an explicit
+upgrade. For an eligible finding, issue `GO` or `NO-GO` on the candidate
+repair. If you adopt it, rewrite it as the one complete binding
 `Implementation directive`, validate that packet, and dispatch one
 Implementer. Do not merge a candidate repair. Merge only a separately
-authorized Red-Team-owned documentation/test change after its own audit.
-A scope extension is requested before any cross-boundary edit.
+authorized Red-Team-owned documentation/test change after its own audit. A
+scope extension is requested before any cross-boundary edit.
 
 ### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
 
@@ -549,16 +582,13 @@ Two further user rules (2026-07-14) on the same doctrine:
   message for that continuous debt episode. Audit any unadjudicated
   units, obey the foreign-commit STOP, and land GO units one by one.
   The episode re-arms only after debt returns to or below the limit.
-- **CONVERGENCE MODE (user rule, 2026-07-14: "no more adversarial
-  attacks on the backlog... I want just to close tickets from now
-  on").** The discovery phase is OVER: commission NO new review
-  sweeps, adversarial campaigns, or audit-the-world units — every
-  dispatched unit must retire an existing "- OPEN" ledger line (or be
-  a direct user directive). The honesty carve-out is narrow and
-  stays: a defect genuinely encountered WHILE closing a ticket is
-  still recorded (hiding it is fraud) — but it is recorded as a rider
-  on the unit that found it wherever possible, not as a fresh line,
-  and it is never sought out. The ledger count goes DOWN from here.
+- **Discovery is explicit and severity-limited (user rule, 2026-07-15).**
+  Ordinary closure work remains the priority. New discovery is allowed only
+  through a declared discovery ticket carrying the user's saved severity.
+  Apply Operating Constraint 5a before asking the Red Team to search and again
+  before opening any resulting backlog line. A widespread search still needs
+  the user's explicit words. Use `--fix-only yes` when the user wants no new
+  discovery at all; severity cannot weaken that rule.
 - **Discovery tickets go to the BACK of the queue (user rule,
   2026-07-14).** While Sol is in the second-Implementer regime (total
   demand at or past the threshold), the Architect checks every
@@ -572,6 +602,9 @@ Two further user rules (2026-07-14) on the same doctrine:
   `--send sol` supplies `--ticket-kind closure|discovery`, and every
   directly written Sol outbound starts with the exact corresponding
   first line `MAILBOX-TICKET: closure` or `MAILBOX-TICKET: discovery`.
+  A discovery adds `MAILBOX-SEVERITY: LEVEL` as its exact second line,
+  replacing `LEVEL` with the binding `high`, `medium`, or `low` value in
+  `MAILBOX_DISCOVERY_SEVERITY`; omission at the command line means `medium`.
   At or past the threshold a declared discovery is refused with the
   END-of-ledger instruction; a missing or malformed class fails closed. The
   daemon's exact no-work `--ping sol` body alone uses its reserved internal

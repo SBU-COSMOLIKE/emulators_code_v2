@@ -22,6 +22,7 @@ AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 README_PATH = AI_ROOT / "tools" / "README.md"
 TICKET_HEADER = "MAILBOX-TICKET: "
+SEVERITY_HEADER = "MAILBOX-SEVERITY: "
 FIX_ONLY_BANNER = (
     "fix-only watch: active; close existing ledger lines only; create no "
     "discovery tickets or new backlog lines.")
@@ -149,12 +150,13 @@ def write_pending(daemon, name, body="counted pending unit\n"):
     return path
 
 
-def captured_send(daemon, agent, text, dry_run, ticket_kind=None):
+def captured_send(daemon, agent, text, dry_run, ticket_kind=None,
+                  severity=None):
     """Call the production send path and capture its terminal output."""
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         outcome = daemon.send(agent=agent, text=text, dry_run=dry_run,
-                              ticket_kind=ticket_kind)
+                              ticket_kind=ticket_kind, severity=severity)
     return outcome, stream.getvalue()
 
 
@@ -206,7 +208,8 @@ def arm_threshold_edges_and_exact_header():
         pending = [pathlib.Path(path) for path in daemon.pending_messages()]
         exact = (len(pending) == 1
                  and read_text_exact(pending[0])
-                 == (TICKET_HEADER + "discovery\n\n"
+                 == (TICKET_HEADER + "discovery\n"
+                     + SEVERITY_HEADER + "medium\n\n"
                      "quietly seek one new fact\n"))
         checks.append(outcome and exact)
         print("threshold-minus-one outcome=" + str(outcome)
@@ -1136,6 +1139,7 @@ def arm_help_and_readme_parity():
         position = end + 3
     passed = (rc == 0 and error == "" and candidates == [help_output]
               and "--ticket-kind {closure,discovery}" in help_output
+              and "--severity {high,medium,low}" in help_output
               and "--fix-only" in help_output
               and all(word in help_output for word in ("1", "true", "yes")))
     print("help parity candidates=" + str(len(candidates))
@@ -1498,10 +1502,10 @@ def arm_source_mutations():
                 text,
                 '    reason = refusal_now()\n'
                 '    if reason is not None:\n'
-                '        print("refused --send sol: " + reason + ".")',
+                '        print("refused --send " + agent + ": " + reason + ".")',
                 '    reason = refusal_now()\n'
                 '    if False and reason is not None:\n'
-                '        print("refused --send sol: " + reason + ".")'),
+                '        print("refused --send " + agent + ": " + reason + ".")'),
             probe_early_zero_write,
         ),
         (

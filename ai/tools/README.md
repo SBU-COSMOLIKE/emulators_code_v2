@@ -18,10 +18,11 @@ do I run, what does it change, and what result should I expect?
 4. [Useful daily commands](#useful-daily-commands)
 5. [Use Sol as a second Implementer](#use-sol-as-a-second-implementer)
 6. [Check protected project notes](#check-protected-project-notes)
-7. [Fix-only watches](#fix-only-watches)
-8. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
-9. [Runtime controls](#runtime-controls)
-10. [Exact command reference](#exact-command-reference)
+7. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
+8. [Fix-only watches](#fix-only-watches)
+9. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
+10. [Runtime controls](#runtime-controls)
+11. [Exact command reference](#exact-command-reference)
 
 ### Common questions raised by developers
 
@@ -140,12 +141,19 @@ or a candidate repair:
 
 ```bash
 python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
-python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md
+python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md \
+  --severity medium
 ```
 
 The check is read-only and reports `VALID` or `INVALID` for both instruction
 types. These results check the note's format; only the Architect says `GO` or
 `NO-GO`.
+
+For a Red Team directive, replace `medium` with the severity selected for the
+run. The command then checks that the note records that same user setting.
+Mailbox runs also provide the selected value through
+`MAILBOX_DISCOVERY_SEVERITY`, so the Red Team can omit the option when it runs
+the check inside that mailbox job.
 
 `VALID` means the required sections are in order. The note must name exact
 files and tests, number its work steps, provide a shell-command block, and
@@ -222,17 +230,23 @@ In a path, `../` asks to move above the current folder.
 ```bash
 python3 ai/tools/mailbox_daemon.py --send sol \
   --ticket-kind discovery \
+  --severity medium \
   --unit "You are the Independent Red Team. Review the version-flag change named in ai/notes/version-flag.md. Stay within that change."
 ```
 
 Success prints `queued PATH` and writes one numbered `to-sol` request file
-labelled `discovery`. The send command itself does not start Sol. An active
-watcher handles the request.
+labelled `discovery`. It also saves `MAILBOX-SEVERITY: medium` as the second
+line. The send command itself does not start Sol. An active watcher handles
+the request.
 
 A **discovery** asks the Red Team to look for a new problem in the named
 change. It is refused when fix-only mode is on or when ten or more known items
 are already waiting. The role guide explains this
 [limit on new searches](../README.md#appendix-d--what-is-the-demand-guard).
+
+Omitting `--severity` uses `medium`. Use `high` or `low` when the user wants a
+different minimum for this request. The saved value wins if a later watcher
+uses another default.
 
 ### Ask the Red Team to finish a recorded review
 
@@ -314,6 +328,87 @@ next commit, working files, and its own program file contents. A passing guard
 proves only that these protected files match. It does not approve the
 implementation.
 
+## Choose the minimum discovery severity
+
+Here, a **discovery** is a request for the Red Team to inspect one named
+change for a new bug that could become a separate piece of work.
+
+**Severity** means how much harm a bug can cause. The value is the user's
+minimum for opening new work from a Red Team discovery. The default is
+`medium`.
+
+From any project folder that Git recognizes, choose one value when saving a
+discovery request:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --send sol \
+  --ticket-kind discovery \
+  --severity high \
+  --unit "Review the named change in ai/notes/version-flag.md."
+```
+
+The saved request begins with two lines:
+
+```text
+MAILBOX-TICKET: discovery
+MAILBOX-SEVERITY: high
+```
+
+Success prints `queued PATH` and writes one numbered `to-sol` request. It
+does not start Sol; an active watcher handles the saved request.
+
+The three values mean:
+
+| Value | Which findings may become new tickets? |
+| --- | --- |
+| `high` | Only a bug that severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. |
+| `medium` | High-severity bugs, plus a probable bug that can affect normal operation. Merely theoretical or improbable edge cases do not qualify. |
+| `low` | Any concrete discovered bug, including an improbable edge case. A guess without a code path and evidence does not qualify. |
+
+A watch or one-time run can set the default for discovery requests created by
+its roles. Run either command from any project folder that Git recognizes:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --severity high
+python3 ai/tools/mailbox_daemon.py --once --severity low
+```
+
+On first live use, the daemon creates or reuses the saved Claude and Sol work
+folders. `--watch` keeps checking for requests; `--once` checks the current
+waiting requests and then exits. Both print `discovery severity default:`
+followed by the selected value. If they handle work, they can start AI roles
+and move completed request files into `ai/notes/mailbox/done/`.
+
+Each new discovery still saves its value in the request file. A saved value
+does not change when a later watch uses another default. Older request files
+that predate the second line use `medium`.
+
+For a manual clipboard relay, open the exact work folder whose path appears in
+the source note's `Execution checkout`, then set the same rule this way:
+
+```bash
+python3 ai/tools/handoff_router.py \
+  --note ai/notes/version-flag.md \
+  --severity high
+```
+
+Success copies the Implementer prompt, prints numbered progress lines, waits
+for the returned sections, runs the named checks, copies the Red Team and
+Architect prompts, and writes local records under `ai/notes/relay/`. It does
+not start a mailbox watcher or create a mailbox request.
+
+The Red Team records the user's setting, its own severity rating, whether the
+bug is probable or improbable, the evidence for that likelihood, and whether
+the finding meets the user's setting. The Architect checks those items,
+accepts, upgrades, or downgrades the rating with a reason, and makes the final
+`GO` or `NO-GO` decision. The Red Team never opens the backlog ticket itself.
+
+This value does not request a broad search. The Red Team still reviews only
+the named change unless the user explicitly asks for a widespread search.
+It also cannot override fix-only mode or a Red Team disabled with
+`--skip-redteam` or `--no-red-team`. A new discovery is refused when ten or
+more known items are waiting; close recorded work first.
+
 ## Fix-only watches
 
 Use fix-only mode when the backlog already contains many items and the run
@@ -327,6 +422,9 @@ The value also accepts `1` or `true`, in any capitalization.
 
 Here, **closure** means finishing work that is already recorded. **Discovery**
 means asking Sol to search for a new problem.
+
+Severity does not weaken this rule. Even `--severity low` cannot create a
+discovery while fix-only mode is active.
 
 When the Sol role is enabled, fix-only mode behaves as follows:
 
@@ -433,6 +531,7 @@ text formats, unsaved files, and other counting details.
 | Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop at cycle N; `0`: finish enabled waiting messages and open backlog items |
 | Text changed by one ticket | `--max` | `0`: no character limit |
+| Minimum severity for new discovery tickets | `--severity` | `medium` |
 | Discovery policy | `--fix-only` | off |
 
 Model selection and effort are independent. Choosing Sonnet does not silently
@@ -475,6 +574,7 @@ usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
                          [--max characters] [--skip-redteam]
                          [--fix-only value] [--send AGENT] [--ping AGENT]
                          [--unit UNIT] [--ticket-kind {closure,discovery}]
+                         [--severity {high,medium,low}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
@@ -516,6 +616,13 @@ options:
   --ticket-kind {closure,discovery}
                         required with --send sol: declare whether the unit
                         closes existing work or seeks new findings
+  --severity {high,medium,low}
+                        minimum severity for new discovery tickets: high keeps
+                        only bugs that severely impact core functionality,
+                        cause data loss, halt system operations, or make the
+                        science wrong; medium also keeps probable normal-
+                        operation bugs but not improbable edge cases; low
+                        keeps every concrete discovered bug (default: medium)
   --architect-model MODEL
                         Claude model alias or full name for the Architect
                         route (legacy fable address; default: claude-fable-5)
@@ -561,6 +668,9 @@ options:
 - `--unit` is required with `--send`.
 - A Sol send also requires `--ticket-kind` followed by either `closure` or
   `discovery`.
+- `--severity` accepts `high`, `medium`, or `low`. It is valid with `--watch`,
+  `--once`, or `--send sol --ticket-kind discovery`. Omitting it uses
+  `medium`.
 - `--dispatch-timeout`, `--claude-context`, and `--sol-context` accept integers
   from 1 through 1,000,000.
 - For actions that exit on their own, `--dry-run` prints the proposed action

@@ -208,6 +208,14 @@ DEFAULT_SOL_CONTEXT_BUDGET = 500000
 DEFAULT_MAX_CHARACTERS = 0
 MAX_CHARACTERS = DEFAULT_MAX_CHARACTERS
 
+# Discovery severity is a per-ticket statement of the user's minimum harm
+# level for opening new work. A watch also supplies the default that its
+# Architect must save on any discovery ticket it creates. The saved ticket
+# value wins when that message is later dispatched by another watch.
+DISCOVERY_SEVERITIES = ("high", "medium", "low")
+DEFAULT_DISCOVERY_SEVERITY = "medium"
+DISCOVERY_SEVERITY = DEFAULT_DISCOVERY_SEVERITY
+
 # dispatch() reads this for the claude environment; main() rebinds it
 # from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
 CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
@@ -252,6 +260,7 @@ SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
 MAILBOX_TOPOLOGY_VERSION = 2
+MAILBOX_PROTOCOL_VERSION = 1
 MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
 MAX_PRIMARY_STATE_BYTES = 16384
 MAX_PRIMARY_DAEMON_BYTES = 2 * 1024 * 1024
@@ -1487,6 +1496,14 @@ def _require_primary_daemon_topology_support(primary_path):
             "saved primary daemon predates dedicated Sol worktrees; update "
             "that non-main worktree from main without discarding its local "
             "work, then retry: " + primary_path)
+    protocol_declarations = re.findall(
+        br"(?m)^MAILBOX_PROTOCOL_VERSION = ([0-9]+)$", source)
+    if protocol_declarations != [
+            str(MAILBOX_PROTOCOL_VERSION).encode("ascii")]:
+        raise PrimaryWorktreeError(
+            "saved primary daemon does not support discovery severity; "
+            "update that non-main worktree from main without discarding "
+            "its local work, then retry: " + primary_path)
 
 
 def validated_primary_notes(primary_path):
@@ -2423,6 +2440,7 @@ BACKLOG_LEDGER = os.path.join(AI_ROOT, "notes", "backlog.md")
 SOL_TICKET_KINDS = ("closure", "discovery")
 SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
 SOL_TICKET_HEADER = "MAILBOX-TICKET: "
+SOL_SEVERITY_HEADER = "MAILBOX-SEVERITY: "
 SECOND_IMPLEMENTER_MODE_SENTENCE = (
     "OpenAI Sol — this is a role as second Implementer for this unit.")
 SECOND_IMPLEMENTER_RELAY_HEADING_RE = re.compile(
@@ -2432,6 +2450,7 @@ FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
 SKIP_REDTEAM_LOCK_NAME = ".skip-redteam.lock"
 MAX_CHARACTERS_ENVIRONMENT = "MAILBOX_MAX_CHARACTERS"
+DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 
 # One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
 # witness/gate leg, and the notes audit record — a few hundred changed
@@ -2496,7 +2515,12 @@ PREAMBLE = (
     "    MAILBOX-TICKET: discovery\n"
     "Use closure only for work that retires an existing - OPEN ledger line;\n"
     "use discovery when the product is new findings. The daemon refuses to\n"
-    "guess a class from prose. The daemon's exact no-work transport ping is\n"
+    "guess a class from prose. A discovery must add this exact second line,\n"
+    "using the binding value in MAILBOX_DISCOVERY_SEVERITY:\n"
+    "    MAILBOX-SEVERITY: LEVEL\n"
+    "Replace LEVEL with exactly high, medium, or low.\n"
+    "That saved value records the user's minimum severity for a new ticket.\n"
+    "The daemon's exact no-work transport ping is\n"
     "the sole reserved MAILBOX-TICKET: transport exception.\n"
     "Narrow exception: if and only if the inbound's binding instruction\n"
     "explicitly says the thread is TERMINAL and no reply is owed, write no\n"
@@ -2654,8 +2678,8 @@ def sol_ticket_kind(message):
     return match.group(1)
 
 
-def sol_ticket_body(message):
-    """Return the body after a valid Sol classification line."""
+def sol_ticket_body_after_kind(message):
+    """Return the bytes after a valid Sol classification line."""
     match = re.match(
         r"\A" + re.escape(SOL_TICKET_HEADER)
         + r"(?:" + "|".join(map(re.escape, SOL_DISPATCH_TICKET_KINDS))
@@ -2664,6 +2688,75 @@ def sol_ticket_body(message):
     if match is None:
         return message
     return message[match.end():]
+
+
+def sol_discovery_severity_problem(message):
+    """Return a saved discovery-severity envelope error, or ``None``.
+
+    Old discovery messages had only the ticket line. They keep the documented
+    medium default. Once a second line uses the reserved severity prefix, it
+    must contain one exact supported value and may appear only once.
+    """
+    ticket_kind = sol_ticket_kind(message=message)
+    remainder = sol_ticket_body_after_kind(message=message)
+    severity_like_line = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*severity[ \t]*:")
+    if ticket_kind != "discovery":
+        if re.search(severity_like_line, remainder) is not None:
+            return ("MAILBOX-SEVERITY is reserved for discovery tickets "
+                    "and must not appear on another ticket kind")
+        return None
+    if not remainder.startswith(SOL_SEVERITY_HEADER):
+        if re.search(severity_like_line, remainder) is not None:
+            return ("MAILBOX-SEVERITY must use its exact spelling and be "
+                    "the second physical line of a discovery ticket")
+        return None
+    match = re.match(
+        r"\A" + re.escape(SOL_SEVERITY_HEADER)
+        + r"(" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
+        + r")(?:\r?\n|\Z)",
+        remainder)
+    if match is None:
+        return ("invalid discovery severity line; use exactly "
+                "'MAILBOX-SEVERITY: high', 'MAILBOX-SEVERITY: medium', "
+                "or 'MAILBOX-SEVERITY: low'")
+    if re.search(severity_like_line, remainder[match.end():]) is not None:
+        return "duplicate MAILBOX-SEVERITY line"
+    return None
+
+
+def sol_discovery_severity(message):
+    """Return a discovery ticket's saved severity, including legacy default."""
+    if sol_ticket_kind(message=message) != "discovery":
+        return None
+    if sol_discovery_severity_problem(message=message) is not None:
+        return None
+    remainder = sol_ticket_body_after_kind(message=message)
+    match = re.match(
+        r"\A" + re.escape(SOL_SEVERITY_HEADER)
+        + r"(" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
+        + r")(?:\r?\n|\Z)",
+        remainder)
+    if match is None:
+        return DEFAULT_DISCOVERY_SEVERITY
+    return match.group(1)
+
+
+def sol_ticket_body(message):
+    """Return the human body after valid Sol envelope lines."""
+    remainder = sol_ticket_body_after_kind(message=message)
+    if sol_ticket_kind(message=message) != "discovery":
+        return remainder
+    if sol_discovery_severity_problem(message=message) is not None:
+        return remainder
+    match = re.match(
+        r"\A" + re.escape(SOL_SEVERITY_HEADER)
+        + r"(?:" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
+        + r")(?:\r?\n|\Z)",
+        remainder)
+    if match is None:
+        return remainder
+    return remainder[match.end():]
 
 
 def sol_second_implementer_assignment(message):
@@ -2696,9 +2789,22 @@ def transport_ping_text(agent):
         "the daemon never dispatches them.)\n")
 
 
-def sol_ticket_payload(ticket_kind, text):
+def sol_ticket_payload(ticket_kind, text, discovery_severity=None):
     """Build the byte-stable persisted envelope for a Sol message."""
-    payload = SOL_TICKET_HEADER + ticket_kind + "\n\n" + text
+    if ticket_kind == "discovery":
+        if discovery_severity is None:
+            discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+        if discovery_severity not in DISCOVERY_SEVERITIES:
+            raise ValueError("invalid discovery severity: "
+                             + repr(discovery_severity))
+        payload = (SOL_TICKET_HEADER + ticket_kind + "\n"
+                   + SOL_SEVERITY_HEADER + discovery_severity + "\n\n"
+                   + text)
+    else:
+        if discovery_severity is not None:
+            raise ValueError(
+                "discovery severity is valid only for discovery tickets")
+        payload = SOL_TICKET_HEADER + ticket_kind + "\n\n" + text
     if not payload.endswith("\n"):
         payload = payload + "\n"
     return payload
@@ -2726,8 +2832,27 @@ def skip_redteam_environment_active():
     return value.strip().lower() in {"1", "true", "yes"}
 
 
+def resolve_discovery_severity(cli_value=None):
+    """Bind an explicit severity to the inherited run default."""
+    inherited = os.environ.get(DISCOVERY_SEVERITY_ENVIRONMENT)
+    if inherited is not None and inherited not in DISCOVERY_SEVERITIES:
+        raise ValueError(
+            DISCOVERY_SEVERITY_ENVIRONMENT
+            + " must be exactly high, medium, or low")
+    if cli_value is None:
+        return (DEFAULT_DISCOVERY_SEVERITY
+                if inherited is None else inherited)
+    if cli_value not in DISCOVERY_SEVERITIES:
+        raise ValueError("discovery severity must be high, medium, or low")
+    if inherited is not None and cli_value != inherited:
+        raise ValueError(
+            "--severity " + cli_value + " does not match inherited "
+            + DISCOVERY_SEVERITY_ENVIRONMENT + " " + inherited)
+    return cli_value
+
+
 def sol_ticket_refusal(ticket_kind, total, fix_only,
-                       transport_valid=False):
+                       transport_valid=False, discovery_severity=None):
     """Return the binding refusal reason for a Sol ticket, or ``None``."""
     if ticket_kind == "transport":
         if transport_valid:
@@ -2738,6 +2863,14 @@ def sol_ticket_refusal(ticket_kind, total, fix_only,
         return ("missing or invalid first line; every Sol ticket must start "
                 "with exactly 'MAILBOX-TICKET: closure' or "
                 "'MAILBOX-TICKET: discovery'")
+    if ticket_kind == "discovery":
+        if discovery_severity is None:
+            discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+        if discovery_severity not in DISCOVERY_SEVERITIES:
+            return ("a discovery ticket needs one severity: high, medium, "
+                    "or low")
+    elif discovery_severity is not None:
+        return "--severity is valid only for discovery tickets"
     if fix_only and ticket_kind != "closure":
         return ("fix-only watch is closing-only; discovery tickets and new "
                 "backlog lines are forbidden until the watch is restarted "
@@ -3006,7 +3139,8 @@ def exact_duration(value):
 
 
 def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
-                    fix_only=False, skip_redteam=False):
+                    fix_only=False, skip_redteam=False,
+                    discovery_severity=None, saved_discovery=False):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -3031,6 +3165,45 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
             "create no to-sol messages; route Implementer evidence to the "
             "Architect and Architect repair handoffs to the Implementer.")
     lines.append("--- END DISPATCH CURRENCY ---")
+    lines.append("")
+    lines.append("--- DISCOVERY SEVERITY (binding) ---")
+    if discovery_severity is None:
+        discovery_severity = DISCOVERY_SEVERITY
+    if saved_discovery:
+        lines.append(
+            "user's saved minimum severity for this discovery: "
+            + discovery_severity)
+    else:
+        lines.append(
+            "minimum severity to save on any new discovery ticket: "
+            + discovery_severity)
+    lines.append(
+        "high: only a bug that severely impacts core functionality, causes "
+        "data loss, halts system operations, or makes the science wrong.")
+    lines.append(
+        "medium: high bugs plus a less severe bug that can affect normal "
+        "operation and has a probable path; a merely theoretical or "
+        "improbable edge case does not qualify.")
+    lines.append(
+        "low: any concrete discovered bug may qualify, including an "
+        "improbable edge case; an unsupported guess is not a discovery.")
+    if fix_only:
+        lines.append(
+            "fix-only is stronger than this setting: create no discovery "
+            "ticket or new backlog line.")
+    if skip_redteam:
+        lines.append(
+            "the Sol route is disabled: create no discovery ticket while "
+            "this two-role watch is active.")
+    lines.append(
+        "The Red Team records User severity setting, Red Team severity, "
+        "Likelihood (probable or improbable), Likelihood evidence, and "
+        "Meets user setting (yes or no).")
+    lines.append(
+        "The Architect accepts, upgrades, or downgrades that rating with an "
+        "evidence-based reason, then makes the final GO or NO-GO ticket "
+        "decision. The Red Team never opens the ticket itself.")
+    lines.append("--- END DISCOVERY SEVERITY ---")
     lines.append("")
     lines.append("--- TICKET CHARACTER BUDGET (binding) ---")
     primary = AGENT_CWD["fable"]
@@ -3078,6 +3251,18 @@ def report_ticket_character_limit():
         return
     print("ticket character limit: " + str(MAX_CHARACTERS)
           + " added plus deleted characters per ticket")
+
+
+def report_discovery_severity(fix_only=False, skip_redteam=False):
+    """Print the default saved on new discovery tickets for this run."""
+    line = "discovery severity default: " + DISCOVERY_SEVERITY
+    if fix_only:
+        line = line + " (inactive while fix-only forbids discovery)"
+    elif skip_redteam:
+        line = line + " (inactive while the Sol route is disabled)"
+    else:
+        line = line + " (saved on each new discovery ticket)"
+    print(line)
 
 
 def placeholder_in(message):
@@ -3828,13 +4013,21 @@ def dispatch_under_main_checkout_lock(
         return False
 
     ticket_kind = None
+    effective_discovery_severity = DISCOVERY_SEVERITY
     if agent == "sol":
         ticket_kind = sol_ticket_kind(message=message)
-        reason = sol_ticket_refusal(
-            ticket_kind=ticket_kind,
-            total=demand_before_claim,
-            fix_only=fix_only,
-            transport_valid=valid_sol_transport(message=message))
+        severity_problem = sol_discovery_severity_problem(message=message)
+        saved_severity = sol_discovery_severity(message=message)
+        if saved_severity is not None:
+            effective_discovery_severity = saved_severity
+        reason = severity_problem
+        if reason is None:
+            reason = sol_ticket_refusal(
+                ticket_kind=ticket_kind,
+                total=demand_before_claim,
+                fix_only=fix_only,
+                transport_valid=valid_sol_transport(message=message),
+                discovery_severity=saved_severity)
         if reason is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason
@@ -3893,7 +4086,9 @@ def dispatch_under_main_checkout_lock(
         newer_in_lane=currency[1],
         previous_timeout_minutes=prior_timeout,
         fix_only=fix_only,
-        skip_redteam=skip_redteam)
+        skip_redteam=skip_redteam,
+        discovery_severity=effective_discovery_severity,
+        saved_discovery=(ticket_kind == "discovery"))
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
     # role-specific banner sits between them. Consequently PREAMBLE's
     # --- MESSAGE --- delimiter remains immediately before the exact raw
@@ -3929,6 +4124,7 @@ def dispatch_under_main_checkout_lock(
         env = os.environ.copy()
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
         env[MAX_CHARACTERS_ENVIRONMENT] = str(MAX_CHARACTERS)
+        env[DISCOVERY_SEVERITY_ENVIRONMENT] = effective_discovery_severity
         env["MAILBOX_PRIMARY_WORKTREE"] = AGENT_CWD["fable"]
         env["MAILBOX_SHARED_NOTES"] = os.path.join(
             AGENT_CWD["fable"], "ai", "notes")
@@ -4843,7 +5039,7 @@ def reconcile_landing_debt_handoff(snapshot=None):
         release_landing_debt_sequence_lock(lock_file=lock_file)
 
 
-def send(agent, text, dry_run, ticket_kind=None):
+def send(agent, text, dry_run, ticket_kind=None, severity=None):
     """Drop a new message into the mailbox (the loop's entry point).
 
     Arguments:
@@ -4856,13 +5052,26 @@ def send(agent, text, dry_run, ticket_kind=None):
                    picked it up -- the 0022 audit's unrunnable gate leg.
       ticket_kind = ``closure`` or ``discovery`` for public Sol work.  The
                     exact internal Sol ping alone uses ``transport``.
+      severity = the user's minimum ``high``, ``medium``, or ``low`` value
+                 for a discovery. Omission uses the inherited run value or
+                 the medium default. Other ticket kinds accept no severity.
 
     Returns:
       True when the message was queued, or would be queued in a dry run.
     """
+    try:
+        effective_severity = (
+            resolve_discovery_severity(cli_value=severity)
+            if ticket_kind == "discovery" else severity)
+    except ValueError as exc:
+        print("refused --send " + agent + ": " + str(exc) + ".")
+        return False
+
     def refusal_now():
         """Return a current Sol-send refusal without changing disk."""
         if agent != "sol":
+            if severity is not None:
+                return "--severity is valid only with --send sol discovery"
             return None
         if skip_redteam_policy_active():
             return ("an active two-role watch has the Sol route disabled; "
@@ -4875,18 +5084,20 @@ def send(agent, text, dry_run, ticket_kind=None):
             total=total_open_demand(),
             fix_only=(fix_only_environment_active()
                       or fix_only_watch_is_active()),
-            transport_valid=transport_valid)
+            transport_valid=transport_valid,
+            discovery_severity=effective_severity)
 
     reason = refusal_now()
     if reason is not None:
-        print("refused --send sol: " + reason + ".")
+        print("refused --send " + agent + ": " + reason + ".")
         return False
 
     payload = text
     if agent == "sol":
         if ticket_kind in SOL_DISPATCH_TICKET_KINDS:
             payload = sol_ticket_payload(
-                ticket_kind=ticket_kind, text=text)
+                ticket_kind=ticket_kind, text=text,
+                discovery_severity=effective_severity)
         else:
             # refusal_now() already handles this path. Keep the invariant
             # explicit in case its policy is refactored later.
@@ -4908,7 +5119,7 @@ def send(agent, text, dry_run, ticket_kind=None):
             # most one publishes across the boundary.
             reason = refusal_now()
             if reason is not None:
-                print("refused --send sol: " + reason + ".")
+                print("refused --send " + agent + ": " + reason + ".")
                 return False
             for _ in range(20):
                 path = publish_message_locked(
@@ -4936,6 +5147,7 @@ def main():
     global DISPATCH_TIMEOUT_MINUTES
     global CLAUDE_CONTEXT_BUDGET
     global MAX_CHARACTERS
+    global DISCOVERY_SEVERITY
     global _ACTIVE_WATCH_RENDEZVOUS
 
     parser = argparse.ArgumentParser(
@@ -4989,6 +5201,14 @@ def main():
                         help="required with --send sol: declare whether the "
                              "unit closes existing work or seeks new "
                              "findings")
+    parser.add_argument(
+        "--severity", choices=DISCOVERY_SEVERITIES, default=None,
+        help="minimum severity for new discovery tickets: high keeps only "
+             "bugs that severely impact core functionality, cause data "
+             "loss, halt system operations, or make the science wrong; "
+             "medium also keeps probable normal-operation bugs "
+             "but not improbable edge cases; low keeps every concrete "
+             "discovered bug (default: medium)")
     parser.add_argument("--architect-model", metavar="MODEL",
                         type=validate_model_name,
                         default=DEFAULT_ARCHITECT_MODEL,
@@ -5067,6 +5287,14 @@ def main():
         print("--send sol needs --ticket-kind closure or discovery; "
               "the daemon will not guess from prose")
         return 1
+    if args.severity is not None:
+        severity_run = args.watch or args.once
+        severity_send = (args.send == "sol"
+                         and args.ticket_kind == "discovery")
+        if not (severity_run or severity_send):
+            print("--severity is valid only with --watch, --once, or "
+                  "--send sol --ticket-kind discovery")
+            return 1
     if args.send is not None and not args.unit:
         print("--send needs --unit with the routing-summary text")
         return 1
@@ -5083,6 +5311,18 @@ def main():
     if args.watch and args.dry_run:
         print("--dry-run is finite and cannot be combined with --watch")
         return 1
+
+    selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+    severity_action = (args.watch or args.once
+                       or (args.send == "sol"
+                           and args.ticket_kind == "discovery"))
+    if severity_action:
+        try:
+            selected_discovery_severity = resolve_discovery_severity(
+                cli_value=args.severity)
+        except ValueError as exc:
+            print("refused discovery severity: " + str(exc))
+            return 1
 
     # Select the durable coordination checkout after EVERY semantic refusal
     # and before command rebuilding, mailbox mkdir, lock, claim, or send.
@@ -5101,12 +5341,15 @@ def main():
     MAX_CHARACTERS = (DEFAULT_MAX_CHARACTERS
                       if args.max_characters is None
                       else args.max_characters)
+    DISCOVERY_SEVERITY = selected_discovery_severity
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
 
     if args.watch or args.once:
         report_ticket_character_limit()
+        report_discovery_severity(
+            fix_only=fix_only, skip_redteam=skip_redteam)
 
     # Rebuild the dispatch commands at the requested models and efforts. The
     # watch start lines echo both so terminal scroll-back identifies the exact
@@ -5170,7 +5413,9 @@ def main():
             agent=args.send,
             text=args.unit,
             dry_run=args.dry_run,
-            ticket_kind=args.ticket_kind)
+            ticket_kind=args.ticket_kind,
+            severity=(DISCOVERY_SEVERITY
+                      if args.ticket_kind == "discovery" else None))
         return 0 if queued else 1
 
     if args.dry_run:

@@ -548,6 +548,140 @@ def arm_character_budget_binding():
         assert failed_guard_reaches_architect
 
 
+def arm_discovery_severity_binding():
+    """Bind one severity to Red Team and Architect, never Implementer."""
+    with tempfile.TemporaryDirectory(prefix="router-severity-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+          root, "scratch_router_severity", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        relay = repo / "ai" / "notes" / "relay"
+        environment_name = "MAILBOX_DISCOVERY_SEVERITY"
+
+        def route(extra_arguments, environment_value=None,
+                  gates_green=True):
+            copied = []
+            returns = iter([
+              "### IMPLEMENTER_HANDOFF: DONE\n",
+              "### ARCHITECT_REDTEAM_HANDOFF: NO FINDING\n",
+            ])
+            module.copy_to_clipboard = copied.append
+            module.wait_for_block = lambda **_kwargs: next(returns)
+            module.run_gates = lambda commands, seq: (
+              "ai/notes/relay/scratch-severity-gates.md", gates_green)
+            original_argv = module.sys.argv
+            module.sys.argv = [
+              "handoff_router.py", "--note", "ai/notes/spec.md",
+            ] + list(extra_arguments)
+            stream = io.StringIO()
+            try:
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop(environment_name, None)
+                    if environment_value is not None:
+                        os.environ[environment_name] = environment_value
+                    with contextlib.redirect_stdout(stream):
+                        rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            return rc, copied, stream.getvalue()
+
+        expected = []
+        for arguments, inherited, value in (
+                ([], None, "medium"),
+                ([], "low", "low"),
+                (["--severity", "high"], None, "high")):
+            rc, copied, _output = route(
+                extra_arguments=arguments,
+                environment_value=inherited)
+            phrase = ("User severity setting for any new Red Team ticket: "
+                      + value + ".")
+            passed = (
+              rc == 0
+              and len(copied) == 3
+              and phrase not in copied[0]
+              and phrase in copied[1]
+              and phrase in copied[2]
+              and "Red Team severity" in copied[1]
+              and "accepts, upgrades, or downgrades" in copied[2])
+            expected.append(passed)
+
+        rc, copied, _output = route(
+            extra_arguments=["--severity", "high"], gates_green=False)
+        gate_failure_keeps_setting = (
+          rc == 0
+          and len(copied) == 3
+          and "User severity setting for any new Red Team ticket: high."
+          in copied[-1]
+          and "NOT all green" in copied[-1])
+
+        refusal_cases = (
+          (["--severity", "high"], "low", "does not match inherited"),
+          ([], " HIGH ", "must be exactly"),
+          (["--status", "--severity", "high"], None,
+           "valid only with a --note relay"),
+          (["--skip-redteam", "--severity", "high"], None,
+           "Red Team step is enabled"),
+          (["--no-red-team", "--severity", "high"], None,
+           "Red Team step is enabled"),
+          (["--mode", "second-implementer", "--severity", "high"], None,
+           "Red Team step is enabled"),
+        )
+        refusals = []
+        for arguments, inherited, message in refusal_cases:
+            before = sorted(path.name for path in relay.glob("*.md"))
+            side_effects = []
+            module.copy_to_clipboard = side_effects.append
+            original_argv = module.sys.argv
+            if "--status" in arguments:
+                argv = ["handoff_router.py"] + list(arguments)
+            else:
+                argv = ["handoff_router.py", "--note",
+                        "ai/notes/spec.md"] + list(arguments)
+            module.sys.argv = argv
+            stream = io.StringIO()
+            try:
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop(environment_name, None)
+                    if inherited is not None:
+                        os.environ[environment_name] = inherited
+                    with contextlib.redirect_stdout(stream):
+                        refused_rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            after = sorted(path.name for path in relay.glob("*.md"))
+            refusals.append(
+              refused_rc == 1
+              and message in stream.getvalue()
+              and side_effects == []
+              and after == before)
+
+        help_proc = subprocess.run(
+          [sys.executable, str(SOURCE), "--help"],
+          check=False, capture_output=True, text=True)
+        help_text = " ".join(help_proc.stdout.split())
+        help_bound = (
+          help_proc.returncode == 0
+          and "--severity {high,medium,low}" in help_text
+          and "valid only when the Red Team step runs" in help_text)
+
+        print("ARM discovery severity")
+        print("  default, inherited, and explicit values bound:",
+              all(expected))
+        print("  Implementer excluded; Red Team and Architect agree:",
+              all(expected))
+        print("  failed gates preserve the Architect setting:",
+              gate_failure_keeps_setting)
+        print("  invalid scopes and inherited values refuse zero-write:",
+              all(refusals))
+        print("  help lists values and scope:", help_bound)
+        assert all(expected)
+        assert gate_failure_keeps_setting
+        assert all(refusals)
+        assert help_bound
+
+
 def arm_unvalidated_section_refusal():
     """A valid packet cannot bless an unrelated section named on the CLI."""
     with tempfile.TemporaryDirectory(prefix="router-section-refusal-") as tmp:
@@ -950,6 +1084,7 @@ def main():
     arm_integrated_status()
     arm_incomplete_directive_refusal()
     arm_character_budget_binding()
+    arm_discovery_severity_binding()
     arm_unvalidated_section_refusal()
     arm_source_note_boundary_refusal()
     arm_mismatched_execution_checkout_refusal()

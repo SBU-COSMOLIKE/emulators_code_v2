@@ -68,6 +68,41 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("- `repo/path::test-name`:", self.redteam)
         self.assertIn("--max RUNTIME_N", self.redteam)
 
+    def test_discovery_severity_keeps_user_redteam_and_architect_roles(self):
+        for phrase in (
+                "User severity setting",
+                "Red Team severity",
+                "Likelihood: probable|improbable",
+                "Likelihood evidence",
+                "Meets user setting: yes|no"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.redteam)
+        self.assertIn("severely impacts core functionality", self.redteam)
+        self.assertIn("causes data loss", self.redteam)
+        self.assertIn("halts system operations", self.redteam)
+        self.assertIn("makes the science wrong", self.redteam)
+        self.assertIn("merely theoretical or improbable edge case",
+                      self.redteam)
+        self.assertIn("accepts, upgrades, or downgrades", self.redteam)
+        self.assertIn("Architect severity decision: accept|upgrade|downgrade",
+                      self.architect)
+        self.assertIn("Ticket decision: GO|NO-GO", self.architect)
+        self.assertIn("The Red Team never", self.architect)
+        self.assertEqual(mailbox_daemon.DEFAULT_DISCOVERY_SEVERITY, "medium")
+        self.assertEqual(
+            mailbox_daemon.DISCOVERY_SEVERITIES,
+            ("high", "medium", "low"))
+        banner = mailbox_daemon.dispatch_banner(
+            store_max=1, newer_in_lane=0, previous_timeout_minutes=None,
+            discovery_severity="high", saved_discovery=True)
+        self.assertIn(
+            "user's saved minimum severity for this discovery: high",
+            banner)
+        self.assertIn("The Architect accepts, upgrades, or downgrades",
+                      banner)
+        self.assertNotIn("MAILBOX-SEVERITY: high|medium|low",
+                         mailbox_daemon.PREAMBLE)
+
     def test_implementer_preflights_and_stops_instead_of_designing(self):
         self.assertIn(
             'python3 "$MAILBOX_HANDOFF_CONTRACT" architect', self.implementer)
@@ -140,6 +175,13 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertEqual(self.router.count("+ budget_prompt"), 4)
         self.assertIn("Zero removes the", router)
         self.assertIn("size cap only", router)
+        self.assertIn("--severity", router)
+        self.assertIn("+ severity_prompt", router)
+        self.assertIn(
+            '+ (severity_prompt if redteam_block else "")', router)
+        self.assertIn("User severity setting for any new Red Team ticket",
+                      router)
+        self.assertIn("accepts, upgrades, or downgrades", router)
 
     def test_daemon_names_each_role_file_and_repeats_the_stop_boundary(self):
         architect = mailbox_daemon.agent_preamble(agent="fable")

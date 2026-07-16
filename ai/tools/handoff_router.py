@@ -83,6 +83,9 @@ from handoff_contract import nonnegative_character_limit
 from handoff_contract import resolve_character_limit
 from handoff_contract import validate_directive_file
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
+DISCOVERY_SEVERITIES = ("high", "medium", "low")
+DEFAULT_DISCOVERY_SEVERITY = "medium"
+DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 RUN_RESERVATIONS_DIR = os.path.join(RELAY_DIR, ".router-runs")
 ROUTER_LOCK_PATH = os.path.join(
     tempfile.gettempdir(),
@@ -574,6 +577,10 @@ def main():
         type=nonnegative_character_limit, default=None,
         help="character-change limit that the directive must match; when "
              "omitted, use MAILBOX_MAX_CHARACTERS if present, otherwise 0")
+    parser.add_argument(
+        "--severity", choices=DISCOVERY_SEVERITIES, default=None,
+        help="minimum severity for a new ticket found by the Red Team "
+             "(default: medium; valid only when the Red Team step runs)")
     args = parser.parse_args()
 
     if args.max is not None and (not args.note or args.status):
@@ -582,6 +589,12 @@ def main():
     if args.skip_redteam and args.mode == "second-implementer":
         print("--skip-redteam/--no-red-team cannot be combined with "
               "--mode second-implementer")
+        return 1
+    if args.severity is not None and (
+            args.skip_redteam or args.mode != "redteam"
+            or not args.note or args.status):
+        print("--severity is valid only with a --note relay whose Red Team "
+              "step is enabled")
         return 1
     if args.status:
         status_report()
@@ -599,6 +612,28 @@ def main():
     except DirectiveError as exc:
         print("refused character-change limit: " + str(exc))
         return 1
+    discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+    if not args.skip_redteam and args.mode == "redteam":
+        inherited_severity = os.environ.get(
+            DISCOVERY_SEVERITY_ENVIRONMENT)
+        if (inherited_severity is not None
+                and inherited_severity not in DISCOVERY_SEVERITIES):
+            print("refused discovery severity: "
+                  + DISCOVERY_SEVERITY_ENVIRONMENT
+                  + " must be exactly high, medium, or low")
+            return 1
+        discovery_severity = (args.severity
+                              if args.severity is not None
+                              else (DEFAULT_DISCOVERY_SEVERITY
+                                    if inherited_severity is None
+                                    else inherited_severity))
+        if (args.severity is not None and inherited_severity is not None
+                and args.severity != inherited_severity):
+            print("refused discovery severity: --severity " + args.severity
+                  + " does not match inherited "
+                  + DISCOVERY_SEVERITY_ENVIRONMENT + " "
+                  + inherited_severity)
+            return 1
     try:
         note_path, note_display = resolve_note_path(args.note)
         directive = validate_directive_file(
@@ -621,6 +656,16 @@ def main():
         + str(budget["limit"]) + " characters; planned maximum "
         + str(budget["planned_maximum"]) + " characters. Zero removes the "
         "size cap only; readable complete tested work remains mandatory.\n\n")
+    severity_prompt = (
+        "User severity setting for any new Red Team ticket: "
+        + discovery_severity + ". High means severe core harm, data loss, "
+        "halted operation, or wrong science. Medium also permits a probable "
+        "normal-operation bug but excludes improbable edge cases. Low "
+        "permits any concrete discovered bug. Record Red Team severity, "
+        "probable or improbable likelihood, likelihood evidence, and whether "
+        "the finding meets this setting. "
+        "The Architect accepts, upgrades, or downgrades the rating and "
+        "makes the final GO or NO-GO decision.\n\n")
     total_steps = (3 if args.skip_redteam
                    or args.mode == "second-implementer" else 4)
 
@@ -687,6 +732,7 @@ def main():
         sol_prompt = (
             "### ARCHITECT_REDTEAM_HANDOFF (relay)\n\n"
             + budget_prompt
+            + severity_prompt
             + "The named delta is specified in " + where + ". Read\n"
             ".codex/REDTEAM_ROLE.md and stay within that delta. The\n"
             "Implementer's return transport copy is at " + path + " and\n"
@@ -710,6 +756,7 @@ def main():
     fable_prompt = (
         "### RELAY FOR AUDIT\n\n"
         + budget_prompt
+        + (severity_prompt if redteam_block else "")
         + "Unit spec: " + where + "\n"
         "Implementer return (transport copy): " + path + "\n"
         + ("Red Team return (transport copy): " + sol_path + "\n"
