@@ -6,11 +6,12 @@ shape expected by the training programs. Another test damages a saved progress
 file inside a temporary folder and confirms that the loader refuses it without
 changing the original files.
 
-The AI development roles normally run these tests while repairing or adding a
-feature. A user can run the same commands to see the result. A test answers one
-narrow question such as the two examples above. A gate decides whether the
-complete set of evidence for a larger library promise is ready to accept. The
-next section explains why both levels are useful.
+The AI development roles run a relevant test after making a related change and
+again before handing the result to the Architect. A user can run the same
+commands to see the result. A test answers one narrow question such as the two
+examples above. A gate groups related tests, such as all checks that accepted
+generated-data files cannot be changed, before the Architect decides `GO` or
+`NO-GO`. The next section explains why both levels are useful.
 
 Most checks run on the central processing unit (CPU) without training a model.
 Checks that need files create temporary copies and delete them afterward, so
@@ -37,22 +38,24 @@ processing unit (GPU), or several checks taken together. The
 ## Why are tests and gates different?
 
 A **test** checks one small behavior. For example, one test can confirm that a
-table with one row keeps its two-dimensional shape. Small tests run often
-while code is being written because a failure points close to the line that
-needs attention.
+table with one row keeps its two-dimensional shape. After changing the code
+that loads a one-row table, a developer can run that test before starting the
+next change. If it fails, the recent edit and the narrow question give a small
+set of places to inspect.
 
-A **gate** answers a larger question: is there enough evidence to accept one
-promise about the library? A gate may run several tests and stand-alone
-failure examples. It also checks that none of the required checks disappeared.
-When the promise needs a GPU or configured scientific data, the gate records
-that requirement. It reports `UNAVAILABLE` rather than calling an unperformed
-check a pass.
+A **gate** checks several related results together. For example, the
+dataset-publication gate checks that accepted generated-data files remain
+read-only, damaged files are refused, and later work starts from separate
+writable copies. The gate runs the tests for those results and checks that no
+required test disappeared. If one required result needs a GPU or configured
+scientific data, the gate records that missing requirement as `UNAVAILABLE`
+rather than calling an unperformed check a pass.
 
 The distinction is similar to work in a laboratory. One measurement checks
-one part of an experiment. The final sign-off checks that every required
-measurement was made under the right conditions. A test is the measurement;
-a gate is the sign-off. A gate often calls tests from this folder, so the two
-systems support each other.
+one part of an experiment. Before accepting the experiment's result, the
+researcher confirms that every required measurement was made under the stated
+conditions. A test is one measurement; a gate checks the required set. A gate
+often calls tests from this folder, so the two systems support each other.
 
 Keeping both levels has two practical benefits:
 
@@ -259,7 +262,7 @@ code when its witness fails.
 | `tools_mailbox_daemon_landing_debt_repro.py` | Builds a history where a fix was accepted in a role's branch but never reached `main`, then runs repeated watcher passes. Exactly one repair request must be created until the fix lands; held locks and malformed saved records must not duplicate the request, and a corrected record must let later passes recover. |
 | `tools_mailbox_daemon_max_repro.py` | Starts tickets with an omitted, zero, positive, malformed, and conflicting `--max` value. The default must be zero, a positive value must appear in the terminal and in every role's environment, and malformed or disagreed values must stop before a role starts. |
 | `tools_mailbox_daemon_no_redteam_repro.py` | Starts a watcher with the Red Team disabled while Architect and Implementer requests are waiting. Those two roles must use separate saved work folders, Red Team requests must remain waiting, fix-only mode and simultaneous sends must stay safe, locks must be removed at the end, and a changed daemon copy must refuse. |
-| `tools_mailbox_daemon_output_style_repro.py` | Runs ordinary waits, refusals, and progress reports and compares the exact terminal text with the examples in the README. The check catches unclear separator lines, unexplained all-capital messages, wrong waiting counts, or documentation that promises output the program no longer prints. |
+| `tools_mailbox_daemon_output_style_repro.py` | Runs ordinary waits, refusals, and progress reports and compares the exact terminal text with the examples in the README. The check catches unclear separator lines, unexplained all-capital messages, wrong waiting counts, or documentation that shows output the program no longer prints. |
 | `tools_mailbox_daemon_primary_worktree_repro.py` | Uses temporary Git repositories to create and then reuse one separate Claude work folder and one separate Sol work folder. It checks the saved folder records, simultaneous first-time setup, movement of older mailbox files into the selected folders, and refusal when an existing branch or folder name would point at the wrong place. |
 | `tools_mailbox_daemon_redteam_repro.py` | Sends several Red Team messages while preview mode and competing watcher processes are active. A message must be completely written before it becomes visible, only one watcher may claim it, message numbers must remain unique, and malformed bodies or unreplaced placeholder text must refuse without losing another message. |
 | `tools_mailbox_daemon_rendezvous_repro.py` | Starts short-lived fake roles and observes the watcher's safe-stop countdown after all started roles finish; this finished point is what the command calls a cycle boundary. It checks `--cycle 0`, positive cycle counts, new messages arriving during the countdown, two simultaneous senders, and refusal when the backlog file cannot be understood. |

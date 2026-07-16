@@ -526,13 +526,13 @@ The three checking tools have different jobs:
   [test guide](tests/README.md) explains each test file and gives the commands
   that run it.
 
-- A **gate** checks whether one larger promise has enough evidence for the
-  Architect to accept it. For example, the dataset-publication gate runs the
+- A **gate** groups related tests before the Architect decides `GO` or
+  `NO-GO`. For example, the dataset-publication gate runs the
   44 small publication tests. One test changes an already-copied file while a
   second file is being copied and requires the operation to stop. The gate
-  prints `PASS` or `FAIL` for each of its six required results. A gate is
-  therefore a command with a named question and a result that has been decided
-  in advance; it is not a general request to “check the code.”
+  prints `PASS` or `FAIL` for each of its six required results. Before the
+  command runs, the board states which six results are required and what each
+  must show. The command is not a general request to “check the code.”
 
 - The **validation board** is the saved list of all gates. For example,
   `python3 ai/gates/run_board.py --list` prints each gate's name and its saved
