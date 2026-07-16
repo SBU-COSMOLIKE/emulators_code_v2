@@ -29,6 +29,10 @@ arrays. A **schema** is the versioned list and meaning of those saved fields.
 SHA-256 is the cryptographic digest used to bind the exact checkpoint bytes to
 the HDF5 record.
 
+A **random-engine policy** names every random-number algorithm and the saved
+state needed to continue its sequence exactly. It is different from a seed,
+which chooses only the initial state.
+
 YAML is the human-readable settings-file format used by training and Cobaya
 configurations. NumPy is the array library used for saved scientific tables;
 PyTorch provides tensors, trainable models, and accelerator execution.
@@ -63,7 +67,8 @@ linear-power or nonlinear-boost baseline that some MPS artifacts correct.
 Whitened values have been rotated and scaled so the covariance is the identity;
 physical values use the original scientific coordinates and units.
 
-A **gate** is a registered acceptance command. A **leg** is one named
+A **gate** is a named validation job whose required result is written before
+it starts. A **leg** is one named
 assertion in that gate, identified by an evidence identifier. A **child** is a
 subprocess that runs gate checks; a **wrapper** is the harness code that starts
 the child and any external commands. A child prints `##AID` records to bind
@@ -79,6 +84,34 @@ The **driver root** is the project directory passed to the training program by
 the gate configuration. The **driver file root** is the configured filename
 stem for that training run. Together they determine generated paths such as
 `<driver_root>/chains/gates_emul_evaluate.h5`.
+
+## Four identities connect generation to inference
+
+Identity answers “is this the same saved object?” Compatibility answers “may
+these different objects be used together?” The library keeps four identities
+separate:
+
+1. **Request identity** describes the intended scientific setup: family,
+   product, variant, parameter order, resolved scientific settings, sampling
+   rule, random-engine policy, and the implementations of every formula that
+   produces a scientific target. It remains stable across a valid append.
+2. **Generation identity** binds that request identity to the exact sealed
+   manifest and every semantic member from one generator run, including
+   schema, chain, covariance, ranges, payloads, axes, failure facts, fixed
+   facts, and continuation state.
+3. **Staged-selection identity** binds both source generation identities, the
+   exact training and validation parameter rows, covariance, fixed facts,
+   axes, payloads, cuts, split rule, and final row order after staging.
+4. **Artifact identity** binds the saved model pair, resolved model and
+   training recipes, output decoder and loss composition, staged-selection
+   identity, composition mode, and any source artifact or analytic base.
+
+An artifact records the exact staged selection for provenance. Public
+inference does not need the original training files, but it must prove that
+the requested family, product, parameter order, fixed scientific facts,
+physical support, decoder, and analytic-base implementation are compatible
+with the artifact. Matching shapes or filenames are never compatibility
+evidence.
 
 ## Save and rebuild rule
 
@@ -104,7 +137,8 @@ saved model remains in use.
   scientific and reconstruction record.
 - The HDF5 record contains the raw `config_yaml` and `train_args_yaml` as
   provenance; `config_resolved_yaml`, which includes the resolved training and
-  data blocks; and a `model_recipe/` group. The model recipe records the fully
+  data blocks; the staged-selection identity for both training and validation;
+  and a `model_recipe/` group. The model recipe records the fully
   qualified class name, every constructor argument actually passed, callables
   serialized by name, and constructor defaults materialized with
   `inspect.signature`. The file also stores parameter and data-vector geometry
@@ -206,13 +240,13 @@ data filename also treats naming convention as a scientific record.
 
 **Rule.** Derive output identity from resolved scientific facts, never from a
 filename pattern. Use a readable family-and-product prefix plus a stable short
-digest of the consumed model and training configuration and the dataset
-manifest, which is the saved census and identity of every dataset member. The
-identity distinguishes plain, NPCE, fine-tune, and transfer
+digest of the consumed model and training configuration and the exact
+staged-selection identity, which already binds both training and validation
+generations, cuts, split rule, and row order. The identity distinguishes
+plain, NPCE, fine-tune, and transfer
 runs, including their source binding. Save and diagnostic products from one
-run share that identity. An existing destination is refused before either
-file changes unless the user selects an explicit overwrite or versioning
-action.
+run share that identity. An existing destination always refuses before either
+file changes.
 
 **Implementation boundary.** The shared driver constructs the identity from
 resolved values and passes one root to diagnostics and `save_emulator`.
@@ -225,8 +259,7 @@ refuse before publication: `TT` versus `EE`; Hubble versus `D_M`; `pklin`
 versus `boost`; `xi` versus `gammat` at one temperature; two scalar output
 sets; two activations; plain versus NPCE; plain versus fine-tune; two transfer
 sources; and different split or dataset manifests. An exact-root
-preexistence check must prove that both existing files survive when no
-explicit overwrite action is present.
+preexistence check must prove that both existing files survive unchanged.
 
 **Safety boundary.** Production training must not write several products of
 one family back to back unless output identity distinguishes the products and
@@ -699,7 +732,7 @@ GPU-capable environment must rerun both identity gates after a fixture change.
 - Fine-tune and transfer-source ownership: `emulator/warmstart.py`.
 - Transfer composition ownership: `emulator/losses/transfer.py`.
 - Adapter ownership: `cobaya_theory/`.
-- Registered acceptance gates: `save-rebuild-drift`, `cobaya-adapter`,
+- Registered gates: `save-rebuild-drift`, `cobaya-adapter`,
   `finetune-identity`, `finetune-smoke`, `transfer-identity`,
   `transfer-smoke`, and `geo-paths`.
 
@@ -851,20 +884,6 @@ null; omitted BerHu knots appear as consumed numeric values; trunk and head
 overrides produce two complete pass records; a null EMA setting records that
 EMA is disabled for that phase; refinement becomes a third complete record;
 and a history length inconsistent with `total_epochs` fails before publication.
-
-### Covariance publication follows the same transaction rule
-
-**Rule.** The artifact transaction and preexistence-refusal rules also apply
-to `compute_cmb_covariance.py`. The producer writes a complete temporary
-zipped NumPy archive (`.npz`),
-syncs it according to the publication contract, and renames it only after
-validation. An unconditional `np.savez(out_path, **out)` can overwrite an
-existing covariance or leave a partial file after interruption and is
-therefore outside the contract.
-
-**Acceptance evidence.** A second run aimed at an existing output must refuse
-before changing that output. Terminating the process during publication must
-leave the preceding valid archive intact.
 
 ### Transfer-refine drift measures trainable parameters only
 
@@ -1141,7 +1160,7 @@ verify every branch without copying the implementation into prose.
 
 ## Structured acceptance evidence
 
-Each registered acceptance command links every named assertion to one stable
+Each gate links every named assertion to one stable
 HyperText Markup Language (HTML) anchor, a named location that a link can
 target in this permanent note. The permanent-note evidence validator
 refuses a missing anchor or a repeated evidence identifier. The artifact-side
@@ -1211,16 +1230,18 @@ with the wrong parameter's column: the predictions are then confidently wrong
 and nothing about the numbers looks unusual.
 
 <a id="fixed-facts-schema-dataset-identity-is-the-chain"></a>
-`fixed-facts-schema.dataset-identity-is-the-chain` requires the dataset identity
-to be recomputed from the published chain's bytes, two different draws to carry
-different identities, and the emulator to carry its dataset's identity
-unchanged. Two negative controls establish that the rule matters: accepting a
-legacy schema must fail the version leg, and deriving a bound even slightly
-wider than the recorded value must fail the verbatim-copy leg. A valid control
-confirms that the faithful file still reads. Two independent generator runs
-can agree on every fixed fact and every bound and still be different datasets
-(same cosmology, same priors, a different seed), so the facts cannot tell them
-apart and the chain's own bytes must.
+The stable evidence name `fixed-facts-schema.dataset-identity-is-the-chain`
+predates the complete identity model. Its durable rule is narrower: the chain
+fingerprint is one authenticated generation member and must be recomputed from
+the published chain bytes. It is not the complete generation or staged-
+selection identity. Two different draws carry different chain fingerprints,
+while the artifact carries the complete staged-selection identity unchanged.
+Two negative controls establish that the rule matters: accepting a legacy
+schema must fail the version leg, and deriving a bound even slightly wider
+than the recorded value must fail the verbatim-copy leg. A valid control
+confirms that the faithful file still reads. Two runs can agree on fixed facts
+and bounds while differing in chain, payload, axes, failure state, or
+continuation state, so no single member can identify the complete dataset.
 
 <a id="fixed-facts-schema-vertical-law-enforced"></a>
 `fixed-facts-schema.vertical-law-enforced` verifies compatibility between one

@@ -15,6 +15,7 @@ from ai.tests.tools_mailbox_daemon_fix_only_repro import tree_snapshot
 
 
 SEVERITY_HEADER = "MAILBOX-SEVERITY: "
+SCOPE_HEADER = "MAILBOX-SCOPE: "
 
 
 class MailboxArchitectEntrypointTests(unittest.TestCase):
@@ -40,7 +41,8 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertEqual(pending[0].name, "0001-to-fable.md")
             self.assertEqual(
                 read_text_exact(pending[0]),
-                SEVERITY_HEADER + "medium\n\n" + request + "\n")
+                SEVERITY_HEADER + "medium\n"
+                + SCOPE_HEADER + "bounded\n\n" + request + "\n")
             self.assertFalse(list(mailbox.glob("*-to-opus.md")))
             self.assertFalse(list(mailbox.glob("*-to-sol.md")))
 
@@ -113,7 +115,8 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 self.assertEqual(
                     read_text_exact(pending[0]),
                     SEVERITY_HEADER + expected
-                    + "\n\ncoordinate one ticket\n")
+                    + "\n" + SCOPE_HEADER
+                    + "bounded\n\ncoordinate one ticket\n")
 
     def test_saved_architect_severity_binds_that_dispatch(self):
         with mock.patch.dict(os.environ, {}, clear=True), \
@@ -136,6 +139,8 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertEqual(len(launches), 1)
             self.assertEqual(
                 launches[0]["env"]["MAILBOX_DISCOVERY_SEVERITY"], "low")
+            self.assertEqual(
+                launches[0]["env"]["MAILBOX_DISCOVERY_SCOPE"], "bounded")
             self.assertIn("coordinate one ticket", launches[0]["command"][-1])
             self.assertTrue((mailbox / "done" / path.name).is_file())
 

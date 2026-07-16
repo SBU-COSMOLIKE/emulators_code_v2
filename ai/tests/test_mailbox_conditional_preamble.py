@@ -86,11 +86,15 @@ class ConditionalPreambleTest(unittest.TestCase):
         self.assertIn(
             "binding instruction explicitly says the thread is TERMINAL",
             opus_role.replace("\n", " "))
-        self.assertIn("explicit binding TERMINAL/no-reply exception", memory)
+        self.assertIn(
+            "explicitly says that it ends the exchange and no reply is owed",
+            memory.replace("\n", " "))
         self.assertIn("only\noutbound exception", conventions)
         self.assertIn("normal Red Team turn that has a result",
                       " ".join(redteam_role.split()))
-        self.assertIn("audited GO or NO-GO + delta", architect_role)
+        self.assertIn(
+            "returned evidence, Architect GO or NO-GO",
+            " ".join(architect_role.split()))
         self.assertIn(
             "When the Architect asks you to review a commit or change, "
             "attack that named "

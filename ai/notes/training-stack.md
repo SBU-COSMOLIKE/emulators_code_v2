@@ -52,8 +52,8 @@ copy captured immediately after loading a source artifact.
 
 A **probability density function (PDF)** describes how probability is
 distributed over values. An **abstract syntax tree (AST)** is Python's parsed
-structural representation of source code. An **acceptance gate** is a
-registered command that checks required behavior. A **fixture** is the fixed
+structural representation of source code. A **gate** is a named validation job
+whose required result is written before it starts. A **fixture** is the fixed
 input setup used by a gate. A **control** is a valid case that must pass. A
 **mutation** deliberately restores one forbidden behavior and must fail. A
 **smoke command** is a short public run that proves startup and routing, not

@@ -12,7 +12,7 @@ structure. YAML is the human-readable settings-file format used by training
 configurations. CUDA is NVIDIA's accelerator-computing platform. A graphics
 processing unit (GPU) is the accelerator device used by CUDA training checks.
 
-An **artifact** is a saved emulator publication containing trained weights and
+An **artifact** is a saved emulator result containing trained weights and
 the facts needed to rebuild them. PyTorch is the tensor and machine-learning
 package used by the models; a **tensor** is a numerical array with a fixed
 shape and data type. A PyTorch **state dictionary** maps stable names to
@@ -20,6 +20,10 @@ parameter tensors and registered buffers. A fixed model **buffer** is
 a saved tensor used by the model but not changed by gradient updates. A
 **drift check** compares candidate behavior with a declared reference and must
 detect a deliberate change.
+
+An **identity** is the saved set of facts or byte fingerprints used to decide
+whether two datasets, runs, models, or coordinates are the same; it is not the
+mathematical identity matrix.
 
 A model **geometry** owns the mapping between physical outputs and the
 coordinates used by a network and loss, including axes, masks, scaling, and
@@ -55,9 +59,9 @@ class supports.
 CosmoLike is the cosmological-likelihood calculation that produces the data
 vectors used by the cosmic-shear family. A driver **fileroot** is the configured
 path stem shared by one run's output files. `n(z)` is a galaxy redshift
-distribution. A **gate** is a registered acceptance command, and the **board
-runner** is the script that executes registered gates and records their raw
-results.
+distribution. A **gate** is a named validation job whose required result is
+written before it starts. The **board runner** is the script that executes
+registered gates and records their raw results.
 
 ## How to use this note
 
@@ -107,7 +111,10 @@ own named check.
 **Registries and capabilities.** Intrinsic alignment (IA) describes the
 alignment of galaxy shapes with the surrounding tidal field. The nonlinear
 alignment model (NLA) and the tidal-alignment/tidal-torquing model (TATT) are
-the supported IA forms. The `MODELS` registry uses `(name, ia)` keys, where
+represented by the shared registry and model infrastructure. Deployable TATT
+training additionally requires a validated ten-template dataset; registry
+construction alone is not a claim that such a production dataset is present.
+The `MODELS` registry uses `(name, ia)` keys, where
 `name` is `resmlp`, `rescnn`, or `restrf`, and `ia` is `None`, `nla`, or
 `tatt`. `IA_DESIGNS` owns each form's amplitude names, coefficient function,
 and template count. New IA forms extend this table rather than creating
@@ -253,8 +260,8 @@ must produce a teaching error.
 
 The acceptance blocks below use the following terms:
 
-- A **gate** is one registered group of executable checks for a named
-  contract. A **leg** is one named check and supports only the claim stated by
+- A **gate** is a named validation job whose required result is written before
+  it starts. A **leg** is one named check and supports only the claim stated by
   that leg.
 - A **golden comparison** runs the candidate code and a trusted reference, then
   compares the declared observations. The trusted reference is the **pinned
@@ -452,7 +459,8 @@ owns configuration and staging compatibility.
 coefficients, amplitude-column order, epoch-zero composition, save/rebuild
 identity, and refusal of an incompatible parameter or family declaration. A
 mutation that asks the network to learn an exact amplitude coefficient must
-fail.
+fail. TATT is advertised for production only when a real ten-template dump
+passes the same checks.
 
 ## NPCE (the pce: block)
 
@@ -735,8 +743,8 @@ become typed exceptions so ordinary Python and `python -O` behave identically.
 This boundary owns model surfaces; the broader optimized-Python check owns
 other public surfaces.
 
-**Code ownership.** The pure value validator must be the new
-`emulator/experiment.py::validate_active_model_values`, called by
+**Code ownership.** A pure shared active-model value validator belongs in
+`emulator/experiment.py` and is called by
 `EmulatorExperiment.from_config` after the `MODELS` registry resolves the
 class and before staging or geometry construction. Existing key translation
 remains in `MODEL_BLOCK_KEYS` and `EmulatorExperiment.build_specs`; existing

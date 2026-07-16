@@ -226,6 +226,8 @@ ROLE_PLAN_ROWS = (
         r"Architect \+ Implementer|Architect \+ Sol as Implementer)`$"),
     re.compile(
         r"^- Discovery severity: `(high|medium|low|not-used)`$"),
+    re.compile(
+        r"^- Review scope: `(bounded|widespread|not-used)`$"),
 )
 REDTEAM_SEVERITY_ROWS = (
     ("User severity setting",
@@ -974,18 +976,21 @@ def _require_architect_role_plan(body):
     if len(rows) != len(ROLE_PLAN_ROWS):
         raise DirectiveError(
             "section 'Role plan' requires exactly these rows in order: "
-            "- Roles: `...`; - Discovery severity: `...`")
+            "- Roles: `...`; - Discovery severity: `...`; "
+            "- Review scope: `...`")
     matches = []
     for row, pattern in zip(rows, ROLE_PLAN_ROWS):
         match = pattern.fullmatch(row)
         if match is None:
             raise DirectiveError(
                 "section 'Role plan' requires one supported Roles value "
-                "and one Discovery severity value")
+                "followed by one Discovery severity value and one Review "
+                "scope value")
         matches.append(match)
 
     roles = matches[0].group(1)
     severity = matches[1].group(1)
+    review_scope = matches[2].group(1)
     plan = dict(ARCHITECT_ROLE_PLANS[roles])
     if plan["uses_red_team"] and severity == "not-used":
         raise DirectiveError(
@@ -995,8 +1000,21 @@ def _require_architect_role_plan(body):
         raise DirectiveError(
             "section 'Role plan' must use discovery severity `not-used` "
             "when the Red Team is not included")
+    if plan["uses_red_team"] and review_scope == "not-used":
+        raise DirectiveError(
+            "section 'Role plan' must use review scope `bounded` or "
+            "`widespread` when the Red Team is included")
+    if not plan["uses_red_team"] and review_scope != "not-used":
+        raise DirectiveError(
+            "section 'Role plan' must use review scope `not-used` when the "
+            "Red Team is not included")
+    if review_scope == "widespread" and severity != "low":
+        raise DirectiveError(
+            "section 'Role plan' widespread review scope requires discovery "
+            "severity `low`")
     plan["roles"] = roles
     plan["discovery_severity"] = severity
+    plan["review_scope"] = review_scope
     return plan
 
 

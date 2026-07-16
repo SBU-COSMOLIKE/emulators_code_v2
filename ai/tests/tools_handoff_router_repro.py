@@ -9,6 +9,7 @@ import concurrent.futures
 import contextlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -75,6 +76,12 @@ def load_scratch_router(root, name, linked=False):
     spec = importlib.util.spec_from_file_location(name, target)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Scratch runs inject an isolated authoritative ledger. Production uses
+    # the saved Claude-primary resolver and never follows the execution
+    # checkout's ignored backlog.
+    module.authoritative_backlog_path = (
+        lambda repo=repo: os.path.realpath(
+            repo / "ai" / "notes" / "backlog.md"))
     return (module, repo)
 
 
@@ -99,7 +106,7 @@ def run_git(repo, *args):
 
 def write_bound_architect_note(
         repo, note, roles="Architect + Implementer + Red Team",
-        discovery_severity="medium"):
+        discovery_severity="medium", review_scope=None):
     """Create one non-main scratch checkout and its matching directive."""
     if not (repo / ".git").exists():
         run_git(repo, "init", "-q", "-b", "claude/router-fixture")
@@ -113,9 +120,14 @@ def write_bound_architect_note(
         "- Worktree: `" + str(repo.resolve()) + "`\n"
         "- Branch: `claude/router-fixture`\n"
         "- Base: `" + base + "`")
+    if review_scope is None:
+        review_scope = (
+            "bounded" if roles == "Architect + Implementer + Red Team"
+            else "not-used")
     role_plan = (
         "- Roles: `" + roles + "`\n"
-        "- Discovery severity: `" + discovery_severity + "`")
+        "- Discovery severity: `" + discovery_severity + "`\n"
+        "- Review scope: `" + review_scope + "`")
     note.write_text(
         packet(
             role="architect",
@@ -124,6 +136,44 @@ def write_bound_architect_note(
                 "Role plan": role_plan,
             }),
         encoding="utf-8")
+
+
+def write_backlog(
+        repo, critical=0, high_bug_fix=0, high_feature=0,
+        medium_bug_fix=0, low_bug_fix=0, reopen_count=0):
+    """Write one exact scratch backlog for role-authorization probes.
+
+    Critical is intentionally available only as a bug-fix count. A Critical
+    feature is invalid under the production backlog grammar and therefore is
+    not a legitimate way to authorize another Implementer.
+    """
+    lines = ["# Scratch backlog", ""]
+    groups = (
+        ("CRITICAL", "BUG FIX", critical),
+        ("HIGH", "NEW FUNCTIONALITY", high_feature),
+        ("HIGH", "BUG FIX", high_bug_fix),
+        ("MEDIUM", "BUG FIX", medium_bug_fix),
+        ("LOW", "BUG FIX", low_bug_fix),
+    )
+    ticket_number = 0
+    anchors = []
+    for severity, ticket_type, count in groups:
+        for _index in range(count):
+            ticket_number += 1
+            anchor = "scratch-ticket-" + str(ticket_number)
+            anchors.append(anchor)
+            lines.append(
+                "- OPEN **" + severity + "** **" + ticket_type
+                + "** — [Scratch ticket " + str(ticket_number)
+                + "](#" + anchor + ")")
+    for anchor in anchors:
+        lines.extend(("", '<a id="' + anchor + '"></a>',
+                      "## Scratch detail for " + anchor, "",
+                      "**Red Team reopen count: " + str(reopen_count)
+                      + ".**"))
+    backlog = repo / "ai" / "notes" / "backlog.md"
+    backlog.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return backlog
 
 
 def arm_cwd():
@@ -392,7 +442,7 @@ def arm_incomplete_directive_refusal():
 
 
 def arm_character_budget_binding():
-    """Reject a mismatched run limit, then repeat it in every role prompt."""
+    """Reject a mismatched run limit, then bind execution and audit prompts."""
     with tempfile.TemporaryDirectory(prefix="router-character-budget-") as tmp:
         root = Path(tmp)
         module, repo = load_scratch_router(
@@ -474,10 +524,7 @@ def arm_character_budget_binding():
             and "does not match MAILBOX_MAX_CHARACTERS" in
             mismatch_stream.getvalue())
 
-        returns = iter([
-          "### IMPLEMENTER_HANDOFF: DONE\n",
-          "### ARCHITECT_REDTEAM_HANDOFF: NO FINDING\n",
-        ])
+        returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
         module.wait_for_block = lambda **_kwargs: next(returns)
         routed_gate_commands = []
         module.run_gates = lambda commands, seq: (
@@ -499,9 +546,11 @@ def arm_character_budget_binding():
                   "planned maximum 30 characters.")
         every_prompt_bound = (
             routed_rc == 0
-            and len(copied) == 3
+            and len(copied) == 2
             and all(phrase in prompt for prompt in copied)
-            and copied[-1].startswith("### RELAY FOR AUDIT"))
+            and copied[-1].startswith("### RELAY FOR AUDIT")
+            and not any(prompt.startswith(
+                "### ARCHITECT_REDTEAM_HANDOFF") for prompt in copied))
         automatic_guard = [
             command for command in routed_gate_commands
             if "ticket_change_guard.py" in command]
@@ -513,10 +562,7 @@ def arm_character_budget_binding():
             and "--max 37" in automatic_guard[0])
 
         copied.clear()
-        failed_returns = iter([
-          "### IMPLEMENTER_HANDOFF: DONE\n",
-          "### ARCHITECT_REDTEAM_HANDOFF: FINDING\n",
-        ])
+        failed_returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
         module.wait_for_block = lambda **_kwargs: next(failed_returns)
         module.run_gates = lambda commands, seq: (
           "ai/notes/relay/scratch-failed-gates.md", False)
@@ -533,10 +579,11 @@ def arm_character_budget_binding():
             module.sys.argv = original_argv
         failed_guard_reaches_architect = (
             failed_route_rc == 0
-            and len(copied) == 3
+            and len(copied) == 2
             and "Local check summary: NOT all green." in copied[-1]
             and "issue NO-GO" in copied[-1]
-            and "does not close the ticket" in copied[-1])
+            and "does not close the ticket" in copied[-1]
+            and "Do not wait for Red Team" in copied[-1])
 
         print("ARM character-change budget")
         print("  --status cannot silently ignore --max:", status_refused)
@@ -545,7 +592,7 @@ def arm_character_budget_binding():
         print("  mismatch refused before clipboard changes:",
               mismatch_refused)
         print("  omitted --max inherited the mailbox limit:", routed_rc == 0)
-        print("  Implementer, Red Team, and Architect prompts bound:",
+        print("  Implementer and Architect prompts bound without Red Team:",
               every_prompt_bound)
         print("  automatic local guard uses exact candidate:", guard_bound)
         print("  failed guard still reaches Architect for NO-GO:",
@@ -573,10 +620,7 @@ def arm_discovery_severity_binding():
         def route(extra_arguments, environment_value=None,
                   gates_green=True):
             copied = []
-            returns = iter([
-              "### IMPLEMENTER_HANDOFF: DONE\n",
-              "### ARCHITECT_REDTEAM_HANDOFF: NO FINDING\n",
-            ])
+            returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
             module.copy_to_clipboard = copied.append
             module.wait_for_block = lambda **_kwargs: next(returns)
             module.run_gates = lambda commands, seq: (
@@ -610,19 +654,23 @@ def arm_discovery_severity_binding():
                       "medium.")
             passed = (
               rc == 0
-              and len(copied) == 3
+              and len(copied) == 2
               and phrase not in copied[0]
               and phrase in copied[1]
-              and phrase in copied[2]
               and "Red Team severity" in copied[1]
-              and "accepts, upgrades, or downgrades" in copied[2])
+              and "accepts, upgrades, or downgrades" in copied[1]
+              and "Post-acceptance Red Team plan" in copied[1]
+              and "First audit the Implementer result" in copied[1]
+              and "close and commit the ticket immediately" in copied[1]
+              and not any(prompt.startswith(
+                  "### ARCHITECT_REDTEAM_HANDOFF") for prompt in copied))
             successful_bindings.append(passed)
 
         rc, copied, _output = route(
             extra_arguments=["--severity", "medium"], gates_green=False)
         gate_failure_keeps_setting = (
           rc == 0
-          and len(copied) == 3
+          and len(copied) == 2
           and "User severity setting for any new Red Team ticket: medium."
           in copied[-1]
           and "NOT all green" in copied[-1])
@@ -684,9 +732,11 @@ def arm_discovery_severity_binding():
           and "this option cannot change that value" in help_text)
 
         print("ARM discovery severity")
+        print("  ordinary Red Team route needs no emergency backlog:",
+              successful_bindings[0])
         print("  source-note default and matching confirmations succeed:",
               all(successful_bindings))
-        print("  Implementer excluded; Red Team and Architect agree:",
+        print("  Implementer excluded; later Red Team setting reaches Architect:",
               all(successful_bindings))
         print("  failed gates preserve the Architect setting:",
               gate_failure_keeps_setting)
@@ -694,9 +744,455 @@ def arm_discovery_severity_binding():
               all(refusals))
         print("  help says the option only confirms the note:", help_bound)
         assert all(successful_bindings)
+        assert successful_bindings[0]
         assert gate_failure_keeps_setting
         assert all(refusals)
         assert help_bound
+
+
+def arm_structured_review_scope():
+    """The exact Role-plan field controls bounded or widespread review."""
+    with tempfile.TemporaryDirectory(prefix="router-review-scope-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_review_scope", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        relay = repo / "ai" / "notes" / "relay"
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+
+        def snapshot():
+            return sorted(
+                str(path.relative_to(relay)) for path in relay.rglob("*"))
+
+        def route():
+            copied = []
+            waited_headers = []
+            module.copy_to_clipboard = copied.append
+
+            def returned_block(header, **_kwargs):
+                waited_headers.append(header)
+                return "### IMPLEMENTER_HANDOFF: DONE\n"
+
+            module.wait_for_block = returned_block
+            module.run_gates = lambda commands, seq: (
+                "ai/notes/relay/scratch-review-scope-gates.md", True)
+            original_argv = module.sys.argv
+            module.sys.argv = [
+                "handoff_router.py", "--note", "ai/notes/spec.md"]
+            stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stream):
+                    rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            return rc, copied, waited_headers, stream.getvalue()
+
+        # Bounded review remains a change-focused review even when an open
+        # higher-priority ticket exists. No prose phrase controls this path.
+        write_bound_architect_note(
+            repo=repo, note=note, discovery_severity="medium",
+            review_scope="bounded")
+        write_backlog(repo=repo, high_bug_fix=1)
+        bounded_rc, bounded_copies, bounded_waits, _bounded_output = route()
+        bounded_is_field_driven = (
+            bounded_rc == 0
+            and len(bounded_copies) == 2
+            and bounded_waits == ["### IMPLEMENTER_HANDOFF:"]
+            and "Review scope: bounded" in bounded_copies[1]
+            and "First audit the Implementer result" in bounded_copies[1]
+            and "accepted commit or change" in bounded_copies[1]
+            and "reviews only the behavior it directly affects"
+            in bounded_copies[1]
+            and "This later advice does not approve or block"
+            in bounded_copies[1]
+            and not any(prompt.startswith(
+                "### ARCHITECT_REDTEAM_HANDOFF")
+                for prompt in bounded_copies))
+
+        # A widespread field with Low severity runs when only Low work is
+        # open. The ordinary note prose contains no trigger phrase.
+        write_bound_architect_note(
+            repo=repo, note=note, discovery_severity="low",
+            review_scope="widespread")
+        write_backlog(repo=repo, low_bug_fix=3)
+        widespread_rc, widespread_copies, widespread_waits, _output = route()
+        widespread_is_field_driven = (
+            widespread_rc == 0
+            and len(widespread_copies) == 2
+            and widespread_waits == ["### IMPLEMENTER_HANDOFF:"]
+            and "Review scope: widespread" in widespread_copies[1]
+            and "First audit the Implementer result" in widespread_copies[1]
+            and "widespread search saved" in widespread_copies[1]
+            and "Any ticket discovered by that search is Low"
+            in widespread_copies[1]
+            and "Only afterward" in widespread_copies[1]
+            and not any(prompt.startswith(
+                "### ARCHITECT_REDTEAM_HANDOFF")
+                for prompt in widespread_copies))
+
+        blocker_cases = (
+            ("Critical", {"critical": 1}),
+            ("High", {"high_bug_fix": 1}),
+            ("Medium", {"medium_bug_fix": 1}),
+        )
+        blocker_refusals = []
+        for label, counts in blocker_cases:
+            write_bound_architect_note(
+                repo=repo, note=note, discovery_severity="low",
+                review_scope="widespread")
+            write_backlog(repo=repo, **counts)
+            before = snapshot()
+            refused_rc, copied, waited, output = route()
+            after = snapshot()
+            blocker_refusals.append(
+                refused_rc == 1
+                and copied == []
+                and waited == []
+                and after == before
+                and "authoritative backlog" in output
+                and "Critical, High, or Medium" in output
+                and "only when that count is zero" in output)
+            print("ARM widespread blocker: " + label)
+            print("  refused before clipboard/archive work:",
+                  blocker_refusals[-1])
+
+        # A malformed open line cannot be silently treated as Low or empty.
+        write_bound_architect_note(
+            repo=repo, note=note, discovery_severity="low",
+            review_scope="widespread")
+        (repo / "ai" / "notes" / "backlog.md").write_text(
+            "# Scratch backlog\n\n- OPEN **HIGH** — missing type\n",
+            encoding="utf-8")
+        before = snapshot()
+        malformed_backlog_rc, copied, waited, malformed_output = route()
+        malformed_backlog_refused = (
+            malformed_backlog_rc == 1
+            and copied == []
+            and waited == []
+            and snapshot() == before
+            and "malformed open ticket" in malformed_output
+            and "cannot prove" in malformed_output)
+
+        # Malformed or inconsistent structured rows fail validation before
+        # any clipboard, wait, reservation, or relay operation.
+        write_bound_architect_note(
+            repo=repo, note=note, discovery_severity="low",
+            review_scope="widespread")
+        valid_text = note.read_text(encoding="utf-8")
+        valid_role_plan = (
+            "- Roles: `Architect + Implementer + Red Team`\n"
+            "- Discovery severity: `low`\n"
+            "- Review scope: `widespread`")
+        malformed_plans = (
+            valid_role_plan.replace(
+                "\n- Review scope: `widespread`", ""),
+            valid_role_plan.replace(
+                "- Discovery severity: `low`",
+                "- Discovery severity: `medium`"),
+            valid_role_plan + "\n- Review scope: `bounded`",
+            valid_role_plan.replace(
+                "Architect + Implementer + Red Team",
+                "Architect + Implementer").replace(
+                    "- Discovery severity: `low`",
+                    "- Discovery severity: `not-used`"),
+        )
+        malformed_plan_refusals = []
+        for malformed_plan in malformed_plans:
+            note.write_text(
+                valid_text.replace(valid_role_plan, malformed_plan),
+                encoding="utf-8")
+            before = snapshot()
+            refused_rc, copied, waited, output = route()
+            malformed_plan_refusals.append(
+                refused_rc == 1
+                and copied == []
+                and waited == []
+                and snapshot() == before
+                and "refused incomplete Architect directive" in output)
+
+        print("ARM structured review scope")
+        print("  bounded review is field-driven:", bounded_is_field_driven)
+        print("  widespread review is field-driven:",
+              widespread_is_field_driven)
+        print("  Critical/High/Medium blockers all refuse:",
+              all(blocker_refusals))
+        print("  malformed backlog fails closed:",
+              malformed_backlog_refused)
+        print("  malformed scope rows refuse zero-write:",
+              all(malformed_plan_refusals))
+        assert bounded_is_field_driven
+        assert widespread_is_field_driven
+        assert all(blocker_refusals)
+        assert malformed_backlog_refused
+        assert all(malformed_plan_refusals)
+
+
+def arm_authoritative_backlog_grammar():
+    """Malformed OPEN links and unsafe files cannot affect role counts."""
+    with tempfile.TemporaryDirectory(prefix="router-backlog-grammar-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_backlog_grammar")
+        backlog = write_backlog(
+            repo=repo, critical=1, high_bug_fix=2, high_feature=1,
+            medium_bug_fix=1, low_bug_fix=1)
+        valid_text = backlog.read_text(encoding="utf-8")
+        valid = module.backlog_severity_counts(
+            backlog_path=os.path.realpath(backlog))
+        valid_counted = (
+            valid["critical"] == 1
+            and valid["high"] == 3
+            and valid["high_bug_fix"] == 2
+            and valid["high_new_functionality"] == 1
+            and valid["medium"] == 1
+            and valid["low"] == 1
+            and valid["unclassified"] == 0)
+
+        five_text = valid_text.replace(
+            "**Red Team reopen count: 0.**",
+            "**Red Team reopen count: 5.**", 1)
+        five_path = repo / "ai" / "notes" / "reopen-five.md"
+        five_path.write_text(five_text, encoding="utf-8")
+        five_counts = module.backlog_severity_counts(
+            backlog_path=os.path.realpath(five_path))
+        five_retains_original_severity = (
+            five_counts["critical"] == 1
+            and five_counts["unclassified"] == 0)
+
+        low_six_path = write_backlog(
+            repo=repo, low_bug_fix=1, reopen_count=6)
+        low_six_counts = module.backlog_severity_counts(
+            backlog_path=os.path.realpath(low_six_path))
+        over_five_low_only = (
+            low_six_counts["low"] == 1
+            and low_six_counts["unclassified"] == 0)
+
+        first_line = next(
+            line for line in valid_text.splitlines()
+            if line.startswith("- OPEN"))
+        first_anchor = module.OPEN_BACKLOG_TICKET_RE.fullmatch(
+            first_line).group(4)
+        malformed_texts = {
+            "indented OPEN": valid_text.replace(
+                first_line, " " + first_line, 1),
+            "lowercase open": valid_text.replace(
+                first_line, first_line.replace("- OPEN", "- open", 1), 1),
+            "missing link": valid_text.replace(
+                first_line, "- OPEN **CRITICAL** **BUG FIX** — no link", 1),
+            "duplicate index anchor": valid_text.replace(
+                first_line, first_line + "\n" + first_line, 1),
+            "missing detail anchor": valid_text.replace(
+                '<a id="' + first_anchor + '"></a>\n', "", 1),
+            "duplicate detail anchor": valid_text.replace(
+                '<a id="' + first_anchor + '"></a>',
+                '<a id="' + first_anchor + '"></a>\n'
+                '<a id="' + first_anchor + '"></a>', 1),
+            "critical feature": valid_text.replace(
+                "**CRITICAL** **BUG FIX**",
+                "**CRITICAL** **NEW FUNCTIONALITY**", 1),
+            "missing reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**\n", "", 1),
+            "duplicate reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**",
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopen count: 0.**", 1),
+            "leading-zero reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**",
+                "**Red Team reopen count: 01.**", 1),
+            "word reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**",
+                "**Red Team reopen count: five.**", 1),
+            "case-variant reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**",
+                "**red team reopen count: 0.**", 1),
+            "over-five non-Low reopen count": valid_text.replace(
+                "**Red Team reopen count: 0.**",
+                "**Red Team reopen count: 6.**", 1),
+        }
+        malformed_results = []
+        for label, text_value in malformed_texts.items():
+            candidate = repo / "ai" / "notes" / (
+                "malformed-" + label.replace(" ", "-") + ".md")
+            candidate.write_text(text_value, encoding="utf-8")
+            counts = module.backlog_severity_counts(
+                backlog_path=os.path.realpath(candidate))
+            malformed_results.append(counts["unclassified"] > 0)
+
+        missing = repo / "ai" / "notes" / "missing-backlog.md"
+        missing_refused = False
+        try:
+            module.backlog_severity_counts(
+                backlog_path=os.path.realpath(missing))
+        except module.BacklogLedgerError:
+            missing_refused = True
+
+        linked = repo / "ai" / "notes" / "linked-backlog.md"
+        linked_refused = True
+        try:
+            linked.symlink_to(backlog)
+            try:
+                module.backlog_severity_counts(backlog_path=str(linked))
+            except module.BacklogLedgerError:
+                pass
+            else:
+                linked_refused = False
+        except (OSError, NotImplementedError):
+            pass
+
+        original_open = module.os.open
+
+        def unreadable_open(path, flags, *args, **kwargs):
+            if os.path.realpath(path) == os.path.realpath(backlog):
+                raise PermissionError("scratch unreadable backlog")
+            return original_open(path, flags, *args, **kwargs)
+
+        module.os.open = unreadable_open
+        unreadable_refused = False
+        try:
+            try:
+                module.backlog_severity_counts(
+                    backlog_path=os.path.realpath(backlog))
+            except module.BacklogLedgerError as exc:
+                unreadable_refused = "cannot open" in str(exc)
+        finally:
+            module.os.open = original_open
+
+        print("ARM authoritative backlog grammar")
+        print("  exact linked OPEN rows counted:", valid_counted)
+        print("  reopen count 5 retains original severity:",
+              five_retains_original_severity)
+        print("  reopen count above 5 permits Low only:", over_five_low_only)
+        print("  malformed/duplicate/missing links fail closed:",
+              all(malformed_results))
+        print("  missing backlog fails closed:", missing_refused)
+        print("  redirected backlog fails closed:", linked_refused)
+        print("  unreadable backlog fails closed:", unreadable_refused)
+        assert valid_counted
+        assert five_retains_original_severity
+        assert over_five_low_only
+        assert all(malformed_results)
+        assert missing_refused
+        assert linked_refused
+        assert unreadable_refused
+
+
+def arm_saved_primary_backlog_resolution():
+    """Role decisions read the registered Claude-primary backlog only."""
+    with tempfile.TemporaryDirectory(prefix="router-primary-backlog-") as tmp:
+        root = Path(os.path.realpath(tmp))
+        repository = root / "repository"
+        tools = repository / "ai" / "tools"
+        tools.mkdir(parents=True)
+        shutil.copy2(SOURCE, tools / "handoff_router.py")
+        shutil.copy2(HANDOFF_CONTRACT_SOURCE, tools / "handoff_contract.py")
+        run_git(repository, "init", "-q", "-b", "main")
+        run_git(repository, "config", "user.email", "scratch@example.invalid")
+        run_git(repository, "config", "user.name", "Scratch Probe")
+        run_git(repository, "add", "ai/tools/handoff_router.py",
+                "ai/tools/handoff_contract.py")
+        run_git(repository, "commit", "-q", "-m", "router fixture")
+
+        managed = repository / ".claude" / "worktrees"
+        managed.mkdir(parents=True)
+        primary = managed / "mailbox-primary"
+        execution = root / "execution"
+        run_git(repository, "worktree", "add", "-q", "-b",
+                "claude/mailbox-primary", str(primary), "main")
+        run_git(repository, "worktree", "add", "-q", "-b",
+                "claude/router-fixture", str(execution), "main")
+        (primary / "ai" / "notes").mkdir(parents=True, exist_ok=True)
+        (execution / "ai" / "notes").mkdir(parents=True, exist_ok=True)
+        write_backlog(repo=primary, low_bug_fix=2)
+        write_backlog(repo=execution, high_bug_fix=12)
+
+        state_path = managed / ".mailbox-primary-worktree.json"
+        state = {
+            "schema": 2,
+            "repository": str(repository),
+            "name": "mailbox-primary",
+            "path": str(primary),
+            "branch": "refs/heads/claude/mailbox-primary",
+            "topology": "dedicated-sol-worktree-v1",
+        }
+
+        def write_state(value=state):
+            state_path.write_text(
+                json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+
+        write_state()
+        target = execution / "ai" / "tools" / "handoff_router.py"
+        spec = importlib.util.spec_from_file_location(
+            "scratch_router_primary_backlog", target)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        resolved = module.authoritative_backlog_path()
+        counts = module.backlog_severity_counts()
+        primary_selected = (
+            os.path.realpath(resolved)
+            == os.path.realpath(primary / "ai" / "notes" / "backlog.md")
+            and counts["low"] == 2
+            and counts["high_bug_fix"] == 0
+            and counts["unclassified"] == 0)
+
+        state_bytes = state_path.read_bytes()
+        state_path.unlink()
+        missing_state_refused = False
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            missing_state_refused = True
+        state_path.write_bytes(state_bytes)
+
+        redirected_state_refused = True
+        backup_state = managed / "state-target.json"
+        state_path.replace(backup_state)
+        try:
+            state_path.symlink_to(backup_state)
+            try:
+                module.authoritative_backlog_path()
+            except module.BacklogLedgerError:
+                pass
+            else:
+                redirected_state_refused = False
+        except (OSError, NotImplementedError):
+            pass
+        finally:
+            if state_path.is_symlink():
+                state_path.unlink()
+            backup_state.replace(state_path)
+
+        foreign_state = dict(state)
+        foreign_state["path"] = str(execution)
+        foreign_state["name"] = execution.name
+        write_state(foreign_state)
+        foreign_checkout_refused = False
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            foreign_checkout_refused = True
+        write_state()
+
+        run_git(primary, "checkout", "-q", "-b", "claude/wrong-primary")
+        branch_mismatch_refused = False
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            branch_mismatch_refused = True
+
+        print("ARM saved primary backlog resolution")
+        print("  execution-checkout backlog ignored:", primary_selected)
+        print("  missing state fails closed:", missing_state_refused)
+        print("  redirected state fails closed:", redirected_state_refused)
+        print("  foreign checkout in state fails closed:",
+              foreign_checkout_refused)
+        print("  registered branch mismatch fails closed:",
+              branch_mismatch_refused)
+        assert primary_selected
+        assert missing_state_refused
+        assert redirected_state_refused
+        assert foreign_checkout_refused
+        assert branch_mismatch_refused
 
 
 def arm_unvalidated_section_refusal():
@@ -904,7 +1400,50 @@ def arm_second_implementer_mode():
                 module.sys.argv = original_argv
             return rc, copied, waited_headers, stream.getvalue()
 
-        routed = [route([]), route(["--mode", "second-implementer"])]
+        refusal_cases = (
+            ("ten High bug fixes", {"high_bug_fix": 10}),
+            ("one Critical bug", {"critical": 1}),
+            ("both exact boundaries",
+             {"critical": 1, "high_bug_fix": 10}),
+            ("one hundred High features", {"high_feature": 100}),
+        )
+        boundary_refusals = []
+        for label, backlog_counts in refusal_cases:
+            write_backlog(repo=repo, **backlog_counts)
+            parsed = module.backlog_severity_counts()
+            before = sorted(path.name for path in relay.glob("*.md"))
+            refused_rc, copied, waited_headers, output = route([])
+            after = sorted(path.name for path in relay.glob("*.md"))
+            refused_cleanly = (
+                not module.second_implementer_emergency(counts=parsed)
+                and parsed["unclassified"] == 0
+                and refused_rc == 1
+                and copied == []
+                and waited_headers == []
+                and after == before
+                and "refused second-Implementer role" in output
+                and "more than 1 Critical bug" in output
+                and "more than 10 High bugs" in output
+                and "High features do not contribute" in output)
+            print("ARM second-Implementer refusal: " + label)
+            print("  boundary refuses before clipboard/archive work:",
+                  refused_cleanly)
+            boundary_refusals.append(refused_cleanly)
+
+        routed = []
+        write_backlog(repo=repo, high_bug_fix=11)
+        high_counts = module.backlog_severity_counts()
+        routed.append(route([]))
+        write_backlog(repo=repo, critical=2)
+        critical_counts = module.backlog_severity_counts()
+        routed.append(route(["--mode", "second-implementer"]))
+        exact_emergencies = (
+            module.second_implementer_emergency(counts=high_counts)
+            and high_counts["high_bug_fix"] == 11
+            and high_counts["critical"] == 0
+            and module.second_implementer_emergency(counts=critical_counts)
+            and critical_counts["critical"] == 2
+            and critical_counts["high_bug_fix"] == 0)
         expected = (
           "OpenAI Sol — this is a role as second Implementer for this unit.")
         declaration_exact = (
@@ -974,6 +1513,10 @@ def arm_second_implementer_mode():
             module.sys.argv = original_argv
 
         print("ARM second-Implementer mode")
+        print("  10 High / 1 Critical / High features do not authorize:",
+              all(boundary_refusals))
+        print("  11 High bug fixes or 2 Critical bugs authorize:",
+              exact_emergencies and all(routed_exactly))
         print("  note alone and matching --mode complete routing:",
               all(routed_exactly))
         print("  exact declaration routed once in each run:",
@@ -982,6 +1525,8 @@ def arm_second_implementer_mode():
               all(override_refusals))
         print("  retired backup value rejected:", backup_rejected)
         assert declaration_exact
+        assert all(boundary_refusals)
+        assert exact_emergencies
         assert all(routed_exactly)
         assert all(override_refusals)
         assert backup_rejected
@@ -1176,6 +1721,9 @@ def main():
     arm_incomplete_directive_refusal()
     arm_character_budget_binding()
     arm_discovery_severity_binding()
+    arm_structured_review_scope()
+    arm_authoritative_backlog_grammar()
+    arm_saved_primary_backlog_resolution()
     arm_unvalidated_section_refusal()
     arm_source_note_boundary_refusal()
     arm_mismatched_execution_checkout_refusal()

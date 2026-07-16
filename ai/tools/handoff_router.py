@@ -17,8 +17,14 @@ For one ticket, this program:
 2. puts the approved Implementer block on the clipboard;
 3. waits for the Implementer's returned block;
 4. runs the local check commands and saves their exact output;
-5. includes Red Team only when the source note requires it; and
-6. puts every saved result on the clipboard for the Architect.
+5. puts the Implementer result and check output on the clipboard for the
+   Architect.
+
+The Architect audits that result next. A ``GO`` closes and commits the ticket
+without waiting for Red Team. When the saved role plan includes Red Team, the
+Architect may issue the separate post-acceptance review only after that
+decision; this router never inserts Red Team between implementation and the
+Architect's audit.
 
 Usage:
 
@@ -43,9 +49,11 @@ changing the clipboard or waiting for another conversation:
 import argparse
 import datetime
 import fcntl
+import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -82,6 +90,352 @@ DEFAULT_GATE_COMMANDS = [
 
 SECOND_IMPLEMENTER_MODE_SENTENCE = (
     "OpenAI Sol — this is a role as second Implementer for this unit.")
+PRIMARY_STATE_RELATIVE = os.path.join(
+    ".claude", "worktrees", ".mailbox-primary-worktree.json")
+PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
+PRIMARY_WORKTREE_NAME = "mailbox-primary"
+PRIMARY_TOPOLOGY = "dedicated-sol-worktree-v1"
+MAX_PRIMARY_STATE_BYTES = 16 * 1024
+MAX_BACKLOG_BYTES = 16 * 1024 * 1024
+OPEN_BACKLOG_TICKET_RE = re.compile(
+    r"^- OPEN \*\*(CRITICAL|HIGH|MEDIUM|LOW)\*\* "
+    r"\*\*(BUG FIX|NEW FUNCTIONALITY)\*\* — "
+    r"\[([^\]\n]+)\]\(#([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\)$")
+NEAR_OPEN_BACKLOG_TICKET_RE = re.compile(
+    r"^[ \t]*-[ \t]*open\b", re.IGNORECASE)
+DETAIL_ANCHOR_RE = re.compile(
+    r'^<a id="([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"></a>$')
+REOPEN_COUNT_RE = re.compile(
+    r"^\*\*Red Team reopen count: (0|[1-9][0-9]*)\.\*\*$")
+NEAR_REOPEN_COUNT_RE = re.compile(
+    r"^[ \t]*(?:[-+*][ \t]+)?(?:\*\*)?[ \t]*"
+    r"red(?:[ -]+)team[ \t]+reopen[ \t]+count\b",
+    re.IGNORECASE)
+SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD = 10
+SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD = 1
+
+
+class BacklogLedgerError(RuntimeError):
+    """The saved primary backlog cannot safely authorize a role decision."""
+
+
+def _read_regular_file(path, label, maximum_bytes):
+    """Read one bounded regular file without following redirected paths."""
+    path = os.path.abspath(path)
+    if os.path.realpath(path) != path:
+        raise BacklogLedgerError(label + " uses a redirected path: " + path)
+    try:
+        initial = os.lstat(path)
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "cannot inspect " + label + " " + path + ": " + str(exc))
+    if stat.S_ISLNK(initial.st_mode) or not stat.S_ISREG(initial.st_mode):
+        raise BacklogLedgerError(label + " is not a regular file: " + path)
+    if initial.st_size > maximum_bytes:
+        raise BacklogLedgerError(label + " is too large: " + path)
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "cannot open " + label + " " + path + ": " + str(exc))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise BacklogLedgerError(
+                label + " is not a regular file: " + path)
+        payload = os.read(descriptor, maximum_bytes + 1)
+        after = os.fstat(descriptor)
+        current = os.lstat(path)
+
+        def snapshot(info):
+            return (info.st_dev, info.st_ino, info.st_size,
+                    info.st_mtime_ns, info.st_ctime_ns)
+
+        if (snapshot(initial) != snapshot(before)
+                or snapshot(before) != snapshot(after)
+                or snapshot(after) != snapshot(current)
+                or after.st_size != len(payload)):
+            raise BacklogLedgerError(label + " changed while read: " + path)
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "cannot read " + label + " " + path + ": " + str(exc))
+    finally:
+        os.close(descriptor)
+    if len(payload) > maximum_bytes:
+        raise BacklogLedgerError(label + " is too large: " + path)
+    return payload
+
+
+def _json_object_without_duplicate_keys(pairs):
+    """Build one JSON object while refusing repeated security fields."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise BacklogLedgerError(
+                "primary-worktree state repeats key " + repr(key))
+        result[key] = value
+    return result
+
+
+def _checked_git(cwd, arguments, label):
+    """Return exact Git output or fail the authoritative-path proof."""
+    try:
+        proc = subprocess.run(
+            ["git"] + list(arguments), cwd=cwd, capture_output=True)
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "cannot inspect " + label + ": " + str(exc))
+    try:
+        stdout = proc.stdout.decode("utf-8", errors="strict")
+        stderr = proc.stderr.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise BacklogLedgerError(
+            "cannot inspect " + label + ": Git output is not UTF-8: "
+            + str(exc))
+    if proc.returncode != 0:
+        detail = stderr.strip()
+        if detail:
+            detail = ": " + detail
+        raise BacklogLedgerError("cannot inspect " + label + detail)
+    return stdout.strip()
+
+
+def _git_common_directory(checkout):
+    """Return the real common Git directory for one checkout."""
+    value = _checked_git(
+        checkout, ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        "the repository common Git directory")
+    return os.path.realpath(value)
+
+
+def authoritative_backlog_path():
+    """Resolve ``backlog.md`` only from the saved Claude-primary record.
+
+    Tests may replace this zero-argument resolver with a scratch resolver.
+    Production callers never derive the ledger from the directive's execution
+    checkout, because that ignored file may differ between worktrees.
+    """
+    common = _git_common_directory(REPO_ROOT)
+    if os.path.basename(common) != ".git" or not os.path.isdir(common):
+        raise BacklogLedgerError(
+            "repository common Git directory is not a normal .git directory")
+    repository = os.path.dirname(common)
+    state_path = os.path.join(repository, PRIMARY_STATE_RELATIVE)
+    payload = _read_regular_file(
+        state_path, "primary-worktree state", MAX_PRIMARY_STATE_BYTES)
+    try:
+        state = json.loads(
+            payload.decode("utf-8", errors="strict"),
+            object_pairs_hook=_json_object_without_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BacklogLedgerError(
+            "primary-worktree state is not exact UTF-8 JSON: " + str(exc))
+    if not isinstance(state, dict):
+        raise BacklogLedgerError("primary-worktree state must be an object")
+    schema = state.get("schema")
+    expected_keys = {"schema", "repository", "name", "path", "branch"}
+    if schema == 2:
+        expected_keys.add("topology")
+    elif schema != 1:
+        raise BacklogLedgerError("unsupported primary-worktree state schema")
+    if set(state) != expected_keys:
+        raise BacklogLedgerError(
+            "primary-worktree state has unexpected or missing keys")
+    for key in ("repository", "name", "path", "branch"):
+        value = state[key]
+        if (not isinstance(value, str) or not value
+                or "\x00" in value or "\n" in value or "\r" in value):
+            raise BacklogLedgerError(
+                "invalid primary-worktree state field " + key)
+    if schema == 2 and state["topology"] != PRIMARY_TOPOLOGY:
+        raise BacklogLedgerError("unsupported primary-worktree topology")
+    if (not os.path.isabs(state["repository"])
+            or os.path.realpath(state["repository"])
+            != os.path.realpath(repository)):
+        raise BacklogLedgerError(
+            "primary-worktree state names a different repository")
+    primary = os.path.abspath(state["path"])
+    managed = os.path.join(repository, ".claude", "worktrees")
+    if (not os.path.isabs(state["path"])
+            or os.path.dirname(primary) != os.path.abspath(managed)
+            or state["name"] != PRIMARY_WORKTREE_NAME
+            or os.path.basename(primary) != PRIMARY_WORKTREE_NAME
+            or state["branch"] != PRIMARY_BRANCH):
+        raise BacklogLedgerError(
+            "primary-worktree state does not name the managed Claude primary")
+    try:
+        primary_info = os.lstat(primary)
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "cannot inspect saved primary worktree: " + str(exc))
+    if (stat.S_ISLNK(primary_info.st_mode)
+            or not stat.S_ISDIR(primary_info.st_mode)
+            or os.path.realpath(primary) != primary):
+        raise BacklogLedgerError(
+            "saved primary worktree is not a real managed directory")
+
+    registry = _checked_git(
+        repository, ["worktree", "list", "--porcelain"],
+        "the registered worktrees")
+    matches = []
+    for record_text in registry.split("\n\n"):
+        fields = record_text.splitlines()
+        if not fields or not fields[0].startswith("worktree "):
+            continue
+        record = {"path": fields[0][len("worktree "):], "branch": None,
+                  "detached": False, "prunable": False}
+        for field in fields[1:]:
+            if field.startswith("branch "):
+                record["branch"] = field[len("branch "):]
+            elif field == "detached":
+                record["detached"] = True
+            elif field.startswith("prunable"):
+                record["prunable"] = True
+        if os.path.realpath(record["path"]) == primary:
+            matches.append(record)
+    if (len(matches) != 1 or matches[0]["branch"] != PRIMARY_BRANCH
+            or matches[0]["detached"] or matches[0]["prunable"]):
+        raise BacklogLedgerError(
+            "saved primary worktree is not uniquely registered on "
+            + PRIMARY_BRANCH)
+    if _git_common_directory(primary) != common:
+        raise BacklogLedgerError(
+            "saved primary worktree belongs to a different repository")
+    top = _checked_git(
+        primary, ["rev-parse", "--show-toplevel"],
+        "the saved primary top level")
+    branch = _checked_git(
+        primary, ["symbolic-ref", "--quiet", "HEAD"],
+        "the saved primary branch")
+    if os.path.realpath(top) != primary or branch != PRIMARY_BRANCH:
+        raise BacklogLedgerError(
+            "saved primary checkout does not match its registered path and "
+            "branch")
+    backlog = os.path.join(primary, "ai", "notes", "backlog.md")
+    if os.path.realpath(backlog) != os.path.abspath(backlog):
+        raise BacklogLedgerError(
+            "authoritative backlog uses a redirected path: " + backlog)
+    return backlog
+
+
+def backlog_severity_counts(backlog_path=None):
+    """Return fully validated open-ticket counts from the primary backlog."""
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0,
+              "high_bug_fix": 0, "high_new_functionality": 0,
+              "unclassified": 0}
+    if backlog_path is None:
+        backlog_path = authoritative_backlog_path()
+    try:
+        text = _read_regular_file(
+            backlog_path, "authoritative backlog", MAX_BACKLOG_BYTES).decode(
+                "utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise BacklogLedgerError(
+            "authoritative backlog is not UTF-8: " + str(exc))
+    index_anchors = set()
+    index_severities = {}
+    detail_anchor_counts = {}
+    detail_anchor_positions = {}
+    invalid_detail_anchors = set()
+    lines = text.splitlines()
+    for line_number, line in enumerate(lines):
+        detail_match = DETAIL_ANCHOR_RE.fullmatch(line)
+        if detail_match is not None:
+            anchor = detail_match.group(1)
+            detail_anchor_counts[anchor] = (
+                detail_anchor_counts.get(anchor, 0) + 1)
+            detail_anchor_positions.setdefault(anchor, []).append(line_number)
+            if (line_number + 1 >= len(lines)
+                    or not lines[line_number + 1].startswith("## ")):
+                invalid_detail_anchors.add(anchor)
+        if NEAR_OPEN_BACKLOG_TICKET_RE.match(line) is None:
+            continue
+        match = OPEN_BACKLOG_TICKET_RE.fullmatch(line)
+        if (match is None
+                or (match.group(1) == "CRITICAL"
+                    and match.group(2) != "BUG FIX")
+                or match.group(3).strip() != match.group(3)
+                or not any(character.isalnum()
+                           for character in match.group(3))):
+            counts["unclassified"] += 1
+            continue
+        anchor = match.group(4)
+        if anchor in index_anchors:
+            counts["unclassified"] += 1
+            continue
+        index_anchors.add(anchor)
+        severity = match.group(1).lower()
+        index_severities[anchor] = severity
+        ticket_type = match.group(2).lower().replace(" ", "_")
+        counts[severity] += 1
+        if severity == "high":
+            counts["high_" + ticket_type] += 1
+    for anchor in index_anchors:
+        if (detail_anchor_counts.get(anchor, 0) != 1
+                or anchor in invalid_detail_anchors):
+            counts["unclassified"] += 1
+            continue
+        position = detail_anchor_positions[anchor][0]
+        end = next(
+            (line_number for line_number in range(position + 2, len(lines))
+             if (lines[line_number].startswith("# ")
+                 or lines[line_number].startswith("## "))),
+            len(lines))
+        reopen_rows = [
+            line for line in lines[position + 2:end]
+            if NEAR_REOPEN_COUNT_RE.match(line) is not None]
+        canonical_rows = [
+            REOPEN_COUNT_RE.fullmatch(line) for line in reopen_rows]
+        canonical_rows = [match for match in canonical_rows
+                          if match is not None]
+        if len(reopen_rows) != 1 or len(canonical_rows) != 1:
+            counts["unclassified"] += 1
+            continue
+        reopen_count = int(canonical_rows[0].group(1))
+        if reopen_count > 5 and index_severities[anchor] != "low":
+            counts["unclassified"] += 1
+    return counts
+
+
+def second_implementer_emergency(counts=None):
+    """Return whether open Critical or High tickets prove an emergency."""
+    if counts is None:
+        counts = backlog_severity_counts()
+    if counts.get("unclassified", 0):
+        return False
+    return (
+        counts["critical"]
+        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD
+        or counts["high_bug_fix"]
+        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)
+
+
+def widespread_review_refusal(counts=None):
+    """Return a refusal message unless widespread discovery may begin.
+
+    The structured Architect field is the only switch for widespread review.
+    A malformed open backlog line cannot prove that the Critical, High, and
+    Medium groups are empty, so it fails closed before router side effects.
+    """
+    if counts is None:
+        counts = backlog_severity_counts()
+    if counts["unclassified"]:
+        return (
+            "refused widespread Red Team review: the authoritative backlog "
+            "has " + str(counts["unclassified"])
+            + " malformed open ticket(s), so the router cannot prove that "
+            "its Critical, High, and Medium groups are empty")
+    non_low = counts["critical"] + counts["high"] + counts["medium"]
+    if non_low:
+        return (
+            "refused widespread Red Team review: the authoritative backlog "
+            "has " + str(non_low) + " open Critical, High, or Medium "
+            "ticket(s); widespread discovery may begin only when that count "
+            "is zero")
+    return None
 
 
 def copy_to_clipboard(text):
@@ -608,6 +962,41 @@ def main():
         expected_mode = "redteam"
     else:
         expected_mode = None
+    if (role_plan["uses_red_team"]
+            and role_plan["review_scope"] == "widespread"):
+        try:
+            refusal = widespread_review_refusal()
+        except BacklogLedgerError as exc:
+            print("refused widespread Red Team review: " + str(exc))
+            return 1
+        if refusal is not None:
+            print(refusal)
+            return 1
+    if role_plan["uses_sol_as_implementer"]:
+        try:
+            counts = backlog_severity_counts()
+        except BacklogLedgerError as exc:
+            print("refused second-Implementer role: " + str(exc))
+            return 1
+        if not second_implementer_emergency(counts=counts):
+            if counts["unclassified"]:
+                print("refused second-Implementer role: the backlog has "
+                      + str(counts["unclassified"])
+                      + " malformed open ticket(s). The Architect must give "
+                      "every open line an exact priority and either BUG FIX "
+                      "or NEW FUNCTIONALITY before the emergency count can "
+                      "authorize this role")
+                return 1
+            print("refused second-Implementer role: Sol is emergency-only; "
+                  "the backlog has " + str(counts["critical"])
+                  + " open Critical bugs and "
+                  + str(counts["high_bug_fix"])
+                  + " open High bugs, but the role requires more than "
+                  "1 Critical bug or more than 10 High bugs. High features "
+                  "do not contribute. Only the Architect may "
+                  "designate Critical, and it must never be used merely to "
+                  "unlock another Implementer")
+            return 1
     if args.mode is not None and args.mode != expected_mode:
         print("refused role confirmation: --mode " + args.mode
               + " does not match the Architect Role plan `"
@@ -658,8 +1047,31 @@ def main():
         "size cap only; readable complete tested work remains mandatory.\n\n")
     role_prompt = (
         "Architect's validated role plan: " + role_plan["roles"] + ". "
-        "Discovery severity: " + discovery_severity + ". The runner and "
-        "human courier may not change this plan.\n\n")
+        "Discovery severity: " + discovery_severity + ". Review scope: "
+        + role_plan["review_scope"] + ". The runner and human courier may "
+        "not change this plan.\n\n")
+    if role_plan["review_scope"] == "widespread":
+        later_redteam_prompt = (
+            "Post-acceptance Red Team plan: enabled with widespread scope. "
+            "First audit the Implementer result. If it earns GO, close and "
+            "commit the ticket immediately. Only afterward, create a "
+            "separate Architect-authored Red Team handoff for the "
+            "widespread search saved in " + where + ". Any ticket discovered "
+            "by that search is Low. This later advice does not approve or "
+            "block the accepted commit.\n\n")
+    elif role_plan["review_scope"] == "bounded":
+        later_redteam_prompt = (
+            "Post-acceptance Red Team plan: enabled with bounded scope. "
+            "First audit the Implementer result. If it earns GO, close and "
+            "commit the ticket immediately. Only afterward, create a "
+            "separate Architect-authored Red Team handoff that names the "
+            "accepted commit or change and reviews only the behavior it "
+            "directly affects. This later advice does not approve or block "
+            "the accepted commit.\n\n")
+    else:
+        later_redteam_prompt = (
+            "Post-acceptance Red Team plan: disabled. Complete the "
+            "Architect audit without creating a Red Team handoff.\n\n")
     severity_prompt = (
         "User severity setting for any new Red Team ticket: "
         + discovery_severity + ". High means severe core harm, data loss, "
@@ -670,7 +1082,7 @@ def main():
         "the finding meets this setting. "
         "The Architect accepts, upgrades, or downgrades the rating and "
         "makes the final GO or NO-GO decision.\n\n")
-    total_steps = 4 if role_plan["uses_red_team"] else 3
+    total_steps = 3
 
     # [1] One execution owner receives this unit. Second-Implementer mode
     # assigns it to Sol INSTEAD OF Opus; it never duplicates one directive.
@@ -733,41 +1145,17 @@ def main():
     print("      checks " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
 
-    redteam_block = ""
-    if role_plan["uses_red_team"]:
-        sol_prompt = (
-            "### ARCHITECT_REDTEAM_HANDOFF (relay)\n\n"
-            + role_prompt
-            + budget_prompt
-            + severity_prompt
-            + "The named delta is specified in " + where + ". Read\n"
-            ".codex/REDTEAM_ROLE.md and stay within that delta. The\n"
-            "saved Implementer return is at " + path + " and\n"
-            "the local check log is at " + log_path + ". A confirmed\n"
-            "finding needs a validated, implementation-ready candidate\n"
-            "Repair directive in ai/notes/; return it to the Architect in\n"
-            "ARCHITECT_REDTEAM_HANDOFF, never directly to the Implementer.\n\n"
-            "### ENDS\n")
-        copy_to_clipboard(sol_prompt)
-        print("[3/4] Red Team instruction copied -- paste it unchanged into "
-              "the Sol session.")
-        redteam_block = wait_for_block(
-            header="### ARCHITECT_REDTEAM_HANDOFF:",
-            last_copied=sol_prompt)
-        sol_path = archive(seq, "sol", redteam_block)
-        print("      returned block saved -> " + sol_path)
-
-    # [3 or 4] Return every record to the Architect. The Architect reruns the
-    # required checks; the router's log is supporting evidence, not a verdict.
+    # [3] Return the implementation records to the Architect before any Red
+    # Team work. The Architect reruns the required checks and closes/commits a
+    # GO immediately. A saved Red Team plan is a later advisory action.
     architect_prompt = (
         "### RELAY FOR AUDIT\n\n"
         + role_prompt
         + budget_prompt
-        + (severity_prompt if redteam_block else "")
+        + (severity_prompt if role_plan["uses_red_team"] else "")
+        + later_redteam_prompt
         + "Unit spec: " + where + "\n"
         "Implementer return (saved copy): " + path + "\n"
-        + ("Red Team return (saved copy): " + sol_path + "\n"
-           if redteam_block else "")
         + "Local check log: " + log_path + "\n\n"
         + "Local check summary: "
         + ("ALL PASS.\n" if all_green else
@@ -776,7 +1164,8 @@ def main():
            "close the ticket.\n")
         + "Review per your role file, including your own reruns of every\n"
         "required check. The saved blocks and check log support the review;\n"
-        "they do not replace it.\n\n"
+        "they do not replace it. Do not wait for Red Team before this audit,\n"
+        "closure, or commit.\n\n"
         "### ENDS\n")
     copy_to_clipboard(architect_prompt)
     print("[" + str(total_steps) + "/" + str(total_steps)

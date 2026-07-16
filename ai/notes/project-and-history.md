@@ -11,10 +11,13 @@ training, artifact, data, and family requirements.
 ## Terms used in this note
 
 An **emulator** is a trained, fast approximation to an expensive scientific
-calculation. An **artifact** is one saved emulator publication: trained
-weights plus the scientific and structural facts needed to rebuild them. A
-neural-network **trunk** produces a shared internal representation; a **head**
-turns that representation into one requested output.
+calculation. An **artifact** is one saved emulator result: trained weights plus
+the scientific and structural facts needed to rebuild them. **Publication**
+places a complete, checked result at the final path used by readers. An
+**identity** is the saved set of facts or byte fingerprints used to decide
+whether two datasets, runs, or artifacts are the same. A neural-network
+**trunk** produces a shared internal representation; a **head** turns that
+representation into one requested output.
 
 The **reverse Huber (BerHu) loss** is a piecewise training loss defined in
 `training-stack.md`. **Trimming** removes a configured fraction of the
@@ -209,6 +212,21 @@ AI-only notes, tests, gates, and tools live under `ai/`. Permanent notes contain
 current general properties. Ticket chronology remains in ignored local records.
 The Architect is the only public ticket contact and controls every downstream
 Implementer or Red Team handoff.
+
+The role system is optional when one capable model has enough tokens to plan,
+implement, test, and review a change. Its purpose is cost control when that is
+not realistic: the Architect and optional Red Team perform the expensive
+reasoning, while a less expensive and potentially simpler Implementer performs
+the token-heavy reading, editing, and test work. Their instructions must
+therefore resolve design choices before implementation. Authority belongs to
+the role, not to a model name.
+
+This repository owns the Python emulators, data generators, Cobaya adapters,
+tests, and gates. CAMB and CosmoLike are upstream scientific programs whose
+behavior this repository consumes. Ordinary emulator work may investigate and
+record their behavior, but it must not turn into a Fortran CAMB port or direct
+CosmoLike C modification. A required upstream change needs its own explicitly
+approved scope in the repository that owns that code.
 
 ## Pattern for a new output family
 

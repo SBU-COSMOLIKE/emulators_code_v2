@@ -36,11 +36,11 @@ This directory contains the tools that let several AI roles work on one
 scientific codebase without treating chat as the project record.
 
 The emulator library itself is documented in the top-level
-[`README.md`](../README.md). Prof. Miranda owns the scientific contracts,
-architecture, public interface, tests, and Python readability conventions.
-Agents work inside those boundaries.
+[`README.md`](../README.md). The repository's scientific contracts,
+architecture, public interface, tests, and Python readability rules constrain
+every agent change.
 
-![The Architect and Implementer models are selected on the command line. The optional Red Team challenges one named ticket, and the Architect makes the final GO or NO-GO decision.](notes/assets/role-model-agent-loop.svg)
+![The command line selects the Architect and Implementer models. The Architect plans, audits, and closes a ticket without waiting for Red Team approval. An optional Red Team reviews later and may advise the Architect to reopen a ticket.](notes/assets/role-model-agent-loop.svg)
 
 ## Contents
 
@@ -51,9 +51,10 @@ Agents work inside those boundaries.
 3. [Complete one small ticket](#complete-one-small-ticket)
 4. [Roles, models, and decisions](#roles-models-and-decisions)
 5. [Choose which discoveries may become tickets](#choose-which-discoveries-may-become-tickets)
-6. [Notes, tests, and gates](#notes-tests-and-gates)
-7. [Fix-only watches](#fix-only-watches)
-8. [Choose and run a command-line tool](tools/README.md)
+6. [Close or reopen a ticket](#close-or-reopen-a-ticket)
+7. [Notes, tests, and gates](#notes-tests-and-gates)
+8. [Fix-only watches](#fix-only-watches)
+9. [Choose and run a command-line tool](tools/README.md)
 
 ### Common questions raised by developers
 
@@ -126,8 +127,8 @@ The tool keeps this sequence organized with three objects:
 
 A **mailbox** is a folder of request files. A **directive** is the Architect's
 ordered plan. A Git **branch** is a named line of saved changes, and a Git
-**commit** is one saved project version. An **acceptance gate** is a check that
-must pass before the change can be accepted.
+**commit** is one saved project version. A **gate** is a named validation job
+whose required result is written before it starts.
 
 | Object | Plain-language meaning |
 | --- | --- |
@@ -225,7 +226,7 @@ In the saved Claude work folder, create a temporary ticket note such as
 
 Add `--version` without changing normal training behavior.
 
-## Acceptance gates
+## Acceptance checklist
 
 - `python3 train.py --version` exits successfully.
 - Existing training tests still pass.
@@ -285,9 +286,11 @@ python3 ai/tools/mailbox_daemon.py --send architect \
 Expected result: one numbered `to-fable` file is saved in the mailbox.
 `to-fable` is the internal Architect address; users select the plain
 `architect` target and do not address internal roles. The file also saves the
-ticket's discovery threshold. Omitting `--severity` saves `medium`; an
-explicit `--severity high` or `--severity low` travels to the Architect with
-the request.
+ticket's discovery threshold and review scope. A normal request saves the
+bounded scope, which means one named change. Omitting `--severity` saves
+`medium`; an explicit `--severity high` or `--severity low` travels to the
+Architect with the request. A request that begins with the explicit “do a
+widespread search” command saves the widespread scope and Low severity.
 
 ### 6. Follow GO or NO-GO
 
@@ -325,12 +328,57 @@ Models can change from run to run. Authority does not.
 | --- | --- | --- |
 | **Architect / Auditor** | Thinks through the design, writes the complete implementation directive, checks the original evidence, and decides `GO` or `NO-GO` | `to-fable` |
 | **Implementer** | Follows the ordered directive, changes only the named ticket, and produces validation evidence | `to-opus` |
-| **Independent Red Team** | Thinks adversarially about the named change and gives the Architect a detailed candidate repair when it finds a defect | `to-sol` |
+| **Independent Red Team** | After a cycle, reads an accepted named change adversarially and gives the Architect a detailed advisory note when a bug remains; it never approves or blocks the commit | `to-sol` |
 
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
 not name the model or give a role authority. These addresses are for internal
 handoffs. The user's command target is always `architect`.
+
+### How the three bots work now
+
+The normal ticket path uses the Architect and Implementer. The Architect is
+the decision maker:
+
+1. The **Architect** turns the user's request into complete, ordered
+   instructions.
+2. The **Implementer** follows those instructions, changes the code, runs the
+   named tests, and returns the real output.
+3. The **Architect** audits that result. `GO` closes the ticket and commits the
+   accepted change immediately. `NO-GO` sends focused repair instructions back
+   to the Implementer.
+
+The Red Team is deliberately outside that approval path. At the end of a
+cycle, the **Red Team** may read an already accepted change adversarially. It
+never supplies a required `GO`, and neither the commit nor the end of the
+cycle waits for its answer.
+
+This is why the Red Team is optional. The Architect already performs the
+mandatory audit before accepting a fix, so Architect and Implementer can
+complete a ticket without a third bot. Red Team spends additional tokens to
+provide a second, adversarial look afterward. Use that extra check when the
+budget permits it; use `--skip-redteam` when it does not. Omitting Red Team
+does not reduce the Architect's planning or audit duties.
+
+If the old bug remains, the Red Team writes a detailed local note and returns
+`REOPEN`. If a separate bug is found during an allowed discovery task, it
+returns `NEW TICKET`. The Architect immediately links that note from the
+backlog and performs only the required bookkeeping. The Architect does not
+repeat the investigation at that moment.
+
+Later, when that ticket reaches the front of the permitted priority order,
+the Architect uses the Red Team note to judge the evidence and write the next
+Implementer plan. The note must therefore explain the bug to both a human and
+the Architect: what should happen, what happens instead, a reproducible
+example, the affected files and behavior, realistic impact, raw evidence,
+uncertainty, and the proposed acceptance check. This transfers the completed
+investigation and saves Architect tokens for prioritization, design, and
+audit.
+
+The Red Team may use a more capable model than the Architect. That can improve
+the finding, but it does not change the authority boundary. Persuasive evidence
+earns attention; model identity does not grant a veto or permission to edit
+the backlog.
 
 ### The thinking roles must finish the plan
 
@@ -378,9 +426,12 @@ python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
 
 A Red Team finding must be equally useful: it explains why the problem happens
 and provides an ordered candidate repair plus a test that prevents the same
-problem from returning. It checks that proposal with `handoff_contract.py
-redteam`. The proposal goes back to the Architect first. Only the Architect
-may adopt it and issue the final directive the Implementer must follow.
+problem from returning. It checks that proposal with
+`python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md`. The
+[persuasive finding template](../.codex/REDTEAM_ROLE.md#persuasive-finding-record)
+lists the required explanatory sections. The proposal goes back to the
+Architect first. Only the Architect may adopt it and issue the final directive
+the Implementer must follow.
 
 If a directive is missing, contradictory, or leaves open a choice that could
 change the result, the Implementer stops and reports the gap.
@@ -439,14 +490,21 @@ inherit that authority.
 
 ### When does the Red Team run?
 
-In the default three-role setup, the Red Team role is available for each
-ticket's normal review. Enabling the role does not start a review. Sol runs
-only after the Architect saves an internal `to-sol` message. That review
-covers the named saved Git version or change and the behavior directly
-affected by it.
+In the default three-role setup, the Red Team role is available for the later
+review of closed tickets and for an explicitly admitted discovery task.
+Enabling the role does not start a review. Sol runs only after the Architect
+saves an internal `to-sol` message. That review covers the named saved Git
+version or change and the behavior directly affected by it.
+
+At the end of a cycle, the Architect sends a bounded Red Team review for each
+ticket closed during that cycle. This advisory review does not delay the
+Architect's earlier close or commit, and its return does not hold the cycle
+open. A remaining bug produces `REOPEN`; no approval is required when the Red
+Team finds no remaining bug.
 
 It does **not** turn a ticket review into a broad attack on the library. A
-widespread search happens only when the user explicitly writes:
+widespread search happens only when the user begins the request with the
+explicit command:
 
 ```text
 Please instruct the Red Team to do a widespread search for ...
@@ -462,7 +520,7 @@ Implementer. In plain terms, the finding cannot change code by itself; the
 Architect must decide whether to use it.
 
 `--skip-redteam` removes that optional role for one watch. It does not weaken
-the Architect's evidence review.
+the Architect's evidence review, and it does not invent a Red Team result.
 
 ## Choose which discoveries may become tickets
 
@@ -494,22 +552,112 @@ Every discovery result records five items:
 5. whether the result meets the user's setting.
 
 The Red Team does not open a backlog ticket. It sends this assessment and its
-evidence to the Architect. The Architect accepts, upgrades, or downgrades the
-rating with a written reason, then records the final `GO` or `NO-GO` ticket
-decision. This gives the Architect the final decision without hiding the Red
-Team's original assessment.
+evidence to the Architect. A finding that should become separate work begins
+with the prominent line `Backlog action: NEW TICKET`. The Architect
+immediately adds that ticket to the backlog so it cannot be lost, then studies
+the evidence and may accept, upgrade, or downgrade the proposed rating with a
+written reason. This keeps the Red Team's original assessment visible while
+leaving the final classification with the Architect.
+
+The backlog has one additional bug classification: **Critical**. It is not a
+command-line choice and the Red Team never assigns it. Only the Architect may
+use Critical after evidence shows that a current bug broadly breaks a central
+library workflow or systematically invalidates the library's scientific
+results. High is not automatically Critical. Urgency, difficulty, or a desire
+for another Implementer is never enough.
+
+The backlog also distinguishes a **Bug fix** from **New functionality**. A
+feature may be High, Medium, or Low but never Critical. Critical bugs come
+first. A user-designated High feature comes before High bugs; High bugs come
+before a Medium feature. A Low feature waits for Critical, High, and Medium
+bug fixes. Saying “after the backlog is closed” makes the feature Low and
+makes every ticket already open at that moment a prerequisite.
 
 The setting controls whether a newly found problem becomes separate work. It
 does not make an unsafe current change acceptable: a defect in the named
 change can still make that change `NO-GO`. It also does not widen the search.
 A library-wide search still needs the user's explicit “Please instruct the
 Red Team to do a widespread search for ...” request to the Architect.
+That request is automatically Low and waits until no Critical, High, or
+Medium ticket is open. A broad search for optional new problems should not
+delay known non-Low work.
 
 `--fix-only` is stronger than every severity value and permits no discovery.
 A two-role watch started with `--skip-redteam` or `--no-red-team` has no Red
-Team. A discovery is also refused when ten or more known items are waiting;
-close recorded work first. The [tool guide](tools/README.md#choose-the-minimum-discovery-severity)
+Team. A discovery is also refused when ten or more open Critical, High, and
+Medium tickets are recorded; Low tickets and waiting mailbox files do not
+count toward that limit. Close recorded work first. The [tool guide](tools/README.md#choose-the-minimum-discovery-severity)
 shows the exact commands and the saved ticket lines.
+
+## Close or reopen a ticket
+
+The normal path does not wait for Red Team approval. The Architect sends the
+plan, the Implementer makes and tests the change, and the Architect checks the
+evidence. If the evidence earns `GO`, the Architect closes the ticket and
+commits the accepted change immediately.
+
+At the end of a cycle, the Red Team reviews tickets closed during that work
+period. This is an advisory check after the Architect's decision. If no bug
+remains, no Red Team approval is required. If a concrete bug remains, the Red
+Team returns a formal `REOPEN` assessment with its evidence.
+
+Every ticket also contains an integer named **Red Team reopen count**. It
+starts at `0` and never resets. Every formal `REOPEN` assessment adds one,
+even if the Architect later decides that the Red Team's objection was
+mistaken or repeated old evidence.
+
+The number therefore records the Red Team's attempts, not just the attempts
+the Architect accepted.
+
+The bookkeeping happens first so a concern cannot be missed. When the Red
+Team returns `REOPEN`, the Architect immediately moves the ticket back to the
+Open section, increases the integer, preserves the Red Team note link, and
+acknowledges receipt. This first step does not reproduce the bug or analyze
+the proposal. It is deliberately short so the watcher can continue.
+
+When the reopened ticket later becomes the next permitted item in the
+priority-ordered backlog, the Architect reads the detailed Red Team note,
+performs any targeted verification needed to judge it, and makes the final
+`GO` or `NO-GO` decision. A strong Red Team note saves the Architect from
+reconstructing the investigation and reserves Architect tokens for deciding
+the design and writing the Implementer directive.
+
+For this later assessment, `GO` means that the Architect accepts the Red
+Team's evidence: the ticket stays open for repair. `NO-GO` means that the
+evidence does not justify more work: the Architect closes the ticket again
+and records why. These labels judge the Red Team proposal; they are separate
+from the earlier Architect audit that approved and committed the Implementer
+fix. The Red Team proposes; the Architect decides.
+
+After the second `REOPEN`, the comparison must explicitly say what evidence
+is new. Each later attempt receives a stricter comparison so repeating the
+same objection cannot keep work moving in a circle. The Architect may lower
+the ticket's priority when the evidence no longer supports its earlier
+urgency. The sixth `REOPEN` changes the ticket to Low automatically, even if
+it was previously Critical or High.
+
+For example, suppose a checkpoint ticket has reopen count `0`. The Red Team
+returns `REOPEN` because one saved file lacks an axis label. The Architect
+moves the ticket to Open, changes the count to `1`, and records the Red Team
+note without checking the claim during that bookkeeping step.
+
+If a later closure review returns `REOPEN` for the same missing label, the
+count becomes `2`. When the ticket reaches the front of its permitted priority
+group, the Architect must compare the new file and command with the first
+report. A copied report with no new failing file can receive `NO-GO`; a newly
+demonstrated failure can receive `GO` and exact repair instructions.
+
+A **cycle** is one measured work period for the watcher. It starts when the
+watcher starts, or after the preceding safe-stop countdown, and reaches its
+next stopping point after five AI jobs finish or 15 minutes pass.
+
+A Red Team review does not hold the cycle open and never blocks the
+Architect's close or commit. A review result may arrive after the watcher has
+finished that cycle. A two-role run may implement, test, close, and commit
+through the same Architect decision; it simply performs no Red Team review.
+The
+[cycle appendix](tools/README.md#faq-b2-cycle-count) explains the stopping
+commands.
 
 ## Notes, tests, and gates
 
@@ -526,8 +674,9 @@ The three checking tools have different jobs:
   [test guide](tests/README.md) explains each test file and gives the commands
   that run it.
 
-- A **gate** groups related tests before the Architect decides `GO` or
-  `NO-GO`. For example, the dataset-publication gate runs the
+- A **gate** is a larger named check whose required result is written down
+  before it runs. A gate may run tests, compare a scientific answer, or use
+  configured data or hardware. For example, the dataset-publication gate runs
   44 small publication tests. One test changes an already-copied file while a
   second file is being copied and requires the operation to stop. The gate
   prints `PASS` or `FAIL` for each of its six required results. Before the
@@ -547,8 +696,10 @@ any tracked documentation it requires. The Architect combines intermediate
 branch commits before adding the fix; Git calls this a **squash**. Intermediate
 attempts do not get their own main commit.
 
-Local status updates and unrelated workflow-rule edits also stay out of
-`main`.
+Local status updates stay out of `main`. A workflow-rule change that is not
+part of the scientific or code fix stays out of that fix commit. When the rule
+is durable repository knowledge, the Architect reviews and commits it later
+as a separate Architect-only change.
 
 Exactly eleven Markdown notes are permanent repository knowledge:
 
@@ -577,6 +728,30 @@ explicit, teachable Python even when a ticket has a character-change limit.
 The backlog, dated reviews, incident reports, state notes, handoff registers,
 mailbox files, and relay logs are local working records. Do not add them to a
 GitHub commit.
+
+A clean clone therefore has no `ai/notes/backlog.md`. Before the first ticket
+is admitted, the Architect creates it from the paste-ready skeleton and exact
+ticket template in
+[`conventions-and-workflow.md`](notes/conventions-and-workflow.md#recreate-the-local-backlog-consistently).
+The user does not have to remember a private format, and two users receive the
+same headings, priorities, ticket types, links, and human explanations.
+
+### Protect the local backlog
+
+Only the Architect may edit `ai/notes/backlog.md`. The Architect protects its
+exact bytes with an Architect-owned SHA-256 check. SHA-256 produces a short
+fingerprint: changing even one character produces a different result.
+
+Before accepting work from another role, the Architect confirms that the
+backlog still has the expected fingerprint. After the Architect deliberately
+adds, closes, reopens, or reclassifies a ticket, the Architect checks the
+human-readable entry and then records the new expected fingerprint. The
+Implementer and Red Team do not edit either the backlog or the saved value
+used to check it. This is protection against accidental edits, not a claim
+that a checksum can defeat a deliberately malicious program.
+
+The [backlog guard guide](tools/README.md#protect-the-local-backlog) gives the
+exact `check`, `initialize`, and `seal` commands.
 
 The Implementer and Red Team never edit these eleven notes, regardless of the
 ticket type. The Architect decides whether an accepted change modifies a
@@ -818,34 +993,34 @@ Sol. Existing Sol messages remain untouched for a later normal watch.
 
 ### FAQ D1. Why can the tool refuse a new Red Team search? <a id="appendix-d--what-is-the-demand-guard"></a>
 
-The tool counts two exact kinds of recorded work:
+The tool reads the classified open-ticket index in `ai/notes/backlog.md`:
 
 ```text
-waiting mailbox messages + lines that begin “- OPEN” in ai/notes/backlog.md
+Critical tickets + High tickets + Medium tickets
 ```
 
-The documentation calls this sum **total demand**. If ten or more existing
-items are already waiting, the tool refuses a request for Sol to search for a
-new problem. This prevents another discovery request from creating still more
-work while many known items remain unfinished. A library-wide search still
-requires the user's explicit request to the Architect.
+If this count is ten or more, the tool refuses a request for Sol to search for
+a new problem. Low tickets do not count. Waiting mailbox files are reported as
+queue depth, but they do not change this decision. This prevents optional new
+work from growing while important accepted work remains unfinished.
 
-The new search does not count against itself: with nine existing items, it
-may be accepted as the tenth. The tool checks again just before starting it.
-If ten other items exist by then, it refuses the search and tries to move its
-message to `failed/`.
+An unclassified `- OPEN` line also refuses discovery until the Architect adds
+its priority and type. This prevents a spelling or formatting mistake from
+hiding work from the limit.
 
-Ask the Architect to put the proposed search at the end of
-`ai/notes/backlog.md`. The Architect retries it only when total demand is
-below ten, including any `- OPEN` line added for this proposal.
-Sol may still review or help finish a specific known item. Work that closes a
-known item may continue.
+The refused proposal remains a local deferred candidate without a countable
+`- OPEN` marker. After the count drops below ten, the Architect may send the
+search and classify any supported finding in the proper priority group. Work
+that closes a known item may continue.
+
+A widespread search is stricter. It is automatically Low and starts only when
+the Critical, High, and Medium count is zero.
 
 ```mermaid
 flowchart TD
-  Q["Count waiting mailbox files that the watcher can send"] --> B["Count backlog lines beginning - OPEN"]
-  B --> N["Add the two counts"]
-  N --> T{"Are ten or more items already waiting?"}
+  B["Count open Critical tickets"] --> H["Add open High tickets"]
+  H --> M["Add open Medium tickets"]
+  M --> T{"Is the count 10 or more?"}
   T -->|"no"| O["A new search may start"]
   T -->|"yes"| X["Refuse only a search for a new problem"]
   X --> C["Work on a known item may continue"]
@@ -853,9 +1028,14 @@ flowchart TD
 
 ### FAQ D2. When may Sol implement instead of review? <a id="faq-d2-second-implementer"></a>
 
-Having ten unfinished items does not automatically change Sol's role. Ask the
-Architect if you want Sol to implement a ticket. The Architect writes the
-validated directive and internal assignment. The
+Sol may implement only during an emergency: more than one open Critical bug,
+or more than ten open High bugs. High features, Medium work, Low work, and
+waiting mailbox files do not count. The runtime and manual relay refuse this
+role outside an emergency.
+
+The emergency does not change Sol's role automatically. Ask the Architect to
+choose one named ticket. The Architect writes the validated directive and
+internal assignment. The
 first non-empty line after the required ticket line selects Sol's role for
 this message. One optional line beginning `### ARCHITECT_HANDOFF` may appear
 between them. To select the second-Implementer role, that first non-empty
@@ -875,6 +1055,9 @@ The declaration selects the role; it does not by itself permit an edit. Sol
 may begin editing only after the cited Architect `Implementation directive`
 passes validation. That directive must say what to change, how to change it,
 and which tests must pass.
+
+Only the Architect may classify a bug Critical. The Architect must not turn a
+High bug into Critical merely to create the emergency that permits this role.
 
 Otherwise Sol returns a blocker to the Architect. After valid
 second-Implementer work, Sol follows `.claude/OPUS_ROLE.md` and sends an

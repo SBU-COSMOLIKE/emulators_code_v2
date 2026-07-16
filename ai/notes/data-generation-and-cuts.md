@@ -13,13 +13,13 @@ the deeper rules needed by maintainers and automated development tools.
 A **checkpoint** is saved progress from an incomplete generator run.
 **Staging** selects, validates, and places saved rows into arrays used by
 training. A **sidecar** is a small companion file that records names, order,
-axes, or other facts about a larger data file. A **gate** is a registered
-acceptance command.
+axes, or other facts about a larger data file. A **gate** is a named
+validation job whose required result is written before it starts.
 
 A **publication transaction** turns one complete draft dataset into the
 dataset visible to readers without exposing a partial copy. A **slot** is the
-stable destination assigned to one dataset identity. A **generation** is one
-complete version stored in that slot; a **draft** remains writable, while a
+stable destination assigned to one append-stable request identity. A
+**generation** is one complete version stored in that slot; a **draft** remains writable, while a
 **sealed generation** no longer changes. A file **descriptor** is the
 operating system's handle for one open file.
 
@@ -29,12 +29,27 @@ their paths, lengths, and digests. The **active record** is
 the small `active.json` file that names the sealed generation readers must
 open. Replacing that record is the **active-pointer switch**.
 
+A **random-engine policy** names every random-number algorithm and the saved
+state needed to continue its sequence exactly. It is different from a seed,
+which chooses only the initial state.
+
 A **probe** names the requested physical output, such as background or CMB. A
 family **variant** selects one documented representation, such as native or
 Syren-base matter power. A **registry** is a fixed mapping of accepted names
 to their owners. A **canonical projection** is the documented subset of
 resolved settings, written in one stable order and encoding before its digest
 is calculated.
+
+Four identities carry a dataset into a saved emulator. **Request identity**
+describes the intended scientific setup and stays stable across a valid
+append. **Generation identity** binds that request to the exact sealed manifest
+and every semantic member from one generator run. **Staged-selection identity**
+binds both source generation identities, parameter rows, covariance, fixed
+facts, axes, payloads, cuts, split rule, and final training and validation row
+order.
+**Artifact identity** then binds that staged selection to the resolved model,
+training recipe, composition, and saved weights. The artifact note owns the
+last identity. A matching filename or array shape proves none of them.
 
 The **maximum-correlation policy** limits the largest absolute off-diagonal
 correlation in the covariance used by Gaussian Markov-chain Monte Carlo
@@ -85,6 +100,18 @@ drivers own only family physics and family-specific files:
 the script's own names, including `omegabh2` and `omegach2`, and contains plain
 resolved numbers.
 
+### CMB covariance publication
+
+The CMB covariance archive is a generated scientific dataset, not an emulator
+artifact. `compute_cmb_covariance.py` must write a complete temporary zipped
+NumPy archive (`.npz`), synchronize it, validate it, and only then rename it
+into the final location. An existing destination must always refuse before
+either file changes.
+
+A fault-injection check interrupts each publication boundary and requires the
+preceding valid archive to remain byte-identical and readable. A second run at
+an existing destination refuses before changing that file.
+
 The background generator evaluates each point with the standard Cobaya
 `model.logposterior(point, cached=False)` lifecycle. Other generators may keep
 a different lifecycle only when their gates prove that every intended
@@ -116,7 +143,7 @@ later cosmology is rejected.
 - A mutation that restores silent zip truncation or discards the lifecycle
   verdict must fail.
 
-## Sampling and dataset identity
+## Sampling and request or generation identity
 
 ### Rule
 
@@ -126,10 +153,12 @@ boundary-interior policy has moved each endpoint one representable value toward
 the interval interior. No boundary policy may depend on distance from zero.
 
 Temperature, maximum-correlation value and applicability, boundary policy,
-requested and resolved support, sampling algorithm, seed, complete
-random-generator state, ordered parameter names, family, mode, and all
-scientific settings are dataset identity. Coincident numeric bounds do not
-erase the requested policy.
+requested and resolved support, sampling algorithm, seed, random-engine
+policy, ordered parameter names, family, mode, scientific settings, and the
+target-producing physics implementations belong to request identity.
+Coincident numeric bounds do not erase the requested policy. The complete
+changing random-engine and continuation state belongs to the sealed generation
+and changes generation identity when an append creates a new generation.
 
 The complete generator-owned random state is checkpoint state. Append restores
 that state before drawing another row. Reinitializing from the seed is not
@@ -162,11 +191,13 @@ duplicate the original dataset.
 
 #### Rule
 
-A required native integer seed initializes an owned NumPy generator. The same
-owned generator supplies uniform draws, Gaussian walker initialization, sampler
-moves, and thinning or subselection. Process-global `np.random` draws are not
-part of the generator contract. The complete state, not merely the seed, is
-recorded for continuation.
+A required native integer seed initializes an owned NumPy PCG64 generator for
+parameter draws, Gaussian walker initialization, and unique-row selection.
+The emcee sampler owns a separate NumPy `RandomState` using MT19937 for its
+moves. Process-global `np.random` draws are not part of the generator contract.
+Continuation authenticates both random states, walker coordinates, walker log
+probabilities, and the unique-row-selection state; a seed alone is
+insufficient.
 
 #### Acceptance evidence
 
@@ -623,7 +654,9 @@ the old pointer before replacement and a complete new pointer afterward.
 One strict request schema binds mode, generator, family, probe, variant,
 sampling mode, temperature, boundary, maximum-correlation applicability,
 algorithm, seed, random-engine policy, ordered float32 parameter names,
-resolved configuration digest, and append-stable scientific-contract digest.
+resolved configuration digest, append-stable scientific-contract digest, and
+ordered semantic or content identifiers for every target-producing physics
+formula.
 Immutable registries bind probe to family and generator and sampling mode to
 algorithm and random-engine policy.
 
@@ -646,8 +679,9 @@ changes.
 
 #### Rule
 
-Every chain-only generation has five members: chain, parameter schema,
-covariance, ranges, and facts. Full generation adds failure state and:
+Every chain-only generation has six members: chain, parameter schema,
+covariance, ranges, facts, and authenticated continuation state. Full
+generation adds failure state and:
 
 | Family | Additional members |
 |---|---|

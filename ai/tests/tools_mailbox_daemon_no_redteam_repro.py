@@ -275,9 +275,12 @@ def arm_two_role_watch_preserves_sol(source=None):
     """The option runs both Claude roles and leaves Sol byte-identical."""
     with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
         messages = write_three_messages(mailbox=mailbox)
+        # Eleven High bug fixes create the emergency reminder in ordinary
+        # mode. --skip-redteam must suppress that reminder because this watch
+        # has deliberately disabled the entire Sol route.
         ledger.write_text("".join(
-            "- OPEN scratch item " + str(index) + "\n"
-            for index in range(8)), encoding="utf-8")
+            "- OPEN **HIGH** **BUG FIX** — scratch item "
+            + str(index) + "\n" for index in range(11)), encoding="utf-8")
         sol_before = file_identity(messages["sol"])
         captures = []
         install_harmless_children(daemon=daemon, captures=captures)
@@ -301,8 +304,7 @@ def arm_two_role_watch_preserves_sol(source=None):
             in output
             and "red-team route disabled; leaving 1 to-sol message queued "
             "and untouched." in output
-            and "Ask the Architect to give Sol separate implementation jobs"
-            not in output)
+            and "  emergency:" not in output)
 
         # A later normal dispatch must consume the exact deferred file.
         restart = daemon.process_backlog(dry_run=False)
@@ -1043,7 +1045,8 @@ def mutate_skip_activation_without_sequence_lock(source):
 def mutate_drop_skip_final_send_recheck(source):
     """Remove the Sol policy probe made inside sequence publication."""
     start = source.find(
-        "def send(agent, text, dry_run, ticket_kind=None, severity=None):")
+        "def send(agent, text, dry_run, ticket_kind=None, severity=None, "
+        "scope=None):")
     end = source.find("\ndef ", start + 1)
     if start < 0 or end < 0:
         return None
@@ -1098,6 +1101,26 @@ def probe_skip_post_flock_inode_check(source):
         source=source, verbose=False)
 
 
+def probe_disabled_mode_hides_emergency(source):
+    """A two-role demand report never advertises disabled Sol as help."""
+    daemon = load_daemon(source=source)
+    daemon.backlog_severity_counts = lambda: {
+        "critical": 2,
+        "high": 11,
+        "medium": 0,
+        "low": 0,
+        "high_bug_fix": 11,
+        "high_new_functionality": 0,
+        "unclassified": 0,
+        "problem": None,
+    }
+    daemon.report_landing_debt = lambda: None
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        daemon.report_demand(backlog=[], skip_redteam=True)
+    return "emergency:" not in stream.getvalue()
+
+
 def arm_source_mutations():
     """Kill one source mutant for every binding two-role contract."""
     source = DAEMON_PATH.read_text(encoding="utf-8")
@@ -1150,11 +1173,13 @@ def arm_source_mutations():
                 text,
                 "        skip_redteam=skip_redteam,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
+                "        discovery_scope=effective_discovery_scope,\n"
                 "        saved_discovery=(ticket_kind == \"discovery\"),\n"
                 "        saved_architect_request=(saved_architect_severity is not None))\n"
                 "    # The dynamic banner precedes",
                 "        skip_redteam=False,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
+                "        discovery_scope=effective_discovery_scope,\n"
                 "        saved_discovery=(ticket_kind == \"discovery\"),\n"
                 "        saved_architect_request=(saved_architect_severity is not None))\n"
                 "    # The dynamic banner precedes"),
@@ -1172,12 +1197,12 @@ def arm_source_mutations():
             arm_two_role_watch_preserves_sol,
         ),
         (
-            "disabled mode prints second-Implementer hint",
+            "disabled mode prints emergency second-Implementer reminder",
             lambda text: replace_exact(
                 text,
-                "    if total >= SECOND_IMPLEMENTER_THRESHOLD and not skip_redteam:\n",
-                "    if total >= SECOND_IMPLEMENTER_THRESHOLD:\n"),
-            arm_two_role_watch_preserves_sol,
+                "    if second_implementer_emergency(counts=counts) and not skip_redteam:\n",
+                "    if second_implementer_emergency(counts=counts):\n"),
+            probe_disabled_mode_hides_emergency,
         ),
         (
             "active mode permits Sol sends",

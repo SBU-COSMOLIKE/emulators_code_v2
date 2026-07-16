@@ -2,7 +2,7 @@
 
 Python style is a release condition, not a preference. This contract applies
 to every Python file saved by Git, the repository's version-control system:
-production code, command programs, tests, acceptance commands, tools,
+production code, command programs, tests, gate commands, tools,
 comments, docstrings, command help, diagnostics, and explanatory strings. Such
 a file is called **tracked** below.
 
@@ -28,11 +28,12 @@ element-by-element Python work.
 
 A numerical **data type (dtype)** states how values are represented, such as
 float32 or float64. A **schema** is the required fields, types, and meanings of
-a structured record. A **gate** is a decision checkpoint that must pass before
-work proceeds. A **gate registry** is the list that connects each named
-acceptance check to the command that runs it. **Dispatch** is the Architect's
-act of sending a complete instruction to the Implementer or Red Team. An
-**artifact** is a saved model publication containing weights and the facts
+a structured record. A **gate** is a named validation job whose required
+result is written before it starts. A **gate registry** is the list that
+connects each named gate to the command that runs it. **Dispatch** is the
+Architect's act of sending a complete instruction to the Implementer or Red
+Team. An
+**artifact** is a saved model result containing weights and the facts
 needed to rebuild them.
 
 `einsum` is the NumPy or PyTorch operation that expresses a tensor contraction
@@ -73,7 +74,7 @@ Do not use a person's name, personal pronouns, attributed personal quotations,
 dates, ticket chronology, or diary narration to justify a style rule. State
 the rule and the reason directly.
 
-## Architect gate before dispatch
+## Architect review before dispatch
 
 The implementation directive receives GO only after the Architect completes
 all applicable work below:
@@ -95,7 +96,10 @@ all applicable work below:
 6. Copy every applicable acceptance row from this contract into the directive.
    An unexplained `N/A` receives NO-GO.
 7. State the character-change ceiling. A zero ceiling value means unlimited.
-   A positive ceiling does not weaken any readability rule.
+   A positive ceiling counts additions plus deletions as Unicode code points
+   across the complete tracked ticket diff from its bound full base to clean
+   `HEAD`. A replacement counts both sides. An exact-boundary result is
+   accepted. The ceiling does not weaken any readability rule.
 
 The Architect returns NO-GO before dispatch when a consequential design or
 style choice remains unresolved.
@@ -333,7 +337,7 @@ The Implementer returns:
 
 Checkboxes without raw commands or inspected code do not count as evidence.
 
-## Architect gate before final verdict
+## Architect review before final verdict
 
 The Architect completes all steps below:
 

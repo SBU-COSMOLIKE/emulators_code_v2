@@ -13,11 +13,14 @@ A polynomial chaos expansion (PCE) is a polynomial surrogate. Neural PCE
 `H0` is the present-day Hubble expansion rate. A PDF is a Portable Document
 Format diagnostic file.
 
-An **artifact** is a saved emulator publication containing trained weights and
+An **artifact** is a saved emulator result containing trained weights and
 the facts needed to rebuild them. A **sidecar** is a small companion file that
 records names, order, or axes for a larger table. A **schema** is the required
 fields, types, and meanings of a saved record. **Provenance** is the saved
-record of the exact inputs and source artifact that produced a result.
+record of the exact inputs and source artifact that produced a result. An
+**identity** is the saved set of facts or byte fingerprints used to decide
+whether two datasets, runs, or artifacts are the same; it is not the
+mathematical identity matrix.
 
 A **population scale** is the population standard deviation of one output
 column, calculated with the number of rows rather than one fewer in the
@@ -35,8 +38,9 @@ comparisons among coordinate tokens. A **fine-tuning** run continues training
 from saved weights. Scalar outputs have names but no ordered physical axis, so
 the axis-dependent heads are not valid for scalar geometry.
 
-A **gate** is a registered acceptance command. A **fixture** is its fixed
-input setup. A **smoke check** is a short end-to-end run through real
+A **gate** is a named validation job whose required result is written before
+it starts. A **fixture** is its fixed input setup. A **smoke check** is a
+short end-to-end run through real
 generation, training, saving, and serving. A **control** is a valid case that
 must pass. A **mutation** deliberately restores forbidden behavior and must
 fail. **Catch power** is the demonstrated ability of a check to fail for that
@@ -321,6 +325,13 @@ values, alternate starts, or mismatched center/scale/fiducial/model widths
 refuse. Adapter validation repeats the invariant before an `lmax` request can
 be treated as coverage.
 
+Generator checkpoints save the configured consecutive axis beside the four
+spectrum stores as `<data-vector-root>_ell.npy`. The sidecar is exact
+one-dimensional `int64` data. Resume and append require that file and validate
+it before loading TT, TE, EE, or PP arrays. A missing, shifted, reversed,
+gapped, repeated, fractional, or same-width wrong axis refuses without
+changing any checkpoint file.
+
 #### Why
 
 Maximum multipole alone does not prove coverage. A gapped artifact could
@@ -333,7 +344,9 @@ Valid `2..L` controls pass. Gapped, start-at-three, duplicate, descending,
 fractional, and width-mismatch cases refuse with the first offending
 multipole. Two spectra may have different complete maxima and satisfy
 independent valid requests. A same-shaped HDF5 axis mutation must be caught
-before serving.
+before serving. `ai/tests/test_cmb_checkpoint_axis.py` separately proves that
+fresh generator allocation writes the exact sidecar and that checkpoint load
+refuses a missing or corrupt sidecar before reading spectra.
 
 ### Gaussian whitening
 
@@ -478,9 +491,18 @@ lensing-period contribution.
 #### Rule
 
 The adapter serves Cobaya's documented `get_Cl` contract. Dump temperature and
-unit convention are persisted scientific facts. Raw `muK2` output remains
-exact. Supported unit conversions derive from the stored temperature; default
-`FIRASmuK2` is not assumed identical by coincidence.
+unit convention are scientific facts. Raw `muK2` output remains exact. For a
+fixed `TCMB`, conversion uses the temperature saved with the artifact. When
+`TCMB` is a sampled input, conversion uses the exact accepted value for the
+current prediction. A missing, Boolean, nonfinite, or nonpositive temperature
+refuses before prediction state is published.
+
+For TT, TE, and EE, let `T` be that temperature in kelvin. The stored `muK2`
+amplitude factor is `T * 1e6`. The requested factors are `1`, `T * 1e6`, `T`,
+`2.7255e6`, and `2.7255` for units `1`, `muK2`, `K2`, `FIRASmuK2`, and
+`FIRASK2`. Multiply a stored spectrum by the square of the requested factor
+divided by the stored factor. PP remains dimensionless. Default `FIRASmuK2`
+is therefore never assumed equal to stored `muK2` by coincidence.
 
 Spectrum-specific `ell_factor` is
 `l(l+1)/(2*pi)` for TT, TE, and EE and
@@ -502,7 +524,8 @@ Predicted spectra are validated before publication:
 
 - Raw `C_l` requested in `muK2` remains exact.
 - TT/TE/EE and PP factor known answers pass at several multipoles.
-- FIRAS conversion matches a persisted-temperature known answer.
+- FIRAS conversion matches both fixed-temperature and sampled-temperature
+  known answers.
 - Real consumer lifecycles using default units or `ell_factor=True` pass when
   supported.
 - Missing or forged convention refuses before calculation.
@@ -845,46 +868,35 @@ Extreme synthetic inputs prove schema totality or mutation catch power; they do
 not by themselves prove that a reasonable reference cosmology has a wrong
 science result.
 
-## Dense covariance training extension
+## Dense covariance training is unsupported
 
 ### Rule
 
-A future explicit dense-CMB mode consumes persisted dense covariance blocks.
-The geometry applies the amplitude law first, then whitens by a persisted
-eigendecomposition so ordinary sum of squares equals
-`residual^T C^{-1} residual`. Diagonal mode remains the byte-identical default.
-Missing dense blocks, ill-conditioning, and invalid eigenvalues refuse.
-
-Roughness under a rotated basis requires an explicit rule before dense mode is
-enabled: either calculate roughness in the pre-rotation law basis or refuse the
-combination. Correction heads must use the real basis transform when dense
-geometry introduces one.
+Emulator training supports the diagonal CMB covariance path only. The separate
+CMB covariance generator may produce dense covariance for other scientific
+uses; that generator capability does not imply emulator-training support. A
+training configuration or saved emulator that requests dense covariance
+refuses before model construction.
 
 ### Reason
 
-A dense covariance can couple different multipoles, so a diagonal scale cannot
-represent its scientific metric. Using a diagonal loss with dense published
-blocks would train and report the wrong chi-squared while still producing
-finite results. Roughness is defined in ordered multipole space; applying it
-after an arbitrary eigenvector rotation would give it a different meaning.
+A dense covariance can couple different multipoles, so the supported diagonal
+scale cannot represent its scientific metric. Silently using the diagonal
+training path would report the wrong chi-squared while still producing finite
+results.
 
 ### Implementation boundary
 
-Dense mode is not advertised until the complete path exists. The geometry and
-persisted basis belong beside
-`emulator/geometries/cmb.py::CmbDiagonalGeometry`; score construction belongs
-in `emulator/losses/cmb.py::make_cmb_chi2`; configuration, loading, and family
-selection belong in `emulator/experiment.py::EmulatorExperiment.build_geometry`;
-and the covariance producer owns the dense blocks in
-`compute_data_vectors/compute_cmb_covariance.py`. Rebuild must extend
-`emulator/results.py::rebuild_emulator`. These owners must change as one
-explicit feature. A private partial implementation must remain unreachable
-from public configuration.
+The training configuration, geometry, loss, artifact, and rebuild path all
+enforce the same diagonal-only boundary. Dense emulator training requires a
+separate approved ticket and a deliberate permanent-note change; this section
+does not pre-authorize its design.
 
 ### Acceptance evidence
 
-Dense round trip, diagonal-off identity, persisted basis, conditioning refusal,
-and the chosen roughness rule are all executable before the mode is advertised.
+A diagonal control passes unchanged. A dense-training request refuses before
+model construction, while a dense covariance-generation request remains
+available to the separate covariance producer.
 
 ## Claims that must remain narrow
 

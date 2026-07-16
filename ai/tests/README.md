@@ -9,9 +9,11 @@ changing the original files.
 The AI development roles run a relevant test after making a related change and
 again before handing the result to the Architect. A user can run the same
 commands to see the result. A test answers one narrow question such as the two
-examples above. A gate groups related tests, such as all checks that accepted
-generated-data files cannot be changed, before the Architect decides `GO` or
-`NO-GO`. The next section explains why both levels are useful.
+examples above. A gate is a larger named check whose required result is stated
+before it runs. A gate may run tests, compare a scientific result, or use
+configured data or hardware. For example, the dataset-publication gate runs
+the tests that prove an accepted generated dataset cannot be changed. The next
+section explains why both levels are useful.
 
 Most checks run on the central processing unit (CPU) without training a model.
 Checks that need files create temporary copies and delete them afterward, so
@@ -107,7 +109,8 @@ module** is one Python file imported by the test runner.
 A **reproduction** is a stand-alone Python script that rebuilds a tool failure,
 often with temporary Git folders, files, locks, or simultaneous operations. A
 file lock lets only one running program own shared work at a time. A **gate**
-is a named acceptance check. The validation board lists and runs those gates.
+is a named validation job whose required result is written before it starts.
+The validation board lists and runs those gates.
 
 | Need | Location | Normal command | What it may require |
 | --- | --- | --- | --- |
@@ -687,6 +690,7 @@ mailbox watcher, and repository protection tools.
 
 | File | What it checks |
 | --- | --- |
+| `test_backlog_guard.py` | Creates a small local backlog and records the SHA-256 fingerprint of its exact bytes, just as the Architect does before and after an edit. An unchanged backlog must pass; a changed backlog must fail until the Architect supplies the previously accepted fingerprint and saves the new one. The test also proves that an Implementer or Red Team cannot authorize that update, and that a missing file, link, hard link, directory, oversized file, malformed saved record, or file changed during reading is refused instead of being mistaken for an approved backlog. |
 | `test_handoff_contract.py` | Writes sample Architect and Red Team instruction files, then passes them to the same validator used by the mailbox tools. A valid file must contain the ordered plan, exact files and commands, evidence destination, severity decision, and character limit; missing sections, placeholders, hidden Markdown, an oversized or non-UTF-8 note that holds the ticket details, or a different validator program must refuse without changing the instruction file. |
 | `test_mailbox_conditional_preamble.py` | Builds one prompt for a role that must send work onward and one terminal prompt for a role whose job ends there. Only the first may require a reply message; the terminal prompt must say that no reply is required and must not contain a second general instruction that contradicts that ending. |
 | `test_mailbox_daemon_architect_entrypoint.py` | Runs public `send` and `ping` commands in a temporary mailbox and inspects the files they create. A user request must create exactly one message to the Architect with the original text and chosen severity; public commands that address the Implementer or Red Team must refuse with no new file, while the watcher may still deliver the Architect's internal messages to those roles. |

@@ -41,7 +41,8 @@ ARCHITECT_BODIES = {
         "flow throughout the complete tested change."),
     "Role plan": (
         "- Roles: `Architect + Implementer + Red Team`\n"
-        "- Discovery severity: `medium`"),
+        "- Discovery severity: `medium`\n"
+        "- Review scope: `bounded`"),
     "Files and symbols": (
         "- `ai/tools/example.py::validate`: modify the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
@@ -171,35 +172,41 @@ class HandoffContractTests(unittest.TestCase):
         cases = (
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
-                "- Discovery severity: `high`",
+                "- Discovery severity: `high`\n"
+                "- Review scope: `bounded`",
                 {
                     "route": "three-role",
                     "uses_red_team": True,
                     "uses_sol_as_implementer": False,
                     "roles": "Architect + Implementer + Red Team",
                     "discovery_severity": "high",
+                    "review_scope": "bounded",
                 },
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
-                "- Discovery severity: `not-used`",
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `not-used`",
                 {
                     "route": "two-role",
                     "uses_red_team": False,
                     "uses_sol_as_implementer": False,
                     "roles": "Architect + Implementer",
                     "discovery_severity": "not-used",
+                    "review_scope": "not-used",
                 },
             ),
             (
                 "- Roles: `Architect + Sol as Implementer`\n"
-                "- Discovery severity: `not-used`",
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `not-used`",
                 {
                     "route": "sol-as-implementer",
                     "uses_red_team": False,
                     "uses_sol_as_implementer": True,
                     "roles": "Architect + Sol as Implementer",
                     "discovery_severity": "not-used",
+                    "review_scope": "not-used",
                 },
             ),
         )
@@ -215,19 +222,103 @@ class HandoffContractTests(unittest.TestCase):
         invalid_plans = (
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
-                "- Discovery severity: `not-used`",
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `bounded`",
                 "must name high, medium, or low",
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
-                "- Discovery severity: `medium`",
+                "- Discovery severity: `medium`\n"
+                "- Review scope: `not-used`",
                 "must use discovery severity `not-used`",
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
                 "- Discovery severity: `not-used`\n"
+                "- Review scope: `not-used`\n"
                 "- Runner override: `Red Team`",
                 "requires exactly these rows",
+            ),
+        )
+        for role_plan, message in invalid_plans:
+            with self.subTest(role_plan=role_plan):
+                with self.assertRaisesRegex(DirectiveError, message):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Role plan": role_plan}))
+
+    def test_architect_role_plan_binds_review_scope_without_prose_inference(self):
+        widespread = (
+            "- Roles: `Architect + Implementer + Red Team`\n"
+            "- Discovery severity: `low`\n"
+            "- Review scope: `widespread`")
+        parsed = validate_directive_text(
+            role="architect",
+            text=packet(role="architect", bodies={"Role plan": widespread}))
+        self.assertEqual(parsed["role_plan"]["review_scope"], "widespread")
+        self.assertEqual(parsed["role_plan"]["discovery_severity"], "low")
+
+        prose_only = packet(
+            role="architect",
+            bodies={
+                "Outcome": (
+                    "Do a widespread search is quoted here only as text; "
+                    "the structured field still binds a bounded review."),
+            })
+        parsed = validate_directive_text(role="architect", text=prose_only)
+        self.assertEqual(parsed["role_plan"]["review_scope"], "bounded")
+
+    def test_architect_role_plan_refuses_malformed_or_inconsistent_scope(self):
+        invalid_plans = (
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `medium`",
+                "exactly these rows",
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Review scope: `bounded`\n"
+                "- Discovery severity: `medium`",
+                "followed by one Discovery severity value",
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `medium`\n"
+                "- Review scope: `wide`",
+                "one Review scope value",
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `medium`\n"
+                "- Review scope: `not-used`",
+                "must use review scope `bounded` or `widespread`",
+            ),
+            (
+                "- Roles: `Architect + Implementer`\n"
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `bounded`",
+                "must use review scope `not-used`",
+            ),
+            (
+                "- Roles: `Architect + Sol as Implementer`\n"
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `widespread`",
+                "must use review scope `not-used`",
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `medium`\n"
+                "- Review scope: `widespread`",
+                "widespread review scope requires discovery severity `low`",
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `low`\n"
+                "- Review scope: `bounded`\n"
+                "- Review scope: `widespread`",
+                "exactly these rows",
             ),
         )
         for role_plan, message in invalid_plans:

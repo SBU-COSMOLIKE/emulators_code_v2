@@ -82,6 +82,7 @@ def scratch_daemon():
         }
         install_test_sol_topology_proof(daemon=daemon)
         os.makedirs(daemon.MAILBOX, exist_ok=True)
+        pathlib.Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
         yield daemon, root
 
 

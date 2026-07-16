@@ -28,7 +28,7 @@ A permanent-note change receives GO only when every statement below is true:
 2. The information belongs to one topic note in the map below. Existing text
    will be updated in place instead of receiving a chronological addendum.
 3. The source of truth is available in current code, a current configuration,
-   a scientific definition, a reproducible acceptance command, or an explicit
+   a scientific definition, a reproducible validation command, or an explicit
    user rule.
 4. Temporary ticket state, its place in the current work list, role
    conversation, and review chronology remain in local working records.
@@ -39,6 +39,15 @@ A permanent-note change receives GO only when every statement below is true:
    current design choice or prevents a known failed design from being repeated.
    The milestone is named by capability, not by date, saved repository
    version, review wave, or overnight narrative.
+7. The planned explanation serves both a future development model and a
+   physics undergraduate. An unfamiliar repository term is defined where it
+   appears, and a broad rule is followed by a real repository example when an
+   example makes the boundary easier to understand.
+8. A required behavior that the current code violates is not hidden inside a
+   permanent note. The durable rule stays in its topic note, while the
+   Architect creates or updates a local backlog ticket in the same turn. A
+   deliberate unsupported capability is stated as a present boundary, not as
+   promised future work.
 
 Any failed statement gives NO-GO. Record the material in a local ticket note
 instead.
@@ -58,6 +67,10 @@ The final permanent-note change receives GO only when all of these checks pass:
   recipe states what failure the test must distinguish.
 - Terms are defined at first use. Internal shorthand is removed or linked to a
   durable definition.
+- Abstract terms are tied to a concrete file, setting, command, input, or
+  observable result. For example, a saved-publication rule names the files
+  that must appear together instead of relying on the word **publication**
+  alone.
 - Detail is preserved when the detail can prevent a future regression. Large
   notes are acceptable. Diary entries are not.
 - The text contains no date or timestamp, no named person, no gendered
@@ -69,6 +82,10 @@ The final permanent-note change receives GO only when all of these checks pass:
   or source-control archaeology terminology.
 - Open work is not inferred from the permanent note. The local backlog and
   executable gates determine current work and current evidence.
+- The plain-language, neutral-audience, and anti-AI requirements in
+  [`readme-go-no-go.md`](readme-go-no-go.md) also govern permanent-note prose.
+  This shared writing standard does not give the Implementer or Red Team
+  permission to edit a permanent note.
 - All links resolve, the permanent-note set remains exactly eleven files, and
   the integrity guard is updated only for the deliberate accepted change.
 
@@ -123,7 +140,9 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
    and program-level lessons.
 3. **[`conventions-and-workflow.md`](conventions-and-workflow.md)** — Python,
    documentation, plotting, terminal, YAML, environment, and collaboration
-   rules.
+   rules, including the permanent bug-versus-feature classification, backlog
+   priorities and checksum practice, advisory Red Team reopening and finding
+   notes, discovery limit, and second-Implementer emergency rule.
 4. **[`python-changes-go-no-go.md`](python-changes-go-no-go.md)** — the
    mandatory style contract for every Python change.
 5. **[`models-and-designs.md`](models-and-designs.md)** — model families,
@@ -156,15 +175,18 @@ detail because the records describe temporary work.
 The Architect and Red Team provide the reasoning. A directive must resolve
 design choices and give the Implementer complete, ordered steps. The
 Implementer may use a simpler model and must return a blocker instead of
-inventing missing architecture. A Red Team repair remains a proposal until
-the Architect accepts or rejects the repair. The required fields in each
-role-to-role instruction are defined in `.claude/FABLE_ROLE.md` and
-`.codex/REDTEAM_ROLE.md`.
+inventing missing architecture. Architect acceptance closes and commits an
+Implementer fix without waiting for Red Team. A later Red Team finding remains
+advice: the Architect records its `NEW TICKET` or `REOPEN` bookkeeping first
+and assesses the detailed finding note only when priority brings the ticket
+forward. The required fields in each role-to-role instruction are defined in
+`.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
 
 Roles exchange instructions by saving and moving Markdown files through the
 mailbox folders. A received final message needs no artificial reply only when
-the message explicitly says that no reply is owed. The explicit binding TERMINAL/no-reply exception
-is narrow; an ambiguous message still requires a saved reply.
+the message explicitly says that it ends the exchange and no reply is owed.
+This is the only no-reply exception; an ambiguous message still requires a
+saved reply.
 `conventions-and-workflow.md` owns the complete rule.
 
 When unfinished work must move to another developer, package the local records

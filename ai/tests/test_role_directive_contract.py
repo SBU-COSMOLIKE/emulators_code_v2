@@ -103,6 +103,80 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("- `repo/path::test-name`:", self.redteam)
         self.assertIn("--max RUNTIME_N", self.redteam)
 
+    def test_redteam_finding_note_is_detailed_persuasive_and_advisory(self):
+        headings = (
+            "High-level summary",
+            "Affected behavior and code path",
+            "Reproduction and evidence",
+            "Impact and proposed severity",
+            "Review scope and exclusions",
+            "Proposed acceptance evidence",
+            "Uncertainty and counterevidence",
+            "Repair directive",
+        )
+        for name, source in (("Architect", self.architect),
+                             ("Red Team", self.redteam),
+                             ("workflow", self.conventions)):
+            normalized = " ".join(source.split())
+            for heading in headings:
+                with self.subTest(name=name, heading=heading):
+                    self.assertIn(heading, normalized)
+            self.assertIn(
+                "ai/notes/<plain-ticket-slug>-red-team-finding.md",
+                normalized)
+            self.assertIn("See further instructions at", normalized)
+
+        redteam = " ".join(self.redteam.split())
+        architect = " ".join(self.architect.split())
+        conventions = " ".join(self.conventions.split())
+        self.assertIn("Even if the Red Team is the most capable model",
+                      redteam)
+        self.assertIn("approve a commit, or veto", redteam)
+        self.assertIn("Architect books `NEW TICKET` or `REOPEN` immediately",
+                      redteam)
+        self.assertIn("Admission is bookkeeping", redteam)
+        self.assertIn("conserves Architect tokens", redteam)
+        self.assertIn("Fabricated evidence is a failed review", redteam)
+        self.assertIn("do not reproduce or substantively analyze", architect)
+        self.assertIn("Only when priority later brings that ticket forward",
+                      conventions)
+        ai_readme = " ".join(self.ai_readme.split())
+        self.assertIn("How the three bots work now", ai_readme)
+        self.assertIn("Red Team is deliberately outside that approval path",
+                      ai_readme)
+        self.assertIn("This is why the Red Team is optional", ai_readme)
+        self.assertIn("saves Architect tokens", ai_readme)
+        for prohibited_failure in (
+                "thin assertion", "rhetorical pressure", "inflated severity",
+                "diary", "fabricated"):
+            with self.subTest(prohibited_failure=prohibited_failure):
+                self.assertIn(prohibited_failure, redteam.lower())
+                self.assertIn(prohibited_failure, conventions.lower())
+
+    def test_backlog_guard_is_architect_owned_and_documented(self):
+        conventions = " ".join(self.conventions.split())
+        architect = " ".join(self.architect.split())
+        implementer = " ".join(self.implementer.split())
+        redteam = " ".join(self.redteam.split())
+
+        self.assertIn("Protect the Architect-owned backlog", conventions)
+        for command in (
+                "backlog_guard.py initialize",
+                "backlog_guard.py check",
+                "backlog_guard.py seal"):
+            with self.subTest(command=command):
+                self.assertIn(command, conventions)
+                self.assertIn(command, architect)
+        self.assertIn("A mismatch is `NO-GO`", conventions)
+        self.assertIn("records byte identity, not ticket truth", architect)
+        for name, source in (("Implementer", implementer),
+                             ("Red Team", redteam)):
+            with self.subTest(role=name):
+                self.assertIn("may read `ai/notes/backlog.md`", source)
+                self.assertIn("never edit", source)
+                self.assertIn("`initialize` or `seal`", source)
+                self.assertIn("ai/tools/backlog_guard.py", source)
+
     def test_discovery_severity_keeps_user_redteam_and_architect_roles(self):
         for phrase in (
                 "User severity setting",
@@ -119,8 +193,10 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("merely theoretical or improbable edge case",
                       self.redteam)
         self.assertIn("accepts, upgrades, or downgrades", self.redteam)
-        self.assertIn("Architect severity decision: accept|upgrade|downgrade",
-                      self.architect)
+        architect = " ".join(self.architect.split())
+        self.assertIn(
+            "Architect severity decision: accept|upgrade|downgrade",
+            architect)
         self.assertIn("Ticket decision: GO|NO-GO", self.architect)
         self.assertIn("The Red Team never", self.architect)
         self.assertEqual(mailbox_daemon.DEFAULT_DISCOVERY_SEVERITY, "medium")
@@ -207,13 +283,13 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("expected_max=expected_max", self.router)
         self.assertIn('budget = directive["character_change_budget"]',
                       self.router)
-        self.assertEqual(self.router.count("+ budget_prompt"), 4)
+        self.assertEqual(self.router.count("+ budget_prompt"), 3)
         self.assertIn("Zero removes the", router)
         self.assertIn("size cap only", router)
         self.assertIn("--severity", router)
-        self.assertIn("+ severity_prompt", router)
         self.assertIn(
-            '+ (severity_prompt if redteam_block else "")', router)
+            '+ (severity_prompt if role_plan["uses_red_team"] else "")',
+            router)
         self.assertIn("User severity setting for any new Red Team ticket",
                       router)
         self.assertIn("accepts, upgrades, or downgrades", router)
@@ -261,14 +337,24 @@ class RoleDirectiveContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown mailbox agent"):
             mailbox_daemon.agent_preamble(agent="user")
 
-    def test_manual_router_preserves_normal_and_second_implementer_roles(self):
+    def test_manual_router_audits_before_any_later_redteam_review(self):
+        router = " ".join(self.router.split())
         self.assertIn(".claude/OPUS_ROLE.md", self.router)
         self.assertIn(".codex/REDTEAM_ROLE.md", self.router)
         self.assertEqual(
             self.router.count('header="### IMPLEMENTER_HANDOFF:"'), 1)
         self.assertIn("INSTEAD OF Opus", self.router)
-        self.assertIn('header="### ARCHITECT_REDTEAM_HANDOFF:"', self.router)
-        self.assertIn("never directly to the Implementer", self.router)
+        self.assertNotIn(
+            'header="### ARCHITECT_REDTEAM_HANDOFF:"', self.router)
+        self.assertIn(
+            "this router never inserts Red Team between implementation and "
+            "the Architect's audit", router)
+        self.assertIn("Post-acceptance Red Team plan", router)
+        self.assertIn("Only afterward, create a", router)
+        self.assertIn(
+            "separate Architect-authored Red Team handoff", router)
+        self.assertIn(
+            "Do not wait for Red Team before this audit", router)
         self.assertIn("--section may name only the validated", self.router)
 
     def test_reader_facing_guide_explains_why_the_plan_is_detailed(self):
@@ -318,6 +404,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.ai_readme)
 
     def test_backlog_ticket_contract_is_human_first_and_count_safe(self):
+        normalized = " ".join(self.conventions.split())
         self.assertIn("### Backlog ticket GO / NO-GO", self.conventions)
         for required_part in (
                 "**High-level summary**",
@@ -327,15 +414,246 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 "**Technical record for development tools**"):
             with self.subTest(required_part=required_part):
                 self.assertIn(required_part, self.conventions)
-        self.assertIn("two or three sentences in ordinary language",
+        self.assertIn("at least three complete sentences in ordinary",
                       self.conventions)
-        self.assertIn("one linked index line begins with the exact",
+        self.assertIn("normal purpose and one concrete example",
+                      self.conventions)
+        self.assertIn("exactly one linked line for each unfinished",
                       self.conventions)
         self.assertIn("every index link resolves to exactly one detailed open",
                       self.conventions)
         self.assertIn("A workstation-only check stays open",
                       self.conventions)
         self.assertIn("Uses only `unit 8`", self.conventions)
+        self.assertIn("same turn as every state change", self.conventions)
+        self.assertIn(
+            "Architect acceptance then closes and commits it without waiting",
+            normalized)
+        self.assertIn("grouped in priority order: Critical first",
+                      self.conventions)
+        self.assertIn("A user-designated High feature comes before High bugs",
+                      self.conventions)
+        self.assertIn("Keep the five human-first parts", self.architect)
+        self.assertIn("Classify before ordering", self.architect)
+        self.assertIn("Architect GO closes without Red Team", self.architect)
+        self.assertNotIn("A GO retires the line immediately", self.architect)
+        self.assertNotIn("ledger stays countable one-liners", self.architect)
+
+    def test_local_backlog_recreation_contract_is_exact_and_fail_closed(self):
+        start = self.conventions.index(
+            "#### Recreate the local backlog consistently")
+        end = self.conventions.index(
+            "The Architect updates the ticket in the same turn", start)
+        contract = self.conventions[start:end]
+
+        exact_skeleton = (
+            "# Execution backlog\n\n"
+            "This file is local to this clone and is not committed to "
+            "GitHub. The Architect\n"
+            "recreates it from this contract and updates it whenever a "
+            "ticket changes.\n\n"
+            "## Contents\n\n"
+            "- [Open tickets](#open-tickets)\n"
+            "- [Closed tickets](#closed-tickets)\n\n"
+            "## How to read this backlog\n")
+        self.assertIn(exact_skeleton, contract)
+        self.assertIn(
+            "Each line beginning `- OPEN` represents one unfinished ticket",
+            contract)
+        self.assertIn(
+            "New discovery stops when ten or more Critical, High, and Medium",
+            contract)
+        self.assertIn(
+            "more than one Critical Bug fix or more than ten High\n"
+            "Bug fix tickets", contract)
+        for priority in ("Critical", "High", "Medium", "Low"):
+            with self.subTest(empty_priority=priority):
+                self.assertIn("No open " + priority + " tickets.", contract)
+        self.assertIn("No closed tickets.", contract)
+        self.assertIn(
+            "empty sentence and a ticket line never appear together", contract)
+        for earlier, later in (
+                ("# Open tickets", "## Open ticket index"),
+                ("## Open ticket index", "### Critical"),
+                ("### Critical", "### High"),
+                ("### High", "### Medium"),
+                ("### Medium", "### Low"),
+                ("### Low", "# Closed tickets")):
+            with self.subTest(earlier=earlier, later=later):
+                self.assertLess(contract.index(earlier), contract.index(later))
+
+        self.assertIn(
+            "- OPEN **PRIORITY** **TYPE** — "
+            "[Plain human title](#unique-anchor)", contract)
+        self.assertIn(
+            "`PRIORITY` is exactly `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`",
+            contract)
+        self.assertIn(
+            "`TYPE` is\nexactly `BUG FIX` or `NEW FUNCTIONALITY`", contract)
+        self.assertIn(
+            "`CRITICAL` with `NEW FUNCTIONALITY`\nis invalid", contract)
+        self.assertIn("does not copy an imported backlog\nblindly", contract)
+        self.assertIn("validates\nand normalizes it to this contract", contract)
+        self.assertIn(
+            "lowercase ASCII letters, digits, and hyphens", contract)
+        self.assertIn("must match byte for byte", contract)
+        self.assertIn("**Ticket type: BUG FIX.**", contract)
+        self.assertIn("**Ticket type: NEW FUNCTIONALITY.**", contract)
+        self.assertIn("**Severity: PRIORITY.**", contract)
+        self.assertIn("**Priority: PRIORITY.**", contract)
+
+        template_start = contract.index(
+            "Each detailed open ticket uses this exact heading order")
+        template_end = contract.index(
+            "The Architect writes a feature's user-supplied priority",
+            template_start)
+        template = contract[template_start:template_end]
+        for earlier, later in (
+                ('<a id="unique-anchor"></a>', "## Plain human title"),
+                ("## Plain human title", "### High-level summary"),
+                ("### High-level summary", "### Current status"),
+                ("### Current status", "### What is already fixed"),
+                ("### What is already fixed", "### What is missing"),
+                ("### What is missing", "<details>"),
+                ("<details>",
+                 "<summary>Technical record for development tools</summary>")):
+            with self.subTest(template_earlier=earlier,
+                              template_later=later):
+                self.assertLess(template.index(earlier), template.index(later))
+
+        self.assertIn("Three or more short, complete sentences", contract)
+        self.assertIn("normal\npurpose with a concrete example", contract)
+        self.assertIn("current failure", contract)
+        self.assertIn("user or scientific consequence", contract)
+        self.assertIn(
+            "Saved CMB progress can lose its multipole labels", contract)
+        self.assertIn("example,\nnot an admitted ticket", contract)
+
+        self.assertIn(
+            "To close a ticket, the Architect removes its one "
+            "index", contract)
+        self.assertIn("changes `**OPEN.**` to\n`**CLOSED.**`", contract)
+        self.assertIn("**Red Team reopen count: 0.**", contract)
+        self.assertIn("commits the accepted Implementer fix without waiting "
+                      "for Red Team", contract)
+        self.assertIn("At the end of each cycle, Red Team reviews", contract)
+        self.assertIn("Backlog action: REOPEN", contract)
+        self.assertIn("Nothing\nfor this ticket.", contract)
+        self.assertIn("Malformed backlog state always fails closed", contract)
+        self.assertIn("A malformed\nline is never ignored, guessed, or rewritten",
+                      contract)
+
+    def test_redteam_is_advisory_and_reopen_count_is_binding(self):
+        normalized = " ".join(self.conventions.split())
+        architect = " ".join(self.architect.split())
+        redteam = " ".join(self.redteam.split())
+
+        self.assertIn("Every ticket also keeps an integer named **Red Team "
+                      "reopen count**", normalized)
+        self.assertIn("It starts at `0` and never resets", normalized)
+        self.assertIn("quick bookkeeping", normalized)
+        self.assertIn("leave the deeper evidence review for a later "
+                      "Architect turn", normalized)
+        self.assertIn("The Architect still has the final word after that "
+                      "immediate bookkeeping", normalized)
+        self.assertIn("When the count becomes `6`", normalized)
+        self.assertIn("automatically Low", normalized)
+        self.assertIn("Red Team is always advisory", normalized)
+        self.assertIn("Architect never waits for Red Team before committing",
+                      normalized)
+        self.assertIn("watcher does not hold the cycle open", normalized)
+        self.assertIn("Backlog action: NEW TICKET", normalized)
+        self.assertIn("provisional priority", normalized)
+
+        self.assertIn("Count every formal Red Team reopening request",
+                      architect)
+        self.assertIn("immediately increment the integer", architect)
+        self.assertIn(
+            "Do this bookkeeping without reproducing or substantively "
+            "analyzing the finding", architect)
+        self.assertIn("A value greater than five automatically makes the "
+                      "ticket Low", architect)
+        self.assertIn("Exercise final authority after the quick reopening",
+                      architect)
+        self.assertIn("Red Team is advisory and never supplies a required "
+                      "GO", architect)
+        self.assertIn("close and commit that ticket immediately", architect)
+        self.assertIn("Backlog action: NEW TICKET", architect)
+
+        self.assertIn("## Advisory review after the Architect closes a ticket",
+                      self.redteam)
+        self.assertIn("Backlog action: REOPEN", redteam)
+        self.assertIn("Backlog action: NO CHANGE", redteam)
+        self.assertIn("restore the open ticket, increment the counter",
+                      redteam)
+        self.assertIn("never supplies a required GO", redteam)
+        self.assertIn("never blocks the Architect", redteam)
+        self.assertIn("Backlog action: NEW TICKET", redteam)
+        self.assertIn("marks the severity as provisional", redteam)
+        self.assertIn("Red Team does not edit the backlog", redteam)
+
+    def test_backlog_counts_do_not_mix_admission_and_emergency(self):
+        self.assertIn(
+            "Count open Critical, High, and Medium backlog\n   tickets",
+            self.conventions)
+        self.assertIn(
+            "Open Low tickets and waiting mailbox files do not count",
+            self.conventions)
+        self.assertIn(
+            "more than one\n   open bug is Critical or more than ten open "
+            "bugs are High",
+            self.conventions)
+        self.assertIn(
+            "High features,\n   Medium work, Low work, and waiting mailbox "
+            "files do not contribute",
+            self.conventions)
+        self.assertIn(
+            "An unclassified\n   open line fails closed", self.conventions)
+
+    def test_permanent_workflow_records_runtime_governance(self):
+        conventions = " ".join(self.conventions.split())
+        architect = " ".join(self.architect.split())
+        self.assertIn("there is no independent Red Team model option",
+                      conventions)
+        self.assertNotIn(
+            "different model to Architect, Implementer, or Red Team",
+            conventions)
+        for phrase in (
+                "### Discovery severity",
+                "Medium is the default",
+                "Harm and likelihood are separate judgments",
+                "### Ticket character limit",
+                "Unicode code points",
+                "An exact-boundary result is accepted",
+                "with no `--cycle` option, the watcher continues watching",
+                "20-second interrupt countdown",
+                "Fix-only mode permits work that closes an existing ticket",
+                "### Discovery demand and a second Implementer",
+                "cannot audit the same ticket",
+                "In normal advisory Red Team work, Sol does not edit tracked "
+                "files or create a commit",
+                "only for an explicit second-Implementer unit or another "
+                "separately authorized tracked unit",
+                "The configured CoCoA environment uses NumPy 1.x",
+                "### Tests, gates, and the validation board",
+                "shifts one saved multipole coordinate"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, conventions)
+        self.assertIn("emergency count does not change Sol's role automatically",
+                      architect)
+        self.assertIn("leaving Sol idle is not a dispatch failure",
+                      architect)
+        self.assertNotIn("an idle [S] lane", architect)
+
+    def test_project_note_records_role_cost_and_repository_ownership(self):
+        project = read("ai/notes/project-and-history.md")
+        normalized = " ".join(project.split())
+        self.assertIn("The role system is optional", normalized)
+        self.assertIn("token-heavy reading, editing, and test work", normalized)
+        self.assertIn("Authority belongs to the role, not to a model name",
+                      normalized)
+        self.assertIn("This repository owns the Python emulators", normalized)
+        self.assertIn("must not turn into a Fortran CAMB port", normalized)
 
     def test_gates_guide_keeps_tests_gates_and_board_concrete(self):
         self.assertIn("It is not limited to the cosmic-shear emulator",
@@ -364,13 +682,13 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn(contract_path, self.implementer_command)
         self.assertIn(contract_path, self.redteam)
         self.assertIn("before writing the directive", self.architect)
-        self.assertIn("Python-change review-time gate", self.architect)
+        self.assertIn("Python-change review-time check", self.architect)
         self.assertIn("hot or cold", self.architect)
         self.assertIn("Python style evidence", self.implementer)
         self.assertIn("full changed symbols", self.redteam)
         self.assertIn("style is a release condition", self.python_contract)
-        self.assertIn("Architect gate before dispatch", self.python_contract)
-        self.assertIn("Architect gate before final verdict",
+        self.assertIn("Architect review before dispatch", self.python_contract)
+        self.assertIn("Architect review before final verdict",
                       self.python_contract)
         self.assertIn("Hard NO-GO conditions", self.python_contract)
         self.assertIn("character budget", self.python_contract)

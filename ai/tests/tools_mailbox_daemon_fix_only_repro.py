@@ -23,6 +23,7 @@ DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 README_PATH = AI_ROOT / "tools" / "README.md"
 TICKET_HEADER = "MAILBOX-TICKET: "
 SEVERITY_HEADER = "MAILBOX-SEVERITY: "
+SCOPE_HEADER = "MAILBOX-SCOPE: "
 FIX_ONLY_BANNER = (
     "fix-only watch: active; close existing ledger lines only; create no "
     "discovery tickets or new backlog lines.")
@@ -77,17 +78,46 @@ def install_test_sol_topology_proof(daemon):
 
 
 @contextlib.contextmanager
-def scratch_daemon(open_count=0, create_mailbox=True, source=None):
-    """Point a fresh daemon at a disposable repository and exact ledger."""
+def scratch_daemon(open_count=0, create_mailbox=True, source=None,
+                   critical_count=0, medium_count=0, low_count=0,
+                   high_feature_count=0, reopen_count=0):
+    """Point a fresh daemon at a disposable classified backlog.
+
+    ``open_count`` retains its historical name and now means open High bug
+    fixes. The other arguments create exact ticket types needed by the two
+    independent severity-count tests. ``reopen_count`` writes the canonical
+    Red Team bookkeeping row in every generated ticket detail.
+    """
     with tempfile.TemporaryDirectory(prefix="mailbox-fix-only-") as tmp:
         root = pathlib.Path(tmp)
         ai_root = root / "ai"
         mailbox = ai_root / "notes" / "mailbox"
         backlog = ai_root / "notes" / "backlog.md"
         backlog.parent.mkdir(parents=True)
+        lines = []
+        detail_anchors = []
+        serial = 0
+        for label, count, ticket_type in (
+                ("CRITICAL", critical_count, "BUG FIX"),
+                ("HIGH", high_feature_count, "NEW FUNCTIONALITY"),
+                ("HIGH", open_count, "BUG FIX"),
+                ("MEDIUM", medium_count, "BUG FIX"),
+                ("LOW", low_count, "BUG FIX")):
+            for index in range(count):
+                serial += 1
+                anchor = ("scratch-" + label.lower() + "-"
+                          + ticket_type.lower().replace(" ", "-") + "-"
+                          + str(serial))
+                title = "Scratch " + label.lower() + " ticket " + str(index)
+                lines.append(
+                    "- OPEN **" + label + "** **" + ticket_type
+                    + "** — [" + title + "](#" + anchor + ")\n")
+                detail_anchors.append(
+                    '<a id="' + anchor + '"></a>\n## ' + title + "\n\n"
+                    "**Red Team reopen count: " + str(reopen_count)
+                    + ".**\n")
         backlog.write_text(
-            "".join("- OPEN scratch unit %d\n" % index
-                    for index in range(open_count)),
+            "".join(lines) + "\n" + "".join(detail_anchors),
             encoding="utf-8")
         if create_mailbox:
             mailbox.mkdir(parents=True)
@@ -151,12 +181,13 @@ def write_pending(daemon, name, body="counted pending unit\n"):
 
 
 def captured_send(daemon, agent, text, dry_run, ticket_kind=None,
-                  severity=None):
+                  severity=None, scope=None):
     """Call the production send path and capture its terminal output."""
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         outcome = daemon.send(agent=agent, text=text, dry_run=dry_run,
-                              ticket_kind=ticket_kind, severity=severity)
+                              ticket_kind=ticket_kind, severity=severity,
+                              scope=scope)
     return outcome, stream.getvalue()
 
 
@@ -196,8 +227,8 @@ def clean_process(stream, launches, command, cwd, env):
 
 
 def arm_threshold_edges_and_exact_header():
-    """Demand 9 permits discovery; demand 10 refuses it but permits closure."""
-    threshold = load_daemon().SECOND_IMPLEMENTER_THRESHOLD
+    """Nine non-Low tickets permit discovery; ten refuse only discovery."""
+    threshold = load_daemon().DISCOVERY_ADMISSION_THRESHOLD
     checks = []
 
     with scratch_daemon(open_count=threshold - 1) as (
@@ -209,7 +240,8 @@ def arm_threshold_edges_and_exact_header():
         exact = (len(pending) == 1
                  and read_text_exact(pending[0])
                  == (TICKET_HEADER + "discovery\n"
-                     + SEVERITY_HEADER + "medium\n\n"
+                     + SEVERITY_HEADER + "medium\n"
+                     + SCOPE_HEADER + "bounded\n\n"
                      "quietly seek one new fact\n"))
         checks.append(outcome and exact)
         print("threshold-minus-one outcome=" + str(outcome)
@@ -221,8 +253,8 @@ def arm_threshold_edges_and_exact_header():
             daemon, agent="sol", text="innocuous words only",
             dry_run=False, ticket_kind="discovery")
         refused = (not outcome and not mailbox.exists()
-                   and "ai/notes/backlog.md" in output
-                   and "END" in output
+                   and "Critical, High, and Medium" in output
+                   and "Low tickets do not count" in output
                    and "below" in output.lower())
         checks.append(refused)
         print("threshold-exact discovery_refused=" + str(refused))
@@ -240,7 +272,7 @@ def arm_threshold_edges_and_exact_header():
         checks.append(outcome and exact)
         print("threshold-exact closure_allowed=" + str(outcome and exact))
 
-    # Prove the threshold is total demand, not ledger-only or Sol-only.
+    # Mailbox queue depth is informational and cannot saturate discovery.
     with scratch_daemon(open_count=threshold - 3) as (daemon, _, _, _):
         write_pending(daemon, "0001-to-fable.md")
         write_pending(daemon, "0002-to-opus.md")
@@ -248,14 +280,33 @@ def arm_threshold_edges_and_exact_header():
         outcome, _ = captured_send(
             daemon, agent="sol", text="new finding", dry_run=False,
             ticket_kind="discovery")
-        checks.append(not outcome and len(daemon.pending_messages()) == 3)
-        print("mixed-lane exact-threshold refused=" + str(not outcome))
+        queue_excluded = outcome and len(daemon.pending_messages()) == 4
+        checks.append(queue_excluded)
+        print("mixed-lane queue excluded=" + str(queue_excluded))
+
+    # Low tickets are also excluded, while Medium tickets participate.
+    with scratch_daemon(open_count=threshold - 1, low_count=25) as (
+            daemon, _, _, _):
+        outcome, _ = captured_send(
+            daemon, agent="sol", text="new finding", dry_run=False,
+            ticket_kind="discovery")
+        checks.append(outcome)
+        print("low tickets excluded=" + str(outcome))
+    with scratch_daemon(open_count=threshold - 1, medium_count=1,
+                        create_mailbox=False) as (
+            daemon, _, mailbox, _):
+        outcome, _ = captured_send(
+            daemon, agent="sol", text="new finding", dry_run=False,
+            ticket_kind="discovery")
+        medium_counts = not outcome and not mailbox.exists()
+        checks.append(medium_counts)
+        print("medium ticket counted=" + str(medium_counts))
     return all(checks)
 
 
 def arm_refusal_is_zero_write():
     """Real and dry-run saturated refusals alter no path and call no reporter."""
-    threshold = load_daemon().SECOND_IMPLEMENTER_THRESHOLD
+    threshold = load_daemon().DISCOVERY_ADMISSION_THRESHOLD
     checks = []
     for dry_run in (False, True):
         with scratch_daemon(open_count=threshold,
@@ -276,14 +327,43 @@ def arm_refusal_is_zero_write():
                 and before == after
                 and not mailbox.exists()
                 and calls == []
-                and "ai/notes/backlog.md" in output
-                and "END" in output
+                and "Critical, High, and Medium" in output
+                and "Low tickets do not count" in output
                 and "below" in output.lower()
                 and "queued " not in output
                 and "would queue" not in output)
             checks.append(passed)
             print("zero-write dry_run=" + str(dry_run)
                   + " passed=" + str(passed))
+    return all(checks)
+
+
+def arm_second_implementer_emergency_boundaries():
+    """Only 2 Critical bugs or 11 High bugs unlock the extra Implementer."""
+    checks = []
+    cases = [
+        ("one-critical", {"critical_count": 1}, False),
+        ("two-critical", {"critical_count": 2}, True),
+        ("ten-high-bugs", {"open_count": 10}, False),
+        ("eleven-high-bugs", {"open_count": 11}, True),
+        ("many-high-features", {"high_feature_count": 25}, False),
+        ("low-and-medium", {"medium_count": 25, "low_count": 25}, False),
+    ]
+    assignment = (
+        TICKET_HEADER + "closure\n\n### ARCHITECT_HANDOFF\n"
+        "OpenAI Sol — this is a role as second Implementer for this unit.\n"
+        "Implement the assigned emergency fix.\n")
+    for label, arguments, expected in cases:
+        with scratch_daemon(**arguments) as (daemon, _, _, _):
+            counts = daemon.backlog_severity_counts()
+            emergency = daemon.second_implementer_emergency(counts=counts)
+            refusal = daemon.second_implementer_emergency_refusal(
+                message=assignment, counts=counts)
+            passed = (emergency is expected
+                      and ((refusal is None) is expected))
+            checks.append(passed)
+            print(label + " emergency=" + str(emergency)
+                  + " refusal=" + repr(refusal))
     return all(checks)
 
 
@@ -758,8 +838,8 @@ def arm_malformed_held_mode_fails_closed():
 
 
 def arm_admitted_discovery_does_not_count_itself():
-    """A discovery admitted at demand 9 still launches after it is queued."""
-    threshold = load_daemon().SECOND_IMPLEMENTER_THRESHOLD
+    """A discovery admitted at nine non-Low tickets still launches."""
+    threshold = load_daemon().DISCOVERY_ADMISSION_THRESHOLD
     checks = []
     previous = os.environ.pop("MAILBOX_FIX_ONLY", None)
     try:
@@ -781,7 +861,7 @@ def arm_admitted_discovery_does_not_count_itself():
                 and (mailbox / "done" / pending[0].name).is_file()
                 and "refused" not in output.lower())
             checks.append(admitted_launches)
-            print("demand-nine discovery queued-and-launched="
+            print("admission-nine discovery queued-and-launched="
                   + str(admitted_launches))
 
         with scratch_daemon(open_count=threshold,
@@ -794,9 +874,10 @@ def arm_admitted_discovery_does_not_count_itself():
             exact_threshold_refuses = (
                 not queued and before == tree_snapshot(root)
                 and not mailbox.exists()
-                and "END" in output and "below" in output.lower())
+                and "Critical, High, and Medium" in output
+                and "below" in output.lower())
             checks.append(exact_threshold_refuses)
-            print("demand-ten discovery refused="
+            print("admission-ten discovery refused="
                   + str(exact_threshold_refuses))
     finally:
         if previous is not None:
@@ -805,25 +886,12 @@ def arm_admitted_discovery_does_not_count_itself():
 
 
 def arm_concurrent_boundary_is_serialized():
-    """Two discovery sends from demand 9 publish exactly one message."""
-    threshold = load_daemon().SECOND_IMPLEMENTER_THRESHOLD
+    """Two sends at nine non-Low tickets both publish unique messages."""
+    threshold = load_daemon().DISCOVERY_ADMISSION_THRESHOLD
     with scratch_daemon(open_count=threshold - 1) as (daemon, _, _, _):
-        # If demand is checked outside the sequence critical section, both
-        # callers obtain the same stale value.  If checked under the lock, the
-        # first caller times out at this barrier, publishes, and the second
-        # observes the new root message.
-        original_count = daemon.backlog_ledger_count
-        barrier = threading.Barrier(2)
-
-        def synchronized_count():
-            value = original_count()
-            try:
-                barrier.wait(timeout=0.25)
-            except threading.BrokenBarrierError:
-                pass
-            return value
-
-        daemon.backlog_ledger_count = synchronized_count
+        # Publication is serialized only to allocate unique sequence numbers.
+        # A queued message is not an accepted backlog ticket, so the first
+        # publication must not make the second request fail admission.
         outcomes = []
         outcome_lock = threading.Lock()
 
@@ -840,10 +908,10 @@ def arm_concurrent_boundary_is_serialized():
         for thread in workers:
             thread.join(timeout=3.0)
         pending = [pathlib.Path(path) for path in daemon.pending_messages()]
-        passed = (sorted(outcomes) == [False, True]
-                  and len(pending) == 1
-                  and read_text_exact(pending[0])
-                  .startswith(TICKET_HEADER + "discovery\n")
+        passed = (sorted(outcomes) == [True, True]
+                  and len(pending) == 2
+                  and all(read_text_exact(path).startswith(
+                      TICKET_HEADER + "discovery\n") for path in pending)
                   and not any(thread.is_alive() for thread in workers))
         print("concurrent outcomes=" + repr(sorted(outcomes))
               + " pending=" + str(len(pending)))
@@ -1012,7 +1080,8 @@ def arm_fix_only_dispatch_and_propagation():
         print("fix-only fable binding=" + str(passed))
 
     refused_bodies = [
-        TICKET_HEADER + "discovery\nclose-sounding prose\n",
+        TICKET_HEADER + "discovery\n" + SEVERITY_HEADER + "medium\n"
+        + SCOPE_HEADER + "bounded\n\nclose-sounding prose\n",
         "no ticket header\n",
         "body first\n" + TICKET_HEADER + "closure\n",
         TICKET_HEADER + "Closure\n",
@@ -1058,7 +1127,8 @@ def arm_fix_only_dispatch_and_propagation():
     with scratch_daemon() as (daemon, _, mailbox, _):
         path = write_pending(
             daemon, "0008-to-sol.md",
-            TICKET_HEADER + "discovery\nseek a new finding\n")
+            TICKET_HEADER + "discovery\n" + SEVERITY_HEADER + "medium\n"
+            + SCOPE_HEADER + "bounded\n\nseek a new finding\n")
         launches = []
         outcome, _ = captured_dispatch(daemon, path, False, launches)
         prompt = launches[0]["command"][-1] if len(launches) == 1 else ""
@@ -1082,7 +1152,8 @@ def probe_pipeline_enforcement(source):
     with scratch_daemon(source=source) as (daemon, _, mailbox, _):
         path = write_pending(
             daemon, "0090-to-sol.md",
-            TICKET_HEADER + "discovery\nnew finding\n")
+            TICKET_HEADER + "discovery\n" + SEVERITY_HEADER + "medium\n"
+            + SCOPE_HEADER + "bounded\n\nnew finding\n")
         launches = []
         original_popen = daemon.subprocess.Popen
 
@@ -1229,8 +1300,34 @@ def probe_threshold_comparator(source):
     daemon = load_daemon(source=source)
     return daemon.sol_ticket_refusal(
         ticket_kind="discovery",
-        total=daemon.SECOND_IMPLEMENTER_THRESHOLD,
-        fix_only=False) is not None
+        admission_count=daemon.DISCOVERY_ADMISSION_THRESHOLD,
+        fix_only=False, discovery_severity="medium",
+        discovery_scope="bounded") is not None
+
+
+def probe_critical_emergency_strict(source):
+    """One Critical bug is insufficient and two are an emergency."""
+    daemon = load_daemon(source=source)
+    base = {
+        "critical": 1,
+        "high_bug_fix": 0,
+    }
+    two = dict(base, critical=2)
+    return (not daemon.second_implementer_emergency(counts=base)
+            and daemon.second_implementer_emergency(counts=two))
+
+
+def probe_high_emergency_strict_and_typed(source):
+    """Only eleven High bug fixes, not High features, are an emergency."""
+    daemon = load_daemon(source=source)
+    ten_bugs = {"critical": 0, "high_bug_fix": 10,
+                "high_new_functionality": 0}
+    eleven_bugs = dict(ten_bugs, high_bug_fix=11)
+    features = dict(ten_bugs, high_bug_fix=0,
+                    high_new_functionality=50)
+    return (not daemon.second_implementer_emergency(counts=ten_bugs)
+            and daemon.second_implementer_emergency(counts=eleven_bugs)
+            and not daemon.second_implementer_emergency(counts=features))
 
 
 def probe_truthy_whitespace(source):
@@ -1279,19 +1376,21 @@ def probe_missing_kind_refusal(source):
     """An unclassified Sol ticket remains fail-closed."""
     daemon = load_daemon(source=source)
     return daemon.sol_ticket_refusal(
-        ticket_kind=None, total=0, fix_only=False) is not None
+        ticket_kind=None, admission_count=0, fix_only=False) is not None
 
 
 def probe_fix_only_discovery_refusal(source):
     """Fix-only blocks discovery even below saturation."""
     daemon = load_daemon(source=source)
     return daemon.sol_ticket_refusal(
-        ticket_kind="discovery", total=0, fix_only=True) is not None
+        ticket_kind="discovery", admission_count=0,
+        fix_only=True, discovery_severity="medium",
+        discovery_scope="bounded") is not None
 
 
 def probe_early_zero_write(source):
     """The first policy check must run before mkdir and sequence locking."""
-    threshold = load_daemon(source=source).SECOND_IMPLEMENTER_THRESHOLD
+    threshold = load_daemon(source=source).DISCOVERY_ADMISSION_THRESHOLD
     with scratch_daemon(open_count=threshold, create_mailbox=False,
                         source=source) as (daemon, root, mailbox, _):
         previous = os.environ.pop("MAILBOX_FIX_ONLY", None)
@@ -1401,33 +1500,6 @@ def probe_post_flock_inode_check(source):
         source=source, verbose=False)
 
 
-def probe_candidate_subtraction(source):
-    """A queued discovery is excluded from its own dispatch demand."""
-    daemon_template = load_daemon(source=source)
-    threshold = daemon_template.SECOND_IMPLEMENTER_THRESHOLD
-    previous = os.environ.pop("MAILBOX_FIX_ONLY", None)
-    try:
-        with scratch_daemon(open_count=threshold - 1, source=source) as (
-                daemon, _, mailbox, _):
-            stream = io.StringIO()
-            with contextlib.redirect_stdout(stream):
-                queued = daemon.send(
-                    agent="sol", text="new finding", dry_run=False,
-                    ticket_kind="discovery")
-            pending = [pathlib.Path(path)
-                       for path in daemon.pending_messages()]
-            if not queued or len(pending) != 1:
-                return False
-            launches = []
-            dispatched, _ = captured_dispatch(
-                daemon, pending[0], False, launches)
-            return (dispatched and len(launches) == 1
-                    and (mailbox / "done" / pending[0].name).is_file())
-    finally:
-        if previous is not None:
-            os.environ["MAILBOX_FIX_ONLY"] = previous
-
-
 def arm_source_mutations():
     """Kill focused mutants for every policy boundary and propagation hop."""
     source = DAEMON_PATH.read_text(encoding="utf-8")
@@ -1437,10 +1509,28 @@ def arm_source_mutations():
             lambda text: replace_exact(
                 text,
                 '    if (ticket_kind == "discovery"\n'
-                '            and total >= SECOND_IMPLEMENTER_THRESHOLD):',
+                '            and admission_count '
+                '>= DISCOVERY_ADMISSION_THRESHOLD):',
                 '    if (ticket_kind == "discovery"\n'
-                '            and total > SECOND_IMPLEMENTER_THRESHOLD):'),
+                '            and admission_count '
+                '> DISCOVERY_ADMISSION_THRESHOLD):'),
             probe_threshold_comparator,
+        ),
+        (
+            "Critical emergency > becomes >=",
+            lambda text: replace_exact(
+                text,
+                '        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD',
+                '        >= SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD'),
+            probe_critical_emergency_strict,
+        ),
+        (
+            "High emergency > becomes >=",
+            lambda text: replace_exact(
+                text,
+                '        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)',
+                '        >= SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)'),
+            probe_high_emergency_strict_and_typed,
         ),
         (
             "truthy strip removed",
@@ -1537,20 +1627,6 @@ def arm_source_mutations():
             probe_post_flock_inode_check,
         ),
         (
-            "dispatch counts its own candidate",
-            lambda text: replace_exact(
-                text,
-                "        if any(os.path.abspath(item) == candidate\n"
-                "               for item in pending_before_claim):\n"
-                "            demand_before_claim = max(0, "
-                "demand_before_claim - 1)",
-                "        if any(os.path.abspath(item) == candidate\n"
-                "               for item in pending_before_claim):\n"
-                "            demand_before_claim = max(0, "
-                "demand_before_claim)"),
-            probe_candidate_subtraction,
-        ),
-        (
             "dynamic banner weakened",
             lambda text: replace_exact(
                 text,
@@ -1614,13 +1690,16 @@ def main():
     arms = [
         ("threshold/header", arm_threshold_edges_and_exact_header),
         ("refusal zero-write", arm_refusal_is_zero_write),
+        ("second-Implementer emergency",
+         arm_second_implementer_emergency_boundaries),
         ("classification", arm_classification_is_explicit_and_fail_closed),
         ("inherited fix-only", arm_inherited_fix_only_send),
         ("live-watch binding", arm_live_watch_binds_external_send),
         ("activation race", arm_activation_publication_is_serialized),
         ("mode path substitution", fix_only_path_substitution_is_refused),
         ("malformed held mode", arm_malformed_held_mode_fails_closed),
-        ("candidate demand", arm_admitted_discovery_does_not_count_itself),
+        ("queued discovery admission",
+         arm_admitted_discovery_does_not_count_itself),
         ("concurrent boundary", arm_concurrent_boundary_is_serialized),
         ("truthy/scope", arm_truthy_values_and_watch_scope),
         ("fix-only dispatch", arm_fix_only_dispatch_and_propagation),

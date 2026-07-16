@@ -15,8 +15,8 @@ by a check.
 A **directive** is the Architect's complete instruction for one unit. Its
 **Acceptance checklist** lists the checks and observations required for GO.
 An **exemption** records why one check does not apply. **Dispatch** is the act
-of sending that directive to another role. A **gate** is a decision checkpoint
-that must pass before work proceeds.
+of sending that directive to another role. A **gate** is a named validation
+job whose required result is written before it starts.
 
 YAML is the human-readable settings-file format used by the repository. A
 **parser** is a program that reads a format and rejects malformed input.
@@ -46,6 +46,12 @@ The target reader is a physics undergraduate who knows no AI-agent language
 and may know little Git. A reader may open any section directly instead of
 reading the file from the beginning. Each section must therefore explain the
 terms it needs at the place where it uses them.
+
+Architect-authored permanent-note prose follows this contract's local
+definition, repository-example, neutral-audience, and anti-AI requirements.
+README-only structure and visual rows do not apply to a permanent topic note.
+This writing rule does not give the Implementer or Red Team permission to edit
+any permanent note.
 
 Only the Architect issues `GO` or `NO-GO`. The Implementer supplies the
 change and its evidence. The Red Team may identify a problem and propose a
@@ -177,7 +183,7 @@ Any mismatch is `NO-GO` for the implementation unit. An intentional note
 update belongs to the Architect and becomes a future unit's new starting
 commit after it is reviewed and committed.
 
-## Gate 1: the instruction is complete
+## Review 1: the instruction is complete
 
 The Architect answers these questions before dispatch.
 
@@ -199,7 +205,7 @@ An Implementer may be Sonnet, Haiku, or an open-source model. The directive
 must be executable without retained chat, hidden design choices, or “use your
 best judgment.”
 
-## Gate 2: the reader can use the result
+## Review 2: the reader can use the result
 
 | Check | `GO` | `NO-GO` |
 | --- | --- | --- |
@@ -212,6 +218,7 @@ best judgment.”
 | One job per paragraph | Each paragraph explains one action, fact, warning, or consequence | One paragraph mixes setup, mechanism, exception, and recovery |
 | Manageable length | Ordinary prose is split before it becomes a wall of text; a paragraph over four sentences or about 100 words has a recorded reason to remain whole | Long prose is retained only because it is technically correct or appears in an appendix |
 | Parentheses | Parentheses contain a short definition, symbol, unit, or acronym | Removing a parenthetical would remove an essential rule or a second argument |
+| Neutral audience | Prose uses roles such as **user**, **Architect**, or **maintainer** only when the role matters | Prose encodes a named person's preferences, pronouns, ownership, or development diary |
 | Current state | The README or Python prose says what the library or symbol does now and what the reader should do now | It narrates migration history, ticket history, rejected designs, intermediate commits, or old paths |
 | Complete command | The reader knows prerequisites, working folder, command, expected result, and whether the command changes files; command help names required values and defaults | A command appears without enough context to run or interpret it safely |
 | Current limitation | A limitation states its present scope, consequence, and user action | It explains when the limitation was found or promises an unimplemented repair |
@@ -271,9 +278,9 @@ Examples:
 | “Zero mode drains the ledger.” | “With `--cycle 0`, the watcher exits only after no enabled message is waiting and no backlog line begins with `- OPEN`.” |
 | “The schema-1 identity is invalid.” | “The saved folder information came from an older version of the tool, so the current tool cannot safely choose a work folder.” |
 
-## Gate 3: structure and visuals help the reader
+## Review 3: structure and visuals help the reader
 
-This gate applies to READMEs. For a Python-only prose change, mark its rows
+This review applies to READMEs. For a Python-only prose change, mark its rows
 `not applicable: no README structure or visual changed` instead of silently
 omitting them.
 
@@ -284,7 +291,9 @@ omitting them.
 | Examples | YAML and code fences use real shipped structure and are valid when copied | A fence only resembles valid input or omits a required key |
 | Tables | Options and repeated field comparisons use columns with plain headings | Dense option lists are buried in prose or unexplained bullets |
 | Diagrams | A diagram makes a sequence, branch, comparison, or loop easier to see than prose alone | The diagram repeats a simple fact, has ambiguous labels, or needs more explanation than it saves |
+| Narrow screens | A sequence flows from top to bottom with short labels; the first diagram is a small mental model | The opening diagram presents the complete topology, or a left-to-right flow requires horizontal scrolling on a phone-sized view |
 | Mermaid rendering | GitHub-compatible rendering succeeds; punctuation and command-line flags are inside quoted labels; no label overlaps or is clipped | The source looks plausible but the rendered diagram was not inspected |
+| Display equations | GitHub-supported `$$ ... $$` blocks render, and nearby prose defines every symbol | Plain `[ ... ]` is used as pseudo-math, the equation was not rendered, or its symbols are unexplained |
 | Text fallback | The prose states every essential rule shown in a diagram | A reader must decode the diagram to learn a safety rule |
 | Appendix language | Appendices use the same concrete words, short paragraphs, and local definitions as the main guide | “It is only an appendix” is used to excuse specialist language |
 
@@ -293,7 +302,12 @@ review record names the relationship it clarifies. Folder ownership that fits
 in three bullets should remain three bullets. A multi-step mailbox life cycle
 usually benefits from a diagram.
 
-## Gate 4: every statement matches the project
+Sequential diagrams default to top-to-bottom flow because that shape remains
+readable on phones and tablets. A left-to-right diagram needs a recorded reason
+and inspection at a narrow width. The first diagram in a guide teaches the
+smallest useful mental model; a later appendix may show the complete topology.
+
+## Review 4: every statement matches the project
 
 These failures are immediate `NO-GO` because they can make a reader run the
 wrong command or believe a false result.
@@ -306,6 +320,7 @@ wrong command or believe a false result.
 | Defaults and exact output | Compare with live code. If repository-owned output is unclear, change the output, README quotation, and parity test together |
 | Internal links | Check every changed anchor and all links affected by a renamed heading; duplicate anchors are `NO-GO` |
 | Local assets | Confirm every image and other local asset exists at the linked path |
+| Equations | Render every changed display equation with GitHub-supported delimiters and confirm that the surrounding prose defines its symbols |
 | External links and citations | Open every new source. Verify its identity and confirm that it supports the sentence that cites it |
 | Numbers and thresholds | Trace each new number to code, a shipped file, a table, or a cited source |
 | Safety behavior | Confirm that shorter prose did not remove a failure case, ordering rule, timeout, refusal, or recovery step |
@@ -316,7 +331,7 @@ Never truncate a search that supports a negative claim. A command using
 `head` cannot prove that no stale path, undefined term, or prompt fragment
 exists later in the output. Count or inspect the complete result.
 
-## Gate 5: the prose is concrete, not AI-polished fog
+## Review 5: the prose is concrete, not AI-polished fog
 
 **Anti-AI writing does not mean deliberately rough writing.** It means that
 each sentence carries this repository's facts, the reader's action, or a
@@ -717,7 +732,7 @@ semicolon, passive verb, FAQ question, or technical word is never enough for
 `NO-GO`. Name the actual reader problem or repeated pattern. Do not flatten
 accurate README prose merely to satisfy an automated style score.
 
-## Gate 6: required evidence is complete
+## Review 6: required evidence is complete
 
 Every covered prose review records the applicable evidence below:
 
@@ -776,7 +791,7 @@ and the evidence that must be rerun. “Improve clarity,” “make it didactic,
 
 This contract turns two permanent policy notes into an operational decision:
 
-- `ai/notes/conventions-and-workflow.md`, section **README / didactics**;
+- `ai/notes/conventions-and-workflow.md`, section **README and teaching contract**;
 - `ai/notes/python-changes-go-no-go.md`, sections **Scope and decision
   authority** and **Teaching text inside Python**.
 

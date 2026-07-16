@@ -99,16 +99,25 @@ def scratch_daemon():
         yield daemon, root
 
 
-def runtime_hint_line():
-    """Exercise the threshold hint and return the line that shipped."""
+def runtime_emergency_line():
+    """Exercise the strict emergency reminder and return its exact line."""
     daemon = load_daemon()
-    daemon.backlog_ledger_count = lambda: daemon.SECOND_IMPLEMENTER_THRESHOLD
+    daemon.backlog_severity_counts = lambda: {
+        "critical": 2,
+        "high": 11,
+        "medium": 0,
+        "low": 30,
+        "high_bug_fix": 11,
+        "high_new_functionality": 0,
+        "unclassified": 0,
+        "problem": None,
+    }
     daemon.report_landing_debt = lambda: None
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         daemon.report_demand(backlog=[])
     lines = [line for line in stream.getvalue().splitlines()
-             if line.startswith("  hint: 10 or more items are waiting")]
+             if line.startswith("  emergency: 2 open Critical bugs")]
     return lines[0] if len(lines) == 1 else ""
 
 
@@ -189,13 +198,13 @@ def main():
     readme = README_PATH.read_text(encoding="utf-8")
     violations = terminal_literal_violations(source=source)
 
-    hint = runtime_hint_line()
-    expected_hint = (
-        "  hint: 10 or more items are waiting. Ask the Architect to give Sol "
-        "separate implementation jobs as a second Implementer, but only an "
-        "Architect message with the required declaration changes Sol's "
-        "role; otherwise Sol "
-        "remains the Red Team.")
+    emergency = runtime_emergency_line()
+    expected_emergency = (
+        "  emergency: 2 open Critical bugs and 11 open High bugs. The "
+        "Architect may give Sol a separate implementation job only because "
+        "more than 1 Critical or more than 10 High bugs are open. High "
+        "features never contribute. The exact Architect declaration is "
+        "still required; otherwise Sol remains the Red Team.")
     refusal = runtime_refusal_line()
     expected_refusal = (
         "refused 0001-to-opus.md: the whole body is the template placeholder "
@@ -224,9 +233,9 @@ def main():
     checks = {
         "shipped terminal literals": not violations,
         "runtime refusal": refusal == expected_refusal,
-        "runtime threshold hint": hint == expected_hint,
+        "runtime emergency reminder": emergency == expected_emergency,
         "runtime heartbeat": heartbeat == expected_heartbeat,
-        "README hint parity": readme.count(hint + "\n") == 1,
+        "README emergency parity": readme.count(emergency + "\n") == 1,
         "README heartbeat parity": readme.count(heartbeat + "\n") == 1,
         "separator mutation reds": separator_mutation_red,
         "all-caps mutation reds": emphasis_mutation_red,
@@ -238,7 +247,7 @@ def main():
             print("  line " + str(line) + " " + kind + ": " + repr(literal))
     if not all(checks.values()):
         print("  observed refusal: " + repr(refusal))
-        print("  observed hint: " + repr(hint))
+        print("  observed emergency: " + repr(emergency))
         print("  observed heartbeat: " + repr(heartbeat))
         return 1
     return 0

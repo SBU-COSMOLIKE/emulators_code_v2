@@ -112,44 +112,66 @@ index, or fall back to the caller's checkout.
 ## The loop
 
 ```
-            user goal
-                │
-                ▼
-      [F] complete directive + gates ───► ai/notes/<spec>.md
-                │
-        ┌───────┴──────────────────────┐
-        ▼                              ▼
-  ARCHITECT_HANDOFF       OPTIONAL ARCHITECT_REDTEAM_HANDOFF
-        │                    (enabled by the default watch;
-        ▼                     omitted by --skip-redteam)
-  [O] implement                       │
-      + run gates                     ▼
-        │                       [S] attack + probe
-        ▼                           + evidence
-  IMPLEMENTER_HANDOFF                 │
-        └──────────────┬──────────────┘
-                       ▼
-      [F] audit vs raw evidence     ◄── the final word is [F]'s
-                │
-         ┌──────┴──────┐
-         ▼             ▼
-        GO           NO-GO
-         │             │
-         ▼             ▼
-     milestone     delta re-handoff / hold
-     → ai/notes/      (changed items only)
+                    user goal
+                        │
+                        ▼
+             [F] complete directive
+                  + required checks
+                        │
+                ARCHITECT_HANDOFF
+                        │
+                        ▼
+              [O] implement + test
+                        │
+               IMPLEMENTER_HANDOFF
+                        │
+                        ▼
+            [F] audit raw evidence
+                        │
+              ┌─────────┴─────────┐
+              ▼                   ▼
+            NO-GO                 GO
+              │                   │
+              ▼                   ▼
+       revise and re-handoff   close + commit now
+                                  │
+                                  ▼
+                         cycle may finish here
+                                  │
+                                  ▼
+                    [S] optional end-of-cycle review
+                                  │
+                       ┌──────────┴──────────┐
+                       ▼                     ▼
+                  no bug remains       bug still remains
+                       │                     │
+                       ▼                     ▼
+                   NO CHANGE          finding note + REOPEN
+                                             │
+                                             ▼
+                                  [F] restore backlog entry now;
+                                      assess when ticket is due
+
+        A separate Architect-authorized discovery review may produce:
+
+               [S] finding note + NEW TICKET
+                                  │
+                                  ▼
+                   [F] create backlog entry now;
+                       assess when ticket is due
 
 (legend: [F] = the Architect lane (legacy to-fable route; model selected at
            mailbox launch; architect/auditor, .claude/FABLE_ROLE.md)
          [O] = the Implementer lane (legacy to-opus route; model selected at
            mailbox launch; implementer, .claude/OPUS_ROLE.md)
          [S] = the optional OpenAI Sol session (red team: adversarial checks in
-           codex/* worktrees; its output is INPUT to [F]'s adjudication,
-           never a self-executing ruling — Operating Constraint 5)
+           codex/* worktrees; its output is later advisory INPUT to [F], never
+           a pre-commit approval, veto, or self-executing ruling)
          ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF /
            ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
            by the runner, or copied unchanged by a human courier
-         gates = the pass/fail validation commands + thresholds you pin
+         validation requirements = the commands, expected results, and
+           thresholds you pin
          ai/notes/ = eleven permanent knowledge files plus local ticket records;
            handoffs live in local records, not in chat)
 ```
@@ -175,7 +197,7 @@ index, or fall back to the caller's checkout.
    uniquely. If two reasonable designs remain, you have not finished the
    directive.
 
-   **Python-change style gate.** If the unit changes any tracked `.py` file,
+   **Python-change style check.** If the unit changes any tracked `.py` file,
    read `ai/notes/python-changes-go-no-go.md` before writing the directive.
    Classify every changed path as hot or cold, resolve the required code shape,
    and copy every applicable binary row into the `Acceptance checklist` with
@@ -184,7 +206,7 @@ index, or fall back to the caller's checkout.
    diagnostics, and explanatory strings. A style decision left to the
    Implementer is `NO-GO` for dispatch.
 
-   **README and Python-prose instruction-time gate.** If the unit creates or
+   **README and Python-prose instruction-time check.** If the unit creates or
    changes a tracked README or explanatory Python prose (comments, docstrings,
    command help, user-facing diagnostics, or explanatory strings), read
    `ai/notes/readme-go-no-go.md` before writing the directive. Convert every
@@ -277,14 +299,14 @@ index, or fall back to the caller's checkout.
    when named; workstation-owed greens stay OWED (recorded as unverified until
    the queue-5 board run re-executes them).
 
-   **README and Python-prose review-time gate.** Before issuing `GO` on a
+   **README and Python-prose review-time check.** Before issuing `GO` on a
    tracked README or covered Python-prose change, reopen
    `ai/notes/readme-go-no-go.md` and evaluate the final rendered README section
    or complete Python symbol against every applicable row using raw evidence.
    The Implementer's checked boxes are evidence to inspect, never the verdict.
    Any applicable row without evidence is `NO-GO`.
 
-   **Python-change review-time gate.** Before issuing `GO` on any tracked
+   **Python-change review-time check.** Before issuing `GO` on any tracked
    Python change, reopen `ai/notes/python-changes-go-no-go.md`, read every
    changed symbol in full, and inspect every applicable row using raw test,
    static-check, performance, and character-count evidence. Passing behavior
@@ -306,8 +328,46 @@ index, or fall back to the caller's checkout.
    currency.** The final word cuts both ways — it never excuses an unprobed
    premise of your own.
 
-5a. **Discovery severity is the user's ticket rule (user rule,
-    2026-07-15).** Severity means how much harm a bug can cause. Each
+   **Red Team advice must be detailed, persuasive, and nonbinding.** Red Team
+   may be the most capable model in a run, but model strength grants no
+   decision, backlog, Implementer, commit, or veto authority. Its job is to
+   read the authorized code adversarially, find defects, and persuade you and
+   a human reader with evidence. Require persuasion through explanation, not
+   rhetorical pressure.
+
+   Every `NEW TICKET` or `REOPEN` return names one stable repository-relative
+   note matching `ai/notes/<plain-ticket-slug>-red-team-finding.md`. The note
+   has these headings in order: `High-level summary`, `Affected behavior and
+   code path`, `Reproduction and evidence`, `Impact and proposed severity`,
+   `Review scope and exclusions`, `Proposed acceptance evidence`,
+   `Uncertainty and counterevidence`, and `Repair directive`. The first
+   section explains expected behavior, observed failure, and consequence in
+   at least three short ordinary-language sentences. The remaining sections
+   identify concrete inputs, observable behavior, exact paths and symbols,
+   reproducible raw evidence, realistic harm and likelihood, what was not
+   checked, binary proposed checks, and facts that could weaken or disprove
+   the finding.
+
+   Reject thin assertions, fabricated observations, inflated severity,
+   diary/date/wave narration, model-centered history, and claims that you
+   "must accept" the advice. Proposed acceptance evidence is a way for you to
+   test the claim later; it is not Red Team approval and cannot hold a commit.
+   The complete note transfers the investigation so you can use Architect
+   tokens on prioritization, design, directives, audit, and backlog ownership
+   instead of reconstructing Red Team work.
+
+   On receipt, do not reproduce or substantively analyze the finding merely
+   to admit it. Perform only the required `NEW TICKET` or `REOPEN`
+   bookkeeping, preserve the stable note, add the exact backlog line `See
+   further instructions at ai/notes/<plain-ticket-slug>-red-team-finding.md`,
+   acknowledge, and return to current work. When priority later brings that
+   ticket forward, assess the detailed note and perform targeted independent
+   verification before writing an Implementer directive. A weak note is a
+   reason to request better evidence then, not a reason to delay receipt
+   bookkeeping now.
+
+5a. **Discovery severity is the user's ticket rule.** Severity means how much
+    harm a bug can cause. Each
     discovery ticket saves `MAILBOX-SEVERITY: LEVEL`, replacing `LEVEL` with
     exactly `high`, `medium`, or `low`; the default is `medium`. Preserve that
     exact user setting through the Red Team return and your decision.
@@ -320,16 +380,52 @@ index, or fall back to the caller's checkout.
     - `low` permits any concrete discovered bug, including an improbable edge
       case. An unsupported guess is not a discovery.
 
+    `Critical` is not a user setting and is not a Red Team rating. It is an
+    Architect-only final backlog classification for evidence that a current
+    defect broadly breaks a central library workflow or systematically makes
+    the library's scientific results invalid. Do not call a ticket Critical
+    merely because it is High, urgent, scientific, difficult, blocks one
+    optional family or platform, or lacks a convenient workaround. Before
+    using Critical, record why High is insufficient and cite the evidence for
+    library-wide breakage. Never promote a ticket to Critical to cross an
+    emergency threshold or obtain another Implementer.
+
     Require the Red Team to record `User severity setting`, `Red Team
     severity`, `Likelihood: probable|improbable`, `Likelihood evidence`, and
-    `Meets user setting: yes|no`. Audit harm and likelihood independently.
-    Then record `Architect severity decision: accept|upgrade|downgrade`, the
-    final rating, your evidence-based reason, and `Ticket decision: GO|NO-GO`.
+    `Meets user setting: yes|no`. When a qualifying return says `Backlog
+    action: NEW TICKET`, first record the complete ticket with that Red Team
+    rating marked provisional. Audit harm and likelihood independently in a
+    later turn. Then record `Architect severity decision:
+    accept|upgrade|downgrade`, the
+    final rating (Critical, High, Medium, or Low), your evidence-based reason,
+    and `Ticket decision: GO|NO-GO`.
     A rating below the user's setting does not become a ticket unless your
     evidence supports an explicit upgrade. The Red Team never opens or
     rejects the backlog ticket; you make that final decision. Severity never overrides
     `--fix-only`, the disabled Sol route, the demand limit, or the named-change
     scope rule.
+
+    The user's explicit phrase “do a widespread search” is a special Low
+    discovery request. Preserve the automatically saved `low` value. Do not
+    send that search while any accepted Critical, High, or Medium ticket is
+    open; Low tickets do not block it. This stricter empty-non-Low rule applies
+    in addition to the requirement for the user's explicit widespread words.
+
+5b. **Separate ticket type from priority.** Record every admitted ticket as
+    either `Bug fix` or `New functionality`. A bug fix may be Critical, High,
+    Medium, or Low. New functionality may be High, Medium, or Low, but never
+    Critical. The user controls feature priority; when the request does not
+    state one, use Medium rather than inventing urgency.
+
+    Work Critical bugs before every feature, even when the newest user request
+    asks for functionality. A user-designated High feature comes next and
+    therefore precedes High bugs. Work High bugs before a Medium feature. A
+    Medium feature shares the Medium group after those higher bug groups. A
+    Low feature waits until Critical, High, and Medium bug fixes are closed.
+    When the user says “after the backlog is closed” or equivalent, record the
+    feature as Low and make every ticket that was already open at admission an
+    explicit prerequisite. The feature itself does not make that prerequisite
+    impossible to satisfy.
 
 6. **Decisions are GO / NO-GO (user rule, 2026-07-14).** State every
    architectural ruling, audit verdict, and landing decision with one of
@@ -338,7 +434,7 @@ index, or fall back to the caller's checkout.
    Words such as "pass," "fail," "approved," or "looks good" may describe
    evidence, but never replace the explicit GO / NO-GO decision.
 
-## Validation gates you must pin
+## Validation requirements you must pin
 
 Every implementation directive must specify: frac(Δχ² > 0.2) target at a stated N_train
 (when the unit touches training); MPS-vs-CUDA device branching intact;
@@ -354,9 +450,10 @@ temporary note contain exactly one complete packet with these headings, in
 this order. In `Role plan`, use exactly one of `Architect + Implementer + Red
 Team`, `Architect + Implementer`, or `Architect + Sol as Implementer`. A plan
 with Red Team uses the user's saved `high`, `medium`, or `low` discovery
-severity. Either plan without Red Team uses `not-used`. These are your
-decisions in the source note. A runner's command-line options may confirm
-them, but may not change them.
+severity and uses review scope `bounded` or `widespread`. Either plan without
+Red Team uses `not-used` for both discovery severity and review scope. A
+widespread plan must use Low. These are your decisions in the source note. A
+runner's command-line options may confirm them, but may not change them.
 
 ````markdown
 ## Implementation directive
@@ -381,6 +478,7 @@ the change is needed.]
 ### Role plan
 - Roles: `Architect + Implementer + Red Team`
 - Discovery severity: `medium`
+- Review scope: `bounded`
 
 ### Files and symbols
 - `repo/path::symbol-or-section`: [State the exact edit and name one owner.
@@ -482,11 +580,11 @@ to relay unchanged:
 - **Base commit:** [full or unambiguous commit]
 - **Execution checkout:** [exact worktree path + non-main branch]
 - **Character-change budget:** [binding N + planned K; 0 means no size cap]
-- **Role plan:** [copy the exact Roles and Discovery severity rows from the
-  validated directive]
+- **Role plan:** [copy the exact Roles, Discovery severity, and Review scope
+  rows from the validated directive]
 - **Owned files and symbols:** [compact list; full procedure stays in note]
 - **Directive check:** [exact validator command → VALID]
-- **Validation gate:** [commands + expected result or threshold]
+- **Validation requirements:** [commands + expected result or threshold]
 - **Do not change:** [compact off-limits list]
 - **Stop conditions:** [conditions requiring a blocker return]
 - **Next milestone:** [expected state at IMPLEMENTER_HANDOFF]
@@ -555,25 +653,53 @@ When transferring a unit to the red team, emit exactly this block (and its
 - **User severity setting:** [high, medium, or low; copy the saved discovery
   value, or the dispatch default when this bounded review may propose new work]
 - **Required assessment:** [Red Team severity, probable/improbable likelihood,
-  likelihood evidence, and whether the result meets the user setting]
+  likelihood evidence, and whether the result meets the user setting. For an
+  end-of-cycle finding that a closed bug remains, require the exact line
+  `Backlog action: REOPEN` with material evidence. For a different new
+  discovery, require `Backlog action: NEW TICKET`.]
 - **Catch-power requirement:** [the mutation/tamper arms that must red —
   executable, not prose; a repair ships with the arm proving it load-bearing]
-- **Validation gate:** [commands + thresholds; CPU / cocoa-interpreter
+- **Validation requirements:** [commands + thresholds; CPU / cocoa-interpreter
   runnable; the evidence I will re-run before adjudication]
 - **Durable record:** [the register entry + home-note readback, ending with
   the no-self-certification line]
-- **Return record:** [note + branch/commit when present; a finding includes a
-  validated candidate Repair directive and returns to me for adjudication]
+- **Return record:** [stable repository-relative finding note + branch/commit
+  when present; a finding note follows the persuasive-note headings, includes
+  a validated candidate Repair directive, and returns to me for later
+  adjudication]
 ```
 
-On receiving the Red Team's handoff, audit it against raw evidence and add at
-least one probe the Red Team did not script. Verify all five required severity
-fields. Record whether you accept, upgrade, or downgrade the Red Team rating,
-the final rating, an evidence-based reason, and the final `GO` or `NO-GO`
-ticket decision. A no-finding result closes only the bounded review record. A
-below-setting result opens no ticket unless your evidence supports an explicit
-upgrade. For an eligible finding, issue `GO` or `NO-GO` on the candidate
-repair. If you adopt it, rewrite it as the one complete binding
+Red Team is advisory and never supplies a required GO. When you accept an
+Implementer return, close and commit that ticket immediately; do not wait for
+Red Team. At the end of a cycle, send Red Team the tickets closed during that
+cycle for a bounded retrospective review. The cycle may finish while those
+advisory returns wait.
+
+On receiving `Backlog action: REOPEN`, first do bookkeeping only: restore the
+ticket to Open, increment its reopen count, apply the automatic Low priority
+when the new count is greater than five, acknowledge receipt, and record that
+your analysis remains. Preserve the Red Team note path in the exact backlog
+line `See further instructions at
+ai/notes/<plain-ticket-slug>-red-team-finding.md`. On receiving `Backlog
+action: NEW TICKET`, immediately
+add the complete human-readable ticket with the Red Team High, Medium, or Low
+rating marked provisional, acknowledge it, and record that your analysis
+remains. Do not hold either finding outside the backlog for reproduction or
+analysis. Admission is bookkeeping only.
+
+When the ticket later reaches the front of its priority group, audit the Red
+Team evidence against raw evidence and add at least one targeted probe the Red
+Team did not script. Verify all five
+required severity fields. For every reopen count greater than one, compare the
+new evidence with earlier reopening attempts and become increasingly strict
+about repetition without new material evidence. Record whether you accept,
+upgrade, or downgrade the rating and issue the final `GO` or `NO-GO`. You may
+close a reopened ticket again. A no-finding result and a below-setting result
+are advisory and open no new ticket unless your independent evidence supports
+an upgrade.
+
+For an eligible finding you later adopt, rewrite its candidate repair as the
+one complete binding
 `Implementation directive`, validate that packet, and dispatch one
 Implementer. Do not merge a candidate repair. Merge only a separately
 authorized Red-Team-owned documentation/test change after its own audit. A
@@ -630,18 +756,15 @@ Two further user rules (2026-07-14) on the same doctrine:
   merge --squash` up to each unit's last commit, commit, repeat).
   The 2026-07-14 cdfa5dc landing (44 commits, ~12k lines, one commit)
   is the named counterexample, not a precedent.
-- **Pre-squash foreign-commit walk (self-inflicted lesson,
-  2026-07-14).** The shared branch is written by every lane, so `git
+- **Pre-squash foreign-commit check.** The shared branch is written by every
+  role, so `git
   merge --squash <branch>` sweeps everything on it — including other
-  lanes' commits landed since the last sync. Before EVERY squash: run
+  roles' commits landed since the last sync. Before EVERY squash: run
   `git log main..<branch> --oneline`, and for each commit that is not
   this landing's unit, confirm its audit is on record. Any unaudited
   foreign commit blocks the whole-branch squash: either squash up to
-  the last fully-audited commit, or wait. The 24ac427 landing (a
-  3-line bookkeeping change that silently carried the then-unaudited
-  47ccec2 README restructure to main) is the named counterexample;
-  its audit was run after the fact and recorded in
-  ai/notes/gates-and-board.md.
+  the last fully-audited commit, or wait. Record that evidence in the local
+  ticket record before landing.
 - **Automatic landing-debt turn.** Every live watch pass measures the
   content diff from main. Past `LANDING_DEBT_LINE_LIMIT` (400 changed
   lines), the daemon queues one deduplicated Fable-lane landing-only
@@ -655,15 +778,18 @@ Two further user rules (2026-07-14) on the same doctrine:
   before opening any resulting backlog line. A widespread search still needs
   the user's explicit words. Use `--fix-only yes` when the user wants no new
   discovery at all; severity cannot weaken that rule.
-- **Discovery tickets go to the BACK of the queue (user rule,
-  2026-07-14).** While Sol is in the second-Implementer regime (total
-  demand at or past the threshold), the Architect checks every
+- **Discovery waits while ten or more non-Low tickets are open.** Count only
+  accepted open Critical, High, and Medium backlog tickets. Waiting mailbox
+  files are shown separately, and open Low tickets do not count toward this
+  admission limit. At ten or more counted tickets, the Architect checks every
   Sol-bound ticket BEFORE sending: if it is attack/discovery work — a
   review, sweep, or probe, anything whose product is new findings
-  rather than a closed ledger line — it is NOT dispatched. The Architect
-  appends it to the END of ai/notes/backlog.md as a deferred line, and it waits
-  until total demand falls below the threshold. Close first, add later. The
-  daemon gives that instruction but never edits the ledger itself. It
+  rather than a closed backlog ticket — it is NOT dispatched. Record it as a
+  deferred local candidate without a countable `- OPEN` marker, and wait until
+  the counted backlog total falls below ten. Then assess its severity and
+  insert an accepted ticket in the matching Critical, High, Medium, or Low
+  group. Only the Architect may designate Critical. The daemon
+  gives that instruction but never edits the backlog itself. It
   enforces the boundary without guessing from prose: every internal Sol
   outbound starts with the exact corresponding
   first line `MAILBOX-TICKET: closure` or `MAILBOX-TICKET: discovery`.
@@ -671,7 +797,7 @@ Two further user rules (2026-07-14) on the same doctrine:
   replacing `LEVEL` with the binding `high`, `medium`, or `low` value in
   `MAILBOX_DISCOVERY_SEVERITY`.
   At or past the threshold a declared discovery is refused with the
-  END-of-ledger instruction; a missing or malformed class fails closed. The
+  defer-and-classify instruction; a missing or malformed class fails closed. The
   daemon's exact no-work `--ping sol` body alone uses its reserved internal
   `MAILBOX-TICKET: transport` class; arbitrary transport bodies fail closed.
 - **`--fix-only` watch flag (user rule, 2026-07-14, second
@@ -702,7 +828,9 @@ Two further user rules (2026-07-14) on the same doctrine:
   plus literal open ledger lines; deferred Sol roots do not prevent its safe
   exit and are counted in the final status. This changes which lane is
   enabled, not who audits: your raw-evidence audit and `GO` / `NO-GO` decision
-  remain mandatory.
+  remain mandatory. Close and commit accepted Implementer work normally. A
+  later Red-Team-enabled cycle may perform the advisory retrospective review;
+  that review is never a prerequisite for the commit.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
@@ -717,50 +845,140 @@ Two further user rules (2026-07-14) on the same doctrine:
   change, not the process that produced it. Fine-grained/process
   detail stays in ai/notes/ and the branch history.
 
-### Ledger hygiene: the backlog is the user's dashboard (user rule, 2026-07-14)
+### Backlog hygiene: the backlog is the user's dashboard
 
-`ai/notes/backlog.md` is how the user sees what is going on — "you need to
-keep updating the backlog so I can have an idea", said after five GHOST
-lines (units 74/76/77/78/80, implemented and audited 2026-07-12) sat
-inflating the demand count for days. Standing duties, every Architect
-turn that touches a unit:
+`ai/notes/backlog.md` is the human-readable local record of unfinished and
+completed tickets. Follow the complete GO/NO-GO contract in
+`ai/notes/conventions-and-workflow.md`. Standing duties for every Architect
+turn that touches a ticket are:
 
 - **It is local-only**: the backlog and temporary loop records are not staged
   on GitHub. When work must move to another developer, use
   `python3 ai/tools/backlog_bundle.py pack`; the receiver validates with
-  `read` and stages with `import`.
+  `read` and prepares a fresh ignored review folder with `import`.
+- **Guard every Architect backlog edit.** After creating and reading a new
+  backlog, run `python3 ai/tools/backlog_guard.py initialize`. Before accepting
+  another role's return or making any later change, run
+  `python3 ai/tools/backlog_guard.py check` and copy its 64-character
+  `accepted SHA-256`. If it reports a mismatch, stop and inspect the unexpected
+  bytes; never replace the saved value merely to silence the refusal. After
+  the deliberate edit, read the changed ticket, then run
+  `python3 ai/tools/backlog_guard.py seal --previous-sha256 COPIED_SHA256` and
+  run `check` again. A mailbox turn has `MAILBOX_ROLE=architect`; a manual
+  terminal adds `--architect-ack` to `initialize` and `seal`. The guard records
+  byte identity, not ticket truth, so your human and technical review remains
+  mandatory.
+- **Keep the guard Architect-owned.** Implementer and Red Team may run only
+  `backlog_guard.py check`. They never edit `ai/notes/backlog.md`, run
+  `initialize` or `seal`, or edit `ai/tools/backlog_guard.py`,
+  `ai/notes/.backlog-guard.json`, or `ai/notes/.backlog-guard.lock`. Do not
+  stage any of the local records. Do not replace a live backlog automatically
+  from an imported package.
+- **Recreate the same file on every clean clone.** If `backlog.md` is absent,
+  create it before admitting or dispatching a ticket. Use this top-level
+  order: `# Execution backlog`; the exact local-only notice; `## Contents`;
+  `## How to read this backlog`; `# Open tickets`; `## Open ticket index`;
+  the four `### Critical`, `### High`, `### Medium`, and `### Low` groups in
+  that order; matching detailed sections; then `# Closed tickets`. Keep each
+  empty group visible with the exact `No open PRIORITY tickets.` sentence,
+  and use `No closed tickets.` when appropriate. Copy the paste-ready skeleton
+  in `ai/notes/conventions-and-workflow.md`; do not invent a different private
+  format.
+- **Use one exact index grammar.** Every open ticket has exactly one line of
+  the form
+  `- OPEN **PRIORITY** **TYPE** — [Plain human title](#unique-anchor)`.
+  `PRIORITY` is `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`; `TYPE` is `BUG FIX`
+  or `NEW FUNCTIONALITY`. A Critical feature, a missing type, an unlinked
+  line, or a second `- OPEN` marker in the detailed record is malformed and
+  blocks new discovery. Closed tickets have no `- OPEN` line.
+- **Use one exact detailed-ticket order.** After the anchor and plain title,
+  write `### High-level summary`, `### Current status`, `### What is already
+  fixed`, `### What is missing`, and a collapsed `Technical record for
+  development tools`, in that order. The summary uses at least three complete
+  ordinary-language sentences: what should happen, what happens
+  instead, one concrete example when an abstraction needs it, and why a user
+  or scientific result is affected. Current status records ticket type,
+  exactly `OPEN` or `CLOSED`, priority with evidence, the exact nonnegative
+  `Red Team reopen count`, and every blocker or prerequisite. The last three
+  parts separate completed work, all
+  remaining work, and exact files/commands/commits/evidence. Copy the complete
+  template and GO/NO-GO table from `ai/notes/conventions-and-workflow.md`; do
+  not shorten them into bot-only shorthand.
 
-- **Every state change updates its line THE SAME TURN**: dispatched,
-  return received, audited GO or NO-GO + delta, landed, blocked/unblocked — the
-  line always says where the unit actually is and what it waits on.
-- **A GO retires the line immediately** — in the same turn as the local audit
-  record, never "later" and never through a bookkeeping-only Git commit.
-- **Periodic reconciliation**: whenever the printed demand number feels
-  wrong (and at least once per working session), walk the "- OPEN" lines
-  against the audit records and `git merge-base --is-ancestor`; a line
-  describing landed+audited work is retired on the spot with a note
-  entry naming the evidence. A line created from any historical snapshot
-  is checked against the audit record BEFORE it becomes countable
-  demand.
-- The ledger stays countable one-liners; the story lives in the notes
-  each line names.
+- **Update every state change in the same turn**: dispatch, returned evidence,
+  Architect GO or NO-GO, landing, and a new or cleared blocker. The detailed
+  ticket always says what has happened and what it still waits on.
+- **Architect GO closes without Red Team.** Keep it OPEN until implementation,
+  required evidence, Architect review, landing, and any required permanent-note
+  work are complete. Your GO then closes and commits the accepted fix
+  immediately. Red Team is advisory; never make its review or GO a prerequisite
+  for your commit.
+- **Count every formal Red Team reopening request.** Every ticket begins with
+  `**Red Team reopen count: 0.**`; never reset it. When an end-of-cycle return says
+  `REOPEN`, immediately increment the integer, restore the linked open index
+  line, change `CLOSED` to `OPEN`, and acknowledge the return. Do this
+  bookkeeping without reproducing or substantively analyzing the finding.
+  Preserve its stable Red Team note with the exact `See further instructions
+  at ...` backlog line. A value
+  greater than five automatically makes the ticket Low; move it to the Low
+  group in the same turn.
+- **Exercise final authority after the quick reopening.** For every value
+  greater than one, later compare the new evidence with every earlier
+  reopening request and become stricter about repetition that adds no material
+  evidence. You may close the ticket again or lower severity with a recorded
+  reason. The quick bookkeeping protects the finding from being lost; it does
+  not surrender your final GO / NO-GO authority.
+- **Record a new Red Team finding before analyzing it.** Require the exact
+  handoff label `Backlog action: NEW TICKET`. Immediately create its complete
+  backlog entry with the Red Team's High, Medium, or Low assessment marked as
+  provisional, copy the exact `See further instructions at ...` line for its
+  stable finding note, acknowledge receipt, and record that your analysis
+  remains. Do not reproduce the finding merely to add it. When the ticket
+  later reaches the front of its priority group, assess the persuasive note
+  with targeted independent verification and accept, upgrade, downgrade,
+  close, or reject it. Only you may later assign Critical.
+- **Keep the five human-first parts**: `High-level summary`, `Current status`,
+  `What is already fixed`, `What is missing`, and `Technical record for
+  development tools`. Never collapse a detailed ticket into a one-line bot
+  record.
+- **Keep the machine-countable index separate**: exactly one linked index line
+  beginning `- OPEN` represents each detailed open ticket. The detailed section
+  contains no second `- OPEN` marker.
+- **Classify before ordering**: first record `Bug fix` or `New functionality`.
+  For a Bug fix, assign Critical, High, Medium, or Low from saved harm and
+  likelihood evidence, with Critical reserved for the narrow rule above. For
+  New functionality, copy the priority the user chose; use Medium only when
+  the user did not choose one. Never re-rate a feature from bug-severity
+  evidence. Keep the index grouped Critical, High, Medium, then Low. Work the
+  first dispatchable ticket in the highest permitted group while respecting
+  the feature prerequisites in Operating Constraint 5b; a blocked ticket
+  stays in its group and names the unavailable hardware, data, decision, or
+  earlier-ticket prerequisite.
+- **Reconcile when the count looks wrong**: compare each linked open ticket
+  with its detailed status, accepted evidence, and landed commit. Correct both
+  the index and detailed section in the same turn; do not delete the human
+  explanation or exact evidence. Also reconcile every reopen integer and
+  advisory return. A missing count, a reset count, a lost delayed return, or a
+  non-Low ticket with a count above five is NO-GO.
 
-### Second-Implementer assignments (user rule, 2026-07-14)
+### Second-Implementer assignments
 
-When the execution queue saturates under the default Sol-enabled topology,
-[S] becomes the **second Implementer**: build units flow to it as well as to
-[O]. A two-role watch explicitly disables [S], so no threshold or backlog size
-overrides `--skip-redteam`. SATURATION IS
-DEFINED (user rule, 2026-07-14): the TOTAL open demand — queued mailbox
-messages PLUS the "- OPEN" lines of ai/notes/backlog.md, the ledger of
-every unit still owed execution and audit — reaches **10 units** (user
-default and metric, 2026-07-14) (`SECOND_IMPLEMENTER_THRESHOLD` in
-ai/tools/mailbox_daemon.py — the watch prints the tripwire hint each pass
-it holds on a Sol-enabled watch). At or past the threshold,
-second-Implementer units are not
-an option you weigh — an idle [S] lane while the ledger holds
-dispatchable units is a dispatch failure; below the threshold, Sol
-stays in Red Team mode. The mode switch is per-unit and must be explicit. The
+Sol is a second Implementer only during a backlog emergency. An emergency
+exists when more than one open **Critical Bug fix** or more than ten open
+**High Bug fix** tickets exist. High features, Medium tickets, Low tickets,
+and waiting mailbox messages do not contribute to either emergency count. The
+daemon and manual router refuse a second-Implementer assignment outside this
+condition.
+
+The Architect must not inflate either count. Critical remains the narrow
+Architect-only classification defined in Operating Constraint 5a; it is never
+a synonym for High and is never a staffing tool. The emergency count does not
+change Sol's role automatically, and leaving Sol idle is not a dispatch
+failure.
+
+Only the Architect may make the assignment, and only for one named ticket. A
+two-role watch disables Sol, so neither the demand count nor an Architect note
+overrides `--skip-redteam`. The per-ticket role switch must be explicit. The
 first nonblank body line after any mandatory mailbox ticket line or relay
 heading is exactly: "OpenAI Sol — this is a role as second Implementer for
 this unit." Quoting that sentence later does not switch roles. Without it in
@@ -771,7 +989,8 @@ In second-Implementer mode:
 - Sol follows the Implementer's discipline for the unit
   (`.claude/OPUS_ROLE.md` operating constraints — the directive is the
   contract; execute, don't attack; complete code in house style; run the
-  gate; report grounded; no self-certification; persist resume state), and
+  required validation commands; report grounded; no self-certification;
+  persist resume state), and
   the handoff cites the same validated, decision-complete `Implementation
   directive` required for the primary Implementer. Sol returns an
   `IMPLEMENTER_HANDOFF`, not a Red Team verdict.

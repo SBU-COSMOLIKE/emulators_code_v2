@@ -1,6 +1,6 @@
 # AI development tools
 
-This folder contains six Python programs for the AI-assisted development
+This folder contains seven Python programs for the AI-assisted development
 workflow. Most users begin with `mailbox_daemon.py`, the program that watches
 for request files and starts the matching AI role.
 
@@ -19,10 +19,12 @@ do I run, what does it change, and what result should I expect?
 5. [Ask the Architect to use Sol as a second Implementer](#ask-the-architect-to-use-sol-as-a-second-implementer)
 6. [Check protected project notes](#check-protected-project-notes)
 7. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
-8. [Fix-only watches](#fix-only-watches)
-9. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
-10. [Runtime controls](#runtime-controls)
-11. [Exact command reference](#exact-command-reference)
+8. [Review a closed ticket](#review-a-closed-ticket)
+9. [Protect the local backlog](#protect-the-local-backlog)
+10. [Fix-only watches](#fix-only-watches)
+11. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
+12. [Runtime controls](#runtime-controls)
+13. [Exact command reference](#exact-command-reference)
 
 ### Common questions raised by developers
 
@@ -58,6 +60,9 @@ The guide uses these terms throughout:
 - A **directive** is the Architect's full written plan inside a source note.
 - **Discovery severity** says how serious a newly found problem must be before
   it may become another ticket.
+- **Review scope** says whether the Red Team checks one named change
+  (`bounded`) or performs the user's explicit library-wide search
+  (`widespread`). A plan without Red Team records `not-used`.
 - A **manual relay** carries an approved instruction or result between web
   conversations without changing it.
 - A **clipboard block** is the exact text the relay tool asks a human courier
@@ -78,7 +83,7 @@ notes and mailbox records.
 
 The user sends every request that can change the work to the Architect. The
 Architect writes the source note, including the roles and any discovery
-severity.
+severity or Red Team review scope.
 
 During a manual relay, `handoff_router.py` checks that note. It adds the file
 paths and saved-record locations needed by each open AI conversation. The
@@ -91,6 +96,7 @@ instructions for the Implementer or Red Team.
 | Check that an Architect or Red Team instruction contains every required part | `handoff_contract.py` | `python3 ai/tools/handoff_contract.py --help` | Reads one Markdown note. It does not run its tests or judge the scientific plan. |
 | Read status or run the manual clipboard workflow | `handoff_router.py` | `python3 ai/tools/handoff_router.py --status` | Status only reads. A run with `--note` changes the clipboard, waits for copied replies, runs local commands, and writes relay records. |
 | Check that eleven protected project notes still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the notes. It changes nothing and does not issue `GO` or `NO-GO`. |
+| Detect an accidental change to the local backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text changed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Compares two saved Git versions. With a positive limit, it refuses a folder with edits not saved in a commit or text it cannot count. |
 | Package unfinished local backlog work for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
@@ -125,18 +131,21 @@ project folder, but using the top folder keeps paths in examples predictable.
 | `handoff_contract.py architect NOTE` or `handoff_contract.py redteam NOTE` | No | Reads and checks one directive. |
 | `handoff_router.py --status` | No | Reads branches and local records, then suggests a next action. It does not run that action. |
 | `permanent_note_guard.py --base FULL_COMMIT` | No | Compares the protected files in saved Git versions, the files selected for the next commit, and the files currently visible. |
+| `backlog_guard.py check` | No | Compares the current backlog with the SHA-256 fingerprint last accepted by the Architect. |
 | `ticket_change_guard.py --base FULL_COMMIT --max NUMBER` | No | Counts characters added and removed between the named starting commit and current `HEAD`, Git's name for the current saved commit. |
 | `backlog_bundle.py pack --dry-run` | No | Lists the proposed package without writing it. |
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
 | `mailbox_daemon.py --send architect` or `--ping architect` | Yes | This is the user's only role target. The command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered Architect mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
 | `mailbox_daemon.py --once` or `--watch` | Yes | May create or reuse AI work folders, start roles, move mailbox files, and write relay or saved workflow records. |
+| `backlog_guard.py initialize --architect-ack` or `backlog_guard.py seal --previous-sha256 SHA256 --architect-ack` | Yes | Writes the ignored backlog fingerprint record. These manual forms are Architect-only. |
 | `handoff_router.py --note NOTE` | Yes | Changes the clipboard, writes local relay records, and runs the selected shell commands. It does not launch a web session for you. |
 | `backlog_bundle.py pack` | Yes | Writes a new ignored `.tar.xz` file and never replaces an existing file. |
 | `backlog_bundle.py unpack ARCHIVE` | Yes | Writes into a fresh ignored folder under `ai/backlog-imports/`; it does not replace live notes. |
 
 In this table, `NOTE` means the path to a ticket note, `FULL_COMMIT` means the
-full Git name of the starting saved version, and `ARCHIVE` means the path to a
-received `.tar.xz` file.
+full Git name of the starting saved version, `SHA256` means a 64-character
+fingerprint printed by the guard, and `ARCHIVE` means the path to a received
+`.tar.xz` file.
 
 A first mailbox command that writes files may create the two Git worktrees
 described above.
@@ -232,6 +241,7 @@ contain these exact rows under `### Role plan`:
 ```markdown
 - Roles: `Architect + Implementer`
 - Discovery severity: `not-used`
+- Review scope: `not-used`
 ```
 
 Then carry out the plan:
@@ -281,8 +291,9 @@ internal `to-sol` request contains `MAILBOX-TICKET: discovery` and
 `MAILBOX-SEVERITY: medium`.
 
 A **discovery** asks the Red Team to look for a new problem in the named
-change. It is refused when fix-only mode is on or when ten or more known items
-are already waiting. The role guide explains this
+change. It is refused when fix-only mode is on or when ten or more open
+Critical, High, and Medium tickets are recorded. Low tickets and waiting
+mailbox files do not count. The role guide explains this
 [limit on new searches](../README.md#appendix-d--what-is-the-demand-guard).
 
 The user states a ticket-specific `high`, `medium`, or `low` choice to the
@@ -315,7 +326,12 @@ send it to another role.
 
 ## Ask the Architect to use Sol as a second Implementer
 
-First ask the Architect to assign the ticket to Sol. The Architect owns the
+This role is emergency-only. The backlog must contain more than one Critical
+bug or more than ten High bugs. High features, Medium work, Low work, and
+waiting mailbox files do not contribute. Outside that emergency, both the
+mailbox and this manual tool refuse the assignment.
+
+During an emergency, ask the Architect to assign one ticket to Sol. The Architect owns the
 validated directive and the exact role declaration. The role rule is in
 [FAQ D2 of the role guide](../README.md#faq-d2-second-implementer). The manual
 command below carries that already validated Architect job to Sol instead of
@@ -324,6 +340,7 @@ Opus:
 ```markdown
 - Roles: `Architect + Sol as Implementer`
 - Discovery severity: `not-used`
+- Review scope: `not-used`
 ```
 
 ```bash
@@ -346,13 +363,15 @@ The command never asks both Implementers to perform the same instruction. It
 does not also run Sol as Red Team. `--skip-redteam` cannot be combined with
 `--mode second-implementer`.
 
-When ten or more items are waiting, the watcher prints this reminder:
+When the emergency condition is met, the watcher prints a message like this:
 
 ```text
-  hint: 10 or more items are waiting. Ask the Architect to give Sol separate implementation jobs as a second Implementer, but only an Architect message with the required declaration changes Sol's role; otherwise Sol remains the Red Team.
+  emergency: 2 open Critical bugs and 11 open High bugs. The Architect may give Sol a separate implementation job only because more than 1 Critical or more than 10 High bugs are open. High features never contribute. The exact Architect declaration is still required; otherwise Sol remains the Red Team.
 ```
 
-The watcher does not create those jobs or change Sol's role by itself.
+The watcher does not create those jobs or change Sol's role by itself. Only
+the Architect may classify a bug Critical, and High must not be relabeled
+merely to unlock another Implementer.
 
 ## Check protected project notes
 
@@ -399,14 +418,21 @@ python3 ai/tools/mailbox_daemon.py --send architect \
 ```
 
 Success prints `queued PATH` and writes one numbered request to the Architect.
-Its first line saves `MAILBOX-SEVERITY: high`; the user's exact request follows
-after one blank line. The Architect decides whether discovery is allowed and
-writes the internal Red Team request. That internal request begins with two
-lines:
+Its first two lines save the severity and the review boundary:
+
+```text
+MAILBOX-SEVERITY: high
+MAILBOX-SCOPE: bounded
+```
+
+The user's exact request follows after one blank line. The Architect decides
+whether discovery is allowed and writes the internal Red Team request. That
+internal request begins with three lines:
 
 ```text
 MAILBOX-TICKET: discovery
 MAILBOX-SEVERITY: high
+MAILBOX-SCOPE: bounded
 ```
 
 The user does not create or send this `to-sol` request directly.
@@ -418,6 +444,11 @@ The three values mean:
 | `high` | Only a bug that severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. |
 | `medium` | High-severity bugs, plus a probable bug that can affect normal operation. Merely theoretical or improbable edge cases do not qualify. |
 | `low` | Any concrete discovered bug, including an improbable edge case. A guess without a code path and evidence does not qualify. |
+
+Critical is not a fourth command value and is not a Red Team rating. Only the
+Architect may use it as a final backlog classification after evidence shows
+that a current bug broadly breaks a central library workflow or systematically
+invalidates scientific results. High does not automatically become Critical.
 
 A watch or one-time run can set the default for discovery requests created by
 its roles. Run either command from any project folder that Git recognizes:
@@ -434,8 +465,9 @@ followed by the selected value. If they handle work, they can start AI roles
 and move completed request files into `ai/notes/mailbox/done/`.
 
 Each new discovery still saves its value in the request file. A saved value
-does not change when a later watch uses another default. Older request files
-that predate the second line use `medium`.
+does not change when a later watch uses another default. A stored discovery
+that lacks either its exact severity line or its exact scope line is refused
+instead of receiving a guessed value.
 
 For a manual clipboard relay, first ask the Architect to write these rows in
 the source note:
@@ -443,7 +475,15 @@ the source note:
 ```markdown
 - Roles: `Architect + Implementer + Red Team`
 - Discovery severity: `high`
+- Review scope: `bounded`
 ```
+
+`bounded` means review only the named change and the behavior it directly
+affects. Only a user request that begins with the explicit command “do a
+widespread search” changes this row to `widespread`; such a search is Low and
+waits for every open Critical, High, and Medium ticket. Quoting, negating, or
+mentioning that phrase later does not widen the request. Plans without a Red
+Team use `not-used`.
 
 Open the exact work folder whose path appears in the source note's `Execution
 checkout`, then confirm the saved severity:
@@ -455,9 +495,16 @@ python3 ai/tools/handoff_router.py \
 ```
 
 Success copies the Implementer prompt, prints numbered progress lines, waits
-for the returned sections, runs the named checks, copies the Red Team and
-Architect prompts, and writes local records under `ai/notes/relay/`. It does
-not start a mailbox watcher or create a mailbox request.
+for the Implementer return, runs the named checks, and copies those records to
+the Architect for the audit. It writes supporting copies under
+`ai/notes/relay/`. It does not put Red Team between the Implementer and the
+Architect, start a mailbox watcher, or create a mailbox request.
+
+If the saved plan includes Red Team, the Architect first audits the returned
+work. An Architect `GO` closes and commits the ticket immediately. Only then
+does the Architect write the separate Red Team handoff for the accepted named
+commit or change. That later review is optional advice and cannot delay the
+manual relay's audit or commit.
 
 Here `--severity high` confirms the Architect's saved value. It cannot change
 the value or add a Red Team to another role plan. The router refuses a
@@ -469,16 +516,145 @@ instruction. Send any new request or correction to the Architect first.
 
 The Red Team records the user's setting, its own severity rating, whether the
 bug is probable or improbable, the evidence for that likelihood, and whether
-the finding meets the user's setting. The Architect checks those items,
-accepts, upgrades, or downgrades the rating with a reason, and makes the final
-`GO` or `NO-GO` decision. The Red Team never opens the backlog ticket itself.
+the finding meets the user's setting. A finding that should become separate
+work begins with the prominent line `Backlog action: NEW TICKET`. The
+Architect immediately adds it to the backlog so it cannot be forgotten. The
+Architect does not reproduce or analyze the bug during this short bookkeeping
+step. When the ticket later reaches the front of the permitted priority order,
+the Architect reads the cited Red Team note, checks the evidence needed for a
+decision, accepts, upgrades, or downgrades the rating with a reason, and makes
+the final `GO` or `NO-GO` decision. The Red Team never edits the backlog
+itself.
 
 This value does not request a broad search. The Red Team still reviews only
 the named change unless the user asks the Architect for a widespread search
 and the Architect records that scope in the Red Team handoff.
+A request that begins with the explicit command “do a widespread search”
+automatically saves Low. That search waits until no Critical, High, or Medium
+ticket remains open. Low tickets do not block it.
 It also cannot override fix-only mode or a Red Team disabled with
 `--skip-redteam` or `--no-red-team`. A new discovery is refused when ten or
-more known items are waiting; close recorded work first.
+more open Critical, High, and Medium tickets are recorded; close accepted
+non-Low work first.
+
+## Review a closed ticket
+
+The Architect does not wait for Red Team approval. After the Implementer
+finishes and the evidence earns `GO`, the Architect closes the ticket and
+commits the accepted change. At the end of that cycle, the Red Team reviews
+the tickets closed during the work period.
+
+This is a bounded advisory review of tickets that already exist. If the Red
+Team finds no remaining bug, no approval message is required. If it finds a
+concrete remaining bug, it returns a formal `REOPEN` assessment with the
+failing input, command, or scientific evidence.
+
+Before `REOPEN` or `NEW TICKET`, Red Team writes a detailed local note at a
+stable path such as `ai/notes/cmb-axis-red-team-finding.md`. The Architect
+preserves that work in the backlog with `See further instructions at
+ai/notes/cmb-axis-red-team-finding.md`. The note explains the expected and
+observed behavior, affected code path, reproduction, evidence, realistic
+impact, review limits, proposed acceptance check, and uncertainty. This saves
+the Architect from reconstructing the investigation when the ticket later
+reaches the front of the priority order.
+
+Every ticket has an integer called **Red Team reopen count**. It begins at
+`0` and never resets. Every formal `REOPEN` assessment adds one, including a
+request that the Architect later rejects.
+
+The number records how often the Red Team asked, while the Architect retains
+the final decision.
+
+When `REOPEN` arrives, the Architect first restores the ticket to the Open
+section and increments the count. This quick bookkeeping keeps the objection
+visible. It also preserves the Red Team note link and does not reproduce or
+analyze the bug.
+
+When that ticket later reaches the front of the permitted priority order, the
+Architect audits the evidence. A `GO` leaves the ticket open and supplies
+repair instructions.
+
+A `NO-GO` closes it again and explains why the evidence did not justify more
+work.
+
+For count `2` and above, the Architect compares the latest report with every
+earlier reopening and says what is materially new. Repeated text without a
+new failing input, command, file, or scientific consequence receives stricter
+scrutiny after each attempt. The Architect may lower the priority when the
+evidence no longer supports its urgency.
+
+Count `6` automatically makes the ticket Low, even if it was previously
+Critical or High.
+
+For example, a closed loader ticket starts with count `0`. A `REOPEN` report
+shows a one-row table that still crashes, so the Architect restores the
+ticket and records count `1`.
+
+After another repair, a second `REOPEN` must show evidence beyond the first
+one-row example. The count becomes `2` before the Architect decides whether
+that evidence earns `GO` or `NO-GO`.
+
+The watcher does not delay the end of a cycle while this review is waiting.
+A cycle is one measured work period: it reaches its next stopping point after
+five AI jobs finish or 15 minutes pass, then waits only for jobs already
+starting or running.
+
+A Red Team result may therefore arrive after the cycle finishes. It never
+blocks the Architect's close or commit. A two-role run may implement, test,
+close, and commit through the same Architect decision; it simply performs no
+Red Team review.
+
+## Protect the local backlog
+
+Git does not save `ai/notes/backlog.md`, so a normal Git comparison cannot
+detect an accidental edit. `backlog_guard.py` stores a SHA-256 fingerprint of
+the exact backlog bytes last accepted by the Architect. The small fingerprint
+record is also local and ignored by Git.
+
+After creating the first backlog, the Architect reads every entry and then
+initializes the guard:
+
+```bash
+python3 ai/tools/backlog_guard.py initialize --architect-ack
+```
+
+Expected result includes these lines, where `SHA256` is a 64-character
+lowercase fingerprint:
+
+```text
+Backlog guard initialize passed.
+accepted SHA-256: SHA256
+BACKLOG-GUARD-INITIALIZE PASS sha256=SHA256
+```
+
+Before accepting another role's result or editing the backlog, the Architect
+runs the read-only check:
+
+```bash
+python3 ai/tools/backlog_guard.py check
+```
+
+The Architect copies the 64-character value printed after `accepted
+SHA-256:`. If the command reports a mismatch, stop and inspect the backlog;
+do not approve unknown text by replacing its saved value.
+
+After a deliberate edit, such as adding or reopening one ticket, the
+Architect reads the changed entry and seals that exact version:
+
+```bash
+python3 ai/tools/backlog_guard.py seal \
+  --previous-sha256 SHA256 \
+  --architect-ack
+```
+
+Replace `SHA256` with the value copied before the edit. `seal` refuses a
+different previous value, a linked file, a file that changes while it is
+being read, or a manual call without `--architect-ack`.
+
+The Implementer and Red Team may run `check` as supporting evidence, but they
+never run `initialize` or `seal` and never edit the backlog or its fingerprint
+record. This guard is meant to expose accidental edits. A deliberately
+malicious program that can rewrite both local files can defeat it.
 
 ## Fix-only watches
 
@@ -783,6 +959,7 @@ python3 ai/tools/mailbox_daemon.py --help
 python3 ai/tools/handoff_router.py --help
 python3 ai/tools/handoff_contract.py --help
 python3 ai/tools/permanent_note_guard.py --help
+python3 ai/tools/backlog_guard.py --help
 python3 ai/tools/ticket_change_guard.py --help
 python3 ai/tools/backlog_bundle.py --help
 python3 ai/tools/backlog_bundle.py pack --help
@@ -885,6 +1062,11 @@ To complete the cycle, the watcher stops starting new jobs and waits for jobs
 that are already starting or running. It then either exits or prints the
 20-second Ctrl-C countdown before beginning another cycle.
 
+An advisory Red Team review of a closed ticket does not keep the cycle open.
+The watcher may stop before that review returns. This differs from an AI job
+that is already starting or running: the watcher must wait for that job to
+finish or time out before it calls the cycle complete.
+
 ```mermaid
 flowchart TD
   W["look for messages and run jobs"] --> E{"five launched jobs finished or 15 minutes passed since this cycle began?"}
@@ -904,12 +1086,13 @@ Choose how long the watcher should run:
 | `--watch` | Keep watching until you stop it during a printed safe countdown |
 | `--watch --cycle 2` | Exit safely after two completed cycles, even if more work is waiting |
 | `--watch --cycle 0` | Exit only when no role message is waiting or running and `ai/notes/backlog.md` has no line that begins `- OPEN` |
-| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Red Team messages untouched for a later run |
+| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Red Team messages and advisory reviews for a later run |
 
 `--cycle 0` does not read a backlog description and invent an AI request from
 it. Someone must still send the appropriate mailbox message. The roles that
-handle that request must also change its `- OPEN` backlog line when the work
-is genuinely finished.
+handle that request must also update its backlog entry when the work is
+genuinely finished. An advisory Red Team review may arrive in a later cycle;
+it does not delay the Architect's close or commit.
 
 Just before a zero-cycle exit, the watcher briefly prevents `--send` from
 saving another message. It checks that the backlog is an ordinary readable
@@ -958,7 +1141,7 @@ during that idle wait is safe, but the idle wait does not complete a cycle.
 | The elapsed time increases but the Claude log stays small | Claude may still be working but has not printed more text yet | Keep watching the elapsed time |
 | Neither elapsed time nor log size changes | The AI program may be stuck | Let the normal timeout handle it. Stop manually only after the watcher prints `safe to Ctrl-C`, and press Ctrl-C before that countdown ends |
 | A file in `inflight/` prevents later work | The watcher started the request but could not prove whether it saved the final request file in `done/` or `failed/` | Compare the original request, any copy in `done/` or `failed/`, and the named log before moving anything |
-| Sol cannot start a new search | A fix-only watch accepts only work that finishes already recorded items, or ten known items already wait | Record the possible issue and use Sol only on a specific known item for now |
+| Sol cannot start a new search | A fix-only watch accepts only work that finishes already recorded items, ten open non-Low tickets already exist, or a widespread search was requested before the non-Low queue was empty | Keep the candidate local without an `- OPEN` marker and close accepted non-Low work first |
 | The watcher exits after you edit `mailbox_daemon.py` | The running watcher noticed that its own program file changed | Start the watcher again so it loads the new code |
 | `--send` warns that no watcher is active | The request was saved, but no watcher is currently handling that mailbox | Start a watcher. The saved request remains safe while it waits |
 

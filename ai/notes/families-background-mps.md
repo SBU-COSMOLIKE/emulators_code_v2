@@ -13,9 +13,12 @@ A polynomial chaos expansion (PCE) is a polynomial surrogate. Neural PCE
 TRF is the repository abbreviation for a transformer correction head.
 
 The **matter-power spectrum (MPS)** describes how matter fluctuations depend
-on physical scale. An **artifact** is a saved emulator publication containing
+on physical scale. An **artifact** is a saved emulator result containing
 trained weights and the scientific facts needed to rebuild them. A **schema**
-is the required fields, types, and meanings of a saved record.
+is the required fields, types, and meanings of a saved record. An **identity**
+is the saved set of facts or byte fingerprints used to decide whether two
+datasets, runs, or artifacts are the same; it is not the mathematical identity
+matrix.
 
 A **loss ladder** is the supported set of chi-squared, square-root, and reverse
 Huber (BerHu) training transforms. For a per-sample chi-squared value, this
@@ -44,8 +47,9 @@ is the number of retained wavenumber coordinates in each redshift-slice token.
 An **attention head** is one independent set of learned query, key, and value
 projections; the token width must split evenly among the requested heads.
 
-A **gate** is a registered acceptance command. A **fixture** is its fixed
-input setup. A **smoke check** is a short end-to-end run through real
+A **gate** is a named validation job whose required result is written before
+it starts. A **fixture** is its fixed input setup. A **smoke check** is a
+short end-to-end run through real
 generation, training, saving, and serving. A **tripwire** is a numerical or
 structural condition chosen to fail when a named broken behavior returns. The
 **central processing unit (CPU)** is the ordinary host processor.
@@ -272,8 +276,8 @@ give the same verdict and explanation for the same request.
 - Hubble at recombination redshift refuses at startup and runtime.
 - Desert, out-of-window, mixed-validity, and malformed pair requests refuse.
 - Exact boundary equality and equal-redshift pairs pass.
-- Two artifacts with different dataset identity, fixed facts, or sampled
-  coordinates refuse before requirements are published.
+- Two artifacts with different staged-selection identity, fixed facts, or
+  sampled coordinates refuse before requirements are published.
 - Swapped root order passes.
 - A mutation restoring union-only compatibility reproduces a finite stitched
   background from inconsistent cosmologies and must fail.
@@ -570,8 +574,9 @@ the mask optimizes coordinates that decode later discards.
 Generation persists every nonsampled cosmology fact that changes a target or
 base, including neutrino mass and convention, dark-energy facts, curvature,
 radiation/temperature facts, and base implementation identity. The two MPS
-artifacts agree on one canonical dataset, generator, sampled coordinate system,
-parameter domains, fixed facts, and axes before requirements are published.
+artifacts agree on one staged-selection identity, generator, sampled
+coordinate system, parameter domains, fixed facts, and axes before
+requirements are published.
 Equal axes alone are not provenance.
 
 The adapter compares resolved global values with artifact facts before any
@@ -584,8 +589,8 @@ guidance.
 - Fixed baseline controls preserve numerics.
 - Changing a fixed neutrino mass, dark-energy fact, or curvature refuses before
   prediction.
-- A pair with equal axes but different dataset identity or coordinate schemas
-  refuses.
+- A pair with equal axes but different staged-selection identity or coordinate
+  schemas refuses.
 - Swapped artifact order passes because quantity labels identify members.
 - A mutation checking only predictor names or axes must fail.
 
@@ -627,13 +632,10 @@ The served product must be the conventional top-hat result at
 `1/Mpc`, the numerical radius in the window is `8/h` Mpc. A literal numerical
 radius of `8` is correct only when wavenumber uses `h/Mpc`; mixing these
 conventions is forbidden. `cobaya_theory/emul_mps.py::emul_mps.calculate`
-already owns `H0` and must pass `h = H0 / 100` to
+owns `H0` and must pass `h = H0 / 100` to
 `cobaya_theory/emul_mps.py::emul_mps._compute_sigma8`, which owns the unit
-conversion and the integral. The current `_compute_sigma8` signature has no
-`h` argument and still assigns the literal `R = 8.0` while its `k` axis is in
-`1/Mpc`. That implementation does not yet satisfy this rule; acceptance
-requires the unit-aware `8/h`-Mpc radius rather than a relabeling of the
-current result.
+conversion and the integral. Acceptance requires the unit-aware `8/h`-Mpc
+radius rather than relabeling a literal-radius result.
 
 Sigma-eight is available only when the artifact supports the calculation. The
 stored redshift axis contains exact `z = 0`; a nearby row is never relabeled

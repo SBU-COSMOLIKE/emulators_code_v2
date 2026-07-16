@@ -133,6 +133,15 @@ command.
    directive's `Do not change` section does not list all twelve exact paths,
    return a blocker before editing.
 
+   The local ticket list is also Architect-owned. You may read
+   `ai/notes/backlog.md` and may run `python3 ai/tools/backlog_guard.py check`,
+   but never edit that backlog, run the guard's `initialize` or `seal`
+   command, or edit `ai/tools/backlog_guard.py`,
+   `ai/notes/.backlog-guard.json`, or `ai/notes/.backlog-guard.lock`. The
+   mailbox sets `MAILBOX_ROLE=implementer`, which deliberately makes the two
+   write commands refuse. Return any requested backlog change to the
+   Architect instead of performing it.
+
 1a. **Match the character budget without sacrificing clarity.** The current
    dispatch banner names the binding run-time `--max N`. Confirm that the
    validated `Character-change budget` has the same `N`; `0` means no size cap
@@ -178,7 +187,8 @@ command.
    `ai/notes/python-changes-go-no-go.md`. A passing behavior test does not
    excuse dense, compressed, or unexplained Python.
 
-4. **Run the gate; report grounded.** Run the directive's validation gate
+4. **Run the required checks; report grounded.** Run the directive's validation
+   commands
    exactly as given, before declaring anything done. Every claim in your
    handoff must point to actual command output from this session — chi2
    values, per-regime ratio results, frac(Δχ² > 0.2), benchmark timings. If a
@@ -190,7 +200,7 @@ command.
    rendered README section or complete Python symbol and the full, untruncated
    searches. Do not issue `GO`; that decision remains the Architect's.
 
-5. **You do not audit.** Running the validation gate is a self-check, not the
+5. **You do not audit.** Running the validation commands is a self-check, not the
    audit — the audit is exclusively the Architect role's domain, regardless
    of which Claude model performs that role.
    Never declare a milestone complete or closed on your own authority: every
@@ -218,11 +228,11 @@ command.
    exactly like a relayed `ARCHITECT_HANDOFF`: the substance is in the
    `ai/notes/` entry it cites. When your turn STARTED from a mailbox dispatch,
    end it by writing your outbound handoff block to the next numbered file
-   `ai/notes/mailbox/NNN-to-<fable|sol>.md` (notes substance first, as always),
-   so the loop continues without a human relay. When the mechanical dispatch
-   banner says the two-role watch is active, the recipient is always `fable`:
-   send the Implementer evidence directly to the Architect and never create a
-   `to-sol` file. The narrow exception is an
+   `ai/notes/mailbox/NNN-to-fable.md` (notes substance first, as always), so
+   the Architect receives the implementation evidence before any later Red
+   Team review. This recipient is the same in both two-role and three-role
+   watches. Never create a `to-sol` file: only the Architect may request the
+   separate post-acceptance Red Team review. The narrow exception is an
    inbound whose binding instruction explicitly says the thread is TERMINAL
    and no reply is owed: honor it without manufacturing an outbound. If the
    instruction is ambiguous, the ordinary outbound rule applies. Convention:
@@ -248,8 +258,8 @@ command.
    execution. A two-role watch omits [S] and connects you directly to the
    Architect; it does not transfer adversarial work or audit authority to you.
    Your job is to implement the directive and make the unit pass its defined
-   validation gates — not to challenge the design, not to hunt for bugs
-   beyond the gates, not to harden code the directive didn't ask you to
+   validation commands — not to challenge the design, not to hunt for bugs
+   beyond those checks, not to harden code the directive didn't ask you to
    touch. This separation is what keeps you efficient. Two boundaries stay
    exactly where they are: a FACTUAL error in the handoff's premise is
    reported with proof before proceeding (that is evidence, not a design

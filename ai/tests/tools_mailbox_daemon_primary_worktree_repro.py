@@ -384,7 +384,8 @@ def arm_all_live_actions_bootstrap(source=None):
                         pending_markdown(primary)[0].read_text(
                             encoding="utf-8")
                         .startswith(
-                            "MAILBOX-SEVERITY: " + expected + "\n\n"))
+                            "MAILBOX-SEVERITY: " + expected + "\n"
+                            "MAILBOX-SCOPE: bounded\n\n"))
             records = worktree_records(root)
             passed = (
                 rc == 0 and stderr == ""

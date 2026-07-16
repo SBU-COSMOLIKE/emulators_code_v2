@@ -26,6 +26,13 @@ documentation/*Notes.bib
 ai/notes/mailbox/
 ai/notes/relay/
 
+# The Architect's local backlog fingerprint, write lock, and interrupted
+# atomic-write files.  The backlog itself is already excluded by the local
+# Markdown rule below.
+/ai/notes/.backlog-guard.json
+/ai/notes/.backlog-guard.lock
+/ai/notes/.backlog-guard.json.tmp-*
+
 # Only the eleven permanent, general-property notes belong in Git.  Every other
 # top-level Markdown note is a local ticket record.
 /ai/notes/*.md

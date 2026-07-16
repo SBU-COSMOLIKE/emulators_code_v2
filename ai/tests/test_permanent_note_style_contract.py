@@ -71,8 +71,8 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
             "# GO/NO-GO contract for the style of Python changes\n"
         ))
         self.assertIn("style is a release condition", contract)
-        self.assertIn("Architect gate before dispatch", contract)
-        self.assertIn("Architect gate before final verdict", contract)
+        self.assertIn("Architect review before dispatch", contract)
+        self.assertIn("Architect review before final verdict", contract)
 
     def test_memory_starts_the_permanent_note_change_contract(self):
         memory = read("ai/notes/MEMORY.md")
@@ -85,6 +85,67 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         self.assertIn("Only the Architect may edit a permanent note", memory)
         self.assertIn("Rule:", memory)
         self.assertIn("Acceptance evidence:", memory)
+        self.assertIn("future development model and a physics undergraduate",
+                      " ".join(memory.split()))
+        self.assertIn("creates or updates a local backlog ticket in the same turn",
+                      memory)
+        self.assertIn("anti-AI requirements", memory)
+
+    def test_readme_contract_covers_repeated_reader_failures(self):
+        contract = read("ai/notes/readme-go-no-go.md")
+        self.assertIn("neutral-audience", contract)
+        self.assertIn("flows from top to bottom", contract)
+        self.assertIn("first diagram is a small mental model", contract)
+        self.assertIn("GitHub-supported `$$ ... $$` blocks render", contract)
+        self.assertIn("Plain `[ ... ]` is used as pseudo-math", contract)
+        self.assertIn("section **README and teaching contract**", contract)
+        self.assertNotIn("section **README / didactics**", contract)
+        for number in range(1, 7):
+            self.assertIn("## Review " + str(number) + ":", contract)
+            self.assertNotIn("## Gate " + str(number) + ":", contract)
+
+    def test_known_temporary_status_phrases_stay_out_of_permanent_notes(self):
+        combined = "\n".join(read(relative) for relative in PERMANENT_NOTES)
+        for phrase in (
+                "That implementation does not yet satisfy this rule",
+                "A future explicit dense-CMB mode",
+                "must be the new `emulator/experiment.py::"
+                "validate_active_model_values`"):
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, combined)
+
+    def test_notes_record_the_cross_family_identity_and_capability_rules(self):
+        artifact = " ".join(read(
+            "ai/notes/artifacts-inference-warmstart.md").split())
+        generation = " ".join(read(
+            "ai/notes/data-generation-and-cuts.md").split())
+        cmb = " ".join(read("ai/notes/families-scalar-cmb.md").split())
+        models = " ".join(read("ai/notes/models-and-designs.md").split())
+
+        for text in (artifact, generation):
+            for identity in (
+                    "Request identity",
+                    "Generation identity",
+                    "Staged-selection identity",
+                    "Artifact identity"):
+                with self.subTest(note=text[:40], identity=identity):
+                    self.assertIn(identity, text)
+        self.assertIn("<data-vector-root>_ell.npy", cmb)
+        self.assertIn("ai/tests/test_cmb_checkpoint_axis.py", cmb)
+        self.assertIn("Dense covariance training is unsupported", cmb)
+        self.assertIn(
+            "target-producing physics implementations belong to request "
+            "identity",
+            generation)
+        self.assertIn(
+            "changing random-engine and continuation state belongs to the "
+            "sealed generation",
+            generation)
+        self.assertIn("output decoder and loss composition", artifact)
+        self.assertIn("When `TCMB` is a sampled input", cmb)
+        self.assertIn("both fixed-temperature and sampled-temperature", cmb)
+        self.assertIn("validated ten-template dataset", models)
+        self.assertIn("registry construction alone is not a claim", models)
 
     def test_notes_have_no_calendar_or_person_specific_language(self):
         for relative in PERMANENT_NOTES:

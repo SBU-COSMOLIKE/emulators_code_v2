@@ -214,6 +214,12 @@ DISCOVERY_SEVERITIES = ("high", "medium", "low")
 DEFAULT_DISCOVERY_SEVERITY = "medium"
 DISCOVERY_SEVERITY = DEFAULT_DISCOVERY_SEVERITY
 
+# Discovery breadth is saved beside severity in every discovery envelope.
+# Dispatch must never reconstruct this decision from prose: a note pointer can
+# replace the prose while the exact scope header remains durable.
+DISCOVERY_SCOPES = ("bounded", "widespread")
+DEFAULT_DISCOVERY_SCOPE = "bounded"
+
 # dispatch() reads this for the claude environment; main() rebinds it
 # from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
 CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
@@ -2434,16 +2440,33 @@ ACTIVE_TOPOLOGY = None
 PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
                        "your message here"]
 
-# At this total, the watcher reminds the Architect that Sol can receive a
-# separate implementation job. Sol remains the Red Team unless that specific
-# message contains the exact second-Implementer declaration. The total is the
-# waiting mailbox messages plus the "- OPEN" lines in ai/notes/backlog.md.
-SECOND_IMPLEMENTER_THRESHOLD = 10
+# Two independent limits use the severity written in the open-ticket index.
+# Ten open non-Low tickets stop new discovery. Sol may work as a second
+# Implementer only during an emergency: more than ten open High bug fixes or
+# more than one open Critical bug fix. Features and mailbox files contribute
+# to neither emergency count. The count never changes Sol's role by itself;
+# the Architect must still write the exact per-ticket declaration.
+DISCOVERY_ADMISSION_THRESHOLD = 10
+SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD = 10
+SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD = 1
 BACKLOG_LEDGER = os.path.join(AI_ROOT, "notes", "backlog.md")
+OPEN_BACKLOG_TICKET_RE = re.compile(
+    r"^- OPEN \*\*(CRITICAL|HIGH|MEDIUM|LOW)\*\* "
+    r"\*\*(BUG FIX|NEW FUNCTIONALITY)\*\* — "
+    r"\[([^]\r\n]+)\]\(#([a-z0-9]+(?:-[a-z0-9]+)*)\)$")
+OPEN_BACKLOG_CANDIDATE_RE = re.compile(
+    r"^\s*-\s+OPEN(?:\s|$)", re.IGNORECASE)
+BACKLOG_DETAIL_ANCHOR_RE = re.compile(
+    r'^<a id="([a-z0-9]+(?:-[a-z0-9]+)*)"></a>$')
+BACKLOG_REOPEN_COUNT_RE = re.compile(
+    r"^\*\*Red Team reopen count: (0|[1-9][0-9]*)\.\*\*$")
+BACKLOG_REOPEN_COUNT_CANDIDATE_RE = re.compile(
+    r"Red[ \t]+Team[ \t]+reopen[ \t]+count\b", re.IGNORECASE)
 SOL_TICKET_KINDS = ("closure", "discovery")
 SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
 SOL_TICKET_HEADER = "MAILBOX-TICKET: "
 SOL_SEVERITY_HEADER = "MAILBOX-SEVERITY: "
+SOL_SCOPE_HEADER = "MAILBOX-SCOPE: "
 SECOND_IMPLEMENTER_MODE_SENTENCE = (
     "OpenAI Sol — this is a role as second Implementer for this unit.")
 SECOND_IMPLEMENTER_RELAY_HEADING_RE = re.compile(
@@ -2454,6 +2477,8 @@ SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
 SKIP_REDTEAM_LOCK_NAME = ".skip-redteam.lock"
 MAX_CHARACTERS_ENVIRONMENT = "MAILBOX_MAX_CHARACTERS"
 DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
+DISCOVERY_SCOPE_ENVIRONMENT = "MAILBOX_DISCOVERY_SCOPE"
+MAILBOX_ROLE_ENVIRONMENT = "MAILBOX_ROLE"
 
 # One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
 # witness/gate leg, and the notes audit record — a few hundred changed
@@ -2482,20 +2507,216 @@ STATE_GUARD_SUFFIX = ".state-guard"
 
 
 def backlog_ledger_count():
-    """Count the open units recorded in the backlog ledger.
+    """Count every open ticket recorded in the backlog ledger.
 
     Returns:
-      The number of lines in ai/notes/backlog.md starting "- OPEN" (zero
-      when the ledger does not exist).
+      The number of classified and unclassified lines beginning ``- OPEN``.
+      Zero is returned when the ledger does not exist.
     """
-    if not os.path.isfile(BACKLOG_LEDGER):
-        return 0
-    count = 0
-    with open(BACKLOG_LEDGER, encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("- OPEN"):
-                count = count + 1
-    return count
+    counts = backlog_severity_counts()
+    return (counts["critical"] + counts["high"] + counts["medium"]
+            + counts["low"] + counts["unclassified"])
+
+
+def backlog_severity_counts():
+    """Count open backlog tickets by the Architect's final severity.
+
+    ``Critical`` is a final backlog classification, not a public discovery
+    setting. An open line that lacks one exact classification is reported as
+    ``unclassified`` so malformed bookkeeping cannot disappear silently.
+    Each indexed open ticket must also have one exact Red Team reopen-count
+    row in its detailed section. After more than five reopens, only Low is a
+    valid severity. The Red Team remains advisory: this bookkeeping rule does
+    not wait for a review or block the Architect from closing a ticket.
+
+    Returns:
+      A mapping with severity totals, High-bug and feature subtotals, and an
+      ``unclassified`` count.
+    """
+    counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "high_bug_fix": 0,
+        "high_new_functionality": 0,
+        "unclassified": 0,
+        "problem": None,
+    }
+    lines, problem = verified_backlog_lines()
+    if problem is not None:
+        counts["problem"] = problem
+        return counts
+    anchor_counts = {}
+    anchor_positions = []
+    for line_number, line in enumerate(lines):
+        anchor_match = BACKLOG_DETAIL_ANCHOR_RE.fullmatch(line)
+        if anchor_match is not None:
+            anchor = anchor_match.group(1)
+            anchor_counts[anchor] = anchor_counts.get(anchor, 0) + 1
+            anchor_positions.append((line_number, anchor))
+    detail_sections = {}
+    for position, (start, anchor) in enumerate(anchor_positions):
+        if position + 1 < len(anchor_positions):
+            end = anchor_positions[position + 1][0]
+        else:
+            end = len(lines)
+        detail_sections.setdefault(anchor, []).append(lines[start + 1:end])
+    seen_index_anchors = set()
+    for line in lines:
+        if OPEN_BACKLOG_CANDIDATE_RE.match(line) is None:
+            continue
+        match = OPEN_BACKLOG_TICKET_RE.fullmatch(line)
+        if match is None:
+            counts["unclassified"] += 1
+            continue
+        anchor = match.group(4)
+        if (match.group(1) == "CRITICAL"
+                and match.group(2) != "BUG FIX"):
+            counts["unclassified"] += 1
+            continue
+        if anchor in seen_index_anchors or anchor_counts.get(anchor) != 1:
+            counts["unclassified"] += 1
+            seen_index_anchors.add(anchor)
+            continue
+        seen_index_anchors.add(anchor)
+        severity = match.group(1).lower()
+        sections = detail_sections.get(anchor, [])
+        if len(sections) != 1:
+            counts["unclassified"] += 1
+            continue
+        reopen_candidates = [
+            detail_line for detail_line in sections[0]
+            if BACKLOG_REOPEN_COUNT_CANDIDATE_RE.search(detail_line)
+            is not None]
+        if len(reopen_candidates) != 1:
+            counts["unclassified"] += 1
+            continue
+        reopen_match = BACKLOG_REOPEN_COUNT_RE.fullmatch(
+            reopen_candidates[0])
+        if reopen_match is None:
+            counts["unclassified"] += 1
+            continue
+        reopen_count = reopen_match.group(1)
+        reopened_more_than_five = (
+            len(reopen_count) > 1 or reopen_count > "5")
+        if reopened_more_than_five and severity != "low":
+            counts["unclassified"] += 1
+            continue
+        ticket_type = match.group(2).lower().replace(" ", "_")
+        counts[severity] += 1
+        if severity == "high":
+            counts["high_" + ticket_type] += 1
+    return counts
+
+
+def verified_backlog_lines():
+    """Read one stable, regular UTF-8 backlog or return a plain problem."""
+    try:
+        initial = os.lstat(BACKLOG_LEDGER)
+    except FileNotFoundError:
+        return None, (
+            "ai/notes/backlog.md is missing; the Architect must recreate "
+            "the local backlog from the permanent contract before ticket "
+            "dispatch")
+    except OSError as exc:
+        return None, "cannot inspect ai/notes/backlog.md: " + str(exc)
+    if stat.S_ISLNK(initial.st_mode) or not stat.S_ISREG(initial.st_mode):
+        return None, (
+            "ai/notes/backlog.md must be one ordinary file, not a redirect "
+            "or special file")
+    if initial.st_size > MAX_BACKLOG_LEDGER_BYTES:
+        return None, "ai/notes/backlog.md exceeds the safe read limit"
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(BACKLOG_LEDGER, flags)
+    except OSError as exc:
+        return None, "cannot open ai/notes/backlog.md: " + str(exc)
+    try:
+        opened = os.fstat(descriptor)
+        if (not stat.S_ISREG(opened.st_mode)
+                or (initial.st_dev, initial.st_ino)
+                != (opened.st_dev, opened.st_ino)):
+            return None, "ai/notes/backlog.md changed while being opened"
+        chunks = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_BACKLOG_LEDGER_BYTES:
+                return None, "ai/notes/backlog.md exceeds the safe read limit"
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+        current = os.lstat(BACKLOG_LEDGER)
+        if ((opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                or (after.st_dev, after.st_ino)
+                != (current.st_dev, current.st_ino)
+                or opened.st_size != after.st_size
+                or opened.st_mtime_ns != after.st_mtime_ns
+                or opened.st_ctime_ns != after.st_ctime_ns
+                or after.st_size != size):
+            return None, "ai/notes/backlog.md changed while being read"
+    except OSError as exc:
+        return None, "cannot verify ai/notes/backlog.md: " + str(exc)
+    finally:
+        os.close(descriptor)
+    try:
+        text = b"".join(chunks).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        return None, "ai/notes/backlog.md is not valid UTF-8: " + str(exc)
+    return text.splitlines(), None
+
+
+def discovery_admission_count():
+    """Return open Critical, High, and Medium tickets; Low does not count."""
+    counts = backlog_severity_counts()
+    return counts["critical"] + counts["high"] + counts["medium"]
+
+
+def second_implementer_emergency(counts=None):
+    """Return whether backlog severity proves the Sol emergency condition."""
+    if counts is None:
+        counts = backlog_severity_counts()
+    if counts.get("problem") is not None or counts.get("unclassified", 0):
+        return False
+    return (
+        counts["critical"]
+        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD
+        or counts["high_bug_fix"]
+        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)
+
+
+def second_implementer_emergency_refusal(message, counts=None):
+    """Refuse a second-Implementer assignment outside a backlog emergency."""
+    if not sol_second_implementer_assignment(message=message):
+        return None
+    if counts is None:
+        counts = backlog_severity_counts()
+    if second_implementer_emergency(counts=counts):
+        return None
+    if counts["problem"] is not None:
+        return ("Sol is emergency-only as a second Implementer; "
+                + counts["problem"])
+    if counts["unclassified"]:
+        return (
+            "Sol is emergency-only as a second Implementer, and the backlog "
+            "has " + str(counts["unclassified"])
+            + " malformed open ticket(s). The Architect must give every "
+            "open line an exact priority and either BUG FIX or NEW "
+            "FUNCTIONALITY before the emergency count can authorize this "
+            "role")
+    return (
+        "Sol is emergency-only as a second Implementer; the backlog has "
+        + str(counts["critical"]) + " open Critical bugs and "
+        + str(counts["high_bug_fix"]) + " open High bugs, but the role "
+        "requires more than 1 Critical bug or more than 10 High bugs. "
+        "Critical is an "
+        "Architect-only designation and must never be used merely to unlock "
+        "another Implementer")
 
 PREAMBLE = (
     "You are invoked headlessly by ai/tools/mailbox_daemon.py (no human is\n"
@@ -2524,13 +2745,16 @@ PREAMBLE = (
     "    MAILBOX-TICKET: discovery\n"
     "Use closure only for work that retires an existing - OPEN ledger line;\n"
     "use discovery when the product is new findings. The daemon refuses to\n"
-    "guess a class from prose. A discovery must add this exact second line,\n"
-    "using the binding value in MAILBOX_DISCOVERY_SEVERITY:\n"
+    "guess a class from prose. A discovery must add these exact second and\n"
+    "third lines, in this order, using the binding values exported to the\n"
+    "turn:\n"
     "    MAILBOX-SEVERITY: LEVEL\n"
     "Replace LEVEL with exactly high, medium, or low.\n"
-    "A public request to the Architect uses that same severity line as its\n"
-    "first line. The daemon validates it and exports its value to the\n"
-    "Architect turn; it is not a Sol ticket classification.\n"
+    "    MAILBOX-SCOPE: SCOPE\n"
+    "Replace SCOPE with exactly bounded or widespread.\n"
+    "A public request to the Architect uses those same severity and scope\n"
+    "lines as its first two lines. The daemon validates and exports both\n"
+    "values to the Architect turn; they are not a Sol ticket classification.\n"
     "That saved value records the user's minimum severity for a new ticket.\n"
     "The daemon's exact no-work transport ping is\n"
     "the sole reserved MAILBOX-TICKET: transport exception.\n"
@@ -2666,13 +2890,6 @@ def deferred_sol_messages():
             == "sol"]
 
 
-def total_open_demand(backlog=None):
-    """Return queued messages plus literal open lines in the ledger."""
-    if backlog is None:
-        backlog = pending_messages()
-    return len(backlog) + backlog_ledger_count()
-
-
 def sol_ticket_kind(message):
     """Return a Sol message's exact first-line class, or ``None``.
 
@@ -2702,56 +2919,77 @@ def sol_ticket_body_after_kind(message):
     return message[match.end():]
 
 
-def sol_discovery_severity_problem(message):
-    """Return a saved discovery-severity envelope error, or ``None``.
+def _sol_discovery_envelope(message):
+    """Parse the exact persisted discovery envelope without reading prose.
 
-    Old discovery messages had only the ticket line. They keep the documented
-    medium default. Once a second line uses the reserved severity prefix, it
-    must contain one exact supported value and may appear only once.
+    Returns:
+      ``(severity, scope, body, problem)``. A valid discovery has all three
+      exact physical header lines in order. Other ticket kinds may not use a
+      reserved severity or scope line.
     """
     ticket_kind = sol_ticket_kind(message=message)
     remainder = sol_ticket_body_after_kind(message=message)
     severity_like_line = (
         r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*severity[ \t]*:")
+    scope_like_line = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*scope[ \t]*:")
     if ticket_kind != "discovery":
         if re.search(severity_like_line, remainder) is not None:
-            return ("MAILBOX-SEVERITY is reserved for discovery tickets "
+            return (None, None, remainder,
+                    "MAILBOX-SEVERITY is reserved for discovery tickets "
                     "and must not appear on another ticket kind")
-        return None
-    if not remainder.startswith(SOL_SEVERITY_HEADER):
-        if re.search(severity_like_line, remainder) is not None:
-            return ("MAILBOX-SEVERITY must use its exact spelling and be "
-                    "the second physical line of a discovery ticket")
-        return None
-    match = re.match(
+        if re.search(scope_like_line, remainder) is not None:
+            return (None, None, remainder,
+                    "MAILBOX-SCOPE is reserved for discovery tickets and "
+                    "must not appear on another ticket kind")
+        return None, None, remainder, None
+
+    severity_match = re.match(
         r"\A" + re.escape(SOL_SEVERITY_HEADER)
         + r"(" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
-        + r")(?:\r?\n|\Z)",
+        + r")\r?\n",
         remainder)
-    if match is None:
-        return ("invalid discovery severity line; use exactly "
-                "'MAILBOX-SEVERITY: high', 'MAILBOX-SEVERITY: medium', "
-                "or 'MAILBOX-SEVERITY: low'")
-    if re.search(severity_like_line, remainder[match.end():]) is not None:
-        return "duplicate MAILBOX-SEVERITY line"
-    return None
+    if severity_match is None:
+        return (None, None, remainder,
+                "a discovery ticket requires exactly "
+                "'MAILBOX-SEVERITY: high', 'MAILBOX-SEVERITY: medium', or "
+                "'MAILBOX-SEVERITY: low' as its second physical line")
+
+    after_severity = remainder[severity_match.end():]
+    scope_match = re.match(
+        r"\A" + re.escape(SOL_SCOPE_HEADER)
+        + r"(" + "|".join(map(re.escape, DISCOVERY_SCOPES))
+        + r")(?:\r?\n|\Z)",
+        after_severity)
+    if scope_match is None:
+        return (None, None, remainder,
+                "a discovery ticket requires exactly "
+                "'MAILBOX-SCOPE: bounded' or 'MAILBOX-SCOPE: widespread' "
+                "as its third physical line")
+
+    body = after_severity[scope_match.end():]
+    if re.search(severity_like_line, body) is not None:
+        return None, None, remainder, "duplicate MAILBOX-SEVERITY line"
+    if re.search(scope_like_line, body) is not None:
+        return None, None, remainder, "duplicate MAILBOX-SCOPE line"
+    return severity_match.group(1), scope_match.group(1), body, None
+
+
+def sol_discovery_severity_problem(message):
+    """Return an exact discovery-envelope error, or ``None``."""
+    return _sol_discovery_envelope(message=message)[3]
 
 
 def sol_discovery_severity(message):
-    """Return a discovery ticket's saved severity, including legacy default."""
-    if sol_ticket_kind(message=message) != "discovery":
-        return None
-    if sol_discovery_severity_problem(message=message) is not None:
-        return None
-    remainder = sol_ticket_body_after_kind(message=message)
-    match = re.match(
-        r"\A" + re.escape(SOL_SEVERITY_HEADER)
-        + r"(" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
-        + r")(?:\r?\n|\Z)",
-        remainder)
-    if match is None:
-        return DEFAULT_DISCOVERY_SEVERITY
-    return match.group(1)
+    """Return a valid discovery ticket's saved severity, or ``None``."""
+    severity, _, _, problem = _sol_discovery_envelope(message=message)
+    return severity if problem is None else None
+
+
+def sol_discovery_scope(message):
+    """Return a valid discovery ticket's saved scope, or ``None``."""
+    _, scope, _, problem = _sol_discovery_envelope(message=message)
+    return scope if problem is None else None
 
 
 def sol_ticket_body(message):
@@ -2759,16 +2997,23 @@ def sol_ticket_body(message):
     remainder = sol_ticket_body_after_kind(message=message)
     if sol_ticket_kind(message=message) != "discovery":
         return remainder
-    if sol_discovery_severity_problem(message=message) is not None:
-        return remainder
-    match = re.match(
-        r"\A" + re.escape(SOL_SEVERITY_HEADER)
-        + r"(?:" + "|".join(map(re.escape, DISCOVERY_SEVERITIES))
-        + r")(?:\r?\n|\Z)",
-        remainder)
-    if match is None:
-        return remainder
-    return remainder[match.end():]
+    _, _, body, problem = _sol_discovery_envelope(message=message)
+    return remainder if problem is not None else body
+
+
+def architect_request_scope(text):
+    """Classify only an explicit positive command at the start of user text.
+
+    A quotation, a negation, leading prose, or a later mention remains
+    bounded. This recognizer is used only while constructing the public
+    Architect envelope; dispatch trusts the saved ``MAILBOX-SCOPE`` value.
+    """
+    positive = (
+        r"\A(?:please(?:,)?[ \t]+)?"
+        r"(?:instruct[ \t]+the[ \t]+red[ \t]+team[ \t]+to[ \t]+)?"
+        r"do[ \t]+a[ \t]+widespread[ \t]+search\b")
+    return ("widespread" if re.search(positive, text, re.IGNORECASE)
+            is not None else "bounded")
 
 
 def sol_second_implementer_assignment(message):
@@ -2788,6 +3033,20 @@ def sol_second_implementer_assignment(message):
     return bool(lines and lines[0] == SECOND_IMPLEMENTER_MODE_SENTENCE)
 
 
+def mailbox_role_for_dispatch(agent, message=None):
+    """Return the checksum-guard role for one exact dispatch route."""
+    if agent == "fable":
+        return "architect"
+    if agent == "opus":
+        return "implementer"
+    if agent == "sol":
+        if (message is not None
+                and sol_second_implementer_assignment(message=message)):
+            return "implementer"
+        return "red-team"
+    raise ValueError("unknown mailbox agent: " + repr(agent))
+
+
 def transport_ping_text(agent):
     """Return the one no-work transport payload reserved for ``--ping``."""
     return (
@@ -2801,7 +3060,8 @@ def transport_ping_text(agent):
         "the daemon never dispatches them.)\n")
 
 
-def sol_ticket_payload(ticket_kind, text, discovery_severity=None):
+def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
+                       discovery_scope=None):
     """Build the byte-stable persisted envelope for a Sol message."""
     if ticket_kind == "discovery":
         if discovery_severity is None:
@@ -2809,13 +3069,22 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None):
         if discovery_severity not in DISCOVERY_SEVERITIES:
             raise ValueError("invalid discovery severity: "
                              + repr(discovery_severity))
+        if discovery_scope is None:
+            discovery_scope = DEFAULT_DISCOVERY_SCOPE
+        if discovery_scope not in DISCOVERY_SCOPES:
+            raise ValueError("invalid discovery scope: "
+                             + repr(discovery_scope))
         payload = (SOL_TICKET_HEADER + ticket_kind + "\n"
-                   + SOL_SEVERITY_HEADER + discovery_severity + "\n\n"
+                   + SOL_SEVERITY_HEADER + discovery_severity + "\n"
+                   + SOL_SCOPE_HEADER + discovery_scope + "\n\n"
                    + text)
     else:
         if discovery_severity is not None:
             raise ValueError(
                 "discovery severity is valid only for discovery tickets")
+        if discovery_scope is not None:
+            raise ValueError(
+                "discovery scope is valid only for discovery tickets")
         payload = SOL_TICKET_HEADER + ticket_kind + "\n\n" + text
     if not payload.endswith("\n"):
         payload = payload + "\n"
@@ -2826,34 +3095,63 @@ def architect_user_request_payload(text, discovery_severity=None):
     """Build the persisted public envelope addressed only to Architect."""
     if discovery_severity is None:
         discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+    discovery_scope = architect_request_scope(text=text)
+    if discovery_scope == "widespread":
+        discovery_severity = "low"
     if discovery_severity not in DISCOVERY_SEVERITIES:
         raise ValueError("invalid discovery severity: "
                          + repr(discovery_severity))
-    payload = (SOL_SEVERITY_HEADER + discovery_severity + "\n\n" + text)
+    payload = (SOL_SEVERITY_HEADER + discovery_severity + "\n"
+               + SOL_SCOPE_HEADER + discovery_scope + "\n\n" + text)
     if not payload.endswith("\n"):
         payload = payload + "\n"
     return payload
 
 
+def _architect_user_request_envelope(message):
+    """Return ``(severity, scope, body, problem)`` for a public envelope."""
+    match = re.match(
+        r"\A" + re.escape(SOL_SEVERITY_HEADER)
+        + r"(" + "|".join(map(re.escape, DISCOVERY_SEVERITIES)) + r")\r?\n"
+        + re.escape(SOL_SCOPE_HEADER)
+        + r"(" + "|".join(map(re.escape, DISCOVERY_SCOPES))
+        + r")\r?\n\r?\n",
+        message)
+    if match is None:
+        return (None, None, message,
+                "a public Architect request needs exact MAILBOX-SEVERITY "
+                "and MAILBOX-SCOPE headers, in that order, followed by one "
+                "blank line")
+    body = message[match.end():]
+    reserved_like = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*(?:severity|scope)[ \t]*:")
+    if re.search(reserved_like, body) is not None:
+        return None, None, message, "duplicate public request header"
+    return match.group(1), match.group(2), body, None
+
+
+def architect_user_request_problem(message):
+    """Return a malformed public-envelope reason, or ``None``."""
+    return _architect_user_request_envelope(message=message)[3]
+
+
 def architect_user_request_severity(message):
     """Return a valid public Architect envelope severity, or ``None``."""
-    if not message.startswith(SOL_SEVERITY_HEADER):
-        return None
-    first_line = message.splitlines()[0]
-    severity = first_line[len(SOL_SEVERITY_HEADER):]
-    if severity not in DISCOVERY_SEVERITIES:
-        return None
-    if not message.startswith(first_line + "\n\n"):
-        return None
-    return severity
+    severity, _, _, problem = _architect_user_request_envelope(
+        message=message)
+    return severity if problem is None else None
+
+
+def architect_user_request_scope(message):
+    """Return a valid public Architect envelope scope, or ``None``."""
+    _, scope, _, problem = _architect_user_request_envelope(message=message)
+    return scope if problem is None else None
 
 
 def architect_user_request_body(message):
     """Return the exact user text after a valid Architect envelope."""
-    severity = architect_user_request_severity(message=message)
-    if severity is None:
-        return message
-    return message[len(SOL_SEVERITY_HEADER + severity + "\n\n"):]
+    _, _, body, problem = _architect_user_request_envelope(message=message)
+    return message if problem is not None else body
 
 
 def valid_sol_transport(message):
@@ -2897,8 +3195,10 @@ def resolve_discovery_severity(cli_value=None):
     return cli_value
 
 
-def sol_ticket_refusal(ticket_kind, total, fix_only,
-                       transport_valid=False, discovery_severity=None):
+def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
+                       transport_valid=False, discovery_severity=None,
+                       discovery_scope=None, unclassified_count=0,
+                       ledger_problem=None):
     """Return the binding refusal reason for a Sol ticket, or ``None``."""
     if ticket_kind == "transport":
         if transport_valid:
@@ -2909,25 +3209,52 @@ def sol_ticket_refusal(ticket_kind, total, fix_only,
         return ("missing or invalid first line; every Sol ticket must start "
                 "with exactly 'MAILBOX-TICKET: closure' or "
                 "'MAILBOX-TICKET: discovery'")
+    if ledger_problem is not None:
+        return ledger_problem
     if ticket_kind == "discovery":
         if discovery_severity is None:
             discovery_severity = DEFAULT_DISCOVERY_SEVERITY
         if discovery_severity not in DISCOVERY_SEVERITIES:
             return ("a discovery ticket needs one severity: high, medium, "
                     "or low")
+        if discovery_scope not in DISCOVERY_SCOPES:
+            return ("a discovery ticket needs one saved scope: bounded or "
+                    "widespread")
     elif discovery_severity is not None:
         return "--severity is valid only for discovery tickets"
+    elif discovery_scope is not None:
+        return "discovery scope is valid only for discovery tickets"
     if fix_only and ticket_kind != "closure":
         return ("fix-only watch is closing-only; discovery tickets and new "
                 "backlog lines are forbidden until the watch is restarted "
                 "without --fix-only")
+    if ticket_kind == "discovery" and unclassified_count:
+        return ("the backlog has " + str(unclassified_count)
+                + " unclassified open ticket(s); the Architect must assign "
+                "each one a valid priority and either BUG FIX or NEW "
+                "FUNCTIONALITY before new discovery can enter")
     if (ticket_kind == "discovery"
-            and total >= SECOND_IMPLEMENTER_THRESHOLD):
-        return ("total open demand is " + str(total) + ", at or past "
-                + str(SECOND_IMPLEMENTER_THRESHOLD)
-                + "; append this discovery ticket to the END of "
-                "ai/notes/backlog.md instead and wait until total demand "
-                "falls below the threshold")
+            and discovery_scope == "widespread"):
+        if discovery_severity != "low":
+            return ("a widespread search is automatically Low; save exactly "
+                    "MAILBOX-SEVERITY: low")
+        if admission_count:
+            return ("a widespread search waits until no open Critical, High, "
+                    "or Medium ticket remains; the current non-Low count is "
+                    + str(admission_count) + ". Open Low tickets do not block "
+                    "this search")
+    if (ticket_kind == "discovery"
+            and admission_count >= DISCOVERY_ADMISSION_THRESHOLD):
+        return ("the open Critical, High, and Medium ticket count is "
+                + str(admission_count) + ", at or past "
+                + str(DISCOVERY_ADMISSION_THRESHOLD)
+                + "; do not admit this discovery yet. Record it as a local "
+                "deferred candidate without a countable '- OPEN' marker. "
+                "Low tickets do not count toward this limit. When the count "
+                "falls below the threshold, assess the result and insert an "
+                "accepted ticket in the matching Critical, High, Medium, or "
+                "Low backlog group; only the Architect may designate "
+                "Critical")
     return None
 
 
@@ -3186,7 +3513,8 @@ def exact_duration(value):
 
 def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                     fix_only=False, skip_redteam=False,
-                    discovery_severity=None, saved_discovery=False,
+                    discovery_severity=None, discovery_scope=None,
+                    saved_discovery=False,
                     saved_architect_request=False):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
@@ -3255,6 +3583,30 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
         "evidence-based reason, then makes the final GO or NO-GO ticket "
         "decision. The Red Team never opens the ticket itself.")
     lines.append("--- END DISCOVERY SEVERITY ---")
+    lines.append("")
+    lines.append("--- DISCOVERY SCOPE (binding) ---")
+    if discovery_scope is None:
+        discovery_scope = DEFAULT_DISCOVERY_SCOPE
+    if saved_discovery:
+        lines.append("saved scope for this discovery: " + discovery_scope)
+    elif saved_architect_request:
+        lines.append(
+            "saved scope for discovery requested by this ticket: "
+            + discovery_scope)
+    else:
+        lines.append(
+            "scope to save on an ordinary new discovery: "
+            + discovery_scope)
+    lines.append(
+        "bounded: review only the named commit or change and the behavior "
+        "it directly affects.")
+    lines.append(
+        "widespread: search beyond one named change; it must remain Low and "
+        "wait until no Critical, High, or Medium ticket is open.")
+    lines.append(
+        "Trust MAILBOX-SCOPE and MAILBOX_DISCOVERY_SCOPE, not a phrase found "
+        "in the body or cited note.")
+    lines.append("--- END DISCOVERY SCOPE ---")
     lines.append("")
     lines.append("--- TICKET CHARACTER BUDGET (binding) ---")
     primary = AGENT_CWD["fable"]
@@ -4003,20 +4355,17 @@ def dispatch_under_main_checkout_lock(
             print("refused " + name + ": saved Sol worktree validation "
                   "failed (" + str(exc) + "); message left untouched.")
             return False
-    # Take one policy snapshot before claim_message() removes this candidate.
-    # Dispatch evaluates all OTHER current demand: the already-published
-    # candidate must not turn an authorized 9 -> send into a self-refusal at
-    # 10.  New concurrent work still counts, so a ticket can be deferred when
-    # other demand independently reaches the threshold before launch.
-    demand_before_claim = None
+    # Take one severity snapshot before claim_message() moves the mailbox
+    # file. Mailbox files are queue information, not accepted backlog tickets,
+    # so they do not participate in either severity threshold.
+    severity_counts_before_claim = None
+    admission_count_before_claim = None
     if agent == "sol":
-        pending_before_claim = pending_messages()
-        demand_before_claim = total_open_demand(
-            backlog=pending_before_claim)
-        candidate = os.path.abspath(path)
-        if any(os.path.abspath(item) == candidate
-               for item in pending_before_claim):
-            demand_before_claim = max(0, demand_before_claim - 1)
+        severity_counts_before_claim = backlog_severity_counts()
+        admission_count_before_claim = (
+            severity_counts_before_claim["critical"]
+            + severity_counts_before_claim["high"]
+            + severity_counts_before_claim["medium"])
     dispatch_path = path
     currency = None
     prior_timeout = None
@@ -4065,15 +4414,18 @@ def dispatch_under_main_checkout_lock(
 
     ticket_kind = None
     effective_discovery_severity = DISCOVERY_SEVERITY
+    effective_discovery_scope = DEFAULT_DISCOVERY_SCOPE
     saved_architect_severity = None
+    saved_architect_scope = None
     if agent == "fable" and message.startswith(SOL_SEVERITY_HEADER):
+        architect_request_problem = architect_user_request_problem(
+            message=message)
         saved_architect_severity = architect_user_request_severity(
             message=message)
-        if saved_architect_severity is None:
-            reason = ("invalid public Architect request header; use exactly "
-                      "'MAILBOX-SEVERITY: high', 'MAILBOX-SEVERITY: "
-                      "medium', or 'MAILBOX-SEVERITY: low', followed by "
-                      "one blank line")
+        saved_architect_scope = architect_user_request_scope(message=message)
+        if architect_request_problem is not None:
+            reason = ("invalid public Architect request header; "
+                      + architect_request_problem)
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason
                       + "; no file changed.")
@@ -4087,20 +4439,31 @@ def dispatch_under_main_checkout_lock(
                       "inflight/ and failed/.")
             return False
         effective_discovery_severity = saved_architect_severity
+        effective_discovery_scope = saved_architect_scope
     if agent == "sol":
         ticket_kind = sol_ticket_kind(message=message)
         severity_problem = sol_discovery_severity_problem(message=message)
         saved_severity = sol_discovery_severity(message=message)
+        saved_scope = sol_discovery_scope(message=message)
         if saved_severity is not None:
             effective_discovery_severity = saved_severity
+        if saved_scope is not None:
+            effective_discovery_scope = saved_scope
         reason = severity_problem
         if reason is None:
             reason = sol_ticket_refusal(
                 ticket_kind=ticket_kind,
-                total=demand_before_claim,
+                admission_count=admission_count_before_claim,
                 fix_only=fix_only,
                 transport_valid=valid_sol_transport(message=message),
-                discovery_severity=saved_severity)
+                discovery_severity=saved_severity,
+                discovery_scope=saved_scope,
+                unclassified_count=(
+                    severity_counts_before_claim["unclassified"]),
+                ledger_problem=severity_counts_before_claim["problem"])
+        if reason is None:
+            reason = second_implementer_emergency_refusal(
+                message=message, counts=severity_counts_before_claim)
         if reason is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason
@@ -4165,6 +4528,7 @@ def dispatch_under_main_checkout_lock(
         fix_only=fix_only,
         skip_redteam=skip_redteam,
         discovery_severity=effective_discovery_severity,
+        discovery_scope=effective_discovery_scope,
         saved_discovery=(ticket_kind == "discovery"),
         saved_architect_request=(saved_architect_severity is not None))
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
@@ -4203,6 +4567,9 @@ def dispatch_under_main_checkout_lock(
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
         env[MAX_CHARACTERS_ENVIRONMENT] = str(MAX_CHARACTERS)
         env[DISCOVERY_SEVERITY_ENVIRONMENT] = effective_discovery_severity
+        env[DISCOVERY_SCOPE_ENVIRONMENT] = effective_discovery_scope
+        env[MAILBOX_ROLE_ENVIRONMENT] = mailbox_role_for_dispatch(
+            agent=agent, message=message)
         env["MAILBOX_PRIMARY_WORKTREE"] = AGENT_CWD["fable"]
         env["MAILBOX_SHARED_NOTES"] = os.path.join(
             AGENT_CWD["fable"], "ai", "notes")
@@ -4652,11 +5019,11 @@ def report_deferred_sol_messages():
 
 
 def report_demand(backlog, skip_redteam=False):
-    """Print the waiting-work counts and second-Implementer reminder.
+    """Print queue depth, severity counts, and the emergency reminder.
 
-    The total is the waiting mailbox messages plus the "- OPEN" lines in
-    ai/notes/backlog.md. Every watch pass that finds work and every --send
-    prints it, so the person adding a message can see the resulting count.
+    Queue depth is informational. New-discovery admission counts open
+    Critical, High, and Medium tickets. The second-Implementer emergency
+    counts Critical and High separately. Low tickets affect neither decision.
 
     Arguments:
       backlog = Current waiting message paths from pending_messages().
@@ -4666,20 +5033,34 @@ def report_demand(backlog, skip_redteam=False):
         name = os.path.basename(path)
         agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
         depth[agent] = depth[agent] + 1
-    ledger = backlog_ledger_count()
-    total = total_open_demand(backlog=backlog)
+    counts = backlog_severity_counts()
+    ledger = (counts["critical"] + counts["high"] + counts["medium"]
+              + counts["low"] + counts["unclassified"])
+    admission = counts["critical"] + counts["high"] + counts["medium"]
     print("queue depth: opus=" + str(depth["opus"])
           + " sol=" + str(depth["sol"])
           + " fable=" + str(depth["fable"])
-          + " | open backlog (ai/notes/backlog.md): " + str(ledger)
-          + " | total demand: " + str(total))
-    if total >= SECOND_IMPLEMENTER_THRESHOLD and not skip_redteam:
-        print("  hint: " + str(SECOND_IMPLEMENTER_THRESHOLD)
-              + " or more items are waiting. Ask the Architect to give Sol "
-              "separate implementation jobs as a second Implementer, but "
-              "only an Architect message with the required declaration "
-              "changes Sol's role; "
-              "otherwise Sol remains the Red Team.")
+          + " | open backlog: critical=" + str(counts["critical"])
+          + " high=" + str(counts["high"])
+          + " medium=" + str(counts["medium"])
+          + " low=" + str(counts["low"])
+          + " unclassified=" + str(counts["unclassified"])
+          + " | all open: " + str(ledger)
+          + " | discovery admission count: " + str(admission))
+    if counts["problem"] is not None:
+        print("  warning: " + counts["problem"])
+    if counts["unclassified"]:
+        print("  warning: classify every open backlog ticket before new "
+              "discovery; an unclassified ticket fails closed.")
+    if second_implementer_emergency(counts=counts) and not skip_redteam:
+        print("  emergency: " + str(counts["critical"])
+              + " open Critical bugs and " + str(counts["high_bug_fix"])
+              + " open High bugs. The Architect may give Sol a separate "
+              "implementation job only because more than 1 Critical or more "
+              "than 10 High bugs are open. High features never contribute. "
+              "The exact Architect "
+              "declaration is still required; otherwise Sol remains the Red "
+              "Team.")
     report_landing_debt()
 
 
@@ -5118,7 +5499,7 @@ def reconcile_landing_debt_handoff(snapshot=None):
         release_landing_debt_sequence_lock(lock_file=lock_file)
 
 
-def send(agent, text, dry_run, ticket_kind=None, severity=None):
+def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
     """Save one internal mailbox message or one user request for Architect.
 
     Arguments:
@@ -5135,6 +5516,9 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None):
                  ``low`` value for an internal Sol discovery. Omission uses
                  the inherited run value or medium. Other ticket kinds and
                  internal recipients accept no severity here.
+      scope = the exact ``bounded`` or ``widespread`` scope for an internal
+              Sol discovery. Omission is bounded. Other ticket kinds and
+              recipients accept no scope here.
 
     Returns:
       True when the message was queued, or would be queued in a dry run.
@@ -5146,12 +5530,22 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None):
     except ValueError as exc:
         print("refused --send " + agent + ": " + str(exc) + ".")
         return False
+    effective_scope = (
+        (DEFAULT_DISCOVERY_SCOPE if scope is None else scope)
+        if ticket_kind == "discovery" else scope)
+    if (ticket_kind == "discovery"
+            and effective_scope not in DISCOVERY_SCOPES):
+        print("refused --send " + agent + ": discovery scope must be "
+              "bounded or widespread.")
+        return False
 
     def refusal_now():
         """Return a current Sol-send refusal without changing disk."""
         if agent != "sol":
             if severity is not None:
                 return "--severity is valid only with --send sol discovery"
+            if scope is not None:
+                return "scope is valid only with --send sol discovery"
             return None
         if skip_redteam_policy_active():
             return ("an active two-role watch has the Sol route disabled; "
@@ -5159,13 +5553,28 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None):
         transport_valid = (
             ticket_kind == "transport"
             and text == transport_ping_text(agent="sol"))
-        return sol_ticket_refusal(
+        counts = backlog_severity_counts()
+        reason = sol_ticket_refusal(
             ticket_kind=ticket_kind,
-            total=total_open_demand(),
+            admission_count=(counts["critical"] + counts["high"]
+                             + counts["medium"]),
             fix_only=(fix_only_environment_active()
                       or fix_only_watch_is_active()),
             transport_valid=transport_valid,
-            discovery_severity=effective_severity)
+            discovery_severity=effective_severity,
+            discovery_scope=effective_scope,
+            unclassified_count=counts["unclassified"],
+            ledger_problem=counts["problem"])
+        if reason is not None:
+            return reason
+        if ticket_kind in SOL_DISPATCH_TICKET_KINDS:
+            candidate = sol_ticket_payload(
+                ticket_kind=ticket_kind, text=text,
+                discovery_severity=effective_severity,
+                discovery_scope=effective_scope)
+            return second_implementer_emergency_refusal(
+                message=candidate, counts=counts)
+        return None
 
     reason = refusal_now()
     if reason is not None:
@@ -5177,7 +5586,8 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None):
         if ticket_kind in SOL_DISPATCH_TICKET_KINDS:
             payload = sol_ticket_payload(
                 ticket_kind=ticket_kind, text=text,
-                discovery_severity=effective_severity)
+                discovery_severity=effective_severity,
+                discovery_scope=effective_scope)
         else:
             # refusal_now() already handles this path. Keep the invariant
             # explicit in case its policy is refactored later.
@@ -5194,9 +5604,9 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None):
     with open(lock_path, "a+", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
-            # Concurrent senders can both observe threshold-minus-one before
-            # either takes the sequence lock. Recheck while serialized so at
-            # most one publishes across the boundary.
+            # Recheck persisted modes and the current classified backlog while
+            # publication is serialized. Queue publication does not itself
+            # change either severity count.
             reason = refusal_now()
             if reason is not None:
                 print("refused --send " + agent + ": " + reason + ".")
