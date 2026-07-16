@@ -21,6 +21,27 @@ from ai.tests.tools_mailbox_daemon_fix_only_repro import write_pending
 TICKET = "MAILBOX-TICKET: "
 SEVERITY = "MAILBOX-SEVERITY: "
 SCOPE = "MAILBOX-SCOPE: "
+BASE_COMMIT = "1" * 40
+
+
+def ticket_flow(text, mode="normal",
+                anchor="scratch-high-bug-fix-1"):
+    """Build one syntactically current ticket exchange for policy tests."""
+    return (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + anchor + "@" + BASE_COMMIT + "\n"
+        "MAILBOX-MODE: " + mode + "\n\n" + text + "\n")
+
+
+def second_implementer_payload():
+    """Build a current Sol second-Implementer assignment envelope."""
+    return (
+        TICKET + "closure\n"
+        + ticket_flow(
+            "### ARCHITECT_HANDOFF\n\n"
+            "OpenAI Sol — this is a role as second Implementer for this "
+            "unit.\nImplement the named repair.",
+            mode="emergency-second"))
 
 
 class MailboxDiscoverySeverityTests(unittest.TestCase):
@@ -70,9 +91,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertEqual(
                 daemon.sol_ticket_body(message=current),
                 "\r\ncurrent body\r\n")
-            assignment = (TICKET + "discovery\n" + SEVERITY + "low\n"
-                          + SCOPE + "bounded\n\n"
-                          + daemon.SECOND_IMPLEMENTER_MODE_SENTENCE + "\n")
+            assignment = second_implementer_payload()
             self.assertTrue(
                 daemon.sol_second_implementer_assignment(message=assignment))
 
@@ -166,20 +185,30 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
 
         for name, body in (
                 ("0003-to-fable.md", "plan a bounded unit\n"),
-                ("0004-to-opus.md", "implement a bounded unit\n"),
+                ("0004-to-opus.md",
+                 ticket_flow("implement a bounded unit")),
                 ("0005-to-sol.md",
-                 TICKET + "closure\n\nclose a bounded unit\n")):
+                 TICKET + "discovery\n" + SEVERITY + "high\n"
+                 + SCOPE + "bounded\n\nreview a bounded unit\n")):
             with self.subTest(child=name), scratch_daemon() as (
                     daemon, _, _, _):
                 daemon.DISCOVERY_SEVERITY = "high"
                 path = write_pending(daemon, name, body)
                 launches = []
-                outcome, _ = captured_dispatch(
-                    daemon, path, False, launches)
+                with mock.patch.object(
+                        daemon, "register_ticket_cycle_message",
+                        return_value=None):
+                    outcome, _ = captured_dispatch(
+                        daemon, path, False, launches)
                 self.assertTrue(outcome)
-                self.assertIn(
-                    "minimum severity to save on any new discovery ticket: "
-                    "high", launches[0]["command"][-1])
+                if name.endswith("-to-sol.md"):
+                    self.assertIn(
+                        "user's saved minimum severity for this discovery: "
+                        "high", launches[0]["command"][-1])
+                else:
+                    self.assertIn(
+                        "minimum severity to save on any new discovery "
+                        "ticket: high", launches[0]["command"][-1])
                 self.assertEqual(
                     launches[0]["env"]["MAILBOX_DISCOVERY_SEVERITY"],
                     "high")
@@ -205,14 +234,13 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertTrue(launches[0]["command"][-1].endswith(request))
 
     def test_mailbox_role_helper_and_child_environment_follow_route(self):
-        assignment = (
-            TICKET + "closure\n\n### ARCHITECT_HANDOFF\n\n"
-            "OpenAI Sol — this is a role as second Implementer for this "
-            "unit.\nImplement the named repair.\n")
+        assignment = second_implementer_payload()
         cases = (
             ("fable", "plan one repair\n", "architect", {}),
-            ("opus", "implement one repair\n", "implementer", {}),
-            ("sol", TICKET + "closure\n\nReview one repair.\n",
+            ("opus", ticket_flow("implement one repair"),
+             "implementer", {}),
+            ("sol", TICKET + "discovery\n" + SEVERITY + "medium\n"
+             + SCOPE + "bounded\n\nReview one repair.\n",
              "red-team", {}),
             ("sol", assignment, "implementer", {"open_count": 11}),
         )
@@ -229,8 +257,11 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 path = write_pending(
                     daemon, "%04d-to-%s.md" % (index, agent), message)
                 launches = []
-                outcome, output = captured_dispatch(
-                    daemon, path, False, launches)
+                with mock.patch.object(
+                        daemon, "register_ticket_cycle_message",
+                        return_value=None):
+                    outcome, output = captured_dispatch(
+                        daemon, path, False, launches)
                 self.assertTrue(outcome, output)
                 self.assertEqual(len(launches), 1)
                 self.assertEqual(
@@ -247,8 +278,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 daemon.mailbox_role_for_dispatch(
                     "sol", TICKET + "closure\n\nReview.\n"),
                 daemon.mailbox_role_for_dispatch(
-                    "sol", TICKET + "closure\n\n"
-                    + daemon.SECOND_IMPLEMENTER_MODE_SENTENCE + "\n"),
+                    "sol", second_implementer_payload()),
             )
         self.assertEqual(
             nonarchitect_roles,
@@ -598,8 +628,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertFalse(mailbox.exists())
 
     def test_second_implementer_requires_exact_bug_emergency(self):
-        assignment = "### ARCHITECT_HANDOFF\n\n"
-        assignment += "OpenAI Sol — this is a role as second Implementer for this unit.\n"
+        assignment = second_implementer_payload().split("\n", 1)[1]
 
         for settings in (
                 {"critical_count": 1, "open_count": 10,
@@ -636,10 +665,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertTrue(outcome)
 
     def test_stored_second_implementer_message_is_checked_again_at_dispatch(self):
-        assignment = (
-            TICKET + "closure\n\n### ARCHITECT_HANDOFF\n\n"
-            "OpenAI Sol — this is a role as second Implementer for this "
-            "unit.\nImplement the named repair.\n")
+        assignment = second_implementer_payload()
 
         for settings in (
                 {"critical_count": 1, "open_count": 10},
@@ -663,15 +689,20 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 path = write_pending(
                     daemon, "0002-to-sol.md", assignment)
                 launches = []
-                outcome, _ = captured_dispatch(
-                    daemon, path, False, launches)
+                with mock.patch.object(
+                        daemon, "register_ticket_cycle_message",
+                        return_value=None):
+                    outcome, _ = captured_dispatch(
+                        daemon, path, False, launches)
                 self.assertTrue(outcome)
                 self.assertEqual(len(launches), 1)
                 self.assertTrue(
                     (mailbox / "done" / path.name).is_file())
 
         with scratch_daemon() as (daemon, _, mailbox, _):
-            ordinary = TICKET + "closure\n\nReview the named repair.\n"
+            ordinary = (TICKET + "discovery\n" + SEVERITY + "medium\n"
+                        + SCOPE + "bounded\n\n"
+                        "Review the named repair.\n")
             path = write_pending(daemon, "0003-to-sol.md", ordinary)
             launches = []
             outcome, _ = captured_dispatch(

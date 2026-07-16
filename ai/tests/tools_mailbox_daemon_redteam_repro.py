@@ -13,6 +13,9 @@ import types
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+BASE_COMMIT = "1" * 40
+ACCEPTED_COMMIT = "2" * 40
+CYCLE_ID = "scratch-ticket@" + BASE_COMMIT
 
 
 def load_daemon():
@@ -81,6 +84,12 @@ def scratch_daemon():
             "sol": str(root),
         }
         install_test_sol_topology_proof(daemon=daemon)
+        daemon.git_commit_exists = (
+            lambda commit: commit in {BASE_COMMIT, ACCEPTED_COMMIT})
+        daemon.git_commit_descends_from = (
+            lambda starting_commit, accepted_commit:
+            starting_commit == BASE_COMMIT
+            and accepted_commit == ACCEPTED_COMMIT)
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         pathlib.Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
         yield daemon, root
@@ -103,6 +112,32 @@ def write_message(daemon, name, body):
     else:
         path.write_text(body, encoding="utf-8")
     return str(path)
+
+
+def write_indexed_open_ticket(daemon):
+    """Create the minimum classified ticket required by cycle registration."""
+    pathlib.Path(daemon.BACKLOG_LEDGER).write_text(
+        "- OPEN **MEDIUM** **BUG FIX** — [Scratch ticket](#scratch-ticket)\n"
+        "\n<a id=\"scratch-ticket\"></a>\n"
+        "**Red Team reopen count: 0.**\n"
+        "**Red Team reopening: allowed.**\n",
+        encoding="utf-8")
+
+
+def ticket_flow(body="Implement the indexed scratch ticket.\n"):
+    """Return an exact normal Architect-to-Implementer exchange."""
+    return (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+        "MAILBOX-MODE: normal\n\n" + body)
+
+
+def review_closure(body):
+    """Return an exact review request for the saved Architect commit."""
+    return (
+        "MAILBOX-TICKET: closure\n"
+        "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+        "MAILBOX-COMMIT: " + ACCEPTED_COMMIT + "\n\n" + body)
 
 
 def clean_process(stream, output="stub ok"):
@@ -139,7 +174,9 @@ def arm_dry_run_is_read_only():
 def arm_atomic_dispatch_claim():
     """Check that two dispatch callers invoke the harmless stub once."""
     with scratch_daemon() as (daemon, _):
-        path = write_message(daemon, "0001-to-opus.md", "real unit\n")
+        write_indexed_open_ticket(daemon=daemon)
+        path = write_message(
+            daemon, "0001-to-opus.md", ticket_flow(body="Real unit.\n"))
         calls = []
         gate = threading.Barrier(2)
 
@@ -337,14 +374,27 @@ def arm_hostile_bodies_are_parked():
 def arm_literal_marker_is_not_a_placeholder():
     """Check that discussing a marker does not refuse a real review."""
     with scratch_daemon() as (daemon, _):
-        body = ("MAILBOX-TICKET: closure\n\n"
-                "Review why the literal <unit> marker was refused.\n")
+        write_indexed_open_ticket(daemon=daemon)
+        flow = ticket_flow()
+        daemon.register_ticket_cycle_message(agent="opus", message=flow)
+        daemon.record_architect_commit(
+            cycle_id=CYCLE_ID, accepted_commit=ACCEPTED_COMMIT,
+            mode="normal")
+        body = review_closure(
+            body="Review why the literal <unit> marker was refused.\n")
         path = write_message(daemon, "0001-to-sol.md", body)
         calls = []
 
         def fake_popen(command, stdout, stderr, cwd, env):
             del stderr, cwd, env
             calls.append(command)
+            write_message(
+                daemon, "0002-to-fable.md",
+                daemon.redteam_review_receipt_payload(
+                    review_cycle=CYCLE_ID,
+                    review_commit=ACCEPTED_COMMIT,
+                    result="NO CHANGE",
+                    text="The literal marker is ordinary review prose.\n"))
             return clean_process(stream=stdout)
 
         original_popen = daemon.subprocess.Popen

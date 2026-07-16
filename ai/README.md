@@ -40,7 +40,7 @@ The emulator library itself is documented in the top-level
 architecture, public interface, tests, and Python readability rules constrain
 every agent change.
 
-![The command line selects the Architect and Implementer models. The Architect plans, audits, and closes a ticket without waiting for Red Team approval. An optional Red Team reviews later and may advise the Architect to reopen a ticket.](notes/assets/role-model-agent-loop.svg)
+![The command line selects the Architect and Implementer models. The Architect plans, audits, and commits a ticket. The next ticket may start while the advisory Red Team reviews that exact commit, but a counted cycle is complete only when the review returns.](notes/assets/role-model-agent-loop.svg)
 
 ## Contents
 
@@ -328,7 +328,7 @@ Models can change from run to run. Authority does not.
 | --- | --- | --- |
 | **Architect / Auditor** | Thinks through the design, writes the complete implementation directive, checks the original evidence, and decides `GO` or `NO-GO` | `to-fable` |
 | **Implementer** | Follows the ordered directive, changes only the named ticket, and produces validation evidence | `to-opus` |
-| **Independent Red Team** | After a cycle, reads an accepted named change adversarially and gives the Architect a detailed advisory note when a bug remains; it never approves or blocks the commit | `to-sol` |
+| **Independent Red Team** | After the Architect commits a ticket, reads that exact change adversarially and returns a detailed advisory result; it never approves or blocks the commit | `to-sol` |
 
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
@@ -348,17 +348,42 @@ the decision maker:
    accepted change immediately. `NO-GO` sends focused repair instructions back
    to the Implementer.
 
-The Red Team is deliberately outside that approval path. At the end of a
-cycle, the **Red Team** may read an already accepted change adversarially. It
-never supplies a required `GO`, and neither the commit nor the end of the
-cycle waits for its answer.
+The Red Team is deliberately outside that approval path. After the Architect
+commits the accepted ticket, the **Red Team** reads that exact commit
+adversarially. It never supplies a required `GO`, and the Architect does not
+wait for its answer before committing or beginning the next ticket.
+
+The watcher does wait before it exits. In an ordinary three-role run, one
+**cycle** means one ticket has completed all of these steps:
+
+1. Architect and Implementer work back and forth until the Architect accepts
+   and commits the ticket.
+2. Red Team reviews that ticket's exact accepted commit.
+3. Red Team returns either `NO CHANGE` or `REOPEN` with the same ticket and
+   commit identifiers.
+
+This separation keeps the Red Team advisory without losing the review when a
+finite watcher run ends. The Architect may begin the next ticket during step
+2, but `--cycle 1` does not exit until step 3 returns.
+
+The watcher identifies the ticket without guessing from prose. When work
+first goes to the actual Implementer, the saved record names an anchor from a
+ticket currently listed as Open, its full 40-character starting Git commit,
+and one unchanged work mode. The primary Implementer receives normal,
+two-role, and emergency-primary work; Sol receives emergency-second work. All
+returns preserve those values. The accepted commit must be a new saved version
+that descends from the starting commit, not the unchanged base or an unrelated
+branch.
 
 This is why the Red Team is optional. The Architect already performs the
 mandatory audit before accepting a fix, so Architect and Implementer can
 complete a ticket without a third bot. Red Team spends additional tokens to
 provide a second, adversarial look afterward. Use that extra check when the
 budget permits it; use `--skip-redteam` when it does not. Omitting Red Team
-does not reduce the Architect's planning or audit duties.
+does not reduce the Architect's planning or audit duties. A two-role watch can
+use `--cycle 0` to finish all recorded work, but it cannot use a positive
+cycle count because the review that completes an ordinary counted cycle is
+disabled.
 
 If the old bug remains, the Red Team writes a detailed local note and returns
 `REOPEN`. If a separate bug is found during an allowed discovery task, it
@@ -496,11 +521,12 @@ Enabling the role does not start a review. Sol runs only after the Architect
 saves an internal `to-sol` message. That review covers the named saved Git
 version or change and the behavior directly affected by it.
 
-At the end of a cycle, the Architect sends a bounded Red Team review for each
-ticket closed during that cycle. This advisory review does not delay the
-Architect's earlier close or commit, and its return does not hold the cycle
-open. A remaining bug produces `REOPEN`; no approval is required when the Red
-Team finds no remaining bug.
+After the Architect commits a ticket, the Architect sends a bounded Red Team
+review for that ticket and exact commit. This advisory review does not delay
+the close, commit, or start of the next ticket. Its return does complete the
+counted cycle, so a watcher with a positive `--cycle` limit remains alive
+until the matching result arrives. A remaining bug produces `REOPEN`; a clean
+review produces `NO CHANGE`, not an approval.
 
 It does **not** turn a ticket review into a broad attack on the library. A
 widespread search happens only when the user begins the request with the
@@ -533,7 +559,7 @@ ticket. The default is `medium`.
 
 | Setting | A discovered bug may be proposed as a ticket when… |
 | --- | --- |
-| `high` | It severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. |
+| `high` | It severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. The finding must show this consequence and explain why Medium is not enough. |
 | `medium` | It meets the high rule, or it can affect normal operation and the Red Team can show a probable way for it to occur. A merely theoretical or improbable edge case does not qualify. |
 | `low` | It is a concrete discovered bug, including an improbable edge case. The Red Team must still name the code path and evidence; an unsupported guess is not a discovered bug. |
 
@@ -559,12 +585,21 @@ the evidence and may accept, upgrade, or downgrade the proposed rating with a
 written reason. This keeps the Red Team's original assessment visible while
 leaving the final classification with the Architect.
 
+High must remain unusual. A long test, inconvenient cleanup, missing optional
+feature, difficult repair, or desire for another Implementer does not make a
+bug High. The Red Team must connect a concrete failure to the severe harm in
+the table. The Architect must record why the evidence exceeds Medium before
+placing the accepted ticket in High. Otherwise the ticket is Medium or Low.
+This restraint matters because too many High bug fixes activate the emergency
+second-Implementer mode described below.
+
 The backlog has one additional bug classification: **Critical**. It is not a
 command-line choice and the Red Team never assigns it. Only the Architect may
 use Critical after evidence shows that a current bug broadly breaks a central
 library workflow or systematically invalidates the library's scientific
-results. High is not automatically Critical. Urgency, difficulty, or a desire
-for another Implementer is never enough.
+results. High is not automatically Critical. The Architect must write why
+High is insufficient and name the evidence of broad breakage. Urgency,
+difficulty, or a desire for another Implementer is never enough.
 
 The backlog also distinguishes a **Bug fix** from **New functionality**. A
 feature may be High, Medium, or Low but never Critical. Critical bugs come
@@ -596,15 +631,16 @@ plan, the Implementer makes and tests the change, and the Architect checks the
 evidence. If the evidence earns `GO`, the Architect closes the ticket and
 commits the accepted change immediately.
 
-At the end of a cycle, the Red Team reviews tickets closed during that work
-period. This is an advisory check after the Architect's decision. If no bug
-remains, no Red Team approval is required. If a concrete bug remains, the Red
-Team returns a formal `REOPEN` assessment with its evidence.
+After that commit, the Red Team reviews the same ticket and accepted commit.
+This is an advisory check after the Architect's decision. It cannot stop or
+undo the commit. If no bug remains, Red Team returns `NO CHANGE`. If a
+concrete bug remains, Red Team returns a formal `REOPEN` assessment with its
+evidence.
 
 Every ticket also contains an integer named **Red Team reopen count**. It
 starts at `0` and never resets. Every formal `REOPEN` assessment adds one,
-even if the Architect later decides that the Red Team's objection was
-mistaken or repeated old evidence.
+while reopening is allowed, even if the Architect later decides that the Red
+Team's objection was mistaken or repeated old evidence.
 
 The number therefore records the Red Team's attempts, not just the attempts
 the Architect accepted.
@@ -624,10 +660,18 @@ the design and writing the Implementer directive.
 
 For this later assessment, `GO` means that the Architect accepts the Red
 Team's evidence: the ticket stays open for repair. `NO-GO` means that the
-evidence does not justify more work: the Architect closes the ticket again
-and records why. These labels judge the Red Team proposal; they are separate
-from the earlier Architect audit that approved and committed the Implementer
-fix. The Red Team proposes; the Architect decides.
+evidence does not justify more work: the Architect closes the ticket again,
+records why, and permanently bars another Red Team reopening of that ticket.
+These labels judge the Red Team proposal; they are separate from the earlier
+Architect audit that approved and committed the Implementer fix. The Red Team
+proposes; the Architect decides.
+
+Every ticket says either `Red Team reopening: allowed` or `Red Team
+reopening: barred by Architect NO-GO`. Once barred, the status never changes
+back. Red Team must not send another `REOPEN` for that ticket, even with
+rephrased evidence. A genuinely different defect is a `NEW TICKET`. This
+final rule prevents an Architect rejection and another Red Team request from
+repeating forever.
 
 After the second `REOPEN`, the comparison must explicitly say what evidence
 is new. Each later attempt receives a stricter comparison so repeating the
@@ -647,17 +691,19 @@ group, the Architect must compare the new file and command with the first
 report. A copied report with no new failing file can receive `NO-GO`; a newly
 demonstrated failure can receive `GO` and exact repair instructions.
 
-A **cycle** is one measured work period for the watcher. It starts when the
-watcher starts, or after the preceding safe-stop countdown, and reaches its
-next stopping point after five AI jobs finish or 15 minutes pass.
+A **normal cycle** follows one ticket. Architect and Implementer may exchange
+several repair messages, but those messages do not each count as a cycle. The
+cycle completes only after the Architect accepts and commits the ticket and
+the Red Team returns its advisory review of that exact commit. The next ticket
+may start while that review is running, but the watcher cannot claim the
+cycle is complete or exit for that cycle limit until the result returns.
 
-A Red Team review does not hold the cycle open and never blocks the
-Architect's close or commit. A review result may arrive after the watcher has
-finished that cycle. A two-role run may implement, test, close, and commit
-through the same Architect decision; it simply performs no Red Team review.
-The
-[cycle appendix](tools/README.md#faq-b2-cycle-count) explains the stopping
-commands.
+The watcher's 20-second safe-stop countdown is only a chance to press Ctrl-C.
+It never starts or completes a cycle. A two-role run may implement, test,
+close, and commit through the same Architect decision; because it has no Red
+Team pass, it supports the drain-all `--cycle 0` form rather than a positive
+cycle count. The [cycle appendix](tools/README.md#faq-b2-cycle-count) gives
+normal, emergency, and two-role examples.
 
 ## Notes, tests, and gates
 
@@ -1033,6 +1079,12 @@ or more than ten open High bugs. High features, Medium work, Low work, and
 waiting mailbox files do not count. The runtime and manual relay refuse this
 role outside an emergency.
 
+These classifications need strong evidence. A High bug must show severe harm
+and explain why Medium is insufficient. A Critical bug must show broad
+breakage and explain why High is insufficient. The Architect must not inflate
+either group to obtain a second Implementer; otherwise the system would stay
+in emergency mode during ordinary maintenance.
+
 The emergency does not change Sol's role automatically. Ask the Architect to
 choose one named ticket. The Architect writes the validated directive and
 internal assignment. The
@@ -1063,6 +1115,44 @@ Otherwise Sol returns a blocker to the Architect. After valid
 second-Implementer work, Sol follows `.claude/OPUS_ROLE.md` and sends an
 `IMPLEMENTER_HANDOFF`, the structured result sent back to the Architect. Sol
 does not also Red Team review the same job.
+
+Emergency work changes what one cycle counts. Instead of one committed ticket
+followed by one Red Team review, one emergency cycle contains two different
+committed tickets:
+
+- one ticket completed by the primary Implementer; and
+- one ticket completed by Sol as the second Implementer.
+
+The Architect audits and commits both tickets separately. Neither ticket is
+counted twice, and Sol does not review either commit during that emergency
+pair. While the backlog still proves the emergency, the Architect starts the
+pair by assigning two distinct tickets, one to each Implementer. They may
+finish in either order. The pair must keep two different ticket anchors, two
+different accepted commits, and the same period during which the backlog
+stayed above the emergency threshold.
+
+The watcher checks the backlog again after each accepted ticket. As soon as
+the counts reach ten or fewer open High bug fixes and one or fewer open
+Critical bug fixes, it stops assigning new second-Implementer tickets. A Sol
+ticket whose dispatch preparation was already admitted, or whose role process
+already started, may finish. A request file merely waiting in the mailbox is
+not grandfathered and must not begin as emergency work after the threshold
+clears. After admitted work finishes, Sol returns to Red Team reviews for
+later normal cycles. For example, if eleven High bug fixes
+trigger the emergency, the primary Implementer and Sol may each finish one
+ticket. Once the count falls below the threshold, the remaining tickets use
+the normal ticket-plus-review cycle; the watcher does not process the whole
+backlog without Red Team merely because the run started in emergency mode.
+
+An admitted emergency ticket can finish after the threshold clears even when
+no opposite-route ticket was admitted. The watcher saves that ticket as
+completed, but it counts as no cycle and receives no retroactive Red Team
+review. The watcher does not start a new emergency ticket merely to fill the
+missing half.
+
+`--cycle 0` keeps its separate meaning during either mode: finish all recorded
+work and then exit safely. It does not mean “stay in emergency mode” and it
+does not skip reviews after the emergency has cleared.
 
 The [manual second-Implementer guide](tools/README.md#ask-the-architect-to-use-sol-as-a-second-implementer)
 explains the command, separate-worktree check, and printed reminder. The

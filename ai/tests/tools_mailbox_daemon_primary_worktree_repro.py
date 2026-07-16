@@ -410,7 +410,7 @@ def arm_all_live_actions_bootstrap(source=None):
 
 def arm_stale_primary_protocol_refuses(source=None):
     """Refuse re-exec when the saved daemon lacks the current protocol."""
-    marker = "MAILBOX_PROTOCOL_VERSION = 2"
+    marker = "MAILBOX_PROTOCOL_VERSION = 3"
     if source is None or source.count(marker) != 1:
         return False
     with scratch_repository(source=source) as root:
@@ -419,7 +419,7 @@ def arm_stale_primary_protocol_refuses(source=None):
             return False
         primary = default_primary(root)
         stale_source = source.replace(
-            marker, "MAILBOX_PROTOCOL_VERSION = 1", 1)
+            marker, "MAILBOX_PROTOCOL_VERSION = 2", 1)
         write_exact(
             primary / "ai" / "tools" / "mailbox_daemon.py",
             stale_source.encode("utf-8"))
@@ -1197,8 +1197,9 @@ def arm_sol_registered_move_and_reuse_are_preserved(source=None):
         rc_reuse, _reuse_out, reuse_err = invoke(root, ["--once"])
         daemon = load_scratch_daemon(primary)
         queued = daemon.send(
-            agent="sol", ticket_kind="closure",
-            text="Review the saved moved Sol checkout.", dry_run=False)
+            agent="sol", ticket_kind="discovery", severity="medium",
+            scope="bounded", text="Review the saved moved Sol checkout.",
+            dry_run=False)
         rc_queue = 0 if queued else 1
         queue_err = ""
         rc_preview, preview, preview_err = invoke(
@@ -1266,14 +1267,15 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             return self.returncode
 
     def prepare(root, unit, activate=True):
-        """Bootstrap, queue one valid Sol closure, and import its daemon."""
+        """Bootstrap, queue one bounded Sol discovery, and import daemon."""
         rc, _stdout, _stderr = invoke(root, ["--once"])
         if rc != 0 or not validate_topology(root):
             return None
         primary = default_primary(root)
         daemon = load_scratch_daemon(primary)
         queued = daemon.send(
-            agent="sol", ticket_kind="closure", text=unit, dry_run=False)
+            agent="sol", ticket_kind="discovery", severity="medium",
+            scope="bounded", text=unit, dry_run=False)
         pending = pending_markdown(primary)
         if not queued or len(pending) != 1:
             return None
@@ -1634,8 +1636,9 @@ def arm_route_topology_remains_role_based(source=None):
         sol = default_sol(root)
         daemon = load_scratch_daemon(primary)
         queued = daemon.send(
-            agent="sol", ticket_kind="closure",
-            text="Review the saved Sol worktree topology.", dry_run=False)
+            agent="sol", ticket_kind="discovery", severity="medium",
+            scope="bounded", text="Review the saved Sol worktree topology.",
+            dry_run=False)
         rc_queue = 0 if queued else 1
         queue_err = ""
         rc_preview, preview, preview_err = invoke(

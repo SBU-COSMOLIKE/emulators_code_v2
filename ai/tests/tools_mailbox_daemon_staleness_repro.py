@@ -86,6 +86,7 @@ def scratch_daemon(daemon_path=DAEMON_PATH):
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         os.makedirs(shared, exist_ok=True)
         os.makedirs(daemon.AGENT_CWD["sol"], exist_ok=True)
+        pathlib.Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
         yield daemon, root
 
 
@@ -243,7 +244,7 @@ def arm_post_claim_currency_banner():
 def arm_crlf_body_is_exact_suffix(daemon_path=DAEMON_PATH):
     """Preserve valid CRLF newlines in the launched prompt's body suffix."""
     with scratch_daemon(daemon_path=daemon_path) as (daemon, _):
-        name = "0046-to-opus.md"
+        name = "0046-to-fable.md"
         raw_body = b"alpha\r\nbeta\r\n"
         path = pathlib.Path(daemon.MAILBOX) / name
         path.write_bytes(raw_body)
@@ -264,7 +265,7 @@ def arm_crlf_body_is_exact_suffix(daemon_path=DAEMON_PATH):
 def arm_timeout_history_and_retry_hint(daemon_path=DAEMON_PATH):
     """Prove a timeout is atomically recorded and described on retry."""
     with scratch_daemon(daemon_path=daemon_path) as (daemon, _):
-        name = "0050-to-opus.md"
+        name = "0050-to-fable.md"
         body = "TIMEOUT RETRY BODY\n"
         path = write_message(daemon, name, body)
         daemon.DISPATCH_TIMEOUT_MINUTES = 7
@@ -365,7 +366,7 @@ def arm_timeout_history_and_retry_hint(daemon_path=DAEMON_PATH):
 def arm_ordinary_failure_has_no_timeout_history():
     """Prove an ordinary rc=1 is parked without creating timeout state."""
     with scratch_daemon() as (daemon, _):
-        name = "0051-to-opus.md"
+        name = "0051-to-fable.md"
         path = write_message(daemon, name, "ordinary failing body\n")
         calls = []
         daemon.subprocess.Popen = failed_popen(calls=calls, returncode=1)
@@ -420,7 +421,7 @@ def arm_archive_failure_propagates(daemon_path=DAEMON_PATH):
               + " inflight=" + str(inflight.is_file()))
 
     with scratch_daemon(daemon_path=daemon_path) as (daemon, _):
-        name = "0071-to-opus.md"
+        name = "0071-to-fable.md"
         write_message(daemon, name, "backlog archive collision\n")
         write_message(daemon, name, "historical owner\n",
                       directory=daemon.DONE)
@@ -443,7 +444,11 @@ def arm_same_cwd_serializes_through_archive_and_logs():
         first_name = "0080-to-fable.md"
         second_name = "0081-to-opus.md"
         first_body = "FIRST SAME-LANE BODY\n"
-        second_body = "SECOND SAME-LANE BODY\n"
+        second_body = (
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: scratch-staleness@" + "1" * 40 + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "SECOND SAME-LANE BODY\n")
         write_message(daemon, first_name, first_body)
         write_message(daemon, second_name, second_body)
         calls = []
@@ -460,6 +465,7 @@ def arm_same_cwd_serializes_through_archive_and_logs():
 
         daemon.subprocess.Popen = success_popen(
             calls=calls, inspect=inspect, output="streamed live output\n")
+        daemon.register_ticket_cycle_message = lambda agent, message: None
         daemon.report_demand = lambda backlog: None
         result = daemon.process_backlog(dry_run=False)
         prompts = [call["command"][-1] for call in calls]
@@ -515,9 +521,9 @@ def arm_archive_requires_source_absence(daemon_path=DAEMON_PATH):
     with scratch_daemon(daemon_path=daemon_path) as (daemon, _):
         inflight_dir = pathlib.Path(daemon.MAILBOX) / "inflight"
         source = write_message(
-            daemon, "0085-to-opus.md", "still claimed\n",
+            daemon, "0085-to-fable.md", "still claimed\n",
             directory=inflight_dir)
-        done = str(pathlib.Path(daemon.DONE) / "0085-to-opus.md")
+        done = str(pathlib.Path(daemon.DONE) / "0085-to-fable.md")
 
         def linked_not_moved(path, directory):
             pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
@@ -536,7 +542,7 @@ def arm_lane_stops_after_unconsumed_head(daemon_path=DAEMON_PATH):
     """Prove an archive collision prevents a later shared-CWD launch."""
     with scratch_daemon(daemon_path=daemon_path) as (daemon, _):
         first = "0090-to-fable.md"
-        second = "0091-to-opus.md"
+        second = "0091-to-fable.md"
         write_message(daemon, first, "unconsumed lane head\n")
         write_message(daemon, second, "must remain queued\n")
         write_message(daemon, first, "historical done owner\n",
@@ -559,11 +565,14 @@ def arm_cross_pass_inflight_blocks_only_its_cwd():
     """Let Sol drain while a prior Fable claim blocks Fable and Opus."""
     with scratch_daemon() as (daemon, _):
         inflight_name = "0100-to-fable.md"
-        shared_name = "0101-to-opus.md"
+        shared_name = "0101-to-fable.md"
         sol_name = "0102-to-sol.md"
         shared_body = "SHARED LANE MUST WAIT\n"
-        sol_body = ("MAILBOX-TICKET: closure\n\n"
-                    "INDEPENDENT SOL MAY RUN\n")
+        sol_body = (
+            "MAILBOX-TICKET: discovery\n"
+            "MAILBOX-SEVERITY: low\n"
+            "MAILBOX-SCOPE: bounded\n\n"
+            "INDEPENDENT SOL MAY RUN\n")
         write_message(daemon, inflight_name, "unresolved prior turn\n",
                       directory=os.path.join(daemon.MAILBOX, "inflight"))
         write_message(daemon, shared_name, shared_body)
@@ -588,7 +597,7 @@ def arm_cross_pass_inflight_blocks_only_its_cwd():
 def arm_only_inflight_reports_failure():
     """Treat unresolved inflight work as failure even without root pending."""
     with scratch_daemon() as (daemon, _):
-        name = "0103-to-opus.md"
+        name = "0103-to-fable.md"
         inflight = write_message(
             daemon, name, "only unresolved state\n",
             directory=os.path.join(daemon.MAILBOX, "inflight"))
@@ -625,7 +634,7 @@ def arm_timeout_value_validation():
     for index, value in enumerate(invalid_direct, start=1):
         with scratch_daemon() as (daemon, _):
             daemon.DISPATCH_TIMEOUT_MINUTES = value
-            name = "011%d-to-opus.md" % index
+            name = "011%d-to-fable.md" % index
             path = write_message(daemon, name, "invalid direct timeout\n")
             calls = []
             daemon.subprocess.Popen = success_popen(calls=calls)
@@ -646,7 +655,7 @@ def arm_timeout_value_validation():
 def arm_natural_completion_at_deadline():
     """Do not kill a child that reaches rc=0 during the deadline sleep."""
     with scratch_daemon() as (daemon, _):
-        name = "0120-to-opus.md"
+        name = "0120-to-fable.md"
         body = "completes exactly at deadline\n"
         path = write_message(daemon, name, body)
         daemon.DISPATCH_TIMEOUT_MINUTES = 1
@@ -707,7 +716,7 @@ def arm_natural_completion_at_deadline():
 def arm_killed_child_reporting_rc0_is_still_timeout():
     """Treat a child killed at deadline as timed out even if wait says rc0."""
     with scratch_daemon() as (daemon, _):
-        name = "0121-to-opus.md"
+        name = "0121-to-fable.md"
         path = write_message(daemon, name, "kill then misleading rc0\n")
         daemon.DISPATCH_TIMEOUT_MINUTES = 1
 
@@ -769,7 +778,7 @@ def arm_killed_child_reporting_rc0_is_still_timeout():
 def arm_timeout_history_replace_failure_is_conservative():
     """Keep the exact inflight source when atomic history replace fails."""
     with scratch_daemon() as (daemon, _):
-        name = "0122-to-opus.md"
+        name = "0122-to-fable.md"
         path = write_message(daemon, name, "history replace failure\n")
         daemon.DISPATCH_TIMEOUT_MINUTES = 1
 
@@ -842,7 +851,7 @@ def arm_state_move_rejects_substitution():
     for state in ["done", "failed"]:
         for variant in ["symlink", "copy"]:
             with scratch_daemon() as (daemon, root):
-                name = "0130-to-opus.md"
+                name = "0130-to-fable.md"
                 source = write_message(
                     daemon, name, "original claimed inode\n",
                     directory=os.path.join(daemon.MAILBOX, "inflight"))
@@ -898,7 +907,7 @@ def arm_hostile_timeout_histories_are_controlled():
     labels = ["huge", "deep", "oversized", "event-flood"]
     for index, label in enumerate(labels, start=1):
         with scratch_daemon() as (daemon, _):
-            name = "014%d-to-opus.md" % index
+            name = "014%d-to-fable.md" % index
             root_path = write_message(daemon, name, "history target body\n")
             history_path = pathlib.Path(
                 daemon.timeout_history_path(name=name))
@@ -984,7 +993,8 @@ def arm_source_mutations():
     root_only_snapshot = (
         '    snapshot = glob.glob(os.path.join(MAILBOX, "*.md"))')
     cwd_lane = (
-        '        if AGENT_CWD[queued_agent] == AGENT_CWD[agent]:')
+        '        if mailbox_lane_cwd(agent=queued_agent) == '
+        'mailbox_lane_cwd(agent=agent):')
     same_agent_only = '        if queued_agent == agent:'
     timeout_write = (
         '                            write_timeout_history(\n'
@@ -996,7 +1006,7 @@ def arm_source_mutations():
     archive_return = (
         '    return archive_consumed_message(dispatch_path=dispatch_path)')
     process_return = (
-        '    return (not blockers\n'
+        '    return (daemon_outcome and not blockers\n'
         '            and len(lane_outcomes) == len(lanes)\n'
         '            and all(lane_outcomes.values()))')
     archive_verify = (

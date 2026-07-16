@@ -179,7 +179,14 @@ inventing missing architecture. Architect acceptance closes and commits an
 Implementer fix without waiting for Red Team. A later Red Team finding remains
 advice: the Architect records its `NEW TICKET` or `REOPEN` bookkeeping first
 and assesses the detailed finding note only when priority brings the ticket
-forward. The required fields in each role-to-role instruction are defined in
+forward. A normal cycle still waits for one review of the exact accepted
+commit before a finite watcher exits; emergency cycles instead require two
+different committed tickets, one per Implementer. A finished admitted
+emergency ticket with no admitted opposite-route partner is completed without
+a cycle count or retroactive review. High and Critical ratings
+require explicit comparisons with the next lower severity, and an Architect
+NO-GO to reopening permanently bars that ticket from another `REOPEN`. The
+required fields in each role-to-role instruction are defined in
 `.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
 
 Roles exchange instructions by saving and moving Markdown files through the

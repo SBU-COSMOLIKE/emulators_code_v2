@@ -236,6 +236,8 @@ value. If a legacy ticket has no severity line, its value is `medium`.
 
 - `high`: a bug qualifies only if it **severely impacts core functionality,
   causes data loss, halts system operations, or makes the science wrong**.
+  Show the concrete severe consequence and explain why Medium is
+  insufficient.
 - `medium`: every high-severity bug qualifies. A less severe bug qualifies
   only when it can affect normal operation and the Red Team can show a
   probable way for it to occur. A merely theoretical or improbable edge case
@@ -250,6 +252,13 @@ Architect may elevate an accepted finding to the narrow Critical backlog
 classification after independent evidence shows broad library breakage. The
 Red Team must not use Critical to create an emergency or unlock Sol as another
 Implementer.
+
+High must also remain unusual. Repair difficulty, inconvenience, missing
+cleanup, a missing optional feature, urgency, or a desire for a second
+Implementer is not evidence of severe harm. If the finding cannot explain why
+Medium is insufficient, rate it Medium or Low. Inflating High would keep the
+system in emergency mode and remove the independent Red Team review during
+ordinary maintenance.
 
 Keep harm and likelihood separate. Every discovery result records these exact
 fields in its temporary note and relay:
@@ -276,13 +285,29 @@ evidence-based reason and makes the final `GO` or `NO-GO` ticket decision.
 
 ## Advisory review after the Architect closes a ticket
 
-At the end of each cycle, review every ticket that the Architect moved to
-Closed tickets during that cycle. The Architect has already accepted and
-committed those fixes. This is a bounded retrospective review of each ticket's
-claimed fix, its direct behavior, and its closing evidence. It is not a new
-library-wide search, and it is never a prerequisite for the commit.
+For one normal cycle, review exactly one ticket and the exact commit the
+Architect accepted for it. The Architect has already closed and committed
+the fix. This is a bounded review of that ticket's claimed fix, its directly
+affected behavior, and its closing evidence. It is not a new library-wide
+search, and it is never a prerequisite for the commit. The Architect may
+start the next ticket while this review runs.
 
-If the bug remains, put this exact line near the top of the return:
+The inbound closure starts with these exact lines:
+
+```text
+MAILBOX-TICKET: closure
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-COMMIT: FULL-ACCEPTED-COMMIT
+```
+
+Confirm that the named 40-character commit exists and review that commit. Do
+not review a nearby branch tip or a later commit. The ticket anchor and
+starting commit after `@` identify the Open ticket that began this cycle; the
+accepted commit must be different from and descend from that starting commit.
+Preserve the exact cycle and commit values in the return.
+
+If the bug remains and the ticket still says `Red Team reopening: allowed`,
+put this exact line near the top of the finding note:
 
 ```text
 Backlog action: REOPEN
@@ -295,19 +320,44 @@ stylistic preference, a repeated objection with no new evidence, or an
 unrelated discovery is not enough. When no bug remains, report no finding and
 use `Backlog action: NO CHANGE`; never issue GO or approval.
 
-Read the ticket's current `Red Team reopen count` and its previous closure
-records before returning `REOPEN`. When the next count would be greater than
-one, explicitly compare the new evidence with every earlier reopening request
-and say what is materially new. The Architect will increment the counter for
-every formal `REOPEN`, including one it rejects. A next count greater than five
-automatically makes the ticket Low. Do not try to avoid or reset that rule.
+Read the ticket's current `Red Team reopen count`, exact `Red Team reopening`
+status, and previous closure records before returning `REOPEN`. When the next
+count would be greater than one, explicitly compare the new evidence with
+every earlier reopening request and say what is materially new. The Architect
+will increment the counter for every permitted formal `REOPEN`, including one
+it later rejects. A next count greater than five automatically makes the
+ticket Low. Do not try to avoid or reset that rule.
+
+If the status is `Red Team reopening: barred by Architect NO-GO`, the
+Architect's rejection is final for this ticket. Never return `REOPEN`, never
+ask to restore `allowed`, and never rephrase the same objection as a way
+around the bar. Report `NO CHANGE` for the closure receipt. If the evidence
+instead proves a materially different bug, propose `NEW TICKET` under the
+ordinary discovery rules.
 
 Red Team does not edit the backlog and does not make the final status decision.
 For `REOPEN`, the Architect first performs quick bookkeeping: restore the open
 ticket, increment the counter, acknowledge the return, and analyze the evidence
 later. After that later review, the Architect may close or reclassify the
-ticket. The watcher does not delay the end of a cycle while this advisory
-message waits.
+ticket. If the later Architect decision is `NO-GO`, the Architect closes the
+ticket and permanently bars another reopening. The Red Team's return never
+blocks the earlier commit. It does complete the normal counted cycle, so a
+finite watcher remains alive until the matching return is recorded.
+
+End every normal closure turn by writing one `to-fable` receipt whose first
+four lines are exactly:
+
+```text
+MAILBOX-RETURN: redteam-closure
+MAILBOX-CYCLE: THE-INBOUND-CYCLE
+MAILBOX-COMMIT: THE-INBOUND-ACCEPTED-COMMIT
+MAILBOX-RESULT: NO CHANGE
+```
+
+Use `MAILBOX-RESULT: REOPEN` instead only for a permitted formal reopening.
+Write one blank line after the four headers, then the compact handoff. These
+machine-readable lines complete the watcher cycle; they are not a Red Team
+approval.
 
 ## Asking the Architect to record a new ticket
 
@@ -546,9 +596,47 @@ High new functionality, Medium work, Low work, and waiting mailbox messages do
 not count. One Critical bug and ten High bugs are the exact non-emergency
 boundaries. A missing or malformed backlog classification fails closed. Never
 edit a ticket or recommend Critical to manufacture this condition; only the
-Architect owns that classification. If the condition is absent, return a
-blocker without touching tracked files, even when a manually copied prompt
-contains the role sentence.
+Architect owns that classification. High also needs evidence of severe harm
+and why Medium is insufficient. Do not inflate High to obtain or retain this
+role. If the condition is absent, return a blocker without touching tracked
+files, even when a manually copied prompt contains the role sentence.
+
+After the mandatory Sol classification line, the emergency implementation
+message carries this exact ticket-flow envelope:
+
+```text
+MAILBOX-TICKET: closure
+MAILBOX-FLOW: ticket
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-MODE: emergency-second
+```
+
+It must be the first cycle message for an indexed Open ticket and must arrive
+on the Sol route. Preserve all three lines in every Implementer return. A
+primary-route mode or an attempt to change the mode is a blocker.
+
+One emergency cycle pairs two different accepted commits: one primary
+Implementer ticket and one second-Implementer ticket. The pair must use two
+different indexed ticket anchors, two different new descendant commits, and
+one continuous emergency period. After the Architect audits and commits this
+ticket, the Architect records it as `emergency-second`; do not write that
+receipt or decide the cycle yourself. The Architect admits both distinct
+tickets while the backlog still proves the emergency; they may finish in
+either order. Never work the same ticket as the primary Implementer merely to
+complete the pair.
+
+Recheck the emergency before every new Sol implementation assignment. As soon
+as no more than ten High bug fixes and no more than one Critical bug fix are
+open, accept no new second-Implementer ticket. Work whose dispatch preparation
+was already admitted or whose role process already started may finish. A file
+merely waiting in the mailbox was not admitted and is not grandfathered.
+Afterward return to normal Red Team reviews. A run that began in an emergency
+does not authorize second-Implementer work for the entire backlog.
+
+If an admitted emergency ticket finishes without an admitted opposite-route
+partner after the threshold clears, the daemon records that ticket as
+completed but advances no cycle. It receives no retroactive Red Team pass;
+never accept a new implementation ticket merely to fill the missing half.
 
 Use “independent known-answer calculation” rather than “oracle” in prose. An
 actual source identifier containing `oracle` may be quoted when necessary.

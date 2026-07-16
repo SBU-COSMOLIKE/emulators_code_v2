@@ -240,7 +240,39 @@ command.
    never merges or pushes `main`. The user's main checkout is user-owned; the
    only agent exception is the Architect's explicit audited-GO landing grant.
 
-6b. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
+6b. **Preserve the ticket-cycle identity.** Every mailbox implementation
+   request begins with these exact three lines:
+
+   ```text
+   MAILBOX-FLOW: ticket
+   MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+   MAILBOX-MODE: normal
+   ```
+
+   Replace `normal` only with the mode already chosen by the Architect. A
+   primary Implementer request may use `normal`, `two-role`, or
+   `emergency-primary`. A Sol session following this file as the explicit
+   second Implementer may use only `emergency-second`. This inbound must be
+   the first cycle message: a `to-fable` message cannot create a ticket cycle
+   before an actual Implementer receives it.
+
+   Confirm that `TICKET-ANCHOR` names an indexed Open backlog ticket and that
+   the text after `@` is its existing full 40-character starting commit. Copy
+   the same three lines to every `to-fable` return for that ticket,
+   including a blocker, checkpoint, or repaired result after Architect
+   `NO-GO`. Never create another identifier because the Architect revised the
+   plan, change the mode, or substitute the current commit for the starting
+   commit after `@`. If a header, Open ticket, or starting commit is missing
+   or malformed, return a blocker without editing. The Architect alone
+   records the accepted commit and chooses the mode.
+
+   The final candidate commit must be new and descend from the starting
+   commit. Do not report the unchanged starting commit, an unrelated commit,
+   or an ancestor as the implemented result.
+   Implementer messages do not complete a cycle; the normal cycle later needs
+   the Architect's commit and a matching Red Team return.
+
+6c. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
    You never weaken a check script, threshold, fixture, or golden base to
    make a gate pass. A legitimate gate-surface change your unit requires is
    NAMED in the handoff and the note with its authorizing ruling; an unnamed

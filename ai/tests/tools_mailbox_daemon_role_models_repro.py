@@ -25,6 +25,7 @@ ARCHITECT_DEFAULT = "claude-fable-5"
 IMPLEMENTER_DEFAULT = "claude-opus-4-8"
 CUSTOM_ARCHITECT = "opus"
 CUSTOM_IMPLEMENTER = "sonnet"
+SCRATCH_BASE = "1" * 40
 
 
 class AttributeProxy:
@@ -193,9 +194,16 @@ def write_routing_messages(mailbox):
     messages["fable"].write_text(
         "audit the named scratch delta\n", encoding="utf-8", newline="")
     messages["opus"].write_text(
-        "implement the named scratch delta\n", encoding="utf-8", newline="")
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: scratch-model-route@" + SCRATCH_BASE + "\n"
+        "MAILBOX-MODE: normal\n\n"
+        "implement the named scratch delta\n",
+        encoding="utf-8", newline="")
     messages["sol"].write_text(
-        "MAILBOX-TICKET: closure\n\nclose the scratch line\n",
+        "MAILBOX-TICKET: discovery\n"
+        "MAILBOX-SEVERITY: medium\n"
+        "MAILBOX-SCOPE: bounded\n\n"
+        "review the scratch model routes\n",
         encoding="utf-8", newline="")
     return messages
 

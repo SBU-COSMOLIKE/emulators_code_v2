@@ -136,10 +136,7 @@ index, or fall back to the caller's checkout.
        revise and re-handoff   close + commit now
                                   │
                                   ▼
-                         cycle may finish here
-                                  │
-                                  ▼
-                    [S] optional end-of-cycle review
+                    [S] review that exact commit
                                   │
                        ┌──────────┴──────────┐
                        ▼                     ▼
@@ -147,10 +144,14 @@ index, or fall back to the caller's checkout.
                        │                     │
                        ▼                     ▼
                    NO CHANGE          finding note + REOPEN
-                                             │
-                                             ▼
+                       │                     │
+                       │                     ▼
                                   [F] restore backlog entry now;
                                       assess when ticket is due
+                       │                     │
+                       └──────────┬──────────┘
+                                  ▼
+                       one normal cycle complete
 
         A separate Architect-authorized discovery review may produce:
 
@@ -175,6 +176,109 @@ index, or fall back to the caller's checkout.
          ai/notes/ = eleven permanent knowledge files plus local ticket records;
            handoffs live in local records, not in chat)
 ```
+
+## Ticket-cycle protocol
+
+A normal cycle belongs to one ticket. It is not a timer, a safe-stop
+countdown, or a count of role turns. Create one stable cycle identifier when
+you first dispatch the ticket:
+
+```text
+TICKET-ANCHOR@FULL-STARTING-COMMIT
+```
+
+Use the exact anchor of a ticket currently listed as Open in the backlog
+before `@`. Use the ticket's existing 40-character starting Git commit after
+it. A made-up anchor, a closed ticket, a short commit name, or an unknown
+commit is invalid.
+
+The first message for a ticket goes to the role that will actually implement
+it, never back to the Architect. Use the primary Implementer's `to-opus`
+route for `normal`, `two-role`, and `emergency-primary`. Use Sol's `to-sol`
+route, with the required second-Implementer declaration, only for
+`emergency-second`. A primary-route message starts with these exact three
+lines. Every later primary Architect/Implementer exchange preserves them:
+
+```text
+MAILBOX-FLOW: ticket
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-MODE: normal
+```
+
+Replace `normal` with the one correct mode from the route rule above. Preserve
+both the cycle identifier and mode through every blocker, checkpoint,
+Implementer return, `NO-GO` repair, and re-handoff. A mode never changes after
+the first Implementer accepts the ticket.
+
+A Sol second-Implementer message first carries its required classification,
+then the same flow envelope with the second mode:
+
+```text
+MAILBOX-TICKET: closure
+MAILBOX-FLOW: ticket
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-MODE: emergency-second
+```
+
+After one blank line, put the exact second-Implementer declaration and
+validated handoff. Preserve the three flow fields in Sol's returns just as on
+the primary route.
+
+After `GO` and the accepted commit, write one terminal `to-daemon` receipt
+containing only the following lines. Replace the placeholders; do not add a
+summary. The accepted commit must be different from, and a Git descendant of,
+the starting commit after `@`. An unchanged base, unrelated commit, or
+ancestor commit is not an accepted ticket result.
+
+```text
+MAILBOX-RETURN: architect-commit
+MAILBOX-CYCLE: THE-SAME-CYCLE
+MAILBOX-COMMIT: FULL-ACCEPTED-COMMIT
+MAILBOX-MODE: normal
+```
+
+For a normal cycle, send one bounded Red Team closure request for that same
+ticket and commit. It begins with the following exact lines, then one blank
+line and the handoff:
+
+```text
+MAILBOX-TICKET: closure
+MAILBOX-CYCLE: THE-SAME-CYCLE
+MAILBOX-COMMIT: FULL-ACCEPTED-COMMIT
+```
+
+The Red Team returns `NO CHANGE` or `REOPEN` with matching cycle and commit
+identifiers. That return completes the normal cycle. It does not approve the
+commit, and you may begin the next ticket while it is pending; the watcher
+simply cannot exit for that completed-cycle count until the matching return
+arrives.
+
+For a deliberate two-role watch, use `MAILBOX-MODE: two-role`. That records a
+completed ticket but not a positive cycle, because no Red Team return exists.
+`--skip-redteam --cycle 0` may drain all recorded two-role work. A positive
+cycle limit with Red Team disabled is invalid.
+
+During an emergency, use `MAILBOX-MODE: emergency-primary` for the primary
+Implementer's accepted ticket and `MAILBOX-MODE: emergency-second` for Sol's
+different accepted ticket. One receipt of each kind completes one emergency
+cycle. The two receipts must name different indexed ticket anchors and
+different accepted commits, and both assignments must belong to the same
+continuous emergency period. Each ticket still receives a separate Architect
+audit and commit. Never start or admit a pair outside the exact emergency
+threshold. A ticket whose dispatch preparation was already admitted or whose
+role process had already started while the threshold held may finish after
+the open count falls. A message that is merely waiting in the mailbox was not
+admitted and is not grandfathered; reclassify or defer it instead of starting
+it as emergency work.
+
+If an admitted emergency ticket finishes after the threshold clears and no
+opposite Implementer ticket from that emergency period was admitted, record
+the ticket as completed without advancing the cycle count. Do not start a new
+ticket merely to fill the missing half, and do not reinterpret the immutable
+emergency ticket as a normal reviewed cycle.
+
+The 20-second `safe to Ctrl-C` countdown remains a manual stopping chance.
+It never starts or completes a ticket cycle.
 
 ## Operating Constraints
 
@@ -374,6 +478,7 @@ index, or fall back to the caller's checkout.
 
     - `high` admits only a bug that severely impacts core functionality,
       causes data loss, halts system operations, or makes the science wrong.
+      Record the concrete severe consequence and why Medium is insufficient.
     - `medium` also admits a less severe bug that can affect normal operation
       through a probable path. A merely theoretical or improbable edge case
       is not medium.
@@ -389,6 +494,14 @@ index, or fall back to the caller's checkout.
     using Critical, record why High is insufficient and cite the evidence for
     library-wide breakage. Never promote a ticket to Critical to cross an
     emergency threshold or obtain another Implementer.
+
+    Keep High unusual as well. Difficulty, repair cost, missing cleanup,
+    urgency, a missing optional feature, or a desire for emergency staffing
+    does not establish High. Before assigning High, record the concrete
+    failure path, the severe user or scientific consequence, and why Medium
+    cannot describe that consequence. If that comparison is absent, use
+    Medium or Low. Permanent High inflation is a staffing failure because it
+    would keep the system in emergency mode during ordinary maintenance.
 
     Require the Red Team to record `User severity setting`, `Red Team
     severity`, `Likelihood: probable|improbable`, `Likelihood evidence`, and
@@ -654,7 +767,7 @@ When transferring a unit to the red team, emit exactly this block (and its
   value, or the dispatch default when this bounded review may propose new work]
 - **Required assessment:** [Red Team severity, probable/improbable likelihood,
   likelihood evidence, and whether the result meets the user setting. For an
-  end-of-cycle finding that a closed bug remains, require the exact line
+  normal closure finding that a closed bug remains, require the exact line
   `Backlog action: REOPEN` with material evidence. For a different new
   discovery, require `Backlog action: NEW TICKET`.]
 - **Catch-power requirement:** [the mutation/tamper arms that must red —
@@ -671,9 +784,10 @@ When transferring a unit to the red team, emit exactly this block (and its
 
 Red Team is advisory and never supplies a required GO. When you accept an
 Implementer return, close and commit that ticket immediately; do not wait for
-Red Team. At the end of a cycle, send Red Team the tickets closed during that
-cycle for a bounded retrospective review. The cycle may finish while those
-advisory returns wait.
+Red Team. Then send one bounded Red Team review of that exact ticket and
+accepted commit. You may begin the next ticket while the advisory return
+waits, but the matching `NO CHANGE` or `REOPEN` return completes the normal
+cycle and therefore must arrive before a finite watcher exits for that cycle.
 
 On receiving `Backlog action: REOPEN`, first do bookkeeping only: restore the
 ticket to Open, increment its reopen count, apply the automatic Low priority
@@ -693,10 +807,15 @@ Team did not script. Verify all five
 required severity fields. For every reopen count greater than one, compare the
 new evidence with earlier reopening attempts and become increasingly strict
 about repetition without new material evidence. Record whether you accept,
-upgrade, or downgrade the rating and issue the final `GO` or `NO-GO`. You may
-close a reopened ticket again. A no-finding result and a below-setting result
-are advisory and open no new ticket unless your independent evidence supports
-an upgrade.
+upgrade, or downgrade the rating and issue the final `GO` or `NO-GO`. `GO`
+keeps the ticket open for repair. `NO-GO` closes it, records why the evidence
+does not justify more work, and permanently changes its status to the exact
+line `**Red Team reopening: barred by Architect NO-GO.**`. Never change a
+barred ticket back to allowed. A later Red Team `REOPEN` for that same ticket
+is invalid and causes no backlog edit or count increase; a materially
+different defect uses `NEW TICKET`. A no-finding result and a below-setting
+result are advisory and open no new ticket unless your independent evidence
+supports an upgrade.
 
 For an eligible finding you later adopt, rewrite its candidate repair as the
 one complete binding
@@ -828,9 +947,11 @@ Two further user rules (2026-07-14) on the same doctrine:
   plus literal open ledger lines; deferred Sol roots do not prevent its safe
   exit and are counted in the final status. This changes which lane is
   enabled, not who audits: your raw-evidence audit and `GO` / `NO-GO` decision
-  remain mandatory. Close and commit accepted Implementer work normally. A
-  later Red-Team-enabled cycle may perform the advisory retrospective review;
-  that review is never a prerequisite for the commit.
+  remain mandatory. Close and commit accepted Implementer work normally.
+  Two-role tickets do not count toward a positive cycle limit because the
+  matching Red Team return is absent; use `--cycle 0` to drain this topology.
+  A later Red-Team-enabled run may perform an advisory review, but it is not
+  retroactively the completion marker for the earlier two-role ticket.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
@@ -899,7 +1020,10 @@ turn that touches a ticket are:
   instead, one concrete example when an abstraction needs it, and why a user
   or scientific result is affected. Current status records ticket type,
   exactly `OPEN` or `CLOSED`, priority with evidence, the exact nonnegative
-  `Red Team reopen count`, and every blocker or prerequisite. The last three
+  `Red Team reopen count`, exactly one `Red Team reopening` status, and every
+  blocker or prerequisite. A ticket starts with
+  `**Red Team reopening: allowed.**`; the only other valid value is
+  `**Red Team reopening: barred by Architect NO-GO.**`. The last three
   parts separate completed work, all
   remaining work, and exact files/commands/commits/evidence. Copy the complete
   template and GO/NO-GO table from `ai/notes/conventions-and-workflow.md`; do
@@ -914,7 +1038,8 @@ turn that touches a ticket are:
   immediately. Red Team is advisory; never make its review or GO a prerequisite
   for your commit.
 - **Count every formal Red Team reopening request.** Every ticket begins with
-  `**Red Team reopen count: 0.**`; never reset it. When an end-of-cycle return says
+  `**Red Team reopen count: 0.**`; never reset it. It also begins with
+  `**Red Team reopening: allowed.**`. When a matching normal-cycle return says
   `REOPEN`, immediately increment the integer, restore the linked open index
   line, change `CLOSED` to `OPEN`, and acknowledge the return. Do this
   bookkeeping without reproducing or substantively analyzing the finding.
@@ -925,9 +1050,15 @@ turn that touches a ticket are:
 - **Exercise final authority after the quick reopening.** For every value
   greater than one, later compare the new evidence with every earlier
   reopening request and become stricter about repetition that adds no material
-  evidence. You may close the ticket again or lower severity with a recorded
-  reason. The quick bookkeeping protects the finding from being lost; it does
-  not surrender your final GO / NO-GO authority.
+  evidence. Your later `GO` accepts the evidence and keeps the ticket open for
+  repair. Your later `NO-GO` closes the ticket, records the reason, and changes
+  the status permanently to
+  `**Red Team reopening: barred by Architect NO-GO.**`. Never restore
+  `allowed` after that decision. A future `REOPEN` for the barred ticket is
+  invalid, causes no count increase or backlog edit, and is returned to Red
+  Team; a different bug must be `NEW TICKET`. The quick bookkeeping protects
+  the first permitted finding from being lost; it does not surrender your
+  final GO / NO-GO authority.
 - **Record a new Red Team finding before analyzing it.** Require the exact
   handoff label `Backlog action: NEW TICKET`. Immediately create its complete
   backlog entry with the Red Team's High, Medium, or Low assessment marked as
@@ -958,8 +1089,9 @@ turn that touches a ticket are:
   with its detailed status, accepted evidence, and landed commit. Correct both
   the index and detailed section in the same turn; do not delete the human
   explanation or exact evidence. Also reconcile every reopen integer and
-  advisory return. A missing count, a reset count, a lost delayed return, or a
-  non-Low ticket with a count above five is NO-GO.
+  advisory return. A missing count, missing reopening status, a reset count, a
+  lost delayed return, an open barred ticket, or a non-Low ticket with a count
+  above five is NO-GO.
 
 ### Second-Implementer assignments
 
@@ -972,9 +1104,11 @@ condition.
 
 The Architect must not inflate either count. Critical remains the narrow
 Architect-only classification defined in Operating Constraint 5a; it is never
-a synonym for High and is never a staffing tool. The emergency count does not
-change Sol's role automatically, and leaving Sol idle is not a dispatch
-failure.
+a synonym for High and is never a staffing tool. High also requires the
+recorded severe consequence and why Medium is insufficient. Do not classify
+ordinary defects High merely because the repair is urgent, hard, or would
+benefit from another worker. The emergency count does not change Sol's role
+automatically, and leaving Sol idle is not a dispatch failure.
 
 Only the Architect may make the assignment, and only for one named ticket. A
 two-role watch disables Sol, so neither the demand count nor an Architect note
@@ -1005,3 +1139,23 @@ In second-Implementer mode:
 - The mode declaration is recorded in the unit's `ai/notes/` entry, so the
   audit later reads the landing against execution discipline, not
   catch-power discipline.
+
+One emergency cycle is a pair of different accepted tickets: one completed
+through the primary Implementer and one through Sol. After separate audit and
+commit of each, write the matching `emergency-primary` and
+`emergency-second` daemon receipts described in the ticket-cycle protocol.
+The second receipt completes the pair. Never assign both Implementers the same
+ticket merely to fill the pair. While the backlog still proves the emergency,
+start the pair by assigning one distinct ticket to each Implementer before
+waiting for either result. They may finish in either order.
+
+Recount after every accepted ticket. As soon as no more than ten open High bug
+fixes and no more than one open Critical bug fix remain, stop creating new
+second-Implementer assignments. Allow only work whose dispatch preparation
+was already admitted or whose role process already started to finish. A
+message merely queued in the mailbox is not admitted and must not start under
+the cleared emergency. After admitted work finishes, use Sol as Red Team for
+later normal cycles. An emergency at watcher startup is not permission to
+process the entire backlog without Red Team reviews. `--cycle 0` still means
+drain all recorded work: it uses emergency pairs only while the emergency
+exists and normal ticket-plus-review cycles after the threshold clears.

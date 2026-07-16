@@ -536,7 +536,8 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("**Red Team reopen count: 0.**", contract)
         self.assertIn("commits the accepted Implementer fix without waiting "
                       "for Red Team", contract)
-        self.assertIn("At the end of each cycle, Red Team reviews", contract)
+        self.assertIn(
+            "At the end of each normal cycle, Red Team reviews", contract)
         self.assertIn("Backlog action: REOPEN", contract)
         self.assertIn("Nothing\nfor this ticket.", contract)
         self.assertIn("Malformed backlog state always fails closed", contract)
@@ -561,7 +562,12 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Red Team is always advisory", normalized)
         self.assertIn("Architect never waits for Red Team before committing",
                       normalized)
-        self.assertIn("watcher does not hold the cycle open", normalized)
+        self.assertIn(
+            "Architect may start the next ticket while that advisory review "
+            "is pending", normalized)
+        self.assertIn(
+            "finite watcher, however, does not count or exit that cycle "
+            "until the correlated Red Team return exists", normalized)
         self.assertIn("Backlog action: NEW TICKET", normalized)
         self.assertIn("provisional priority", normalized)
 
@@ -610,6 +616,20 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn(
             "An unclassified\n   open line fails closed", self.conventions)
 
+    def test_high_severity_requires_unusual_concrete_harm(self):
+        normalized = " ".join(self.conventions.split())
+        architect = " ".join(self.architect.split())
+        redteam = " ".join(self.redteam.split())
+        self.assertIn("High is deliberately difficult to assign", normalized)
+        self.assertIn("why Medium is not enough", normalized)
+        self.assertIn("Urgency, a missing test, unfinished cleanup", normalized)
+        self.assertIn("why Medium is insufficient", architect)
+        self.assertIn("keep the system in emergency mode during ordinary "
+                      "maintenance", architect)
+        self.assertIn("why Medium is insufficient", redteam)
+        self.assertIn("Inflating High would keep the system in emergency "
+                      "mode", redteam)
+
     def test_permanent_workflow_records_runtime_governance(self):
         conventions = " ".join(self.conventions.split())
         architect = " ".join(self.architect.split())
@@ -626,7 +646,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 "Unicode code points",
                 "An exact-boundary result is accepted",
                 "with no `--cycle` option, the watcher continues watching",
-                "20-second interrupt countdown",
+                "20-second Ctrl-C countdown",
                 "Fix-only mode permits work that closes an existing ticket",
                 "### Discovery demand and a second Implementer",
                 "cannot audit the same ticket",

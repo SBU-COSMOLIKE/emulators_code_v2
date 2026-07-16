@@ -276,6 +276,16 @@ Medium, or Low severity, likelihood, impact, scope, and evidence. The
 Architect accepts, upgrades, or downgrades that assessment with a reason and
 alone decides whether the finding becomes a ticket.
 
+High is deliberately difficult to assign, although its bar is lower than
+Critical. For every proposed or accepted High ticket, the Red Team and
+Architect state the demonstrated severe impact and why Medium is not enough.
+Urgency, a missing test, unfinished cleanup, an expensive validation run, or a
+desire to work sooner is not by itself High evidence. If that comparison is
+missing, the rating is NO-GO and defaults to Medium until evidence supports an
+upgrade. This restraint prevents routine work from keeping Sol in emergency
+second-Implementer duty and removing the independent review that Sol normally
+provides.
+
 The Critical bar is deliberately much higher than the High bar. A ticket is
 not Critical merely because it is High, urgent, scientific, hard to fix,
 limited to one important family or platform, or lacks a convenient workaround.
@@ -521,18 +531,28 @@ reason. When the count becomes `6`, or is already greater than `5`, the
 ticket's priority is automatically Low. No role may waive that automatic
 change, even for a ticket that was previously Critical or High.
 
+Every ticket also has one exact reopening state. It begins as `allowed`. When
+the Architect later assesses a Red Team reopening, Architect GO accepts the
+evidence and leaves the ticket open for repair. Architect NO-GO closes the
+ticket with a reason and changes the state permanently to `barred by Architect
+NO-GO`. The Red Team may not reopen a barred ticket again. A different defect
+must use `Backlog action: NEW TICKET`. A prohibited later `REOPEN` does not
+change the ticket, its count, or its reopening state.
+
 Red Team is always advisory. The ordinary acceptance path is: the Architect
 assigns a ticket, the Implementer repairs it, the Architect audits the repair,
 and an Architect `GO` closes and commits the ticket immediately. Red Team does
 not supply a required `GO`, and the Architect never waits for Red Team before
 committing an accepted fix.
 
-At the end of each cycle, Red Team reviews the tickets closed during that
-cycle. If the bug remains, its handoff says `Backlog action: REOPEN`. The
-watcher does not hold the cycle open while this advisory message waits. On
-receipt, the Architect immediately restores the ticket and increments its
-reopen count. The Architect evaluates the evidence, final priority, and next
-decision later.
+A normal cycle follows one ticket through Architect/Implementer exchanges,
+Architect GO, one accepted commit, and one Red Team review of that exact
+commit. If the bug remains, the handoff says `Backlog action: REOPEN`. The
+Architect may start the next ticket while that advisory review is pending, so
+work does not deadlock. A finite watcher, however, does not count or exit that
+cycle until the correlated Red Team return exists. On receipt, the Architect
+immediately restores an allowed ticket and increments its reopen count. The
+Architect evaluates the evidence, final priority, and GO/NO-GO later.
 
 #### Recreate the local backlog consistently
 
@@ -569,6 +589,9 @@ Every ticket has a Red Team reopen count that starts at zero. A ticket moved
 to Closed does not wait for Red Team approval. At the end of a cycle, Red Team
 may send REOPEN if the bug remains. The sixth REOPEN assessment automatically
 makes that ticket Low.
+
+Every ticket also says whether Red Team reopening is allowed. An Architect
+NO-GO to reopening is permanent; that ticket is barred from another REOPEN.
 
 New discovery stops when ten or more Critical, High, and Medium tickets are
 open; Low tickets do not enter that count. Sol may act as a second Implementer
@@ -655,12 +678,15 @@ Sentence 3 explains the user or scientific consequence.]
 
 **Red Team reopen count: 0.**
 
+**Red Team reopening: allowed.**
+
 **OPEN.** [Current stage, blocker, or prerequisite.]
 
 [For a Bug fix, use:]
 
-**Severity: PRIORITY.** [Concrete harm and likelihood. A Critical bug must
-also explain why High is insufficient.]
+**Severity: PRIORITY.** [Concrete harm and likelihood. A High bug must explain
+why Medium is insufficient. A Critical bug must explain why High is
+insufficient.]
 
 [For New functionality, use:]
 
@@ -688,7 +714,8 @@ See further instructions at ai/notes/<plain-ticket-slug>-red-team-finding.md
 
 The Architect writes a feature's user-supplied priority and any
 “after the backlog is closed” prerequisite into `Current status`. For a
-Critical bug, the priority reason must also explain why High is insufficient.
+High bug, the priority reason must explain why Medium is insufficient. For a
+Critical bug, it must also explain why High is insufficient.
 These rules apply to every user's local backlog; old local records are brought
 into this shape when first touched rather than copied as an incompatible
 private format.
@@ -716,10 +743,14 @@ scientifically incorrect result without an obvious file-reading error.
 
 **Red Team reopen count: 0.**
 
+**Red Team reopening: allowed.**
+
 **OPEN.** The format check is designed, but the resume-path test is missing.
 
 **Severity: HIGH.** Normal checkpoint recovery can silently change the
-scientific meaning of saved values.
+scientific meaning of saved values. Medium is insufficient because the file
+can load successfully while assigning a result to the wrong physical
+multipole.
 
 ### What is already fixed
 
@@ -742,14 +773,16 @@ error text, and the validation commands here.
 To close a ticket, the Architect removes its one index line, moves its complete
 detailed section below `# Closed tickets`, changes `**OPEN.**` to
 `**CLOSED.**`, and changes `What is missing` to the exact sentence `Nothing
-for this ticket.` The title, anchor, type, final priority, reopen count, human
-summary, completed work, and technical evidence remain. The Architect then
+for this ticket.` The title, anchor, type, final priority, reopen count,
+reopening state, human summary, completed work, and technical evidence remain.
+The Architect then
 commits the accepted Implementer fix without waiting for Red Team. If any
 required action remains, the ticket stays open or that action receives its own
 linked open ticket.
 
-At the end of each cycle, Red Team reviews the tickets closed during that
-cycle. A no-finding result is advisory and changes nothing. If the bug remains,
+At the end of each normal cycle, Red Team reviews the one ticket and accepted
+commit from that cycle. A no-finding result is advisory and changes nothing.
+If the bug remains and reopening is still allowed,
 the handoff says `Backlog action: REOPEN`. The Architect does not stop to audit
 or reproduce the bug: immediately increment the reopen count, apply the
 greater-than-five Low rule, move the full section back to the matching open
@@ -757,7 +790,9 @@ priority group, restore its index line, change `**CLOSED.**` to `**OPEN.**`,
 replace `Nothing for this ticket.` with the concrete reopened work, and cite
 the stable finding note with the exact `See further instructions at ...` line.
 Record that evidence and priority will be assessed only when the ticket later
-reaches the front of its priority group.
+reaches the front of its priority group. If the reopening state is barred, the
+Architect records no ticket change and tells the Red Team that a different
+defect must use `NEW TICKET`.
 
 A new Red Team discovery uses the exact handoff label `Backlog action: NEW
 TICKET`. On receipt, the Architect performs the same short bookkeeping step:
@@ -779,7 +814,8 @@ Every ticket section has these parts in this order:
    replaces that title.
 2. **Current status** says exactly `OPEN` or `CLOSED`, records `Bug fix` or
    `New functionality`, gives its priority reason, records the nonnegative
-   Red Team reopen count, and names any blocker or prerequisite.
+   Red Team reopen count and exact reopening state, and names any blocker or
+   prerequisite.
 3. **What is already fixed** names completed work without implying that it
    closes the ticket.
 4. **What is missing** names every action, machine run, review, or decision
@@ -798,8 +834,9 @@ updated:
 | Status | Appears in the correct Open or Closed section and agrees with the linked `- OPEN` index | Is missing, contradictory, or described as closed while required work remains hidden in prose |
 | Partial work | Separates completed work from missing work | Treats a landed partial fix or local test result as ticket closure |
 | Ticket type | Records Bug fix or New functionality and applies its ordering rule | Omits type, labels a feature Critical, or lets a feature bypass a higher-priority item |
-| Severity | The Architect records Critical, High, Medium, or Low from concrete harm and likelihood, and the index places the ticket in that priority group | Severity is omitted, copied from Red Team without review, Critical is used without proof that High is insufficient, or a ticket is ordered below a lower-severity ticket without a recorded blocker |
+| Severity | The Architect records Critical, High, Medium, or Low from concrete harm and likelihood, explains why Medium is insufficient for High and why High is insufficient for Critical, and places the ticket in that priority group | Severity is omitted, copied from Red Team without review, High or Critical lacks its required comparison, or a ticket is ordered below a lower-severity ticket without a recorded blocker |
 | Reopen count | Uses one canonical nonnegative integer, starts at zero, never resets, and increments for every formal Red Team `REOPEN` assessment | Omits the count, uses prose instead of an integer, resets it, or loses a Red Team reopening return |
+| Reopening state | Uses exactly `allowed` until an Architect NO-GO permanently changes it to `barred by Architect NO-GO`; a barred ticket cannot be reopened | Omits the state, removes a permanent bar, changes a barred ticket after another REOPEN, or treats a different defect as the same ticket |
 | Repeated reopening | Immediately restores every Red Team `REOPEN` return, then later compares new evidence with earlier attempts; a count above five forces Low | Delays the bookkeeping for a full audit, calls every repeated objection obnoxious without evidence, or keeps a priority above Low after the sixth attempt |
 | Red Team authority | Red Team advice never blocks Architect acceptance, closure, commit, or landing | Requires a Red Team GO, delays an accepted commit for Red Team, or lets Red Team edit the backlog |
 | New Red Team ticket | The handoff says `Backlog action: NEW TICKET`; the Architect records it promptly with provisional Red Team priority and analyzes it later | The finding waits outside the backlog while the Architect performs a full audit, or another role writes the backlog directly |
@@ -903,17 +940,36 @@ In two-role mode, Architect and Implementer communicate directly through the
 mailbox and no Sol message is created. Existing Sol messages remain untouched
 until a normal three-role watch handles them.
 
-One completed **work period** means that five started role turns have finished,
-or that 15 minutes have passed since the period began. At either boundary,
-the watcher stops starting new work, lets every job that is already starting
-or running finish, and opens the 20-second manual stop countdown. An ordinary
-mailbox check with no such boundary does not complete a work period.
+Five finished role turns or 15 elapsed minutes creates an occasional manual
+safe-stop opportunity. At that boundary, the watcher temporarily stops
+starting new work, lets every job already starting or running finish, and
+opens the 20-second Ctrl-C countdown. This timing boundary is not a cycle and
+never changes the `--cycle` count.
+
+A normal **ticket cycle** concerns exactly one indexed Open ticket. Its first
+Implementer handoff starts with these saved lines:
+
+```text
+MAILBOX-FLOW: ticket
+MAILBOX-CYCLE: ticket-anchor@full-starting-commit
+MAILBOX-MODE: normal
+```
+
+The cycle and mode remain unchanged through every Architect/Implementer return.
+The first handoff must go to the actual Implementer; an Architect message
+cannot invent an unbound cycle. The anchor must name exactly one Open backlog
+ticket, and the starting commit must exist. After Architect GO, the accepted
+commit must be a different descendant of that starting commit. The Architect
+records that commit for the daemon and sends Sol one review of the exact ticket
+and commit. Sol returns `NO CHANGE` or `REOPEN`. That return completes the
+cycle count. The Architect may already be working on the next ticket, but a
+finite watcher waits for the return before exiting.
 
 Cycle settings control planned stopping:
 
 - with no `--cycle` option, the watcher continues watching;
-- `--cycle N`, where `N` is positive, stops safely after `N` completed work
-  periods even when recorded work remains; and
+- `--cycle N`, where `N` is positive, stops safely after `N` completed ticket
+  cycles even when recorded work remains; and
 - `--cycle 0` exits only after enabled mailbox routes are idle and no local
   backlog index line begins with the exact marker `- OPEN`.
 
@@ -921,10 +977,12 @@ Cycle zero also requires a safe, stable backlog read. A missing, non-regular,
 changing, unreadable, oversized, or non-UTF-8 backlog prevents exit and
 reports that completion could not be verified.
 
-Backlog prose never creates a mailbox request. The separate 20-second
-interrupt countdown is an occasional manual safe-stop opportunity; it is not
-the definition of a cycle. Fix-only mode permits work that closes an existing
-ticket but refuses discovery and every request to create a new ticket.
+Backlog prose never creates a mailbox request. Fix-only mode permits work that
+closes an existing ticket but refuses discovery and every request to create a
+new ticket. With `--skip-redteam`, positive cycle counts are invalid because a
+normal cycle requires a Red Team return. `--cycle 0` remains valid and drains
+all enabled two-role work; those ticket flows use `MAILBOX-MODE: two-role` and
+do not increment a cycle count.
 
 ### Discovery demand and a second Implementer
 
@@ -945,6 +1003,29 @@ finished. Neither threshold changes Sol's role automatically. During a proven
 emergency, the Architect must still assign Sol for one named ticket in a
 validated directive. Sol then follows the Implementer contract and cannot
 audit the same ticket.
+
+During an emergency, the primary ticket flow uses
+`MAILBOX-MODE: emergency-primary` and Sol's separate ticket flow uses
+`MAILBOX-MODE: emergency-second`. One emergency cycle completes only after the
+Architect accepts and commits two different ticket anchors at two different
+descendant commits, one through each Implementer, during the same emergency
+period. These two commits replace the normal Red Team pass because Sol has no
+review capacity while implementing.
+
+Emergency status is checked again as tickets close. As soon as no more than
+one Critical bug and no more than ten High bugs remain, the Architect assigns
+no new Sol implementation ticket. A Sol implementation already admitted and
+started may finish and complete its saved pair; a file that was only waiting
+and never admitted is not a reserved emergency assignment. After outstanding
+work returns, Sol resumes Red Team review. `--cycle 0` still means drain all
+recorded work: it does not force the remaining non-emergency tickets to run
+without Red Team.
+
+If an admitted emergency ticket finishes after the threshold clears and no
+opposite-route ticket from that emergency period was admitted, save the
+ticket as completed without incrementing the cycle count. It receives no
+retroactive Red Team pass because its emergency mode is immutable. Do not
+admit a new emergency ticket merely to fill the missing half.
 
 Only the Architect decides whether an accepted change alters a permanent
 general property. Permanent notes are not edited by an Implementer or Red

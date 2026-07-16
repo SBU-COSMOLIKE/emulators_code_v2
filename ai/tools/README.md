@@ -55,6 +55,12 @@ The guide uses these terms throughout:
 
 - A **mailbox** is a set of folders containing small Markdown request files.
 - A **watcher** is the long-running mailbox command.
+- A **normal cycle** is one accepted and committed ticket plus the Red Team's
+  advisory return for that exact commit. Several Architect/Implementer repair
+  messages may belong to the same cycle.
+- A **cycle identity** joins the exact anchor of a ticket that was Open when
+  work began with its full 40-character starting Git commit. A saved mode says
+  which Implementer receives that ticket and never changes during the work.
 - A **source note** is the Markdown file that records one ticket's problem,
   allowed work, and required checks. It is the source of truth.
 - A **directive** is the Architect's full written plan inside a source note.
@@ -331,6 +337,12 @@ bug or more than ten High bugs. High features, Medium work, Low work, and
 waiting mailbox files do not contribute. Outside that emergency, both the
 mailbox and this manual tool refuse the assignment.
 
+High and Critical are not staffing labels. A High bug needs evidence of
+severe harm and an explanation of why Medium is insufficient. A Critical bug
+needs evidence of broad library breakage and an explanation of why High is
+insufficient. The Architect must not inflate either rating to keep Sol in the
+second-Implementer role.
+
 During an emergency, ask the Architect to assign one ticket to Sol. The Architect owns the
 validated directive and the exact role declaration. The role rule is in
 [FAQ D2 of the role guide](../README.md#faq-d2-second-implementer). The manual
@@ -372,6 +384,29 @@ When the emergency condition is met, the watcher prints a message like this:
 The watcher does not create those jobs or change Sol's role by itself. Only
 the Architect may classify a bug Critical, and High must not be relabeled
 merely to unlock another Implementer.
+
+During the emergency, one counted cycle contains two different accepted and
+committed tickets: one from the primary Implementer and one from Sol as the
+second Implementer. The Architect audits each ticket separately. Sol does not
+also perform a Red Team review for that pair. While the backlog still proves
+the emergency, the Architect assigns one distinct ticket to each Implementer
+to start the pair. They may finish in either order. The two tickets must have
+different backlog anchors and different accepted commits, and both must have
+been admitted during the same period above the emergency threshold.
+
+The emergency is checked again after every accepted ticket. When ten or fewer
+High bug fixes and one or fewer Critical bug fixes remain open, the Architect
+stops assigning new tickets to Sol. A Sol ticket may finish only when its
+dispatch preparation was already admitted or its role process already
+started; a request file merely waiting in the mailbox is not grandfathered.
+Sol then resumes advisory Red Team reviews for later normal cycles.
+Starting a run in emergency mode therefore does not send the whole remaining
+backlog through two Implementers.
+
+If one admitted emergency ticket finishes after the threshold clears and no
+opposite-route ticket was admitted, the watcher saves the finished ticket but
+does not count a cycle. It performs no retroactive Red Team review and starts
+no replacement emergency ticket just to complete a pair.
 
 ## Check protected project notes
 
@@ -441,14 +476,20 @@ The three values mean:
 
 | Value | Which findings may become new tickets? |
 | --- | --- |
-| `high` | Only a bug that severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. |
+| `high` | Only a bug that severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. The evidence must show that harm and explain why Medium is insufficient. |
 | `medium` | High-severity bugs, plus a probable bug that can affect normal operation. Merely theoretical or improbable edge cases do not qualify. |
 | `low` | Any concrete discovered bug, including an improbable edge case. A guess without a code path and evidence does not qualify. |
+
+High must remain unusual. A difficult repair, missing optional feature,
+inconvenient cleanup, or desire for another Implementer does not meet this
+bar. The Architect records why the evidence is too severe for Medium before
+classifying a ticket High.
 
 Critical is not a fourth command value and is not a Red Team rating. Only the
 Architect may use it as a final backlog classification after evidence shows
 that a current bug broadly breaks a central library workflow or systematically
-invalidates scientific results. High does not automatically become Critical.
+invalidates scientific results. High does not automatically become Critical;
+the Architect records why High is insufficient.
 
 A watch or one-time run can set the default for discovery requests created by
 its roles. Run either command from any project folder that Git recognizes:
@@ -541,8 +582,8 @@ non-Low work first.
 
 The Architect does not wait for Red Team approval. After the Implementer
 finishes and the evidence earns `GO`, the Architect closes the ticket and
-commits the accepted change. At the end of that cycle, the Red Team reviews
-the tickets closed during the work period.
+commits the accepted change. The Architect may then begin the next ticket.
+Red Team reviews the exact ticket and commit in parallel.
 
 This is a bounded advisory review of tickets that already exist. If the Red
 Team finds no remaining bug, no approval message is required. If it finds a
@@ -559,8 +600,8 @@ the Architect from reconstructing the investigation when the ticket later
 reaches the front of the priority order.
 
 Every ticket has an integer called **Red Team reopen count**. It begins at
-`0` and never resets. Every formal `REOPEN` assessment adds one, including a
-request that the Architect later rejects.
+`0` and never resets. While reopening remains allowed, every formal `REOPEN`
+assessment adds one, including a request that the Architect later rejects.
 
 The number records how often the Red Team asked, while the Architect retains
 the final decision.
@@ -574,8 +615,11 @@ When that ticket later reaches the front of the permitted priority order, the
 Architect audits the evidence. A `GO` leaves the ticket open and supplies
 repair instructions.
 
-A `NO-GO` closes it again and explains why the evidence did not justify more
-work.
+A `NO-GO` closes it again, explains why the evidence did not justify more
+work, and permanently bars another Red Team reopening of that same ticket.
+The ticket records `Red Team reopening: barred by Architect NO-GO`. Red Team
+must not send another `REOPEN` for a barred ticket. A different defect uses
+`NEW TICKET` instead.
 
 For count `2` and above, the Architect compares the latest report with every
 earlier reopening and says what is materially new. Repeated text without a
@@ -594,15 +638,13 @@ After another repair, a second `REOPEN` must show evidence beyond the first
 one-row example. The count becomes `2` before the Architect decides whether
 that evidence earns `GO` or `NO-GO`.
 
-The watcher does not delay the end of a cycle while this review is waiting.
-A cycle is one measured work period: it reaches its next stopping point after
-five AI jobs finish or 15 minutes pass, then waits only for jobs already
-starting or running.
-
-A Red Team result may therefore arrive after the cycle finishes. It never
-blocks the Architect's close or commit. A two-role run may implement, test,
-close, and commit through the same Architect decision; it simply performs no
-Red Team review.
+In a normal three-role run, this matching Red Team result completes the
+cycle. It never blocks the Architect's close, commit, or start of the next
+ticket, but a finite watcher waits for the result before it exits for that
+cycle count. A two-role run may implement, test, close, and commit through the
+same Architect decision; it simply has no positive cycle count. Use
+`--skip-redteam --cycle 0` when the two-role watcher should finish all
+recorded work and exit.
 
 ## Protect the local backlog
 
@@ -780,7 +822,7 @@ text formats, unsaved files, and other counting details.
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + Sol |
 | AI job timeout | `--dispatch-timeout` | 60 minutes |
 | Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
-| Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop at cycle N; `0`: stop only when no enabled message is waiting or running and no backlog line begins `- OPEN` |
+| Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
 | Discovery policy | `--fix-only` | off |
@@ -843,13 +885,15 @@ options:
   --once                start every request that is waiting now, then exit
   --watch               check the mailbox every 20 seconds and start waiting
                         requests
-  --cycle count         with --watch, stop after this many work periods; one
-                        period ends after five requests finish or 15 minutes
-                        pass from its start, but waits for every job already
-                        starting or running to finish; 0 instead waits until
-                        no enabled role has a waiting message and
-                        ai/notes/backlog.md has no open item; omit this option
-                        to keep watching
+  --cycle count         with --watch, stop after this many completed ticket
+                        cycles; normally one cycle is one
+                        Architect/Implementer ticket through its accepted
+                        commit plus one matching Red Team return; during the
+                        emergency second-Implementer mode, one cycle is two
+                        accepted committed tickets, one per Implementer; 0
+                        instead waits until no enabled role has a waiting
+                        message and ai/notes/backlog.md has no open item; omit
+                        this option to keep watching
   --max characters      with --watch or --once, limit each ticket to this many
                         added and removed characters, counted from the
                         starting saved Git version named in the Architect's
@@ -925,6 +969,9 @@ options:
   `--once`. Omitting it or writing `--max 0` sets no character limit.
 - `--skip-redteam` and `--no-red-team` are two names for the same watch-only
   setting.
+- A positive `--cycle` cannot be combined with `--skip-redteam`: the matching
+  Red Team return is part of a normal counted cycle. Use
+  `--skip-redteam --cycle 0` to finish all recorded two-role work and exit.
 - A two-role watch preserves waiting internal Sol files and refuses new
   role-to-role Sol files until that watcher stops and releases its saved
   two-role rule.
@@ -1052,32 +1099,81 @@ Read the watcher's latest status line:
 
 ### FAQ B2. What does `--cycle` count? <a id="faq-b2-cycle-count"></a>
 
-For `--cycle N`, where `N` is greater than zero, a cycle begins when the
-watcher starts or when the preceding 20-second safe-stop countdown ends. It
-reaches its next safe-stop point after five launched AI jobs finish or 15
-minutes pass from the start of that cycle, whichever happens first. Ordinary
-idle checks do not reset that 15-minute clock in this mode.
+A normal cycle follows one ticket, not a timer and not a number of AI jobs.
+It completes after these events:
 
-To complete the cycle, the watcher stops starting new jobs and waits for jobs
-that are already starting or running. It then either exits or prints the
-20-second Ctrl-C countdown before beginning another cycle.
+1. Architect and Implementer work back and forth on one ticket.
+2. Architect accepts the result, commits it, and names that exact commit in
+   the saved cycle record.
+3. Red Team reviews the same ticket and commit.
+4. Red Team returns `NO CHANGE` or `REOPEN` with matching identifiers.
 
-An advisory Red Team review of a closed ticket does not keep the cycle open.
-The watcher may stop before that review returns. This differs from an AI job
-that is already starting or running: the watcher must wait for that job to
-finish or time out before it calls the cycle complete.
+The Red Team remains advisory. Step 3 does not delay the Architect's commit,
+and the Architect may start another ticket while that review runs. The
+watcher nevertheless stays alive until step 4, so `--cycle 1` cannot lose the
+review by exiting first.
+
+The first cycle message goes to the actual Implementer. The watcher sends
+`normal`, `two-role`, or `emergency-primary` work to the primary Implementer.
+It sends only `emergency-second` work to Sol as Implementer. Every exchange
+preserves that mode and the same cycle
+identity. The anchor must name a ticket that is indexed as Open when the first
+Implementer handoff is admitted, and the starting commit must be a real full
+Git commit. The later accepted commit must be different from and descend from
+that starting commit.
+
+Internally, every implementation exchange begins with the same three fields:
+
+```text
+MAILBOX-FLOW: ticket
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-MODE: normal
+```
+
+The watcher and roles write these fields; the user still talks only to the
+Architect. `MAILBOX-MODE` may instead contain `two-role`,
+`emergency-primary`, or `emergency-second`, but it cannot change during the
+ticket.
 
 ```mermaid
 flowchart TD
-  W["look for messages and run jobs"] --> E{"five launched jobs finished or 15 minutes passed since this cycle began?"}
-  E -->|"no"| W
-  E -->|"yes"| N["do not start another job"]
-  N --> F["wait for jobs already starting or running"]
-  F --> C{"requested number of cycles complete?"}
-  C -->|"yes"| X["exit safely"]
-  C -->|"no"| S["print the 20-second safe-stop countdown"]
-  S --> W
+  A["Architect writes one ticket plan"] --> I["Implementer changes and tests the code"]
+  I --> D{"Architect decision"}
+  D -->|"NO-GO"| A
+  D -->|"GO"| C["Architect commits this ticket"]
+  C --> N["Next ticket may start"]
+  C --> R["Red Team reviews this exact commit"]
+  R --> X["NO CHANGE or REOPEN returns"]
+  X --> Z["One normal cycle is complete"]
 ```
+
+During an emergency, Sol is the second Implementer instead of the Red Team.
+An emergency exists only while more than ten High bug fixes or more than one
+Critical bug fix remain open. One emergency cycle therefore completes after
+two different tickets are accepted and committed: one from the primary
+Implementer and one from Sol. While the emergency is present, the Architect
+assigns one distinct ticket to each Implementer to start the pair; they may
+finish in either order. The Architect audits each separately. The pair is
+valid only when the anchors differ, the accepted commits differ, and both
+assignments were admitted during the same continuous period above the
+emergency threshold.
+
+The emergency is not permanent for the run. After every accepted ticket, the
+watcher checks the backlog again. As soon as the counts return to ten or fewer
+High bug fixes and one or fewer Critical bug fixes, no new second-Implementer
+ticket is admitted. Work whose dispatch preparation was already admitted or
+whose role process already started may finish. A request file merely waiting
+in the mailbox is not grandfathered. Sol then returns to Red Team reviews, and
+later cycles use the normal definition.
+
+For example, eleven High bug fixes trigger the emergency. If the two
+Implementers close two different tickets, their two commits complete one
+emergency cycle. The open High count is now at most nine, so the next ticket
+uses the normal Architect, Implementer, and Red Team cycle.
+
+The 20-second `safe to Ctrl-C` countdown is separate. It gives a person a
+manual chance to stop while no AI role is starting or running. Reaching that
+countdown never starts or completes a cycle.
 
 Choose how long the watcher should run:
 
@@ -1085,14 +1181,16 @@ Choose how long the watcher should run:
 | --- | --- |
 | `--watch` | Keep watching until you stop it during a printed safe countdown |
 | `--watch --cycle 2` | Exit safely after two completed cycles, even if more work is waiting |
-| `--watch --cycle 0` | Exit only when no role message is waiting or running and `ai/notes/backlog.md` has no line that begins `- OPEN` |
-| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Red Team messages and advisory reviews for a later run |
+| `--watch --cycle 0` | Finish all recorded work, including required normal Red Team returns after any emergency clears, and then exit |
+| `--watch --skip-redteam --cycle 0` | Finish all recorded Architect-and-Implementer work; leave Red Team messages for a later run |
 
 `--cycle 0` does not read a backlog description and invent an AI request from
 it. Someone must still send the appropriate mailbox message. The roles that
 handle that request must also update its backlog entry when the work is
-genuinely finished. An advisory Red Team review may arrive in a later cycle;
-it does not delay the Architect's close or commit.
+genuinely finished. Zero means “drain everything already recorded,” not “skip
+Red Team” and not “remain in emergency mode.” A positive cycle limit requires
+the normal Red Team route, so the program refuses `--skip-redteam --cycle N`
+when `N` is greater than zero.
 
 Just before a zero-cycle exit, the watcher briefly prevents `--send` from
 saving another message. It checks that the backlog is an ordinary readable

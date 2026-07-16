@@ -17,6 +17,8 @@ import types
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+BASE_COMMIT = "1" * 40
+CYCLE_ID = "character-budget@" + BASE_COMMIT
 
 
 class FinishedProcess:
@@ -71,7 +73,14 @@ def scratch_daemon(source=None):
         relay = ai_root / "notes" / "relay"
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
-        backlog.write_text("", encoding="utf-8")
+        backlog.write_text(
+            "- OPEN **MEDIUM** **BUG FIX** — "
+            "[Character budget](#character-budget)\n\n"
+            '<a id="character-budget"></a>\n'
+            "## Character budget\n\n"
+            "**Red Team reopen count: 0.**\n\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8")
         claude_worktree = root / "claude-worktree"
         sol_worktree = root / "sol-worktree"
         claude_worktree.mkdir()
@@ -96,6 +105,7 @@ def scratch_daemon(source=None):
             "opus": str(claude_worktree),
             "sol": str(sol_worktree),
         }
+        daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.report_demand = lambda backlog: None
         daemon.report_landing_debt = lambda: None
@@ -196,8 +206,8 @@ def arm_dry_run_once(source=None):
 class ExitAfterOnePass:
     """A watch controller that requests a clean source-change exit."""
 
-    def __init__(self, source_path, source_stamp):
-        del source_path, source_stamp
+    def __init__(self, source_path, source_stamp, ticket_cycle_limit=None):
+        del source_path, source_stamp, ticket_cycle_limit
 
     def source_changed(self):
         return True
@@ -291,11 +301,23 @@ def fake_popen(calls):
     return replacement
 
 
-def pending_body(agent):
+def pending_body(daemon, agent):
     """Return one valid byte-exact mailbox body for a route."""
+    if agent == "fable":
+        return daemon.architect_user_request_payload(
+            text="Work the scratch Architect unit.").encode("utf-8")
+    if agent == "opus":
+        return (
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "Work the scratch Implementer unit.\n").encode("utf-8")
     if agent == "sol":
-        return b"MAILBOX-TICKET: closure\r\n\r\nreview scratch unit\r\n"
-    return ("work the scratch " + agent + " unit\r\n").encode("utf-8")
+        return daemon.sol_ticket_payload(
+            ticket_kind="discovery", text="Review one bounded scratch unit.",
+            discovery_severity="medium",
+            discovery_scope="bounded").encode("utf-8")
+    raise ValueError("unknown scratch route: " + repr(agent))
 
 
 def arm_banner_environment_and_suffix(source=None):
@@ -311,7 +333,7 @@ def arm_banner_environment_and_suffix(source=None):
         consumed = []
         bodies = {}
         for index, agent in enumerate(("fable", "opus", "sol"), start=1):
-            body = pending_body(agent=agent)
+            body = pending_body(daemon=daemon, agent=agent)
             bodies[agent] = body
             path = mailbox / ("%04d-to-%s.md" % (index, agent))
             path.write_bytes(body)
@@ -359,7 +381,9 @@ def arm_sol_uses_primary_ticket_tools(source=None):
     """Sol is told to use primary tools while measuring the named checkout."""
     with scratch_daemon(source=source) as (daemon, _, _):
         prompt = daemon.agent_preamble(
-            agent="sol", message="MAILBOX-TICKET: closure\n\nreview\n")
+            agent="sol", message=daemon.sol_ticket_payload(
+                ticket_kind="discovery", text="Review one scratch fact.",
+                discovery_severity="medium", discovery_scope="bounded"))
         primary = pathlib.Path(daemon.AGENT_CWD["fable"])
         sol = str(pathlib.Path(daemon.AGENT_CWD["sol"]))
         expected_tools = (

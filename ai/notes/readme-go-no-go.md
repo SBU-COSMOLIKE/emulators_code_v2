@@ -382,7 +382,8 @@ text, and Mermaid source.
 
 Use concrete actors and verbs. “The watcher moves the file” is easier to
 check than “a filesystem transition occurs.” “`--cycle 2` exits after two
-completed cycles” carries more information than “this provides useful runtime
+normal tickets have an accepted commit and a matching Red Team return” carries
+more information than “this provides useful runtime
 control.”
 
 The following claims need evidence or removal:

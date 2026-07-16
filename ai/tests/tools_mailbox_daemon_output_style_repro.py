@@ -15,6 +15,8 @@ import types
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 README_PATH = AI_ROOT / "tools" / "README.md"
+BASE_COMMIT = "1" * 40
+CYCLE_ID = "output-style@" + BASE_COMMIT
 ALLOWED_TERMINAL_ACRONYMS = {
     "AGENT", "CLI", "MINUTES", "NUL", "TOKENS", "UTF",
 }
@@ -60,7 +62,10 @@ def terminal_literal_violations(source):
         # The role filename is data, not emphasis. The remaining uppercase
         # words in shipped print literals must be genuine acronyms.
         prose = (literal.replace(".claude/FABLE_ROLE.md", "")
-                 .replace("'- OPEN'", ""))
+                 .replace("'- OPEN'", "")
+                 .replace("REOPEN", "")
+                 .replace("NO-GO", "")
+                 .replace("NEW TICKET", ""))
         for word in re.findall(r"(?<![A-Za-z0-9])([A-Z]{2,})"
                                r"(?![A-Za-z0-9])", prose):
             if word not in ALLOWED_TERMINAL_ACRONYMS:
@@ -84,6 +89,15 @@ def scratch_daemon():
         daemon.DONE = str(ai_root / "notes" / "mailbox" / "done")
         daemon.RELAY_DIR = str(ai_root / "notes" / "relay")
         daemon.BACKLOG_LEDGER = str(ai_root / "notes" / "backlog.md")
+        pathlib.Path(daemon.BACKLOG_LEDGER).parent.mkdir(parents=True)
+        pathlib.Path(daemon.BACKLOG_LEDGER).write_text(
+            "- OPEN **MEDIUM** **BUG FIX** — "
+            "[Output style](#output-style)\n\n"
+            '<a id="output-style"></a>\n'
+            "## Output style\n\n"
+            "**Red Team reopen count: 0.**\n\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8")
         daemon.PREAMBLE = "scratch message\n"
         daemon.AGENT_COMMANDS = {
             "fable": ["harmless-fable"],
@@ -95,8 +109,17 @@ def scratch_daemon():
             "opus": str(root),
             "sol": str(root),
         }
+        daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         yield daemon, root
+
+
+def implementer_payload(text):
+    """Return one current normal-mode Implementer ticket message."""
+    return (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+        "MAILBOX-MODE: normal\n\n" + text + "\n")
 
 
 def runtime_emergency_line():
@@ -124,8 +147,10 @@ def runtime_emergency_line():
 def runtime_refusal_line():
     """Exercise a real scratch refusal without touching the live mailbox."""
     with scratch_daemon() as (daemon, _):
-        path = pathlib.Path(daemon.MAILBOX) / "0001-to-opus.md"
-        path.write_text("<unit>\n", encoding="utf-8")
+        path = pathlib.Path(daemon.MAILBOX) / "0001-to-fable.md"
+        path.write_text(
+            daemon.architect_user_request_payload(text="<unit>"),
+            encoding="utf-8")
         stream = io.StringIO()
         with contextlib.redirect_stdout(stream):
             daemon.dispatch(path=str(path), dry_run=False)
@@ -138,7 +163,9 @@ def runtime_heartbeat_line():
     """Drive one harmless dispatch far enough to print its heartbeat."""
     with scratch_daemon() as (daemon, root):
         path = pathlib.Path(daemon.MAILBOX) / "0046-to-opus.md"
-        path.write_text("real scratch unit\n", encoding="utf-8")
+        path.write_text(
+            implementer_payload("Run the real scratch unit."),
+            encoding="utf-8")
 
         class FrozenDateTime:
             """Supply the timestamp used by the README's example."""
@@ -207,7 +234,7 @@ def main():
         "still required; otherwise Sol remains the Red Team.")
     refusal = runtime_refusal_line()
     expected_refusal = (
-        "refused 0001-to-opus.md: the whole body is the template placeholder "
+        "refused 0001-to-fable.md: the whole body is the template placeholder "
         "'<unit>'; parked in failed/; fill in the real text and requeue.")
     heartbeat = runtime_heartbeat_line()
     expected_heartbeat = (

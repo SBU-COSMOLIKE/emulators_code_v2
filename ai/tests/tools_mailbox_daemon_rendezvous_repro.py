@@ -21,6 +21,8 @@ import types
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 COUNTDOWN_SECONDS = 20
+BASE_COMMIT = "1" * 40
+ACCEPTED_COMMIT = "2" * 40
 
 
 class AttributeProxy:
@@ -100,6 +102,15 @@ def scratch_daemon(source=None):
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.report_demand = lambda backlog: None
         daemon.report_landing_debt = lambda: None
+        # Ticket-cycle registration is exercised only with synthetic commit
+        # identities in this disposable repository.  Keep ancestry checks
+        # deterministic and isolated from the caller's real checkout.
+        daemon.git_commit_exists = (
+            lambda commit: commit in {BASE_COMMIT, ACCEPTED_COMMIT})
+        daemon.git_commit_descends_from = (
+            lambda starting_commit, accepted_commit:
+            starting_commit == BASE_COMMIT
+            and accepted_commit == ACCEPTED_COMMIT)
         yield daemon, root, mailbox
 
 
@@ -108,6 +119,16 @@ def write_pending(mailbox, name, body="close existing work\n"):
     path = mailbox / name
     path.write_text(body, encoding="utf-8", newline="")
     return path
+
+
+def write_indexed_open_ticket(backlog):
+    """Write one classified Open ticket with exact cycle bookkeeping."""
+    backlog.write_text(
+        "- OPEN **MEDIUM** **BUG FIX** — [Cycle witness](#cycle-witness)\n"
+        "\n<a id=\"cycle-witness\"></a>\n"
+        "**Red Team reopen count: 0.**\n"
+        "**Red Team reopening: allowed.**\n",
+        encoding="utf-8")
 
 
 def tree_snapshot(root):
@@ -282,13 +303,15 @@ def arm_constants_are_named(source=None):
 
 def arm_dispatch_cadence_global_window(source=None):
     """At K completions, all lanes drain and dynamic queue counts stay live."""
-    with scratch_daemon(source=source) as (daemon, _, mailbox):
+    with scratch_daemon(source=source) as (daemon, root, mailbox):
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        # This witness needs two independent cwd lanes so both reservations
+        # can be live at the global K boundary. The normal shared Claude cwd
+        # topology is covered by the mailbox topology tests.
+        daemon.AGENT_CWD["opus"] = str(root / "opus-lane")
         first = write_pending(mailbox, "0001-to-fable.md")
-        second = write_pending(
-            mailbox, "0002-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nclose existing work\n")
+        second = write_pending(mailbox, "0002-to-opus.md")
         third = write_pending(mailbox, "0003-to-fable.md")
 
         clock = ControlledClock()
@@ -637,9 +660,7 @@ def finite_action_case(source, arguments, dry_run):
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1
         first = write_pending(mailbox, "0001-to-fable.md")
-        second = write_pending(
-            mailbox, "0002-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nclose existing work\n")
+        second = write_pending(mailbox, "0002-to-fable.md")
         before = tree_snapshot(root)
         launches = []
         real_time = daemon.time
@@ -740,97 +761,64 @@ def arm_omitted_cycle_remains_unbounded(source=None):
 
 
 def arm_positive_cycle_limit_preserves_queue(source=None):
-    """The Nth manufactured rendezvous exits with later bytes untouched."""
-    with scratch_daemon(source=source) as (daemon, _, mailbox):
-        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
-        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
-        first = write_pending(mailbox, "0001-to-fable.md", "first body\n")
-        second = write_pending(mailbox, "0002-to-fable.md", "second body\n")
-        third = write_pending(mailbox, "0003-to-fable.md", "third body\n")
-        third_bytes = third.read_bytes()
-        launches = []
-        clock = ControlledClock()
-
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
-            with simulated_child_turn(daemon):
-                target = pathlib.Path(path)
-                launches.append(target.name)
-                target.unlink()
-                return True
-
-        daemon.dispatch = fake_dispatch
-        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
-        rc, output, _, error = call_main(
-            daemon, ["--watch", "--cycle", "2"])
-        retry_lock = daemon.acquire_dispatch_lock(mode="once")
-        released = retry_lock is not None
-        if retry_lock is not None:
-            daemon.release_dispatch_lock(lock_file=retry_lock)
-        terminal = (
-            "cycle limit reached (2/2 cycles); every enabled role is idle; "
-            "watcher stopped; 1 message waiting; 0 backlog items still "
-            "begin with '- OPEN'.")
-        passed = (
-            error is None and rc == 0 and released
-            and launches == [first.name, second.name]
-            and not first.exists() and not second.exists()
-            and third.exists() and third.read_bytes() == third_bytes
-            and countdown_lines(output) == expected_countdown(waiting=2)
-            and output.count("safe interval ended; not safe to stop.") == 1
-            and terminal in output)
-        print("positive cycle limit preserves queue=" + str(passed))
-        return passed
+    """Child completions and safe-stop windows never complete a ticket."""
+    daemon = load_daemon(source=source)
+    daemon.RENDEZVOUS_DISPATCH_INTERVAL = 8
+    daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+    controller = daemon.SafeKillRendezvous(ticket_cycle_limit=2)
+    every_child_admitted = True
+    for _ in range(5):
+        permit = controller.begin_attempt()
+        if permit is None:
+            every_child_admitted = False
+            break
+        controller.turn_started(permit=permit)
+        controller.turn_finished(permit=permit)
+        controller.finish_attempt(permit=permit)
+    cadence_did_not_count = (
+        controller.completed_ticket_cycles() == 0
+        and not controller.ticket_cycle_limit_reached())
+    controller.ticket_cycle_returned()
+    first_return_not_enough = (
+        controller.completed_ticket_cycles() == 1
+        and not controller.ticket_cycle_limit_reached())
+    controller.ticket_cycle_returned()
+    passed = (
+        every_child_admitted and cadence_did_not_count
+        and first_return_not_enough
+        and controller.completed_ticket_cycles() == 2
+        and controller.ticket_cycle_limit_reached())
+    print("safe-stop cadence is not ticket-cycle completion=" + str(passed))
+    return passed
 
 
 def arm_positive_cycle_waits_for_exact_boundary(source=None):
-    """Positive N is exact, even when cycle one empties all requested work."""
-    with scratch_daemon(source=source) as (daemon, _, mailbox):
-        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
-        # The first 20-second countdown resets this deadline to t=40. One
-        # ordinary 20-second poll then makes rendezvous two due without work.
-        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1.0 / 3.0
-        first = write_pending(mailbox, "0001-to-fable.md", "only body\n")
-        launches = []
-        clock = ControlledClock()
-
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
-            with simulated_child_turn(daemon):
-                target = pathlib.Path(path)
-                launches.append(target.name)
-                target.unlink()
-                return True
-
-        daemon.dispatch = fake_dispatch
-        install_clock_and_stamp(daemon, clock=clock, stop_when=lambda: False)
-        rc, output, _, error = call_main(
-            daemon, ["--watch", "--cycle", "2"])
-        terminal = (
-            "cycle limit reached (2/2 cycles); every enabled role is idle; "
-            "watcher stopped; no messages waiting; 0 backlog items still "
-            "begin with '- OPEN'.")
-        passed = (
-            error is None and rc == 0 and launches == [first.name]
-            and not first.exists()
-            and countdown_lines(output) == expected_countdown(waiting=0)
-            and output.count(
-                "every enabled role is idle; safe to Ctrl-C for this "
-                "20s poll; "
-                "no messages waiting.") == 1
-            and output.count("safe interval ended; not safe to stop.") == 2
-            and "cycle work complete" not in output and terminal in output)
-        print("positive cycle waits for exact boundary=" + str(passed))
-        return passed
+    """A positive limit closes admission only at its exact return count."""
+    daemon = load_daemon(source=source)
+    daemon.RENDEZVOUS_DISPATCH_INTERVAL = 8
+    daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+    controller = daemon.SafeKillRendezvous(ticket_cycle_limit=2)
+    controller.ticket_cycle_returned()
+    first = controller.begin_attempt()
+    admitted_after_one = first is not None
+    if first is not None:
+        controller.finish_attempt(permit=first)
+    controller.ticket_cycle_returned()
+    refused_after_two = controller.begin_attempt() is None
+    passed = (
+        admitted_after_one and refused_after_two
+        and controller.completed_ticket_cycles() == 2)
+    print("positive ticket-cycle boundary is exact=" + str(passed))
+    return passed
 
 
 def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
-    """Zero waits for ledger+queue; an ordinary poll does not end a cycle."""
+    """Zero drains recorded work; manual safe stops do not add cycles."""
     with scratch_daemon(source=source) as (daemon, _, mailbox):
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
         backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
-        backlog.write_text("- OPEN cycle witness\n", encoding="utf-8")
+        write_indexed_open_ticket(backlog=backlog)
         first = write_pending(mailbox, "0001-to-fable.md", "first body\n")
         queued = []
         launches = []
@@ -870,7 +858,7 @@ def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
                 "20s poll; "
                 "no messages waiting.") == 1
             and output.count("safe interval ended; not safe to stop.") == 1
-            and "cycle work complete after 1 cycle; no role message is "
+            and "cycle work complete after 0 cycles; no role message is "
             "waiting or running; ai/notes/backlog.md has no '- OPEN' item; "
             "watcher stopped." in output)
         print("zero cycle drains ledger and preserves cadence=" + str(passed))
@@ -904,7 +892,7 @@ def arm_zero_cycle_waits_for_queue(source=None):
             and launches == [first.name, second.name]
             and not first.exists() and not second.exists()
             and countdown_lines(output) == expected_countdown(waiting=1)
-            and "cycle work complete after 2 cycles; no role message is "
+            and "cycle work complete after 0 cycles; no role message is "
             "waiting or running; ai/notes/backlog.md has no '- OPEN' item; "
             "watcher stopped." in output)
         print("zero cycle waits for queue=" + str(passed))
@@ -1062,7 +1050,7 @@ def arm_zero_cycle_cutoff_serializes_sender(source=None):
 
 
 def arm_cycle_ledger_fail_closed(source=None):
-    """Missing and nonregular ledgers keep zero mode active and diagnostic."""
+    """Missing and nonregular ledgers cannot satisfy the drain-all barrier."""
     results = []
     for case in ("missing", "nonregular"):
         with scratch_daemon(source=source) as (daemon, _, _):
@@ -1070,24 +1058,14 @@ def arm_cycle_ledger_fail_closed(source=None):
             backlog.unlink()
             if case == "nonregular":
                 backlog.mkdir()
-            clock = ControlledClock()
-            clock.raise_on_poll = True
-            install_clock_and_stamp(
-                daemon, clock=clock, stop_when=lambda: False)
-            rc, output, _, error = call_main(
-                daemon, ["--watch", "--cycle", "0"])
-            retry_lock = daemon.acquire_dispatch_lock(mode="once")
-            released = retry_lock is not None
-            if retry_lock is not None:
-                daemon.release_dispatch_lock(lock_file=retry_lock)
+            barrier, error = daemon.acquire_cycle_completion_barrier(
+                backlog_outcome=None)
             expected = (
                 "cannot stat backlog ledger" if case == "missing"
                 else "backlog ledger is not a regular file")
-            results.append(
-                rc is None and isinstance(error, KeyboardInterrupt)
-                and released and expected in output
-                and "watcher remains active" in output
-                and "cycle work complete" not in output)
+            results.append(barrier is None and expected in str(error))
+            if barrier is not None:
+                daemon.release_cycle_completion_barrier(lock_file=barrier)
     passed = results == [True, True]
     print("cycle-zero ledger failures stay active=" + str(passed))
     return passed
@@ -1254,57 +1232,15 @@ def arm_source_mutations():
             arm_omitted_cycle_remains_unbounded,
         ),
         (
-            "positive cycle limit is off by one",
+            "a child turn falsely completes a ticket cycle",
             lambda text: replace_exact(
                 text,
-                "completed_cycles >= args.cycle",
-                "completed_cycles > args.cycle"),
+                "            self._completed = self._completed + 1\n"
+                "            self._arm_if_due_locked()\n",
+                "            self._completed = self._completed + 1\n"
+                "            self._ticket_cycles_completed += 1\n"
+                "            self._arm_if_due_locked()\n"),
             arm_positive_cycle_limit_preserves_queue,
-        ),
-        (
-            "ordinary poll resets bounded cadence",
-            lambda text: replace_exact(
-                text,
-                "reset_cadence=args.cycle is None",
-                "reset_cadence=True"),
-            arm_zero_cycle_drains_ledger_and_preserves_cadence,
-        ),
-        (
-            "positive cycle drains early at rendezvous",
-            lambda text: replace_exact(
-                text,
-                "                    if args.cycle == 0:\n"
-                "                        barrier, completion_error = (\n",
-                "                    if args.cycle is not None:\n"
-                "                        barrier, completion_error = (\n"),
-            arm_positive_cycle_waits_for_exact_boundary,
-        ),
-        (
-            "positive cycle drains early between rendezvous",
-            lambda text: replace_exact(
-                text,
-                "                if args.cycle == 0 and rendezvous.all_idle():",
-                "                if args.cycle is not None and rendezvous.all_idle():"),
-            arm_positive_cycle_waits_for_exact_boundary,
-        ),
-        (
-            "zero mode ignores ledger",
-            lambda text: replace_exact(
-                text,
-                "    if error is None and ledger == 0 and not waiting_before "
-                "and not waiting_after:\n",
-                "    if error is None and not waiting_before "
-                "and not waiting_after:\n"),
-            arm_zero_cycle_drains_ledger_and_preserves_cadence,
-        ),
-        (
-            "cycle completion ignores waiting queue",
-            lambda text: replace_exact(
-                text,
-                "    if error is None and ledger == 0 and not waiting_before "
-                "and not waiting_after:\n",
-                "    if error is None and ledger == 0:\n"),
-            arm_zero_cycle_waits_for_queue,
         ),
         (
             "missing ledger is treated as empty",

@@ -5,10 +5,12 @@
   <desc id="description">A vertical workflow shows the Architect planning a
   ticket, the Implementer making the change, and the Architect auditing it.
   Architect GO closes the ticket and commits immediately; NO-GO returns a
-  focused repair plan to the Implementer. After the cycle, an optional Red
-  Team may review the accepted change or find a new bug. It writes a detailed
-  note and sends REOPEN or NEW TICKET advice to the Architect, but never
-  approves or blocks a commit. Command-line options choose the models used
+  focused repair plan to the Implementer. The next ticket may start while an
+  optional Red Team reviews the exact accepted commit. Its NO CHANGE or
+  REOPEN return completes the normal cycle, but never approves or blocks the
+  commit. The ticket anchor, starting commit, and work mode stay unchanged
+  from the first Implementer handoff through the matching return. Command-line
+  options choose the models used
   for the Architect and Implementer roles, while ai/notes remains the project
   record.</desc>
 
@@ -168,7 +170,7 @@
     Architect acceptance is sufficient. No Red Team GO is required.
   </text>
   <text x="500" y="1127" text-anchor="middle" class="small">
-    The normal ticket path and the cycle may end here.
+    The next ticket may start while Red Team reviews this commit.
   </text>
 
   <!-- Advisory work is deliberately separated from the landing path. -->
@@ -177,10 +179,10 @@
   <rect x="190" y="1179" width="620" height="54" rx="20"
         fill="#f7f2ff" stroke="#b49bd4" stroke-width="2"/>
   <text x="500" y="1214" text-anchor="middle" class="section">
-    LATER: OPTIONAL RED TEAM ADVICE
+    SAME CYCLE: ADVISORY RED TEAM REVIEW
   </text>
   <text x="500" y="1264" text-anchor="middle" class="subtitle">
-    The watcher and the commit do not wait for this review.
+    The commit does not wait. A finite watcher does wait before exit.
   </text>
 
   <path d="M 500 1282 L 500 1320" class="edge-optional"/>
@@ -192,10 +194,10 @@
     [R] RED TEAM READS ADVERSARIALLY
   </text>
   <text x="500" y="1406" text-anchor="middle" class="body">
-    After a cycle: check whether an accepted bug still remains.
+    Review this exact ticket and its accepted commit.
   </text>
   <text x="500" y="1438" text-anchor="middle" class="body">
-    Separate discovery: find and explain a new bug.
+    Return NO CHANGE, or REOPEN with reproducible evidence.
   </text>
   <text x="500" y="1470" text-anchor="middle" class="small">
     Write a detailed, persuasive note that a human can understand.
@@ -209,10 +211,10 @@
     ADVICE TO THE ARCHITECT
   </text>
   <text x="500" y="1620" text-anchor="middle" class="body">
-    REOPEN if the bug remains • NEW TICKET for a discovery
+    The matching NO CHANGE or REOPEN return completes the cycle.
   </text>
   <text x="500" y="1645" text-anchor="middle" class="small">
-    Advice never reverses a commit or holds a cycle open.
+    Advice never reverses the commit or becomes an approval.
   </text>
 
   <path d="M 500 1654 L 500 1692" class="edge-blue"/>
@@ -220,9 +222,9 @@
   <rect x="150" y="1700" width="700" height="88" rx="18"
         fill="#e9f3ff" stroke="#1665a8" stroke-width="3"/>
   <text x="500" y="1737" text-anchor="middle" class="box-title">
-    [A] ARCHITECT RECORDS IT NOW
+    [A] ARCHITECT RECEIVES THE RESULT
   </text>
   <text x="500" y="1768" text-anchor="middle" class="small">
-    Link the note in the backlog; analyze it later when the ticket reaches the top.
+    REOPEN: record now, assess later • NO CHANGE: no ticket action
   </text>
 </svg>

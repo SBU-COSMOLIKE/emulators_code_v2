@@ -27,6 +27,9 @@ SCOPE_HEADER = "MAILBOX-SCOPE: "
 FIX_ONLY_BANNER = (
     "fix-only watch: active; close existing ledger lines only; create no "
     "discovery tickets or new backlog lines.")
+BASE_COMMIT = "1" * 40
+ACCEPTED_COMMIT = "a" * 40
+SCRATCH_HIGH_ANCHOR = "scratch-high-bug-fix-1"
 
 
 class AttributeProxy:
@@ -115,7 +118,8 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None,
                 detail_anchors.append(
                     '<a id="' + anchor + '"></a>\n## ' + title + "\n\n"
                     "**Red Team reopen count: " + str(reopen_count)
-                    + ".**\n")
+                    + ".**\n\n"
+                    "**Red Team reopening: allowed.**\n")
         backlog.write_text(
             "".join(lines) + "\n" + "".join(detail_anchors),
             encoding="utf-8")
@@ -141,6 +145,11 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None,
             "opus": str(root),
             "sol": str(root),
         }
+        daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
+        daemon.git_commit_descends_from = (
+            lambda starting_commit, accepted_commit:
+            starting_commit == BASE_COMMIT
+            and accepted_commit == ACCEPTED_COMMIT)
         install_test_sol_topology_proof(daemon=daemon)
         # These are side effects of a successful publication, not the policy
         # under test.  Stubbing them also makes a refusal's zero-call property
@@ -178,6 +187,30 @@ def write_pending(daemon, name, body="counted pending unit\n"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8", newline="")
     return path
+
+
+def normal_review_exchange(daemon, text):
+    """Prepare one accepted normal ticket and its exact Red Team exchange."""
+    cycle_id = SCRATCH_HIGH_ANCHOR + "@" + BASE_COMMIT
+    flow = (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + cycle_id + "\n"
+        "MAILBOX-MODE: normal\n\n")
+    daemon.register_ticket_cycle_message(
+        agent="opus", message=flow + "Implement the scratch fix.\n")
+    daemon.register_ticket_cycle_message(
+        agent="fable", message=flow + "Audit the scratch fix.\n")
+    completed = daemon.record_architect_commit(
+        cycle_id=cycle_id, accepted_commit=ACCEPTED_COMMIT, mode="normal")
+    if completed != 0:
+        raise AssertionError("a normal Architect commit completed a cycle")
+    request = daemon.sol_ticket_payload(
+        ticket_kind="closure", text=text,
+        review_cycle=cycle_id, review_commit=ACCEPTED_COMMIT)
+    receipt = daemon.redteam_review_receipt_payload(
+        review_cycle=cycle_id, review_commit=ACCEPTED_COMMIT,
+        result="NO CHANGE", text="No remaining bug in this scratch fix.")
+    return request, receipt
 
 
 def captured_send(daemon, agent, text, dry_run, ticket_kind=None,
@@ -1025,12 +1058,16 @@ def arm_truthy_values_and_watch_scope():
     return all(checks)
 
 
-def captured_dispatch(daemon, path, fix_only, launches):
+def captured_dispatch(daemon, path, fix_only, launches,
+                      review_receipt=None):
     """Dispatch one scratch message with a harmless Popen replacement."""
     original_popen = daemon.subprocess.Popen
 
     def fake_popen(command, stdout, stderr, cwd, env):
         del stderr
+        if review_receipt is not None:
+            write_pending(
+                daemon, "0999-to-fable.md", body=review_receipt)
         return clean_process(stdout, launches, command, cwd, env)
 
     daemon.subprocess.Popen = fake_popen
@@ -1048,12 +1085,14 @@ def arm_fix_only_dispatch_and_propagation():
     """Fix-only launches only declared Sol closures and binds every child."""
     checks = []
 
-    with scratch_daemon() as (daemon, _, mailbox, _):
+    with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+        body, receipt = normal_review_exchange(
+            daemon=daemon, text="Review the accepted scratch fix.")
         path = write_pending(
-            daemon, "0001-to-sol.md",
-            TICKET_HEADER + "closure\nclose the existing ledger line\n")
+            daemon, "0001-to-sol.md", body)
         launches = []
-        outcome, _ = captured_dispatch(daemon, path, True, launches)
+        outcome, _ = captured_dispatch(
+            daemon, path, True, launches, review_receipt=receipt)
         prompt = launches[0]["command"][-1] if len(launches) == 1 else ""
         environment = launches[0]["env"] if len(launches) == 1 else {}
         passed = (outcome and len(launches) == 1
@@ -1066,8 +1105,9 @@ def arm_fix_only_dispatch_and_propagation():
     # A Fable child is how new tickets would normally be authored.  Its
     # dynamic prompt and environment must carry the same binding mode.
     with scratch_daemon() as (daemon, _, mailbox, _):
-        path = write_pending(daemon, "0002-to-fable.md",
-                             "close existing work only\n")
+        body = daemon.architect_user_request_payload(
+            text="Close the existing scratch work only.")
+        path = write_pending(daemon, "0002-to-fable.md", body)
         launches = []
         outcome, _ = captured_dispatch(daemon, path, True, launches)
         prompt = launches[0]["command"][-1] if len(launches) == 1 else ""
@@ -1110,8 +1150,8 @@ def arm_fix_only_dispatch_and_propagation():
 
     # The mandatory envelope must not make a placeholder look substantive.
     # Validation applies to the human body after the exact first line.
-    with scratch_daemon() as (daemon, _, mailbox, _):
-        body = TICKET_HEADER + "closure\n\n<unit>\n"
+    with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+        body, _ = normal_review_exchange(daemon=daemon, text="<unit>")
         path = write_pending(daemon, "0009-to-sol.md", body)
         launches = []
         outcome, output = captured_dispatch(daemon, path, False, launches)
@@ -1178,8 +1218,9 @@ def probe_pipeline_enforcement(source):
 
 def probe_sol_envelope_placeholder(source):
     """The classification envelope must not hide an empty template body."""
-    with scratch_daemon(source=source) as (daemon, _, mailbox, _):
-        body = TICKET_HEADER + "closure\n\n<unit>\n"
+    with scratch_daemon(open_count=1, source=source) as (
+            daemon, _, mailbox, _):
+        body, _ = normal_review_exchange(daemon=daemon, text="<unit>")
         path = write_pending(daemon, "0092-to-sol.md", body)
         launches = []
         outcome, output = captured_dispatch(daemon, path, False, launches)

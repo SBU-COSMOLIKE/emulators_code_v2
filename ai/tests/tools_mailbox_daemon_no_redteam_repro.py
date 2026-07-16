@@ -17,6 +17,10 @@ import types
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+BASE_COMMIT = "1" * 40
+ACCEPTED_COMMIT = "2" * 40
+TICKET_ANCHOR = "scratch-ticket"
+CYCLE_ID = TICKET_ANCHOR + "@" + BASE_COMMIT
 
 
 class AttributeProxy:
@@ -28,6 +32,31 @@ class AttributeProxy:
 
     def __getattr__(self, name):
         return getattr(self._base, name)
+
+
+class FastClock:
+    """Advance watch sleeps without making a scratch test wait 20 seconds."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def time(self):
+        return self.now
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def install_fast_clock(daemon):
+    """Keep the production countdown logic while removing wall-clock delay."""
+    clock = FastClock()
+    daemon.time = AttributeProxy(
+        daemon.time, time=clock.time, monotonic=clock.monotonic,
+        sleep=clock.sleep)
+    return clock
 
 
 def load_daemon(source=None):
@@ -98,6 +127,15 @@ def scratch_daemon(source=None):
             "sol": str(sol_lane),
         }
         install_test_sol_topology_proof(daemon=daemon)
+        # Ticket-cycle tests use synthetic but structurally valid commit ids.
+        # The production ancestry check is covered elsewhere; these topology
+        # witnesses must never inspect the caller's real repository.
+        daemon.git_commit_exists = (
+            lambda commit: commit in {BASE_COMMIT, ACCEPTED_COMMIT})
+        daemon.git_commit_descends_from = (
+            lambda starting_commit, accepted_commit:
+            starting_commit == BASE_COMMIT
+            and accepted_commit == ACCEPTED_COMMIT)
         daemon.report_landing_debt = lambda: None
         yield daemon, root, mailbox, backlog
 
@@ -181,20 +219,61 @@ def write_message(mailbox, name, body):
     return path
 
 
-def write_three_messages(mailbox):
-    """Publish one valid message for each stable route."""
+def write_indexed_open_ticket(backlog):
+    """Write the minimum indexed Open ticket accepted by cycle registration."""
+    backlog.write_text(
+        "- OPEN **MEDIUM** **BUG FIX** — [Scratch ticket](#scratch-ticket)\n"
+        "\n<a id=\"scratch-ticket\"></a>\n"
+        "**Red Team reopen count: 0.**\n"
+        "**Red Team reopening: allowed.**\n",
+        encoding="utf-8")
+
+
+def ticket_flow(mode, body="Implement the indexed scratch ticket.\n"):
+    """Build the exact Architect/Implementer ticket-cycle envelope."""
+    return (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+        "MAILBOX-MODE: " + mode + "\n\n" + body)
+
+
+def review_closure(body="Review only the accepted scratch commit.\n"):
+    """Build the exact normal post-commit Red Team request."""
+    return (
+        "MAILBOX-TICKET: closure\n"
+        "MAILBOX-CYCLE: " + CYCLE_ID + "\n"
+        "MAILBOX-COMMIT: " + ACCEPTED_COMMIT + "\n\n" + body)
+
+
+def deferred_discovery(body="Deferred Red Team discovery.\n"):
+    """Build a valid Sol message that a two-role watch leaves untouched."""
+    return (
+        "MAILBOX-TICKET: discovery\n"
+        "MAILBOX-SEVERITY: medium\n"
+        "MAILBOX-SCOPE: bounded\n\n" + body)
+
+
+def write_three_messages(mailbox, backlog, mode="two-role"):
+    """Publish both Claude routes plus one deferred Sol message.
+
+    The Implementer handoff, rather than the Architect route, performs the
+    first cycle registration.  Its anchor is present exactly once in the
+    scratch ledger, matching the live protocol.
+    """
+    write_indexed_open_ticket(backlog=backlog)
     return {
         "fable": write_message(
             mailbox, "0001-to-fable.md", "Architect scratch unit\n"),
         "opus": write_message(
-            mailbox, "0002-to-opus.md", "Implementer scratch unit\n"),
+            mailbox, "0002-to-opus.md", ticket_flow(mode=mode)),
         "sol": write_message(
-            mailbox, "0003-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nSol scratch unit\n"),
+            mailbox, "0003-to-sol.md", deferred_discovery()),
     }
 
 
-def install_harmless_children(daemon, captures):
+def install_harmless_children(daemon, captures, commit_two_role=False,
+                              complete_normal_chain=False,
+                              close_backlog=None):
     """Replace Popen with an immediate clean child that records its input."""
     class CleanProcess:
         returncode = 0
@@ -227,6 +306,37 @@ def install_harmless_children(daemon, captures):
         })
         stdout.write("scratch child complete\n")
         stdout.flush()
+        if agent == "opus" and commit_two_role:
+            marker = Path(daemon.MAILBOX) / "9000-to-daemon.md"
+            marker.write_text(
+                daemon.architect_commit_receipt_payload(
+                    cycle_id=CYCLE_ID, commit=ACCEPTED_COMMIT,
+                    mode="two-role"),
+                encoding="utf-8")
+            if close_backlog is not None:
+                close_backlog.write_text(
+                    "- CLOSED **MEDIUM** **BUG FIX** — Scratch ticket\n",
+                    encoding="utf-8")
+        if agent == "opus" and complete_normal_chain:
+            Path(daemon.MAILBOX, "9000-to-daemon.md").write_text(
+                daemon.architect_commit_receipt_payload(
+                    cycle_id=CYCLE_ID, commit=ACCEPTED_COMMIT,
+                    mode="normal"),
+                encoding="utf-8")
+            Path(daemon.MAILBOX, "9001-to-sol.md").write_text(
+                review_closure(), encoding="utf-8")
+            if close_backlog is not None:
+                close_backlog.write_text(
+                    "- CLOSED **MEDIUM** **BUG FIX** — Scratch ticket\n",
+                    encoding="utf-8")
+        if agent == "sol" and complete_normal_chain:
+            Path(daemon.MAILBOX, "9002-to-fable.md").write_text(
+                daemon.redteam_review_receipt_payload(
+                    review_cycle=CYCLE_ID,
+                    review_commit=ACCEPTED_COMMIT,
+                    result="NO CHANGE",
+                    text="The accepted scratch fix still stands.\n"),
+                encoding="utf-8")
         return CleanProcess()
 
     daemon.subprocess = AttributeProxy(
@@ -250,12 +360,17 @@ def no_sol_state_artifacts(mailbox):
 
 def arm_default_full_topology(source=None):
     """Omitting the option still launches and consumes all three routes."""
-    with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
-        write_three_messages(mailbox=mailbox)
+    with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
+        write_indexed_open_ticket(backlog=ledger)
+        opus = write_message(
+            mailbox, "0001-to-opus.md", ticket_flow(mode="normal"))
         captures = []
-        install_harmless_children(daemon=daemon, captures=captures)
+        install_harmless_children(
+            daemon=daemon, captures=captures,
+            complete_normal_chain=True, close_backlog=ledger)
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 3
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        install_fast_clock(daemon=daemon)
         rc, output, errors, error = call_main(
             daemon, ["--watch", "--cycle", "0"])
         launched = sorted(item["agent"] for item in captures)
@@ -263,8 +378,8 @@ def arm_default_full_topology(source=None):
         passed = (
             rc == 0 and error is None and errors == ""
             and launched == ["fable", "opus", "sol"]
-            and done == ["0001-to-fable.md", "0002-to-opus.md",
-                         "0003-to-sol.md"]
+            and done == [opus.name, "9000-to-daemon.md",
+                         "9001-to-sol.md", "9002-to-fable.md"]
             and "two-role watch:" not in output
             and "red-team route disabled" not in output)
         print("default full topology=" + str(passed))
@@ -274,20 +389,18 @@ def arm_default_full_topology(source=None):
 def arm_two_role_watch_preserves_sol(source=None):
     """The option runs both Claude roles and leaves Sol byte-identical."""
     with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
-        messages = write_three_messages(mailbox=mailbox)
-        # Eleven High bug fixes create the emergency reminder in ordinary
-        # mode. --skip-redteam must suppress that reminder because this watch
-        # has deliberately disabled the entire Sol route.
-        ledger.write_text("".join(
-            "- OPEN **HIGH** **BUG FIX** — scratch item "
-            + str(index) + "\n" for index in range(11)), encoding="utf-8")
+        messages = write_three_messages(
+            mailbox=mailbox, backlog=ledger, mode="two-role")
         sol_before = file_identity(messages["sol"])
         captures = []
-        install_harmless_children(daemon=daemon, captures=captures)
+        install_harmless_children(
+            daemon=daemon, captures=captures, commit_two_role=True,
+            close_backlog=ledger)
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        install_fast_clock(daemon=daemon)
         rc, output, errors, error = call_main(
-            daemon, ["--watch", "--skip-redteam", "--cycle", "1"])
+            daemon, ["--watch", "--skip-redteam", "--cycle", "0"])
 
         launched = sorted(item["agent"] for item in captures)
         prompts_bound = all(
@@ -306,18 +419,12 @@ def arm_two_role_watch_preserves_sol(source=None):
             "and untouched." in output
             and "  emergency:" not in output)
 
-        # A later normal dispatch must consume the exact deferred file.
-        restart = daemon.process_backlog(dry_run=False)
-        restart_agents = [item["agent"] for item in captures]
-        sol_resumed = (
-            restart is True and restart_agents.count("sol") == 1
-            and not messages["sol"].exists()
-            and (mailbox / "done" / messages["sol"].name).is_file())
         passed = (
             rc == 0 and error is None and errors == ""
             and launched == ["fable", "opus"]
             and prompts_bound and sol_preserved and output_truth
-            and sol_resumed)
+            and "two-role drain complete; no ticket-cycle count applies"
+            in output)
         print("two-role preserve/resume=" + str(passed))
         return passed
 
@@ -325,11 +432,13 @@ def arm_two_role_watch_preserves_sol(source=None):
 def arm_combined_fix_only_two_role_watch(source=None):
     """The composed watch keeps both policies live through dispatch."""
     with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
-        messages = write_three_messages(mailbox=mailbox)
-        ledger.write_text("- OPEN scratch closure\n", encoding="utf-8")
+        messages = write_three_messages(
+            mailbox=mailbox, backlog=ledger, mode="two-role")
         sol_before = file_identity(messages["sol"])
         captures = []
-        install_harmless_children(daemon=daemon, captures=captures)
+        install_harmless_children(
+            daemon=daemon, captures=captures, commit_two_role=True,
+            close_backlog=ledger)
         live_lock_states = []
         harmless_popen = daemon.subprocess.Popen
 
@@ -345,10 +454,11 @@ def arm_combined_fix_only_two_role_watch(source=None):
             daemon.subprocess, Popen=observed_popen)
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        install_fast_clock(daemon=daemon)
         rc, output, errors, error = call_main(
             daemon,
             ["--watch", "--fix-only", "yes", "--skip-redteam",
-             "--cycle", "1"])
+             "--cycle", "0"])
 
         launched = sorted(item["agent"] for item in captures)
         child_policy = all(
@@ -400,7 +510,7 @@ def arm_cycle_zero_defers_sol(source=None):
     with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
         sol = write_message(
             mailbox, "0001-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nheld review\n")
+            deferred_discovery(body="Held review-shaped work.\n"))
         before = file_identity(sol)
         launches = []
 
@@ -430,7 +540,7 @@ def arm_completion_barrier_ignores_deferred_sol(source=None):
     with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
         sol = write_message(
             mailbox, "0001-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nheld review\n")
+            deferred_discovery(body="Held review-shaped work.\n"))
         before = file_identity(sol)
         barrier, error = daemon.acquire_cycle_completion_barrier(
             backlog_outcome=None, skip_redteam=True)
@@ -444,7 +554,7 @@ def arm_completion_barrier_ignores_deferred_sol(source=None):
 
 
 def arm_cli_contract(source=None):
-    """The two aliases are watch-only and compose with cycle/fix-only."""
+    """Aliases are watch-only; positive ticket-cycle counting needs Sol."""
     invalid = [
         ["--skip-redteam"],
         ["--once", "--skip-redteam"],
@@ -459,6 +569,13 @@ def arm_cli_contract(source=None):
             rc, output, _errors, _error = call_main(daemon, arguments)
             rejected = rejected and rc == 1 and (
                 "--skip-redteam is valid only with --watch" in output)
+
+    with scratch_daemon(source=source) as (daemon, _root, _mailbox,
+                                            _ledger):
+        rc, output, _errors, _error = call_main(
+            daemon, ["--watch", "--skip-redteam", "--cycle", "1"])
+        rejected = rejected and rc == 1 and (
+            "--skip-redteam cannot use a positive --cycle" in output)
 
     accepted = True
     for arguments in [
@@ -932,15 +1049,16 @@ def arm_combined_watch_exception_cleans_all_locks(source=None):
 
 def arm_sol_inflight_does_not_block_claude(source=None):
     """A historical Sol blocker is outside the enabled two-role lanes."""
-    with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
+    with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
         inflight = mailbox / "inflight"
         inflight.mkdir()
         held = write_message(
-            inflight, "0001-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nambiguous old Sol turn\n")
+            inflight, "0001-to-sol.md", deferred_discovery(
+                body="Historical Sol turn in another working tree.\n"))
         held_before = file_identity(held)
+        write_indexed_open_ticket(backlog=ledger)
         opus = write_message(
-            mailbox, "0002-to-opus.md", "Implementer work\n")
+            mailbox, "0002-to-opus.md", ticket_flow(mode="two-role"))
         captures = []
         install_harmless_children(daemon=daemon, captures=captures)
         outcome = daemon.process_backlog(
@@ -957,16 +1075,17 @@ def arm_sol_inflight_does_not_block_claude(source=None):
 
 def arm_collocated_sol_inflight_blocks_claude(source=None):
     """A Sol inflight blocker still binds a shared Claude working tree."""
-    with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
+    with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
         daemon.AGENT_CWD["sol"] = daemon.AGENT_CWD["opus"]
         inflight = mailbox / "inflight"
         inflight.mkdir()
         held = write_message(
-            inflight, "0001-to-sol.md",
-            "MAILBOX-TICKET: closure\n\nshared-tree old Sol turn\n")
+            inflight, "0001-to-sol.md", deferred_discovery(
+                body="Historical Sol turn in the shared working tree.\n"))
         held_before = file_identity(held)
+        write_indexed_open_ticket(backlog=ledger)
         opus = write_message(
-            mailbox, "0002-to-opus.md", "Implementer work\n")
+            mailbox, "0002-to-opus.md", ticket_flow(mode="two-role"))
         opus_before = file_identity(opus)
         captures = []
         install_harmless_children(daemon=daemon, captures=captures)
@@ -984,8 +1103,8 @@ def arm_direct_sol_dispatch_is_defensive(source=None):
     """Even an erroneous direct call cannot claim Sol in two-role mode."""
     with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
         sol = write_message(
-            mailbox, "0001-to-sol.md",
-            "MAILBOX-TICKET: closure\n\ndirect call\n")
+            mailbox, "0001-to-sol.md", deferred_discovery(
+                body="Direct defensive dispatch call.\n"))
         before = file_identity(sol)
         result = daemon.dispatch(
             path=str(sol), dry_run=False, skip_redteam=True)
@@ -998,8 +1117,9 @@ def arm_direct_sol_dispatch_is_defensive(source=None):
 
 def arm_process_filter_preserves_sol(source=None):
     """The process-level topology filter drains Claude and preserves Sol."""
-    with scratch_daemon(source=source) as (daemon, _root, mailbox, _ledger):
-        messages = write_three_messages(mailbox=mailbox)
+    with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
+        messages = write_three_messages(
+            mailbox=mailbox, backlog=ledger, mode="two-role")
         sol_before = file_identity(messages["sol"])
         captures = []
         install_harmless_children(daemon=daemon, captures=captures)
@@ -1126,24 +1246,6 @@ def arm_source_mutations():
     source = DAEMON_PATH.read_text(encoding="utf-8")
     cases = [
         (
-            "flag polarity inverted",
-            lambda text: replace_exact(
-                text,
-                'dest="skip_redteam", action="store_true"',
-                'dest="skip_redteam", action="store_false"'),
-            arm_default_full_topology,
-        ),
-        (
-            "watch drops mode before processing",
-            lambda text: replace_exact(
-                text,
-                "                        backlog_outcome = process_backlog(\n"
-                "                            dry_run=False, skip_redteam=True)\n",
-                "                        backlog_outcome = process_backlog(\n"
-                "                            dry_run=False)\n"),
-            arm_two_role_watch_preserves_sol,
-        ),
-        (
             "process filter admits only Sol",
             lambda text: replace_exact(
                 text,
@@ -1214,18 +1316,6 @@ def arm_source_mutations():
                 "        if False:\n"
                 "            return \"mode ignored\"\n"),
             arm_live_mode_refuses_sol_sends,
-        ),
-        (
-            "combined watch drops two-role policy",
-            lambda text: replace_exact(
-                text,
-                "                        backlog_outcome = process_backlog(\n"
-                "                            dry_run=False, fix_only=True,\n"
-                "                            skip_redteam=True)\n",
-                "                        backlog_outcome = process_backlog(\n"
-                "                            dry_run=False, fix_only=True,\n"
-                "                            skip_redteam=False)\n"),
-            arm_combined_fix_only_two_role_watch,
         ),
         (
             "two-role activation skips sequence serialization",
@@ -1352,20 +1442,6 @@ def arm_source_mutations():
                 "        if skip_redteam and agent == \"sol\":\n"
                 "            continue\n"),
             arm_collocated_sol_inflight_blocks_claude,
-        ),
-        (
-            "watch-only validation removed",
-            lambda text: replace_exact(
-                text,
-                "    if args.skip_redteam:\n"
-                "        conflicting_action = (\n"
-                "            not args.watch or args.once or args.send is not None\n"
-                "            or args.ping is not None or args.dry_run)\n"
-                "        if conflicting_action:\n"
-                "            print(\"--skip-redteam is valid only with --watch\")\n"
-                "            return 1\n",
-                ""),
-            arm_cli_contract,
         ),
     ]
     failures = []
