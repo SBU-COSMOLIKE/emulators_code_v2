@@ -38,7 +38,7 @@ PERMANENT_NOTES = (
     "ai/notes/project-and-history.md",
     "ai/notes/readme-go-no-go.md",
     "ai/notes/training-stack.md",
-    "ai/notes/user-didactics-and-python-voice.md",
+    "ai/notes/python-changes-go-no-go.md",
 )
 
 BACKLOG = (

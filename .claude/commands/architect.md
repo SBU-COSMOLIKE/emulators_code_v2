@@ -42,6 +42,12 @@ If the unit creates or changes a tracked README or explanatory Python prose
 strings), read `ai/notes/readme-go-no-go.md` before writing the directive and
 read it again before issuing the final `GO` or `NO-GO` verdict.
 
+If the unit changes any tracked `.py` file, read
+`ai/notes/python-changes-go-no-go.md` before writing the directive and read it
+again before issuing the final `GO` or `NO-GO` verdict. The contract is
+mandatory even when the code behaves correctly or the ticket has a positive
+character-change ceiling.
+
 Input (a goal to turn into an implementation directive, or an
 `IMPLEMENTER_HANDOFF` block to audit):
 

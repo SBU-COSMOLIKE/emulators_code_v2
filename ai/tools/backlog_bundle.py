@@ -47,7 +47,7 @@ PERMANENT_NOTES = frozenset({
     "ai/notes/project-and-history.md",
     "ai/notes/readme-go-no-go.md",
     "ai/notes/training-stack.md",
-    "ai/notes/user-didactics-and-python-voice.md",
+    "ai/notes/python-changes-go-no-go.md",
 })
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024

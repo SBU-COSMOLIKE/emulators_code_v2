@@ -1,3914 +1,1156 @@
-# The training stack: losses, schedules, phases, EMA, sizing
-
-Consolidated 2026-07-11 from loss-mode-berhu.md, loss-block-nesting.md,
-resolve-phase-args-single-phase.md, phase-blocks-nested-lr-scheduler.md,
-eval-bs-decoupling.md, weight-ema-snapshot-coupled.md,
-ema-anneal-schedule.md, berhu-anneal-schedule.md,
-weight-decay-only-weight-matrices.md (+ its older twin),
-freeze-trunk-joint-phase2.md, driver-audit-phase-sweep-guards.md,
-n-train-n-val-absolute-counts.md, shared-budget-across-sequential-calls.md,
-banner-prints-consumed-view.md (retired; full texts in git history).
-The code home is emulator/training.py + emulator/experiment.py; the
-user-facing story is the main README sections 4-11.
-
-## The loss family (losses/core.py `_reduce`, ONE mode ladder tree-wide)
-
-- Modes (`_LOSS_MODES`): sqrt (default), chi2, sqrt_dchi2, berhu,
-  berhu_capped. The transform is TRAINING-only; eval/metrics/selection/
-  EMA always run on the raw per-sample chi2.
-- berhu (knot k, default 0.2): L = sqrt(c) for c <= k;
-  L = (c + k)/(2 sqrt k) above. berhu_capped adds a third regime above
-  cap K (default 10): L = (2 sqrt(K c) + k - K)/(2 sqrt k). C1 at both
-  knots by construction. Vote profile (dL/dc * sqrt c): 1/2 in the
-  bulk, rising ~x7 across the (knot, cap) window, plateau
-  sqrt(K/k)/2 ~ 3.54 above the cap — bounded monster votes.
-- Naming caveats (recorded twice): the knot is in delta-chi2 units
-  (literature BerHu delta = sqrt(knot)); the shape applies to the
-  per-SAMPLE total misfit, not elementwise — matching the frac>0.2
-  sample-counting goal metric.
-- Config schema (the CURRENT one): `train_args.loss` block, whitelist
-  {mode, berhu, roughness}; absent = {mode: sqrt}. `berhu` sub-block
-  {knot, cap, anneal}, valid only beside a berhu mode; `cap` is
-  accepted-but-unused under plain berhu (one shared block survives a
-  mode sweep). D-L1v3 ruling: the knot block is also accepted under
-  the EXACT ACTIVE mode string (`berhu_capped:` beside mode
-  berhu_capped canonicalizes to `berhu` on a copy); mismatches error
-  naming both fixes. `roughness` {lam, period_cut} is CMB-only
-  (families-scalar-cmb.md); non-CMB configs reject it loudly.
-- berhu anneal: L_s = (1-s) sqrt + s L_mode; s(e) ramps 0->1 after
-  hold. Advice (recorded, unenforced): hold_epochs >= trim's hold.
-
-## The shared anneal-schedule family
-
-One validator (`_validate_anneal_block`) + one evaluator
-(`anneal_value`, shapes {const, linear, cosine, step}) serve every
-0->1 schedule: trim, focus, loss.berhu.anneal (the blend s), and
-ema.anneal (the horizon: h(e) = horizon_epochs * s(e)). Shared keys
-{hold_epochs >=0 int, anneal_epochs >=1 int, shape}, all required,
-bools rejected. Universal rules: activation by block PRESENCE (never
-a bool key); per-phase schedules restart at that pass's epoch 1;
-schedules never rewind (functions of the epoch counter); error texts
-name their own path.
-
-## Phase blocks and single-phase demotion
-
-- Phase blocks `trunk:` / `head:` mirror the top level; final
-  whitelist `_PHASE_BLOCK_KEYS` = {lr, scheduler, loss, trim, focus,
-  clip, rewind, ema} (ONE tuple in training.py; experiment imports
-  it, never duplicates it).
-- Semantics: `lr` = OVERLAY (bs_base inside a phase lr is rejected —
-  the sqrt-batch anchor is run-global); everything else = FULL
-  REPLACEMENT (a phase scheduler replaces kwargs, keeps the class —
-  `cls` rejected; `ema: null` = key-present-None disables an
-  inherited ema, key-absent inherits).
-- Capability probe everywhere: `hasattr(model_cls, "set_train_phase")`
-  on the CLASS, never the model name. Two-phase = EVERY design with a
-  correction head: plain rescnn/restrf on every family they ride
-  (the 2026-07-12 user ruling — "any trunk-head design could benefit
-  from the two-phase training"; the plain heads mirror the template
-  contract exactly: joint/trunk/head requires_grad groups, the trunk
-  phase bypasses the zero-init head at pure-ResMLP cost, the head
-  phase runs the frozen trunk under no_grad) and the factored-IA
-  templates. Single-phase = resmlp, incl. its ia variants.
-- NPCE family-wide (the 2026-07-12 ruling): the top-level pce: block
-  fits the closed-form base on EVERY family (residual-only off
-  cosmolike; on cmb only with amplitude_law none); the refiner is
-  whatever model: names — heads, two-phase, and the whole loss
-  surface included. Design facts: models-and-designs.md (the NPCE
-  section's FAMILY-WIDE bullet).
-- Single-phase demotion (`resolve_phase_args`, pure, the single choke
-  point at the top of experiment.train()): drops head/trunk_epochs/
-  freeze_trunk, merges trunk.X to the top by pure prefix-strip, on a
-  COPY (sweep drivers reuse train_args), with a notice naming only
-  what happened. The head: block is validated BEFORE being dropped.
-- `validate_sweep_paths(paths, two_phase)`: on single-phase, sweeping
-  head.*/trunk_epochs/freeze_trunk raises ("every sweep point would be
-  identical"); trunk.X names the concrete top-level key to sweep
-  instead. Both sweep and tune drivers call it before spawning.
-- `freeze_trunk: true|false` (default true): false = phase 2 trains
-  trunk AND head jointly (the pass ROLE stays "head"; only the
-  set_train_phase string becomes "joint"). Joint epochs cost more —
-  the sanity signal. License rule: a per-head activation pin requires
-  trunk_epochs > 0 AND freeze_trunk true.
-
-## The consumed-view principle (banner contract, five rules)
-
-1. Every printed configuration surface shows the RESOLVED view — what
-   the run executes, never the raw YAML. 2. Displays reuse the SAME
-resolution functions the execution path uses (drift structurally
-impossible). 3. Tolerant consumption, truthful display (irrelevant
-blocks ignored; displaying only-what-is-consumed IS the notice).
-4. Every new config feature's spec must state its banner rendering.
-5. Every audit checks display surfaces beside execution wiring (the
-D-P2 lesson: a banner printed `2000 trunk + -1000 head` from raw keys
-on a single-phase run). Idiom: the class prints itself —
-`head_block` class attribute + `describe_spec`; a new architecture
-missing head_block fails at import.
-
-## EMA (weight averaging) and its coupling invariant
-
-- `train_args.ema` {horizon_epochs, anneal}: horizon in EPOCHS, beta
-  derived per step (1 - 1/(h*steps_per_epoch)) — batch-size-invariant
-  by construction. Absent block = the loop is BYTE-IDENTICAL.
-- THE invariant: anything the rewind un-lives must disappear from the
-  average — the best snapshot is one unit {theta, optimizer state,
-  theta_bar}, saved and restored together.
-- Eval by in-place weight swap (foreach copy_), no second compiled
-  twin: raw eval drives the plateau scheduler; the EMA eval drives
-  selection + printed metrics; shipped model = best EMA weights.
-  CRITICAL: in-place copy_ only — compiled/CUDA-graph closures hold
-  parameter STORAGE pointers; rebinding .data breaks replay silently.
-- ema.anneal schedules the HORIZON (not a blend); beta = 0 while
-  h(e)*steps < 1 gives exact tracking early, continuity for free.
-- Open science margin (bs+EMA thread): at smoke scale the averaged
-  model's best val lands EARLY (epoch 7/20) with val rising after —
-  EMA-selection superiority is unproven.
-
-## Compiled-scalar discipline (one deliberate exception)
-
-Every scalar feeding compiled loss code is a 0-dim device tensor
-built per pass or filled in place per epoch (kappa_t, knot_t, cap_t,
-trim_t, focus_t, s_t) — closure Python floats silently kill CUDA-graph
-replay. The exception: EMA beta(e) is an eager per-epoch float because
-the lerp lives outside every graph; a comment forbids both "fixing" it
-and copying the float pattern into compiled-side schedules.
-
-## Sizing: absolute counts, derived eval batch, weight decay
-
-- `data.n_train` / `data.n_val`: REQUIRED absolute row counts enforced
-  AFTER param_cuts (the old divisors used the PRE-cut dump size — the
-  silent-shrink leak). Under one split_seed the n=50 selection is a
-  prefix of the n=100 selection (the learning-curve promise; SET
-  inclusion on the sorted in-RAM path). n_keep >= 1 guarded (D-1: a
-  negative n_keep silently staged phys[:-5]).
-- The eval batch is DERIVED, deliberately NO YAML knob (a pure-perf
-  parameter with a computable optimum is not user-selectable):
-  k = ceil(n_val/1024), bs = ceil(n_val/k), clamped to the memmap
-  chunk; `_EVAL_BS_TARGET = 1024` module constant. eval_val pads the
-  final batch so the compiled twin keeps ONE static shape — do not
-  touch the padding. Metrics are per-row = partition-invariant.
-- Weight decay: module-aware ALLOWLIST — decay exactly the `.weight`
-  of nn.Linear / nn.Conv1d / BinLinear; everything else (all biases,
-  Affine gains, every activation parameter of any shape) undecayed.
-  Never a shape heuristic: ndim>=2 misclassified (K,dim) activation
-  params and (G,out) BinLinear biases — the superseded bug. Allowlists
-  fail SAFE (unlisted future module = undecayed). Default decay 0.0.
-- Shared-budget rule: sequential allocators against one budget must
-  each see budget minus what earlier calls made resident (the
-  build_loaders train-then-val VRAM fix). Finish resource accounting
-  in BOTH directions — "it's conservative" must not close an analysis.
-
-### Red-team resource and process gaps (verified 2026-07-12, open)
-
-- The loader planner still calls `build_loaders` without the live
-  output width, leaving `dv_len=3000`. The same number estimates a
-  dense float64 Cinv and per-batch chi2 scratch even for diagonal
-  families that own no dense Cinv. This is neither a safe upper bound
-  nor the right family model: a legal grid2d run can be 122 x 2,000
-  outputs before thinning. Resource accounting must use the actual
-  geometry/loss buffers, output width, target width (including PCE /
-  transfer packed targets), and dtypes. Gates cover one cosmolike
-  dense-Cinv loss and one wide diagonal grid2d loss and require the
-  estimate not to understate measured peak allocation beyond a stated
-  tolerance.
-- Parallel Optuna joins workers but never reads `Process.exitcode`.
-  After reloading a persistent journal it asks only whether any trial
-  in the entire study is COMPLETE. Therefore a journal with one old
-  success can report "search complete" and the old best when every
-  worker in the current invocation crashes; partial worker loss also
-  silently reduces the requested budget. Record the before/after trial
-  set, inspect every worker exit, and distinguish a deliberately
-  timeout-limited run from a failed current budget. The red gate seeds
-  one old COMPLETE trial, crashes every current worker, and requires a
-  nonzero parent exit.
-- `run_gpu_pool` has no enclosing cleanup on its early error paths. A
-  setup-failure marker can make the parent raise while other spawned
-  GPU processes keep running. Token counts, lane counts, and required
-  callbacks are not validated before spawning; a token count above
-  `GPU_TOKENS` can leave a live worker blocked forever, defeating the
-  liveness check. Validate the complete plan first; terminate/join all
-  children and close queues in `finally`; inspect exit codes after the
-  drain; and add an overall progress watchdog rather than treating
-  "one process is alive" as proof of progress.
-- The activation bake-off has a separate, older multiprocessing loop and
-  does not use `run_gpu_pool`. Its worker catches only failures inside the
-  individual `exp.train` call. A failure during device selection,
-  `EmulatorExperiment.from_config`, validation/train staging, or geometry
-  construction exits the worker without putting the fixed number of result
-  tuples the parent expects. The parent performs blocking `result_q.get()`
-  calls with no timeout or liveness check before it joins or inspects a
-  child, so one setup failure hangs the command permanently. Give every
-  worker a top-level failure envelope, drain with bounded waits plus child
-  liveness/exit-code checks, and terminate/join siblings in `finally`. The
-  red gate raises in `stage_val` in one worker and requires a prompt nonzero
-  parent exit with every child reaped and no result file published.
-
-The table writers have a smaller truth leak: `save_sweep_table` uses
-`zip(values, fracs)`, so unequal inputs silently truncate; the
-categorical branch can also emit more fraction rows than labels.
-`save_learning_curves` fails incidentally by indexing only when a curve
-is short. Both public writers should validate all column lengths before
-opening the destination, so an existing result file is not replaced by
-a partial/mislabeled table.
-
-### The validation loader computes a safe chunk and then ignores it
-
-`build_loaders` independently sizes train and validation and stores
-`data["val"]["load"]`, correctly using the reduced budget after resident
-training tensors. `training_loop_batched` reads only
-`data["train"]["load"]` and passes that number to every `eval_val` call,
-including the epoch-0 baseline; the validation chunk is otherwise dead.
-When train fits resident but validation falls to RAM/disk streaming, eval
-can therefore request more rows than the validation sizing proved safe
-and OOM despite the memory ladder. `derive_eval_bs` is also capped against
-the wrong chunk. The gate must force different train/val regimes and safe
-chunk sizes, record loader request sizes, and prove validation never
-exceeds its own `load` while all rows are still scored.
-
-The same boundary needs basic totality guards. A configured batch size
-larger than the staged training set makes every ragged chunk drop all its
-rows, leaves `run_n == 0`, and divides by zero after doing no optimizer
-step. Reject `bs > n_train` (and non-positive `bs`/`nepochs`) before model
-or loader setup, with a sweep leg at the smallest N.
-
-### The generic diagnostics are not wide-output safe
-
-The optional diagnostic runs the local-linear floor before the grid2d
-family pages whenever the loss is not parameter-aware. That calculation
-materializes all train/val targets on the accelerator and then constructs
-`Yn = Ttr[nbr]`, shape approximately
-`N_val x k_nn x output_width`. At the production thinned MPS width
-(122 x 201 = 24,522) and the default 40 neighbours, this is tens of
-gigabytes even before the batched least-squares solution. A normal
-Syren-law MPS loss is not parameter-aware, so `mps_train_emulator.py
---diagnostic ...` takes this path and cannot deliver the promised PDF at
-production scale.
-
-`eval_source_chi2` likewise moves the complete validation target to the
-accelerator, and `grid2d_residual_diagnostic` retains full float64 truth,
-prediction, and residual matrices on the host. These are cold paths but
-still part of the public production command. Make the chi2 scoring
-streaming; define a bounded wide-output floor (coordinate chunks, a fixed
-validation subsample, or an explicit family-specific skip with truthful
-PDF text); and compute grid2d bands without three simultaneous full-width
-float64 copies. Acceptance sets a deliberately small memory ceiling on a
-wide synthetic shape and requires the diagnostic artifact to finish.
-
-The same diagnostic pair is not total on small datasets. `coverage_diagnostic`
-accepts any `k_nn` even when it exceeds the number of distinct training rows
-(the tree returns infinite sentinel neighbours), while `local_linear_floor`
-uses those sentinel indices to index a tensor and fails. Validate positive
-row counts and require enough distinct anchors for the requested fit
-(`k_nn > n_param + 1` and `k_nn <= n_train`), naming the effective counts;
-the small-data gate covers one row below each boundary.
-
-#### Thirteenth-wave extension (Architect-VERIFIED, folded into this unit): finite inputs publish undefined diagnostic statistics
-
-Red-team finding, every claim re-derived. The diagnostics CREATE
-non-finite values from entirely finite, valid inputs and publish them
-as computed results — which is why this lives here and NOT in the
-finite-training unit: finite model outputs are the control condition.
-
-- `coverage_diagnostic` (diagnostics.py:123-126): `bad = dchi2 > 0.2`,
-  then unconditional medians of both classes — an all-good run makes
-  `knn_dist[bad]` empty and `median_bad` NaN; an all-bad run makes
-  `median_good` NaN. Line 129's verdict
-  `cov = (median_bad > median_good) and (rho > 0.1)` evaluates a NaN
-  comparison as False, and the driver
-  (cosmic_shear_train_emulator.py:483, :487-488) then formats the NaN
-  medians into the log and prints "not clearly coverage: failures not
-  sparser" — conflating "comparison impossible" with a negative
-  scientific finding. A PERFECT run is reported as ambiguous-coverage.
-- `hard_direction_regression`: line 293 floors every dchi2 <= 1e-4, so
-  a sufficiently accurate emulator makes y constant and line 315's
-  `r2 = 1 - var(y - Z@coef)/var(y)` is 0/0 = NaN; line 310's
-  `np.corrcoef` NaNs on a constant feature or constant y; line 302
-  guards the feature std (`+ 1e-30`) but line 326's omega-baryon
-  direction divides by `g.std()` UNGUARDED — the asymmetry is the
-  tell. Lines 320-331 already use numeric NaN as a deliberate
-  documented sentinel for r2_omega — the exact pattern this contract
-  removes from published surfaces.
-- `cmb_residual_diagnostic`: line 420 `frac = (pred - truth) / truth`
-  with no validity mask; a legal zero-crossing spectrum (TE) yields
-  NaN/Inf in that column and line 424's percentiles make ALL FIVE
-  fractional bands NaN at that multipole. The docstring (:354-355)
-  acknowledges "spiky where te crosses zero" and points at the
-  error-bar panel, but ships no mask and no definedness record.
-- No gate executes the real functions on adversarial outcomes: grep
-  for coverage_diagnostic / hard_direction over ai/gates/ is empty, and
-  all four family smokes hand-build finite coverage dicts
-  (bsn_smoke.py:341, cmb_smoke.py:484, scalar_smoke.py:203,
-  mps_smoke.py:265) for the plotting layer only.
-- The artifact pair is saved before diagnostics run — deliberate
-  (driver :358 "Persist the trained emulator first, before any
-  diagnostics can fail"), and it STAYS: losing a trained model to a
-  plotting crash is worse. The consequence is the contract below —
-  the published diagnostic products must be truthful about
-  unavailability, because they accompany an already-published
-  artifact.
-
-Adopted contract (theirs, whole): undefined statistics are represented
-explicitly with a status/reason and counts — never numeric NaN
-sentinels. Coverage records n_good and n_bad; all-good reports "no
-failures", all-bad reports "comparison unavailable"; neither may
-masquerade as "not coverage-limited". Hard-direction analysis detects
-zero response variance, zero feature variance, invalid log domains,
-and insufficient rows BEFORE regressing; unavailable coefficients/R^2
-are omitted with a reason. Fractional residuals get a spectrum-aware
-validity mask — for TE either omit the fractional panel or mask
-denominators by a documented physical threshold and carry
-per-multipole valid counts; the error-bar panel remains authoritative.
-Logs and PDFs label unavailable analyses plainly: no formatted nan
-statistics, no unexplained blank panels.
-
-Red legs (adopted): all-good, all-bad, all-hardness-floored, constant
-feature, constant omega-baryon direction, and an exact/near-zero TE
-crossing — each executing the REAL diagnostic functions and verifying
-the resulting PDF and log semantics. These join this unit's existing
-small-data and memory legs; one unit, one audit cycle.
-
-## The loud no-alias migration pattern
-
-Every schema break raises a ValueError whose body IS a paste-ready
-YAML block carrying the offending values (divisors -> n_train/n_val
-with an explicit semantics-changed warning; flat lr_base -> nested
-lr:; flat loss_mode/berhu -> the loss: block; flat cut keys -> the
-param_cuts block), identical on every reach path, checked BEFORE
-generic whitelists. ValueError, never KeyError (KeyError reprs the
-message and escapes the newlines). Companions: a block no pass can
-consume is a loud config error; when a "natural mistake" is
-self-consistent, accept it by canonicalization (D-L1v3) — a trap with
-a good apology is still a trap.
-
-## The driver surface (family-first names, thin wrappers, one code path)
-
-Every driver is `<family>_<verb>_emulator.py` (user ruling: "what you
-are emulating comes first always"). The cosmic-shear drivers are the
-ENGINES — their mains take (prog, family[, out_default]) — and every
-per-family driver (train / tune / sweep_ntrain / sweep_hyperparam,
-for scalar / cmb / baosn / mps) is a thin wrapper that pins the
-family: a wrong-family YAML fails at startup NAMING the right driver
-(require_family_block), the Optuna study name becomes the wrapper's
-prog (per-family studies never mix in a shared journal), and EVERY
-capability rides through — the multi-GPU pool, --gpu-pack (with the
-scalar dv-less VRAM fallback), LPT balancing, the journal study. The
-sweep-block helpers (read_sweep_block, set_by_path,
-SWEEPABLE_TOP_KEYS, ACTIVATION_PATHS) live ONCE in
-emulator/family_drivers.py; the earlier serial per-family loops were
-deleted when parity landed (2026-07-11, commit 2fcd367). Each wrapper
-carries provenance comments naming where its main lives and what the
-wrapper pins.
-
-## NaN scores as a perfect emulator (red-team 2026-07-12 fourth wave, Architect-VERIFIED; the queue-jumping unit)
-
-The board's primary selection metric silently rewards numerical
-failure. Verified against the code:
-
-- eval_val (training.py ~1427-1433): `median = c.median()` propagates
-  NaN; `frac = (c > thresholds).float().mean(0)` — a NaN chi2 compares
-  False to every threshold, so NaN rows count as BELOW threshold. A
-  [NaN, 0, NaN, 0] validation set returns frac 0.0: "perfect".
-- The best-epoch rule (~2047): `f0 < best_frac` — a NaN-poisoned
-  f0 = 0.0 beats every honest epoch and SNAPSHOTS the corrupted
-  weights as best (the median tiebreak is NaN-safe by accident; the
-  primary comparison is the hole). The driver then saves and reports
-  that model.
-- The train step (~1971-1980): loss.backward() with no finite check;
-  clip_grad_norm_ (default error_if_nonfinite=False) scales NaN grads
-  by NaN; optimizer.step() unconditional.
-- eval_source_chi2 / diagnostic scoring: same pattern — zero
-  isfinite/isnan calls exist in training.py.
-- SEVERITY SHARPENING (Architect): this defeats the dead-network gate
-  discipline itself — every smoke gate's collapse bar asserts
-  best < bar, and a NaN run reports best frac 0.0, so the gates built
-  to fail a dead network PASS a NaN one.
-
-**Contract (Implementer unit; the red-team block of record adopted
-whole):** (1) eval_val requires every per-sample chi2 finite before
-mean/median/fractions — raise with the nonfinite count and the first
-few validation row positions; (2) the scalar training loss must be
-finite before backward; (3) gradients (or the computed norm) must be
-finite before optimizer.step — clipping disabled does not mean
-unchecked; (4) mean/median/fractions must be finite before the
-best-epoch comparison/snapshot; (5) the same finite-output rule on
-eval_source_chi2 / diagnostic scoring so no saved diagnostic carries a
-silent NaN metric; (6) never replace NaN/Inf with a sentinel, never
-count it below threshold — abort loudly, the error naming train vs
-validation and the affected batch/row positions.
-Gate legs (self-diagnosing): all-finite control byte-identical; one
-NaN among good rows raises; +/-Inf raises; a finite forward loss with
-a nonfinite gradient raises BEFORE the optimizer mutates weights; a
-NaN scalar loss raises before backward; the error text names the side
-and positions. Independent of the bs > n_train / run_n == 0 unit.
-
-**Pre-training parity clause (eighth wave, Architect-VERIFIED, folded
-in per the red team's sequencing):** build_warm_start's parity verdict
-has the same NaN hole — warmstart.py ~863 computes
-`max_dv = (out_new - out_src).abs().max().item()` and raises only on
-`max_dv > _PARITY_TOL`; NaN compares False, so NaN outputs print
-"[ok] finetune parity: max|dv| = nan". The extras torch.equal leg
-(~867) happens to catch NaN incidentally but is SKIPPED when
-n_extra == 0, so the verdict depends on the parameter-extension
-shape. Addition to the contract: the finite guard covers pre-training
-parity — finite encoded inputs, BOTH model outputs, their difference,
-and the scalar max before any tolerance comparison; the [ok] verdict
-must be impossible unless the compared tensors are finite; transfer
-parity gets the same explicit guard (never rely on torch.equal's
-incidental NaN behavior). Red legs: no-extra both-arms NaN, one-arm
-NaN, Inf, extras-present NaN, transfer NaN — all fail with the
-finite-contract message; valid exact/tolerance fixtures keep their
-verdicts.
-
-#### Finite-contract resume (2026-07-12, Opus) — CHECKPOINT, training.py core landed; gate + two scope calls open
-
-training.py guards in place and Mac-verified (guard logic + message via
-exec-extraction; the torch wiring rides the workstation gate):
-
-- Two module-level helpers before eval_val: `_report_nonfinite(side,
-  quantity, n_bad, n_total, positions)` — the one uniform ValueError
-  ("finite contract [side]: N of M ... non-finite ... First offending
-  positions: [...] ... no sentinel, never counted below threshold"); and
-  `_global_grad_norm(params)` — a read-only global grad L2 norm for the
-  clipping-off finite check (byte-identical to the old no-clip path).
-- eval_val (clause 1 + 4): after `c = torch.cat(chi2s).cpu()`, before
-  mean/median/frac, `torch.isfinite(c).all()` or abort naming the
-  validation rows (an `order_rows` list now tracks the global val row per
-  c position). It is the SINGLE validation chokepoint — baseline, raw,
-  and ema evals all pass through it, so the best-epoch compare only ever
-  sees finite scores (clause 4 needs no separate guard; documented).
-- The train step (clauses 2 + 3): `torch.isfinite(loss)` before
-  backward; `grad_norm` from clip_grad_norm_ (clip>0) or
-  `_global_grad_norm` (clip==0) checked finite before optimizer.step,
-  naming the diverged batch (epoch / chunk / batch). One host sync per
-  step — the deliberate price of catching divergence at its source.
-- eval_source_chi2 (clause 5): dchi2 finite before return, naming the
-  source rows; side "diagnostic".
-
-Two scope calls flagged for the Architect (not guessed):
-1. GATE HOME. The self-diagnosing legs need torch. The natural existing
-   training gate is GE-C (eval-batch-invariance, home=training-stack) —
-   but it is `needs=("torch","gpu")` and thematically "eval-batch
-   invariance". The finite legs are CPU-runnable and CRITICAL (deserve
-   broad coverage). My default: extend GE-C; alternative: a dedicated
-   CPU-only `finite-contract` gate (`needs=("torch",)`). Confirm which.
-2. PARITY CLAUSE. The pre-training parity clause is warmstart.py's
-   build_warm_start, not training.py; the handoff scoped this unit to
-   "training.py's own finite contract". I did NOT touch warmstart.py.
-   Confirm whether the parity guard rides this unit or a separate rider.
-
-Hot-path note: clauses 2/3 add one host sync per training step (the
-contract's "before backward / before optimizer.step" is per-step).
-eval_val (clause 1) is the per-epoch backstop; clip==0 stays byte-
-identical. Flagged against the "hot paths never slowed" rule — the
-CRITICAL correctness contract wins, but the Architect may prefer a knob.
-
-Mac gate: `probe_finite_contract.py` 5/5 (all-finite control no-raise;
-NaN/Inf raise naming side + count + rows; diagnostic side; training-batch
-message). `py_compile emulator/training.py` clean. Held.
-
-#### Architect rulings on the two scope calls (2026-07-12, Fable)
-
-1. GATE HOME: a DEDICATED CPU-only `finite-contract` gate
-   (`needs=("torch",)`, home=training-stack) — not an extension of the
-   eval-batch gate. Three reasons: the legs are CRITICAL and
-   CPU-runnable, so they must not hide behind a "gpu" need; the
-   eval-batch check is thematically partition invariance, not finite
-   totality; and ai/gates/checks/ge_c_eval_bs.py is itself queued for
-   restructuring (queue 32, red-team 45M-04 main-ification) — extending
-   it now would couple two in-flight units on one file.
-2. PARITY CLAUSE: the pre-training parity guard (warmstart.py ~863
-   max_dv NaN hole + transfer parity + its five red legs) STAYS part of
-   unit 14 — it was folded in by the red team's sequencing and may not
-   silently drop — but it lands as the unit's SECOND increment in the
-   next handoff (the training.py increment is a coherent gated
-   sub-increment per the propose-and-partial precedent). The unit
-   closes only when both increments and the gate are in.
-3. HOT-PATH FLAG (unprompted third ruling): the one host sync per
-   training step is ACCEPTED as the unconditional default — no off-knob
-   in V1 (an off-knob would create an unchecked training mode, exactly
-   the silent-hole class this unit kills). Record the measured epoch
-   cost in the workstation resume; only if it exceeds ~1-2 percent do we
-   revisit, and the revisit direction is a device-side deferred abort,
-   never an off-knob.
-
-#### Finite-contract resume (2026-07-12, Opus) — increment 2 + gate in; unit REQUESTING REVIEW
-
-Second increment (warmstart.py parity) and the dedicated gate landed, so
-both increments plus the gate are now in and unit 14 is up for audit.
-
-- Increment 2, the pre-train parity finite guard (warmstart.py). One
-  shared helper `_require_parity_finite(side, quantity, values, rows)`
-  imports the SINGLE-SOURCE `_report_nonfinite` from training.py (so the
-  message is identical tree-wide) and checks an (R, ...) surface per row,
-  naming the offending staged rows. build_warm_start: the encodes are
-  hoisted to enc_new / enc_src, and the guard fires on the encoded inputs
-  and BOTH outputs BEFORE the extras-independence torch.equal and the
-  tolerance compare — so a diverged epoch 0 can never print
-  "[ok] ... max|dv| = nan" or the misleading "extras leaked". Their
-  difference and the scalar max are then finite by construction (stated in
-  a comment; no unreachable scalar guard). build_transfer_start: the same
-  guard on enc / composed / base before the bitwise torch.equal (never the
-  misleading "not the frozen base bitwise"). Both `Raises:` docstrings
-  updated.
-- The gate, ai/gates/checks/finite_contract.py, CPU torch-only (it forces
-  CPU; needs=("torch",)), five parts on the REAL functions: (A) eval_val —
-  a finite control reproduces the reference median/mean/fractions, one NaN
-  and +/-Inf raise naming the validation row; (B) training_loop_batched —
-  a NaN loss raises before backward, a non-finite gradient (an
-  autograd.Function with a NaN backward) before optimizer.step, the
-  weights bitwise unchanged in both, a finite control completes, and
-  _global_grad_norm is read-only; (C) eval_source_chi2 — a diverged model
-  raises side "diagnostic" naming the source row; (D) build_warm_start —
-  no-extra both-arms NaN (poisoned weight), one-arm NaN + Inf (a source
-  forward shadow), extras-present NaN (the guard beats the extras
-  torch.equal), and a clean [ok] control; (E) build_transfer_start — a
-  non-finite epoch-0 surface raises (not "frozen base"), a clean [ok]
-  control. Reuses the finetune-identity / transfer-identity synthetic
-  source + TransferChi2 harness patterns (self-contained, house
-  convention).
-- board.py: registered the finite-contract Gate (spec_code FIN-A proposed;
-  Architect to canonicalize — tier BACKLOG, home training-stack,
-  needs=("torch",)), taking the board 32 -> 33. The lifecycle rider is in
-  too: the staging-lifecycle leg is added to the mps-identity maps string
-  (board.py, the a6a99a8 close asked for it in the next ai/gates/ commit).
-- Mac gate (raw):
-  - py_compile OK (training.py, warmstart.py, board.py, finite_contract.py)
-  - board AST: 33 gates, finite-contract unique, run -> gate_finite_contract
-  - probe_warmstart_finite.py 6/6 (exec-extracted _require_parity_finite +
-    _report_nonfinite under a numpy tensor fake: finite no-raise; NaN/Inf
-    rows raise naming the MAPPED staged row; a factored (R,T,W) surface;
-    the "2 of 5" bad-row count)
-  - probe_finite_contract.py 5/5 (increment 1 core, unchanged)
-  - The torch wiring (real models, training_loop_batched, TransferChi2)
-    rides the workstation gate: run_board.py --gate finite-contract.
-- Per-step host-sync epoch cost (Architect ruling 3): to be measured on
-  the workstation and recorded here.
-- Commit HELD for the Architect audit + commit. Files this unit:
-  emulator/training.py (incr 1), emulator/warmstart.py (incr 2),
-  ai/gates/checks/finite_contract.py, ai/gates/board.py, ai/notes/training-stack.md.
-  (Superseded by the increment (c) resume below: the batched work order's
-  branch-commit grant means unit 14 is now self-committed, not held.)
-
-#### Finite-contract resume (2026-07-12, Opus) — increment (c) 45M-24 in; unit 14 COMPLETE (self-committed, batch grant)
-
-All three increments and the gate are in. Under the batched work order's
-branch-commit grant ("you can commit on your branch them all, I do the
-merge"), unit 14 is self-committed on the branch, committed pending batch
-Architect audit.
-
-Increment (c) — the 45M-24 safe-sqrt producer (losses/core.py `_reduce`):
-
-- `_safe_sqrt(c)` (module-level): forward bit-identical to torch.sqrt for
-  every c (including sqrt(0) = 0, so the loss VALUE and the berhu C1 knot
-  matching are unchanged — sqrt(c + eps) would shift them and is not
-  contract-equivalent); the GRADIENT is 0 (not the 0/0 = NaN) at c == 0.
-  The double-where keeps 0 out of sqrt's own backward; the c <= 0 branch
-  differentiates c - c to 0. Elementwise, no host sync, so the compiled
-  loss and its CUDA-graph replay are undisturbed.
-- `_validate_chi2(c)` at the TOP of `_reduce` (before the transform,
-  mode-independent so chi2 / sqrt_dchi2 reject too): folds a materially
-  negative (< -`_CHI2_NEG_TOL`) or non-finite chi2 to NaN — the per-step
-  finite guard then refuses the run, never a silent perfect 0 — and clamps
-  a within-band roundoff negative to an exact-fit 0. A valid c >= 0 is
-  returned bit-identical, so a normal all-positive run is byte-identical in
-  forward AND gradient (the golden identity gates stay green).
-- Swapped at all sqrt-of-vanishing sites: sqrt mode, both berhu lower
-  branches, both anneal arms, AND the berhu_capped region-3 sqrt(t2*c)
-  (FLAG 1). The knot sqrts (sqrt(t1), sqrt(t2)) stay torch.sqrt (positive
-  constants); sqrt_dchi2 stays torch.sqrt (argument 1 + 2c >= 1, gradient
-  finite).
-- Gate Part F (finite_contract.py): exact-fit row finite-and-zero gradient
-  per mode (including berhu_capped, which exercises the branch-C leak); a
-  mixed batch; analytic agreement on positives (mean of sqrt = 2.0);
-  negative / NaN / Inf chi2 refusal; eager and torch.compile agree. Board
-  maps + the gate docstring name the 45M-24 clause.
-
-FLAG 1 (spec-completeness, Architect confirm): the spec named "four sqrt
-sites"; there is a FIFTH. In berhu_capped the region-3 term 2*sqrt(t2*c) is
-evaluated by where() for EVERY row; at an exact fit c == 0 its plain-sqrt
-infinite gradient times the branch's masked-off 0 upstream gradient is
-0 * inf = NaN, poisoning the exact-fit row even though it selects the lower
-branch. So sqrt(t2*c) is ALSO `_safe_sqrt` — necessary for the
-berhu_capped exact-fit gradient leg to pass. Implemented and flagged, not
-silently deviated.
-
-FLAG 2 (tolerance, Architect confirm): the spec asked for a "scale-aware
-roundoff tolerance." A plain sum-of-squares chi2 is >= 0 in IEEE (no
-cancellation); a negative arises only from a non-PSD-adjacent contraction
-(the rescaled / transfer forms). I chose a STATED ABSOLUTE band,
-`_CHI2_NEG_TOL = 1e-6` (whitened chi2 units): tolerated (clamped to 0)
-within it, rejected beyond. Rationale: a batch-derived relative scale can
-be poisoned by the very NaN it must catch (max over a NaN row is NaN),
-whereas an absolute floor is corruption-proof. A relative band is a
-one-line change if preferred; flagged.
-
-Mac gate (raw):
-- py_compile OK (losses/core.py, ai/gates/checks/finite_contract.py, board.py)
-- probe_safe_sqrt.py 8/8 (exec-extracted `_validate_chi2` + `_safe_sqrt`
-  under a numpy tensor fake: sqrt-equivalence on positives, sqrt(0) = 0,
-  NaN propagation; validate leaves a good c, clamps roundoff, folds
-  materially-negative / non-finite to NaN; the validate -> safe_sqrt chain)
-- board AST: 33 gates, finite-contract intact
-- The autograd contract (gradient 0 at c == 0, the branch-C leak fixed,
-  eager + compiled) rides the workstation: run_board.py --gate
-  finite-contract.
-
-Unit 14 files (self-committed this batch): emulator/training.py (a),
-emulator/warmstart.py (b), emulator/losses/core.py (c),
-ai/gates/checks/finite_contract.py, ai/gates/board.py, ai/notes/training-stack.md.
-Per-step host-sync epoch cost still to be measured on the workstation.
-
-#### Finite-contract resume (2026-07-12, Opus) — increment (d) 45M-47 in; unit 14 NOW closes on a+b+c+d+gate
-
-45M-47 landed as a concurrent notes commit while I was committing (c); its
-increment (d) was not in the original work order's "three increments", so I
-folded it in right after (c) to genuinely close unit 14. Self-committed on
-the branch (batch grant, pending Architect audit).
-
-Increment (d) — the epoch reduction cannot publish an Inf from finite
-per-batch losses (training.py `training_loop_batched`):
-- The epoch loss now accumulates on the HOST as a python float:
-  `run_sum = 0.0`, then `run_sum += float(loss.detach()) * bs`. The finite
-  contract already syncs every step at the isfinite(loss) check, so the
-  host read adds no new stall; the accumulator is diagnostic-only, so the
-  training path is untouched. This removes the device float32 product
-  (a finite loss near float32 max times bs -> Inf before the sum) AND the
-  MPS float32 accumulator (the `acc_dtype` block is deleted).
-- The completed `train_loss = run_sum / run_n` is REQUIRED finite before it
-  is appended / printed / persisted: `if not np.isfinite(train_loss):
-  _report_nonfinite(side="training", quantity="epoch mean loss", ...
-  positions=["epoch " + str(epoch)])` (the shared message, naming the
-  epoch) -- the recorded general rule that a reduction's result must be
-  checked, finite operands do not prove a finite reduction.
-- Gate Part G (finite_contract.py, EXTENDS the finite-contract check, not a
-  new gate): drives the REAL training_loop_batched with two full batches and
-  a finite 1e38 per-batch loss -> a finite epoch mean near 1e38; the
-  mutation arm shows the old float32 loss*bs product overflows to Inf. Board
-  maps + gate docstring name the 45M-47 clause.
-
-Mac gate (raw): py_compile OK (training.py, board.py, finite_contract.py);
-probe_finite_contract.py 5/5 (increment a core intact); board AST 33 gates.
-The real epoch-mean loop leg rides the workstation finite-contract gate.
-
-Unit 14 (queue) closes on a + b (a0d03f5) + c (97963b8, 45M-24) + d (this,
-45M-47) + the extended finite-contract gate. Files for (d): training.py,
-ai/gates/checks/finite_contract.py, ai/gates/board.py, ai/notes/training-stack.md.
-
-## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
-
-trim/focus schedules reach anneal_value with NO validator (the
-berhu/ema anneal sub-blocks DO pass _validate_anneal_block, but its
-key set is {hold_epochs, anneal_epochs, shape} only, and trim/focus
-bypass it entirely). Verified in losses/core.py anneal_value (~30-81):
-an unknown shape falls through to LINEAR (no else-raise; "cosin" runs
-linear silently); `span = max(1, anneal_epochs)` silently rewrites 0;
-and the step arm `val = max(end, floor(val*100)/100)` is
-DECREASING-ONLY — an increasing ramp (start 0, end 1: the berhu/EMA
-step shape) returns end at the FIRST ramp epoch (max picks end), so
-the documented gradual step never happens. trim=-0.5 acts as
-no-trimming, trim=2.0 keeps one row (a zero-residual run then scores
-0.0), focus.kappa <= 0 or NaN makes e/(e+kappa) NaN — none validated.
-
-Contract (Implementer; the red-team block of record adopted whole):
-one shared schedule validator for trim + focus at top level AND
-inside trunk/head overrides, before staging — exact key sets (trim:
-start/end/hold_epochs/anneal_epochs/shape; focus: + kappa), unknown/
-missing keys loud, no bool-as-number, all values finite; int
-hold_epochs >= 0, int anneal_epochs >= 1, shape in
-const|linear|cosine|step; 0 <= trim.start,end < 1; focus start,end
->= 0; focus.kappa finite > 0. anneal_value rejects unknown shapes
-defensively. step becomes DIRECTION-AWARE: the decreasing 0.01-grid
-behavior byte-identical, an increasing schedule advances on the grid
-and reaches end only at the end. ONE fixed helper serves trim, focus,
-berhu blend, and EMA horizon — no forks. Gates: shipped schedules
-unchanged; every malformed case raises before staging; decreasing
-0.05->0 reproduces current values exactly; increasing 0->1 has strict
-intermediate values; berhu + EMA ramps exercise the increasing arm;
-phase-local errors name trunk or head.
-
-## Hyperparameter-range validation (red-team fifth wave, Architect-VERIFIED, open)
-
-The [default, min, max, kind] machinery recognizes syntax, never
-ranges. Verified: training.py _range_default (~674-677) types the
-default with int()/float() — int(64.9) TRUNCATES, no bounds check, no
-default-within-bounds check (a default 100x above its own max trains
-silently); _suggest_range (~680-692) passes lo/hi to Optuna
-unvalidated (suggest_int(512, 64); log with lo = 0), and an unknown
-kind silently demotes the whole list to a FIXED value that fails
-later in an unrelated constructor. Contract (red-team block adopted
-whole): one recursive pure validator used by from_config,
-default_train_args, search_defaults, and suggest_train_args — kind
-exactly int|float|log (unknown kind = malformed range, loud);
-default/min/max numeric non-bool finite; min < max and
-min <= default <= max; int demands integral values (no truncation);
-log demands min > 0; normalize ONCE to typed values, all three
-consumers read the validated form; errors carry the dotted leaf path.
-Gates: valid list + string ranges keep current typed values; every
-malformed case raises at config load; no malformed range reaches
-suggest_*; ordinary-training and search_defaults defaults identical;
-nested paths report full dotted names.
-
-## Scheduler execution protocol (45M-25, Architect-VERIFIED, open)
-
-`make_scheduler` advertises a constructible scheduler class, but constructing
-an object does not establish how often or with which argument it must be
-stepped. The training loop implements only two per-epoch protocols:
-`ReduceLROnPlateau.step(validation_median)` and a bare `scheduler.step()` for
-every other class. A per-update scheduler such as `OneCycleLR` therefore
-constructs successfully and then executes at the wrong cadence by orders of
-magnitude. Per-phase and refinement construction also need the true number of
-optimizer updates rather than the nominal epoch count.
-
-Required contract:
-
-1. Either expose a deliberately bounded scheduler surface and reject every
-   unsupported class before model/data staging, or persist an explicit
-   protocol with each class: cadence (`per_update` or `per_epoch`), whether a
-   metric is required, which metric, and the resolved horizon.
-2. A per-update scheduler steps only after an accepted optimizer update. A
-   nonfinite/skipped update or an empty chunk does not advance it.
-3. A per-epoch scheduler steps once after the complete accepted epoch.
-   `ReduceLROnPlateau` uses the shared validated ordinary-median reducer and
-   chi-squared domain rule on the raw-model scores. With EMA disabled this is
-   also the reported/selection median; with EMA active, the deliberate policy
-   remains raw-model median for scheduling and EMA-model median for reporting
-   and selection.
-4. Each trunk, head, joint, and refinement pass resolves its own effective
-   update count from executed rows, batch size, chunk-tail policy, and epoch
-   count. Nominal configuration counts cannot stand in for executed steps.
-5. Warmup has one owner and cannot advance both the explicit warmup rule and a
-   scheduler's internal warmup on the same update.
-6. The resolved pass record stores scheduler class, kwargs, cadence, metric
-   source, and effective step count so the artifact describes what actually
-   ran.
-
-The board gate uses counting schedulers for per-update and per-epoch paths,
-pins the plateau median argument, and checks a short analytic learning-rate
-sequence for an admitted `OneCycleLR` or the exact startup refusal if that
-class is outside the bounded surface. It covers a ragged final chunk, a
-skipped optimizer step, separate phase horizons, refinement, and a
-double-warmup mutation. Merely printing the scheduler class or completing a
-run does not prove the execution protocol.
-
-## Selection-record truth (red-team fifth wave — the FULL CONTRACT for the wave-1 best-record unit; Architect-VERIFIED, CRITICAL)
-
-The wave-1 finding (unit 3: the loop restores the epoch-0 baseline
-but drivers/Optuna recompute best over trained-epoch histories)
-now has its fix contract. Verified anchors: the history lists start
-empty (~1694) and the baseline eval (~1844) seeds best_* WITHOUT
-appending to histories, so "epoch 0 selected" is invisible to every
-consumer; the driver stamps best_epoch/best_frac02/best_median from
-history argmin while the artifact weights are the baseline; Optuna
-returns the wrong objective for the model actually shipped. Same
-mismatch at trunk->head and transfer-refine boundaries. Contract
-(red-team block adopted whole): training_loop_batched returns an
-explicit SELECTION RECORD (epoch/pass identity, fraction vector,
-mean, median, baseline/EMA flag) alongside histories; run_emulator
-composes records across trunk/head/joint/refine and returns the one
-belonging to the final restored model; drivers, artifact root attrs,
-console summaries, and Optuna objectives consume the record and
-NEVER re-derive from histories; per-epoch histories unchanged for
-plotting (epoch 0 never disguised as trained); phase baselines get
-an unambiguous label + a numeric global trained-epoch when one
-exists; selection metrics finite under the finite-contract unit.
-Gates: all-epochs-worse returns bitwise epoch-0 weights AND
-epoch-0 metrics everywhere; a real improvement matches current
-behavior; the median tiebreak; head-phase and refine degradation
-name their baselines; artifact readback describes the exact shipped
-state.
-
-## Run-control schema totality (red-team 2026-07-12 sixth wave, Architect-VERIFIED, open; bundles with the schedule + range units)
-
-train_args is half-guarded: the PHASE blocks carry an eight-key
-whitelist (validate_phase_block) but validate names and block shapes
-only — {"clip": NaN}, {"clip": -1.0}, {"rewind": "false"}, even
-{"clip": "none"} pass through — while the TOP level has no whitelist
-at all: a typo like `clipp` is retained by default_train_args,
-stored on the experiment, and ignored because every consumer reads
-by named .get()/signature default (the loop's clip=0.0/rewind=False
-at ~1513-1514 are exactly what the typo silently falls back to).
-Consequences verified in the loop: `if clip > 0.0` (~1977) is False
-for NaN and negatives — clipping silently OFF; `if rewind:` (~1866)
-— the quoted string "false" is truthy, rewind silently ON. The
-sweep helper protects only sweep paths (its own comment says so).
-The bs/nepochs totality gap (bs > n_train, run_n == 0) is already
-recorded; the guards still do not exist.
-
-Contract (Implementer; the red-team block of record adopted whole):
-ONE pure train-control validator used by the ordinary, tune, and
-sweep paths — an exact top-level whitelist (explicitly including the
-supported extension keys: finetune, the transfer-consumed blocks —
-never arbitrary extras); nepochs and bs strict positive ints (bool
-rejected), bs <= n_train enforced at the staged-data boundary; clip
-finite numeric >= 0; rewind/silent/other booleans exact bool; phase
-overrides route through the SAME leaf validators; unknown keys
-rejected before staging/model construction; search-range leaves
-re-validate after default/suggestion resolution. Red legs: the
-ordinary-config typo that currently no-ops; the four phase
-value cases above; NaN/negative clip; quoted-"false" rewind;
-zero/negative/fractional epochs and batch; bs > n_train; one valid
-top-level + one valid phase override proving consumed values
-unchanged. Natural bundle: this unit + "Schedule validation" +
-"Hyperparameter-range validation" form one train_args-totality
-cluster the Implementer takes as consecutive units (shared
-validator plumbing, one gate suite).
-
-**Root-level clause (seventh wave, Architect-VERIFIED, folded into
-this unit per the red team's own sequencing):** from_config requires
-data/train_args and strictly validates data, but never whitelists the
-ROOT mapping — every optional feature is a cfg.get() read (verified:
-experiment.py ~589/721/736/1239), so `pcee:` or `transferr:` is
-accepted as inert extra data and the run silently trains a PLAIN
-emulator while the user believes the base/transfer science is on.
-The root-level analogue of the `clipp` defect. Addition to the
-contract: validate the training-config root BEFORE resolving any
-feature — the exact allowed set for the invoked driver (data,
-train_args, plus the explicitly supported pce, transfer, and the
-driver-owned sweep block where applicable); driver-only blocks are
-validated/removed by their driver, never tolerated everywhere; the
-error names the unknown key and the nearest valid spellings. Red
-legs: pcee / transferr / an arbitrary extra root key fail before
-staging; valid PCE, transfer, and sweep configs pass through their
-owners; feature-on startup banners/artifact records provably differ
-from feature-off after a misspelling.
-
-## Sweep completion truth (red-team continuation — ADJUDICATED: merged with unit 10 into one sweep-worker-truth unit)
-
-**Architect adjudication (Fable, at the merge):** VERIFIED and merged
-with unit 10 (activation-bakeoff liveness) — same parent/worker
-contract, one unit. Spot-confirmed anchors: the parallel ntrain
-worker's `except Exception: f = float("nan")`
-(cosmic_shear_sweep_ntrain_emulator.py ~164-166) matches the bake-off
-worker's identical catch verified in wave 2; no parent checks one
-finite result per requested point before publishing; and a NaN
-threshold rides the same NaN-comparison class as unit 14. The
-combined unit = liveness (workers that die before their handler must
-not hang the parent) + completion truth (the contract below).
-
-The three sweep drivers do not have one failure contract. N-train and
-activation-bakeoff points raise on the serial path, but their parallel
-workers catch every exception and return `frac = NaN`; the generic
-hyperparameter worker catches in both modes. None of the parents checks
-that every requested point returned exactly once with a finite metric
-before writing the ordinary `.txt` / `.pdf` and exiting successfully.
-The same invalid experiment can therefore fail loudly on one machine
-and look completed on another. The CLI boundary also leaves
-`n_points`, `n_gpus`, and the finite/nonnegative threshold relation
-unguarded; a NaN threshold makes every finite chi2 comparison false and
-reports a perfect zero bad-fraction.
-
-Required contract: workers may continue after a point failure, but return
-a structured status/error rather than encoding failure as a scientific
-float. The parent requires one finite success for every requested point
-before normal publication/success; any optional partial diagnostic is
-marked incomplete and exits nonzero. Serial and parallel call the same
-total wrapper. Validate finite threshold >= 0, positive point/GPU counts,
-positive ordered N limits, and a nonempty activation list. Gates inject
-the same failure in both modes for all three drivers, plus missing,
-duplicate, NaN/Inf, and all-failed result sets; valid output ordering and
-values stay unchanged.
-
-## Where the deltas live (IDs preserved for git archaeology)
-
-D-B1 (deleted by the loss-block nesting — the structural fix beat the
-behavioral patch), D-L1 v1-v3, D-P1/P2/P2v2/P3 (capability probe +
-consumed-view banners), D-E1/E2, D-M1 (EMA an allowlisted acronym),
-D-1 (n_keep guard), GMP (ema joins the phase whitelist). Gate homes:
-the training-stack gates on the board (ema-off-identity, ema-smoke,
-berhu-loss, loss-schema-equivalence, berhu-anneal, ema-anneal,
-single-phase-demotion, head-scheduler-override, eval-batch-invariance,
-joint-training, weight-decay-census, production-diagnostic) all
-pointed here; their verdicts (all PASS, boards of 2026-07-08..10) are
-in git history under the retired per-topic notes.
-
-## plot_xi does not draw the colors its colorbar describes (red-team 45M-02, 2026-07-12, Architect-VERIFIED; queue 30)
-
-plot_xi (emulator/plotting.py:1564-1837) promises a param-colored curve
-set: the docstring says `param` "colors the curves through cmap", and
-the colorbar is built from Normalize(vmin=param[0], vmax=param[-1])
-(:1647-1648). But every curve is drawn with color = cm(x / len(xi))
-(:1755/:1761/:1770/:1776; marker edges use the same call) — the
-normalized parameter value is NEVER used. Verified consequences:
-unevenly spaced parameters render as evenly spaced colors; reordering
-the curves changes their colors; unsorted parameters make the colorbar
-endpoints unrelated to the true minimum and maximum; the last curve
-never reaches the top color ((n-1)/n < 1); the linestyle / linewidth /
-marker cyclers are created once (:1667-1677) and advanced globally
-across panels, so a cycle length different from the curve count changes
-a curve's appearance panel to panel. The param-length check runs AFTER
-the colorbar is drawn (:1662-1664), and malformed input prints
-"Bad Input" and returns int 0 (:1620/:1623). No gate calls plot_xi
-(full-repo grep: zero callers outside plotting.py), so no existing leg
-can catch any of this. The docstring's "ported byte-faithfully from the
-notebook" rider was a landing convenience, not a truth waiver — the
-plotting-truth contract supersedes it.
-
-Contract (Implementer):
-
-1. Validate before any figure is created: xi nonempty; param length
-   equal to len(xi) and every value finite; every curve's theta grid
-   and tensor shape checked against the first curve. Malformed input
-   raises a specific exception — the "Bad Input" prints and the
-   integer-zero returns go.
-2. With param: ONE normalization from the finite minimum and maximum,
-   one RGBA per parameter value from the SAME ScalarMappable the
-   colorbar uses; that exact color reused for the corresponding curve
-   in every panel and for its marker edge.
-3. The constant-parameter case defined explicitly: one stable color
-   plus a truthfully labelled constant colorbar, or no colorbar with a
-   stated reason — pick one and document it.
-4. Without param: index-based colors stay an allowed presentation
-   choice, but no parameter-valued colorbar may be drawn.
-5. Marker / linestyle / linewidth precomputed BY CURVE INDEX so a
-   curve's visual identity is stable across all panels.
-6. The hardening-ledger mutable-list defaults on this signature (ylim,
-   bintextpos, thetashow) are removed in the SAME repair (None
-   defaults, fresh lists inside) — no second unit.
-7. Gate: an Agg-backend plotting leg on the board (no torch, no GPU):
-   unsorted uneven parameters with the actual line RGBA values
-   inspected against the colorbar's ScalarMappable; a permutation arm
-   proving colors follow parameter values, not list positions; a
-   multi-panel arm proving one curve keeps its marker / line style
-   across panels; length / NaN / constant-parameter failure legs; a
-   valid no-param control.
-
-## The memory probe is not observational (red-team 45M-11, 2026-07-12, Architect-VERIFIED; queue 35)
-
-batching.py::compute_batch_size_bytes runs a REAL dummy forward
-through the live model in its current training mode (:121 model(x)
-under saved-tensor hooks) with `torch.zeros(bs, *sample_dims)` in the
-DEFAULT dtype (:90), preserving neither registered buffers nor RNG
-state — a BatchNorm1d increments num_batches_tracked and drags its
-running stats toward an all-zero fake batch; a stochastic layer
-advances the random stream before real training; a float64 model
-receives float32 and can fail before sizing.
-compute_model_size_bytes (:140) sums numel over parameters then
-multiplies the TOTAL by the FIRST parameter's element_size (mixed
-dtypes miscounted), counts no registered buffers, and cannot see
-loss-owned resident state (an NPCE base held by chi2fn competes with
-staged rows on the same device). The number picks the placement
-regime and chunk size: an underestimate is an avoidable OOM, and the
-probe itself can perturb the state the subsequent training and parity
-checks assume.
-
-Contract (Implementer): (1) a sizing call leaves parameters,
-registered buffers, every submodule's train/eval flag, and CPU +
-device RNG states byte-identical; (2) the dummy input uses the
-declared model-input dtype and device (if the stack supports exactly
-one input dtype, validate and name it); (3) per-tensor byte sums —
-numel() * element_size() per tensor, registered buffers counted
-exactly once; (4) loss/geometry/PCE resident ownership explicit in
-the planner (not all non-model state as one dv_len budget);
-(5) currently-allocated immutable state separated from projected
-gradient/optimizer state, each multiplier documented, the actual
-optimizer spec injected where its state count matters; (6) the
-shipped plain-float32 placement result preserved when the corrected
-accounting proves it fits. Gate (torch, board-registered):
-BatchNorm1d state + mode identical before/after sizing; dropout
-leaves CPU and CUDA RNG unchanged; mixed float32/float64 params +
-buffers match a direct byte sum; a float64 probe receives float64;
-an NPCE/loss-resident fixture flips the placement decision at a
-deliberately tight budget; mutation controls prove the first-dtype
-multiplication and the buffer omission fail.
-
-## 25M-15 (Architect CONFIRMED; implementation awaits audit): the streaming planner charges a packed target as if it had model-output width
-
-`batching.py:121-128` computes transient batch I/O as the encoded input plus
-two copies of the model output: one output and an assumed same-width target.
-That equality is false for public packed-target losses. `_build_loaders_one`
-correctly resolves `tgt_dim = getattr(chi2fn, "target_dim", out_dim)` and uses
-it for resident encoded targets (`batching.py:276-289,346`), but both
-streaming regimes call `batches_per_load` without `tgt_dim`
-(`batching.py:380-407`). The helper consequently sizes the chunk with the
-ordinary target assumption (`batching.py:210-214`).
-
-The reachable counterexamples are not hypothetical: `PCERatioChi2` and
-`TransferDiagChi2` stage `2*n_keep` values per row, while factored
-`TransferChi2` stages `(n_templates+1)*n_keep`. For `out_dim=7`,
-`target_dim=14`, batch size 3, and float32 tensors, the existing formula omits
-`3 * (14-7) * 4 = 84` bytes from every batch. A budget near a whole-batch
-boundary can therefore select two streamed batches where only one fits. This
-is distinct from 45M-84: that finding concerns the permanent host parameter
-copy, while this one concerns transient device memory for a wider target.
-The same helper ends with `max(1, int(free // per))`, so it also claims one
-batch fits when the corrected available bytes are smaller than one batch (or
-even negative). That is a refusal condition, not permission to ignore the
-budget.
-
-Required contract: one owner computes
-`input_bytes + model_output_bytes + actual_target_bytes`, with the resolved
-target width and dtype threaded from the same loader boundary that stages the
-target. Ordinary `target_dim == out_dim` behavior remains byte-identical.
-The planner report names each term rather than hiding target width inside a
-multiplier. If the complete resident-plus-one-batch requirement exceeds the
-declared budget, refuse before staging and report required, available, and
-each owned byte term; never force the count to one.
-
-This needs Torch evidence, so the Architect must commission a board-listed
-`ai/gates/checks/` leg for Vivian's workstation. Pure arithmetic legs use
-`out_dim=7`, `target_dim=14`, `bs=3`, float32 and assert the additional 84
-bytes; a crafted budget makes the old formula choose two batches and the
-repaired formula choose one. Integration legs exercise at least one real
-packed-target loss in a streaming regime, retain an ordinary-target control,
-and include a mutation that restores `2*out_bytes` and must red. A second
-boundary leg supplies less than one corrected batch and proves loud refusal;
-restoring the `max(1, ...)` fallback must red.
-
-### 25M-15 implementation candidate and CPU evidence (Red Team, 2026-07-13; awaiting Architect audit)
-
-Branch `codex/unit25m15-sizing` implements the bounded arithmetic repair in
-`emulator/batching.py`. `compute_batch_byte_terms` is the one owner of the
-saved-activation, input, model-output, actual-target, and chi2-scratch terms.
-The integer-returning `compute_batch_size_bytes` wrapper sums that record, so
-its ordinary-target call stays compatible. `_build_loaders_one` supplies the
-resolved `tgt_dim` and the float32 dtype it actually stages to
-`batches_per_load`. The planner now raises when the 80-percent allowance
-cannot hold its established model-plus-precision-matrix resident state and one
-complete batch. Its error names `required`, `available`, `resident`, and every
-per-batch term.
-
-The independent pre-commit audit caught one scope expansion in the first
-candidate. That draft also threaded the encoded-parameter tensor into the
-resident term. Doing so could change an ordinary-target chunk boundary and
-would violate this amendment's byte-identity clause. It also overlaps the
-separate full resource-sizing contract already recorded above. The final
-candidate keeps the pre-amendment resident formula exactly and changes only
-the staged-target term plus the below-one-batch refusal.
-
-Focused CPU evidence lives in `ai/tests/test_batching_sizing.py` and runs with:
-
-```
-/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
-  -m unittest tests.test_batching_sizing -v
+# The training stack: losses, schedules, phases, moving averages, sizing, and evidence
+
+This note defines the mandatory training contracts. It records stable behavior,
+scientific invariants, and acceptance checks. It is not a diary. A training
+change receives **GO** only when every affected contract has executable
+evidence and a deliberate mutation proves that the evidence can fail.
+
+## Vocabulary used throughout this note
+
+An **exponential moving average (EMA)** is a smoothed copy of model weights
+that gives more weight to recent updates. The **reverse Huber (BerHu) loss** is
+the piecewise loss defined below. A **polynomial chaos expansion (PCE)** is an
+analytic polynomial base model; a **neural polynomial chaos expansion (NPCE)**
+is a neural correction to that base. The **cosmic microwave background (CMB)**
+is relic radiation whose spectra form one output family. **Intrinsic alignment
+(IA)** is the systematic alignment of galaxy shapes and forms a nuisance-model
+family in the loss functions.
+
+A **command-line interface (CLI)** is the set of terminal options accepted by
+a driver. YAML is the human-readable settings-file format used by those
+drivers. A **graphics processing unit (GPU)** is an accelerator used for
+training. **Random-access memory (RAM)** is the computer's working memory.
+CUDA is NVIDIA's GPU computing platform. The Apple Metal Performance Shaders
+accelerator backend is named in full here because MPS elsewhere in this
+library means matter-power spectrum.
+
+CoCoA is the surrounding cosmological-analysis installation. CosmoLike is the
+likelihood calculation inside that installation that produces and evaluates
+several emulator data-vector families.
+
+**Automatic mixed precision (AMP)** lets PyTorch use lower-precision numbers
+for selected operations. **Autocast** chooses those operation-specific number
+formats, and a **gradient scaler** rescales a float16 loss to protect small
+gradients. **Eager execution** runs each PyTorch operation immediately;
+**compiled execution** prepares an operation graph for reuse. `float16` and
+`bfloat16` are two 16-bit floating-point formats. **Fused execution** combines
+several optimizer operations into one accelerator kernel.
+
+A **study** tests a collection of related configurations. A **point**, also
+called a **trial**, is one configuration and its run. A **sweep** is a
+systematic set of those points. A **worker** is one process that executes one
+study point. A **lane** is one concurrent worker slot with its own resident
+model and buffers. **Permanent
+per-lane state** means memory that stays allocated for the lifetime of that
+slot, rather than memory used by one batch. A **capacity token** reserves one
+lane's share of a limited computing resource. A **manifest** is the complete
+structured record of facts that identify a study. A **digest** is a fixed-size
+fingerprint calculated from exact bytes. A **journal** is the on-disk study
+record used for restart. A **progress watchdog** is a timer that treats a live
+but non-advancing worker as stuck. A **pristine source state** is an unchanged
+copy captured immediately after loading a source artifact.
+
+A **probability density function (PDF)** describes how probability is
+distributed over values. An **abstract syntax tree (AST)** is Python's parsed
+structural representation of source code. An **acceptance gate** is a
+registered command that checks required behavior. A **fixture** is the fixed
+input setup used by a gate. A **control** is a valid case that must pass. A
+**mutation** deliberately restores one forbidden behavior and must fail. A
+**smoke command** is a short public run that proves startup and routing, not
+numerical correctness. `UNAVAILABLE` means that a named evidence action did
+not run or could not prove its claim. A **schema** is the required fields,
+types, and meanings of a structured record. An **identity** is the set of facts
+used to decide whether two runs, studies, or products are the same.
+
+In gate evidence, a **reference comparison** compares a new run with a declared
+reference run. An **exact-output-line comparison** compares the specific,
+nonempty command-output lines named by the gate. It removes a timing field only
+when that removal is stated explicitly.
+
+## Ownership map
+
+- `emulator/losses/` owns score construction and loss transforms.
+- `emulator/training.py` owns validation reduction, optimizer updates,
+  schedules, phase execution, selection, and restoration.
+- `emulator/experiment.py` owns configuration resolution and construction.
+- `emulator/batching.py` owns placement and streaming arithmetic.
+- `emulator/diagnostics.py` owns diagnostic calculations.
+- Public family drivers own command-line policy and product publication.
+- `ai/gates/checks/` owns independent acceptance evidence.
+
+One rule has one implementation owner. Drivers do not re-declare a capability
+that belongs to a loss, diagnostic, geometry, or experiment object.
+
+## Loss family
+
+The accepted loss modes are `sqrt`, `chi2`, `sqrt_dchi2` (the square root of a
+delta-chi-squared score), `berhu`, and `berhu_capped`. Loss transforms apply
+during training only. Validation, selection, EMA evaluation, and diagnostic
+scoring use raw per-sample
+chi-squared values.
+
+For a chi-squared value `c` and knot `k`:
+
+```text
+sqrt:          sqrt(c)
+BerHu:         sqrt(c)                         when c <= k
+               (c + k) / (2 sqrt(k))          when c > k
 ```
 
-All six tests pass. They prove the exact 84-byte packed-target difference, the
-old two-batch versus corrected one-batch boundary, loud refusal four bytes
-below one complete batch, unchanged ordinary-target arithmetic, target-dtype
-accounting, and the real streaming loader boundary with ordinary and doubled
-stand-in targets. A direct main-versus-candidate comparison with
-`Linear(2, 7, bias=False)`, batch size 3, and `dv_len=1` returns 288 bytes per
-ordinary batch on both versions. At budgets 2000, 5000, and 10000, both
-versions choose 4, 12, and 26 ordinary batches respectively.
+For cap `K`, `berhu_capped` keeps the BerHu definition through `K` and uses
 
-One pre-existing foundation-gate fixture now exposes the repaired refusal.
-`ai/gates/checks/stage_ram.py` uses a literal 200-byte device budget only to force
-its disk-stream row-order path. That allowance is smaller than resident state
-plus one batch, so the corrected planner raises with `required=944` and
-`available=160`. The Red Team did not edit the gate because that file has a
-different owner. Raising only its budget cannot preserve streaming because the
-current eight-row encoded set is cheaper than one transient batch. Its owner
-must enlarge the selected-row fixture while retaining the same unsorted seeded
-order assertions, then choose an allowance between resident-plus-one-batch and
-resident-plus-the-full-encoded-set. With the fixture's current widths, more
-than 9 selected rows creates that interval. The real `PCERatioChi2` or
-`TransferChi2` streaming integration and the adjusted foundation-gate run
-remain workstation evidence.
+```text
+(2 sqrt(K c) + k - K) / (2 sqrt(k))
+```
 
-## make_chi2 turns every unknown rescale mode into the residual algorithm (red-team 45M-15, 2026-07-12, Architect-VERIFIED; queue 39)
+above `K`. The transform is continuously differentiable at both joins. The
+knot is measured in delta-chi-squared units; a literature BerHu delta equals
+`sqrt(k)`. The transform applies to one sample's total misfit, not element by
+element.
 
-losses/core.py:839-847: `if rescale == "none"` returns CosmolikeChi2;
-everything else runs build_shear_angle_map (filesystem/dataset access
-BEFORE mode validation) and then
-`cls = RescaledChi2 if rescale == "rescaled" else ResidualBaseChi2` —
-"residual" works only because it shares the else with every typo,
-empty string, None, and arbitrary object. The driver validator may
-protect YAML calls, but this is the documented public factory and the
-mathematical ownership boundary; it must be total on its own.
-Contract: three explicit equality branches; ValueError for everything
-else listing none/rescaled/residual; param_geometry and cosmo_mid
-validated before any angle-map import or dataset read for the
-non-plain modes; include_amp validated as a real bool (no
-truthiness); valid-mode outputs byte-identical. Red legs (small torch
-import gate riding an existing identity gate): the factory called
-DIRECTLY — each typo fails before build_shear_angle_map or any
-filesystem access; a mutation restoring the catch-all else fails.
+Configuration lives under `train_args.loss`:
 
-## Selection-record amendment: the threshold is configurable but everything reports 0.2 (red-team 45M-20, 2026-07-12, Architect-VERIFIED; amends queue unit 22)
+- `mode` selects the loss;
+- `berhu` accepts `knot`, `cap`, and optional `anneal`;
+- `roughness` accepts `lam` and `period_cut` and is valid only for the CMB
+  family.
 
-The training loop selects on frac[0] of the constructor thresholds —
-whatever it is — but the whole reporting chain hard-codes the claim:
-training.py prints "frac>0.2" (:1953/:2228/:2261), comments and
-return docs call the restored model the best frac>0.2 epoch
-(:2149-2150/:2321/:2335/:2504), and BOTH train drivers persist
-best_frac02 (scalar_train_emulator.py:206,
-cosmic_shear_train_emulator.py:376) into artifact attributes; tuning
-text says frac>0.2. With thresholds=[1.0, 10.0] the model is selected
-on frac>1.0 and labelled frac>0.2 — scientific metadata error, not
-wording. The constructor also has no threshold schema (empty vector
-reaches b_frac[0]; a plain list breaks tensor indexing; NaN/Inf/bool/
-repeated/unordered pass).
-Amendment to unit 22's contract: normalize thresholds once to a
-nonempty 1-D finite real tensor (bools rejected, ordering rule
-documented); persist the exact selection threshold value + index in
-the selection record; console, drivers, artifact attrs, and tuner
-output all READ that record; best_frac02 replaced by a
-threshold-neutral structured field (or kept only when the selected
-threshold is exactly 0.2, alongside the general record); Optuna
-minimizes the selected record metric, never a separate hard-coded 0.2
-computation; diagnostics that intentionally use the scientific 0.2
-goal stay explicit and independent of the training-selection
-threshold. Torch gate legs: default threshold keeps the existing 0.2
-label/value; thresholds starting at 1.0 are selected, reported,
-tuned, and persisted as 1.0 everywhere; empty/nonfinite/bool/
-wrong-rank inputs fail before baseline evaluation; epoch-0 and
-multi-phase/refinement selection keep threshold identity; a mutation
-restoring the hard-coded best_frac02 path fails artifact readback.
+An absent loss block means `sqrt`. A plain `berhu` mode may accept an unused
+cap so one block can serve a mode sweep. A block named for the active
+`berhu_capped` mode may be canonicalized to the shared `berhu` block on a
+copy. Any incompatible duplicate or mismatch raises with a paste-ready repair.
 
-### 45M-29 amendment to unit 24 (fine-tune anchor truth): EMA records the pre-anchor weights (2026-07-12, Architect-VERIFIED on HEAD; BINDING before the anchor door reopens)
+### Exact-fit square-root behavior
 
-The post-step order in the training loop is optimizer.step() ->
-EMA observation (torch._foreach_lerp_ at HEAD :1988) -> anchor pull
-(anchor.apply(optimizer) at :1995), while the comment at :1992-1993
-claims the opposite ("After the ema update so the average sees the
-anchored weights") — an average cannot see a mutation that happens
-afterward. The live network continues from the ANCHORED point, but
-validation, best-model selection, and the shipped EMA model sample
-the trajectory immediately BEFORE each anchor pull; the gap is
-largest exactly when the anchor is strongest or the EMA horizon
-short, and at beta = 0 the EMA is the fully unanchored optimizer
-result. Amendment to unit 24's contract: one canonical completed
-step, optimizer update -> anchor pull -> EMA observation
-(anchor.apply moved before the lerp; clipping stays before the
-optimizer); the EMA averages the same post-anchor state the next
-batch starts from; anchor-absent behavior byte-identical. Red legs
-(torch gate, board-listed, workstation): one scalar parameter with a
-known optimizer step, nonzero anchor, beta = 0 — the EMA equals the
-analytically anchored value; 0 < beta < 1 matches the hand-computed
-recurrence over several steps; masked anchor — anchored elements
-enter the EMA post-pull, free elements keep the optimizer result;
-per-group learning rates — each anchor coefficient uses its group lr
-before the single EMA observation; anchor None — fixed-seed result
-and update order unchanged; selection/readback — the persisted EMA
-model equals a replay of optimizer -> anchor -> EMA. This lands
-INSIDE unit 24 before the anchor configuration refusal is lifted,
-not as a parallel unit.
+Every square-root expression that can receive zero uses the shared safe
+square-root implementation. The forward value remains exactly `sqrt(c)` for
+valid input, including `sqrt(0) == 0`. The gradient at exact zero is finite and
+exactly zero. This includes both BerHu lower branches, the anneal arm, and the
+masked capped-region expression. Positive values retain their ordinary
+analytic derivatives.
 
-## Comparison-only validators accept NaN (red-team 45M-31 + 45M-32, 2026-07-12, Architect-VERIFIED; queue 48 — joins the train_args-totality cluster, now 18+20+23+29+45+48)
+### Chi-squared domain
 
-One defect shape at five confirmed sites: the validators check
-`isinstance(val, bool) or not isinstance(val, (int, float))` and then
-ordered comparisons only — IEEE NaN is a float and answers False to
-every ordered comparison, so it passes. Verified on HEAD:
-ema.horizon_epochs (training.py ~1271, h <= 0); berhu knot/cap
-(~968, val <= 0 AND the knot >= cap order check); roughness
-lam/period_cut (~1119, lam <= 0, period_cut < 5 — NaN then dies later
-in an incidental int(round(NaN)) instead of the promised schema
-error); and the transfer boundary (45M-32):
-transfer.refine.base_lr_scale (experiment.py ~1392, scale <= 0.0) and
-transfer.refine.anchor (anchor < 0.0). None are harmless: a NaN EMA
-horizon gives NaN beta and the FIRST _foreach_lerp_ poisons every
-averaged parameter (the raw net stays finite while the shipped EMA is
-destroyed); NaN knot/cap makes every sample's transformed loss NaN;
-NaN lam turns c_chi2 + lam*c_rough NaN with both parts finite; NaN
-base_lr_scale materializes NaN learning rates in
-make_refine_optimizer; NaN anchor makes coef = group_lr * lam NaN and
-the in-place p.add_(delta, alpha=-coef) corrupts every anchored base
-tensor ON STEP ONE — "anchor is required explicitly" does not yet
-mean the recorded anchor was numerically meaningful.
+Training, validation, source scoring, and every public diagnostic use one
+score-domain rule:
 
-Contract (Implementer): ONE shared predicate applied in order — real
-scalar, not bool, FINITE, then domain/range relations — at every
-numeric training-control leaf: the five named sites plus a mechanical
-census sweep of the remaining loss/LR/scheduler numeric leaves for
-the same comparison-only pattern; phase-local trunk/head blocks use
-the same helper and name their block; persist only validated values;
-the unit-14 runtime guard stays as defense in depth, never a
-substitute for config rejection before model/data setup. Red legs:
-NaN and +/-Inf at each site raise with the exact dotted path (never
-via round()/int()); valid current defaults and a fractional positive
-horizon stay accepted byte-identically; every applicable case
-repeated inside trunk.loss / head.loss / trunk.ema / head.ema; the
-census is mechanical — every finite-real-domain validator gains
-nonfinite tests, not only the named sites; finite 0.0 anchor remains
-the explicit free-refinement control; a valid scale/anchor preserves
-the resolved mapping exactly. Torch integration legs (board-listed,
-workstation): a mutation proves a NaN EMA horizon can no longer reach
-theta_bar while the valid EMA recurrence is unchanged; the one-step
-analytic refine control (correction lr, scaled base lr, finite anchor
-update) and the no-nonfinite-reaches-optimizer/Anchor.apply mutation
-arms FOLD INTO unit 24's anchor gate — no second anchor
-implementation; artifact metadata cannot record transfer.refine
-unless the values passed validation.
+```text
+band = max(1.0e-6, 32 * eps(compute_dtype) * kept_width)
+```
 
-### 45M-34 amendment to unit 18 (schedule validation): shape const silently turns off BerHu annealing and EMA (2026-07-12, Architect-VERIFIED)
+`kept_width` is the per-row reduction depth for every CosmoLike-style loss,
+not its square. The dtype is the dtype in which the contraction was computed,
+not a later storage or reporting upcast.
 
-_ANNEAL_SHAPES = ("const", "linear", "cosine", "step") (training.py
-~856) is one whitelist for every owner. For trim/focus that is
-correct — the user's explicit start IS the constant (the shipped
-focus default demonstrates it: shape const + start -1 is the
-documented no-focus form). For BerHu and EMA anneal blocks it is a
-silent kill switch, because those owners internally force
-start=0, end=1: anneal_value(shape="const") returns start forever, so
-loss.berhu.anneal {shape: const} keeps s = 0 and the blend
-v = (1-s) sqrt + s berhu (losses/core.py:319-320, "s = 0 is exactly
-sqrt") runs plain sqrt for every epoch; ema.anneal {shape: const}
-keeps the horizon scale at 0 and the initialization guard ("the
-first epoch the horizon anneal leaves the hold (s > 0)") never
-allocates theta_bar — selection and persistence use the raw model
-while the resolved record says EMA is configured. Presence semantics
-violated twice: omission is the off form; a present block must never
-be an undisclosed no-op.
+- A finite score at or above zero is unchanged.
+- A finite negative score inside the band becomes exact zero.
+- A finite score below the band, NaN, or either infinity is invalid.
+- Training converts invalid producer output into a non-finite loss so the
+  per-step finite guard refuses it without leaving compiled code.
+- Evaluation and diagnostics raise before any mean, median, threshold,
+  ranking, plot, or publication operation. The error names the boundary,
+  producer, bad count, first row positions, minimum value, and band.
 
-Amendment to unit 18: const stays legal for trim/focus; REJECTED for
-BerHu anneal and EMA anneal (legal ramps: linear, cosine,
-direction-correct step), with the error explaining that omitting
-anneal runs the full feature from its normal activation point and
-const would freeze the internal 0->1 scale at zero;
-owner-parameterized legal shapes in the SHARED validator (no forked
-evaluator), validated before staging; resolved config and banners
-distinguish "feature on without anneal" from "feature on with a real
-ramp". Red legs: trim/focus const byte-identical; berhu +
-berhu_capped const raise at their exact paths; ema const raises
-top-level AND phase-local; omitted berhu anneal gives the full berhu
-mode, not sqrt; omitted ema anneal produces a live theta_bar; every
-legal increasing ramp has a strict interior 0 < s < 1 value and
-reaches 1 only at its endpoint; catch-power — the old const config
-is proven to leave berhu == sqrt and EMA absent. Schedule arithmetic
-legs pure; the EMA-live and loss-equivalence integration legs are
-torch, board-listed, workstation.
+The band may be widened only after a measured valid control and a recorded
+forward-error derivation. Convenience is not a reason to weaken it.
 
-## The optimizer factory is CUDA-Adam-specific behind a general contract (red-team 45M-37, 2026-07-12, Architect-VERIFIED; queue 49 — joins the run-control campaign beside unit 45)
+### Physical contractions and geometry precision
 
-make_optimizer documents the general {cls, **kwargs} first-class-class
-contract ("the optimizer class is a value in the dict, its settings
-the other keys"), and then unconditionally injects
-`extra["fused"] = True` on CUDA for EVERY class; make_refine_optimizer
-repeats the identical pattern. Because `extra` is built from the
-user's own spec dict, an explicit `fused: false` is copied in and then
-OVERWRITTEN — the spec is not forwarded as documented. Two
-false-generalization paths: a class whose constructor lacks `fused`
-works on CPU and dies at CUDA construction with a raw
-unexpected-keyword error; and the loop calls optimizer.step() with no
-closure, so a closure-required class (LBFGS) passes the factory and
-fails at the first step. The optimizer analogue of unit 45:
-constructible is not executable.
+Network output and packed targets remain in the model compute dtype, normally
+float32. Immediately before a physical Mahalanobis contraction—the
+covariance-weighted squared residual—the residual is cast to the exact dtype
+and device of the precision tensor. One shared helper owns the cast and
+contraction for PCE ratio, transfer sum or gain,
+plain transfer, factored transfer, and future physical-space losses. A
+float64 precision tensor produces float64 chi-squared output; the float32
+path remains unchanged.
 
-Contract (Implementer; Architect ruling on the either/or — the
-BOUNDED surface): the supported protocol is closure-free
-Adam/AdamW-family stepping; `fused` is injected only for classes that
-explicitly support it, an explicit user value is preserved when legal,
-and closure-required optimizers are rejected BEFORE construction with
-a teaching error; one shared capability decision serves both
-make_optimizer and make_refine_optimizer (ordinary training and
-transfer refinement may not disagree); the resolved optimizer class
-and resolved fused state are persisted truthfully (the unit-41
-resolved-pass record carries them), never the pre-injection spec;
-shipped AdamW behavior byte-identical. Gate legs (torch/CUDA,
-board-listed, workstation): the AdamW CUDA control constructs and
-steps with the resolved fused state; a closure-free optimizer without
-a fused parameter is supported without injection or whitelist-rejected
-— never a raw keyword crash; a closure-required optimizer is rejected
-before the loop; transfer-refine exercises both decisions; CPU/CUDA
-acceptance does not fork except for a documented accelerator
-capability; a mutation restoring the unconditional injection fails;
-the saved resolved record matches the optimizer actually constructed.
+Structured heads cast geometry basis-transform buffers into the trunk-output
+dtype at the head boundary. Geometry precision remains unchanged for the
+loss. Forward and inverse basis transforms require independent numerical
+checks with declared expected values. Residual convolutional (ResCNN),
+residual transformer (ResTRF), and their template variants TemplateResCNN and
+TemplateResTRF must complete forward and backward with a float64 output
+geometry.
 
-## VRAM chunk boundaries silently change the rows used per epoch (red-team 45M-38, 2026-07-12, Architect-VERIFIED; queue 50 — CRITICAL, fourth in the critical-code sequence)
+### Roughness is a CMB capability
 
-The loop drops the ragged last minibatch of EVERY loader chunk
-(training.py ~1960-1966, "Drop the ragged last batch so every batch
-is one size... dropped tail rows rotate, no data is permanently
-lost"), and the device-resident-encoded branch of the loader
-computes its chunk size from remaining bytes with NO rounding to a
-batch multiple (batching.py:359-360,
-fit_rows = max(bs, vram_left // bytes_per_row); load = min(...)).
-So with load = 2*bs - 1, every chunk loads 2*bs - 1 rows, trains on
-bs, and discards bs - 1 — nearly half the dataset omitted from every
-nominal epoch. The comment's rotation argument is refuted as the
-finding states: rotating WHICH rows are dropped does not restore the
-missing optimizer steps, scheduler exposure, or trim/focus cadence,
-and two GPUs at the same seed/config disagree on what "epoch" means
-purely through resident capacity. The code's own EMA accounting
-(steps_per_epoch = whole batches per chunk summed over chunks,
-~1645-1648) confirms the truncation is executed behavior, not a
-theoretical path. Distinct from the bs > n_train zero-step defect:
-here bs is legal and every chunk steps — the run just discards a
-memory-dependent fraction of its training exposure.
+Roughness filtering assumes an ordered multipole axis. Method presence or
+inheritance does not establish that scientific meaning. Only `data.cmb` may
+use `train_args.loss.roughness`. Scalar, grid, grid2d, and ordinary CosmoLike
+runs reject the block before staging, PCE fitting, model construction, or
+training. CMB with NPCE and no amplitude law keeps the same penalty.
 
-Contract (Implementer, adopted whole): memory placement may change
-I/O grouping, NEVER the number of full optimizer batches in an
-epoch; every non-final chunk an exact multiple of bs (rounding the
-safe maximum DOWN is memory-safe); at most the single unavoidable
-global tail of n_train % bs rows dropped, independent of regime and
-budget (carrying leftovers across chunks is the alternative — never
-padding duplicated rows into the objective);
-steps_per_epoch == n_train // bs derived and reported for every
-regime; fixed-shape compiled batches kept; the effective rows/steps
-per epoch recorded (a nominal n_train must not conceal a smaller
-memory-dependent sample count — rides unit 41's resolved record);
-the loader docstring's unconditional multiple-of-bs claim corrected
-(false in the resident-encoded branch today). Gate legs (torch,
-board-listed, workstation): same dataset + seed under resident,
-RAM-stream, and memmap-stream controls execute exactly
-n_train // bs steps on exactly that many rows; the adversarial
-2*bs - 1 capacity no longer loses bs - 1 per chunk; only the one
-global tail omitted; loader requests never exceed the safe maximum;
-EMA steps_per_epoch + warmup/scheduler counts + the reported
-effective-row count agree with executed steps; a mutation restoring
-arbitrary resident load fails; a divisible control uses every row
-exactly once per epoch modulo the shuffle.
+## Shared schedules
 
-## MPS float16 AMP has no gradient scaling (red-team 45M-39, 2026-07-12, Architect-VERIFIED; queue 51)
+One validator and one evaluator serve trim, focus, BerHu blending, and EMA
+horizon schedules. A schedule block is active by presence, not by a separate
+Boolean. Each phase restarts its schedule at that phase's first epoch.
 
-The loop selects float16 — not bfloat16 — for MPS autocast
-(training.py ~1702, `amp_dtype = float16 if device.type == "mps"`),
-then runs a plain loss.backward() / optimizer.step(); a repo-wide
-UNTRUNCATED grep finds zero GradScaler / scaler / unscale matches.
-Computing the loss outside autocast does not help: backward traverses
-the float16 ops autocast executed, and sufficiently small
-intermediate gradients underflow to EXACT ZERO before accumulating
-into float32 parameters — the run stays finite, raises nothing, and
-silently trains a partial or dead network. This bites hardest exactly
-where the program deliberately makes early gradients small:
-zero-initialized heads and soft-start gates. The public docstring is
-also false on MPS (~1560: "run the forward in bfloat16 autocast").
-CUDA bfloat16 and use_amp False are not implicated.
+Shared keys are `hold_epochs`, `anneal_epochs`, and `shape`.
+`hold_epochs` is a nonnegative integer, `anneal_epochs` is a positive integer,
+and Boolean values are rejected. Supported shapes are `const`, `linear`,
+`cosine`, and `step`.
 
-Contract (Implementer): float16 AMP and bfloat16 AMP are DIFFERENT
-numerical protocols. On MPS float16, use a supported gradient-scaling
-path; if the pinned torch cannot provide a correct MPS scaler, REJECT
-use_amp true on MPS before training with a teaching error — never a
-silent unscaled float16 backward. The canonical step order extends
-unit 24's 45M-29 order: scale loss -> backward -> unscale optimizer
-gradients -> finite-gradient contract (unit 14 — a nonfinite UNSCALED
-gradient raises before any mutation) -> clip UNSCALED gradients ->
-optimizer step -> anchor -> EMA; scaled gradients are never clipped;
-a scaler-skipped step advances neither anchor nor EMA. The resolved
-AMP dtype and scaler policy are persisted (unit 41's record), not
-only use_amp true. Documentation corrected to name float16-on-MPS /
-bfloat16-on-CUDA-CPU. use_amp False and CUDA bfloat16 byte-identical.
-Gate legs: the MPS acceptance (tiny-gradient model — the repaired
-scaled path moves the weight while the old unscaled mutation shows an
-exact-zero gradient/update; full-precision control moves it) runs on
-Apple hardware — the Mac dev box's torch environment; if the pinned
-torch lacks MPS scaling, the gate instead expects the early teaching
-error, which is testable anywhere by device-type faking. CUDA
-workstation legs prove the shared ordering: bfloat16 never enters a
-float16-scaler-only branch; clipping observes the unscaled norm;
-nonfinite unscaled gradient raises before optimizer/anchor/EMA; a
-skipped step advances neither; resolved metadata names device,
-autocast dtype, scaler policy.
+Trim adds finite `start` and `end` values in `[0, 1)`. Focus adds finite
+nonnegative `start` and `end` plus finite positive `kappa`. Trim and focus may
+use `const`. BerHu and EMA are internally fixed zero-to-one schedules, so
+`const` would disable the feature and is rejected. Omitting their anneal block
+means the full feature is active from its normal start.
 
-## The Optuna journal has no experiment identity (red-team 45M-42, 2026-07-12, Architect-VERIFIED; queue 53 — tuner truth, distinct from the old-COMPLETE-trial liveness unit)
+The step evaluator is direction-aware. A decreasing schedule preserves the
+existing 0.01-grid sequence. An increasing schedule advances through strict
+interior values and reaches the endpoint only at the final scheduled epoch.
+Unknown shapes raise defensively even after configuration validation.
 
-(journal path, study_name) is the tuner's entire study identity:
-study_name is the constant family tag (cosmic_shear_tune_emulator.py
-:290), the journal defaults to tune_journal.log with resume
-documented (:62, :265-269), create_study(load_if_exists=True) reopens
-it comparing NO scientific fact (:407-413), the only persisted user
-attribute is the per-trial median (:192/:370 — no identity attribute
-or digest exists repo-wide), done = len(study.trials) (:414)
-suppresses the new configuration's default warm-start, and workers
-build from the CURRENT cfg/rescale/activation while the TPE sampler
-learns from every old trial (:464). Changing the YAML and reusing the
-default journal therefore lets old objective values from a different
-dataset / loss / bounds / amplitude law / code version compete as the
-same experiment — study.best_value can crown an old incomparable
-trial. A scientifically invalid ranking, not a liveness defect.
+## Phase resolution
 
-Contract (adopted whole): ONE canonical study manifest materialized
-before spawning — family/probe + objective metric (thresholds +
-selection rule), the fully resolved fixed config + exact search-space
-schema, CLI-fixed rescale/activation, identity digests for every
-training/validation input + scientific sidecars, implementation
-identity under the unit-37 doctrine; operational facts (worker count,
-RAM share, n_trials, timeout, quiet, GPU count) EXCLUDED. Stored with
-its digest as study-level attributes at creation; on resume the
-current manifest is compared BEFORE enqueueing/spawning — any
-difference raises a teaching error naming the fields and the
-new-journal/migration choice; a legacy no-manifest journal is REFUSED,
-never blessed from the current YAML; the default trial is enqueued
-from the manifest's recorded state, not len(study.trials) (a
-failed/abandoned pre-default attempt must not erase the known-default
-control); the final report names the manifest digest beside the
-winner. Red legs (CPU-only, temporary journals, no training):
-byte-identical manifest resume accepted; one fixed loss/training
-value changed -> refusal before any worker; a range bound/kind change
--> refusal naming the search-space difference; a data file rewritten
-at the same path -> digest refusal; rescale/activation/family/
-objective changes each refused; legacy journal refused with the
-instruction; the operational-only control resumes; the catch-power
-mutation (identity = (path, name) as today, a better old COMPLETE
-trial under manifest A reported as manifest B's winner); the
-default-control leg (a failed-only study still enqueues the default
-once).
+The `trunk` block configures the shared feature extractor, and the `head` block
+configures the output-specific stage. These blocks accept exactly `lr`,
+`scheduler`, `loss`, `trim`, `focus`, `clip`, `rewind`, and `ema`.
 
-### 25M-04 amendment (Red Team CONFIRMED, awaiting Architect adjudication): the direct cosmic-shear driver no longer selects its historic study name
+- `lr` is an overlay: specified phase fields replace top-level values, while
+  unspecified fields inherit. A phase cannot redefine the run-global
+  `bs_base` batch anchor.
+- Every other phase block is a complete replacement for that setting.
+- A phase scheduler replaces scheduler keyword arguments but keeps the
+  scheduler class; `cls` is rejected inside a phase.
+- An absent phase `ema` inherits. `ema: null` explicitly disables inheritance.
 
-The family-identity repair changed the public `main` default from
-`family=None` to `family="cosmolike"` (commit `e9943bc`) but left the earlier
-selection expression unchanged:
-`study_name = STUDY_NAME if family is None else prog`
-(`cosmic_shear_tune_emulator.py:217,287-290`). Under the public defaults, the
-constant `STUDY_NAME="cosmic_shear_tune"` is unreachable and the command
-selects `cosmic_shear_tune_emulator`. The adjacent comment still promises
-that the cosmic-shear study keeps its historic name. An AST probe of the real
-signature and assignment gives exactly this mismatch.
+Two-phase capability is determined from the class capability, not from a
+model-name string. Trunk-and-head designs include plain ResCNN and ResTRF on
+every supported family and the factored-IA templates. The residual multilayer
+perceptron (ResMLP) and its IA variants are single phase.
 
-Concrete wrong result: before `e9943bc`, the documented direct command and
-default journal used the study `cosmic_shear_tune`; after the family validator
-fix, the same command, file, and scientific inputs open/create the different
-study `cosmic_shear_tune_emulator`. Optuna identity is `(journal path,
-study_name)`, so the advertised resume silently forks. Per-family wrappers
-legitimately use their pinned `prog`; the regression is the direct
-cosmic-shear special case. This amends unit 53: the manifest needs a stable,
-canonical family study name as well as scientific content identity.
+Single-phase demotion occurs in one pure resolver before training. It works on
+a copy, removes `head`, `trunk_epochs`, and `freeze_trunk`, and promotes
+`trunk.X` to top-level `X`. The head block is validated before it is removed.
+A sweep over `head.*`, `trunk_epochs`, or `freeze_trunk` is refused for a
+single-phase model and points to the promoted key.
 
-Required contract: one pure resolver maps explicit family identity to a
-stable study name. The direct `cosmolike` family maps to the retained historic
-constant; each thin family wrapper maps to its stable family tag. The resolved
-name is part of the study manifest and final report. Any intended rename is an
-explicit migration/refusal, never collateral of a validator change.
+`freeze_trunk` defaults to true. False means the second phase trains trunk and
+head jointly; the phase role remains head while the model state is joint. A
+per-head activation pin requires a positive trunk phase and a frozen trunk.
 
-CPU red legs: signature-default resolution returns the historic cosmic-shear
-name; every wrapper returns its unique stable name; existing-journal lookup
-resumes the expected study rather than creating a sibling; manifest and
-Optuna names agree; and a mutation restoring the `family is None` conditional
-reproduces the fork and must red.
+The top-level PCE block fits a closed-form base on every legal family. CMB
+requires no amplitude law. The named model remains the neural correction
+model, including its heads, phases, and full loss surface.
 
-## 25M-05 (Red Team CONFIRMED, awaiting Architect adjudication): science-curve headers record the raw activation flag instead of the activation that ran
+Transfer refinement permits one phase. Configuration that requests a
+trunk-and-head transfer refinement is refused. A future two-phase transfer
+design must establish complete correction-model trainability before optimizer
+construction and must report trainable base, trunk, and head counts
+separately.
 
-Both sweep engines resolve activation through
-`EmulatorExperiment.from_config`: when `--activation` is absent, the family
-comes from `train_args.model.activation`, then defaults to `H`
-(`experiment.py:2181-2189` and the parallel family branches). The resolved
-value is stored in `exp.activation` and printed in the design banner. The
-result writers do not use it. The N-train sweep writes
-`"activation": args.activation`
-(`cosmic_shear_sweep_ntrain_emulator.py:413,490-496`); the ordinary
-hyperparameter sweep writes the same raw flag unless activation itself is the
-sweep axis (`cosmic_shear_sweep_hyperparam_emulator.py:273,441-447`).
+## Resolved run record
 
-Concrete wrong result: with the shipped YAML/default path and no CLI flag,
-the trained model uses activation `H`, while the public table header is
-`# activation=None`. The dependency-free real `save_learning_curves` body was
-executed with the driver's actual metadata value and reproduced that line. A
-YAML selecting another family is mislabeled the same way. A reader cannot
-reconstruct which design produced the science curve even though the process
-already owns the resolved fact. Unit 41 owns resolved-run truth; this extends
-that doctrine to sweep products rather than creating another resolver.
+Every display and product uses the resolved configuration that execution
+consumes. A class describes its own resolved specification. A constructible
+architecture missing its description fails during import or construction.
 
-Required contract: metadata is assembled from one immutable resolved run
-record, never raw optional CLI fields. N-train and non-activation
-hyperparameter sweeps persist the actual shared activation and any head pin;
-an activation-family sweep records `swept` plus ordered values. Serial and
-worker paths use the same record, and banner, artifact, table, and figure
-labels agree. Raw CLI provenance may be separate but cannot masquerade as
-executed state.
+The immutable resolved record contains at least:
 
-Red legs: YAML/default `H` with no flag records `H`; a YAML `power` selection
-records `power`; an explicit CLI override records the override; an activation
-sweep records `swept` plus values; serial and pooled metadata agree; table
-readback equals the experiment's resolved value; and a mutation using
-`args.activation` recreates `activation=None` and must red. Table assembly is
-pure CPU; one real sweep-path integration leg may be board-listed for Vivian's
-workstation.
+- family, model, activation, optional head activation, and gate counts;
+- loss mode, thresholds, roughness, and schedules;
+- phase topology and effective epoch/update counts;
+- optimizer class, resolved fused state, scheduler protocol, and learning
+  rates;
+- device, autocast dtype, and gradient-scaler policy;
+- EMA horizon and schedule;
+- PCE, fine-tune, or transfer composition and source identity;
+- effective training rows and dropped global tail;
+- study or sweep identity; and
+- the common pristine source-state digest for repeated transfer work.
 
-## Queue-2 evidence draft: training-control gates, batch one
+Console status lines, artifact metadata, table headers, figure labels, worker
+arguments, and tuning reports read this record. Raw optional CLI fields never
+masquerade as executed state. An activation sweep records `swept` plus ordered
+values; a fixed run records the activation that actually ran.
 
-These blocks name only comparisons that the current gate bodies execute.
-A configured golden run compares selected log text after removing its timing
-column; that is selected-text equality, not raw-byte identity. When no golden
-base is configured, the corresponding leg is `UNAVAILABLE` rather than a
-silent success. The current equality helper also accepts two empty selected-
-line lists, so every golden leg still owes an explicit nonempty-selection
-assertion.
+## Selection record
+
+The training loop returns one explicit selection record alongside plotting
+histories. It contains pass identity, selected epoch or phase baseline,
+threshold vector and selected index, fractions, mean, median, and whether the
+selected weights are raw or EMA weights. Drivers, artifacts, console output,
+and tuning objectives consume this record and never recompute a winner from
+histories.
+
+Epoch-zero and phase baselines remain outside trained-epoch histories. A
+restored baseline is labeled as a baseline, not disguised as a trained epoch.
+The record always describes the exact weights that ship.
+
+Thresholds normalize once to a nonempty one-dimensional finite real tensor.
+Boolean, repeated, unordered, empty, or wrong-rank input is rejected under the
+documented ordering policy. Reports name the actual selected threshold; a
+hard-coded `0.2` field is permitted only when the selected threshold is
+exactly `0.2`. Diagnostics that intentionally use the scientific 0.2 target
+remain separate from training selection.
+
+The median is the ordinary 50th percentile. For even sample counts it is the
+mean of the two central values; for odd counts it is the central value. One
+helper supplies validation, scheduler input, tie-breaking, histories, and
+gate references. Published means and medians are reduced in float64 from the
+accepted row tensor. Every published mean, median, and fraction is checked for
+finiteness after reduction.
+
+## EMA and rewind
+
+`train_args.ema` contains `horizon_epochs` and optional `anneal`. The horizon
+is measured in epochs. Per-step beta, the fraction retained from the preceding
+averaged weights, is derived from the horizon and actual `steps_per_epoch`.
+This makes beta independent of batch size. An absent EMA block leaves the
+non-EMA loop behavior unchanged.
+
+The best snapshot is one coupled object containing model parameters,
+optimizer state, and averaged parameters. Rewind restores all three. An
+operation that makes a step no longer part of the live trajectory must also
+remove that step from the average.
+
+Raw-model validation drives `ReduceLROnPlateau`. EMA validation drives
+selection and reported metrics. Evaluation swaps weights in place; it never
+rebinds `.data`, because compiled execution and CUDA graphs keep references to
+the original tensor storage. The shipped model contains the selected EMA
+weights when EMA is enabled.
+
+EMA annealing scales the horizon. While `scaled_horizon * steps_per_epoch < 1`,
+beta is zero and the average tracks the live model exactly.
+
+The canonical accepted update order is:
+
+1. scale the loss when float16 scaling is active;
+2. backward;
+3. unscale gradients;
+4. reject non-finite unscaled gradients;
+5. clip unscaled gradients when requested;
+6. perform the optimizer step;
+7. apply the fine-tune anchor; and
+8. update EMA from the post-anchor weights.
+
+If the gradient scaler skips an optimizer step, neither the anchor nor EMA
+advances. With beta zero and a nonzero anchor, EMA must equal the analytically
+anchored value.
+
+## Compiled-scalar discipline
+
+Every scalar consumed by compiled loss code is a zero-dimensional device
+tensor created per pass or filled in place per epoch. This includes kappa,
+knot, cap, trim, focus, and schedule blend values. A captured Python float can
+silently prevent reuse of the compiled graph.
+
+EMA beta is the deliberate exception. It is an eager per-epoch Python float
+because its interpolation runs outside the compiled graph. This exception is
+not a template for compiled schedules.
+
+## Optimizer and scheduler protocol
+
+Optimizer numeric controls are validated before construction: learning rate
+is finite and positive; weight decay is finite and nonnegative; epsilon is
+finite and positive; betas are finite, non-Boolean, and inside the documented
+range. A malformed value cannot reach an optimizer.
+
+Weight decay is module-role based. Decay applies exactly to `.weight` on
+`Linear`, `Conv1d`, and `BinLinear`. Biases, affine gains, and activation
+parameters remain undecayed. Unlisted future modules default to no decay.
+
+The supported optimizer surface is closure-free Adam/AdamW-style stepping.
+Here a closure would ask the optimizer to evaluate the model again during one
+step. An explicit `fused` value is preserved when legal. Automatic fused mode
+is injected only for a class whose signature and backend support it. A
+closure-required optimizer is refused before construction. Ordinary and
+transfer-refinement factories use the same capability decision.
+
+Each scheduler has a persisted protocol:
+
+- cadence is `per_update` or `per_epoch`;
+- metric requirement and metric source are explicit; and
+- each pass records its resolved update horizon.
+
+A per-update scheduler advances only after an accepted optimizer update. A
+skipped step or empty chunk does not advance it. A per-epoch scheduler advances
+once after a complete accepted epoch. Plateau scheduling receives the shared
+ordinary median from raw-model validation. Warmup has one owner and cannot be
+advanced by both the loop and scheduler.
+
+`float16` AMP on the Apple Metal Performance Shaders accelerator backend
+requires a supported gradient-scaling path. If the pinned Torch version cannot
+scale correctly on that backend, `use_amp: true` is refused before training
+with an actionable message. CUDA or CPU `bfloat16` does not enter the
+float16-only scaling branch. Full-precision and bfloat16 paths retain their
+existing numerical behavior.
+
+## Data counts and batch sizing
+
+`data.n_train` and `data.n_val` are required absolute row counts applied after
+parameter cuts. Positive counts are enforced. Under one split seed, a smaller
+selection is a prefix of a larger selection on the sorted in-memory path.
+
+Batch size and epoch count are strict positive integers. Boolean and
+fractional values are rejected. `bs > n_train` is refused before model or
+loader setup.
+
+Validation batch size is derived, not configured:
+
+```text
+k = ceil(n_val / 1024)
+eval_bs = ceil(n_val / k)
+```
+
+The result is capped by the validation loader's own safe chunk. The final
+validation batch is padded only to preserve one compiled shape; all real rows
+are scored exactly once and metrics are partition-invariant.
+
+Train and validation chunks are sized independently. Every validation request
+uses `data["val"]["load"]`, never the training chunk. A test forces different
+train and validation placement regimes and proves that no request exceeds the
+validation limit.
+
+Memory placement may alter input/output (I/O) grouping but not epoch semantics.
+Every non-final chunk contains a whole number of training batches. At most one
+global tail of `n_train % bs` rows is omitted. Every regime executes
+`n_train // bs` steps and records that count. Padding duplicate training rows
+into the objective is forbidden.
+
+## Memory accounting
+
+Sizing is observational. A sizing call preserves parameters, registered
+buffers, every module's train/eval flag, and CPU/device random state exactly.
+Dummy input uses the model's declared dtype and device. Byte totals are
+computed per tensor as `numel * element_size`; mixed dtypes and registered
+buffers are counted correctly.
+
+The planner separates:
+
+- permanent per-lane state;
+- resident model, geometry, loss, precision, and PCE state;
+- input batch bytes;
+- model-output bytes;
+- actual packed-target bytes;
+- temporary loss working memory; and
+- projected gradient and optimizer state.
+
+Packed-target width comes from the same loss object that stages targets. One
+batch costs `input + model output + actual target + temporary loss memory`,
+not two copies of model-output width. If resident state plus one complete batch
+exceeds the allowance, refuse and report required bytes, available bytes, and
+every term.
+Never force a batch count of one when one batch does not fit.
+
+Sequential allocators receive the budget remaining after earlier resident
+allocations. Resource estimates use actual output width, target width,
+geometry/loss buffers, and dtype. Dense-CosmoLike and wide-diagonal families
+require separate numerical checks with declared expected values against
+measured peak allocation.
+
+Capacity tokens are acquired before any job-sized GPU allocation. Either
+token-scoped staging owns all job-sized setup or tokens cover the complete
+lifetime of a lane-local staged experiment. Permanent per-lane state is
+multiplied by the actual lane count before capacity is advertised. Failure at
+setup, acquisition, or execution releases exactly the acquired resources and
+reaps sibling processes.
+
+## Complete state for repeated training
+
+Every training invocation establishes the full loss-object state. Block
+absence means clear the feature; it never means inherit state from a previous
+point. This rule applies to roughness and every conditional `configure_*`
+method, including law and rescaling state.
+
+A repeated transfer-refinement study captures one pristine source state `W0`,
+including parameters and buffers, immediately after artifact load. Each
+point restores that state in place before loader construction or geometry
+rebuild, resets live mode to false, restores evaluation mode and original
+`requires_grad` flags, clears gradients, and resets the recorded source
+snapshot. A failed point follows the same reset discipline. Point order,
+worker count, lane assignment, and prior failures cannot change a later
+point's starting state.
+
+The pristine digest is part of study and sweep identity. Every point's anchor
+reference must match it. Runs without transfer refinement retain their
+existing behavior.
+
+## Configuration totality
+
+One pure validator serves ordinary training, tuning, and sweeps. It enforces
+exact top-level and nested key sets before device selection, staging, source
+loading, or artifact writes. The accepted root-key list comes from a complete
+search of shipped YAML and deliberately supported CoCoA blocks that the driver
+forwards unchanged. Unknown keys raise with the misspelling and close matches
+from `difflib.get_close_matches`.
+
+Run-control leaves use strict types and finite-domain checks. Phase overrides
+route through the same leaf validators. A quoted Boolean is not a Boolean.
+NaN and infinity are rejected before ordered comparisons. Validated values,
+not raw input, enter the resolved record.
+
+Range leaves have exactly `[default, minimum, maximum, kind]`, where `kind` is
+`int`, `float`, or `log`. Values are finite, non-Boolean numbers;
+`minimum < maximum`; the default lies inside the interval; integer ranges use
+integral values without truncation; and log ranges have a positive minimum.
+The same normalized range feeds ordinary defaults, search defaults, and
+suggestions. Errors name the dot-separated path to the setting.
+
+An alias that conflicts with the current settings structure is refused with a
+paste-ready YAML block containing
+the offending value and current replacement. Use `ValueError`, not `KeyError`,
+so multiline guidance remains readable. A natural, self-consistent spelling
+may be canonicalized on a copy when the accepted semantics are unambiguous.
+
+`make_chi2` validates `rescale` before any angle-map or file access and has
+three explicit branches: `none`, `rescaled`, and `residual`. `include_amp`
+must be a real Boolean. A catch-all residual branch is forbidden.
+
+## Driver and study identity
+
+Public drivers follow `<family>_<verb>_emulator.py`. Family wrappers are thin:
+they pin family and program name while using the shared engine for GPU pools,
+packing, balancing, journal storage, and sweep logic. A wrong-family YAML
+fails at startup and names the correct driver.
+
+A tuning study creates one canonical manifest before workers start. The
+manifest includes family, probe, objective and threshold selection, fully
+resolved fixed configuration, search-space schema, fixed activation and
+rescaling, scientific input digests, companion-file digests, and implementation
+identity. Worker count, timeout, GPU count, RAM share, and quiet mode are
+operational and excluded.
+
+The manifest and digest are persisted as study attributes. Resume compares
+the current manifest before adding work to the queue or starting processes.
+Any scientific difference refuses and names changed fields. A journal without
+a manifest is refused;
+it is never silently blessed. A failed or abandoned earlier trial does not
+suppress the known-default control.
+
+Study-name resolution is pure and stable. Direct CosmoLike tuning uses the
+established cosmic-shear study name. Each family wrapper has one stable family
+tag. An intended rename requires an explicit migration.
+
+Workers return a structured success or failure, not NaN as a scientific
+metric. The parent requires one finite success for every requested point
+before publishing a normal result and exiting successfully. Missing,
+duplicate, non-finite, or failed points produce a nonzero exit. Serial and
+parallel paths use the same wrapper and semantics. Worker exit codes belong to
+the current invocation; an older successful trial cannot hide current worker
+failure.
+
+Every spawned process is validated before launch. Parent cleanup lives in
+`finally`: terminate and join siblings, close queues, inspect exit codes, and
+use a progress watchdog. A live but blocked process is not proof of progress.
+
+## Diagnostics
+
+Diagnostic eligibility follows the capabilities of the selected loss. A loss
+whose score requires parameter values marks the local-linear comparison, which
+fits a linear model near each requested point, unavailable while other valid
+pages still run. Scalar NPCE therefore produces its supported coverage,
+hardness, residual, and PDF
+products without calling the incompatible local-linear path.
+
+Local-linear analysis requires positive row counts,
+`k_nn > n_parameters + 1`, and `k_nn <= n_train`, where `k_nn` is the number
+of nearest training neighbors used for each local fit. The fit also requires
+enough distinct reference points. It is one comparator under locality and
+smoothness assumptions, not a
+mathematical lower bound.
+
+Wide-output diagnostics are bounded. Chi-squared scoring streams. The
+local-linear comparison uses bounded coordinate chunks, a declared validation
+subsample, or an explicit unavailable status. Grid2d summaries avoid holding
+three full float64 copies. Acceptance sets a small memory ceiling on a wide
+synthetic problem and still requires the product to finish.
+
+Undefined statistics use structured status, reason, and counts; numeric NaN is
+never used as a marker for unavailable state. Coverage reports good and bad
+counts. An all-good result
+says there are no failures; an all-bad result says comparison is unavailable.
+Hard-direction regression checks response variance, feature variance, log
+domain, and row sufficiency before fitting. CMB fractional residuals use a
+documented spectrum-aware validity mask and per-multipole valid counts; the
+error-bar panel remains authoritative at a zero crossing.
+
+Every direct diagnostic chi-squared producer passes through the shared score
+domain before statistics or plotting. CMB, grid, and grid2d residual functions
+each require a live valid-output test and a live corrupt-score refusal; an AST
+search for all call names is only supplemental breadth.
+
+Documentation distinguishes measurement from interpretation. Define nearest-
+neighbor distance, Spearman correlation, local linear regression, percentile,
+decile, and R-squared at first use. A correlation can be consistent with a
+coverage limitation but cannot prove cause. Every heuristic control is a
+named argument or constant with units, derivation, and a sensitivity check.
+
+## Publication and plots
+
+Persist a trained artifact before optional diagnostics, so a plotting failure
+does not destroy a valid model. Diagnostic logs and products must state
+unavailable analyses plainly.
+
+Table writers validate all column lengths before opening a destination.
+Unequal values, fractions, labels, or learning-curve lengths raise without
+replacing an existing product.
+
+`plot_xi` validates input before creating a figure. When parameters are
+provided, one finite min/max normalization and one Matplotlib
+`ScalarMappable`, the object that maps numeric values to colors, determine the
+exact color reused for each curve and its marker in every panel. Visual
+identity is precomputed by curve index. The constant-parameter behavior is
+explicit. Without parameters, index colors are allowed and no parameter
+colorbar is drawn. Mutable list defaults are forbidden.
+
+Learning-curve and sweep plots share one y-scale decision. Training sizes are
+finite and positive; fractions and target are finite in `[0, 1]`. Positive-
+only fractions use logarithmic y. Any exact zero uses a zero-capable scale and
+the zero marker remains visible at its exact coordinate.
+
+`--quiet` means successful standard output (`stdout`) is empty. All reachable
+staging, geometry, training, and worker paths use one explicit output channel.
+Errors remain nonzero and go to standard error (`stderr`). Quiet mode never
+suppresses persisted scientific metadata.
+
+## Acceptance contracts
+
+The following sections define required evidence without recording who found a
+problem, when it was reviewed, or how it moved between branches.
+
+### Loss and schedule acceptance
+
+- Analytic BerHu and capped-BerHu values match reference formulas within
+  `1e-9`; join derivatives match within `1e-6`; blend endpoints exactly match
+  square root and full BerHu.
+- Exact-fit gradients are finite zero in eager and compiled execution. A
+  forced compile failure is reported as a failure, never as a pass.
+- Decreasing step schedules preserve their established values. Increasing
+  zero-to-one schedules have strict interior values and reach one only at the
+  endpoint.
+- Trim and focus accept constant schedules. BerHu and EMA reject constant
+  anneals at the exact dot-separated setting path. Omitted anneals activate
+  the full feature.
+- Every malformed schedule and range fails before staging. Valid ordinary,
+  phase-local, tuning, and sweep paths resolve identically.
+
+### Finite training acceptance
+
+- `eval_val` rejects one NaN, positive infinity, or negative infinity among
+  otherwise good rows before ranking and names source positions.
+- A NaN scalar loss fails before backward. A finite loss with a non-finite
+  gradient fails before optimizer mutation. Weights remain bitwise unchanged.
+- Warm-start and transfer parity reject non-finite inputs, outputs, and
+  comparisons before printing success or an unrelated parity error.
+- Two finite batches near `1e38` produce a finite CPU-float64 epoch mean. A
+  mutation restoring device-float32 multiplication overflows and fails.
+- Eight finite float32 validation scores near `1e38` produce the direct
+  float64 mean, ordinary median, and finite fractions. The returned mean is
+  the history value. A float32-mean mutation fails on CPU and the mandatory
+  CUDA mirror.
+- Every parameter and optimizer-state tensor is finite after a real AdamW
+  update. Deliberately poisoned parameters and moments are detected.
+
+### Batch and resource acceptance
+
+- Resident, RAM-streamed, and memory-mapped-file (`memmap`) training execute
+  the same `n_train // bs` steps on the same rows for one seed. Only the single global
+  tail may be omitted.
+- An adversarial safe chunk of `2 * bs - 1` does not drop `bs - 1` rows from
+  every chunk. A divisible control uses every row exactly once modulo shuffle.
+- Validation with a smaller safe chunk than training never requests more than
+  its own limit and scores every row.
+- For `out_dim=7`, `target_dim=14`, batch size 3, and float32, packed-target
+  arithmetic adds exactly 84 bytes. A crafted budget changes the old two-batch
+  estimate to one corrected batch. Four bytes below one complete batch raises.
+- Sizing preserves BatchNorm state, every train/eval mode, and CPU/CUDA random
+  streams. Mixed-dtype parameters and buffers equal a direct byte sum.
+- Token plans allowing four, two, or one concurrent job enforce those counts
+  across setup and execution. Moving token acquisition below setup must fail
+  the allocation-counter mutation.
+
+### Repeated-run acceptance
+
+- Enabled-to-disabled and disabled-to-enabled loss features match fresh-object
+  controls. Failure followed by a valid point also matches a fresh control.
+- Two transfer-refinement points enter with the same pristine digest. Reverse
+  order and different lane counts produce the same per-point result for fixed
+  seeds.
+- A point that updates the base and then raises cannot alter the next point's
+  entry state. Fixed-geometry and rebuilt-geometry driver paths are both
+  exercised.
+- Every point's anchor reference matches the pristine source, and every
+  correction stage begins with live mode false.
+
+### Study and sweep acceptance
+
+- An identical manifest resumes. Changes to loss, range kind or bound, input
+  bytes at the same path, family, activation, rescaling, objective, or source
+  identity refuse before workers start.
+- A legacy no-manifest journal refuses with a migration instruction.
+- Operational-only changes resume.
+- A failed-only study still schedules the default control once.
+- Direct CosmoLike and every wrapper resolve stable names. Restoring a
+  `family is None` conditional must reproduce the study fork and fail.
+- Missing, duplicate, NaN, infinity, or failed sweep results prevent normal
+  publication. Serial and pooled metadata agree.
+
+### Diagnostic and plotting acceptance
+
+- All-good, all-bad, constant-feature, constant-response, invalid-log-domain,
+  and zero-crossing fixtures produce defined status/reason records and no
+  formatted NaN.
+- Local-linear negative, NaN, and infinite scores refuse before thresholding.
+  Values on both sides of the family band normalize or refuse consistently.
+- CMB, grid, and grid2d residual diagnostics each execute a finite case with a
+  declared expected answer and a corrupt-score refusal. Mutations keep the
+  helper call name but pass the wrong tensor, owner, or positions; live tests
+  must catch them.
+- A wide synthetic diagnostic completes under the declared memory ceiling.
+- Parameter-colored lines match the colorbar ScalarMappable under unsorted,
+  uneven parameters and retain line/marker identity across panels.
+- Positive-only learning curves use log y. A curve ending at zero uses the
+  zero-capable scale and displays the zero marker. Invalid fractions and
+  training sizes fail before figure construction.
+
+## Stable gate evidence anchors
+
+These anchors are compatibility targets for the structured evidence map. A
+gate result is evidence only for the assertion stated here. An exit code or an
+exact status output line does not prove an unstated numerical property. A
+reference comparison also requires nonempty exact output-line lists; two empty
+lists cannot establish equality.
+
+### EMA disabled and EMA smoke
 
 <a id="ema-off-identity-evidence"></a>
-**ema-off-identity — the configured historical base enables one selected-text
-comparison of the current and pre-EMA drivers.**
-
-- files: reads the dedicated EMA-off YAML and its six manifest-declared
-  cosmic-shear inputs. The `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings that both drivers read transitively
-  outside the manifest hash. The harness stages one temporary YAML copy in
-  the configured driver fileroot for both runs; each run writes its ordinary
-  `.emul`/`.h5` pair, and the harness removes the staged YAML and temporary Git
-  worktree.
-- subprocess: `cosmic_shear_train_emulator.py` on the current tree and the
-  legacy `train_single_emulator_cosmic_shear.py` found at the configured
-  historical commit.
-- metric: per-leg selected-text equality for lines beginning with `epoch` or
-  `best epoch`, after removing the trailing wall-clock field; the helper does
-  not require either selected-line list to be nonempty.
-- legs: 1, named `ema-off-identity.golden-selected-text-equality`.
-- evidence: `golden_bases["ema-off-identity"]` is configured as `46ec5e1`, so
-  the leg is executable and asserted whenever the Torch, CosmoLike, and GPU
-  capability lane runs; it is not base-`UNAVAILABLE` in the shipped config.
-- owed: Torch, CosmoLike, GPU, plus a nonempty-selection assertion before
-  equal selected lists prove that epoch text existed.
+**EMA-disabled comparison.** The configured current and reference commands
+must read the same declared scientific inputs and compare nonempty exact epoch
+output lines after removing only the timing field. Dataset files reached
+indirectly through a dataset pointer remain part of scientific identity.
 
 <a id="ema-off-identity-golden-selected-text-equality"></a>
-`ema-off-identity.golden-selected-text-equality` requires the selected current
-and historical log-line lists to match after the one timing field is removed;
-the present helper would also accept two empty lists.
+The exact epoch output-line lists from the current and reference commands must
+be nonempty and equal after the single documented timing field is removed.
 
 <a id="ema-smoke-evidence"></a>
-**ema-smoke — an EMA-enabled training run starts successfully, prints its
-resolved horizon, and reaches the logged rewind path.**
-
-- files: reads the resolved `ema-smoke-config` YAML and its six manifest-
-  declared cosmic-shear inputs. The `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings read transitively outside the manifest
-  hash. The driver writes the ordinary `.emul`/`.h5` pair and its stream to
-  the immutable gate log.
-- subprocess: `cosmic_shear_train_emulator.py`.
-- metric: per-leg exit status zero or selected-text presence.
-- legs: 3, named `ema-smoke.driver-exit-zero`,
-  `ema-smoke.horizon-banner-present`, and
-  `ema-smoke.rewind-line-present`.
-- evidence: all three legs are asserted by the wrapper.
-- owed: all legs require the Torch, CosmoLike, and GPU workstation.
+**EMA smoke.** An EMA-enabled public training command must exit zero, print the
+resolved horizon, and reach the rewind path. This is startup and routing
+evidence; it does not independently prove which epoch was restored.
 
 <a id="ema-smoke-driver-exit-zero"></a>
-`ema-smoke.driver-exit-zero` requires the training subprocess to exit with
-status zero.
+The EMA-enabled training subprocess exits with status zero.
 
 <a id="ema-smoke-horizon-banner-present"></a>
-`ema-smoke.horizon-banner-present` requires the driver stream to contain
-`ema: horizon 3 epochs`.
+The command output contains the exact line `ema: horizon 3 epochs` for the
+configured fixture.
 
 <a id="ema-smoke-rewind-line-present"></a>
-`ema-smoke.rewind-line-present` requires the driver stream to contain
-`rewound to best epoch`; it does not independently validate which epoch was
-restored.
+The command output contains the exact line `rewound to best epoch`. Exact
+restored-state truth belongs to the selection-record and snapshot checks.
+
+### Phase resolution and scheduler override
 
 <a id="single-phase-demotion-evidence"></a>
-**single-phase-demotion — the single-phase and two-phase control drivers exit,
-and the single-phase stream contains demotion-related text.**
-
-- files: reads the resolved single-phase and two-phase-control YAMLs plus
-  their six manifest-declared cosmic-shear inputs. Each `.dataset` pointer
-  leads to data-vector, covariance, mask, and n(z) siblings read transitively
-  outside the manifest hash. Each run writes its ordinary `.emul`/`.h5` pair,
-  and both driver streams enter the gate log.
-- subprocess: two invocations of `cosmic_shear_train_emulator.py`.
-- metric: per-leg exit status or selected-text presence.
-- legs: 3, named `single-phase-demotion.single-phase-exit-zero`,
-  `single-phase-demotion.demotion-text-present`, and
-  `single-phase-demotion.two-phase-control-exit-zero`.
-- evidence: all three legs are asserted by the wrapper.
-- owed: all legs require the Torch, CosmoLike, and GPU workstation.
+**Single-phase demotion.** The ResMLP command exits zero with a demotion notice,
+and a two-phase ResCNN control also exits zero. The control proves reachability,
+not output equality.
 
 <a id="single-phase-demotion-single-phase-exit-zero"></a>
-`single-phase-demotion.single-phase-exit-zero` requires the ResMLP run to exit
-with status zero.
+The ResMLP command exits with status zero.
 
 <a id="single-phase-demotion-demotion-text-present"></a>
-`single-phase-demotion.demotion-text-present` requires the ResMLP stream to
-match the current broad pattern `single-phase|demot|resolve`; it does not claim
-an exact notice string.
+An exact ResMLP output line names single-phase resolution or demotion in plain
+language.
 
 <a id="single-phase-demotion-two-phase-control-exit-zero"></a>
-`single-phase-demotion.two-phase-control-exit-zero` requires the ResCNN plus
-NLA control run to exit with status zero; no output-equality comparison is
-performed by this leg.
+The ResCNN two-phase control exits with status zero.
 
 <a id="head-scheduler-override-evidence"></a>
-**head-scheduler-override — the override run exits and prints its head-
-scheduler banner; a configured golden base also protects selected log text.**
-
-- files: reads the ordinary training YAML for the optional golden comparison,
-  the resolved head-scheduler override YAML, and their six manifest-declared
-  cosmic-shear inputs. Each `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings read transitively outside the manifest
-  hash. The golden YAML is staged in the configured driver fileroot. Each
-  executed driver writes its ordinary `.emul`/`.h5` pair, while the harness
-  removes the staged golden YAML and temporary Git worktree.
-- subprocess: `cosmic_shear_train_emulator.py` on the current tree and,
-  conditionally, on the configured historical worktree.
-- metric: per-leg selected-text equality, exit status, selected-text presence,
-  or logged-only inspection.
-- legs: 4, named `head-scheduler-override.golden-selected-text-equality`,
-  `head-scheduler-override.driver-exit-zero`,
-  `head-scheduler-override.override-banner-present`, and
-  `head-scheduler-override.lr-cut-cadence`.
-- evidence: the driver-exit and banner legs are asserted; the selected-lines
-  leg is asserted only with a configured golden base and otherwise is
-  `UNAVAILABLE`; the cadence item is logged-only and must emit `UNAVAILABLE`.
-- owed: execution requires the Torch, CosmoLike, and GPU workstation; the
-  golden leg also needs a configured base and a nonempty-selection assertion,
-  and the cadence needs a numerical assertion before it can become green
-  evidence.
+**Head scheduler override.** The override command exits zero and prints the
+resolved head-scheduler status line. A reference comparison, when configured,
+uses nonempty exact output-line lists. Scheduler cadence requires a numerical
+counting assertion and cannot be inferred from a status output line.
 
 <a id="head-scheduler-override-golden-selected-text-equality"></a>
-`head-scheduler-override.golden-selected-text-equality` requires selected
-`phase`, `epoch`, and `best` log-line lists to match the configured historical
-run after the timing field is removed. The present helper would also accept
-two empty lists.
+The phase, epoch, and best output-line lists from the current and reference
+commands must be nonempty and equal after timing removal.
 
 <a id="head-scheduler-override-driver-exit-zero"></a>
-`head-scheduler-override.driver-exit-zero` requires the override subprocess to
-exit with status zero.
+The head-override subprocess exits with status zero.
 
 <a id="head-scheduler-override-override-banner-present"></a>
-`head-scheduler-override.override-banner-present` requires the stream to
-contain `[head overrides: scheduler]`.
+The command output contains the exact line `[head overrides: scheduler]` for
+the fixture.
 
 <a id="head-scheduler-override-lr-cut-cadence"></a>
-`head-scheduler-override.lr-cut-cadence` is `UNAVAILABLE`: the current gate
-prints an instruction to inspect the learning-rate cuts but performs no cadence
-comparison.
+Cadence evidence requires the expected number and location of learning-rate
+cuts from a counting scheduler. Printed inspection instructions are
+`UNAVAILABLE`, not a pass.
 
-### Queue-2 evidence draft: training-control gates, batch two
-
-These blocks distinguish a numerical assertion from a printed suggestion.
-`UNAVAILABLE` means the present gate emits no machine-checked verdict for that
-claim. A current-red leg is different: its check exists, but the present check
-process cannot reach or complete it. That distinction prevents a missing
-measurement from being recorded as a failed scientific comparison. For every
-golden leg below, the current equality helper compares selected-line lists but
-does not require them to be nonempty; that guard is owed even after a base is
-configured.
+### Production diagnostic command
 
 <a id="production-diagnostic-evidence"></a>
-**production-diagnostic — the repository census, package import, and training
-process are checked; diagnostic content is not yet read back.**
-
-- files: reads the board-resolved diagnostic YAML and its six manifest-
-  declared deployment inputs. Its `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings read transitively outside the manifest
-  hash. The census reads repository `*.py` files only: although `README.md` is
-  passed as an explicit grep operand, `--include=*.py` excludes it. The driver
-  may write its ordinary `.emul`/`.h5` products and a diagnostic PDF.
-- subprocess: repository `grep`, a Python package-import command, and
-  `cosmic_shear_train_emulator.py --diagnostic=gates_diag`.
-- metric: per-leg exact census status, subprocess exit status, regular-
-  expression presence, or `UNAVAILABLE` where the current wrapper only logs an
-  instruction.
-- legs: 7, named `production-diagnostic.retired-class-name-census`,
-  `production-diagnostic.package-import`,
-  `production-diagnostic.driver-exit-zero`,
-  `production-diagnostic.sizes-banner`,
-  `production-diagnostic.cut-row-selection`,
-  `production-diagnostic.diagnostics-pdf`, and
-  `production-diagnostic.triangle-shading`.
-- evidence: the first four legs are asserted. The class-name census is the
-  current literal `NLATemplateMLP|NLAInputGeometry` search over repository
-  `*.py` files, with `ai/gates/` and `.git/` excluded; it does not inspect the
-  root README and is not a general dead-symbol census. The final three legs
-  are `UNAVAILABLE`.
-- owed: an independent expected-row calculation, PDF existence and readback,
-  and a programmatic artist comparison are needed before the last three legs
-  can become green evidence. The board registry gates this entire body on
-  Torch, CosmoLike, and GPU, so absence of any one makes all seven aids
-  capability-`UNAVAILABLE`, including the otherwise host-only census/import
-  legs.
+**Production diagnostic smoke.** A complete repository search, package import,
+command exit, and the resolved-size output line are separate assertions.
+Expected cut rows, PDF readability, and triangle shading require independent
+programmatic checks.
 
 <a id="production-diagnostic-retired-class-name-census"></a>
-`production-diagnostic.retired-class-name-census` requires zero matches for
-the two named retired classes within the census's stated files and exclusions.
+The complete stated Python-file search has zero matches for the named retired
+classes. Exclusions and the filename-pattern scope are part of the assertion.
 
 <a id="production-diagnostic-package-import"></a>
-`production-diagnostic.package-import` requires importing `emulator`,
-`emulator.designs`, and `emulator.losses` to exit with status zero.
+Importing `emulator`, `emulator.designs`, and `emulator.losses` exits zero.
 
 <a id="production-diagnostic-driver-exit-zero"></a>
-`production-diagnostic.driver-exit-zero` requires the diagnostic training
-subprocess to exit with status zero.
+The public diagnostic training command exits zero.
 
 <a id="production-diagnostic-sizes-banner"></a>
-`production-diagnostic.sizes-banner` requires a line matching
-`used N of P cut rows`; it checks the banner's shape, not the truth of either
-integer.
+The command output contains a syntactically valid `used N of P cut rows` line.
+This assertion does not prove either integer without an independent
+calculation.
 
 <a id="production-diagnostic-cut-row-selection"></a>
-`production-diagnostic.cut-row-selection` is `UNAVAILABLE`: the current gate
-does not compute the expected retained rows independently, and its configured
-YAML is not asserted here to be the intended tight-window fixture.
+Cut-row truth requires an independent expected-row calculation from the
+fixture and exact comparison with the reported and executed row identities.
 
 <a id="production-diagnostic-diagnostics-pdf"></a>
-`production-diagnostic.diagnostics-pdf` is `UNAVAILABLE`: the current gate
-requests a PDF but does not check that the file exists or can be read.
+The requested PDF exists, is nonempty, and can be parsed after command exit.
 
 <a id="production-diagnostic-triangle-shading"></a>
-`production-diagnostic.triangle-shading` is `UNAVAILABLE`: the current gate
-prints visual-inspection instructions but compares no plotted artists.
+Inspection of the Matplotlib plot objects must compare expected and actual
+triangle shading. A visual instruction alone is `UNAVAILABLE`.
+
+### Evaluation partition invariance
 
 <a id="eval-batch-invariance-evidence"></a>
-**eval-batch-invariance — validation scores and the ordinary median are
-independent of how the same rows are divided into batches.**
-
-- files: uses synthetic in-memory Torch tensors; it reads no scientific data
-  file and writes no persistent product.
-- subprocess: `ai/gates/checks/ge_c_eval_bs.py`; the child drives the real
-  `eval_val`, `eval_source_chi2`, and one-epoch `training_loop_batched`
-  entry points.
-- metric: per-leg. The independent float64 reference over the twelve
-  distinct float32 fixture scores is median `1.5`, mean
-  `3.941666666728755`, and threshold fractions
-  `[0.833333333, 0.583333333, 0.25]`. Metrics use `rtol=1e-6` and
-  `atol=1e-7`; row identities, row order, and per-row scores are exact. Each
-  row's known score is stored once in the model-input feature and once in the
-  target; the fixture loss averages those two copies. A parameter/target row
-  reassociation therefore changes the score instead of passing through a
-  target-only test double. Ordinary-median controls are exact, and printed
-  timing observations are `UNAVAILABLE`.
-- legs: 4, named `eval-batch-invariance.partition-invariance`,
-  `eval-batch-invariance.ordinary-median`,
-  `eval-batch-invariance.cuda-timing`, and
-  `eval-batch-invariance.production-timing-claim`.
-- evidence: the first two logical legs are asserted inside the child script;
-  the timing legs are informational and therefore `UNAVAILABLE`. The child
-  owns its logical verdicts, so there is no separate script-exit evidence leg.
-- owed: the board registry requires both Torch and GPU for the entire gate,
-  even though the two numerical assertions can execute on CPU. A reproducible
-  timing protocol and a numerical acceptance bound are required for either
-  timing claim to become evidence.
+**Evaluation partition invariance.** The same twelve distinct float32 scores
+and permuted row identities pass through real source scoring, validation, and
+one training epoch under a full batch, equal partitions, and a smaller final
+partition. The independent float64 reference is median `1.5`, mean
+`3.941666666728755`, and fractions
+`[0.833333333, 0.583333333, 0.25]`. The relative tolerance (`rtol`) is `1e-6`,
+and the absolute tolerance (`atol`) is `1e-7`, for aggregate metrics; row
+identity and order must match exactly.
 
 <a id="eval-batch-invariance-partition-invariance"></a>
-`eval-batch-invariance.partition-invariance` compares real `eval_val`'s
-score-domain boundary's RETURNED tensor, source-row positions, aggregate
-median, mean, and threshold fractions with the independent reference for one
-full batch, three equal batches, and a ragged final batch. Capturing the
-returned tensor means a normalization or ordering defect inside the boundary
-cannot hide behind its correct input. The same values must reach the real
-one-epoch median/mean/fraction histories, and the median must reach the real
-plateau-scheduler input. The per-row reference is the existing production
-diagnostic scorer, `eval_source_chi2`; there is no gate-side copy of the
-batched score formula. The source row list is permuted and every score is
-distinct. A mutation that drops the middle equal batch and a mutation that
-reverses its scores under unchanged row labels must both fail while the
-diagnostic reference remains unchanged.
+Returned score tensors, row positions, median, mean, fractions, histories, and
+plateau-scheduler input match the reference in every partition. Dropping a
+middle partition or reassigning its scores under unchanged row labels must
+fail while the diagnostic reference remains unchanged.
 
 <a id="eval-batch-invariance-ordinary-median"></a>
-`eval-batch-invariance.ordinary-median` requires the helper and real
-`eval_val` to return the arithmetic midpoint for an even sample, preserve the
-odd-sample control, remain batch-invariant, and catch the lower-middle
-`Tensor.median` mutation.
+The real validation path returns the arithmetic midpoint for an even sample,
+preserves the odd control, remains partition-invariant, and rejects a
+lower-middle `Tensor.median` mutation.
 
 <a id="eval-batch-invariance-cuda-timing"></a>
-`eval-batch-invariance.cuda-timing` is `UNAVAILABLE`: CUDA durations are
-printed but are not compared with an acceptance bound.
+CUDA timing is evidence only after a reproducible protocol and numerical
+acceptance bound are defined. Printed durations alone are `UNAVAILABLE`.
 
 <a id="eval-batch-invariance-production-timing-claim"></a>
-`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the gate
-makes no production-run speed claim and has no production timing protocol.
+A production-speed claim requires a production timing protocol and bound. The
+numerical gate makes no speed claim.
 
-<a id="didactics-59-red-team-return-2026-07-14"></a>
-#### DIDACTICS-59 red-team return: real evaluation across three partitions (2026-07-14)
+<a id="eval-batch-invariance-real-partitions"></a>
+The real-entry-point partition test must keep the returned-boundary mutation
+and the parameter/target reassociation mutation. Both must fail independently
+of the source-score reference.
 
-The fan-out-complete transfer was executed on branch
-`codex/didactics59-real-eval`. The implementation checkpoint is `f3900ec`;
-the branch was then synchronized with local `main` at `7f4b769` by merge
-checkpoint `8ccaf07`. This is a red-team implementation return for Fable's
-independent audit, not self-certification.
+### Finite-contract compatibility anchors
 
-Named gate-surface scope: `ai/gates/checks/ge_c_eval_bs.py` is replaced with the
-ratified real-entry-point check; `ai/gates/board.py` changes only the GE-C prose
-that states the new observations; this evidence-map passage records the
-current check. `emulator/training.py`, `ai/gates/run_board.py`, production
-thresholds, production fixtures, golden bases, and `texnotes/` are unchanged.
-The five mild TEX-PROSE narration residues remain queued for the next
-TEX-PROSE unit; this check-script unit does not consume them.
-
-The production proof now has these surfaces:
-
-- twelve distinct float32 scores and a permuted source-row list are driven
-  through real `eval_source_chi2`, real `eval_val`, and one real
-  `training_loop_batched` epoch;
-- each known score is present in both the model-input feature and target, and
-  the fixture loss averages the two. A wrong parameter/target association
-  therefore changes the score;
-- the observer records the tensor RETURNED by production `screen_chi2`, not
-  its input. Real reductions, exact source-row association, and normalized
-  rows are compared with the independent float64 calculation for a single
-  full batch, three equal batches, and a 5+5+2 ragged partition;
-- median, mean, all three threshold fractions, returned histories, and the
-  value passed to the real plateau scheduler are compared. The tolerances are
-  `rtol=1e-6`, `atol=1e-7`; row identities, row order, and row scores compare
-  exactly;
-- the shipped catch-power arms remove the middle equal batch and reverse its
-  scores under unchanged row labels. Both preserve the independent
-  diagnostic reference and both must be rejected. The ordinary-median arm
-  remains intact.
-
-Composed-tip evidence, Cocoa Torch 2.6.0 CPU interpreter:
-
-- child rc 0. The independent reference printed median `1.5`, mean
-  `3.94166667`, and fractions `[0.833333333, 0.583333333, 0.25]`.
-  All three production partitions printed `eval=True histories=True`; each
-  history printed the same values and scheduler input `[1.5]`;
-- exact observed row orders were
-  `[0,1,2,3,4,5,6,7,8,9,10,11]`,
-  `[0,2,7,10,1,5,9,11,3,4,6,8]`, and
-  `[0,2,5,7,10,1,4,8,9,11,3,6]`;
-- the shipped drop mutation printed `caught=True`, eight observed rows, and
-  changed mean `2.6125`; the shipped reassociation mutation printed
-  `caught=True` with middle rows `[1,5,9,11]` carrying reversed scores;
-- an extra, unshipped attack changed the tensor RETURNED by `screen_chi2`
-  after its normal logic. It printed
-  `returned-boundary reorder accepted=False`. A separately rolled target
-  tensor printed `parameter/target reassociation accepted=False`;
-- manifest probe: child rc 0; declared and emitted ids were the same four in
-  the same order; results were `[PASS, PASS, UNAVAILABLE, UNAVAILABLE]`; no
-  malformed line. The timing legs stay honestly unavailable;
-- `compileall emulator gates` rc 0; `ai/gates/run_board.py --list` rc 0;
-  `ai/gates/checks/board_selftest.py` ended `board-selftest: ALL PASS`;
-  `git diff --check origin/main...HEAD` rc 0.
-
-Raw local logs are `/tmp/didactics59-child-composed.log`,
-`/tmp/didactics59-independent-attack-composed.log`,
-`/tmp/didactics59-manifest-composed.log`,
-`/tmp/didactics59-list-composed.log`, and
-`/tmp/didactics59-selftest-composed.log` (446 lines, terminal `ALL PASS`).
-CUDA is absent on this machine. The child keeps thresholds on CPU because
-production moves validation scores to CPU before threshold reduction, fixing
-the inherited draft's CUDA device-mismatch risk. The wrapper still requires
-the GPU capability, and the CUDA timing and any production-timing claim remain
-workstation-owed by design.
-
-LANDING BLOCK (merge and push to `main` remain the user's alone):
-
-```bash
-cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
-git fetch .claude/worktrees/codex-didactics59-real-eval \
-  codex/didactics59-real-eval
-git merge --ff-only FETCH_HEAD
-git push
-```
+The following identifiers remain stable for existing evidence links. When a
+separately named finite-contract anchor appears later, the entry points to it.
+The other entries state their current check directly.
 
 <a id="finite-contract-evidence"></a>
-**finite-contract — the child contains finite-value and score-domain checks,
-but its current execution is red before all declared checks can run.**
-
-- files: uses synthetic Torch tensors plus warm-start weight/HDF5 pairs and
-  covariance fixtures under a directory created by `tempfile.mkdtemp`. The
-  current child never removes that directory, so these are leaked temporary
-  products rather than cleanup-proven outputs.
-- subprocess: `ai/gates/checks/finite_contract.py`.
-- metric: per-leg exact exception boundaries, unchanged-state comparisons,
-  analytic references, scale-aware chi-square bands, mutation arms, and
-  explicit current-red or `UNAVAILABLE` classifications for legs that do not
-  execute.
-- legs: 14, named `finite-contract.validation-score-finiteness`,
-  `finite-contract.train-step-finiteness`,
-  `finite-contract.diagnostic-score-finiteness`,
-  `finite-contract.finetune-parity-finiteness`,
-  `finite-contract.transfer-parity-finiteness`,
-  `finite-contract.safe-sqrt-eager`,
-  `finite-contract.safe-sqrt-compiled`,
-  `finite-contract.epoch-mean-finiteness`,
-  `finite-contract.chi2-domain-boundary`,
-  `finite-contract.chi2-width-band`,
-  `finite-contract.chi2-compute-dtype-band`,
-  `finite-contract.optimizer-schema`,
-  `finite-contract.extreme-scale-validation-reduction`, and
-  `finite-contract.optimizer-post-step-finiteness`.
-- evidence: `DataVectorGeometry` now imports without loading either optional
-  CosmoLike dependency. The compiled interface and GetDist's `IniFile` are
-  loaded only by `from_cosmolike` and `build_shear_angle_map`, respectively.
-  A direct Cocoa Torch 2.6.0 CPU run therefore reaches the check body. Parts A
-  and C record four false-red assertions because they still expect the retired
-  `finite contract[...]` prefix while production raises
-  `chi2 domain contract[...]`. Parts B, D, and E complete. Part F then crashes
-  before its first report because its synthetic `CosmolikeChi2` object has no
-  `geom` attribute for `_chi2_n_terms`. Later clusters do not execute, so the
-  gate has no terminal verdict and no current whole-gate PASS.
-- owed: update Parts A/C to the live domain-error prefix and give the Part F
-  fixture an explicit contraction width. Then execute every later cluster,
-  including optimizer schema, the extreme-scale published-reduction leg on
-  CPU and its mandatory CUDA lane, the real optimizer post-step inspection,
-  and an explicit disposition for the conditional compiled-negative sublane.
+The finite-contract check covers validation, training updates, diagnostics,
+warm-start parity, transfer parity, safe square roots, epoch and validation
+reductions, score-domain bands, optimizer schema, and post-step state.
 
 <a id="finite-contract-validation-score-finiteness"></a>
-`finite-contract.validation-score-finiteness` requires finite `eval_val`
-controls to preserve their metrics and the one-NaN, one-`+Inf`, and one-`-Inf`
-fixtures to raise before ranking. It is current-red because those fixtures
-raise the live `chi2 domain contract[validation]` error while the child still
-matches the retired `finite contract[validation]` prefix.
+See `finite-contract-validation`: non-finite validation rows refuse before
+ranking and finite controls preserve metrics.
 
 <a id="finite-contract-train-step-finiteness"></a>
-`finite-contract.train-step-finiteness` checks a NaN scalar loss and,
-separately, a finite loss whose gradient is NaN; each must raise before
-`optimizer.step` with model weights unchanged. It also runs a finite control
-and a read-only global-gradient-norm comparison; it does not sample every
-nonfinite value.
+See `finite-contract-train-step`: non-finite loss or gradient refuses before
+optimizer mutation.
 
 <a id="finite-contract-diagnostic-score-finiteness"></a>
-`finite-contract.diagnostic-score-finiteness` requires
-`eval_source_chi2` to preserve one finite control and reject one injected NaN
-at row 9. It is current-red because the live
-`chi2 domain contract[diagnostic]` message does not match the retired prefix
-the child expects.
+See `finite-contract-diagnostic`: non-finite diagnostic scores refuse with row
+identity.
 
 <a id="finite-contract-finetune-parity-finiteness"></a>
-`finite-contract.finetune-parity-finiteness` checks a clean control, a no-extra
-both-arm NaN, one-arm NaN, one-arm `+Inf`, and an extras-present NaN; those
-named fixtures must raise the finite-contract error before a misleading parity
-verdict. It does not quantify over every nonfinite surface.
+See `finite-contract-finetune-parity`: non-finite warm-start surfaces cannot
+produce a success or misleading parity message.
 
 <a id="finite-contract-transfer-parity-finiteness"></a>
-`finite-contract.transfer-parity-finiteness` checks a clean control and one
-poisoned-weight NaN surface; the latter must raise the finite-contract error
-before a misleading frozen-base verdict. No infinity or one-arm transfer
-fixture is present.
+See `finite-contract-transfer-parity`: non-finite transfer surfaces refuse
+before the frozen-base comparison.
 
 <a id="finite-contract-safe-sqrt-eager"></a>
-`finite-contract.safe-sqrt-eager` requires exact-fit square-root losses to
-have finite zero gradients, positive controls to match the analytic square
-root, and materially negative, NaN, or `+Inf` chi-square fixtures to produce a
-nonfinite loss in eager mode. Those last probes inspect the produced loss;
-they do not assert a direct producer exception.
+The exact-fit square-root rule requires eager gradients at zero to be finite
+zero and requires invalid score-domain values to be refused.
 
 <a id="finite-contract-safe-sqrt-compiled"></a>
-`finite-contract.safe-sqrt-compiled` checks the exact-fit sqrt-mode backward
-for a finite zero gradient and checks that a deliberately raising compiled
-callable is detected. It does not repeat the eager mode/positive/bad-value
-matrix. It is `UNAVAILABLE` on a box that cannot run that mandatory compiled
-backward lane.
+The same exact-fit rule requires a compiled backward pass on a machine that
+supports compilation.
 
 <a id="finite-contract-epoch-mean-finiteness"></a>
-`finite-contract.epoch-mean-finiteness` requires finite large batch losses to
-produce the finite float64 reference epoch mean instead of overflowing a
-float32 accumulator.
+See `finite-contract-epoch-mean`: CPU float64 accumulation protects the
+published epoch mean.
 
 <a id="finite-contract-chi2-domain-boundary"></a>
-`finite-contract.chi2-domain-boundary` requires valid controls to remain
-unchanged, roundoff inside the declared band to become exact zero, and
-finite materially negative chi-square values to raise at evaluation and
-diagnostic boundaries, with a finite-only false-crowning mutation. A compiled
-negative-reduction report runs only when `_can_compile()` is true; the current
-false branch emits no explicit `UNAVAILABLE`. Nonfinite fixtures belong to the
-validation/diagnostic legs above, not this domain leg.
+The chi-squared domain rule must serve training, evaluation, and diagnostics
+through one shared validator.
 
 <a id="finite-contract-chi2-width-band"></a>
-`finite-contract.chi2-width-band` requires the negative-roundoff band to scale
-with kept width rather than width squared, including the production-width
-mutation, scalar-width declaration, subclass census, and ill-conditioned SPD
-control.
+The allowed roundoff band scales with the number of kept coordinates, not the
+square of that width.
 
 <a id="finite-contract-chi2-compute-dtype-band"></a>
-`finite-contract.chi2-compute-dtype-band` has no current executed verdict.
-The earlier Part F fixture crashes while obtaining its contraction width, so
-none of this aid's three-boundary, upcast-mutation, or float64-control reports
-execute.
+The model's compute data type determines machine epsilon for the band; a later
+upcast does not change that boundary.
 
 <a id="finite-contract-optimizer-schema"></a>
-`finite-contract.optimizer-schema` has no current executed verdict: its
-finite-real, non-bool AdamW option assertions occur after the deterministic
-Part F fixture crash. This is a red declared-versus-executed mismatch, not a
-green schema result.
+The optimizer protocol requires every numeric control to be finite and inside
+its declared domain before optimizer construction.
 
 <a id="finite-contract-extreme-scale-validation-reduction"></a>
-`finite-contract.extreme-scale-validation-reduction` is `UNAVAILABLE`: the
-owed Part-I fixture for eight finite float32 scores near `1e38`, float64
-mean/ordinary-median/fraction publication, history propagation, and the
-float32-mean mutation is absent. The required CPU and mandatory CUDA lanes are
-both unimplemented.
+See `finite-contract-extreme-scale-reduction`: finite extreme rows must produce
+finite float64 published reductions on CPU and CUDA.
 
 <a id="finite-contract-optimizer-post-step-finiteness"></a>
-`finite-contract.optimizer-post-step-finiteness` is `UNAVAILABLE`: the owed
-workstation leg does not yet inspect parameters and optimizer state after a
-real update.
+See `finite-contract-optimizer-post-step`: parameters and optimizer state are
+finite after a real update.
 
-### Red Team candidate readback: finite-contract harness repairs
-
-This candidate is isolated on `codex/finite-contract-harness`, based on main
-`5456133`. The only executable file in its scope is
-`ai/gates/checks/finite_contract.py`. Production modules, `ai/gates/board.py`, the
-runner and `texnotes/` are byte-untouched. The branch predates the
-Implementer's always-emit wiring, so its fixture hunks must be integrated
-with that separately audited child before the 14 board terminals can be read
-as one result.
-
-The unmodified child returned 1. Parts A and C produced four false-red reports
-because their expectations still named `finite contract` while the real
-validation and diagnostic boundary emitted `chi2 domain contract`. Parts B,
-D and E passed. Part F then raised `AttributeError: 'CosmolikeChi2' object has
-no attribute 'geom'`, so no later part executed.
-
-The candidate matches Parts A and C through one helper that requires the live
-owner, the requested side and the offending row. Its executable mutation
-restores the retired owner and proves that the real message rejects it. Part F
-now binds one real `CosmolikeChi2` to a three-coordinate harness geometry and
-records ten reads of `dest_idx`. Its mutation restores the geometry-free
-object and reproduces the original `AttributeError` before any numerical
-claim. Reaching the later dtype-band probe also exposed the already-confirmed
-25M-23 prerequisite: the script called `_chi2_domain` without importing it.
-The candidate adds that check-side import and changes no production message or
-numerical implementation.
-
-The extreme-scale fixture drives the real `eval_val` with eight finite
-float32 scores near `1e38`. On CPU it publishes mean and ordinary median
-`9.999999680285692e+37` with finite fractions `[1.0, 0.0]`. One real training
-epoch appends the identical mean to its history. The ordinary-scale mean is
-`4.5`. Restoring the raw float32 mean produces `inf`, so the mutation is
-load-bearing. The CUDA mirror is implemented but did not execute on this Mac;
-it remains honestly unavailable until the workstation run.
-
-The post-step fixture runs one real AdamW epoch, verifies that two model
-parameters changed, and inspects both parameters plus six optimizer-state
-tensors. Every value is finite. Poisoning the first parameter with NaN is
-detected as `parameter weight`; after restoration, poisoning the first Adam
-moment with positive infinity is detected as
-`optimizer state weight.exp_avg`. These are inspection mutations in the
-check, not a claim that production now owns a new post-step refusal boundary.
-
-The complete Cocoa CPU child reaches Parts A through K with zero `[FAIL]`
-reports and returns 2. Its only non-green causes are the mandatory compiled
-backward lane and the mandatory CUDA extreme-scale mirror, both named as lane
-unavailable. `ai/gates/run_board.py --list` returns 0,
-`ai/gates/checks/board_selftest.py` ends `board-selftest: ALL PASS`, compilation
-is clean and `git diff --check` is clean. The pre-existing temporary-directory
-cleanup debt remains outside this repair.
-
-This is implementation evidence for Architect audit. It does not certify the
-landing.
+### BerHu and schema evidence
 
 <a id="berhu-loss-evidence"></a>
-**berhu-loss — the shipped berHu transform is compared with analytic values
-and derivatives, then its training configuration is smoke-tested.**
-
-- files: uses synthetic float64 Torch probes and reads the board-resolved berHu
-  smoke YAML plus its six manifest-declared deployment inputs. The `.dataset`
-  pointer leads to data-vector, covariance, mask, and n(z) siblings read
-  transitively outside the manifest hash. For a configured golden leg, the
-  ordinary training YAML is copied into the configured driver fileroot for
-  both drivers; the temporary Git worktree holds historical code, not that
-  staged YAML. Smoke and golden drivers write ordinary `.emul`/`.h5` products,
-  which this gate does not read back.
-- subprocess: `ai/gates/checks/gb_c_berhu_reduce.py`, the berHu training driver,
-  and the optional current-versus-historical golden drivers.
-- metric: per-leg absolute error below `1e-9` for transform values, absolute
-  error below `1e-6` for join derivatives, exact anneal endpoints, subprocess
-  exit status, selected-text presence, or conditional selected-text-list
-  equality; the golden helper does not require nonempty selections.
-- legs: 6, named `berhu-loss.reference-values`,
-  `berhu-loss.join-derivatives`,
-  `berhu-loss.anneal-endpoints`,
-  `berhu-loss.golden-selected-text-equality`,
-  `berhu-loss.smoke-exit-zero`, and `berhu-loss.loss-banners`.
-- evidence: the analytic, derivative, endpoint, smoke-exit, and banner legs
-  are asserted. The golden leg is `UNAVAILABLE` when its configured base is
-  null. No leg claims that training loss descends.
-- owed: the smoke and golden paths require Torch, CosmoLike, and GPU; the
-  golden comparison additionally requires a configured historical base and a
-  nonempty-selection assertion.
+**BerHu transform.** Synthetic float64 probes compare values, join derivatives,
+and blend endpoints with independent formulas. A public smoke command checks
+configuration routing and exact required output lines. These are separate
+assertions.
 
 <a id="berhu-loss-reference-values"></a>
-`berhu-loss.reference-values` requires berHu and capped-berHu values to match
-their piecewise analytic references within absolute error `1e-9` at default
-and non-default knots.
+BerHu and capped-BerHu values match independent piecewise references within
+absolute error `1e-9` at default and non-default knots.
 
 <a id="berhu-loss-join-derivatives"></a>
-`berhu-loss.join-derivatives` probes berHu on both sides of its `t1` join and
-capped berHu on both sides of its `t2` join; those autograd slopes must match
-the analytic derivatives within absolute error `1e-6`. It does not probe the
-capped transform at `t1`.
+Slopes from PyTorch automatic differentiation (`autograd`) on both sides of the
+first join and capped second join match analytic derivatives within absolute
+error `1e-6`.
 
 <a id="berhu-loss-anneal-endpoints"></a>
-`berhu-loss.anneal-endpoints` requires blend value zero to reproduce plain
-square root and blend value one to reproduce the full berHu transform.
-
-Harness repair readback, 2026-07-13: the analytic child now calls
-`CosmolikeChi2._reduce` as a bound method on a real loss object. Its small
-harness geometry supplies one kept-coordinate index, the exact instance fact
-the production chi-square-domain screen reads through `_chi2_n_terms()`.
-The harness counts those `dest_idx` reads and folds a positive-read assertion
-into `berhu-loss.reference-values`. Restoring the former unbound
-`CosmolikeChi2._reduce(None, ...)` call raises `AttributeError` before any
-evidence terminal, while the repaired CPU child reports 44 width reads, emits
-each of its three declared `##AID` terminals exactly once as `PASS` and ends
-`berhu-loss numerics: ALL PASS`. Production loss code is unchanged.
+Blend zero exactly reproduces square root; blend one exactly reproduces the
+configured BerHu transform.
 
 <a id="berhu-loss-golden-selected-text-equality"></a>
-`berhu-loss.golden-selected-text-equality` requires selected current and
-historical log-line lists to match after the timing field is removed; it is
-`UNAVAILABLE` while the configured golden base is null, and the current helper
-would also accept two empty lists.
+When a reference command is configured, the exact output-line lists from the
+current and reference commands are nonempty and equal after timing removal.
+Otherwise this assertion is `UNAVAILABLE`.
 
 <a id="berhu-loss-smoke-exit-zero"></a>
-`berhu-loss.smoke-exit-zero` requires the berHu training subprocess to exit
-with status zero.
+The configured BerHu public training command exits zero.
 
 <a id="berhu-loss-loss-banners"></a>
-`berhu-loss.loss-banners` requires the exact `loss_mode sqrt` and
-`loss_mode berhu_capped (knot 0.2, cap 10)` substrings.
+The command output contains the resolved `sqrt` and capped-BerHu mode, knot,
+and cap for the fixture.
 
 <a id="loss-schema-equivalence-evidence"></a>
-**loss-schema-equivalence — the nested-loss smoke runs, while equivalence to
-the earlier schema remains conditional on a historical base.**
-
-- files: reads the board-resolved berHu smoke YAML and its six manifest-
-  declared deployment inputs. The `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings read transitively outside the manifest
-  hash. For a configured golden leg, the ordinary training YAML is copied into
-  the configured driver fileroot for both drivers; the temporary Git worktree
-  holds historical code. Smoke and golden drivers write ordinary
-  `.emul`/`.h5` products, which this gate does not read back.
-- subprocess: the nested-loss training driver and optional current-versus-
-  historical golden drivers.
-- metric: per-leg subprocess exit status, exact banner presence, or
-  conditional selected-text-list equality after removing the timing field;
-  the golden helper does not require nonempty selections.
-- legs: 3, named `loss-schema-equivalence.golden-selected-text-equality`,
-  `loss-schema-equivalence.smoke-exit-zero`, and
-  `loss-schema-equivalence.berhu-banner`.
-- evidence: smoke exit and banner presence are asserted. The golden leg is
-  `UNAVAILABLE` when its configured base is null; therefore the current gate
-  does not prove schema equivalence in that state.
-- owed: Torch, CosmoLike, and GPU are needed for the smoke; a configured
-  historical base and a nonempty-selection assertion are also required for
-  the equivalence leg.
+**Nested loss schema.** The nested-loss command exits and prints its resolved
+BerHu settings. Equivalence to the declared reference configuration requires
+a configured reference command and a nonempty exact-output-line comparison;
+the status line alone does not prove numerical equivalence.
 
 <a id="loss-schema-equivalence-golden-selected-text-equality"></a>
-`loss-schema-equivalence.golden-selected-text-equality` requires selected
-current and historical log-line lists to match after the timing field is
-removed; it is `UNAVAILABLE` while the configured golden base is null, and the
-current helper would also accept two empty lists.
+The exact output-line lists from the current and reference commands are
+nonempty and equal after timing removal, or the assertion is `UNAVAILABLE`
+when no reference is configured.
 
 <a id="loss-schema-equivalence-smoke-exit-zero"></a>
-`loss-schema-equivalence.smoke-exit-zero` requires the nested-loss training
-subprocess to exit with status zero.
+The nested-loss public command exits zero.
 
 <a id="loss-schema-equivalence-berhu-banner"></a>
-`loss-schema-equivalence.berhu-banner` requires the exact
-`loss_mode berhu_capped (knot 0.2, cap 10)` substring; it does not compare
-numerical outputs with the earlier schema.
+An exact command-output line names the resolved capped-BerHu mode, knot `0.2`,
+and cap `10`.
+
+### Schedule and EMA evidence
 
 <a id="berhu-anneal-evidence"></a>
-**berhu-anneal — the configured anneal run exits and names its schedule;
-schedule behavior is not yet measured.**
-
-- files: reads the board-resolved berHu-anneal YAML and its six manifest-
-  declared deployment inputs. The `.dataset` pointer leads to data-vector,
-  covariance, mask, and n(z) siblings read transitively outside the manifest
-  hash. For a configured golden leg, the ordinary training YAML is copied into
-  the configured driver fileroot for both drivers; the temporary Git worktree
-  holds historical code. Smoke and golden drivers write ordinary
-  `.emul`/`.h5` products, which this gate does not read back.
-- subprocess: the berHu-anneal training driver and optional current-versus-
-  historical golden drivers.
-- metric: per-leg subprocess exit status, exact banner presence, conditional
-  selected-text-list equality, or `UNAVAILABLE` for the logged-only schedule
-  inspection; the golden helper does not require nonempty selections.
-- legs: 4, named `berhu-anneal.golden-selected-text-equality`,
-  `berhu-anneal.smoke-exit-zero`, `berhu-anneal.anneal-banner`, and
-  `berhu-anneal.schedule-behavior`.
-- evidence: smoke exit and the exact banner are asserted. The golden leg is
-  `UNAVAILABLE` when its configured base is null, and schedule behavior is
-  always `UNAVAILABLE` in the present wrapper.
-- owed: Torch, CosmoLike, and GPU are needed for the run; the golden leg needs
-  a configured base and a nonempty-selection assertion, and the hold-boundary
-  continuity/full-shape claims need numerical assertions.
+**BerHu anneal.** The public command exits and names the resolved hold, length,
+and shape. Numerical schedule behavior requires direct endpoint and interior
+value assertions.
 
 <a id="berhu-anneal-golden-selected-text-equality"></a>
-`berhu-anneal.golden-selected-text-equality` requires selected current and
-historical log-line lists to match after timing removal; it is `UNAVAILABLE`
-while the configured golden base is null, and the current helper would also
-accept two empty lists.
+A configured reference comparison uses nonempty exact output-line lists after
+timing removal; otherwise the assertion is `UNAVAILABLE`.
 
 <a id="berhu-anneal-smoke-exit-zero"></a>
-`berhu-anneal.smoke-exit-zero` requires the anneal training subprocess to exit
-with status zero.
+The BerHu-anneal public command exits zero.
 
 <a id="berhu-anneal-anneal-banner"></a>
-`berhu-anneal.anneal-banner` requires the exact substring
-`anneal: hold 5 + 10 cosine`.
+The command output contains the exact line `anneal: hold 5 + 10 cosine` for the
+fixture.
 
 <a id="berhu-anneal-schedule-behavior"></a>
-`berhu-anneal.schedule-behavior` is `UNAVAILABLE`: the present gate logs a
-request to inspect continuity and the full-shape epoch but compares neither.
+The direct evaluator must prove hold behavior, strict interior ramp values,
+continuity, and the full-shape endpoint. A status output line is not this
+evidence.
 
 <a id="ema-anneal-evidence"></a>
-**ema-anneal — the configured run exits and names both its EMA horizon and
-anneal schedule; the live-point metrics are not parsed.**
-
-- files: reads the board-resolved EMA-anneal YAML and its six manifest-declared
-  deployment inputs. The `.dataset` pointer leads to data-vector, covariance,
-  mask, and n(z) siblings read transitively outside the manifest hash. For a
-  configured golden leg, the ordinary training YAML is copied into the
-  configured driver fileroot for both drivers; the temporary Git worktree
-  holds historical code. Smoke and golden drivers write ordinary
-  `.emul`/`.h5` products, which this gate does not read back.
-- subprocess: the EMA-anneal training driver and optional current-versus-
-  historical golden drivers.
-- metric: per-leg subprocess exit status, exact banner presence, conditional
-  selected-text-list equality, or `UNAVAILABLE` for unparsed metric timing;
-  the golden helper does not require nonempty selections.
-- legs: 4, named `ema-anneal.golden-selected-text-equality`,
-  `ema-anneal.smoke-exit-zero`, `ema-anneal.ema-anneal-banners`, and
-  `ema-anneal.live-point-metrics`.
-- evidence: smoke exit and both banner substrings are asserted. The golden leg
-  is `UNAVAILABLE` when its configured base is null; the live-point leg is
-  `UNAVAILABLE` because the wrapper does not parse or compare those metrics.
-- owed: Torch, CosmoLike, and GPU are needed for the run; the golden leg needs
-  a configured base and a nonempty-selection assertion, and the first-live-
-  epoch claim needs a numerical parser and assertion.
+**EMA anneal.** The command exits and names both the horizon and schedule.
+Direct parsing must identify the first epoch whose reported metrics use EMA
+weights.
 
 <a id="ema-anneal-golden-selected-text-equality"></a>
-`ema-anneal.golden-selected-text-equality` requires selected current and
-historical log-line lists to match after timing removal; it is `UNAVAILABLE`
-while the configured golden base is null, and the current helper would also
-accept two empty lists.
+A configured reference comparison uses nonempty exact output-line lists after
+timing removal; otherwise the assertion is `UNAVAILABLE`.
 
 <a id="ema-anneal-smoke-exit-zero"></a>
-`ema-anneal.smoke-exit-zero` requires the EMA-anneal training subprocess to
-exit with status zero.
+The EMA-anneal public command exits zero.
 
 <a id="ema-anneal-ema-anneal-banners"></a>
-`ema-anneal.ema-anneal-banners` requires both `ema: horizon 3 epochs` and
-`anneal: hold 5 + 10 cosine`.
+The command output contains the exact lines `ema: horizon 3 epochs` and
+`anneal: hold 5 + 10 cosine` for the fixture.
 
 <a id="ema-anneal-live-point-metrics"></a>
-`ema-anneal.live-point-metrics` is `UNAVAILABLE`: the present gate does not
-parse or assert the first epoch at which averaged metrics appear.
+The first live EMA metric must be parsed and compared with the resolved
+schedule. Unparsed log inspection is `UNAVAILABLE`.
+
+### Joint-training evidence
 
 <a id="joint-training-evidence"></a>
-**joint-training — the joint and frozen-trunk control runs exit and print the
-selected phase banners; trunk updates and handoff continuity are not yet
-measured.**
-
-- files: reads the board-resolved joint and frozen-trunk-control YAMLs and
-  their six manifest-declared deployment inputs. Each `.dataset` pointer leads
-  to data-vector, covariance, mask, and n(z) siblings read transitively outside
-  the manifest hash. For a configured golden leg, the ordinary training YAML
-  is copied into the configured driver fileroot for both drivers; the
-  temporary Git worktree holds historical code. Smoke and golden drivers write
-  ordinary `.emul`/`.h5` products, which this gate does not read back.
-- subprocess: joint and control training drivers plus optional current-versus-
-  historical golden drivers.
-- metric: per-leg subprocess exit status, regular-expression or literal
-  banner presence, conditional selected-text-list equality, or `UNAVAILABLE`
-  for logged-only comparisons; the golden helper does not require nonempty
-  selections.
-- legs: 7, named `joint-training.golden-selected-text-equality`,
-  `joint-training.joint-exit-zero`, `joint-training.two-phase-banner`,
-  `joint-training.joint-phase-banner`, `joint-training.control-exit-zero`,
-  `joint-training.epoch-time-order`, and
-  `joint-training.handoff-loss-continuity`.
-- evidence: both exit legs and both banner legs are asserted. The golden leg is
-  `UNAVAILABLE` when its configured base is null. Epoch-time ordering and
-  handoff-loss continuity are printed for inspection only and are
-  `UNAVAILABLE`; no leg currently proves that trunk weights changed.
-- owed: Torch, CosmoLike, and GPU are needed for both runs; the golden leg
-  needs a configured base and a nonempty-selection assertion, while direct
-  state and numerical continuity comparisons are needed for the final two
-  claims.
+**Joint training.** Joint and frozen-trunk control commands exit and print the
+resolved phases. Direct parameter-state checks prove trunk updates, and a
+numerical comparison proves phase-handoff continuity.
 
 <a id="joint-training-golden-selected-text-equality"></a>
-`joint-training.golden-selected-text-equality` requires selected current and
-historical log-line lists to match after timing removal; it is `UNAVAILABLE`
-while the configured golden base is null, and the current helper would also
-accept two empty lists.
+A configured reference comparison uses nonempty exact output-line lists after
+timing removal; otherwise the assertion is `UNAVAILABLE`.
 
 <a id="joint-training-joint-exit-zero"></a>
-`joint-training.joint-exit-zero` requires the `freeze_trunk: false` run to exit
-with status zero.
+The `freeze_trunk: false` command exits zero.
 
 <a id="joint-training-two-phase-banner"></a>
-`joint-training.two-phase-banner` requires a line matching
-`two-phase: N trunk`; the integer is not pinned by this regular expression.
+An exact command-output line states the resolved positive number of trunk
+epochs.
 
 <a id="joint-training-joint-phase-banner"></a>
-`joint-training.joint-phase-banner` requires the literal substring
-`phase 'joint'`.
+An exact command-output line names the joint phase.
 
 <a id="joint-training-control-exit-zero"></a>
-`joint-training.control-exit-zero` requires the `freeze_trunk: true` control
-run to exit with status zero.
+The `freeze_trunk: true` control exits zero.
 
 <a id="joint-training-epoch-time-order"></a>
-`joint-training.epoch-time-order` is `UNAVAILABLE`: the wrapper prints the two
-last epoch lines but performs no ordering comparison.
+Timing order requires a defined comparison and bound. Printed final lines
+alone are `UNAVAILABLE`.
 
 <a id="joint-training-handoff-loss-continuity"></a>
-`joint-training.handoff-loss-continuity` is `UNAVAILABLE`: continuity is an
-inspection instruction, not a numerical assertion in the current gate.
+Continuity requires numerical comparison at the phase boundary. Inspection
+instructions alone are `UNAVAILABLE`.
+
+### Weight-decay evidence
 
 <a id="weight-decay-census-evidence"></a>
-**weight-decay-census — a finite toy module tree is partitioned by module role
-into exactly one optimizer group per parameter.**
-
-- files: the child uses an in-memory `ToyTree` containing the explicitly listed
-  module families and writes no product. This gate's manifest declares no file
-  inputs. For a configured golden leg, the ordinary training YAML is copied
-  into the configured driver fileroot for both drivers; those drivers read
-  deployment arrays plus a `.dataset` pointer and its transitive data-vector,
-  covariance, mask, and n(z) siblings, all outside this gate's manifest, and
-  write ordinary `.emul`/`.h5` products. The temporary Git worktree holds
-  historical code, not the staged YAML.
-- subprocess: `ai/gates/checks/gwd_census.py` and optional current-versus-
-  historical golden drivers.
-- metric: per-leg exact parameter-identity sets and quantifiers over the toy
-  tree, exact zero-decay controls, or conditional selected-text-list equality;
-  the golden helper does not require nonempty selections.
-- legs: 5, named `weight-decay-census.allowed-weight-set`,
-  `weight-decay-census.undecayed-role-exclusions`,
-  `weight-decay-census.parameter-group-partition`,
-  `weight-decay-census.zero-decay-inert`, and
-  `weight-decay-census.golden-selected-text-equality`.
-- evidence: the first four legs are asserted by the child script. Its census
-  is limited to the explicit `ToyTree` module families; it is not a census of
-  every constructible production model. The golden leg is `UNAVAILABLE` when
-  its configured base is null.
-- owed: the board registry requires Torch and GPU for the whole gate. A
-  configured golden comparison additionally needs CosmoLike as an unmodeled
-  runtime dependency—its absence would be red, not capability-`UNAVAILABLE`—
-  plus a configured base and a nonempty-selection assertion.
+**Weight-decay partition.** A small fixed test model made of nested modules is
+divided by module role into disjoint decay and no-decay groups whose union
+contains each parameter exactly once. This fixture is not a complete search of
+every future production model.
 
 <a id="weight-decay-census-allowed-weight-set"></a>
-`weight-decay-census.allowed-weight-set` requires the decayed set to be
-exactly the `Linear`, `Conv1d`, and `BinLinear` weights in `ToyTree`.
+The decayed set is exactly the `Linear`, `Conv1d`, and `BinLinear` weights in
+the fixture.
 
 <a id="weight-decay-census-undecayed-role-exclusions"></a>
-`weight-decay-census.undecayed-role-exclusions` requires the gated-power shape
-parameters, `BinLinear` bias, and every other non-allowlisted toy parameter to
-remain outside the decayed group.
+Activation shape parameters, every bias, affine gains, and unlisted module
+parameters remain outside the decayed set.
 
 <a id="weight-decay-census-parameter-group-partition"></a>
-`weight-decay-census.parameter-group-partition` requires the two optimizer
-groups to be disjoint and their union to contain every toy parameter exactly
-once.
+The two groups are disjoint and their union contains every fixture parameter
+exactly once.
 
 <a id="weight-decay-census-zero-decay-inert"></a>
-`weight-decay-census.zero-decay-inert` requires every optimizer group to carry
-exactly zero weight decay when the requested value is zero.
+A requested decay of zero produces zero decay in every optimizer group.
 
 <a id="weight-decay-census-golden-selected-text-equality"></a>
-`weight-decay-census.golden-selected-text-equality` requires selected current
-and historical log-line lists to match after timing removal; it is
-`UNAVAILABLE` while the configured golden base is null, and the current helper
-would also accept two empty lists.
+A configured reference comparison uses nonempty exact output-line lists after
+timing removal; otherwise the assertion is `UNAVAILABLE`.
 
-## 25M-10 (Red Team CONFIRMED, awaiting Architect adjudication): `--quiet` cannot satisfy its public all-stdout contract
-
-Every train/sweep/tune help surface promises that `--quiet` suppresses all
-stdout. Experiments pass `verbose=not self.quiet` into `load_source`, but
-`load_source` calls `stage_source`, whose resource line is an unconditional
-raw `print` and whose signature has no verbosity/emit channel
-(`data_staging.py:221,306,560-750`). An AST-extracted execution of the real
-function under redirected stdout produced the staging line even though the
-outer caller has no way to disable it. CMB geometry adds three more raw prints
-(`experiment.py:3493,3504,3548`), and parallel N-train/hyperparameter worker
-failure paths print directly (`cosmic_shear_sweep_ntrain_emulator.py:166`,
-`cosmic_shear_sweep_hyperparam_emulator.py:175`) rather than respecting the
-driver's quiet logger.
-
-Concrete public result: a valid `--quiet` run with ordinary staged data emits
-at least `stage_source: ...`; a CMB run also emits its staging summary. On a
-worker failure the nominally quiet sweep emits child-process stdout. This is
-not cosmetic under the repository's documentation rule: printed lines are
-the machine/operator record, and the CLI advertises a deterministic empty
-stdout surface for batch composition.
-
-Required contract: one explicit output channel is threaded through every
-reachable staging, geometry, training, and worker path. Under `--quiet`,
-successful stdout is empty; files still publish normally. Errors remain loud
-through nonzero status and stderr (quiet must not swallow failure). Essential
-scientific facts belong in the persisted resolved record and ordinary banner,
-not as raw-print exemptions. Remove raw `print` calls from methods reached by
-quiet drivers or inject the owner logger; do not use process-global stdout
-redirection as hidden state.
-
-CPU legs capture the real public paths for a valid plain/scalar/CMB staging
-run and require empty stdout under quiet plus nonempty current output without
-quiet; a worker failure is nonzero with diagnostic stderr and empty stdout;
-serial and spawned behavior agree; and an AST/call census proves every
-reachable output site uses the owner channel. The mutation restoring
-`stage_source`'s raw print must reproduce the captured line and red.
-
-## RETRACTED: transfer refinement frozen-trunk claim (45M-43, retracted by the red team 2026-07-12 with 45M-44; unit 54 WITHDRAWN)
-
-Both retractions Architect-verified: validate_transfer
-(experiment.py:1321-1331) rejects train_args.trunk / train_args.head,
-positive trunk_epochs, and freeze_trunk on every transfer run —
-"a transfer run is single-phase (V1)". The frozen-head state (45M-43)
-and a head-lr override (45M-44) are therefore UNREACHABLE: the plan is
-[(nepochs, None)], set_train_phase never runs, correction parameters
-keep constructor requires_grad True, lr_pass == learning_rate, and
-refinement's base-only unfreeze plus top-level lr are correct under
-the enforced schema. AUDIT LESSON (mine): the original adjudication
-verified the state-chain MECHANISM but not REACHABILITY — the missing
-step was the forward-walk from the config validator (the standing
-forward-walk-the-whole-driver-path lesson). Adopted going forward: a
-red-team state-chain finding needs a reachable configuration proven
-at the validator boundary before it earns a queue number; the red
-team has adopted the same standard on their side. If transfer ever
-gains two-phase correction (a V2 design change), refinement's
-trainability establishment and lr inheritance must be specified in
-that design — recorded here as a design-time obligation, not a queue
-unit. The section below is kept for the record and is VOID.
-
-## VOID (retained for the record): the original 45M-43 adjudication
-
-The default two-phase head path ends in "head" mode (training.py
-:2770 executes set_train_phase("head" if freeze_trunk else "joint");
-freeze_trunk defaults true), which sets every correction-trunk
-parameter requires_grad False. transfer.refine then re-enables ONLY
-the base (`for p in base_net.parameters(): p.requires_grad_(True)`,
-:2948-2949), wraps the still-partly-frozen correction in
-TransferComposite (:2952), and hands all parameters to
-make_refine_optimizer — but a frozen parameter in an optimizer gets a
-None gradient and AdamW skips it (the code says so itself). No
-set_train_phase("joint") exists anywhere on the refine path, and
-.train() changes only train/eval behavior, never gradients. So the
-advertised "unfreezes the base and trains both together"
-(README:1750-1751; "train jointly" :2934) holds for ResMLP and
-freeze_trunk false, and FAILS SILENTLY for the default two-phase
-ResCNN/ResTRF path: refinement trains base + correction head with an
-inert correction trunk.
-
-Architect ruling on the offered either/or: the PUBLISHED contract
-wins — refinement trains both together. Contract (Implementer):
-entering transfer.refine ESTABLISHES its complete trainability state,
-never inherits requires_grad from the correction pass — the whole
-correction model enters "joint" when it exposes set_train_phase, and
-every correction + intended base parameter is trainable BEFORE
-optimizer construction; the base keeps base_lr_scale, the correction
-its full refine lr; the refinement banner AND the resolved-pass
-record (unit 41) state trainable parameter counts SEPARATELY for
-correction trunk, correction head, and base — counts, not optimizer
-membership, are the truth; byte-identical when refine is absent;
-ResMLP and an already-joint freeze_trunk:false correction numerically
-unchanged apart from the assertions/record. Red legs (gate under
-ai/gates/checks/, board-listed; state-transition legs CPU, the real
-compiled/head path on the workstation): ResCNN control proves the
-trunk frozen immediately before refinement; one analytic refine step
-moves ALL THREE sets; the ResTRF counterpart (separate ownership
-code); the MUTATION arm (no joint transition: base + head move, every
-trunk gradient None, trunk tensors bitwise unchanged — must fail the
-current implementation); freeze_trunk:false and ResMLP controls
-unchanged; resolved-record readback equals the tensors that received
-gradients; anchor interaction — a nonzero base anchor touches only
-the intended base keys, and enabling the correction trunk must not
-accidentally anchor it.
-
-## UNIT 14 AMENDED (45M-47): a finite per-batch loss can publish an Inf epoch loss — increment (d)
-
-Adjudicated + reproduced (Fable, 2026-07-12). The per-step finite
-contract (training.py:2058) accepts a finite float32 loss, but the
-epoch reduction overflows independently: the loop accumulates
-`run_sum += loss.detach() * bs` (:2103) — the product is computed in
-FLOAT32 before it reaches the accumulator, so a finite loss of 1e38
-with bs=8 becomes Inf (float32 max 3.4028e38) even though run_sum is
-float64 on CPU/CUDA (acc_dtype, :1781). On MPS the accumulator itself
-is float32 (:1781). train_loss = (run_sum / run_n).item() (:2105)
-publishes it: appended unguarded (:2139), printed (~:2246), persisted
-in train_losses by the save path. Reproduced: np.float32(1e38)*8 ->
-Inf; the float64-first mean is 9.999999680285692e37 (representable).
-
-Contract (increment d of the finite unit):
-1. The epoch mean must not overflow a float32 weighted sum. RULING:
-   accumulate on the HOST in a python float (float64 on every
-   backend): run_sum += float(loss.detach()) * bs. The finite
-   contract already pays one host sync per step at :2058, so the host
-   read adds no new sync — and this fixes MPS, whose device
-   accumulator cannot be float64.
-2. The completed epoch train_loss is REQUIRED finite before it is
-   appended, reported, or persisted (_report_nonfinite, the shared
-   message shape, naming the epoch).
-3. General rule, recorded: a reduction's result must be checked;
-   finite operands do not prove a finite reduction.
-4. Ordinary finite-run numerics: the accumulator is diagnostic-only
-   (selection reads the val metrics), so the float32-vs-float64
-   product difference is within the existing tolerance; the training
-   path itself is untouched.
-
-Gate: EXTENDS the board-listed finite-contract check (not a new
-gate). Drive the REAL training_loop_batched with >=2 full batches
-whose differentiable scalar loss is finite 1e38 (finite gradients,
-ordinary validation); the repaired loop returns a finite epoch loss
-near 1e38. Mutation arm: restore the `loss.detach() * bs` ordering —
-it must produce Inf and fail the leg. Workstation board run.
-
-Unit 14 now closes on increments a+b (landed, a0d03f5) + c
-(safe-sqrt, 45M-24, owed) + d (this amendment) + the extended gate.
-
-## UNIT 55 (45M-46): repeated-training state isolation — transfer-refine sweeps are order- and worker-dependent
-
-Adjudicated + chain-verified on HEAD (Fable, 2026-07-12),
-reachability FIRST per the standard: validate_transfer SUPPORTS
-transfer.refine on the cosmic-shear family (experiment.py:1368-1410;
-only the cmb/grid/grid2d families refuse it, :1371-1375) — a
-validated V1 feature. Nothing like the retracted 45M-43: no forbidden
-key is needed to reach this state. The mutation chain, every link
-confirmed on HEAD:
-- from_config loads ONE transfer source into exp._transfer_base
-  (:2232 / :2352 / :2475 / :2576); every exp.train() hands the SAME
-  object to run_emulator.
-- The refine stage (training.py:2941-2996) takes base_net =
-  chi2fn.base_net (the same module), unfreezes it IN PLACE, sets
-  chi2fn.set_live(True) (:2951 — the only set_live call in the file;
-  never reset to False), and trains it jointly. No restore of the
-  weights, the requires_grad flags, or the live mode afterward —
-  neither run_emulator nor exp.train restores anything.
-- Each exp.train() snapshots the base AS IT CURRENTLY STANDS
-  (experiment.py:4461-4463) into _transfer_pretrained_base — after
-  point 1 drifts the base, point 2's "pretrained" anchor/artifact
-  reference is W_1, not the source artifact's W_0. The in-stage
-  anchor clone (training.py:2945) drifts identically.
-- All four repeated-training drivers reuse one EmulatorExperiment
-  across points and never restore the base: tune (one staged exp
-  closed over by objective — serial :364-366, and each parallel
-  worker likewise), hyperparameter sweep (:131-171 worker,
-  :271-327 serial), activation bakeoff (:138-156, :356-412), N-train
-  sweep (:127-162, :411-464).
-
-Consequences (verified plausible on the confirmed chain): sweep
-results depend on point ORDER and on n_gpus / lane packing; a failed
-point can leave a half-refined base for the next; Optuna trials are
-history-dependent while the unit-53 manifest matches perfectly; an
-N-train learning curve no longer compares sizes against one common
-pretrained emulator. Every value stays finite and plausible — no
-existing check can see it. In fixed-geometry loops chi2fn.live also
-REMAINS True, so the next point's nominal frozen-correction stage is
-not even in stage-1 mode; the N-train sweep rebuilds the loss (live
-resets) but wraps the already-drifted base.
-
-Contract:
-1. Every repeated training point/trial starts from one immutable
-   source state W_0 — independent of execution order, worker count,
-   and prior failures/successes.
-2. Capture pristine W_0 (parameters AND buffers) once per
-   experiment/lane immediately after artifact load. Restore IN PLACE
-   before every point so every existing chi2fn.base_net reference
-   still points at the restored object — never rebuild a detached
-   base without rewiring the loss (in-place restoration or complete
-   experiment reconstruction are the only safe forms).
-3. Restore the complete stage-1 runtime state at point entry:
-   chi2fn.live False, base eval mode, cleared gradients, the original
-   requires_grad flags; reset _transfer_pretrained_base so the point
-   records/clones W_0, never a predecessor's drift.
-4. N-train / activation-size loops restore before build_geometry;
-   fixed-geometry hyperparameter/tune loops restore before loader
-   construction and training.
-5. A point failure passes through the same reset discipline in
-   finally; the next point cannot inherit a partially updated base.
-6. A point's refinement anchor reference must hash identical to the
-   pristine source state; post-point drift belongs to that point
-   only.
-7. Persist the common source-state digest in the study/sweep identity
-   record (reuse the artifact-manifest digest machinery — interlocks
-   units 37 + 53); per-point/trial diagnostics can assert entry
-   digest == the common digest.
-8. Runs without transfer.refine stay byte-identical; frozen-only
-   transfer, ordinary, NPCE, and finetune runs pay no semantic
-   change.
-
-Distinct from sweep-worker truth (unit 10) and study identity (unit
-53): those prove the intended jobs completed under the intended
-configuration; THIS unit proves each job began from the intended
-model state.
-
-Red legs: (1) two-point deterministic refine sweep — point-entry base
-digest is W_0 at both points; current code must show W_0 then W_1
-(the mutation witness); (2) reverse order [A,B] vs [B,A] with fixed
-seeds — identical per-point final weights/metrics; (3) one lane vs
-two lanes — identical per-point entry digests and results; (4) every
-point's anchor reference == W_0, never the predecessor's final base;
-(5) every point enters its correction stage with chi2fn.live False;
-only refinement flips it; (6) failure leg — point A performs at least
-one base update then raises; point B still begins at W_0; (7) one
-fixed-geometry (hyperparam/tune-style) AND one rebuild-geometry
-(N-train-style) leg; (8) mutation arm — omit the reset between two
-points; the gate must observe point 2 entering with point 1's drifted
-digest; (9) frozen-only / no-transfer controls unchanged.
-
-Torch gate under ai/gates/checks/, LISTED on the board, driving the real
-repeated-driver paths (not a standalone reset helper); Vivian runs
-the workstation leg. Placement: beside sweep-worker truth and the
-unit-53 manifest; MUST land before any transfer-refine tune,
-hyperparameter sweep, activation bakeoff, or N-train science curve is
-trusted. Pipeline slot: after unit 52, before 22(+20).
-
-## UNIT 9 AMENDED (45M-51): the scalar driver re-declares diagnostic eligibility from its family name
-
-Seventh 45M batch (2026-07-12), Architect-verified on HEAD; joins
-this note's generic-diagnostics section (unit 9) beside the
-thirteenth-wave extension. Scalar NPCE is explicitly legal
-(validate_scalar permits the top-level pce: block; every PCE loss
-declares needs_params = True, losses/pce.py :79/:216/:386), yet
-scalar_train_emulator.py --diagnostic asserts in prose that "the
-scalar loss is a plain chi2, so the local-linear floor applies too"
-(:251-252) and calls local_linear_floor UNCONDITIONALLY (:267);
-local_linear_floor refuses any needs_params loss with a ValueError
-(diagnostics.py:185-188). The save happens BEFORE the diagnostic
-(:212 vs :237), so every valid scalar NPCE diagnostic command
-trains, saves the artifact, then raises instead of producing the
-promised PDF — a deterministic failed command. The shared family
-driver already contains the correct capability branch
-(cosmic_shear_train_emulator.py:500: floor only when NOT
-needs_params, else a truthful logged skip); the scalar fork omitted
-that rule.
-
-Contract: diagnostic eligibility is owned by the
-diagnostic/capability layer, never re-declared by a driver from its
-family name. One shared diagnostic orchestrator decides which
-analyses run and emits a structured availability record (available,
-or unavailable with a reason) consumed by both logging and plotting.
-Scalar NPCE skips only the local-linear floor and still produces its
-coverage, hardness, and scalar residual pages plus the PDF; plain
-scalar behavior is unchanged.
-
-Red legs: plain scalar diagnostic executes the floor; NPCE scalar
-diagnostic marks the floor unavailable and COMPLETES the PDF;
-mutation arm — restore the unconditional scalar call and the gate
-must fail; the scalar and shared-family drivers produce identical
-availability semantics for synthetic losses with needs_params
-true/false; the "scalar loss is plain" prose disappears, replaced by
-the actual capability rule. The integration leg (torch: real
-predictor/loss path) joins the existing board-listed scalar-smoke or
-diagnostics check under ai/gates/checks/, workstation-run; the
-eligibility helper itself gets a pure CPU no-torch unit leg.
-
-## UNIT 14 REOPENED (45M-53 + addendum): a finite negative chi2 ranks better than perfect — increment (e)
-
-Eighth 45M batch (2026-07-12), Architect-verified on HEAD (post
-63880d1). The increment-(c) producer guard is TRAINING-ONLY:
-_validate_chi2 runs once at the top of _reduce
-(losses/core.py:408); the validation and diagnostic paths never
-call _reduce — eval_val guards torch.isfinite only
-(training.py:1490) and eval_source_chi2 likewise (:1572). A finite
-negative per-sample chi2 therefore passes both: it enters mean and
-median as-is (:1497-1498), compares FALSE to every positive
-threshold in the (Nval, T) grid (:1504), so the corrupted row
-counts as PERFECT, lowers frac>0.2, and can crown the corrupted
-epoch in the best-epoch selection. eval_source_chi2 publishes the
-negative as a diagnostic delta-chi2. Training rejects the same
-producer that scoring accepts — the contract is internally
-inconsistent, and this is a wrong SELECTION result, not a message
-defect. Reachable today: the geometry-SPD work (units 11/13) is
-queued, not landed, so a non-PSD precision reaches chi2 unchecked
-(unit 11: from_state validates nothing), and increment (c)'s own
-rationale concedes roundoff negatives in the rescaled/transfer
-contractions. The one-output example: precision [-1], residual 2
--> chi2 = -4, finite.
-
-Gate gap (the addendum, verified): the board advertises "eager and
-torch.compile agree" (ai/gates/board.py:1243-1248), but
-finite_contract.py wraps the WHOLE compiled arm — construction,
-execution, backward, assertion setup — in one broad
-`except Exception` that reports a soft-skip (:703-712). On the CUDA
-workstation an Inductor regression, device mismatch, or broken
-backward becomes a green skip: the exact failure class the leg
-exists to catch.
-
-ARCHITECT RULINGS (the two Implementer flags + the red team's
-tolerance escalation, adjudicated here so the committed constant
-does not become the contract by default):
-
-1. Fifth sqrt site: CONFIRMED. The increment-(c) contract is every
-   sqrt site whose argument can be zero under valid input; the
-   berhu_capped region-3 where-mask leak is squarely in contract.
-   Approved as implemented, no rework.
-2. Tolerance: the absolute _CHI2_NEG_TOL = 1e-6 is SUPERSEDED (the
-   recorded requirement said scale-aware; the flagged deviation is
-   adjudicated against the constant). The band becomes
-   band = max(1.0e-6, _CHI2_NEG_KAPPA * eps(compute dtype) * n_terms)
-   with _CHI2_NEG_KAPPA = 32 documented, and n_terms = the per-row
-   count of summed products in the active contraction (n_dv for the
-   plain whitened form; the documented equivalent for the
-   rescaled/transfer forms). n_terms is a PER-RUN constant known at
-   build time, so the band stays elementwise with no data-dependent
-   branch (compile/CUDA-graph safe) and no batch statistic — which
-   answers the Implementer's poisoning objection (a NaN cannot
-   poison a constant) while being scale-aware in exactly the
-   quantity roundoff grows with. The old 1e-6 survives only as the
-   band's floor.
-
-Contract, increment (e) — adopted from the handoff:
-
-1. ONE shared chi2-domain predicate (finite first, then nonnegative
-   within the band above) used by the training reduction, eval_val,
-   and eval_source_chi2. The helper returns the normalized c and the
-   bad mask; training folds bad entries to NaN (the landed per-step
-   refusal, compile-safe); the eval/diagnostic boundaries RAISE
-   before any median/mean/fraction computation and before any
-   best-record comparison, naming side, count, first source rows,
-   minimum value, and the allowed band.
-2. Within-band negatives normalize to EXACT 0 through the same
-   helper everywhere — training may never call a row exact while
-   evaluation reports it negative.
-3. The queued geometry-SPD unit does NOT substitute for this runtime
-   defense (artifacts, contractions, and test doubles can all
-   violate the producer invariant).
-4. Every valid nonnegative score is preserved byte-for-byte.
-
-Gate amendment (finite-contract, board-listed, torch, workstation):
-real one-output r^T[-1]r = -4 driven through the REAL eval_val must
-raise before fractions; the same through eval_source_chi2 must
-raise; a negative through the compiled validation callable must
-raise; a valid exact zero stays accepted; a positive control is
-byte-identical; the finite-only predicate is the mutation arm and
-must falsely crown the negative row (the best-epoch flip shown);
-band-edge legs on BOTH sides of the adjudicated tolerance at a
-documented n_terms (just inside -> exact 0; just outside ->
-refusal). Compiled-leg truth (the addendum): capability detection is
-explicit and runs BEFORE the test; on the workstation/CUDA lane,
-compile construction + execution + backward are MANDATORY and any
-exception is RED with the traceback; a genuinely compiler-less dev
-box may emit only the board's explicit non-green skip status (the
-SKIP-DEP class already exists in run_board.py) which can never count
-toward closure — 33/33 on the workstation means zero skips; plus a
-mutation control that forces the compiled callable to raise and
-proves the gate cannot report green.
-
-Unit 14 state: increments a+b+c+d landed (a0d03f5, 97963b8,
-63880d1) and REOPENED for (e) + the gate truth amendment; (e) runs
-FIRST in the work order, before 42+43 (same freshly-touched code,
-one gate revision).
-
-#### Finite-contract resume (2026-07-12, Opus) — increment (e) 45M-53 in; unit 14 closes on a+b+c+d+e+gate
-
-Increment (e) implemented and self-committed on the branch (batch grant,
-pending Architect audit). Both flags were ruled (fifth sqrt site confirmed;
-the absolute tolerance superseded); this adopts the adjudicated band.
-
-- ONE shared chi2-domain predicate (losses/core.py): `_chi2_domain(c, band)`
-  returns (c_norm, bad) -- finite first, then nonnegative within the band;
-  within-band roundoff negatives normalize to EXACT 0, `bad` marks
-  non-finite OR materially-negative (< -band). Elementwise, no sync. The
-  scale-aware band is `_chi2_neg_band(dtype, n_terms) = max(1e-6,
-  _CHI2_NEG_KAPPA(32) * eps(dtype) * n_terms)`; `_chi2_n_terms()` is the
-  per-row summed-product count -- w^2 on the DENSE base CosmolikeChi2
-  (covers rescaled/transfer via inheritance), w on the DIAGONAL override
-  CmbDiagonalChi2. The old absolute `_CHI2_NEG_TOL`/`_validate_chi2` are
-  replaced.
-- Three call sites, one predicate (training.py): `_reduce` folds bad -> NaN
-  (the landed per-step refusal, compile-safe); `eval_val` and
-  `eval_source_chi2` now RAISE (via `_report_chi2_domain`, naming side,
-  count, first source rows, minimum value, and the band) before any
-  mean/median/fraction or best-record comparison; within-band -> exact 0
-  everywhere. A production loss always declares `_chi2_n_terms`; a bare test
-  double defaults to the band floor (documented). Valid nonnegative scores
-  byte-identical.
-- Gate: Part H (finite_contract.py) -- eval_val -4 raises; eval_source_chi2
-  -4 raises (side diagnostic); exact-zero accepted; all-positive control
-  byte-identical; the finite-only false-crowning mutation (the -4 row lowers
-  frac>0.2); band-edge both sides; a negative through the COMPILED reduce ->
-  non-finite. The Part F compile arm is fixed per the addendum:
-  `_can_compile()` capability detection FIRST, then the leg is MANDATORY-red
-  on a compile-capable box (exception -> FAIL + traceback), with a
-  raising-callable mutation control; a compiler-less box prints an explicit
-  `[SKIP-DEP]` that never counts toward 33/33. Board maps + gate docstring
-  name the 45M-53 clause.
-- Mac gate (raw): py_compile OK (core.py, cmb.py, training.py,
-  finite_contract.py, board.py); probe_chi2_domain.py 9/9 on the REAL
-  `_chi2_neg_band` + `_chi2_domain` + `_safe_sqrt` -- the scale-aware band
-  (floor + dense scaling), valid unchanged, within-band -> 0 (not bad),
-  materially-negative (-4) and non-finite -> bad, band-edge both sides, the
-  _safe_sqrt regression clean. The torch eval/compiled legs ride the
-  workstation finite-contract gate (33/33, zero skips = compile mandatory).
-
-Unit 14 closes on a + b (a0d03f5) + c (97963b8, 45M-24) + d (63880d1,
-45M-47) + e (this, 45M-53) + the extended finite-contract gate (Parts A-H).
-Files (e): emulator/losses/core.py, emulator/losses/cmb.py,
-emulator/training.py, ai/gates/checks/finite_contract.py, ai/gates/board.py,
-ai/notes/training-stack.md. Next: 42 landed (5661c08); 43 proposed; then
-50 -> 52 -> 55 -> 22 -> 13.
-
-## UNIT 59 (45M-56, tenth batch): top-level config keys are never censused — a typo silently changes the training design
-
-CONFIRMED (Fable, 2026-07-12). Every nested block is strictly
-validated with an unknown-key census (param_cuts experiment.py:540,
-per-head scheduler :282, data.cmb :686, data.grid :833, data.mps
-:948), but NO top-level census exists anywhere: an untruncated grep
-for set(cfg) / cfg.keys() / list(cfg) / sorted(cfg) across
-experiment.py, the drivers, and ai/gates/checks returns EMPTY. Branch
-selection is pure cfg.get: transfer at :625/:772, pce at :757; the
-sweep driver reads cfg["sweep"] raw (family_drivers.py:92, a bare
-KeyError when absent). The red team drove the REAL extracted
-validate_scalar: a config carrying trasnfer: {from: base, form: sum}
-was accepted and resolved as an ordinary scalar run — consistent with
-the census absence, since the only top-level readers are
-cfg.get(<known>) calls. Consequences adopted verbatim: a requested
-transfer silently becomes a from-scratch model; a requested NPCE run
-becomes a plain emulator; a sweep block is ignored by a non-sweep
-driver; and the RAW saved YAML claims a feature the resolved model
-never executed — the never-trust-defaults inversion (the artifact
-lies about the run).
-
-Contract (the red team's six clauses, with three rulings):
-
-1. One explicit top-level schema shared by config loading and every
-   driver.
-2. The allowed set covers the emulator-owned blocks (data,
-   train_args, pce, transfer, sweep) plus the explicitly enumerated
-   cobaya pass-through blocks the shared generator YAMLs need
-   (params, likelihood, theory, and any deliberately supported
-   controls). RULING (allowlist provenance): the set is not invented
-   — the Implementer ENUMERATES every top-level key across the
-   shipped corpus (example_yamls/, ai/gates/configs/, the generator
-   YAML docstrings), records the census in this note, and the
-   Architect audits it before the schema hardens (propose-first; the
-   large-unit precedent). Today the shipped training YAML carries
-   only data + train_args; the generator YAMLs carry the cobaya
-   blocks + train_args — both families must resolve under one
-   schema.
-3. Any other top-level key raises BEFORE device selection, staging,
-   source loading, or artifact mutation — at from_config entry AND
-   at each driver's load boundary.
-4. RULING (suggestion mechanism): difflib.get_close_matches (stdlib,
-   C-readable); the error names the unknown key, the close
-   recognized spelling when one exists (trasnfer -> transfer, pec ->
-   pce), and the full allowed set.
-5. Driver-specific requirements stay driver-specific: the sweep
-   driver requires sweep (its missing-sweep failure becomes a named
-   error, not today's raw KeyError); the training driver may
-   tolerate a VALID sweep block (one YAML deliberately serves both
-   drivers) but never an unknown spelling.
-6. The resolved record states the executed composition explicitly —
-   plain, NPCE with form, fine-tune with source, or transfer with
-   source/form/space; a raw block is never evidence that its path
-   executed. INTERLOCK: this clause rides unit 41's resolved-record
-   rebuild (artifacts-inference-warmstart.md) — one record, one
-   writer.
-
-Gate legs (pure CPU, board-listed with the config-schema coverage):
-valid plain / PCE / transfer / sweep / shared-generator configs
-pass; misspelled transfer, pce, sweep, train_args, data fail at the
-top boundary naming the key and the suggestion; mutation arm
-restores bare cfg.get("transfer") without the census and proves the
-misspelled-transfer config reaches the plain branch; raw and
-resolved records compared to prove the selected composition matches
-execution.
-
-Placement: campaign phase, beside unit 41 — the config namespace
-truth companion to the resolved-record truth (NOT part of the
-8+17+25+26 file-set authenticity cluster; that boundary is files,
-this one is the config namespace above train_args).
-
-## UNIT 60 (45M-57, tenth batch): the reported validation "median" is the lower middle sample for every even n_val
-
-CONFIRMED (Fable, 2026-07-12) at HEAD 5661c08. eval_val reduces the
-full validation chi2 vector with median = c.median().item()
-(training.py:1498 — the single .median( site in the module; the line
-number drifts with the in-flight 14(e) increment). torch.median
-returns the LOWER of the two central ordered values for even length:
-live-verified on the cocoa python —
-
-    torch.median([0, 1, 9, 10])   = 1.0   (ordinary median: 5.0)
-    torch.quantile([...], 0.5)    = 5.0
-    torch.median([0, 1, 9])       = 1.0   (odd control; quantile
-                                           agrees at 1.0)
-
-The value is not cosmetic: sched_median = raw_median (:2147) feeds
-scheduler.step(sched_median) (:2202) for ReduceLROnPlateau; the
-best-epoch record breaks equal-frac ties on it (:2163-2166 — ties
-are common because frac moves in steps of 1/n_val); the per-epoch
-medians list is persisted and plotted as a scientific summary
-(:2149, returned through :3056). And FIVE gate files manufacture
-their reference statistics with the SAME lower-middle operation —
-cmb_smoke.py:389, bsn_smoke.py:193, mps_smoke.py:203,
-finite_contract.py:137/:873, ge_c_eval_bs.py:99 — so the board
-ENCODES the defect rather than detecting it. Reachability: n_val is
-any positive integer and even is the norm (shipped placeholder
-n_val 5000; board runs use 200).
-
-RULINGS:
-
-- Naming: adopt the ordinary 50th-percentile median everywhere —
-  the center value for odd N, the arithmetic mean of the two center
-  values for even N. NOT renamed to "lower median": every prose,
-  plot, history, and gate surface already says median and every
-  scientific reader assumes the standard estimator; a rename sweep
-  buys nothing.
-- Implementation freedom: torch.quantile(c, 0.5) reproduces the
-  contract on both parities (verified above; its documented
-  input-size cap ~2^24 elements sits far above any n_val here and
-  the helper documents it), or a kthvalue midpoint. Either way ONE
-  shared reduction serves eval_val, the scheduler feed, the
-  tie-break, saved histories, and every gate reference.
-- The five gate reference sites migrate IN THIS UNIT, so repaired
-  production code and the gates cannot disagree for the right
-  reason.
-- USER-VISIBLE, declared: even-n_val medians change (reported,
-  persisted, plotted), and plateau timing / tie-breaks can change —
-  training trajectories are not byte-identical for even n_val.
-  Odd-n_val values are exactly unchanged (gate leg).
-- Placement: unit 60 rides WITH unit 50 (epoch-truth under
-  chunking) — the same eval/epoch-reduction surface, one visit —
-  and lands AFTER 14(e) (same function; no collision with the
-  in-flight increment).
-
-Gate legs (torch, workstation lane, joining
-ai/gates/checks/ge_c_eval_bs.py — board-run at board.py:369 and
-already driving the REAL eval_val with partition-invariance legs):
-[0, 1, 9, 10] -> 5 not 1 through the real eval_val; odd control
-[0, 1, 9] -> 1 exactly (byte-identity for odd N); batch/chunk
-invariance of the median through real eval_val; an equal-fraction
-epoch pair where lower-median and true-median rank opposite models
-and the true-median model must win the tie-break; a plateau-
-scheduler spy asserting the stepped value equals the reported and
-persisted median; mutation arm retaining Tensor.median() must fail.
-
-## UNIT 14 REOPENED AGAIN (45M-58, eleventh batch): increment (f) — validate the published reductions, not just the rows
-
-CONFIRMED (Fable, 2026-07-12, live through the REAL function).
-eval_val's landed chokepoint validates every per-sample chi2 (the
-increment-(e) domain predicate raises on bad ROWS), then publishes
-
-    mean   = c.mean().item()     # raw float32 reduction, unvalidated
-
-(training.py:1539 at HEAD 420bce2). PyTorch's float32 mean forms a
-float32 sum: eight finite rows near 1e38 have a true sum of 8e38 >
-float32 max, so the intermediate overflows in ANY summation order and
-the published mean is Inf AFTER the row guard declared the set valid.
-Reproduced through the real eval_val (cocoa python, torch 2.6.0 CPU,
-duck-typed loss returning 1e38 rows):
-
-    rows: 8 x 1e38 float32, all finite; domain predicate: PASS
-    published median = 9.999999680285692e+37   (order statistic, fine)
-    published mean   = inf
-    float64 reference mean = 9.999999680285692e+37
-
-This violates unit 14's own clause 4 ("mean/median/fractions must be
-finite before the publication" — the clause list above): increments
-(a+b) implemented clause 1 (rows), nothing implemented clause 4 for
-the reduction itself. Distinct from 45M-47 / increment (d), which
-repaired the TRAINING-epoch loss accumulator; this is the validation
-reporting path. The mean is appended to histories, plotted, and
-persisted. eval_source_chi2 returns per-row (params, dchi2) with no
-scalar reduction, so (f) is scoped to eval_val's published outputs.
-Honest scoping: the median (order statistic) and the boolean
-fractions (bounded by 1) cannot overflow — the mean is the vulnerable
-reduction — but the post-reduction check covers all three because it
-is one line each and because unit 60's even-N midpoint in float32
-could itself overflow at extreme scale (the float64 helper covers
-both).
-
-Contract, increment (f):
-
-1. eval_val computes its published reductions in float64 on the CPU
-   tensor: the mean now; the median through unit 60's shared ordinary-
-   median helper when it lands (same visit — do not build two
-   helpers). The threshold fractions are means of {0,1} and stay
-   exact; they are validated with the rest.
-2. EVERY published scalar/vector (mean, median, frac) is validated
-   finite AFTER reduction, before return; failure RAISES naming the
-   reduction, the side ("validation"), and the offending value.
-   Never a sentinel repair — an infinite mean is a refused
-   evaluation, not a big number.
-3. Ordinary-range results are numerically unchanged to the documented
-   tolerance: the float64 mean of float32 rows differs from the old
-   float32 mean at rounding level (~1e-7 relative). Histories are NOT
-   byte-identical — USER-VISIBLE, declared.
-4. The row-level guards ((a+b), (e)) are untouched; (f) is clause 4
-   made real.
-
-Gate Part I (finite-contract, workstation; CPU AND the CUDA lane):
-
-- through the REAL eval_val: eight finite float32 rows near 1e38 ->
-  the published mean is finite and equals the float64 reference
-  within the documented tolerance; median and fractions finite;
-- the same value reaches the training-loop history append (the
-  return contract is the history value);
-- mutation arm: restoring the float32 c.mean() must FAIL on a lane
-  where the float32 sum overflows; a backend that happens not to
-  overflow is recorded as a CONTROL — the contract is never
-  backend-dependent;
-- ordinary-scale positive control within the documented tolerance.
-
-Placement: (f) rides the SAME eval_val visit as unit 60, in the
-pipeline slot 50(+60+14f), after queue 43. Unit 14's closure claim
-(a-e) stands for its increments; the unit stays open on (f) only.
-
-#### Units 60 + 14(f) COMPLETE resume (2026-07-12, Opus) — committed 4846fdd, eval_val half of the 50-bundle
-
-Units 60 + 14(f) self-committed on the branch as 4846fdd (batch grant,
-pending audit) as ONE eval_val visit (the RULING's "same visit -- do not
-build two helpers").
-
-- Unit 60 (45M-57): `ordinary_median(values)` in training.py is the ONE
-  shared 50th-percentile reduction (torch.quantile(., 0.5) in float64 --
-  the mean of the two central values for even N, byte-identical to
-  torch.median for odd N, with the ~2^24 element cap documented). eval_val's
-  `median = c.median().item()` -> `ordinary_median(c)`; the scheduler feed,
-  the tie-break, and the histories consume this returned median, so the one
-  fix propagates to all four (no separate edits at those sites).
-- Unit 14(f) (45M-58): eval_val computes the mean in float64
-  (`c.to(torch.float64).mean()`) -- a float32 mean of rows near the float32
-  max overflowed to Inf AFTER the row guard -- and
-  `_validate_published_reductions` refuses any non-finite published mean /
-  median / fraction before return (clause 4). Row-level guards (a/b/e/h)
-  untouched.
-- The five gate reference sites migrated in this unit: ge_c_eval_bs.py (the
-  Part 1 reference + a NEW Part 1b with the unit-60 red legs), finite_contract.py
-  (two references + the float64 mean), cmb_smoke / bsn_smoke / mps_smoke (the
-  mean-predictor reference). `import math` added to training.py.
-
-Gate (unit 60 red legs, in ge_c_eval_bs.py Part 1b, board-run): helper parity
-(even ordinary=5 vs Tensor.median=1; odd=1), the REAL eval_val even-median 5 /
-odd-median 1, batch invariance across bs 1..4, the Tensor.median mutation
-caught. Part 1 (partition invariance) reference migrated so it still passes.
-
-Verified on Cocoa torch (CPU): probe_median_reductions.py 11/11 (helper
-parity, real eval_val even=5/odd=1, batch invariance, the float64 mean finite
-at 1e38 scale where float32 overflows, the post-reduction guard refusing an
-Inf mean / NaN median / non-finite fraction); ge_c_eval_bs Part 1 + Part 1b
-PASS on CPU.
-
-USER-VISIBLE, declared: even-n_val medians and means change (reported,
-persisted, plotted); plateau timing / tie-breaks can shift; odd-n_val medians
-exactly unchanged; ordinary-scale means differ at ~1e-7 rounding level.
-
-Workstation owed (user-run): finite-contract + the family smoke gate reruns
-(need cosmolike / real CAMB -- cannot import on Mac).
-
-REMAINING in the 50-bundle: unit 50 (45M-38, epoch truth under VRAM chunking,
-ai/notes/training-stack.md:1131 -- CRITICAL, the training_loop_batched epoch
-reduction, a DISTINCT surface from eval_val) is NOT in this commit. Queue
-after 50: 52 (propose-first head-padding) -> 55 (45M-46) -> 22(+20) ->
-13(+01, label 45M-01).
-
-## UNIT 14 REOPENED (45M-60 + addendum, twelfth batch): increment (g) — the chi2-domain band scales with the contraction WIDTH, not the product count
-
-Post-landing audit of 420bce2, CONFIRMED. Landed state:
-CosmolikeChi2._chi2_n_terms returns w*w on the dense base
-(losses/core.py:254 region, "w^2 products" in its docstring);
-CmbDiagonalChi2 overrides to w (losses/cmb.py:215); _chi2_neg_band
-multiplies 32 * eps(dtype) by that count (core.py:100 region);
-_chi2_domain clamps every within-band negative to EXACT 0. The
-production bands that fall out (computed live, float32):
-
-    w =  780:  w^2 band = 2.32086     width band = 0.002975
-    w = 1000:  w^2 band = 3.81470     width band = 0.003815
-    w = 3000:  w^2 band = 34.33228    width band = 0.011444
-
-Under w^2, a dense production loss returning chi2 = -2.0 is not
-refused — it becomes the best possible score. That reintroduces the
-false-crowning failure increment (e) exists to close. And the
-shipped gate never exercises the production band: the negative and
-band-edge legs use PoisonChi2, which omits _chi2_n_terms, so
-eval_val substitutes n_terms = 1 and only the 1e-6 floor is tested
-(finite_contract.py:913-914).
-
-The record, adjudicated precisely: the eighth-batch ruling text
-said "n_terms = the per-row count of summed products in the active
-contraction (n_dv for the plain whitened form; the documented
-equivalent for the rescaled/transfer forms)". The parenthetical
-anchored WIDTH (n_dv); the head phrase, read literally against a
-dense r^T Cinv r, yields w^2. The Implementer resolved the
-ambiguity to w^2/w and documented the resolution openly (commit
-message and resume note) — NOT a silent redefinition — but the
-resolution contradicts the n_dv anchor, and the consequence test
-decides. The ambiguous phrase was the Architect's; the contract is
-hereby revised WITH the derivation the red team demanded.
-
-RULING: n_terms := the per-row kept WIDTH w for EVERY
-CosmolikeChi2 family. Derivation (depth, not count): the band only
-governs values near zero; there the computed chi2's roundoff is
-bounded by (accumulation depth) * eps * (sum of term magnitudes).
-The dense contraction executes as a matvec — w INDEPENDENT
-length-w sums — followed by one length-w dot, so the final
-accumulated chain is ~w deep (torch's pairwise/blocked reductions
-make even w conservative), and near a small chi2 the term
-magnitudes are themselves small; the flat-chain w^2 model both
-overcounts the depth and ignores the small-term structure.
-Empirical anchor: the valid roundoff negatives that motivated
-45M-53 sat at ~1e-6 — three-plus orders inside the width band at
-every production w — while -2.0 / -4.0 are refused at every
-production width. _CHI2_NEG_KAPPA = 32 and the 1e-6 floor stand.
-GROWTH CLAUSE: the band may only ever be WIDENED by measured valid
-controls (the SPD leg below) plus a recorded forward-error
-derivation — never by convenience.
-
-ADDENDUM adopted (the metric census): with width uniform, ONE
-definition lives on the base class — n_terms = the geometry's kept
-per-row width — and the CmbDiagonalChi2 override is retired as
-redundant. ScalarChi2 (explicitly a diagonal sum of n_out squared
-standardized residuals, losses/scalar.py:28) becomes correct
-automatically; the addendum caught it silently inheriting the
-dense w^2 rule today. Every loss family documents the metric its
-chi2 actually executes at the class; test doubles used in
-production-band gate legs DECLARE their width explicitly — the
-silent hasattr fallback to n_terms = 1 (training.py:1528/:1618)
-remains only for bare doubles outside production-contract legs.
-
-Gate Part H amendments (board-listed finite_contract.py,
-workstation; no separate unlisted script):
-
-- a production-surface leg using an actual CosmolikeChi2-class
-  loss whose dest_idx has realistic dense width (>= 780);
-- -2.0 and -4.0 RAISE at realistic widths, before ranking or
-  normalization;
-- both sides of the ACTUAL production band, with the exact band
-  value reported in the leg output;
-- mutation arm: restore w*w — the realistic-width negative leg
-  must fail;
-- scalar-width leg: ScalarChi2 yields n_terms = n_out;
-- mechanical subclass census: every CosmolikeChi2 subclass returns
-  its geometry's kept width (a future diagonal family cannot
-  silently inherit a wrong rule);
-- an ill-conditioned SPD VALID control measuring where genuine
-  roundoff negatives land — they must fall inside the width band
-  (unit 11's future SPD guards are complementary, never a
-  substitute).
-
-PRIORITY: increment (g) PREEMPTS queue 43 — a live false-crowning
-hole on the branch beats a design unit; the revision is surgical.
-Unit 14 stays open on (f) + (g); pipeline slot for (g) is
-immediately next.
-
-## UNIT 61 (45M-59, twelfth batch): the learning-curve figure must represent a perfect zero
-
-CONFIRMED (Fable, 2026-07-12). plot_learning_curves documents
-f(delta-chi2 > threshold) as the plotted result, then
-unconditionally selects ax.set_yscale("log")
-(emulator/plotting.py:304). A valid fraction may equal EXACTLY 0 —
-no validation row exceeded the threshold, the best possible
-outcome — and zero has no logarithm: the most successful point is
-dropped or clipped, and the saved figure no longer represents the
-data supplied to it. The same module already implements the
-correct policy in plot_sweep_curve: "y is logarithmic when every
-fraction is positive, linear otherwise (a perfect 0.0 point would
-break a log axis)" (docstring, ~:324) with the conditional
-np.all(fr[np.isfinite(fr)] > 0) -> log at :372-373. Two public
-plotting paths disagree on the same quantity; reachable through
-the public sweep/learning-curve outputs.
-
-Contract (the red team's six clauses, one addition):
-
-1. Validate every training size finite and strictly positive, and
-   every fraction finite in [0, 1] — RAISE before figure
-   construction; matplotlib warnings are not schema validation.
-2. Sort accepted curves by training size, as today.
-3. Log y only when ALL plotted fractions are strictly positive; if
-   any accepted fraction is zero, use the zero-capable scale (the
-   existing plot_sweep_curve linear policy is the minimal
-   consistent rule).
-4. A zero marker stays visible at its exact coordinate, including
-   as the final, scientifically decisive point.
-5. target validated finite in [0, 1]; a zero target remains
-   representable.
-6. The docstring names the conditional scale (no unconditional
-   log-log promise).
-ADDITION (Architect): ONE shared scale-decision helper called by
-BOTH plot_learning_curves and plot_sweep_curve, so the two public
-paths cannot drift apart again — the parity leg then proves the
-sharing, not a coincidence.
-
-Gate legs (CPU-only, matplotlib Agg; the Implementer proposes the
-home — a small board-listed check or the existing plot coverage —
-at build): positive-only curve retains log y; {100: .5, 1000: .1,
-10000: 0} uses the zero-capable scale with the marker present at
-y = 0; an interior zero is not silently bridged away; fractions
-below zero / above one / NaN / Inf raise before figure
-construction; nonpositive or nonfinite training sizes raise;
-mutation arm restoring the unconditional set_yscale("log") must
-fail the perfect-zero leg; parity leg proving both public paths
-make the same scale decision on the same finite fractions.
-
-Placement: campaign phase (CPU-only, independent); no preemption.
-
-## UNIT 14 increment (g) AMENDED (45M-60 second addendum, thirteenth batch): the band derives from the COMPUTE dtype, never a storage upcast
-
-CONFIRMED (Fable, 2026-07-12). eval_source_chi2 computes each chi2
-chunk in the model/loss compute dtype (normally float32), then
-
-    dchi2_t = torch.cat(chunks).double()          (training.py:1608)
-    band = _chi2_neg_band(dchi2_t.dtype, n_terms) (training.py:1620)
-
-The upcast cannot undo float32 contraction roundoff; it only
-relabels the dtype the validator reads. Measured: at w = 780 the
-float64-eps band is 5.5e-12 raw -> the 1e-6 floor, while the
-float32 band (post-(g) width rule) is 0.002975; at w = 3000,
-2.1e-11 -> floor vs 0.011444. So training's _reduce and eval_val
-normalize a -5e-4 roundoff negative to exact 0 while the public
-diagnostic/sweep scorer REFUSES the same value — one score, two
-verdicts — and the comment at :1609-1615 explicitly claims the
-same predicate and band. An executed contradiction, not a policy
-choice.
-
-Amendment (folds into increment (g); rides the board-listed
-finite-contract gate, no new gate file):
-
-1. Capture the chi2 COMPUTE dtype before any storage/reporting
-   cast; derive the band from that dtype.
-2. Validate/normalize in the compute dtype; convert the ACCEPTED
-   result to float64 NumPy for reporting.
-3. Numerical provenance is never inferred from a tensor that has
-   merely been upcast.
-4. The same ordering applies to increment (h)'s shared diagnostic
-   helper (the floor arm at diagnostics.py:226 has the identical
-   .double()-before-interpretation shape).
-5. Gate leg: a real float32 loss family at a value between the
-   1e-6 floor and its adjudicated float32 band — _reduce, eval_val,
-   and eval_source_chi2 must give ONE verdict and one exact-zero
-   normalization.
-6. Mutation arm: restoring .double() before _chi2_neg_band must
-   fail.
-7. A genuine float64-compute control: a loss actually evaluated in
-   float64 still receives the float64 band.
-
-#### Increment (g) COMPLETE resume (2026-07-12, Opus) — committed cf1ab16, unit 14 open on (h)
-
-Increment (g) self-committed on the branch as cf1ab16 (batch grant, pending
-Architect audit): the width rule (twelfth batch) AND the compute-dtype band
-provenance (thirteenth batch, second addendum). This resume is a follow-up
-commit because the runner's concurrent notes commits repeatedly clobbered the
-uncommitted resume. Sequencing note: my relayed handoff ordered (g) before 43;
-I built (g) first and disentangled it from the queue-43 loss-side WIP (the
-cmb.py (g) diff is ONLY the override removal), which resolves the entanglement
-the thirteenth batch cited for "43 first". (h) is next, then queue 43.
-
-Width rule (45M-60):
-- losses/core.py: `CosmolikeChi2._chi2_n_terms` returns the kept width
-  `int(self.dest_idx.numel())` (was w*w); the docstring carries the
-  depth-not-count derivation + the GROWTH CLAUSE. `_chi2_neg_band` + the module
-  comment now read "reduction depth = kept width w".
-- losses/cmb.py: the redundant `CmbDiagonalChi2._chi2_n_terms` override removed
-  (a class comment documents the inherited width band; no CMB behaviour change).
-- losses/scalar.py: ScalarChi2's docstring records it now inherits the width
-  band (the addendum's catch: it silently carried the dense w^2 rule before).
-
-Second addendum (45M-60, thirteenth batch):
-- training.py `eval_source_chi2`: the band derives from the COMPUTE dtype
-  (`c_compute = torch.cat(chunks)`, no `.double()` before the band); validate /
-  normalize in the compute dtype, cast the ACCEPTED result to float64 for
-  reporting only. Fixes the one-score-two-verdicts split (the float64 upcast
-  floored the band to 1e-6, refusing a roundoff negative _reduce / eval_val
-  normalize to 0).
-
-Gate (ai/gates/checks/finite_contract.py, board-listed, no new file):
-- `check_chi2_band_production` (45M-60): a REAL CosmolikeChi2 subclass at width
-  780 -- -2 / -4 RAISE (band 0.002975 reported); both band sides (half
-  accepted, double raises, above the 1e-6 floor); a w^2-restoring mutation arm
-  (band 2.32086) that must NOT raise; a scalar-width leg (n_out); a mechanical
-  subclass census; an ill-conditioned SPD roundoff control. All via eval_val
-  (float32 band).
-- `check_chi2_band_dtype_provenance` (second addendum): _reduce / eval_val /
-  eval_source give ONE verdict on a value between the 1e-6 floor and the float32
-  band; the restored .double() upcast splits them (mutation); a float64-compute
-  loss gets the tight float64 band.
-- board.py maps + the gate docstring name 45M-60 + the second addendum.
-
-Mac verification (raw): py_compile OK on core.py, cmb.py, scalar.py,
-training.py, finite_contract.py, board.py; probe_width_band.py 9/9 and
-probe_band_dtype.py 4/4 on the REAL losses + eval_val + eval_source_chi2 +
-_reduce (Cocoa torch 2.6, CPU) -- n_terms 780 not 608400, bands 0.002975 /
-2.32086, eval_val refuses -2 / -4, the w^2 mutation swallows -2, the three
-boundaries agree on -5e-4 (float32 compute) and the float64-compute loss gets
-the float64 band. The torch legs ride the workstation finite-contract gate
-(still 33/33, zero skips = compile mandatory).
-
-Unit 14 stays OPEN on (h) 45M-61 (the diagnostic score boundary: the shared
-public score-domain helper + the four producer sites + the diagnostics gate)
-and (f) 45M-58 (float64 published reductions; rides 50). Next: (h), then queue
-43 under the QUEUE 43 RULINGS, then 50(+60+14f) -> 52 -> 55 -> 22 -> 13.
-
-## UNIT 14 REOPENED (45M-61, thirteenth batch): increment (h) — the diagnostic score boundary
-
-CONFIRMED (Fable, 2026-07-12). The finite-chi2 contract stops
-before the "data-only floor": local_linear_floor computes its
-interpolation-floor score by calling chi2fn.chi2 DIRECTLY
-(diagnostics.py:226-227, including the same
-.double()-before-interpretation upcast) and immediately interprets
-the unchecked values — f_floor / f_hard via dchi2_floor > 0.2
-(:238, :240) and median_floor via np.median (:241) — while only
-the MODEL arm (:230-233) passes through the newly guarded
-eval_source_chi2. _chi2_domain and _chi2_neg_band appear NOWHERE
-in diagnostics.py (untruncated census, 2026-07-12). Three more
-direct producer sites: :414, :621, :745 (the CMB / grid / grid2d
-public residual functions). Increment (e) therefore established
-two different definitions of a valid diagnostic chi2 inside one
-returned record.
-
-Reachability and the concrete wrong result (adjudicated on the
-validator boundary + arithmetic; the red legs drive the real
-path): DataVectorGeometry.from_state splats state straight into
-the constructor (output.py:249 `cls(device, **state)`), which
-stores Cinv and slices Cinv_sq with NO positive-definiteness check
-(:163-186); geometry-totality unit 11 is queued, not landed. A
-one-coordinate state with Cinv = [[-1]] and a unit floor residual
-gives dchi2_floor = -1: since (-1 > 0.2) is False, f_floor = 0.0 —
-the impossible negative "data-only floor" is reported PERFECT —
-and median_floor = -1; NaN rides the same NaN-comparison-False
-path. Even after unit 11 lands, float32 contraction roundoff is
-the reason (e) built the shared band; the floor must use it too.
-Distinct from the thirteenth-wave statistics-manufacture-NaN
-extension (already folded at ledger entry 9): there the statistics
-corrupt finite inputs; here a chi2 PRODUCER returns an invalid
-score and the diagnostic boundary fails to apply the
-already-landed score-domain contract.
-
-Contract (the red team's clauses adopted whole; no new tolerance):
-
-1. ONE shared public score-domain helper owned beside _chi2_domain
-   in losses/core.py; it accepts the LOSS OBJECT and derives the
-   band from that family's adjudicated term count (increment (g))
-   and the compute dtype captured before any storage cast (the
-   (g) second addendum ordering).
-2. dchi2_floor runs through it BEFORE any threshold, median,
-   dense-decile, plotting, or persistence operation.
-3. The three other direct sites (:414, :621, :745) are censused:
-   every public family diagnostic function validates its OWN chi2
-   vectors — none may rely on a driver having happened to run
-   coverage_diagnostic first.
-4. A materially negative or non-finite score RAISES naming: the
-   diagnostic name, the score producer (local-linear floor, cmb
-   residual, ...), the bad-row count and positions, the minimum,
-   and the band. A within-band negative becomes exact zero under
-   the same rule as training/evaluation.
-5. Unit 11's geometry validation is defense in depth, not a
-   substitute for score-boundary validation.
-6. Unit 9's honest-unavailability status governs statistics that
-   are mathematically unavailable; it must NOT convert a corrupted
-   chi2 into "unavailable" and continue.
-7. Valid positive diagnostic output remains byte-identical.
-
-Red legs (torch; a board-listed diagnostics gate under
-ai/gates/checks/ — the Implementer proposes the home, new small gate
-or the existing family-diagnostics coverage; GPU workstation lane
-plus a CPU lane wherever supported):
-
-- the REAL local_linear_floor driven with the reachable
-  one-coordinate accepted geometry whose floor score is -1:
-  current code returns f_floor = 0.0, repaired code must REFUSE
-  before computing it;
-- a materially negative model-independent floor beside an
-  otherwise finite/valid model arm — proves the FLOOR guard, not
-  eval_source_chi2, catches it;
-- NaN and +/-Inf floor scores refuse;
-- values immediately on both sides of the corrected
-  production-family band: exact-zero normalization vs refusal;
-- mutation arm: deleting ONLY the floor guard recreates the false
-  f_floor = 0;
-- each of the CMB / grid / grid2d public residual functions gets
-  one corrupt-score refusal and one valid-output identity control;
-- the loss-family term-count census from the (g) addendum rides
-  here too: the diagnostic must never silently use the
-  fallback-one band.
-
-Placement: increment (h) rides WITH (g) as one visit, AFTER queue
-43 lands (the preemption was relaxed: 43's loss side is built and
-verified uncommitted in losses/cmb.py, the same file (g) edits;
-finishing 43 avoids a half-unit and a same-file collision). Unit
-14 stays open on (f) + (g) + (h).
-## 45M-89 red-team documentation amendment: diagnostics must separate an estimator from a scientific verdict (2026-07-12)
-
-The current `diagnostics.py` prose teaches several heuristic outputs as if
-they establish causation.  `coverage_diagnostic` says a positive rank
-correlation means the floor is data coverage rather than the model, while its
-Boolean verdict is the unmotivated conjunction `median_bad > median_good` and
-`rho > 0.1`.  The same file hard-codes the good/bad boundary 0.2, dense/sparse
-deciles, a `1e-4` log floor, `k_nn=8`, a local-linear `k_nn=40`, and a CMB
-period fallback 50.  `plotting.py` adds percentile clipping and histogram-bin
-floors/ceilings.  Comments call some of these “readable” or “pure hardness”
-without deriving the choices or stating their sensitivity.
-
-Required documentation contract, folded into the queued diagnostics-totality
-unit rather than a second diagnostic implementation:
-
-- Define k-nearest-neighbor distance, Spearman rank correlation, local linear
-  regression, percentile, decile, and $R^2$ in plain language at the first
-  executable use.  State shapes and units.
-- A local-linear estimate is one comparator under locality and smoothness
-  assumptions.  It is not a mathematical lower bound and not “the best” a
-  smooth method can extract.  Rename prose and plot labels accordingly.
-- Descriptive statistics remain descriptive.  A correlation and a median
-  split can support “consistent with coverage limitation”; they cannot prove
-  that the model is not responsible.  State competing explanations and the
-  experiment that would distinguish them.
-- Every numerical control becomes a named argument or named module constant
-  with a derivation, units, and one sensitivity check.  The physical
-  $\Delta\chi^2=0.2$ acceptance threshold may remain shared from the run; the
-  0.1 correlation threshold, neighbor counts, deciles, floors, period, and
-  plot clipping cannot remain anonymous literals.
-- Teach device movement exactly: which arrays are copied from NumPy to
-  float32 device tensors, which calculations return to CPU and float64, and
-  why SciPy operates on host arrays.
-- The diagnostics-totality status/reason record owns empty groups, constant
-  features, zero truth crossings, and unavailable regressions.  Documentation
-  never describes NaN as an ordinary scientific number or lets plotting
-  silently reinterpret it.
-- A gate varies each newly named heuristic on a finite known-answer dataset
-  and proves that a categorical verdict cannot flip without the report naming
-  the changed control.  Existing numerical-totality legs remain mandatory.
-
-This amendment is both scientific and didactic: a novice must learn what the
-diagnostic measures, while an expert must be able to see which part is a
-measurement and which part is an interpretation.
-
-#### Increment (h) COMPLETE resume (2026-07-12, Opus) — committed 3f47d86, diagnostics-domain gate green
-
-Increment (h) self-committed on the branch as 3f47d86 (batch grant, pending
-Architect audit). The diagnostic score boundary now goes through ONE shared
-public helper.
-
-Contract delivered whole (the seven clauses):
-- `screen_chi2(chi2, loss, label, positions=None)` in losses/core.py beside
-  `_chi2_domain`: derives the band from `loss._chi2_n_terms()` (increment (g),
-  getattr default 1) and the chi2 COMPUTE dtype (the (g) second addendum --
-  the tensor is passed pre-.double()), applies `_chi2_domain`, RAISES naming
-  the boundary + rows + minimum + band, or returns the within-band-normalized
-  c_norm (exact 0). It raises rather than converting to "unavailable" (unit 9)
-  and is applied regardless of any upstream geometry check (unit 11 defense in
-  depth). Valid positive output byte-identical.
-- Consolidation: eval_val + eval_source_chi2 (training.py) now CALL screen_chi2;
-  the private `_report_chi2_domain` is retired (its message is preserved
-  byte-for-byte inside screen_chi2, so finite_contract's message assertions
-  still hold).
-- diagnostics.py: local_linear_floor (:262) screens the floor in its compute
-  dtype BEFORE f_floor / median_floor (its `.double()` ordering fixed); the
-  three residual producers (cmb/grid/grid2d) accumulate the compute-dtype chi2
-  per chunk and screen after concat through `_screen_diag_chi2` (a thin DRY
-  wrapper that calls screen_chi2), never a per-chunk `.double()`.
-
-Gate (NEW, board-listed): ai/gates/checks/diagnostics_domain.py (DIAG-A, torch
-CPU, no cosmolike/CAMB) + gate_diagnostics_domain + the Gate() entry in
-board.py. 20/20 GREEN on Cocoa torch:
-- screen_chi2 unit: valid byte-identical, within-band roundoff -> exact 0,
-  materially negative / NaN / +Inf / -Inf refused naming row + band, the
-  fallback-1 band floor still rejects, and the term count widens the band
-  (no silent fallback-1);
-- the REAL local_linear_floor: valid control returns finite f_floor; a
-  reachable negative floor (a _FloorOnlyNegChi2 corrupting call #1 = the floor,
-  the model arm valid) REFUSED before f_floor naming "local-linear floor"; a
-  NaN floor refused; the mutation arm (diagnostics.screen_chi2 monkeypatched to
-  a passthrough) recreates the false f_floor = 0, median_floor = -1e3;
-- the REAL cmb_residual_diagnostic: valid control + a corrupt-score refusal
-  naming "cmb residual";
-- a source census (AST): cmb/grid/grid2d residual all route through
-  _screen_diag_chi2, local_linear_floor calls screen_chi2, _screen_diag_chi2
-  delegates to screen_chi2, and no residual producer keeps the raw
-  .double().cpu().numpy() chi2 path.
-
-Scope note (honestly flagged): the grid / grid2d residual LIVE corrupt-score
-refusals are covered by the CENSUS leg (identical _screen_diag_chi2 path,
-proven live for CMB) rather than a separate live fixture -- the shared boundary
-is exercised live once and the other two are proven to route through it. If the
-Architect wants grid/grid2d live refusals too, they are a small add (build a
-GridGeometry + Grid2DGeometry + ScalarChi2 fixture).
-
-Workstation owed (user-run): the finite-contract gate rerun (Part A/C/H
-eval_val / eval_source_chi2 now route through screen_chi2, message unchanged --
-cannot import on Mac: geometries.output -> cosmolike) and the family smoke
-gates (residual internal accumulation changed; valid output identical).
-
-Unit 14 stays OPEN on (f) 45M-58 (float64 published reductions; rides unit 50).
-Next in the queue: 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01).
-
-## Structured evidence map — gate contract anchors (45M-72 foundation)
-
-The board's structured evidence map (`Gate.evidence`) pins each migrated
-gate to a stable, runner-validated anchor in its home note; the mechanism
-and the audited rollout are documented in `gates-and-board.md`. The
-diagnostics gate anchors here:
+### Diagnostic score-domain evidence
 
 <a id="diagnostics-domain-score-boundary"></a>
-**diagnostics-domain (DIAG-A) — the diagnostic score-domain boundary.** The
-shared `screen_chi2` helper (valid input byte-identical, within-band
-roundoff pulled to exact 0, a materially negative / NaN / +-Inf score
-refused naming the boundary + rows + band, the fallback-1 floor, the
-width-scaled band); the real `local_linear_floor` (a reachable negative
-floor refused before `f_floor`, a NaN floor refused, a valid control, and
-the guard-bypassed mutation that recreates the false `f_floor = 0`); the
-real `cmb_residual_diagnostic` (corrupt-score refusal + valid control); and
-the grid / grid2d producer census through the one shared boundary.
+The shared diagnostic boundary preserves valid scores, converts within-band
+roundoff to exact zero, and refuses materially negative, NaN, and infinite
+scores while naming producer, rows, and band. The real local-linear and CMB,
+grid, and grid2d residual functions each require live valid and corrupt-score
+tests. A mutation that bypasses only the boundary must recreate a false
+perfect score and fail.
 
-<a id="finite-contract-evidence"></a>
-**finite-contract (FIN-A) — a NaN or Inf never ranks, selects, or ships a
-model.**
-
-- files: none. The check builds every fixture in memory (plus one temporary
-  saved source root for the two parity legs) and reads no deploy data.
-- subprocess: `ai/gates/checks/finite_contract.py`, run by the wrapper. Every leg
-  drives the real functions from `emulator/training.py`,
-  `emulator/warmstart.py`, and `emulator/losses/`; torch only, no CosmoLike, no
-  GPU required.
-- metric: per-leg. Each leg injects exactly one non-finite (or out-of-domain)
-  value into a real code path and requires a loud abort, while its finite
-  control keeps its ordinary metrics; the mutation arms require the retired
-  behaviour to be caught, so no leg can pass on a dead assertion.
-- legs: 14, named `finite-contract.validation`, `finite-contract.train-step`,
-  `finite-contract.diagnostic`, `finite-contract.finetune-parity`,
-  `finite-contract.transfer-parity`, `finite-contract.safe-sqrt-eager`,
-  `finite-contract.safe-sqrt-compiled`, `finite-contract.epoch-mean`,
-  `finite-contract.chi2-domain-boundary`, `finite-contract.chi2-width-band`,
-  `finite-contract.chi2-compute-dtype-band`,
-  `finite-contract.extreme-scale-reduction`,
-  `finite-contract.optimizer-schema`, and
-  `finite-contract.optimizer-post-step`.
-- evidence: each claim is asserted inside the child, which prints one `##AID`
-  terminal per leg on every run, a crashing run included: a leg that raises is
-  `FAIL`, and the legs it blocked are `UNAVAILABLE` naming it, so the manifest
-  the board reconciles is complete whether or not a fixture regresses.
-- owed: two lanes are mandatory for closure and cannot run on a CPU dev box.
-  `safe-sqrt-compiled` needs a working `torch.compile` backward, and
-  `extreme-scale-reduction` needs CUDA for the mirror of its CPU fixture. Each
-  mints `UNAVAILABLE` naming its missing lane, and the child exits 2 (non-green)
-  rather than reporting a pass, so whole-gate closure is owed to a
-  compile-capable CUDA workstation.
+### Canonical finite-contract assertions
 
 <a id="finite-contract-validation"></a>
-`finite-contract.validation` requires `eval_val` to raise on a single NaN and on
-a `+/-Inf` among otherwise good validation rows, naming the validation side and
-the offending row, and requires an all-finite control to reproduce the reference
-median, mean, and threshold fractions unchanged.
+Real `eval_val` raises on one NaN, positive infinity, or negative infinity
+among otherwise valid rows and names the validation side and row. The finite
+control reproduces independent mean, ordinary median, and fractions.
 
 <a id="finite-contract-train-step"></a>
-`finite-contract.train-step` requires the real `training_loop_batched` step to
-raise on a NaN scalar loss BEFORE backward and on a non-finite gradient BEFORE
-`optimizer.step`, with the weights bitwise unchanged in both, and requires a
-finite control run to complete with `_global_grad_norm` read-only.
+Real `training_loop_batched` raises on a NaN scalar loss before backward and
+on a non-finite gradient before `optimizer.step`. Model weights remain
+bitwise unchanged. A finite control completes and the global-gradient-norm
+calculation does not mutate gradients.
 
 <a id="finite-contract-diagnostic"></a>
-`finite-contract.diagnostic` requires `eval_source_chi2` to raise on a diverged
-model's non-finite per-row chi2, naming the diagnostic side and the source rows,
-and requires a finite control to return its metrics.
+Real source scoring raises on a non-finite per-row chi-squared value and names
+the diagnostic side and source row. A finite control returns unchanged
+scores.
 
 <a id="finite-contract-finetune-parity"></a>
-`finite-contract.finetune-parity` requires `build_warm_start` to raise the
-finite-contract message on a no-extra both-arms NaN, a one-arm NaN, an Inf, and
-an extras-present NaN, never the misleading "extras leaked" or tolerance
-verdict, and requires a valid source to keep its `[ok] finetune parity` line.
+Warm-start construction rejects no-extra both-arm NaN, one-arm NaN, infinity,
+and extras-present NaN before any success, tolerance, or extras-leak message.
+A valid source retains the successful parity result.
 
 <a id="finite-contract-transfer-parity"></a>
-`finite-contract.transfer-parity` requires `build_transfer_start` to raise the
-finite-contract message on a non-finite epoch-0 surface, never "not the frozen
-base bitwise", and requires a valid zero-init to keep its `[ok] transfer parity`
-line.
-
-<a id="finite-contract-safe-sqrt-eager"></a>
-`finite-contract.safe-sqrt-eager` requires an exact-fit row (chi2 == 0) to have
-a finite, zero gradient in every sqrt mode — sqrt, both berhu lower branches,
-the anneal arm, and the `berhu_capped` region-3 where-mask — instead of the
-0/0 = NaN it used to produce; positives must agree analytically with sqrt; a
-materially negative, NaN, or Inf chi2 must be refused with a non-finite loss;
-the reduction must really read its contraction width; and a geometry-free loss
-must still crash (the harness mutation arm).
-
-<a id="finite-contract-safe-sqrt-compiled"></a>
-`finite-contract.safe-sqrt-compiled` requires the same exact-fit gradient to
-stay finite and zero through a `torch.compile`d reduction, with a raising
-compiled callable detected so the arm cannot green on a compile failure. The
-lane is MANDATORY: a box that cannot run a compiled backward mints
-`UNAVAILABLE` and a non-green exit, never a pass.
+Transfer construction rejects a non-finite epoch-zero surface before any
+frozen-base comparison. A valid zero-initialized transfer retains the
+successful parity result.
 
 <a id="finite-contract-epoch-mean"></a>
-`finite-contract.epoch-mean` requires a finite per-batch loss near the float32
-max to yield a finite epoch mean through host float64 accumulation, and requires
-the retired device-float32 `loss * bs` product to overflow to Inf on the
-mutation arm.
-
-<a id="finite-contract-chi2-domain-boundary"></a>
-`finite-contract.chi2-domain-boundary` requires `eval_val` and
-`eval_source_chi2` to raise on a finite NEGATIVE chi2 that training folds, so a
-corrupted row can never rank as perfect; an exact zero is accepted; the
-scale-aware band tolerates roundoff and refuses corruption on both edges; and
-the same fold is compile-safe. The finite-only check would crown the corrupted
-row, and that mutation arm must be caught.
-
-<a id="finite-contract-chi2-width-band"></a>
-`finite-contract.chi2-width-band` requires the negative-chi2 band to scale with
-the per-row reduction DEPTH — the kept width w, not w^2. A production-width
-(>= 780) leg through a real `CosmolikeChi2` subclass must refuse -2 and -4 and
-both sides of the actual float32 band; a mutation arm restoring the retired w^2
-rule must be caught letting -2 through; `ScalarChi2` must declare `n_out`; a
-mechanical subclass census must show no family overriding the width rule; and an
-ill-conditioned SPD control must show genuine roundoff near zero falling inside
-the band.
-
-<a id="finite-contract-chi2-compute-dtype-band"></a>
-`finite-contract.chi2-compute-dtype-band` requires the band to derive from the
-dtype the chi2 was COMPUTED in, never a storage upcast: `_reduce`, `eval_val`,
-and `eval_source_chi2` must give ONE verdict on a value between the 1e-6 floor
-and the float32 band, a restored `.double()` upcast must split them (the
-mutation arm), and a genuinely float64-computed loss must still get the tight
-float64 band.
+A finite per-batch loss near the float32 maximum yields a finite epoch mean
+through CPU float64 accumulation. Restoring the device-float32
+`loss * batch_size` product must overflow in the mutation case and fail.
 
 <a id="finite-contract-extreme-scale-reduction"></a>
-`finite-contract.extreme-scale-reduction` requires eight individually finite
-float32 scores near 1e38 to publish a finite float64 mean, ordinary median, and
-threshold fractions through the real `eval_val`, with the returned mean being
-the value appended to the real training history, and requires the restored
-float32 mean to overflow on the CPU mutation arm. The CUDA mirror of the same
-fixture is MANDATORY for closure: a box without CUDA mints `UNAVAILABLE` and a
-non-green exit, never a pass on the CPU arm alone.
-
-<a id="finite-contract-optimizer-schema"></a>
-`finite-contract.optimizer-schema` requires every public numeric optimizer
-control to be validated by type and range BEFORE the optimizer is built — a zero
-or non-finite eps, a non-finite or negative weight decay, a non-positive or
-non-finite learning rate, and a beta outside [0, 1) are each rejected — because
-a zero eps forms 0 / (sqrt(0) + 0) at an exact-fit row, a non-finite update the
-loss and gradient guards do not catch.
+Eight individually finite float32 validation scores near `1e38` publish a
+finite float64 mean, ordinary median, and fractions through real validation,
+and the returned mean reaches real history append. CPU and CUDA run the same
+fixture. Restoring float32 mean reduction must fail where it overflows; a
+backend without that overflow reports a control result rather than omitting
+the mandatory backend check.
 
 <a id="finite-contract-optimizer-post-step"></a>
-`finite-contract.optimizer-post-step` requires every model parameter and
-optimizer-state tensor to be finite after a real AdamW update, and requires the
-same inspection to detect a deliberately poisoned parameter and a deliberately
-poisoned optimizer moment (the two mutation arms).
+After a real AdamW update, every model parameter and optimizer-state tensor is
+finite. Deliberately poisoning one parameter and one optimizer moment must be
+detected by separate mutations.
 
-## UNIT 79 (20M-12, 2026-07-13): roughness is a CMB-family capability — eligibility by explicit family, never by inheritance
+## Final review checklist
 
-Finding (red team, CONFIRMED; witness reproduced through the shipped
-implementation): PCEResidualDiagChi2 inherits CmbDiagonalChi2
-(losses/pce.py:333) including configure_roughness, and
-training.py:2733 decides family by hasattr — its own comment says
-the method's presence identifies "a CMB loss" — so scalar / grid /
-grid2d NPCE runs legally carrying train_args.loss.roughness smooth
-redshift bins, flattened (z,k) cells, or unrelated named scalars as
-if they were consecutive multipoles (alternating length-7 witness:
-objective 7 -> 13.4512 at period_cut=5, lam=1; a two-output scalar
-run instead crashes at first batch on reflect padding).
+A training-stack change receives GO only when all applicable answers are yes:
 
-Contract (ratified): (1) roughness eligibility is an explicit
-scientific-family capability, not method presence or incidental
-inheritance; (2) only data.cmb may carry train_args.loss.roughness;
-(3) scalar, grid, grid2d, and ordinary cosmolike runs reject the
-block at configuration validation — before staging, PCE fitting,
-model construction, or training; (4) PCEResidualDiagChi2 may keep
-the shared diagonal metric, but the CMB-only training feature does
-not leak through the shared base; (5) the valid CMB+NPCE+law-none
-path retains the existing roughness computation exactly; (6) error
-prose explains the filter assumes an ordered, uniformly interpreted
-multipole axis — output-vector adjacency alone does not create that
-meaning.
+1. Does one source own each formula, state transition, capability, and
+   resolved value?
+2. Are configuration types, domains, and unknown keys rejected before
+   mutation or expensive setup?
+3. Are the compute dtype, kept width, row identity, and reduction precision
+   explicit at every numerical boundary?
+4. Does a non-finite or materially negative score refuse before ranking,
+   selection, plotting, or publication?
+5. Do I/O chunking, device capacity, worker count, point order, and earlier
+   failures leave scientific semantics unchanged?
+6. Does every saved record describe the weights and settings that actually
+   ran?
+7. Does every acceptance test call the real public or owned boundary and use
+   an independent expected answer?
+8. Does at least one deliberate mutation recreate the prohibited behavior and
+   fail the test?
+9. Are missing accelerator or compiler checks reported as not passing rather
+   than converted to success?
+10. Is the note free of dates, personal references, ticket codes, review
+    biography, branch diaries, and obsolete status reports?
 
-Legs (ratified; CPU Torch, board-listed): scalar/grid/grid2d NPCE +
-roughness each refuse at validation; plain non-NPCE controls refuse
-identically; CMB+NPCE+law-none accepted and matches a direct
-known-answer penalty; the alternating seven-coordinate example
-remains 7 (rejected before loss construction, never 13.4512);
-two-output scalar refuses at validation instead of crashing; a
-mutation restoring the hasattr decision must accept a non-CMB NPCE
-configuration and fail the gate. Sequencing: small standalone
-training-truth refusal; may ride any nearby training.py landing.
-
-## UNIT 80 (20M-13, 2026-07-13): one physical-contraction owner — the residual is cast to the precision tensor's dtype at the boundary, nowhere else
-
-Finding (red team, CONFIRMED): float64 output geometries are
-documented and recommended (output.py:76-79) and store Cinv in the
-geometry dtype, but the two physical-composition losses force the
-physical truth to float32 (pce.py:266; transfer.py:291, :294) and
-contract directly with the stored-dtype precision (pce.py:310-311)
-— every float64 PCE-ratio and physical-transfer configuration
-crashes (kept and full, sum and gain) before any chi2 exists; the
-whitened route is dtype-aware and fine.
-
-Contract (ratified): (1) network outputs and staged packed targets
-STAY float32; (2) immediately before every physical Mahalanobis
-contraction the physical residual is cast to the EXACT dtype and
-device of the precision tensor it contracts with — kept and full
-identically; (3) the returned chi2 dtype follows Cinv_sq / Cinv (a
-float64 geometry yields a float64 chi2, which the unit-14 screen's
-compute-dtype provenance already accommodates); (4) no wholesale
-model/batch float64 conversion — this is a narrow loss-boundary
-cast; (5) the float32 path is byte-identical; (6) ONE shared
-physical-contraction helper owns the cast + einsum, used by PCE
-ratio, transfer sum/gain, plain and factored transfer, and any
-future physical-space loss — no per-loss drift.
-
-Legs (ratified; CPU Torch, board-listed): float64 PCE-ratio kept +
-full contractions against direct known answers; float64 physical
-transfer sum + gain on a plain base; the same on a factored base;
-the whitened-space float64 control; float32 controls proving
-unchanged values AND dtypes; returned-dtype assertions for both
-precision choices; a mutation arm restoring the direct mixed-dtype
-einsum must reproduce the runtime failure. Sequencing: lands in the
-transfer campaign WITH unit 77 as one algebra increment — unit 80's
-contraction owner is where unit 77's composition owner contracts.
-
-## UNIT 80 AMENDED (20M-13 addendum, 2026-07-13): geometry precision has one end-to-end owner — head basis buffers cast at their boundary
-
-Finding (red team, CONFIRMED): the structured heads register
-W_fd / W_df directly from the geometry's float64 eigenvector/scale
-tensors (plain.py:577-594; mirrored in ia.py), so a float64
-DataVectorGeometry crashes ResCNN / ResTRF / TemplateResCNN /
-TemplateResTRF at y @ W_fd ("expected m1 and m2 to have the same
-dtype") before any loss executes — the public Python geometry API
-reaches it even though the YAML surface does not yet expose the
-dtype knob.
-
-Amendment (binding, lands IN the unit-80 increment): (1) model
-computation stays in the declared model compute dtype (normally
-float32); (2) structured-head basis-transform buffers are derived or
-cast explicitly into the trunk-output dtype at their owned
-composition boundary; (3) the loss geometry keeps its requested
-precision — float64 Cinv stays float64 for the unit-80 contraction;
-(4) the forward and inverse basis transforms get an independent
-known-answer check; (5) default float32 geometry/model behavior
-bitwise identical; (6) all four structured families complete forward
-AND backward under a float64 output geometry; (7) a mutation
-retaining float64 W_fd/W_df beside a float32 trunk must red.
-"supported geometry precision" has ONE owner from model head through
-physical contraction.
-
-## UNIT 88 (20M-24, 2026-07-13): capacity tokens are acquired before any job-sized allocation — the budget gate contains what it budgets
-
-Finding (red team, CONFIRMED; live instrumentation through the real
-run_gpu_pool): lanes run setup_fn — which stages full train +
-validation data and builds the geometry (:131-138) — before any
-token is acquired (scheduling.py:242 vs :252-259), so four charged
-resident experiments coexist under a token model that promises
-exclusivity; the estimator explicitly charges the resident data term
-that setup allocates.
-
-Contract (ratified): (1) NO job-sized GPU allocation before that job
-owns its capacity tokens; (2) setup splits into genuinely small
-permanent lane setup + token-scoped per-job staging, OR tokens are
-held for the complete lifetime of one lane-local staged experiment —
-never four resident experiments preserved to preserve today's
-function split; (3) genuinely permanent per-lane CUDA
-context/model/geometry state is accounted separately and multiplied
-by the ACTUAL lane count before remaining token capacity is
-advertised; (4) the arithmetic is exact: a four-token job permits one
-charged resident allocation on the GPU, two-token at most two,
-one-token at most four — setup and execution COMBINED; (5) setup
-failure, acquisition failure, and job failure release exactly what
-they acquired, retaining the sibling-reaping/liveness contract; (6)
-the banner reports permanent-per-lane bytes, token-scoped bytes,
-lane count, and measured/derived concurrency — no "exclusive" or
-packing claims the quantities do not support; (7) the N-train path's
-validation staging receives the same ownership audit (the
-hyperparameter path is the decisive current counterexample because
-both stagings live in setup_fn).
-
-Legs (ratified): a board-listed CPU allocation-counter fake through
-the REAL run_gpu_pool proving maximum charged concurrency 1/2/4 for
-4/2/1-token plans, with a mutation moving acquisition back below
-setup (must red); a workstation CUDA leg with a deliberately tight
-resident fixture whose four pre-fix setups cannot coexist but whose
-token-scoped repaired execution completes, reporting raw peak
-allocated/reserved bytes. Placement: the scheduler/pool campaign
-(beside the bakeoff-liveness item and unit 55); blocks --gpu-pack
-production sweeps.
-
-## UNIT 89 (20M-25, 2026-07-13, HIGH): every training invocation establishes the COMPLETE loss-object state — absence clears, never inherits
-
-Finding (red team, CONFIRMED; executed on the real repeated-run
-path): configure_roughness fires only for a non-null resolved block
-(training.py:2732-2741) and nothing clears _rough/_rough_lam
-(losses/cmb.py:205-223), while the sweep driver reuses one staged
-experiment + chi2fn per GPU lane: after an enabled point, a later
-disabled point still optimizes lam = 1.0 roughness (13.4511995 vs
-fresh 7.0 on the alternating seven-multipole residual). Sweep order
-and lane assignment become scientific variables.
-
-Contract (ratified, with the census widening): (1) every training
-invocation establishes the COMPLETE loss-object state — roughness
-OFF is established explicitly, never inherited; (2) ONE owner
-replaces or clears the roughness state; block absence means CLEAR,
-never leave-unchanged; (3) enabled->disabled, disabled->enabled,
-repeated values, and lane/order permutations match isolated
-fresh-experiment controls; (4) a failed sweep point leaves no state
-affecting the next; (5) the resolved record describes the state
-ACTUALLY installed on the loss object; (6) single-run enabled and
-disabled numerics byte-identical; (7) CENSUS: every conditional
-configure_* on a loss object (configure_law, configure_rescaling,
-transfer's configure_roughness) is audited under the same
-establish-or-clear discipline in this unit's landing — one proven
-leak is not treated as the only one.
-
-Legs (ratified; board-listed Torch, CPU sufficient — the real
-repeated-run/same-experiment path): enabled->disabled;
-disabled->enabled; fresh-object equivalence; failure-then-valid
-isolation; lane permutation; a mutation deleting the OFF reset must
-red. Placement: with unit 55 in the repeated-training isolation
-class (their gates share the same home); blocks production
-hyperparameter sweeps over loss blocks; distinct from unit 79
-(eligibility) and unit 55 (transfer-source lifecycle).
-
-## 25M-29 (Red Team CONFIRMED, awaiting Architect adjudication): unit 14(f)'s required extreme-scale Part-I gate was never committed
-
-The binding increment-(f) contract above requires a board-listed
-finite-contract Part I that drives the real `eval_val` with eight finite
-float32 scores near `1e38`, proves the published mean equals the float64
-reference, checks the returned/history value, and fails a restored float32
-`c.mean()` on CPU and CUDA.  Commit `4846fdd` correctly implements float64
-published reductions, but its gates implement only unit 60's ordinary-median
-Part 1b.  There is no Part I and no extreme-scale validation fixture in
-`ge_c_eval_bs.py` or `finite_contract.py`.  The only `1e38` fixture in
-`finite_contract.py` is Part G's **training epoch accumulator**, the distinct
-45M-47 surface.
-
-The completion record cites an uncommitted `probe_median_reductions.py 11/11`
-as evidence and then declares units 60 + 14(f) complete.  That probe is not a
-board leg.  The current ordinary-scale finite control would remain green if
-`eval_val` regressed to float32 `c.mean()`, because its float32/float64
-rounding difference stays within the loose `1e-6` relative comparison.  The
-board therefore cannot catch restoration of the exact original wrong result:
-eight individually finite rows whose float32 sum overflows and publishes
-`Inf`.
-
-Required repair is the already-issued Part I, not a new numerical design:
-drive real `eval_val` on eight finite float32 scores near `1e38`; require a
-finite mean equal to the direct float64 reference and finite median/fractions;
-assert the same returned value reaches the real history-append consumer;
-include an ordinary-scale control; and make a restored `c.mean()` mutation
-overflow and red.  Run the small leg on CPU and on the mandatory CUDA
-workstation lane.  A backend that does not reproduce overflow is an explicitly
-reported control, never permission to omit the lane.  `ai/gates/board.py` maps
-and the check docstring must name published-reduction truth.
-
-## 25M-30 (Red Team CONFIRMED, awaiting Architect adjudication): unit 14(h) replaced two required live family diagnostics with an AST call-name census
-
-The increment-(h) contract requires valid-output identity and corrupt-score
-refusal through **each** public CMB, grid, and grid2d residual diagnostic.
-`ai/gates/checks/diagnostics_domain.py:259-276` live-drives
-`cmb_residual_diagnostic`.  For `grid_residual_diagnostic` and
-`grid2d_residual_diagnostic`, `:282-297` only parses the source and checks that
-the function contains a call named `_screen_diag_chi2`.  The completion record
-at this note's increment-(h) resume explicitly substitutes that AST census,
-and the later audit accepted the substitution despite the issued clause.
-
-A call-name census proves neither the tensor being screened nor the loss
-owner, compute dtype, row positions, ordering, or that the returned diagnostic
-uses the screened values.  A mutation can keep the call in the AST while
-passing the wrong tensor or interpreting the raw corrupt score afterward; the
-current gate remains green.
-
-Required repair: add small real `GridGeometry` and `Grid2DGeometry` fixtures
-beside the CMB fixture.  For each public function, a finite known answer must
-return the unchanged expected per-row/worst result, and a controlled negative
-producer score must raise before thresholding/plotting/persistence with the
-family producer named.  Per-family catch-power mutations preserve the
-`_screen_diag_chi2` call name but pass the wrong tensor, loss owner, or row
-positions; the AST census must be shown insufficient and the live leg must
-red.  Keep the census only as structural breadth after the three behavioral
-legs.
-
-## 25M-31 (Red Team CONFIRMED, awaiting Architect adjudication): the finite-contract gate still asserts retired error text and cannot reach ALL PASS
-
-Increment 14(h) consolidated validation and diagnostic chi2 interpretation
-through `losses.core.screen_chi2`, whose error prefix is now
-`chi2 domain contract [<side>]`.  Part H correctly expects that owner
-(`finite_contract.py:901-935`).  Earlier Parts A and C still require the
-retired substrings `finite contract [validation]` and
-`finite contract [diagnostic]` (`:191-208`, `:426-435`).  Their calls now
-reach `screen_chi2`, so they record FAIL even when the expected ValueError and
-row number are correct.
-
-Consequently, repairing 25M-23's missing `_chi2_domain` import is not enough:
-the complete board-listed check will still false-red before its final verdict.
-This is a gate-fixture/message-owner repair, not a second producer contract.
-Update A/C to assert the one current shared boundary (prefer a stable typed
-reason or structured helper over duplicating prose fragments), retain the row
-and side checks, and run the whole check through `finite-contract: ALL PASS`.
-Add a mutation that restores the obsolete prefix expectation and must red the
-selftest of the assertion owner.  Reconcile the check docstring/maps at the
-same time as 25M-23 and the missing Parts I/family legs so one full rerun proves
-the final executable gate rather than isolated helper probes.
-
-## Units 41 and 53 Red Team readback (2026-07-14): HOLD on persisted identity
-
-The independent review record is
-`ai/notes/red-team-audit-and-didactics-2026-07-13.md`,
-`UNIT-41/53-REDTEAM-01`.  Current main `204748e` still records only `use_amp`
-and `device`; the artifact does not carry the executed autocast dtype or scaler
-policy, and `amp_dtype` remains locally derived in the training loop.  Unit
-41's 25M-05 extension is also open: default `H` and YAML `power` runs publish
-`activation=None`, pooled workers re-resolve the raw optional field, head pins
-are absent from table and figure paths, and the N-train product collapses a
-resolved `rescnn_nla` identity to `TemplateResCNN`.  The activation-sweep table
-does preserve its categorical value order, which is a valid narrow control,
-not closure of the record contract.
-
-Unit 53 is wholly open on current main.  There is no canonical study manifest,
-digest or study-level identity attribute.  The direct `cosmolike` default
-selects `cosmic_shear_tune_emulator` instead of historic
-`cosmic_shear_tune`; wrapper identity changes with `prog`; legacy studies are
-accepted without comparison; any old trial suppresses the default control;
-workers stage before journal authentication; failed workers can be hidden by
-an older COMPLETE trial; and the report prints neither stable name nor digest.
-
-The two Cocoa-runnable witnesses are
-`ai/gates/checks/redteam_unit41_policy_witness.py` and
-`ai/gates/checks/redteam_unit53_manifest_witness.py`.  Their PASS lines mean the
-current defects were reproduced, not that the production contracts pass.  A
-repair owes positive acceptance arms plus mutations restoring each defect.
-`25M-06` remains unit 82; this readback applies its representation-truth lesson
-without claiming that study hashes validate `.ranges` semantics.
-
-This readback is independent Red Team evidence for Fable adjudication.  It is
-not self-certification, production-repair authorization or merge authority.
-
-## Unit 41-REPAIR second-Implementer readback (2026-07-14): positive witness GREEN; independent audit pending
-
-The repair implements the two contracts held above.  `run_emulator` is now
-the sole assignment owner for `amp_dtype` and `scaler_policy`; it passes those
-values into both training-loop call sites and persists them in
-`resolved_train`.  The current numerical behavior is recorded without being
-redesigned: MPS selects `torch.float16`, other devices select
-`torch.bfloat16`, and the existing no-scaler step is named `unscaled`.  The
-separate 45M-39 repair remains separate.
-
-The N-train and ordinary hyperparameter sweep paths now construct one
-immutable resolved record before choosing serial or pooled execution.  That
-record supplies worker activation/rescale, table metadata and figure/banner
-labels.  It carries the resolved shared activation and gate count, the head
-pin and its gate count, and the resolved composed model name.  An
-activation-family sweep instead carries `activation: swept` plus the ordered
-values; fixed sweeps carry the activation that actually ran.  The pooled
-fixtures read back `power` from both paths, and the composed fixture reads back
-`rescnn_nla` rather than the template class name.
-
-`ai/gates/checks/redteam_unit41_policy_witness.py` is now a positive acceptance
-witness, as its original header required after repair.  Its 16 positive arms
-all pass, including four mutation/control checks: both persisted fields
-removed, loop-local dtype ownership restored, raw optional activation
-restored, and activation order reversed.  The full raw streams and command are
-in `ai/notes/gates-and-board.md`, section "Unit 41-REPAIR implementation return".
-All six touched Python files compile; the real categorical plot writer also
-produced a nonempty PDF with the design label.
-
-Git publication is the only blocker: the sandbox denied the linked-worktree
-`index.lock`, so the requested branch and SHA could not be created.  The
-complete diff remains in the Architect worktree for readback and
-materialization.  This is second-Implementer evidence awaiting independent
-Architect audit.  It is not self-certification and does not authorize a merge.
+Any no answer is NO-GO.

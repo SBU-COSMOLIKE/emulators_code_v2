@@ -175,6 +175,15 @@ index, or fall back to the caller's checkout.
    uniquely. If two reasonable designs remain, you have not finished the
    directive.
 
+   **Python-change style gate.** If the unit changes any tracked `.py` file,
+   read `ai/notes/python-changes-go-no-go.md` before writing the directive.
+   Classify every changed path as hot or cold, resolve the required code shape,
+   and copy every applicable binary row into the `Acceptance checklist` with
+   the evidence the Implementer must return. This contract is mandatory for
+   production code, tests, gates, tools, comments, docstrings, command help,
+   diagnostics, and explanatory strings. A style decision left to the
+   Implementer is `NO-GO` for dispatch.
+
    **README and Python-prose instruction-time gate.** If the unit creates or
    changes a tracked README or explanatory Python prose (comments, docstrings,
    command help, user-facing diagnostics, or explanatory strings), read
@@ -274,6 +283,12 @@ index, or fall back to the caller's checkout.
    or complete Python symbol against every applicable row using raw evidence.
    The Implementer's checked boxes are evidence to inspect, never the verdict.
    Any applicable row without evidence is `NO-GO`.
+
+   **Python-change review-time gate.** Before issuing `GO` on any tracked
+   Python change, reopen `ai/notes/python-changes-go-no-go.md`, read every
+   changed symbol in full, and inspect every applicable row using raw test,
+   static-check, performance, and character-count evidence. Passing behavior
+   does not override unreadable or obfuscated Python.
 
 5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
    When enabled, the red team operates in adversarial mode — its job is to
@@ -395,6 +410,9 @@ exact Worktree, exact Base, and --max N.]
 
 ### Acceptance checklist
 - [ ] [Write binary, evidence-backed completion conditions. If this unit
+  changes tracked Python, copy every applicable row from
+  `ai/notes/python-changes-go-no-go.md`, including hot/cold classification,
+  and name its evidence. If this unit
   changes a tracked README or covered explanatory Python prose, copy every
   applicable row from `ai/notes/readme-go-no-go.md`, name its evidence, and
   explain every `not applicable` row. For a positive N, require the exact
@@ -497,6 +515,10 @@ prose, run the complete `ai/notes/readme-go-no-go.md` review before recording
 the milestone. Store the prose decision record in the temporary ticket note.
 A `NO-GO` return names the failed rows, exact passages, required replacements,
 and evidence to rerun.
+
+If the returned unit changed tracked Python, run the complete
+`ai/notes/python-changes-go-no-go.md` review before recording the milestone.
+Store the binary style verdict and raw evidence in the temporary ticket note.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
 

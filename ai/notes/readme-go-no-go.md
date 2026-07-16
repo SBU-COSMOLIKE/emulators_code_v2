@@ -1,5 +1,36 @@
 # README and Python prose GO / NO-GO contract for the Architect
 
+## Terms used by this contract
+
+A **unit** is one bounded change assigned to one development role. Git is the
+repository's version-control system; a **tracked** file is a file Git includes
+in saved repository versions. A **Python symbol** is one named module,
+function, class, or method.
+
+A **protocol token** is an exact machine-read word whose spelling is part of
+an interface. **Serialized data** is text or bytes written so a program can
+reconstruct structured state. A **test fixture** is the fixed input setup used
+by a check.
+
+A **directive** is the Architect's complete instruction for one unit. Its
+**Acceptance checklist** lists the checks and observations required for GO.
+An **exemption** records why one check does not apply. **Dispatch** is the act
+of sending that directive to another role. A **gate** is a decision checkpoint
+that must pass before work proceeds.
+
+YAML is the human-readable settings-file format used by the repository. A
+**parser** is a program that reads a format and rejects malformed input.
+**Mermaid** is the text format GitHub renders as a diagram. An **anchor** is a
+named location that a link can target. **Output parity** means that actual
+program output matches the declared reference under the stated comparison.
+
+**FAQ** means frequently asked question. An **HTML detail block** is a
+collapsible `<details>` section in Markdown. **Stale** text no longer matches
+the current library. A **full-source search** examines every file in its named
+scope rather than a shortened sample. A Git **branch** is a named line of saved
+repository versions. A **worktree** is a separate Git working folder attached
+to one branch.
+
 This contract applies whenever a unit creates or changes either:
 
 - a tracked README; or
@@ -55,10 +86,10 @@ repair. Neither role replaces the Architect's final review.
 
 The main path gets a new user to a valid result. It answers, in order:
 
-1. What do I need?
-2. What do I run or configure?
-3. What should I see?
-4. What should I do next?
+1. What does the user need?
+2. Which command or setting does the user change?
+3. Which result should appear?
+4. Which action follows that result?
 
 Theory, implementation detail, recovery internals, long explanations, and
 reference material belong in appendices. Moving material to an appendix does
@@ -99,9 +130,15 @@ ai/notes/models-and-designs.md
 ai/notes/project-and-history.md
 ai/notes/readme-go-no-go.md
 ai/notes/training-stack.md
-ai/notes/user-didactics-and-python-voice.md
+ai/notes/python-changes-go-no-go.md
 ai/tools/permanent_note_guard.py
 ```
+
+SHA-256 is a fixed-length fingerprint calculated from exact file bytes. A Git
+commit is one saved repository snapshot. A Git worktree is a separate folder
+that checks out one branch without changing another working folder. `HEAD` is
+the commit selected in that worktree. The staging area contains changes chosen
+for the next commit, while working files are the files presently on disk.
 
 The expected SHA-256 values do not live in an editable checksum file. The
 Architect pins the full starting commit in the directive. Before dispatch and
@@ -470,8 +507,8 @@ Look for repeated patterns across the changed section:
 - repeated endings such as “highlighting” or “underscoring”;
 - several abstract nouns where a person or program could perform an action;
 - repeated roadmap sentences that announce, perform, and recap a simple step;
-- newly added question-and-answer transitions that do not match the user's
-  own question-led appendix structure.
+- newly added question-and-answer transitions that do not match the
+  established question-led appendix structure.
 
 The Architect explicitly checks these sentence shapes:
 
@@ -540,10 +577,10 @@ Perfectly balanced groups of three are not automatically clearer. Keep three
 items when there are exactly three real items. Do not reshape two or four
 facts into three for rhythm.
 
-FAQ headings are required in the appendices because they help readers jump to
-a real problem. Do not add decorative question-and-answer prose inside every
-FAQ, such as “What does this mean? The answer lies in...”. Answer the heading
-directly.
+Frequently asked question (FAQ) headings are required in the appendices
+because they help readers jump to a real problem. Do not add decorative
+question-and-answer prose inside every FAQ, such as “What does this mean? The
+answer lies in...”. Answer the heading directly.
 
 Bold lead-ins, colons, semicolons, parentheses, passive voice, and complete
 sentences are not AI evidence by themselves. Review repetition and reader
@@ -676,8 +713,8 @@ and the evidence that must be rerun. “Improve clarity,” “make it didactic,
 This contract turns two permanent policy notes into an operational decision:
 
 - `ai/notes/conventions-and-workflow.md`, section **README / didactics**;
-- `ai/notes/user-didactics-and-python-voice.md`, sections **Who is reading**
-  and **How she likes to be taught**.
+- `ai/notes/python-changes-go-no-go.md`, sections **Scope and decision
+  authority** and **Teaching text inside Python**.
 
 Style checks remain secondary to technical truth and reader success. They
 must never be used as an automatic score of who wrote the text.

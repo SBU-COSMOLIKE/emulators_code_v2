@@ -96,6 +96,13 @@ the Architect. Do not expand the review beyond the named change and the
 current behavior it describes. The Red Team still does not issue `GO` or
 `NO-GO`.
 
+When the named change touches tracked Python, read
+`ai/notes/python-changes-go-no-go.md` and test every applicable style row in
+the bounded change. Inspect the full changed symbols, not only the diff. Report
+missing hot/cold classification, hidden operations, obfuscation, silent
+fallbacks, persistence drift, weak errors, or unproved hot-path changes to the
+Architect with exact evidence. Do not edit the contract or widen the review.
+
 The red-team pass asks, at minimum:
 
 - Does the real execution path match the stated architecture and README?

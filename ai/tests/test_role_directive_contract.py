@@ -27,6 +27,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
         cls.architect_command = read(".claude/commands/architect.md")
         cls.implementer_command = read(".claude/commands/implementer.md")
         cls.readme_contract = read("ai/notes/readme-go-no-go.md")
+        cls.python_contract = read("ai/notes/python-changes-go-no-go.md")
         cls.conventions = read("ai/notes/conventions-and-workflow.md")
         cls.ai_readme = read("ai/README.md")
         cls.router = read("ai/tools/handoff_router.py")
@@ -294,6 +295,27 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("NO-GO", self.readme_contract)
         self.assertIn("Hard-zero words", self.readme_contract)
         self.assertIn("Do not use an AI detector", self.readme_contract)
+
+    def test_every_python_change_uses_the_mandatory_style_gate(self):
+        contract_path = "ai/notes/python-changes-go-no-go.md"
+        self.assertIn(contract_path, self.architect_command)
+        self.assertGreaterEqual(self.architect.count(contract_path), 4)
+        self.assertIn(contract_path, self.implementer)
+        self.assertIn(contract_path, self.implementer_command)
+        self.assertIn(contract_path, self.redteam)
+        self.assertIn("before writing the directive", self.architect)
+        self.assertIn("Python-change review-time gate", self.architect)
+        self.assertIn("hot or cold", self.architect)
+        self.assertIn("Python style evidence", self.implementer)
+        self.assertIn("full changed symbols", self.redteam)
+        self.assertIn("style is a release condition", self.python_contract)
+        self.assertIn("Architect gate before dispatch", self.python_contract)
+        self.assertIn("Architect gate before final verdict",
+                      self.python_contract)
+        self.assertIn("Hard NO-GO conditions", self.python_contract)
+        self.assertIn("character budget", self.python_contract)
+        self.assertIn("The Implementer and Red Team never edit",
+                      self.python_contract)
 
     def test_every_execution_role_keeps_permanent_notes_off_limits(self):
         guard = "ai/tools/permanent_note_guard.py"

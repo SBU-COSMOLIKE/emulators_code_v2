@@ -37,7 +37,7 @@ PERMANENT_NOTES = (
     "ai/notes/project-and-history.md",
     "ai/notes/readme-go-no-go.md",
     "ai/notes/training-stack.md",
-    "ai/notes/user-didactics-and-python-voice.md",
+    "ai/notes/python-changes-go-no-go.md",
 )
 
 FULL_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")

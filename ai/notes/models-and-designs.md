@@ -1,134 +1,299 @@
-# Models, designs, and the science doctrine
+# Models, designs, and scientific constraints
 
-Consolidated 2026-07-11 from nla-as-design-spec.md,
-head-activation-per-component.md, activation-families-norm-knob.md,
-npce-yaml-wiring.md, npce-and-ia-template-factoring.md,
-resmlp-cnn-perbin-architecture.md, per-bin-parallel-resmlp-plan.md,
-trf-mlp-width-knob.md, film-conditioning.md,
-emulator-high-d-and-tatt-templates.md, activation-function-
-generalizations.md, geometry-loss-composition.md,
-designs-losses-family-folders.md, analytic-scaling-preprocessing.md,
-emulator-sample-efficiency-is-the-goal.md,
-emulator-floor-is-data-coverage.md (retired; full texts + build logs
-in git history). Code homes: emulator/designs/, emulator/losses/,
-emulator/activations.py.
+This note records the durable model rules that future changes must preserve.
+It is a design specification, not a development diary. Every statement is
+written as a durable rule, reason, code owner, or acceptance requirement.
+
+## Vocabulary used throughout this note
+
+HyperText Markup Language (HTML) anchors give sections stable link targets. A
+convolutional neural network (CNN) uses shared filters to learn local
+structure. YAML is the human-readable settings-file format used by training
+configurations. CUDA is NVIDIA's accelerator-computing platform. A graphics
+processing unit (GPU) is the accelerator device used by CUDA training checks.
+
+An **artifact** is a saved emulator publication containing trained weights and
+the facts needed to rebuild them. PyTorch is the tensor and machine-learning
+package used by the models; a **tensor** is a numerical array with a fixed
+shape and data type. A PyTorch **state dictionary** maps stable names to
+parameter tensors and registered buffers. A fixed model **buffer** is
+a saved tensor used by the model but not changed by gradient updates. A
+**drift check** compares candidate behavior with a declared reference and must
+detect a deliberate change.
+
+A model **geometry** owns the mapping between physical outputs and the
+coordinates used by a network and loss, including axes, masks, scaling, and
+fixed basis changes. To **whiten** a residual is to transform it so its
+covariance is the identity; a **basis transform** is the fixed matrix that
+moves values between two coordinate representations. A **trunk** is the main
+network that produces the initial prediction. A **correction head** is a
+smaller branch that adds a structured residual to that prediction.
+
+A multilayer perceptron (MLP) is a sequence of learned linear maps and
+nonlinear activations. A **Jacobian** is the matrix of output derivatives with
+respect to inputs. In a convolution, a **channel** is one feature sequence, a
+**group** restricts which input and output channels mix, a **stride** is the
+number of positions advanced between outputs, and the **receptive field** is
+the set of input positions that can affect one output. A **bin** is one
+physically meaningful group of adjacent output coordinates.
+
+A transformer repeatedly combines attention and a per-token MLP. A **token**
+is the feature vector representing one bin or contiguous coordinate segment.
+An **attention window** is the segment assigned to one token, and an
+**attention head** is one independent set of learned projections that compares
+tokens. **Permutation equivariance** means that reordering tokens causes the
+same reordering of outputs instead of changing their values. Feature-wise
+linear modulation (FiLM) lets parameters produce a scale `gamma` and offset
+`beta` for hidden features; identity initialization starts with `gamma = 1`
+and `beta = 0`.
+
+A **registry** is a fixed mapping from accepted configuration names to the
+classes or functions that own them. A **capability flag** is an explicit class
+property that tells shared code which geometry, data, or head behavior the
+class supports.
+
+CosmoLike is the cosmological-likelihood calculation that produces the data
+vectors used by the cosmic-shear family. A driver **fileroot** is the configured
+path stem shared by one run's output files. `n(z)` is a galaxy redshift
+distribution. A **gate** is a registered acceptance command, and the **board
+runner** is the script that executes registered gates and records their raw
+results.
+
+## How to use this note
+
+Every independent technical contract answers four questions:
+
+1. **Rule:** What behavior is required?
+2. **Reason:** What scientific or numerical failure does the rule prevent?
+3. **Code ownership:** Which module owns the behavior?
+4. **Acceptance evidence:** Which exact checks distinguish the required
+   behavior from a plausible but wrong implementation?
+
+One long section may answer the four questions once and then list closely
+related subrules under descriptive bold labels. Named reference summaries and
+tables may organize definitions, ownership, or evidence shared by several
+contracts. A new enforceable behavior receives NO-GO when its section leaves
+any of the four answers implicit.
+
+The primary code owners are `emulator/designs/`, `emulator/losses/`, and
+`emulator/activations.py`. Gate evidence is recorded under stable HTML
+anchors so external gate metadata can link to the exact contract.
 
 ## The architecture family
 
-- Layout (the GRF family folders): designs/{blocks, plain, ia, pce}.py
-  + losses/{core, ia, pce, scalar, cmb, transfer}.py; activations.py
-  stays FLAT (shared beyond the family; the drift proof monkeypatches
-  it by path). Verbatim moves only; artifact-safe (state_dict .emul,
-  cls markers, hardcoded pce import).
-- MODELS registry keyed by (name, ia); name in {resmlp, rescnn,
-  restrf}, ia in {None, nla, tatt}; IA_DESIGNS centralizes
-  {amp_names, coeff_fn, n_templates} — TATT was one new entry, zero
-  new code paths. Capability flags replace isinstance everywhere:
-  factored, needs_geom, needs_bins, needs_params, head_block
-  (enforced at class definition by DesignSpec.__init_subclass__).
-- The correction-head philosophy: a shared ResMLP trunk does the
-  params->targets MAPPING; a small axis-aware head (conv or TRF)
-  corrects the theta-structured residual the trunk leaves. A dense
-  trunk is OUTPUT-PERMUTATION-INVARIANT — output-axis structure is
-  invisible to it; weight sharing along theta is an effective-DOF
-  reduction on the OUTPUT side (published CMB precedent 0.2 -> 0.06).
-  Heads act in theta order via FIXED W_fd/W_df buffers (live geometry
-  calls in forward() break CUDA graphs).
-- D-CM13 family lift (2026-07-11, user order + arXiv 2505.22574): the
-  heads ride cmb / grid / grid2d too. The diagonal family geometries
-  whiten IN physical order (ell / z / z-slices x k), so the basis
-  change is the IDENTITY — W_fd/W_df stay None (hasattr(geom,
-  "evecs") branches; never build n_keep^2 identity buffers) and the
-  split comes from geometry.attach_head_coords() (cmb/grid: one bin;
-  grid2d: one bin per z slice = conv channels / TRF tokens). New knob
-  model.trf.n_tokens re-segments a single-bin spectrum into
-  contiguous attention windows (rejected on multi-bin geometries).
-  Scalar stays trunk-only: named outputs have no coordinate axis.
-  Rebuild-side attach lives in results._rebuild_model; the COSMIC-
-  SHEAR head-artifact rebuild gap was fixed the same evening:
-  bin_sizes (+ pm_kept) now PERSIST in DataVectorGeometry.state()
-  (schema-additive; attribute-unset when None so the hasattr guards
-  survive), and a pre-persistence head file is refused loudly at
-  rebuild.
-- Identity-at-init discipline: the LAST layer of every head branch is
-  zero-initialized so model == trunk EXACTLY at init and at the
-  two-phase handoff. SUPERSEDED CLAIM (45M-36, 2026-07-12): "every
-  activation family maps 0 -> 0, which licenses per-head activations"
-  was INCOMPLETE — a(0) = 0 preserves the identity, but waking a
-  zero-initialized final layer ALSO requires a finite, representably
-  nonzero a'(0); ReLU (a'(0) = 0) makes the branch an exact permanent
-  dead end, and the pre-repair power/gated_power share the exact-zero
-  Jacobian (unit 40). The full compatibility rule and rejection
-  contract: "45M-36 amendment to unit 29" below. gate_init 0.1 =
-  soft-start brake, 1.0 for short head phases, 0 = deadlock (now
-  REJECTED by schema — the 45M-35 amendment).
-- Two-phase is a HEAD capability, not an IA privilege (2026-07-12
-  user ruling): plain ResCNN/ResTRF define set_train_phase with the
-  template contract (joint/trunk/head; trunk phase = head bypassed
-  at pure-trunk cost; head phase = frozen trunk under no_grad), so
-  trunk-then-head scheduling + the trunk:/head: blocks + the head
-  activation pin work on cosmic shear AND cmb/grid/grid2d alike.
-  Single-phase = resmlp only.
-- Conv head (bins-as-channels): pad_idx scatter into (n_bins, max_bin)
-  -> Conv1d(n_bins->n_bins, k) blocks -> gather -> gate; knobs
-  kernel_size, n_blocks_cnn, groups (probe-block cuts, validated),
-  separable (parameter economy, measured SLOWER), rescale_kernel
-  (odd-up receptive-field ladder). Two stacked LINEAR convs collapse
-  without a mid activation — the essential act_mid.
-- TRF head: tokens = raw padded bin segments at natural width max_bin
-  (26 on LSST-Y1; n_heads must divide it); NO adapters (the published
-  design's embed/project layers deliberately removed); the per-token
-  MLP width is PINNED to the token width (mlp_width SHELVED by user
-  ruling — do not re-propose unprompted); shared_mlp = permutation-
-  equivariant caveat.
-- FiLM (model.cnn.film / model.trf.film): per-channel gamma(z)*h +
-  beta(z) from the cosmological inputs, identity-init, per block —
-  makes the correction parameter-dependent; factored runs MUST
-  condition on x[:, :n_in] only (amplitude-blind or the closed-form
-  exactness dies). First evidence strong (0.28 vs 0.37 stall on an
-  immature trunk).
+**Code ownership.** The model family lives in
+`emulator/designs/` and `emulator/losses/`. The principal design modules are
+`blocks.py`, `plain.py`, `ia.py`, and `pce.py`; the principal loss modules are
+`core.py`, `ia.py`, `pce.py`, `scalar.py`, `cmb.py`, and `transfer.py` inside
+those directories. The shared `emulator/activations.py` module remains flat
+because code outside this family imports it directly and drift checks patch it
+by path. Moves must preserve saved `.emul` state dictionaries, saved
+class markers, and the explicit polynomial chaos expansion (PCE) import.
+
+**Rule.** Every model is selected through the shared registry and declares
+structural capabilities for geometry, bins, parameters, and correction-head
+type. Trunks, correction heads, coordinate attachments, identity
+initialization, training phases, and conditioning follow the subrules below.
+
+**Reason.** A parallel construction path or class-name test can build a model
+that trains but cannot be staged, saved, rebuilt, or served under the same
+scientific coordinate identity.
+
+**Acceptance evidence.** Configuration, initialization, phase, geometry,
+save/rebuild, and family gates must exercise every declared capability. A
+mutation that bypasses a capability or changes coordinate order must fail its
+own named check.
+
+**Registries and capabilities.** Intrinsic alignment (IA) describes the
+alignment of galaxy shapes with the surrounding tidal field. The nonlinear
+alignment model (NLA) and the tidal-alignment/tidal-torquing model (TATT) are
+the supported IA forms. The `MODELS` registry uses `(name, ia)` keys, where
+`name` is `resmlp`, `rescnn`, or `restrf`, and `ia` is `None`, `nla`, or
+`tatt`. `IA_DESIGNS` owns each form's amplitude names, coefficient function,
+and template count. New IA forms extend this table rather than creating
+parallel model paths. The `factored`, `needs_geom`, `needs_bins`,
+`needs_params`, and `head_block` capability flags replace type checks. The
+`factored` flag selects the amplitude-aware input geometry and the loss that
+combines exact IA templates. The `needs_geom` flag requests the saved output
+geometry needed to build fixed coordinate-order buffers. The `needs_bins`
+flag requests the per-bin coordinate divisions used by CNN and transformer
+heads. The `needs_params` flag tells loss, training, and diagnostic callers
+that encoding, decoding, or chi-square evaluation also consumes whitened
+model parameters. The `head_block` value is `None`, `"cnn"`, or `"trf"`; it
+declares whether the model has a correction head and selects that head's YAML
+configuration block. `DesignSpec.__init_subclass__` validates `head_block`
+when a model class is defined.
+
+**Trunk and correction head.** A residual multilayer perceptron (ResMLP) trunk
+maps cosmological parameters to the target data vector. A small
+coordinate-aware convolutional (ResCNN) or transformer (ResTRF) head corrects
+the residual that retains angular or spectral structure. A dense trunk cannot
+see a permutation of the output coordinate, whereas shared head weights can
+use neighboring-coordinate structure with fewer effective degrees of freedom.
+Coordinate-aware heads are supported only when a family-specific learning
+curve demonstrates a benefit; an isolated comparison never substitutes for
+that evidence.
+
+Structured heads operate in physical angular order. `W_fd` maps the fully
+whitened basis (`f`) to the diagonal physical-coordinate basis (`d`), and
+`W_df` maps back. These transforms are fixed model buffers because a live
+geometry call inside `forward()` prevents stable CUDA graph capture.
+
+**Families with coordinate axes.** Correction heads apply to cosmic shear,
+cosmic microwave background (CMB), one-dimensional grids, and two-dimensional
+grids. A diagonal family is one whose chi-square metric acts independently on
+each stored physical coordinate after per-coordinate scaling, without a dense
+basis rotation. Diagonal-family geometries already whiten in physical order:
+multipole `ell`, redshift `z`, or redshift slices by wavenumber `k`. Their basis
+change is the identity, so `W_fd` and `W_df` remain `None`; an explicit square
+identity buffer would waste memory. `geometry.attach_head_coords()` supplies
+one bin for CMB or a one-dimensional grid and one bin per redshift slice for a
+two-dimensional grid. `model.trf.n_tokens` may split a single-bin spectrum
+into contiguous attention windows, but multi-bin geometries refuse that
+option. Scalar outputs remain trunk-only because named scalar quantities do
+not share a coordinate axis.
+
+`emulator/results.py::rebuild_emulator` restores the head-coordinate
+attachment. Cosmic-shear artifacts persist `bin_sizes` and `pm_kept`, the per-element flags that
+distinguish the xi-plus and xi-minus shear branches, in
+`DataVectorGeometry.state()`. Optional attributes remain unset when their
+value is `None`, which preserves the `hasattr` capability checks. Rebuild
+refuses a structured-head artifact that predates the required geometry fields.
+
+**Identity at initialization.** The last layer of every correction branch is
+initialized to zero, so the complete model equals the trunk at construction
+and at the two-phase handoff. The condition `a(0) = 0` preserves that identity,
+but a trainable branch also needs a finite, representably nonzero derivative
+`a'(0)`. ReLU has `a'(0) = 0` and permanently blocks such a branch. The
+sign-based power and gated-power formulation has the same exact-zero Jacobian.
+The compatibility and refusal contract appears below. `gate_init` is the
+initial scalar multiplier applied to the correction branch in
+`trunk + gate * correction`. A value of `0.1` gives a soft start, a value of
+`1.0` suits a short head phase, and zero creates a deadlock that validation
+must refuse.
+
+**Training phases.** Two-phase training belongs to every model with a
+correction head, not only an IA model. Plain ResCNN and ResTRF implement
+`set_train_phase` for joint, trunk, and head phases. The trunk phase bypasses
+the head at pure-trunk cost. The head phase freezes the trunk under
+`torch.no_grad()`. The same trunk-then-head schedule, `trunk:` and `head:`
+configuration blocks, and head-activation pin apply to cosmic shear, CMB, and
+both grid families. ResMLP is the only single-phase design.
+
+**Convolutional head.** `pad_idx` scatters each ragged bin into a tensor shaped
+`(number of bins, maximum bin length)`. `Conv1d` blocks mix those channels;
+the model then gathers physical entries and applies the outer gate.
+`kernel_size`, `n_blocks_cnn`, `groups`, `separable`, and `rescale_kernel`
+control the design. Group choices must respect probe-block boundaries.
+Separable convolution reduces parameter count but is slower on the measured
+path. Kernel rescaling grows the receptive field through odd widths. Two
+stacked linear convolutions collapse to one linear map, so `act_mid` supplies
+the required intermediate nonlinearity.
+
+**Transformer head.** Each token is a raw padded bin segment with natural
+width `max_bin`, which is 26 for the Legacy Survey of Space and Time Year-1
+(LSST-Y1) configuration. `n_heads` must divide this width.
+The design has no embedding or projection adapters, and the per-token MLP
+width equals the token width. `mlp_width` requires a new design decision rather
+than an ad hoc reintroduction. A shared MLP must preserve the intended
+permutation-equivariant behavior.
+
+**Feature-wise conditioning.** Feature-wise linear modulation (FiLM), enabled
+by `model.cnn.film` or `model.trf.film`, applies
+`gamma(parameters) * hidden + beta(parameters)` in each head block. Identity
+initialization makes FiLM a no-op before training while allowing the correction
+to depend on cosmology. A factored IA model separates exact amplitude columns
+from the emulated input. Its `n_in` value is the number of non-amplitude input
+columns, so FiLM must condition only on `x[:, :n_in]`; using appended amplitude
+columns would break the exact closed-form factorization. The conditioning
+choice still requires a family-specific learning curve; a single trained
+configuration cannot establish general performance.
 
 ## Activations and norms
 
-- Six families in make_activation: H (the paper's learnable
-  identity<->Swish interpolation; non-saturating linear tails),
-  power, multigate(K), gated_power, relu, tanh. Learnable shape
-  params are per-feature; weight decay must never touch them (the
-  module-role allowlist in training-stack.md).
-- model.norm: affine (default — the paper's per-layer gx+b) /
-  per_feature (FeatureAffine, the tanh saturation guard) / none.
-  batchnorm DELIBERATELY not offered: batch coupling confounds
-  bs/EMA experiments, train/eval stats split risks compiled-twin
-  mode-baking, BN buffers sit outside the EMA average.
-- Per-head activation pin (model.cnn/.trf.activation): construction
-  knob, run-global (never in phase blocks — a mid-run family swap
-  re-inits learnable params under trained weights); licensed by
-  trunk_epochs > 0 AND freeze_trunk true; `head: activation:` is a
-  legal alias, both spellings = error; `trunk: activation:` errors
-  with a teaching message.
+**Rule.** Activation families, normalization modes, and correction-head
+activation pins accept only the forms and combinations described below.
+
+**Reason.** An activation with the wrong derivative can leave a zero-started
+correction branch permanently dead. A normalization or phase-local activation
+change can silently alter the model represented by already trained weights.
+
+**Code ownership.** `emulator/activations.py` owns activation mathematics.
+The design constructors and experiment validator own normalization and pin
+compatibility.
+
+**Acceptance evidence.** The `head-activation-pin` and `relu-tanh-norm` gates
+exercise valid construction, exact routing text, incompatibility refusals,
+and the activation/norm combinations named by their stable anchors below.
+
+`make_activation` provides six activation families. H is a learnable
+interpolation between the identity and Swish with nonsaturating linear tails.
+The other families are power, `multigate(K)` with `K` learned gates,
+gated-power, ReLU, and hyperbolic tangent (`tanh`). Learnable shape parameters
+are feature-specific. The module-role allowlist defined in
+`training-stack.md` keeps weight decay away from those parameters.
+
+`model.norm` accepts `affine`, `per_feature`, or `none`. The default `affine`
+form learns one scale and offset per layer. `per_feature` uses
+`FeatureAffine` to limit tanh saturation. Batch normalization is excluded
+because its batch coupling confounds batch-size and exponential-moving-average
+(EMA) experiments. Separate training and evaluation statistics can also bake
+the wrong mode into a compiled twin, and batch-normalization buffers are not
+part of the EMA parameter average.
+
+`model.cnn.activation` and `model.trf.activation` pin the activation used by a
+correction head. The pin is a construction-time, run-wide choice rather than a
+phase option because swapping activation families under trained weights would
+reinitialize learned shape parameters. A pin is legal only when
+`trunk_epochs > 0` and `freeze_trunk` is true. `head: activation:` is an alias;
+specifying both spellings causes refusal. `trunk: activation:` is invalid and
+must produce a teaching error.
+
+### Gate-evidence vocabulary
+
+The acceptance blocks below use the following terms:
+
+- A **gate** is one registered group of executable checks for a named
+  contract. A **leg** is one named check and supports only the claim stated by
+  that leg.
+- A **golden comparison** runs the candidate code and a trusted reference, then
+  compares the declared observations. The trusted reference is the **pinned
+  base**. Its identity is a full Git commit hash, called the **base commit**;
+  an abbreviated branch name or moving reference is insufficient.
+- **Selected text** is the explicitly chosen subset of process-output lines
+  that a leg compares. Equality of empty selections is not evidence.
+- A **gate manifest** is the declared list of files and capabilities on which a
+  gate depends. A **manifest-bound** input is named directly by that manifest.
+  The **manifest hash** is the digest that protects the declared inputs from
+  unnoticed changes. The **gate runner** executes the gate and records its raw
+  log.
+- **Transitive reads** are files reached indirectly through a declared pointer
+  or configuration file. Unless the manifest also names them, they are not
+  protected by the manifest hash.
 
 <a id="head-activation-pin-evidence"></a>
-### Board evidence: `head-activation-pin`
+### Acceptance evidence: `head-activation-pin`
 
-**The current gate checks the configured pin through process results and
-selected startup text.**  It does not inspect the trained parameters or compare
-the model's numerical predictions.
+**Rule.** The registered gate checks the configured pin through process exit
+results and selected startup text. Process and text checks establish option
+routing and refusal behavior; they do not establish trained parameter values
+or numerical prediction agreement.
 
 - files: reads `ai/gates/configs/head-activation-pin-config.yaml`,
   `ai/gates/configs/head-activation-pin-license.yaml`, and the cosmic-shear
   training/validation arrays, parameter tables, covariance, and CosmoLike
-  `.dataset` pointer named by the board manifest. The driver follows that
+  `.dataset` pointer named by the gate manifest. The driver follows that
   pointer to data-vector, covariance, mask, and n(z) siblings that are
   transitive reads outside the manifest hash. A configured golden leg would
   also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
-  the configured driver fileroot for both the current and pinned drivers.
+  the configured driver fileroot for both the candidate and pinned drivers.
   Successful training calls write the driver's ordinary `.emul` and `.h5`
-  products, but this gate does not read those products back; the board runner
+  products, but this gate does not read those products back; the gate runner
   writes the gate's raw log.
 - subprocess: runs `cosmic_shear_train_emulator.py` for the pinned-head
   configuration, for that configuration plus `--activation=power`, and for
-  the deliberately invalid unfrozen-head configuration.  A configured golden
-  leg would run the current and pinned drivers once each.  There is no separate
+  the deliberately invalid unfrozen-head configuration. A golden leg supplied
+  with a pinned base runs the candidate and pinned drivers once each. There is no separate
   `ai/gates/checks/` child.
 - metric: per-leg.  The executable legs use exact process-exit predicates,
   literal selected-text containment, or a case-insensitive selected-text
@@ -141,21 +306,23 @@ the model's numerical predictions.
   `head-activation-pin.gated-power-text-present`,
   `head-activation-pin.flag-vs-pin-warning`, and
   `head-activation-pin.unfrozen-pin-refusal`.
-- evidence: 4 legs are asserted when the Torch, CosmoLike, and GPU
-  requirements are available.  The golden selected-text leg is
-  **UNAVAILABLE** because `board_config.json` names no pinned base for this
-  gate.  The output may contain other design information, but the gate does
-  not assert a parameter count.
-- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
-  run executes**.  A golden comparison remains unavailable until a reviewed
-  base commit is configured, and it additionally needs a nonempty-selection
-  assertion before equality proves that any selected text existed.
+- acceptance boundary: four process/text legs are executable when the Torch,
+  CosmoLike, and GPU requirements are available. These legs do not assert a
+  parameter count even when the output contains related design information.
+  Golden selected-text equality requires `board_config.json` to name a
+  reviewed pinned base and requires an assertion that both selected-line
+  lists are nonempty. Without both requirements, equality cannot prove that
+  any selected text existed.
+- capability boundary: a manifest-bound GPU run is required. Numerical
+  prediction agreement requires an additional trained-artifact comparison;
+  startup text cannot supply that evidence.
 
 <a id="head-activation-pin-golden-selected-text-equality"></a>
-`head-activation-pin.golden-selected-text-equality` — **UNAVAILABLE:** no base
-commit is configured; if one is added, the leg compares selected current/base
-log-line lists after stripping the trailing wall-clock value. The current
-helper would also accept two empty lists.
+`head-activation-pin.golden-selected-text-equality` requires a configured base
+commit. The leg compares selected candidate/base log-line lists after stripping
+the trailing wall-clock value. The helper accepts two empty lists, so the leg
+must also assert that both selections are nonempty before the comparison counts
+as evidence.
 
 <a id="head-activation-pin-pinned-config-exit-zero"></a>
 `head-activation-pin.pinned-config-exit-zero` — the process running the
@@ -176,27 +343,28 @@ unfrozen-head configuration exits nonzero and its captured output contains
 `frozen`, matched without regard to letter case.
 
 <a id="relu-tanh-norm-evidence"></a>
-### Board evidence: `relu-tanh-norm`
+### Acceptance evidence: `relu-tanh-norm`
 
-**The current gate runs two configurations that request `tanh` and checks the
-reported norm names.**  Process completion and startup text do not by
-themselves prove that the training loss decreased or that a ReLU model works.
+**Rule.** The registered gate runs two configurations that request `tanh` and
+checks the reported norm names. Process completion and startup text establish
+configuration routing only; they cannot prove numerical loss descent or ReLU
+behavior.
 
 - files: reads `ai/gates/configs/relu-tanh-norm-per-feature.yaml`,
   `ai/gates/configs/relu-tanh-norm-affine.yaml`, and the cosmic-shear
   training/validation arrays, parameter tables, covariance, and CosmoLike
-  `.dataset` pointer named by the board manifest. The driver follows that
+  `.dataset` pointer named by the gate manifest. The driver follows that
   pointer to data-vector, covariance, mask, and n(z) siblings that are
   transitive reads outside the manifest hash. A configured golden leg would
   also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
-  the configured driver fileroot for both the current and pinned drivers.
+  the configured driver fileroot for both the candidate and pinned drivers.
   Successful calls write the driver's ordinary `.emul` and `.h5` products,
-  but this gate does not read those products back; the board runner writes the
+  but this gate does not read those products back; the gate runner writes the
   gate's raw log.
 - subprocess: runs `cosmic_shear_train_emulator.py` once for the
   `tanh`/`per_feature` configuration and once for the `tanh`/`affine`
-  configuration.  A configured golden leg would run the current and pinned
-  drivers once each.  There is no separate `ai/gates/checks/` child.
+  configuration. A golden leg supplied with a pinned base runs the candidate
+  and pinned drivers once each. There is no separate `ai/gates/checks/` child.
 - metric: per-leg.  The executable legs use exact zero-exit predicates and
   literal selected-text containment.  The conditional golden leg compares
   selected log lines after removing their trailing wall-clock field; it is not
@@ -207,24 +375,22 @@ themselves prove that the training loss decreased or that a ReLU model works.
   `relu-tanh-norm.per-feature-text-present`,
   `relu-tanh-norm.affine-config-exit-zero`, and
   `relu-tanh-norm.affine-text-present`.
-- evidence: 4 legs are asserted when the Torch, CosmoLike, and GPU
-  requirements are available.  The golden selected-text leg is
-  **UNAVAILABLE** because `board_config.json` names no pinned base for this
-  gate.  Epoch histories are present in the raw subprocess output, but no
-  assertion compares their loss values, so loss descent is logged-only and
-  **UNAVAILABLE** as behavioral evidence.
-- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
-  run executes**.  A ReLU-specific run and a numerical loss-descent assertion
-  are not present in this gate; neither claim may be inferred from its current
-  result.  A golden comparison remains unavailable until a reviewed base
-  commit is configured and must also assert that the selected-line lists are
-  nonempty.
+- acceptance boundary: four process/text legs are executable when the Torch,
+  CosmoLike, and GPU requirements are available. Epoch histories in raw
+  subprocess output do not prove descent because no assertion compares their
+  loss values. Golden selected-text equality requires a reviewed pinned base
+  and nonempty selected-line lists.
+- capability boundary: a manifest-bound GPU run is required. ReLU behavior
+  requires a ReLU-specific run, and loss descent requires a numerical
+  assertion over the epoch history. Neither claim follows from configuration
+  text or a zero process exit.
 
 <a id="relu-tanh-norm-golden-selected-text-equality"></a>
-`relu-tanh-norm.golden-selected-text-equality` — **UNAVAILABLE:** no base commit
-is configured; if one is added, the leg compares selected current/base log
-line lists after stripping the trailing wall-clock value. The current helper
-would also accept two empty lists.
+`relu-tanh-norm.golden-selected-text-equality` requires a configured base
+commit. The leg compares selected candidate/base log lines after stripping the
+trailing wall-clock value. The helper accepts two empty lists, so the leg must
+also assert that both selections are nonempty before equality counts as
+evidence.
 
 <a id="relu-tanh-norm-per-feature-config-exit-zero"></a>
 `relu-tanh-norm.per-feature-config-exit-zero` — the process whose YAML requests
@@ -244,62 +410,120 @@ the literal text `affine`.
 
 ## Factored IA (what "factored" means)
 
-Parameters entering the dv as polynomial COEFFICIENTS (NLA A1 -> 3
-templates [1, A1, A1^2]; TATT a1/a2/b_TA -> 10 templates) are excluded
-from the net input, appended raw past n_in by AmplitudeFactorGeometry,
-and combined closed-form in the loss — exact, prior-width-independent
-generalization, implemented as ARCHITECTURE on the existing scattered
-samples (the loss reads each sample's own amplitudes; no re-simulation,
-no N/3). Z-evolution eta POWERS do not factor and stay emulated. The
-benefit scales with amplitude prior width: neutral on narrow NLA
-(a validation success), the whole point for TATT's wide coupled
-amplitudes. NEVER emulate a parameter dependence you can write down.
+**Rule.** Factoring removes IA parameters that enter the data vector as exact
+polynomial coefficients from the neural-network input. NLA uses the amplitude
+`A1` and three templates with coefficients `[1, A1, A1**2]`. TATT uses the
+amplitudes `a1`, `a2`, and `b_TA` and ten polynomial templates.
+`AmplitudeFactorGeometry` appends those raw amplitudes after the first `n_in`
+non-amplitude columns. The loss reads each sample's amplitudes and combines the
+templates in closed form. Redshift-evolution powers controlled by `eta` do not
+factor and remain emulated.
+
+**Reason.** The construction uses existing scattered samples without a new
+simulation or an artificial division of the dataset. A wider amplitude prior
+gives factoring more leverage; narrow NLA priors may remain neutral, whereas
+the coupled TATT amplitudes provide the intended use case. An exact written
+parameter dependence must not be replaced by a learned approximation.
+
+**Code ownership.** `emulator/geometries/parameter.py` owns amplitude-column
+placement. `emulator/designs/ia.py` and `emulator/losses/ia.py` own the
+factored network and exact template combination. `emulator/experiment.py`
+owns configuration and staging compatibility.
+
+**Acceptance evidence.** Family identity gates require exact template
+coefficients, amplitude-column order, epoch-zero composition, save/rebuild
+identity, and refusal of an incompatible parameter or family declaration. A
+mutation that asks the network to learn an exact amplitude coefficient must
+fail.
 
 ## NPCE (the pce: block)
 
-- Top-level `pce:` (NOT inside train_args — structurally unsweepable:
-  sweep_hyperparam stages once, a pce knob there would sweep without
-  refitting the base). {form: residual|ratio, p_max, r_max, q, k_max,
-  loo_max, max_terms, max_fail}; exclusive with rescale/ia.
-- The science verdict stands: a PCE base adds CAPACITY only (the
-  shape modes are not low-degree polynomial); NPCE is infrastructure
-  by user directive ("past failures on low T do not discourage me"),
-  not a proven floor-lever. Fit lessons baked into the defaults: low
-  degree (Runge), keep only well-predicted modes (loo_max ~0.05),
-  early-stop, CPU-numpy LARS with closed-form LOO.
-- FAMILY-WIDE since 2026-07-12 (user ruling: "nothing should prevent
-  users from using PCE as the trunk and MLP as the head, on all
-  cases" — the user's arXiv 2404.12344 runs an NPCE on the boost;
-  EuclidEmulator2 is a PCE of pklin). scalar / cmb / grid / grid2d
-  wrap losses/pce.py::PCEResidualDiagChi2 (subclasses CmbDiagonalChi2
-  — the diagonal metric IS these families' chi2; roughness composes
-  because pred - target is the full whitened residual). Fit hook =
-  experiment._fit_diag_pce, shared by the four build_geometry
-  branches; predictor side = inference._build_diag_decoder on every
-  family branch (a bare geom.decode would be silently wrong with a
-  base in the file). Two deliberate boundaries: residual-only off
-  cosmolike (ratio is a dense-covariance concept — validate_pce
-  diagonal=True), and on CMB only amplitude_law "none" (the law loss
-  owns the target construction — validate_cmb). Note the cosmic-shear
-  verdict above does NOT transfer: on MPS the PCE fits the law-space
-  boost, exactly the 2404.12344 regime where it worked.
+**Rule.** NPCE fits a validated polynomial base once and trains a neural
+residual or ratio only where the family metric supports that form. The saved
+artifact records enough base and decoder state to reproduce composition after
+rebuild.
+
+**Reason.** Refitting the base inside a sweep, combining it in the wrong
+coordinate space, or omitting it during inference changes the mathematical
+model while leaving network shapes plausible.
+
+**Code ownership.** `emulator/designs/pce.py` owns the polynomial basis,
+leave-one-out selection, fitted coefficients, and calibrated input domain.
+`emulator/losses/pce.py` owns composition and target encoding.
+`emulator/experiment.py` owns fitting and configuration validation.
+`emulator/inference.py` owns rebuilt prediction.
+
+**Acceptance evidence.** The `npce-training` gate and family identity gates
+cover base fitting, supported forms, refusals, distinct sweep fits,
+save/rebuild composition, and a mutation that omits the base contribution.
+
+A neural model with a PCE base is called NPCE in the configuration and code.
+The top-level `pce:` block uses these values:
+
+- `form` is `residual` or `ratio` and states how the neural correction combines
+  with the polynomial base.
+- `p_max` bounds the polynomial degree under the hyperbolic basis rule and is
+  the main smoothness limit.
+- `r_max` is the largest number of input parameters allowed to interact in one
+  polynomial term.
+- `q`, in `(0, 1]`, is the hyperbolic sparsity exponent. Smaller values penalize
+  terms that spread degree across several parameters more strongly.
+- `k_max` is the maximum number of leading singular-value-decomposition (SVD)
+  output modes to try.
+- `loo_max` is the maximum relative leave-one-out (LOO) error for retaining an
+  output mode.
+- `max_terms` caps the active polynomial basis terms fitted for each output
+  mode.
+- `max_fail` stops the output-mode search after that many consecutive modes
+  fail the LOO requirement.
+
+The block stays outside `train_args` because
+`sweep_hyperparam` stages the base once; sweeping a PCE option there would
+change the option without refitting the base. PCE is mutually exclusive with
+rescaling and factored IA.
+
+A PCE base adds capacity rather than replacing the neural model because the
+shape modes are not low-degree polynomials. NPCE is supported infrastructure,
+not an established way to lower the sample-efficiency floor. The fit uses low
+degree to limit Runge oscillation, retains only modes with acceptable
+leave-one-out (LOO) error near the default `loo_max` of 0.05, stops early, and
+uses NumPy least-angle regression (LARS) on the CPU with closed-form LOO.
+
+Scalar, CMB, one-dimensional grid, and two-dimensional grid families wrap
+`emulator/losses/pce.py::PCEResidualDiagChi2`, a subclass of
+`CmbDiagonalChi2`. Their diagonal metric is the family chi-square, and a
+roughness term composes with it because prediction minus target is the complete
+whitened residual.
+`emulator/experiment.py::EmulatorExperiment._fit_diag_pce` owns fitting across
+the four `build_geometry` branches. Every inference branch uses
+`emulator/inference.py::_build_diag_decoder`; a bare `geometry.decode` would
+omit the saved base contribution.
+
+Diagonal families support residual form only because ratio form depends on a
+dense covariance; `validate_pce(diagonal=True)` owns that refusal. CMB permits
+NPCE only with `amplitude_law: none` because the amplitude-law loss owns target
+construction. A cosmic-shear conclusion does not transfer automatically to
+the matter-power-spectrum family; its PCE fits the boost in the nonlinear
+matter-power regime. That boost is
+`B(k, z) = P_nonlinear(k, z) / P_linear(k, z)`, rather than either power
+spectrum by itself.
 
 <a id="npce-training-evidence"></a>
-### Board evidence: `npce-training`
+### Acceptance evidence: `npce-training`
 
-**The current gate checks process results and selected NPCE text for residual,
-ratio, refusal, and two-point-sweep configurations.**  Its smoke helpers do
-not compare losses, and the current sweep check does not observe a separate
-base fit inside each worker.
+**Rule.** The registered gate checks process results and selected NPCE text for
+residual, ratio, refusal, and two-point-sweep configurations. Its smoke helpers
+establish routing and refusal behavior only. Loss comparison and a distinct
+base fit inside each sweep worker require separate executable witnesses.
 
 - files: reads the five `ai/gates/configs/npce-training-*.yaml` training and
   refusal configurations, the cosmic-shear training/validation arrays,
   parameter tables, covariance, and CosmoLike `.dataset` pointer named by the
-  board manifest. The driver follows that pointer to data-vector, covariance,
+  gate manifest. The driver follows that pointer to data-vector, covariance,
   mask, and n(z) siblings that are transitive reads outside the manifest hash.
   A configured golden leg would also read
   `cosmic_shear_train_emulator.yaml` and stage one temporary copy in the
-  configured driver fileroot for both the current and pinned drivers.
+  configured driver fileroot for both the candidate and pinned drivers.
   Successful calls write the drivers' ordinary `.emul`/`.h5` and sweep
   products; this gate does not read a saved NPCE artifact back, and the board
   runner writes the gate's raw log.
@@ -307,8 +531,8 @@ base fit inside each worker.
   NPCE, for the invalid NPCE-plus-IA configuration, and for NPCE plus the
   `--rescale=residual` flag.  It runs
   `cosmic_shear_sweep_ntrain_emulator.py` with a requested two-point training
-  set-size grid.  A configured golden leg would additionally run the current
-  and pinned single-training drivers.  There is no separate `ai/gates/checks/`
+  set-size grid. A golden leg supplied with a pinned base additionally runs the
+  candidate and pinned single-training drivers. There is no separate `ai/gates/checks/`
   child.
 - metric: per-leg.  The executable legs use exact process-exit predicates,
   literal or regular-expression selected-text checks, and for the sweep a
@@ -325,24 +549,22 @@ base fit inside each worker.
   `npce-training.pce-rescale-refusal`,
   `npce-training.sweep-result-lines-and-pce-banner`, and
   `npce-training.rebuild-vs-base`.
-- evidence: 7 legs are asserted when the Torch, CosmoLike, and GPU
-  requirements are available.  The golden selected-text leg is
-  **UNAVAILABLE** because `board_config.json` names no pinned base.  The
-  rebuild-versus-base item is logged-only and therefore **UNAVAILABLE**: the
-  gate prints an instruction but executes no comparison.
-- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
-  run executes**.  An independent saved-artifact rebuild-versus-base
-  comparison is likewise **UNAVAILABLE** and owed.  The current result also
-  does not prove numerical loss descent or a per-worker NPCE refit in the
-  sweep.  A golden comparison remains unavailable until a reviewed base
-  commit is configured and must also assert that the selected-line lists are
-  nonempty.
+- acceptance boundary: seven process/text legs are executable when the Torch,
+  CosmoLike, and GPU requirements are available. Golden selected-text equality
+  requires `board_config.json` to name a reviewed pinned base and requires
+  nonempty selected-line lists. A printed rebuild instruction is process text,
+  not a rebuild-versus-base comparison.
+- capability boundary: a manifest-bound GPU run is required. Numerical loss
+  descent requires a numerical assertion. Per-worker NPCE refitting requires
+  worker-specific fit evidence. Saved-artifact equivalence requires an
+  executable rebuild-versus-base comparison. None of these properties can be
+  inferred from process completion or selected startup text.
 
 <a id="npce-training-golden-selected-text-equality"></a>
-`npce-training.golden-selected-text-equality` — **UNAVAILABLE:** no base commit
-is configured; if one is added, the leg compares selected current/base log
-line lists after stripping the trailing wall-clock value. The current helper
-would also accept two empty lists.
+`npce-training.golden-selected-text-equality` requires a configured base
+commit. The leg compares selected candidate/base log lines after stripping the
+trailing wall-clock value. The helper accepts two empty lists, so both
+selections must be asserted nonempty before equality counts as evidence.
 
 <a id="npce-training-residual-config-exit-zero"></a>
 `npce-training.residual-config-exit-zero` — the residual-form NPCE process
@@ -375,444 +597,573 @@ sweep exits with status zero, prints at least two result lines containing both
 `N_train` and `f(>0.2)`, and prints a line beginning `pce: form`.
 
 <a id="npce-training-rebuild-vs-base"></a>
-`npce-training.rebuild-vs-base` — **UNAVAILABLE:** the wrapper only logs that a
-save/rebuild/base comparison belongs in a check script; it does not run that
-comparison.
+`npce-training.rebuild-vs-base` requires the wrapper to run and compare a saved
+artifact, its rebuilt model, and the pinned base. Printing the comparison
+instruction does not establish artifact equivalence.
 
-### NPCE LOO gate must be absolute (red-team 2026-07-12 fifth wave, Architect-VERIFIED, CRITICAL, open; the full contract for the wave-1 pce-fallback finding)
+### NPCE LOO selection is strict
 
-Verified at designs/pce.py: line ~414 `if not cols:  # always keep
-mode 0` unconditionally refits and keeps mode 0 when NO mode passed
-loo < loo_max — the persisted base can carry a mode ~1e30 above the
-requested ceiling while the startup report prints "kept 1 (loo<T)"
-as if the predicate held. This defeats the "a wiggly base must not
-poison the refiner" rule: a requested NPCE run can be WORSE than a
-plain network. Second edge, also verified (~209-211): in
-select_lars_loo, once every candidate column is active the score
-vector is all -1 and argmax picks column 0 again — max_terms above
-the candidate count appends DUPLICATE support indices instead of
-stopping.
+**Rule.** Every retained PCE mode must have finite leave-one-out error below
+`loo_max`. No-mode selection refuses the fit instead of retaining a fallback.
+Support indices are unique, and selection stops when every candidate is
+active.
 
-Contract (Implementer; the red-team block of record adopted whole):
-delete the fallback; when no mode passes, FAIL the fit loudly naming
-the best attempted LOO, the threshold, and the modes tried (never a
-mean-only or failed-mode base — the "NPCE base is alive" rule is
-preserved by refusing, not by faking); every recorded/kept LOO
-finite; X_white/Y_white finite, 2-D, row-aligned, nonzero widths,
-enough rows; select_lars_loo stops when all candidates are active,
-never duplicates a support index, caps terms at the candidate count;
-best_beta/support must exist and be finite before returning;
-the fit report derives from actual kept-mode predicates (printing
-"kept K (loo<T)" with a violating persisted mode must be
-impossible); math.isfinite on pce.loo_max (NaN passes the <= 0 check
-today). Gates: predictable control keeps a real mode with every LOO
-below threshold; the strict-threshold fixture raises "no mode
-passed" and writes NO artifact; NaN/Inf input/target/LOO/loo_max
-raise; max_terms > n_candidates terminates with unique support; a
-one/two-column candidate set cannot duplicate index 0; valid PCE
-save/rebuild unchanged. Land BEFORE any NPCE production training.
+**Reason.** A no-mode fallback in
+`emulator/designs/pce.py::PCEEmulator.from_training` could retain mode zero
+when no mode satisfies `loo < loo_max`. A persisted base could then contain an
+error far above the requested ceiling while the report claims that the
+predicate held. In `emulator/designs/pce.py::select_lars_loo`, an all-active
+candidate set can leave every score at `-1`; another `argmax` could select
+column zero and append a duplicate support index. Either behavior invalidates
+the claim that the PCE base passed its selection rule.
+
+**Implementation boundary.** Remove the no-mode fallback. A refusal names the
+best attempted LOO, the threshold, and the modes tried. Every recorded or
+retained LOO must be finite. `X_white` and `Y_white` must be finite, two
+dimensional, row-aligned, nonempty in width, and large enough for the fit.
+`select_lars_loo` stops when all candidates are active, caps terms at the
+candidate count, and never duplicates support. `best_beta` and support must
+exist and be finite before return. The fit report derives from retained modes
+that actually satisfy the predicate. `pce.loo_max` requires an explicit
+finiteness check because a comparison with NaN does not enforce positivity.
+
+**Code ownership.** `emulator/designs/pce.py::PCEEmulator.from_training` owns
+the retained-mode decision and calls
+`emulator/designs/pce.py::select_lars_loo`, which owns support selection and
+its termination rule. `emulator/experiment.py::validate_pce` owns the
+configuration value, including finite `loo_max` validation.
+
+**Acceptance evidence.** A predictable control retains a real mode with every
+LOO below threshold. A strict-threshold fixture refuses with `no mode passed`
+and writes no artifact. NaN or infinity in inputs, targets, LOO values, or
+`loo_max` causes refusal. `max_terms > n_candidates` terminates with unique
+support, and one- or two-column candidate sets cannot duplicate index zero.
+A valid PCE preserves save/rebuild behavior. Production NPCE training requires
+this complete acceptance set.
 
 ## Composition spine
 
-CosmolikeChi2 HOLDS a geometry (composition, never inheritance);
-build the geometry once, wrap in any loss; losses forward dest_idx/
-total_size/encode/decode. needs_params = "encode/decode/chi2/loss
-take the whitened params" — every diagnostic MUST branch on it (a
-hardcoded geom.decode is silently wrong for param-aware losses).
+**Rule.** `CosmolikeChi2` stores a geometry object rather than inheriting from
+a geometry class. The program builds that geometry once and wraps it with the
+selected loss. Loss wrappers forward `dest_idx`, `total_size`, `encode`, and
+`decode`. The `needs_params` capability means that encoding, decoding,
+chi-square, or loss evaluation consumes whitened parameters in addition to a
+prediction. Every diagnostic branches on this capability.
 
-## Model-block value schema (red-team 2026-07-12 fourteenth wave, Architect-VERIFIED, open; joins the train_args-totality cluster)
+**Reason.** A hard-coded `geometry.decode(prediction)` call bypasses the loss
+composition and is wrong for a parameter-aware loss even when array shapes
+match.
 
-The nested model: schema validates KEY NAMES only (experiment.py:225
-"an unknown key raises, listing what is allowed") and copies active
-block values straight into the design constructors. There is no value
-contract, and the headline failure is a SILENT ARCHITECTURE DEMOTION,
-not a crash:
+**Code ownership.** Geometry classes own coordinate state. Loss wrappers own
+composition. `emulator/experiment.py`, `emulator/training.py`, and
+`emulator/diagnostics.py` consume the declared capabilities.
 
-- `model.trf.n_blocks: 0` builds an empty block list; the ResTRF
-  forward (ia.py:933-947) leaves t == t0 so corr = t - t0 is
-  identically zero FOREVER. The identity-start doctrine ("corr = 0 at
-  init", the two-phase enabler) is exactly what makes this silent:
-  the trunk trains normally, aggregate collapse bars can pass, and
-  the requested transformer head never exists scientifically. This is
-  the architecture-level analogue of the dead-network rule — a gate
-  must prove the head CANNOT silently reduce to the trunk.
-- Quoted "false" is truthy: rescale_kernel / separable / film /
-  shared_mlp flow untyped into constructors and flip designs on.
-- Zero-block crashes with unrelated messages: `model.cnn.n_blocks: 0`
-  hits `self.convs[-1]` (ia.py:505, IndexError);
-  `model.trf.n_mlp_blocks: 0` hits `self.mlp_lins[-1]`
-  (blocks.py:639).
-- `n_heads: 0` divides/modulos by zero (blocks.py:602 — the assert
-  ITSELF evaluates `dim % 0`); incompatible n_heads relies on that
-  assert and vanishes under python -O. kernel_size (ia.py:353),
-  groups (ia.py:416), and the geometry assumptions (ia.py:423, :448)
-  likewise rely on assertions on public config paths.
-- `gate_init` passes through float() (ia.py:490): NaN/Inf accepted,
-  and since corr starts 0, `out = y + gate * corr` makes Inf * 0 =
-  NaN immediately.
-- int() coercions: n_gates on BOTH the trunk activation path
-  (experiment.py:292) and the head-pin path (:4108, :4258, :4267);
-  n_tokens at plain.py:866. Bools become 0/1, floats truncate,
-  numeric strings pass, zero reaches a zero-length gate tensor.
+**Acceptance evidence.** Each parameter-aware loss must pass encode/decode,
+chi-square, diagnostic, and save/rebuild checks through the wrapper. A
+mutation that calls the bare geometry decoder must fail on a nonzero
+parameter-dependent fixture.
 
-Adopted contract (theirs, whole): ONE pure active-model value
-validator before geometry/model construction — the standing ruling
-that INACTIVE architecture blocks may stay configured-but-unused is
-preserved. Boolean fields require actual YAML booleans (no truthiness,
-no coercion). Integral fields reject bools, strings, and fractional
-values: positive width / gate count / head depth / MLP depth / head
-count; CNN and TRF correction-block counts at least one; n_tokens
-None or an exact integer, then its geometry-dependent bounds check.
-kernel_size positive odd; groups an exact allowed value for the
-selected design; n_heads positive and dividing the resolved token
-width. gate_init a finite real non-bool. Normalized values persist in
-the resolved recipe; validation never changes accepted-run values.
-Constructor assertions on public config paths become explicit typed
-exceptions so -O behaves identically.
+## Model configuration values are validated before construction
 
-Interlock with the asserts-under--O unit (queue 12): the ia.py /
-blocks.py constructor asserts in its census are SATISFIED BY THIS
-UNIT's typed-exception clause — cross-reference, no double work; unit
-12 keeps the non-model surfaces.
+**Rule.** Every active model value is validated before geometry or learnable
+layers are constructed. Accepted values retain their resolved representation;
+inactive architecture blocks may remain configured but unused.
 
-Red legs (adopted): each quoted-false field raises at its full dotted
-path while genuine false keeps today's recipe and parameter census;
-zero CNN / TRF / TRF-MLP blocks each raise before construction;
-zero/incompatible heads, even/non-positive kernel, invalid groups,
-coerced n_tokens raise diagnostically; NaN/Inf/bool gate_init and
-zero/negative/fractional/bool/string n_gates raise; valid boundary
-controls build under ordinary Python AND python -O; and the
-demotion-proof leg — a model requested as ResCNN/ResTRF must contain
-at least one corresponding head block.
+**Reason.** The name map in `emulator/experiment.py::MODEL_BLOCK_KEYS` cannot
+by itself validate the mapped values before
+`EmulatorExperiment.build_specs` passes them to design constructors. Malformed
+values can silently demote the requested architecture instead of producing a
+clear refusal:
 
-### 25M-14 amendment (Architect CONFIRMED; approved implementation candidate awaits audit): token width one makes a requested transformer correction input-independent
+- A value of `0` for `model.trf.n_blocks` builds an empty transformer-block
+  list. `emulator/designs/ia.py::TemplateResTRF.forward` then leaves `t == t0`,
+  so the correction `corr = t - t0` remains zero. The trunk can still train
+  and pass aggregate collapse checks even though the requested transformer
+  head performs no work. Acceptance evidence must therefore prove that a
+  requested head cannot silently reduce to its trunk.
+- A quoted value such as `"false"` is a nonempty string and is therefore
+  truthy in Python. Passing `rescale_kernel`, `separable`, `film`, or
+  `shared_mlp` to a constructor without type validation can incorrectly
+  enable the corresponding design option.
+- A value of `0` for `model.cnn.n_blocks` reaches `self.convs[-1]` in
+  `emulator/designs/ia.py::TemplateResCNN.__init__` and raises an unrelated
+  `IndexError`. A value of `0` for `model.trf.n_mlp_blocks` similarly reaches
+  `self.mlp_lins[-1]` in
+  `emulator/designs/blocks.py::TRFBlock.__init__`.
+- A value of `0` for `n_heads` causes the expression `dim % n_heads` to
+  divide by zero. An incompatible positive value is guarded by a Python
+  assertion, which is removed under `python -O`. Public configuration checks
+  for `kernel_size`, `groups`, and geometry assumptions must likewise use
+  typed exceptions rather than assertions.
+- The constructor converts `gate_init` with `float()`, which would otherwise
+  accept NaN or infinity. Because the correction starts at zero, the
+  expression `out = y + gate * corr` can then produce NaN immediately.
+- Converting `n_gates` or `n_tokens` with `int()` would accept booleans,
+  truncate fractional values, and accept numeric strings. It could also send
+  zero to code that allocates an empty gate tensor. Validation must preserve
+  the declared type instead of coercing these values.
 
-The public single-axis ResTRF path accepts `model.trf.n_tokens` from 2 through
-the full output length (`designs/plain.py:848-870`). Setting `n_tokens` equal
-to `n_out` produces one scalar coordinate per token, so
-`max_bin = token_width = 1`; `n_heads: 1` satisfies the only constructor guard
-(`designs/blocks.py:601-605`). This is reachable through the active model
-schema and `build_specs` (`experiment.py:294-316,4430-4452`).
+**Implementation boundary.** One pure active-model value validator runs before
+geometry and model construction. Boolean fields require YAML booleans without
+truthiness or coercion. Integral fields reject booleans, strings, and
+fractional values. Width, gate count, head depth, MLP depth, and head count
+must be positive; CNN and TRF correction-block counts must be at least one.
+`n_tokens` is `None` or an exact integer followed by geometry-dependent bounds
+validation. `kernel_size` is positive and odd. `groups` is an exact allowed
+value for the selected design. `n_heads` is positive and divides the resolved
+token width. `gate_init` is a finite, real, non-boolean value. Normalized
+values persist in the resolved recipe. Public-path constructor assertions
+become typed exceptions so ordinary Python and `python -O` behave identically.
+This boundary owns model surfaces; the broader optimized-Python check owns
+other public surfaces.
+
+**Code ownership.** The pure value validator must be the new
+`emulator/experiment.py::validate_active_model_values`, called by
+`EmulatorExperiment.from_config` after the `MODELS` registry resolves the
+class and before staging or geometry construction. Existing key translation
+remains in `MODEL_BLOCK_KEYS` and `EmulatorExperiment.build_specs`; existing
+head-activation parsing remains in `_head_activation_spec` and
+`_resolve_head_activation`. Constructors in `emulator/designs/plain.py`,
+`emulator/designs/ia.py`, and `emulator/designs/blocks.py` own defensive checks
+for direct internal calls.
+
+**Acceptance evidence.** Each quoted-false field raises at its full dotted
+path, while a genuine false value preserves the resolved recipe and parameter
+census. Zero CNN blocks, transformer blocks, and transformer-MLP blocks each
+refuse before construction. Checks also cover zero or incompatible attention
+heads, an even or nonpositive kernel, invalid groups, and a coerced
+`n_tokens`. Nonfinite or boolean `gate_init` values refuse. Zero, negative,
+fractional, boolean, and string `n_gates` values refuse. Valid boundary
+controls construct under both ordinary Python and `python -O`. A requested
+ResCNN or ResTRF must contain at least one corresponding head block, which
+distinguishes a valid design from silent trunk-only demotion.
+
+### Transformer token width must be at least two
+
+**Rule.** Every transformer token has width of at least two. The active-model
+validator derives token widths from the physical geometry and refuses a
+configuration whose maximum token width is below two.
+
+**Reason.** `emulator/designs/plain.py::ResTRF.__init__` accepts
+`model.trf.n_tokens` from two through the full output length. Setting
+`n_tokens == n_out` creates one scalar coordinate per token, so
+`max_bin == token_width == 1`. The divisibility check accepts `n_heads: 1`
+in `emulator/designs/blocks.py::TRFBlock.__init__`, and
+`emulator/experiment.py::MODEL_BLOCK_KEYS` together with
+`EmulatorExperiment.build_specs` exposes this configuration.
 
 For feature width one, LayerNorm is algebraically input-independent: its mean
 is the scalar itself, its variance is zero, and every normalized value is
-zero before the learned affine bias. Both TRFBlock pre-normalized branches
-therefore discard the input (`blocks.py:609-677`). With `film: false`, all
+zero before the learned affine bias. Both pre-normalized branches in
+`emulator/designs/blocks.py::TRFBlock.forward` therefore discard the input.
+With `film: false`, all
 attention and MLP branch outputs are learned constants per token, independent
 of cosmology. For any trained weights, `TRFBlock(x)-x` is independent of `x`;
 stacking blocks preserves only an input-independent additive correction.
-ResTRF returns `t-t0` as the head correction (`plain.py:1010-1028`), so the
+`emulator/designs/plain.py::ResTRF.forward` returns `t - t0` as the head
+correction, so the
 requested transformer can never learn a sample-dependent correction while
-the ResMLP trunk can still train and pass aggregate collapse bars. This is a
-silent architecture demotion missed by unit 29's current geometry-dependent
-`n_tokens` bounds.
+the ResMLP trunk can still train and satisfy aggregate collapse thresholds.
+The result is a silent architecture demotion that range and divisibility
+checks cannot detect.
 
-Required contract: the active-model validator derives token widths from the
-real geometry before construction and refuses any TRF configuration whose
-maximum token width is below two, naming output length, token count, resolved
-width, and the LayerNorm degeneracy. The same invariant applies to plain and
-factored TRF constructors. Accepted adjacent configurations remain unchanged;
-no padding or artificial embedding silently repairs a requested design.
+**Implementation boundary.** The refusal names the output length, token count,
+resolved width, and LayerNorm degeneracy. Plain and factored TRF constructors
+share the invariant. Adjacent accepted configurations remain unchanged; no
+padding or artificial embedding silently substitutes a different design.
 
-This requires Torch evidence, so the Architect must commission a
-`ai/gates/checks/` leg and list it on the board for Vivian's GPU workstation.
-Required legs: a single-bin `N=4, n_tokens=4, n_heads=1, film=false` config
-refuses before model construction; bypassing validation with deterministic
-nonzero head weights gives identical corrections for two distinct `t0` rows
-and a zero correction Jacobian with respect to `t0`; adjacent `n_tokens=3`
-constructs and has an input-dependent correction; plain and factored paths
-share the verdict; and a mutation restoring only the divisibility/range checks
-must green construction but red the behavioral witness.
+**Acceptance evidence.** A registered Torch leg on a GPU-capable environment
+uses a single-bin `N=4, n_tokens=4, n_heads=1, film=false` configuration and
+requires refusal before model construction. A control that bypasses validation
+and uses deterministic nonzero head weights must produce identical corrections
+for two distinct `t0` rows and a zero correction Jacobian with respect to
+`t0`. The adjacent `n_tokens=3` configuration must construct and produce an
+input-dependent correction. Plain and factored paths must agree. A mutation
+that restores only the range and divisibility checks must construct but fail
+the behavioral witness.
 
-#### Red Team implementation candidate
+#### Implementation shape and acceptance evidence
 
-The transferred file estimate named `designs/plain.py` and
-`designs/blocks.py`. The factored constructor is actually
-`TemplateResTRF` in `designs/ia.py`. A guard inside `TRFBlock` catches the bad
-width, but that block is constructed after `TemplateResTRF` has allocated its
-template trunk. The adjudicated requirement says both model paths must refuse
-before any learnable layer is allocated. The candidate therefore includes one
-minimal `ia.py` call and moves the already-existing bin-size calculation ahead
-of the trunk. The Architect approved this narrow scope correction before the
-candidate was committed.
+The plain path uses `emulator/designs/plain.py` and
+`emulator/designs/blocks.py`. The factored constructor is
+`emulator/designs/ia.py::TemplateResTRF`. A guard inside `TRFBlock` catches an
+invalid width only after `TemplateResTRF` has allocated its template trunk.
+Both model paths must refuse before allocating any learnable layer.
+`TemplateResTRF` therefore calls the shared validator, and its existing
+bin-size calculation occurs before trunk construction.
 
-One pure `validate_trf_token_width` function in `designs/blocks.py` owns the
-rule and its teaching error. `ResTRF` and `TemplateResTRF` supply the resolved
-physical output length, token count and maximum token width before building
-their trunks. `TRFBlock` repeats the check as defense in depth for direct
+`emulator/designs/blocks.py::validate_trf_token_width` owns the rule and its
+teaching error. `ResTRF` and `TemplateResTRF` supply the resolved physical
+output length, token count, and maximum token width before building their
+trunks. `TRFBlock` repeats the check as defense in depth for direct
 construction. Accepted widths follow the existing constructors without a new
-embedding, padding rule or projection.
+embedding, padding rule, or projection.
 
-The CPU companion `ai/tests/test_trf_token_width.py` has five green tests under
-ordinary and optimized Python with Torch 2.6.0. It proves early refusal for
-the plain and factored models, shows
-that removing only the factored model-level call allocates trunk layers before
-the block-level guard raises, reconstructs the old width-one block and measures
-identical corrections plus a zero correction gradient for distinct inputs,
-and builds the adjacent width-two plain, factored and direct-block controls.
-The repository's full 22-test local suite is green. The unmodified
-`cmb_identity.py` check also ends
-`PASS: cmb-identity all checks green`, including its existing width-20 ResTRF
-save and rebuild leg. No board, runner or gate-check file is changed in this
-candidate. The commissioned board leg remains an integration item for its
-current owner.
+The CPU companion `ai/tests/test_trf_token_width.py` must prove early refusal
+under ordinary and optimized Python for the plain and factored models. A
+mutation that removes only the factored model-level call must allocate trunk
+layers before the block-level guard raises. A width-one control that bypasses
+validation must produce identical corrections and a zero correction gradient
+for distinct inputs. Adjacent width-two plain, factored, and direct-block
+controls must construct.
+The `cmb_identity.py` check must retain the existing width-20 ResTRF save and
+rebuild leg. Local CPU checks do not replace the registered integration leg.
 
 ## The science doctrine
 
-- The objective is SAMPLE EFFICIENCY: the position of the
-  f(dchi2>0.2) vs N_train learning curve; N_target = smallest N with
-  f < 0.10. The real target is high temperature + w0wa + TATT where
-  N_train is the binding constraint. The floor at T=16 is
-  DATA/COVERAGE-limited (10k -> 0.219, 46k -> 0.100) — "it is
-  capacity" was called once and refuted; size claims to evidence,
-  run the curve before writing a law.
-- Effective (nonlinear) dimension sets the cost, not nominal
-  parameter count (photo-z shifts and IA amplitudes are ~free). The
-  two levers for a data floor: physics structure (factoring,
-  features) and point placement (importance sampling);
-  REPRESENTATION beats sampling when failures are diffuse.
-- Hardness is H0-led "amount of small-scale structure" (ln omegab
-  NEGATIVELY correlated — more baryons = easier); the omega_b h^2
-  story was the right CUT variable but the wrong hardness gradient.
-- Certification for f < 0.1: binomial noise ~±0.015 at Nval~400 and
-  best-epoch selection biases LOW — certify with margin (~0.085),
-  seeds, a larger val set.
-- Scoreboard (T=256, 250k): resmlp 0.1558, nla 0.1472 (winner),
-  rescnn+nla two-phase 0.1105.
+**Rule.** A model proposal must preserve the measured regime, sample count,
+validation uncertainty, and physical parameter meaning behind every claimed
+benefit. The bold summaries below state the accepted evidence boundaries.
 
-## CLOSED experiments (never re-propose)
+**Reason.** A lower error at one temperature, family, seed, or training size
+does not establish a general architectural advantage. Removing that context
+can turn a real measurement into a scientifically false design rule.
 
-nla_as (As-scaled factoring — code DELETED; errors became
-As-directional); target rescaling by analytic R (lost the
-sample-efficiency test; the R machinery in analytics.py survives as
-optional preprocessing); per-bin dense-MLP split (discarded the
-shared map; MSE != chi2 under block whitening — keep the full Cinv
-contraction); global CNN head at T=16 (neutral — the win lives at
-high T); conv-as-matmul (CPU-only pathology); ParallelResMLP /
-template_mix / GLU mixing / max-pooling heads; batchnorm; trf
-mlp_width (shelved); smoothness priors (the chi2 is a HIGH-PASS
-filter; its blind spot is the smooth common-mode); loss-shaping as a
-floor lever; log-whitened inputs; space-filling sampling (fights the
-deliberate tempered-Gaussian design); capacity beyond width 256
-(saturates); the local-linear floor as an instrument. The width sweep
-(128 slightly starved; 256 saturated at 0.212) means width-128 "wins"
-were capacity — use 256 baselines.
+**Code ownership.** `emulator/designs/` owns architecture, while
+`emulator/training.py` and the study drivers own the learning-curve and
+validation measurements used to choose it. Data-coverage changes remain owned
+by the generation and staging modules.
+
+**Acceptance evidence.** A proposed design change supplies the complete
+learning curve, repeated seeds, uncertainty, matched data and training
+settings, and the family-specific scientific metric. One trained checkpoint
+or one aggregate score is not enough.
+
+- **Sample efficiency is the objective.** `N_train` is the number of training
+  samples. `f(Delta chi2 > 0.2)` is the fraction of validation samples whose
+  chi-square error exceeds 0.2. The learning curve plots that fraction against
+  `N_train`, and `N_target` is the smallest training size with a fraction below
+  0.10. The demanding regime combines high sampling temperature `T`, the
+  time-varying dark-energy parameters `w0` and `wa`, and TATT intrinsic
+  alignment. At `T=16`, increasing the training set from 10,000 to 46,000
+  changes the measured fraction from 0.219 to 0.100, which supports a
+  data-coverage limitation. Any capacity law requires the complete learning
+  curve rather than one training size.
+- **Effective dimension determines cost.** Nonlinear parameter dependence,
+  rather than nominal parameter count, controls sample demand. Photometric
+  redshift shifts and factored IA amplitudes contribute little effective
+  dimension. A data-limited floor can be addressed through physical structure,
+  such as factoring or informative features, or through point placement, such
+  as importance sampling. When failures are diffuse, representation changes
+  require evaluation before additional sampling.
+- **Small-scale structure determines hardness.** The Hubble constant `H0`
+  leads the measured hardness direction. The logarithm of the baryon density
+  is negatively correlated with difficulty, so more baryons correspond to an
+  easier regime. The physical baryon density `omega_b h^2` remains useful for
+  defining a cut, but its sign must not be reused as the hardness gradient.
+- **Certification needs statistical margin.** With roughly 400 validation
+  samples, binomial uncertainty in a fraction near 0.1 is about 0.015.
+  Selecting the best epoch biases the reported fraction downward. Certification
+  therefore targets a margin near 0.085 and repeats across seeds with a larger
+  validation set.
+- **Benchmark evidence must keep its regime.** For `T=256` and 250,000 training
+  samples, measured fractions are 0.1558 for ResMLP, 0.1472 for factored NLA,
+  and 0.1105 for two-phase ResCNN with factored NLA. These values do not
+  transfer to another temperature, family, or training size.
+
+## Designs that evidence does not support
+
+**Rule.** The designs below remain outside the accepted model family unless a
+new family-specific experiment satisfies the science-doctrine evidence.
+
+**Reason.** Each design either failed to improve the declared metric, changed
+the scientific objective, or was measured only in a regime too narrow to
+support adoption.
+
+**Code ownership.** The relevant design, loss, experiment, or sampling module
+owns any future implementation. No fallback path may introduce one of these
+designs implicitly.
+
+**Acceptance evidence.** Adoption requires matched controls, complete learning
+curves, repeated seeds, and a discriminating family gate. A configuration
+that merely constructs or trains is not acceptance evidence.
+
+- Scaling NLA factoring by the primordial scalar amplitude `A_s` creates
+  errors aligned with the `A_s` direction and is not an accepted design.
+- Analytic target rescaling does not improve sample efficiency. The factor
+  `R` is the per-output ratio of a fast analytic shear prediction at the
+  reference cosmology to the same prediction at the sampled cosmology. Its
+  owning formula is `emulator/analytics.py::_analytic_R`. This machinery
+  remains optional preprocessing, not a required target transformation.
+- A separate dense MLP for each bin discards the shared parameter-to-data map.
+  Mean-squared error is not equivalent to chi-square after block whitening, so
+  the loss retains the full inverse-covariance contraction.
+- A global CNN head is neutral at `T=16`; a benefit measured at high
+  temperature must not be generalized to that regime.
+- Convolution represented as matrix multiplication exposes a CPU-specific
+  performance problem and is not a general replacement.
+- `ParallelResMLP`, `template_mix`, gated linear-unit mixing, max-pooling
+  heads, batch normalization, a separate transformer `mlp_width`, and
+  smoothness priors lack evidence for adoption. Chi-square behaves as a
+  high-pass filter whose blind spot is a smooth common mode, so a smoothness
+  prior changes the objective rather than repairing it.
+- Loss shaping, log-whitened inputs, space-filling sampling, and a local-linear
+  floor do not establish a lower sample-efficiency floor. Space-filling
+  sampling also conflicts with the deliberate tempered-Gaussian distribution.
+- Width beyond 256 shows saturation. A width comparison in which 128 is
+  slightly under-capacity and 256 reaches 0.212 cannot establish a width-128
+  advantage; capacity comparisons use width 256 as the baseline.
 
 ## Recurring gotchas
 
-Mid activation between stacked convs; fixed basis buffers not live
-geometry calls in forward(); 0-dim device tensors for compiled-loop
-scalars; warmup lr at the TOP of the epoch; epoch-0 baseline eval
-seeds best-tracking; diagnostics branch on needs_params; benchmark
-conclusions do not transfer across devices.
+**Rule.** The implementation invariants below apply whenever their named
+model, training phase, compiled path, or diagnostic capability changes.
 
-## The power activations have a zero derivative at exactly zero (red-team 45M-16, 2026-07-12, Architect-VERIFIED; queue 40)
+**Reason.** Each invariant prevents a plausible implementation that remains
+finite and shape-correct while disabling learning, changing coordinates, or
+reporting the wrong state.
 
-Both PowerGatedActivation and GatedPowerActivation implement the
-signed power as `psi = torch.sign(x) * ((1.0 + ax) ** p - 1.0) / p`
-(activations.py:147, :220) and document slope 1 at the origin with
-p = 1 recovering psi = x (:115, :162) — the claimed identity /
-H-recovery start. The VALUES agree, but the Jacobian does not:
-torch's sign has zero derivative, |x| has zero derivative at the
-origin, and the inner magnitude is zero there, so autograd returns
-d psi / dx = 0 at exactly x = 0 (documented claim: 1; full default
-activation: 0 instead of H's 0.5). This is a gradient-absorbing
-point exactly where the identity-start doctrine deliberately places
-zeros (corrections, padding, fresh channels), and no forward
-identity check can see it — the defect is Jacobian-only.
+**Code ownership.** The named activation, design, training, geometry, and
+diagnostic modules own their respective invariant.
 
-Contract (Implementer): (1) reimplement as x times an even magnitude
-ratio, psi_p(x) = x * ((1+|x|)^p - 1) / (p |x|), with the analytic
-limit 1 at zero built in; (2) the near-zero ratio computed stably
-(log1p/expm1 or a justified series), no unguarded 0/0 branch;
-(3) constructor requires finite positive p_min < p_max (the /p
-denominator can never approach zero through a malformed direct
-call); (4) forward values preserved away from the near-zero
-neighborhood; (5) documentation corrected only AFTER the derivative
-is proven. Gate legs (torch, workstation, riding an activation/model
-identity gate): H vs power vs gated_power values AND input gradients
-at x = [-eps, 0, +eps] at default init; p = 1 equals x with
-derivative 1 including exactly zero; a zero preactivation inside a
-small residual block transmits a nonzero gradient; float64 gradcheck
-over several learned p; a mutation restoring sign(x) * f(|x|) fails
-specifically at the zero-Jacobian assertion.
+**Acceptance evidence.** The affected change must retain one valid control
+and one targeted mutation for each touched invariant. A broad smoke result
+does not replace the targeted check.
 
-## NPCE maps arbitrarily out-of-domain cosmologies to the same boundary (red-team 45M-28, 2026-07-12, Architect-VERIFIED; queue 46 — joins the inference-boundary campaign, unit 21, with explicit NPCE legs)
+- Stacked convolutions require an intermediate activation; otherwise two
+  linear convolutions collapse to one linear map.
+- Basis transforms remain fixed buffers. A live geometry call inside
+  `forward()` breaks compiled execution assumptions.
+- Scalars used inside a compiled loop remain zero-dimensional tensors on the
+  active device.
+- Learning-rate warmup updates at the start of an epoch so every batch sees the
+  intended rate.
+- The epoch-zero baseline evaluation initializes best-model tracking before
+  training changes the weights.
+- Diagnostics branch on the `needs_params` capability because parameter-aware
+  losses cannot be decoded through a parameter-free path.
+- Benchmark conclusions remain tied to the measured device and do not transfer
+  automatically between CPU, CUDA, and Apple Metal Performance Shaders (MPS)
+  hardware.
 
-PCEEmulator.forward maps whitened inputs to the fitted Legendre box
-and applies an unconditional clamp (designs/pce.py:505-506,
-Xm = 2(X - lo)/(hi - lo) - 1; Xm.clamp(-1, 1)); the comment (:503-504)
-says a point "just outside" stays in range, but there is no
-definition of "just": one rounding unit outside and an arbitrarily
-distant cosmology collapse to the identical boundary coordinate, the
-output stays finite and plausible, and the finite guard cannot see
-that the base evaluated a DIFFERENT cosmology. Both residual NPCE
-forms are affected — the refiner sees the real X but was trained
-around a base whose hidden saturation is part of its target; nothing
-guarantees it repairs an arbitrarily clipped base outside the
-calibration box. lo/hi are already persisted: the missing piece is a
-policy, not data.
+## Power activations require the analytic derivative at zero
 
-Contract: (1) a NAMED, persisted PCE domain policy — scientific
-serving defaults to refusal outside the calibrated whitened box with
-only a documented floating-point tolerance; (2) if exact-boundary
-clipping is kept for roundoff, a scale-aware tolerance with rejection
-beyond it — an unconditional clamp is never the validator; (3) errors
-name the stored parameter coordinate, whitened value, allowed
-[lo, hi], and overshoot, mapped back to the input-geometry record
-where available; (4) training/validation evaluation and inference use
-the IDENTICAL policy (a validation set outside the fitted box cannot
-be silently scored as inside); (5) persisted lo/hi validated: finite,
-1-D, aligned with the PCE input dimension, strictly lo < hi;
-(6) boundary-hit / near-tolerance counts recorded in the resolved
-fit/evaluation record. Distinctness ruling accepted as argued: this
-is NOT the LOO-selection unit (LOO judges the polynomial inside its
-domain; this defines whether a query belongs to the domain at all).
-Red legs (torch, board-listed): two far-out same-side inputs that
-currently collide must refuse; below-low and above-high per
-dimension; NaN/Inf bounds; lo == hi; shape mismatch; exact endpoints;
-one-ULP/tolerance control; training and rebuilt-artifact inference
-agree; residual NPCE on a diagonal family AND a dense-covariance
-family.
+**Rule.** `PowerGatedActivation` and `GatedPowerActivation` preserve both the
+claimed forward value and the analytic input derivative at zero. The power
+component has derivative one at the origin, including the `p=1` identity
+case.
 
-### 45M-35 amendment to unit 29 (model-block value schema): gate_init 0 is an exact absorbing dead head (2026-07-12, Architect-VERIFIED; BINDING)
+**Reason.** The sign-based expression
+`torch.sign(x) * ((1.0 + abs(x)) ** p - 1.0) / p` has the right value but the
+wrong Jacobian at `x=0`. Both `sign(x)` and `abs(x)` have zero derivative there,
+and the inner magnitude is zero, so automatic differentiation returns a zero
+power-component derivative. Identity-initialized correction layers, padding,
+and new channels deliberately create exact zeros. A forward identity check
+cannot detect this gradient-absorbing point.
 
-Unit 29's queued clause said "gate_init finite non-bool" — that still
-admits zero, and zero is not a slow start but an exact absorbing
-state: the head output is out = trunk + gate * correction, the
-correction branch is zero-initialized BY DESIGN (the last conv
-zero-init at ia.py:492 makes the identity start), so with gate == 0
-the gate's gradient is upstream * correction == 0 and every head
-weight's gradient is upstream * gate * d(correction) == 0 — nothing
-in the head can move on step one, so both factors stay zero forever
-and the requested CNN/TRF trains as its bare trunk while collapse
-bars pass. The code names the invariant with no enforcement
-(ia.py:336-339, "not 0, a 0 gate strands the CNN with no gradient").
+**Implementation boundary.** Express the power component as `x` times an even
+magnitude ratio,
+`psi_p(x) = x * ((1 + abs(x))**p - 1) / (p * abs(x))`, with the analytic
+limit one at zero. Compute the near-zero ratio with `log1p` and `expm1` or a
+justified series; an unguarded `0/0` branch is forbidden. Constructors require
+finite positive `p_min < p_max`, so malformed direct calls cannot drive the
+denominator toward zero. Forward values away from the near-zero neighborhood
+remain unchanged. Documentation may state the derivative only after executable
+evidence proves it.
 
-Amendment: gate_init must be finite, real, non-bool, and NONZERO
-AFTER CONVERSION TO THE PARAMETER DTYPE — a Python 1e-50 that
-underflows to float32 zero is a dead gate and is rejected. Architect
-ruling: representably-nonzero is the rule; positive-only is NOT
-imposed (a negative gate is mathematically equivalent up to the
-correction's sign) — the shipped 0.1 recipe is preserved
-byte-for-byte. One active-model validator covers plain AND factored
-CNN/TRF heads. The unit-29 demotion gate gains a BEHAVIORAL leg, not
-only a parameter census: after one nonzero-loss backward/step (trunk
-frozen so it cannot hide a dead head), at least one head parameter or
-its gate must show a finite nonzero update — structural presence and
-trainability are separate requirements, and a merely-present but
-untrainable head may not satisfy the gate. Red legs: gate_init 0,
--0.0, and float32-underflowing nonzero raise before construction;
-the 0.1 recipe exact; one-step head-only training moves ResCNN,
-ResTRF, and at least one factored-template head off the identity
-start; a mutation bypassing validation with gate 0 proves every
-head/gate gradient exactly zero while the trunk still reduces loss.
-Torch, board-listed, workstation.
+**Code ownership.** `emulator/activations.py::PowerGatedActivation` and
+`GatedPowerActivation` own the forward formulas and trainable power bounds.
+`emulator/activations.py::make_activation` owns selection by configuration
+name. Head-compatibility validation remains with the active-model validator.
 
-### 45M-36 amendment to unit 29: an allowed ReLU head is an exact, permanently dead residual branch (2026-07-12, Architect-VERIFIED; CRITICAL, interlocks with unit 40)
+**Acceptance evidence.** A registered Torch leg on a GPU-capable environment
+compares H, power, and gated-power values and input gradients at
+`x = [-epsilon, 0, +epsilon]` under default initialization. With `p=1`, the
+power component equals `x` and has derivative one, including at exactly zero.
+A zero preactivation inside a small residual block transmits a nonzero
+gradient. Float64 `gradcheck` covers several learned powers. A mutation that
+restores `sign(x) * f(abs(x))` must fail specifically at the zero-Jacobian
+assertion.
 
-The identity-at-init license was incomplete. make_activation permits
-"relu" (activations.py:243); every head zero-initializes its final
-mixing layer (plain.py:536-541, ia.py:492-498, blocks.py:634-640) and
-applies the selected activation AFTER it. a(0) = 0 preserves the
-identity, but the gradient reaching the zeroed layer is
-upstream * a'(0) * input — and torch assigns ReLU derivative 0 at 0,
-so the zeroed conv/linear never moves, the correction stays zero, the
-gate's gradient (proportional to that zero correction) stays zero,
-and every earlier head layer is blocked THROUGH the zeroed layer:
-an exact absorbing state, not slow learning. ResCNN and
-TemplateResCNN die whole; TRFBlock is a PARTIAL demotion — the
-attention branch wakes (no activation follows the zeroed wo) while
-the MLP half of every transformer block is permanently absent, so the
-model trains and improves while silently lacking half its advertised
-architecture. The code comments claim the opposite (plain.py:538-541
-"the zeroed layer gets real gradients through the nonzero gate";
-ia.py:496 "d corr/d w depends on its input, not its weights") — true
-for H (a'(0) = 0.5) and tanh (a'(0) = 1), false for ReLU. Related to
-unit 40 but distinct: ReLU's zero derivative is intentional, so
-"stabilize it numerically" is not a fix.
+## NPCE refuses queries outside its calibrated domain
 
-Amendment to unit 29's schema: the compatibility rule for any
-activation placed after a zero-output-initialized head layer is
-a(0) = 0 AND finite representably-nonzero a'(0), applied to CNN and
-TRF head pins in both plain and template designs through the one
-active-model validator. Architect ruling within the offered
-alternatives: ReLU is REJECTED as a zero-init-head activation (it
-stays fully legal in trunks); no separately-named head-safe
-construction in V1 — that is a future design ruling if science wants
-ReLU heads. Exact identity-at-init is preserved — no random
-perturbation repairs. power/gated_power fold into unit 40's repair
-and census: pre-repair they fail this same check (exact-zero
-Jacobian); post-repair (analytic limit 1 at 0) they pass and must
-wake. The four misleading explanations (plain.py:538-541, ia.py:496,
-blocks.py:634-636, and this note's claim — corrected above) are
-rewritten by the unit. Complementarity: the 45M-35 behavioral
-one-step trainability leg CATCHES a dead head at gate level; this
-schema check REFUSES it before construction — validator and gate,
-both required. Red legs (torch, board-listed, workstation): current
-ResCNN+ReLU mutation with trunk frozen/bypassed and a nonzero
-residual target — every CNN-head parameter AND the gate have exactly
-zero gradient/change; TemplateResCNN+ReLU reproduces it; ResTRF+ReLU
-proves wo wakes while mlp_lins[-1] does not (the partial-demotion
-catch); H and tanh controls keep exact identity at init and move the
-zeroed layer after one step; repaired power/gated_power controls
-wake; the schema rejects a ReLU head before construction while
-accepting a ReLU trunk; a mutation validating only a(0) == 0 fails
-the gate.
+**Rule.** A polynomial-chaos-expansion (PCE) base accepts a query only inside
+its persisted calibration domain, apart from an explicitly defined
+floating-point tolerance. Training, validation, and rebuilt-artifact inference
+apply the same domain policy.
 
-## Head padding loses the coordinate map and fabricates hidden state (red-team 45M-40, 2026-07-12, Architect-VERIFIED; queue 52 — CRITICAL for masked cosmic-shear CNN/TRF heads, fifth in the critical sequence)
+**Reason.** `PCEEmulator.forward` maps whitened inputs to a fitted Legendre box
+and clamps every mapped coordinate to `[-1, 1]` in
+`emulator/designs/pce.py::PCEEmulator.forward`. An input one rounding unit
+beyond the boundary and
+an arbitrarily distant cosmology can therefore map to the same boundary point.
+The output remains finite even though the base evaluated a different
+cosmology. A neural PCE residual refiner sees the original input, but its
+training target includes the base's saturation; no rule guarantees correction
+of an arbitrarily clipped base. Persisted `lo` and `hi` already define the
+needed calibration data.
 
-Two independent defects in the padded head layout, both confirmed in
-plain AND template designs:
+**Implementation boundary.** Persist a named PCE domain policy. Scientific
+serving refuses points outside the calibrated whitened box, with only a
+documented scale-aware tolerance for floating-point roundoff. Optional clipping
+inside that tolerance never substitutes for validation. A refusal names the
+stored parameter coordinate, whitened value, allowed `[lo, hi]` interval, and
+overshoot, mapped to the input-geometry record when available. Persisted bounds
+must be finite, one dimensional, aligned with the PCE input width, and satisfy
+strict `lo < hi`. The resolved fit and evaluation record counts exact boundary
+hits and near-tolerance points. Leave-one-out selection judges polynomial
+quality inside the domain; the domain policy decides whether a query belongs
+there.
 
-1. RANK SUBSTITUTED FOR COORDINATE. pad_idx is built from
-   geom.bin_sizes counts only — "bin g's j-th entry at
-   g*max_bin + j" (plain.py:430-434; ia.py:374-377 identical): the
-   j-th SURVIVING value, not the physical theta slot. Two
-   tomographic bins keeping the same COUNT at different theta
-   locations get identical layouts, so the cross-bin channel mixing
-   the docs call "like angular scales" mixes physically different
-   angles at every padded column. Counts cannot distinguish two
-   valid mask geometries; the persisted artifact cannot either.
-2. PADDING DOES NOT STAY ZERO. The docs claim pad slots stay zero
-   (~:294), but zeros exist only at the initial scatter
-   (:658-660 new_zeros + scatter); the conv loop then applies
-   convolution (with bias), activation, and FiLM to the WHOLE
-   rectangle with no validity mask reapplied (:662+), and the TRF
-   path updates the full token rectangle every block (ia.py:925+).
-   Adversarial composition (sound by construction): block 1's
-   cross-bin mixing writes a longer bin's value into a shorter
-   bin's INVALID column; bias/activation make invalid slots
-   generically nonzero; block 2's spatial kernel shifts that into
-   the shorter bin's VALID columns; the gather returns a correction
-   that depends on a nonexistent datum. The ragged single-bin
-   n_tokens segmentation has the same final-partial-token exposure.
+**Code ownership.** `emulator/designs/pce.py::PCEEmulator.from_training` owns
+the calibrated bounds and saved policy. `PCEEmulator.forward` owns the check
+before basis evaluation. `emulator/results.py::rebuild_emulator` and
+`emulator/inference.py` must preserve and apply the same saved policy after
+rebuild.
 
-Contract (Implementer, adopted whole): persist the REAL
-coordinate-slot identity (each kept value scattered into its
-original theta-bin slot — equal-count different-mask patterns stay
-distinguishable); build and persist a boolean validity mask aligned
-with the padded tensor; REAPPLY the mask after every conv/TRF block
-and after FiLM so invalid positions are exactly inert at arbitrary
-depth; attention/MLP must not use invalid coordinates as keys,
-values, or latent channels — the masking mechanism must fit this
-theta-positions-as-feature-dimensions layout (a conventional
-sequence-token attention mask alone is insufficient); the same
-representation in plain/template CNN and TRF; equal-length no-mask
-behavior BITWISE preserved; CMB/grid/grid2d rectangular cases proven
-unchanged; the ragged n_tokens final token masked; every "pad slots
-stay zero" / "like angular scales" explanation corrected to the
-executed invariant; save/rebuild preserves the coordinate map +
-validity mask exactly, and a pre-map head artifact is REFUSED loudly
-(schema-additive, the bin_sizes/pm_kept persistence precedent), never
-reconstructed from counts. Gate legs (torch, board-listed,
-workstation): equal-count different-mask bins produce different
-persisted maps (the count-only form fails); known-answer one-block
-CNN mixes only intended theta neighbors; the adversarial two-block
-routing leg — repaired output exactly zero where the current form is
-nonzero — on ResCNN AND TemplateResCNN; multi-block ResTRF/
-TemplateResTRF keep invalid coordinates exactly zero and valid
-outputs invariant to an injected invalid-slot sentinel; ragged
-n_tokens final-token inertness; equal-width/no-mask controls bitwise
-unchanged with exact identity-at-init; save/rebuild round-trip +
-pre-map artifact refusal.
+**Acceptance evidence.** Two far-out inputs on the same side of a boundary
+must both refuse rather than collide. Checks cover values below `lo` and above
+`hi` in each dimension, nonfinite bounds, equal bounds, shape mismatch, exact
+endpoints, and a one-unit-in-the-last-place tolerance control. Training and
+rebuilt-artifact inference must agree. The witness covers residual NPCE on one
+diagonal family and one dense-covariance family.
+
+### A zero `gate_init` is an absorbing dead head
+
+**Rule.** `gate_init` must be finite, real, non-boolean, and representably
+nonzero after conversion to the parameter dtype. Positive sign is not required;
+a negative gate is equivalent up to the correction sign.
+
+**Reason.** A structured head returns
+`trunk + gate * correction`, and its correction branch starts at exactly zero.
+With `gate == 0`, the gate gradient is proportional to the zero correction and
+every head-weight gradient is proportional to the zero gate. Neither factor can
+move on the first step, so both remain zero. The requested CNN or transformer
+then behaves as a bare trunk even while aggregate training thresholds pass. A
+Python value such as `1e-50` that underflows to float32 zero creates the same
+absorbing state.
+
+**Implementation boundary.** One active-model validator covers plain and
+factored CNN and transformer heads. It preserves the shipped `0.1` recipe
+exactly and refuses every value that converts to zero in the parameter dtype.
+Structural presence is not enough: with the trunk frozen and a nonzero loss,
+one backward step must give a finite nonzero update to at least one head
+parameter or its gate.
+
+**Code ownership.** The required
+`emulator/experiment.py::validate_active_model_values` check owns the public
+configuration refusal. `ResCNN` and `ResTRF` in `emulator/designs/plain.py`
+and `TemplateResCNN` and `TemplateResTRF` in `emulator/designs/ia.py` own gate
+storage, identity initialization, and defensive constructor checks.
+
+**Acceptance evidence.** `gate_init` values `0`, `-0.0`, and a nonzero Python
+value that underflows in float32 refuse before construction. The `0.1` recipe
+remains exact. One head-only step moves ResCNN, ResTRF, and at least one
+factored-template head away from the identity start. A control that bypasses
+validation with a zero gate must show exactly zero head and gate gradients
+while the trunk can still reduce loss. The registered Torch witness requires a
+GPU-capable environment.
+
+### ReLU is not valid after a zero-initialized head layer
+
+**Rule.** An activation placed after a head layer whose output is initialized
+to zero must satisfy both `a(0) == 0` and a finite, representably nonzero
+`a'(0)`. The one active-model validator applies this rule to CNN and
+transformer head pins in plain and template designs. ReLU remains valid in
+trunks but is refused after a zero-initialized head layer.
+
+**Reason.** Every structured head initializes its final mixing layer to zero
+in `emulator/designs/plain.py::ResCNN.__init__`,
+`emulator/designs/ia.py::TemplateResCNN.__init__`, and
+`emulator/designs/blocks.py::TRFBlock.__init__`, then applies the selected
+activation afterward. ReLU preserves the forward identity because
+`a(0) == 0`, but Torch defines its derivative at zero as zero. The gradient
+reaching the mixing weights is proportional to `a'(0)`, so the zeroed layer
+never moves. ResCNN and TemplateResCNN become wholly inactive. In `TRFBlock`,
+the attention output projection can move because no activation follows it,
+while the MLP's zeroed final layer remains inactive. The model can therefore
+improve while lacking the advertised MLP correction. H and tanh avoid this
+failure because their origin derivatives are nonzero. ReLU's zero derivative
+is intentional and cannot be repaired through numerical stabilization.
+
+**Implementation boundary.** Validation refuses a ReLU head before model
+construction and preserves exact identity at initialization without a random
+perturbation. A separately named head-safe ReLU construction would require a
+new scientific design. Power and gated-power activations qualify only when
+their analytic origin derivative is implemented as one. Explanations in
+the owning constructors must state this executed invariant. Schema refusal and
+the one-step trainability witness are both required: the validator prevents
+the invalid construction, and the behavioral witness detects a bypass or a
+future activation regression.
+
+**Code ownership.** The required
+`emulator/experiment.py::validate_active_model_values` check owns the
+configuration refusal. `emulator/activations.py::make_activation` owns
+selection by activation name. The structured-head constructors in
+`emulator/designs/plain.py`, `emulator/designs/ia.py`, and
+`emulator/designs/blocks.py::TRFBlock` own zero initialization and defensive
+compatibility checks.
+
+**Acceptance evidence.** A registered Torch leg freezes or bypasses the trunk
+and supplies a nonzero residual target. A ResCNN plus ReLU control that bypasses
+validation must show exactly zero gradients and parameter changes for every CNN
+head parameter and its gate. TemplateResCNN must reproduce the result. A
+ResTRF plus ReLU control must show that `wo` moves while `mlp_lins[-1]` does
+not. H and tanh controls retain exact identity at initialization and move the
+zeroed layer after one step. Power and gated-power controls with the analytic
+origin limit must also move. The schema accepts a ReLU trunk, refuses a ReLU
+head before construction, and rejects any mutation that checks only
+`a(0) == 0`.
+
+## Padded heads preserve physical coordinate identity and inert padding
+
+**Rule.** Plain and template padded heads preserve the original physical
+coordinate of every kept value. Every padded position remains exactly inert
+after every convolution, transformer block, and FiLM operation. The persisted
+artifact stores both the coordinate map and the aligned validity mask.
+
+**Reason.** Two mechanisms violate that rule when layout is reconstructed from
+bin counts and invalid positions remain active:
+
+1. **Rank can replace coordinate identity.** `pad_idx` constructed from
+   `geometry.bin_sizes` alone places the `j`-th surviving entry of bin `g` at
+   `g * max_bin + j` in `emulator/designs/plain.py::ResCNN.__init__` and
+   `emulator/designs/ia.py::TemplateResCNN.__init__`. That rank is not
+   necessarily the original angular slot. Two tomographic bins with the same
+   kept count but different angular masks then receive identical layouts, and
+   cross-bin channel mixing combines physically different angles in the same
+   padded column. Counts cannot distinguish the two valid geometries, either
+   during construction or after artifact rebuild.
+2. **Padding can become active.** Padding starts at zero during the initial
+   scatter, but convolution bias, activation, FiLM, and transformer updates
+   act on the entire rectangle unless a validity mask is reapplied. In a
+   two-block witness, cross-bin mixing can write a longer bin's value into an
+   invalid column of a shorter bin. The next spatial kernel can move that value
+   into a valid column, so the gathered correction depends on a nonexistent
+   datum. Ragged single-bin segmentation through `n_tokens` exposes the same
+   risk in its final partial token.
+
+**Implementation boundary.** Each kept value scatters into its original
+angular-coordinate slot, so equal-count bins with different masks remain
+distinguishable. A boolean validity mask aligns with the padded tensor and is
+reapplied after every CNN or transformer block and after FiLM. Attention and
+MLP operations must not use invalid positions as keys, values, or latent
+channels. Because angular positions form the feature dimension in this layout,
+a conventional sequence-token attention mask alone is insufficient. Plain and
+template CNN and transformer heads share the representation. The final partial
+token created by ragged `n_tokens` segmentation is masked. Equal-length input
+without padding remains bitwise unchanged, as do rectangular CMB and grid
+families. Save/rebuild preserves the coordinate map and validity mask exactly.
+A structured-head artifact without those persisted fields is refused rather
+than reconstructed from counts. Every explanation of zero padding or matched
+angular scales must state the executed invariant.
+
+**Code ownership.** Current scatter and gather behavior lives in the
+constructors and `forward` methods of `ResCNN` and `ResTRF` in
+`emulator/designs/plain.py` and `TemplateResCNN` and `TemplateResTRF` in
+`emulator/designs/ia.py`. The required physical coordinate map and validity
+mask belong to `emulator/geometries/output.py::build_shear_angle_map` and
+`DataVectorGeometry.state` and `DataVectorGeometry.from_state`. Rectangular
+CMB and grid families continue to define their layouts through each
+geometry's `attach_head_coords` method. A new mask operation shared by the
+four structured models must have one owner rather than four drifting copies.
+
+**Acceptance evidence.** Registered Torch legs on a GPU-capable environment
+require equal-count bins with different masks to produce different persisted
+maps. A one-block known-answer CNN mixes only intended angular neighbors. A
+two-block routing witness must return exactly zero when a value can travel only
+through an invalid slot, for both ResCNN and TemplateResCNN. Multi-block ResTRF
+and TemplateResTRF keep invalid positions exactly zero, and valid outputs are
+invariant to an injected invalid-slot sentinel. Additional legs cover final
+partial-token inertness, bitwise-equal rectangular controls with exact identity
+at initialization, save/rebuild round-trip, and refusal of a pre-map artifact.

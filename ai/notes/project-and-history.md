@@ -1,169 +1,332 @@
-# The project and how it was built
+# Project purpose and durable development milestones
 
-Consolidated 2026-07-11 from ~85 topic notes (retired; every old note
-survives in git history — `git log --follow ai/notes/<old-name>.md`).
-Read `ai/notes/MEMORY.md` first. Current execution state belongs in the local
-`ai/notes/backlog.md`; transfer it between developers with the offline handoff
-documented in `ai/README.md`, not through a committed state ledger.
+This note explains the project-wide decisions that still shape the emulator
+library. The note does not reproduce chronological development history. Git
+preserves retired implementations, while the local backlog records unfinished
+work.
 
-## What this is
+Read [`MEMORY.md`](MEMORY.md) first. Use the topic notes for detailed model,
+training, artifact, data, and family requirements.
 
-A PyTorch emulator program for cosmological inference inside Cocoa:
-networks that replace expensive physics computations (cosmolike 3x2pt
-data vectors, CAMB CMB spectra, the background, the matter power
-spectrum, derived scalars) inside cobaya MCMCs. The goal metric is
-SAMPLE EFFICIENCY: f(delta-chi2 > 0.2) over validation cosmologies vs
-N_train; the target regime is high temperature + w0wa + TATT, where
-training cosmologies are the expensive object. One training stack
-serves five output families; artifacts are self-describing (the
-never-trust-defaults doctrine); every feature lands with acceptance
-gates the user runs on a GPU workstation.
+## Terms used in this note
 
-## The development arc (commit archaeology by phase)
+An **emulator** is a trained, fast approximation to an expensive scientific
+calculation. An **artifact** is one saved emulator publication: trained
+weights plus the scientific and structural facts needed to rebuild them. A
+neural-network **trunk** produces a shared internal representation; a **head**
+turns that representation into one requested output.
 
-1. **The notebook era (June 2026).** Everything began as the teaching
-   notebook pytorch1.ipynb (read-only reference). Early experiments
-   established the science doctrine and the CLOSED-experiment ledger
-   (models-and-designs.md): the floor is data/coverage, factoring
-   beats sampling, the correction-head idea.
-2. **The package translation (late June).** Byte-faithful extraction
-   into emulator/ + drivers; the cocoa layout (--root/--fileroot/
-   --yaml, ROOTDIR-relative); EmulatorExperiment as the one setup
-   object; the multi-GPU sweep machinery; the [default, min, max,
-   kind] search convention.
-3. **The training-stack build-out (2026-07-01..07).** Two-phase
-   trunk/head training with zero-init identity heads; trim/focus;
-   berhu losses + anneal; EMA with the snapshot-coupling invariant;
-   phase blocks + single-phase demotion; absolute n_train/n_val;
-   derived eval batch; the weight-decay allowlist; nested model
-   config; per-head activations; model.norm; NPCE wiring; factored
-   IA (NLA shipped, TATT live). Two whole-tree audits (style, then
-   documentation truth) forged the house rules; the README campaign
-   produced the two-README split and the didactic standard.
-4. **The board (2026-07-07..08).** The self-driving gate harness the
-   user runs; ~19 gates grown by every unit after; ten runs peeled
-   eight wiring layers with ZERO physics bugs (gates-and-board.md
-   carries the run table and lessons).
-5. **Save schema v2 + adapters (2026-07-07..08).** Resolved-values
-   artifacts, rebuild_emulator, EmulatorPredictor, the thin
-   emul_cosmic_shear adapter; GSV/GCT gates; the dv_return design.
-6. **Family folders (GRF, 2026-07-08) + portable board config (GBC,
-   07-09).** designs/ + losses/; the refactor proven
-   output-transparent by a fresh green board.
-7. **Warm starts (2026-07-09..10).** FTW fine-tuning (block-extended
-   geometry, epoch-0 parity) then TPE transfer learning (frozen base
-   + parallel correction, embed-the-base artifacts, refine + the
-   shared L2-SP anchor) — the infrastructure capstone: four training
-   modes with one dial. Transfer was at first ruled EXCLUSIVE to
-   the cosmolike + CMB data-vector families "permanently" — a forbid
-   the 2026-07-12 symmetry ruling overturned (item 11: every family
-   but scalar).
-8. **The five-family program (2026-07-10..11).** SPE scalars (closed
-   25/25, five board runs, the lesson bank); then in one long
-   Architect-implemented window: CME (CMB spectra: the covinv ruling,
-   amplitude law, covariance script, roughness loss, family
-   diagnostics dispatch), BSN (two-regime background), MPS
-   (correction-to-syren with the D-MP2-A base-on-disk flow, EMUL2),
-   GEO (the geometries/ folder; shims later retired by D-GEO5), and
-   POL (README consolidation + doc pass + the Alien-Python sweep).
-   Board 23 -> 32 (count by enumerating the registry — a +1
-   note-arithmetic error survived days once).
-9. **The 2026-07-11 wrap** (state-2026-07-11-and-next.md): syren
-   vendored in-repo; per-family train drivers + the family-first
-   rename (<family>_<verb>_emulator.py, user ruling); README section
-   18; MPS-DIAG; the D-CM12/D-CM13 specs; this notes consolidation.
-10. **Capability symmetry + the board saga (2026-07-11 evening ->
-   07-12 00:12).** Two user directives closed the symmetry gap:
-   family driver PARITY (all twelve family sweep/tune drivers became
-   thin wrappers over the cosmic-shear mains' (prog, family) — one
-   code path, so multi-GPU / --gpu-pack / journal studies reach
-   every family) and D-CM13 IMPLEMENTED generalized (conv/TRF heads
-   on cmb/grid/grid2d via attach_head_coords() + the identity-basis
-   insight; model.trf.n_tokens; scalar trunk-only permanently),
-   which surfaced and fixed the cosmic-shear head-artifact rebuild
-   gap (bin_sizes/pm_kept now persist). Then NINE board runs in one
-   night took the board from 25 greens to THE FIRST FULL 32/32
-   (2026-07-12 00:12) — every red root-caused: two gate-fixture
-   format bugs, ONE real generator bug (stale cached background ->
-   the logposterior(cached=False) lifecycle, the quirk hypothesis
-   falsified by the tripwire built to test it), D-MP9 born then
-   amended law-agnostic, the $ROOTDIR-relative-path class, cobaya's
-   >= 4 spline redshifts, the fracs-width fixture landmine, and a
-   ~10-20x mps-smoke speedup (the grid-derived k_max). Final leg:
-   smoke emulators vs CAMB's own P(k, z) at rel 0.93% against the
-   5% bar. The run-by-run table: gates-and-board.md.
-11. **The symmetry night (2026-07-12, the user asleep, autonomous
-   authorization).** Four user rulings landed in one overnight batch:
-   (a) two-phase trunk-then-head on the PLAIN heads ("any trunk-head
-   design could benefit") — set_train_phase on ResCNN/ResTRF, the
-   whole phase surface unlocked by the existing duck-typing;
-   (b) NPCE on every family ("nothing should prevent PCE as the
-   trunk", arXiv 2404.12344) — PCEResidualDiagChi2 + the family
-   hooks/predictor/gate legs; (c) frozen-base transfer on every
-   family but scalar ("weird to have a feature not symmetric to all
-   cases" — the BAOSN/MPS permanent forbids overturned, D-CM7
-   closed) — TransferDiagChi2 + the pins/predictor/check_diagonal;
-   (d) the Motloch & Hu eq-6 covariance completed to all six dense
-   blocks and gate-executed for the first time (cmb-smoke leg 2b).
-   Plus the alien-Python sweep (143 packed dicts reflowed one pair
-   per line, every staged tensor chain split into named temps) and
-   the empty PCE/IA/parallel folder cleanup in the main checkout.
-   Details: the family notes + artifacts-inference-warmstart.md.
-   The new legs first-executed on board run 11 (2026-07-12):
-   check_npce green in all four family identity gates, the phase
-   legs green; the eq-6 leg and check_diagonal were run 11's two
-   first-execution reds (the run table in gates-and-board.md).
+The **reverse Huber (BerHu) loss** is a piecewise training loss defined in
+`training-stack.md`. **Trimming** removes a configured fraction of the
+largest-error rows before a training average. **Focus** gives harder retained
+rows more weight. A **snapshot** is one saved copy of model and training state
+that can be selected or restored together.
 
-## The family-pattern recipe (what a NEW output family adds)
+A **warm start** begins from a saved model instead of random weights.
+**Fine-tuning** continues training that model. **Transfer learning** keeps a
+saved base calculation and trains a correction for a related task. The
+**correction target** is the numerical difference or ratio that correction
+must learn; the **correction head** is the trainable network part that predicts
+it.
 
-SPE established it; CME/BSN/MPS instantiated it; the code map carries
-it as a change-X row. A new family adds: (1) a data.<family> block
-key, mutually exclusive with all others; (2) a pure validator
-(rescale/ia forbidden; pce admitted since the 2026-07-12 family-wide
-NPCE ruling — validate_pce(diagonal=True), residual-only; transfer per
-the scope ruling; finetune admitted with a pin); (3) a from_config
-branch — param_cuts optional,
-trunk-only head guard via model_cls.head_block, the finetune sub-path
-validated BEFORE any model-block read, and the cosmolike finetune
-branch guarded `not self._<family>` (the ordering hazard, hit three
-times); (4) a geometry in emulator/geometries/ persisting RESOLVED
-values with state() byte round-trip and the relative zero-variance
-guard; (5) a loss exposing the per-sample chi2 interface so
-trim/focus/berhu/EMA/anchor compose; (6) staging by NAME through the
-.paramnames sidecar (chain-root-aware); (7) results.py info flag +
-CLASS-GUARDED metadata reads (the two-registry law collision);
-(8) a predictor branch with a family-shaped return; (9) a cobaya
-adapter on the emul_scalars template with wrong-kind guards BOTH ways;
-(10) thin <family>_<verb>_emulator.py wrappers over the cosmic-shear
-drivers' main(prog, family) — train, tune, sweep_ntrain,
-sweep_hyperparam — inheriting the full multi-GPU surface (the parity
-ruling; the sweep-block helpers live once in family_drivers.py);
-(11) TWO board gates —
-<family>-identity (bitwise round-trips; every closed delta gets a leg
-forever) and <family>-smoke (real generator -> train -> real cobaya
-lifecycle; dead-network-RELATIVE bars) + registry registration;
-(12) an example YAML carrying ALL required train_args blocks
-(subscript-census-validated); (13) diagnostics pages behind the
-family dispatch; (14) a README section (define-or-drop, snippets,
-pipeline diagram) + code-map rows; (15) a generation driver on
-generator_core.
+A **parameter-name sidecar** is a small companion file that records the name
+and order of each table column. A **chain root** is the common path stem for a
+set of sampling files. The **path owner** is the one component responsible for
+resolving that path. A **class guard** checks the saved family before reading
+family-specific fields. A **predictor** rebuilds a saved artifact and returns
+its scientific output. An **adapter** translates that output into the names,
+shapes, and units expected by another program. A **family-shaped return** uses
+the output structure documented for that family.
 
-## Program-level lessons (the ones that repaid their cost)
+A **chi-square error** is a covariance-weighted squared difference between a
+prediction and its reference value; larger values mean that the error matters
+more for the intended scientific analysis. **Sampling temperature** is a
+numerical factor that widens the parameter distribution used to create
+training examples. It does not describe physical heat. **Evolving dark
+energy** allows the dark-energy equation-of-state parameters to vary with
+cosmic time. **Intrinsic alignment** is the non-lensing alignment of galaxy
+shapes caused by the galaxies' shared environment; an emulator must preserve
+its effect rather than mistake it for gravitational lensing.
 
-- The note is the spec of record; paraphrase is not a source (read
-  legacy code before porting; port nothing except declared verbatim
-  numerics, bug-for-bug, with findings recorded).
-- Bitwise/byte-identity is the acceptance currency — and it is
-  demanded only on same-computation legs; cross-path legs relax to a
-  documented ~1e-6 (ruled three times).
-- Structural fixes beat behavioral patches (the D-B1 arc: a patch
-  introduced by a flawed schema was deleted, not adapted).
-- A smoke that cannot fail a dead network proves nothing; a check
-  harness is verified against a known-good case before its verdict
-  counts; honest margins are recorded, not rounded.
-- Fixing layer N unmasks layer N+1 — triage reds by layer (harness /
-  check / config / library / contract); the whole board history found
-  one library bug and zero physics bugs.
-- Wide sweeps need count-asserted, truncation-free censuses (a head -5
-  once hid rename stragglers; substring collisions require
-  longest-first replacement).
+A geometry **round-trips its state** when saving and then loading the state
+reproduces the same stored values and meanings. A loss's **physical
+contraction** is the documented mathematical operation that combines a
+prediction residual with covariance or precision information to produce one
+score per sample. Keeping that calculation in one owner prevents training and
+diagnostics from assigning different scientific meanings to the same error.
+
+**Multi-device execution** assigns work to more than one accelerator. **GPU
+packing** lets several workers share one graphics processor under explicit
+memory limits. A **journal** is the saved progress record used to restart a
+study. A numerical **data type (dtype)** states how values are represented,
+such as float32 or float64. In a test, a **control** is the valid case that
+must pass, a **mutation** deliberately restores forbidden behavior and must
+fail, and a **witness** is the concrete input and observation that distinguish
+those outcomes.
+
+## Project purpose
+
+CoCoA is the surrounding cosmological-analysis installation that connects the
+Cobaya inference program to CosmoLike likelihood calculations. Cobaya proposes
+cosmological parameter values during Bayesian sampling. CosmoLike turns those
+values into observables used by a likelihood.
+
+CoCoA SONIC is this emulator library. The library uses
+PyTorch, a tensor and machine-learning package, to build the approximations.
+The supported outputs are:
+
+- CosmoLike data vectors;
+- derived scalar parameters;
+- cosmic microwave background (CMB) angular power spectra;
+- the expansion history;
+- the matter-power spectrum.
+
+The main scientific comparison is sample efficiency: the fraction of
+validation cosmologies whose chi-square error exceeds the selected threshold,
+measured as a function of the number of training cosmologies. Training
+cosmologies are expensive when the sampling temperature is high and the
+examples include evolving dark energy and intrinsic alignment. Coverage,
+representation, and data identity therefore matter before extra network
+capacity.
+
+One shared training stack serves all output families. A saved artifact records
+the resolved model and scientific facts required for reconstruction. Every
+public capability requires an executable acceptance check that can distinguish
+the required behavior from a plausible broken implementation.
+
+## Development milestones that still shape the library
+
+Only milestones that created a current project-wide rule belong here.
+
+### Scientific reference and success metric
+
+The teaching prototype established sample efficiency as the primary model
+comparison. The prototype also established a durable design rule: diagnose
+training coverage, target representation, and physical factorization before
+adding network complexity.
+
+The original notebook remains a scientific reference, not an executable source
+of current library behavior. Current modules and tests are authoritative.
+
+### Reusable package and CoCoA layout
+
+Notebook logic became modules under `emulator/` plus command-line drivers that
+follow CoCoA project, configuration, and output paths. `EmulatorExperiment`
+became the shared owner of configuration validation and experiment setup.
+
+Driver code must not recreate configuration or training rules already owned by
+the shared experiment object.
+
+### One training engine
+
+Trunk/head phases, BerHu loss, trimming, focus, exponential moving averages,
+absolute training and validation sizes, precision handling, model selection,
+and snapshot behavior became shared contracts rather than driver-specific
+features.
+
+A family-specific driver selects a family and delegates to shared training
+code. A family wrapper does not fork the training engine.
+
+### Composable designs, geometries, and losses
+
+Network designs, physical geometries, and losses became separate owners:
+
+- a design owns the trainable architecture;
+- a geometry owns coordinate transforms and persistent geometric facts;
+- a loss owns the physical contraction and per-sample score;
+- capability flags state supported behavior without scattered class-name
+  checks.
+
+This separation allows shared training features to compose across output
+families without teaching a generic trainer every family formula.
+
+### Self-describing artifacts and inference
+
+An artifact is the saved pair of trained weights and scientific reconstruction
+information. A schema is the versioned list and meaning of the saved fields.
+Schema-3 artifacts record the resolved model recipe, geometry, parameter
+identity, scientific fixed facts, and other values required to rebuild the
+trained behavior. Schema-3 readers refuse retired schema versions rather than
+guessing missing facts from current defaults.
+
+`rebuild_emulator`, `EmulatorPredictor`, and the Cobaya adapters consume the
+artifact record. A caller cannot silently replace a fact already owned by the
+artifact.
+
+### Five output families
+
+One framework serves five kinds of output:
+
+| Family | Output | Structural property |
+|---|---|---|
+| CosmoLike data vector | binned observables used by likelihoods | coordinate-aware vector geometry |
+| Scalar | named derived parameters | trunk-only named outputs |
+| CMB | angular spectra over multipole | spectrum geometry and covariance contraction |
+| Background | distances and expansion quantities over redshift | one-dimensional redshift geometry |
+| Matter power | power over wavenumber and redshift | two-dimensional grid geometry with a physical base model |
+
+Each family supplies validation, geometry, loss behavior, prediction,
+configuration examples, and acceptance checks through shared interfaces.
+
+### Warm starts and capability symmetry
+
+Fine-tuning applies to every family when source and target artifacts satisfy
+the required identity checks. Transfer learning applies to families with a
+meaningful correction target; scalar output remains excluded because named
+scalars do not share the coordinate structure required by the correction
+design.
+
+Neural polynomial chaos expansion (NPCE) and coordinate-aware correction heads
+are enabled by structural
+capability, not by a list of favored families. Scalar output remains trunk-only
+for the same coordinate reason.
+
+### Shared drivers and executable acceptance
+
+Family-specific command names delegate to shared implementations. Identity
+checks protect save/rebuild behavior. Smoke checks exercise a real generator,
+training path, saved artifact, and consumer path.
+
+A smoke check must fail for a dead or disconnected model. A check that only
+confirms that code ran does not establish scientific behavior.
+
+### Explicit data identity and publication
+
+Generator requests, parameter names, row coordinates, restart state, and
+published members became validated records. Same-shaped files do not prove
+that files belong to the same dataset.
+
+Artifact identity is the validated record that binds every member to one
+scientific dataset and run. Publication is the controlled move that makes a
+complete saved result visible to later programs. Publication is complete only
+when every required member is sealed, recorded, and selected through one
+authoritative identity. Restart and append behavior
+must preserve sampling state rather than replaying the original rows.
+
+### Dedicated AI-development support
+
+AI-only notes, tests, gates, and tools live under `ai/`. Permanent notes contain
+current general properties. Ticket chronology remains in ignored local records.
+The Architect is the only public ticket contact and controls every downstream
+Implementer or Red Team handoff.
+
+## Pattern for a new output family
+
+A new output family follows the complete pattern below. Omitting one surface
+usually creates a capability that trains in isolation but cannot be saved,
+rebuilt, validated, or served safely.
+
+### Configuration and validation
+
+1. Add one `data.<family>` configuration block that is mutually exclusive with
+   other output-family blocks.
+2. Add a pure validator that checks required fields, finite values, shapes,
+   supported rescaling, correction-head compatibility, fine-tuning, transfer,
+   and NPCE capability before model construction.
+3. Materialize defaults before saving the resolved configuration.
+4. Validate warm-start fields before reading a model block whose presence may
+   differ between a fresh run and a warm start.
+
+### Geometry and physical loss
+
+5. Add a geometry under `emulator/geometries/`. The geometry records resolved
+   values. Saving and loading its state must reproduce the same bytes and
+   scientific meanings.
+6. Define zero-variance and constant-coordinate behavior explicitly. A
+   relative threshold must remain meaningful when the reference value is zero.
+7. Add a loss that exposes a per-sample chi-square-like score so trimming,
+   focus, BerHu scheduling, exponential moving averages, and warm-start anchors
+   compose through the shared trainer.
+8. Keep the covariance- or precision-weighted residual calculation in one
+   loss owner. Diagnostics and training must call that same calculation rather
+   than reproduce the formula.
+
+### Data staging and generation
+
+9. Stage parameter columns by name through the parameter-name sidecar. Do not
+   assume a fixed column position.
+10. Resolve chain roots and supporting files according to the documented path
+    owner.
+11. Add a generation driver based on `compute_data_vectors/generator_core.py`
+    so storage, checkpoint, append, failure, and publication behavior remain
+    shared.
+
+### Results and inference
+
+12. Add the family flag and class-guarded metadata reads to results handling.
+    A similarly named field in another family must not be interpreted under
+    the wrong schema.
+13. Add a predictor branch with a family-shaped return and explicit units.
+14. Add a Cobaya adapter using the shared adapter mechanics. Both wrong-kind
+    directions require refusal: the adapter must reject the wrong artifact,
+    and the artifact must not be served through the wrong adapter.
+
+### Command-line drivers
+
+15. Add thin `<family>_<verb>_emulator.py` wrappers for training, tuning,
+    training-size sweeps, and hyperparameter sweeps.
+16. Delegate to the shared family-driver entry point. Preserve multi-device,
+    packing, journal, restart, logging, and failure behavior through one code
+    path.
+
+### Acceptance checks
+
+17. Add `<family>-identity` checks for configuration, geometry, save/rebuild,
+    fixed facts, and every family-specific refusal.
+18. Add `<family>-smoke` checks for the real generator, trainer, artifact, and
+    consumer lifecycle.
+19. Prove that identity checks fail when a required field, coordinate,
+    scientific fact, or family tag is changed.
+20. Prove that the smoke threshold rejects a dead network before treating a
+    passing result as scientific evidence.
+
+### Examples and teaching material
+
+21. Add an example YAML file containing every required training block.
+22. Add the family to the relevant README chooser and configuration example.
+23. Define family-specific terms at first use and show the actual YAML block.
+24. Add the family to diagnostics only through an explicit capability or
+    family dispatch.
+
+## Program-level lessons
+
+### The current source is authoritative
+
+Read current code and current saved schemas before porting behavior. A retired
+implementation is evidence only when a current rule explicitly depends on the
+retired behavior.
+
+### Identity evidence needs the correct strength
+
+Use byte or bit identity only when two paths perform the same computation.
+Cross-path numerical checks use a documented tolerance justified by dtype and
+algorithm. Do not weaken an identity check to hide an unexplained mismatch.
+
+### Structural repairs outlast patches
+
+Repair the owner of a broken rule. Do not preserve a patch that exists only
+because a former schema or duplicated code path was flawed.
+
+### A test must distinguish the forbidden behavior
+
+A check harness needs a known-good witness and a mutation or control that
+demonstrates failure for the broken implementation. A green command without a
+discriminating witness is execution evidence, not acceptance evidence.
+
+### Failures often reveal the next hidden layer
+
+Classify failures by source: harness, check, configuration, library, or
+scientific contract. Repairing one layer may expose another. Do not treat a new
+failure after a valid repair as evidence that the repair was wrong.
+
+### Wide changes need complete censuses
+
+Count every target before and after a mechanical rename or family-wide change.
+Truncated search output and substring collisions can hide missed paths. Use
+exact path lists and longest-first replacement when names overlap.
+
+### Detailed knowledge belongs with the owning topic
+
+This note records only project-wide milestones and patterns. Numerical laws,
+artifact fields, training state, data publication, and family-specific rules
+belong in the corresponding permanent topic note.

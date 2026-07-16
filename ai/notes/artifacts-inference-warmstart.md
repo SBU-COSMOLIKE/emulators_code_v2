@@ -1,408 +1,484 @@
 # Artifacts, inference, adapters, and warm starts
 
-Consolidated 2026-07-11 from save-schema-resolved-config.md,
-cobaya-theory-adapter.md, finetune-warm-start.md,
-transfer-parallel-emulator.md, geometry-family-folder.md (retired;
-full texts + delta ledgers in git history). Code homes:
-emulator/results.py, emulator/inference.py, emulator/warmstart.py,
-emulator/losses/transfer.py, emulator/geometries/, cobaya_theory/.
+This note is the durable specification for saved emulators, reconstruction,
+public prediction, adapters to Cobaya, fine-tuning, and transfer learning.
+Cobaya is the Bayesian inference program that requests predictions from the
+saved emulator. This note is not a development diary. Every section states a
+durable rule, its reason, the code that owns it, and the acceptance evidence
+that distinguishes the rule from a plausible but scientifically wrong
+implementation.
 
-## The standing rule (user verbatim, binding on every save/load surface)
+Primary code owners are `emulator/results.py`, `emulator/inference.py`,
+`emulator/warmstart.py`, `emulator/losses/transfer.py`,
+`emulator/geometries/`, and `cobaya_theory/`.
 
-"The philosophy over the emul and h5 file has to be — dont trust on
-default values — they can drift." Two halves: WRITE side — everything
-the run consumed is written with defaults MATERIALIZED at save time;
-READ side — reconstruction reads ONLY the file, a missing key is a
-loud error naming it, NEVER a code-default fallback. Third leg of the
-consumed-view doctrine: displays RENDER, artifacts PERSIST, loaders
-TRUST ONLY it.
+## Vocabulary used throughout this note
 
-## Schema v2 (the live artifact contract)
+An **artifact** is one complete saved emulator result with a shared path root.
+**Publication** moves a complete, checked result into the final saved path
+that readers use. **Provenance** records the inputs, source, and resolved
+settings that produced a result; provenance records origin but is not by
+itself proof that the result is correct. A publication **transaction** treats
+both artifact files as one update. An **atomic artifact pair** never lets a
+reader accept one old member together with one new member.
+The `<root>.emul` file is a PyTorch checkpoint: its `state_dict` maps stable
+names to model-parameter and registered-buffer tensors stored on the central
+processing unit (CPU). The matching `<root>.h5` file uses Hierarchical Data
+Format version 5 (HDF5) to store reconstruction metadata and scientific
+arrays. A **schema** is the versioned list and meaning of those saved fields.
+SHA-256 is the cryptographic digest used to bind the exact checkpoint bytes to
+the HDF5 record.
 
-- One emulator = one path root -> `<root>.emul` (cpu state_dict,
-  _orig_mod stripped) + `<root>.h5`.
-- The h5 holds: raw config_yaml + train_args_yaml (provenance of what
-  was WRITTEN); `config_resolved_yaml` (resolved_train + resolved data
-  block); a `model_recipe/` group (class qualname, every constructor
-  kwarg actually passed, callables serialized by name, constructor
-  defaults materialized via inspect.signature); the geometry state
-  groups (param_geometry, dv_geometry, + pce / transfer_base when
-  present); histories; root attrs schema_version=2, git commit, torch
-  version, rescale, family facts.
-- EVERY geometry group carries a `"cls"` attr = full module path
-  (D-CT1): rebuild importlib-resolves the stored string and calls THAT
-  class's from_state; a missing marker is a loud KeyError naming a
-  re-save, never a base-class fallback. The file records WHAT it is,
-  not just its numbers.
-- `rebuild_emulator(path_root, device)` (results.py): h5-driven recipe
-  plus the paired `.emul` weights; v1 files refused loudly; returns
-  (model, pgeom, geom, info) with info carrying ia / pce / transfer /
-  family facts. "H5-only" in older prose meant "no code defaults or
-  external training files", not that the weights file was optional.
-- Head artifacts rebuild from files alone (2026-07-11): the family
-  geometries re-derive their split (attach_head_coords, inside
-  _rebuild_model); the cosmolike DataVectorGeometry PERSISTS it —
-  state() writes bin_sizes (+ pm_kept) when build_shear_angle_map
-  attached them (schema-additive, the section_sizes/probe pattern;
-  __init__ kwargs attribute-UNSET when None so the hasattr guards
-  survive). A pre-persistence head file is refused loudly
-  ("bin-split persistence"); rebuild never re-derives the cosmolike
-  split — that would need ROOTDIR data files at inference.
-- Acceptance currency: save -> rebuild -> BITWISE-equal prediction,
-  plus the DRIFT TEST — monkeypatch a sharp code default
-  (make_activation n_gates 3->7) and rebuild unchanged. The GSV-A
-  census mechanically diffs every run_emulator knob and model kwarg
-  against the recipes, so a future knob that skips the recipe fails
-  the gate. D-SV1/D-SV2 were both "latent drift channels inside the
-  anti-drift unit" (a hardcoded compile_mode duplicate; an eval_bs key
-  nothing wrote).
-- GEO (2026-07-11): the geometry classes live in
-  emulator/geometries/{parameter,output,scalar,cmb,grid,grid2d}.py.
-  The move shipped with flat shims for the old paths; D-GEO5 (user
-  ruling: only test artifacts existed) DELETED the shims — the old
-  flat paths now die loudly (ModuleNotFoundError naming the path), the
-  geo-paths gate pins new-save markers + dead old paths + a tree
-  census. Fresh saves write folder paths via type().__module__.
+YAML is the human-readable settings-file format used by training and Cobaya
+configurations. NumPy is the array library used for saved scientific tables;
+PyTorch provides tensors, trainable models, and accelerator execution.
+CUDA is NVIDIA's accelerator-computing platform. A graphics processing unit
+(GPU) is the accelerator device used by CUDA training checks.
 
-## Red-team artifact-integrity gaps (verified 2026-07-12, open)
+CoCoA is the surrounding cosmological-analysis installation. CosmoLike is the
+likelihood calculation within that installation that produces and consumes
+several emulator data-vector families.
 
-The resolved-recipe contract is strong, but the two physical files are
-not yet one authenticated commit:
+The science-family abbreviations are:
 
-- `save_emulator` writes `<root>.emul` directly first, then opens
-  `<root>.h5` directly with mode `"w"`. A history-stack, YAML, h5, disk,
-  or process failure after the first write can therefore leave new
-  weights beside an old, truncated, or absent record. There are no
-  temporary-file commits, shared artifact id, or weights digest.
-- `rebuild_emulator` validates state-dict keys and shapes only. Swapping
-  two same-architecture `.emul` files loads strictly and silently uses
-  the wrong weights with the surviving geometry/config. This falsifies
-  any claim that a path-root pair is self-authenticating.
-- Required contract: finish both temporary files before publishing;
-  make the h5 the commit record for the exact weights bytes (SHA-256 +
-  shared artifact id); validate that binding before `torch.load`; load
-  state dicts with `weights_only=True`; and make any interrupted
-  two-file publication loud rather than a mixed silent success. A
-  normal Python exception before publication must leave the previous
-  good pair untouched.
-- Required gates: (1) swap same-shaped `.emul` files between two valid
-  artifacts and require a pre-load digest failure; (2) inject an h5
-  write failure after the weights temporary file exists and prove the
-  old pair still rebuilds; (3) interrupt between the two final renames
-  and prove the root is rejected as an incomplete commit, never loaded
-  as a hybrid.
+- **CMB**, cosmic microwave background spectra such as temperature-temperature
+  (`TT`), temperature-polarization (`TE`), and polarization-polarization
+  (`EE`);
+- **BAOSN**, background expansion outputs used with baryon acoustic
+  oscillation and supernova data, including the Hubble rate and transverse
+  comoving distance `D_M`;
+- **MPS**, the matter-power spectrum, where `pklin` denotes linear power and
+  `boost` denotes the nonlinear-to-linear power ratio;
+- **IA**, intrinsic alignment of galaxy shapes, including the nonlinear
+  alignment (`NLA`) and tidal-alignment/tidal-torquing (`TATT`) models;
+- **PCE**, polynomial chaos expansion, and **NPCE**, a neural model that
+  corrects a frozen PCE base;
+- `xi`, the cosmic-shear correlation function, and `gammat`, the tangential
+  shear used for galaxy-galaxy lensing.
 
-The save docstring is also incomplete: its `Arguments:` block stops at
-`attrs` and omits `pce`, `pce_form`, `resolved_train`, `resolved_model`,
-and `transfer_base`. The read-side `Raises:` block does not name a
-missing/mismatched weights binding because none exists yet.
+`grid` means a quantity sampled along one physical coordinate. `grid2d` means
+a surface sampled over redshift and wavenumber. **Syren** names the analytic
+linear-power or nonlinear-boost baseline that some MPS artifacts correct.
+`dv` means data vector, and `chi2` means the covariance-weighted squared error.
+Whitened values have been rotated and scaled so the covariance is the identity;
+physical values use the original scientific coordinates and units.
 
-MPS artifacts have a second provenance gap. A grid2d h5 persists the
-law name and a best-effort repository commit, but inference recomputes
-the analytic Syren base from the currently checked-out source without
-verifying that it is the formula used to generate the training base
-dump. Vendoring prevents a package-manager upgrade from changing the
-formula; it does not prevent a later repository edit from changing an
-old artifact's prediction. A Syren-law artifact must persist a stable
-formula digest/version and the MPS adapter must reject a mismatch before
-serving. The gate changes one formula-source byte (or its declared test
-digest) and proves an old artifact dies loudly; law `none` remains
-unaffected.
+A **gate** is a registered acceptance command. A **leg** is one named
+assertion in that gate, identified by an evidence identifier. A **child** is a
+subprocess that runs gate checks; a **wrapper** is the harness code that starts
+the child and any external commands. A child prints `##AID` records to bind
+results to evidence identifiers. The **return code** (`rc`) is the child's
+process result. A **control** is the valid case that must pass. A **mutation
+arm** deliberately weakens one rule and must make its owning leg fail. A
+**capability boundary** lists required software or hardware. A gate is
+**capability-skipped** only when that requirement is absent; **unavailable**
+means that a declared acceptance action did not run and therefore cannot count
+as passing evidence.
 
-#### Twelfth-wave extension (Architect-VERIFIED, folded into this unit): output identity — default roots collide across scientific products
+The **driver root** is the project directory passed to the training program by
+the gate configuration. The **driver file root** is the configured filename
+stem for that training run. Together they determine generated paths such as
+`<driver_root>/chains/gates_emul_evaluate.h5`.
 
-Red-team finding, every load-bearing claim re-derived against code. The
-run tag is not an artifact identity:
+## Save and rebuild rule
 
-- `cosmic_shear_train_emulator.py` `run_tag` (lines 193-217) =
-  `<model>[_t<T>]_ntrain<N>`: the resolved model name, an OPTIONAL
-  temperature from `re.search(r"_cs_(\d+)", basename(data.train_dv))`
-  (skipped when the filename has no such tag), and the staged row
-  count. The save root is `cocoa_output(chains,
-  f"{args.save}_{run_tag(cfg, exp)}")` (line 365) with `--save`
-  defaulting to `"emulator"`; the diagnostics PDF uses the same tag
-  (line 464).
-- The thin family drivers all import this shared `main`
-  (cmb_train_emulator.py:44, baosn_train_emulator.py:45,
-  mps_train_emulator.py:47), and their example commands pass no
-  `--save` — so the collisions live on the DOCUMENTED default path:
-  CMB TT vs EE, BAOSN Hubble vs D_M, MPS pklin vs boost all map to
-  `emulator_resmlp_ntrain<N>` (no `_cs_` tag in those filenames), and
-  cosmic-shear xi vs gammat at one temperature to
-  `emulator_resmlp_t<T>_ntrain<N>`. The scalar driver
-  (scalar_train_emulator.py:95-114, `<model>_ntrain<N>`) collides
-  across output sets the same way. Activation, model hyperparameters,
-  dataset identity, split seed, NPCE, plain/fine-tune/transfer mode,
-  and the source artifact are all absent from every tag.
-- The overwrite is silent and total: `save_emulator` runs
-  `torch.save(sd, emul_path)` (results.py:232) and
-  `h5py.File(h5_path, "w")` (results.py:259) — no existence check on
-  either file. A later valid run destroys a different valid emulator.
-- Both run-tag docstrings state the tag exists "so runs do not
-  overwrite each other" (cosmic_shear_train_emulator.py:202,
-  scalar_train_emulator.py:15 and :103) — directly false across
-  products; true only within one product at fixed model and N.
-- The temperature tag is itself a filename regex inferring a
-  scientific fact — the exact pattern the resolved-values rule (the
-  standing save/load rule at the top of this note) forbids.
+Never reconstruct an artifact from code defaults. Defaults can change while a
+saved model remains in use.
 
-Adopted contract (theirs, whole): derive output identity from RESOLVED
-scientific facts, never filename regexes — a readable family/product
-prefix (probe, scalar output set, CMB spectrum, grid quantity, grid2d
-quantity) plus a stable short digest binding the consumed
-model/training configuration and the dataset-manifest identity. The
-identity must distinguish plain, NPCE, fine-tune, and transfer runs,
-including their source binding. Save and diagnostic products of one
-run share the identity. A destination that already exists is REFUSED
-before either artifact file changes, absent an explicit
-overwrite/versioning action — so exact reruns cannot erase prior
-evidence accidentally, and differing runs cannot alias even with
-default CLI arguments. Interlock with this unit's original clauses:
-the transactional two-file publication above must land WITH the
-identity contract — transactionality alone would only make the wrong
-replacement atomic.
+- **Write side:** save every value the run consumed, with all defaults
+  materialized at save time.
+- **Read side:** reconstruct only from saved values. A missing required key is
+  a loud error that names the key and the migration or re-save action. The
+  loader never substitutes a runtime code default.
+- **Display side:** human-readable summaries render saved values but do not
+  become a second source of truth.
 
-Red legs (adopted): TT vs EE; Hubble vs D_M; pklin vs boost; xi vs
-gammat at one temperature; two scalar output sets; two activations;
-plain vs NPCE; plain vs fine-tune; two transfer sources; differing
-split/dataset manifests — each pair must produce distinct roots or
-fail before publication; plus an exact-root preexistence leg proving
-both old files survive without an explicit overwrite.
+## Schema 3 artifact contract
 
-Queue ruling (Fable): folded into THIS unit per the red team's
-sequencing recommendation — pair authentication and atomic publication
-are incomplete while two scientifically different runs resolve to the
-same root. Priority sharpened: this unit now must land BEFORE the
-five-artifact production step (the first campaign trains multiple
-products of one family back to back — the exact collision path).
+- One emulator uses one path root and two files. Here `<root>` is the shared
+  filename stem. `<root>.emul` is a PyTorch checkpoint containing a
+  `state_dict`, the mapping from parameter or registered-buffer names to
+  tensors. Every checkpoint tensor is moved to CPU host memory, and the
+  compiled-model `_orig_mod.` prefix is removed.
+  `<root>.h5` is a Hierarchical Data Format (HDF5) file containing the
+  scientific and reconstruction record.
+- The HDF5 record contains the raw `config_yaml` and `train_args_yaml` as
+  provenance; `config_resolved_yaml`, which includes the resolved training and
+  data blocks; and a `model_recipe/` group. The model recipe records the fully
+  qualified class name, every constructor argument actually passed, callables
+  serialized by name, and constructor defaults materialized with
+  `inspect.signature`. The file also stores parameter and data-vector geometry
+  state; polynomial-chaos-expansion (`pce`) or transfer-base state when
+  applicable; training histories; and root attributes for `schema_version=3`,
+  the Git commit, the Torch version, `rescale`, and family-specific facts.
+- Every geometry group carries a `"cls"` attribute with the full module path.
+  Rebuild resolves the stored string through `importlib` and calls that
+  class's `from_state` method. A missing marker raises a `KeyError` that names
+  the re-save action; rebuild never falls back to a base class. The file must
+  identify the geometry type as well as store its numbers.
+- `rebuild_emulator(path_root, device)` in `results.py` uses the HDF5 recipe
+  plus the paired `.emul` weights. Schema 1 and schema 2 files are refused
+  with a migration instruction. The function returns
+  `(model, pgeom, geom, info)`. Here `pgeom` is the parameter-geometry object
+  that encodes model inputs, and `geom` is the output-geometry object that
+  decodes model outputs. The `info` mapping carries intrinsic-alignment,
+  polynomial-chaos-expansion, transfer, and family-specific facts. "HDF5-only
+  reconstruction" means that no code defaults or external training files are
+  consulted; the paired weights file remains required.
+- Head artifacts rebuild from saved files alone. The family
+  geometries rederive their split by calling `attach_head_coords` inside
+  `_rebuild_model`. CosmoLike `DataVectorGeometry` instead persists the split:
+  `state()` writes `bin_sizes` and, when present, `pm_kept` after
+  `build_shear_angle_map` attaches them. This follows the additive
+  `section_sizes`/`probe` pattern. Constructor attributes remain unset when
+  their arguments are `None`, preserving the `hasattr` guards. A head artifact
+  without this persisted split is refused with a bin-split migration message.
+  Rebuild never rederives the CosmoLike split because doing so would require
+  data files below `ROOTDIR`, the environment variable naming the active
+  CoCoA project root, during inference.
+- Acceptance evidence: save -> rebuild -> bitwise-equal prediction,
+  plus a drift test that monkeypatches a sharp code default
+  (`make_activation` `n_gates` 3 -> 7) and requires the rebuilt prediction to
+  remain unchanged. A recipe-totality check compares every `run_emulator`
+  setting and model constructor argument with the persisted recipes. Adding a
+  setting without adding its persisted representation must fail that check.
+  Hard-coded duplicates such as `compile_mode`, and read-side keys such as
+  `eval_bs` that no writer persists, are forbidden drift channels.
+- Geometry classes live in
+  `emulator/geometries/{parameter,output,scalar,cmb,grid,grid2d}.py`.
+  Retired flat module paths remain absent. Loading a retired flat path raises
+  `ModuleNotFoundError` naming that path. The `geo-paths` gate requires package
+  markers in every new save, refusal of retired paths, and a repository-tree
+  census. Every save writes folder paths through `type().__module__`.
 
-## Inference: EmulatorPredictor + the five cobaya adapters
+## Artifact pair integrity and output identity
 
-- Three layers: EmulatorPredictor (inference.py) owns ALL prediction
-  physics; each cobaya_theory/ adapter is THIN (no nn.Module, no
-  physics); the MCMC YAML names path roots and nothing else. Retired
-  legacy conventions: ord (geometry names ARE the requirements — the
-  authority chain has no second list), extrapar (model_recipe),
-  duplicated architectures, manual whitening.
-- Adapters: emul_cosmic_shear (dv; `dv_return: section|3x2pt`, default
-  section — the likelihood glues per-probe sections; section_sizes +
-  probe persisted in the geometry), emul_scalars (derived params),
-  emul_cmb (get_Cl), emul_baosn (Hubble + distances, piecewise by
-  window), emul_mps (Pk grid/interpolator, EMUL2). All five mutually
-  reject wrong artifact kinds NAMING the right adapter.
-- THE python_path TRAP: cobaya loads an external Theory class via
-  `python_path`, NOT `path` — without it a LEGACY v1 adapter bundled
-  in cocoa's cobaya fork silently shadows the class.
-- The predictor's decoder branches per family and reuses the EXACT
-  training decode (factored ia -> TemplateFactoredChi2.decode; NPCE
-  residual/ratio; cmb -> the amplitude-law decoder; grid -> {"z",
-  quantity}; grid2d -> LAW-SPACE {"z","k",surface} — the syren base
-  multiply-back is emul_mps's job). Transfer branch goes FIRST (wins
-  over the ia branch a factored correction would otherwise take).
-- rescale runs (analytic-R) are OUT of predictor scope: R needs
-  cosmolike at inference — a documented h5-only limitation.
-- MPS-device caveat: geometry whitening tensors are float64-heritage;
-  Apple MPS has no float64 — inference there may need a downcast;
-  cuda/cpu are the documented targets.
-- Direct scripting (no cobaya): README appendix "scripting a saved
-  emulator" — EmulatorPredictor two-door pattern; the background
-  family pairs with emulator.background.distance_interpolators.
+**Rule.** One saved emulator is an authenticated publication of the exact
+`<root>.emul` weights and the matching `<root>.h5` scientific record. Both
+files finish in temporary locations before publication. The HDF5 record binds
+the exact weights bytes through SHA-256 and a shared artifact identifier;
+rebuild validates that binding before `torch.load` and uses
+`weights_only=True`. An interrupted publication must be refused, and a normal
+exception before publication must leave the preceding good pair untouched.
 
-### Red-team Cobaya-contract gaps (verified 2026-07-12, open)
+**Reason.** The two files have different formats but one scientific identity.
+Writing either destination directly can leave new weights beside an older,
+truncated, or absent record when history, YAML, HDF5, disk, or process work
+fails. Matching state-dictionary keys and tensor shapes do not authenticate
+the pair: two models with the same architecture can have interchangeable
+shapes and different learned weights.
+
+**Implementation boundary.** `save_emulator` owns temporary-file creation,
+validation, synchronization, and final publication. `rebuild_emulator` owns
+the shared-identifier and checkpoint-digest checks. Those checks occur before
+`torch.load`; strict state-dictionary loading remains a later structural check.
+
+**Acceptance evidence.** Swapping same-shaped `.emul` files between two valid
+artifacts must fail the digest check before loading. Injecting an HDF5 write
+failure after the temporary checkpoint exists must leave the preceding pair
+rebuildable. Interrupting between final renames must leave an incomplete root
+that is refused rather than loaded as a hybrid.
+
+**Documentation boundary.** The `save_emulator` `Arguments:` block must include
+`pce`, `pce_form`, `resolved_train`, `resolved_model`, and `transfer_base` as
+well as `attrs`. The read-side `Raises:` block must describe a missing or
+mismatched weights binding. Documentation must not claim that a directly
+written pair is authenticated or atomic.
+
+**MPS provenance rule.** A grid2d artifact that uses a Syren law persists a
+stable formula version or digest in addition to the law name and repository
+provenance. Inference verifies that identifier before recomputing the analytic
+base. Vendoring alone is insufficient because a repository edit can otherwise
+change the prediction of an existing artifact. The gate changes one
+formula-source byte, or its declared test digest, and requires the artifact to
+refuse before serving; law `none` remains unaffected.
+
+### Output identity prevents collisions across scientific products
+
+**Reason.** A readable run tag is not a complete scientific identity. A tag
+of the form `<model>[_t<T>]_ntrain<N>` records the model, an optional
+temperature `T`, and staged row count `N`. It does not identify the output
+product, activation, model hyperparameters, dataset, split seed, composition
+mode, or source artifact. Consequently, CMB `TT` and `EE`, BAOSN Hubble and
+`D_M`, MPS `pklin` and `boost`, cosmic-shear `xi` and `gammat`, or two scalar
+output sets can otherwise receive the same root. Inferring temperature from a
+data filename also treats naming convention as a scientific record.
+
+**Rule.** Derive output identity from resolved scientific facts, never from a
+filename pattern. Use a readable family-and-product prefix plus a stable short
+digest of the consumed model and training configuration and the dataset
+manifest, which is the saved census and identity of every dataset member. The
+identity distinguishes plain, NPCE, fine-tune, and transfer
+runs, including their source binding. Save and diagnostic products from one
+run share that identity. An existing destination is refused before either
+file changes unless the user selects an explicit overwrite or versioning
+action.
+
+**Implementation boundary.** The shared driver constructs the identity from
+resolved values and passes one root to diagnostics and `save_emulator`.
+`save_emulator` checks both destination files before writing. Transactional
+pair publication and output identity are both required: transactionality by
+itself could safely replace the wrong artifact.
+
+**Acceptance evidence.** Each of these pairs must produce distinct roots or
+refuse before publication: `TT` versus `EE`; Hubble versus `D_M`; `pklin`
+versus `boost`; `xi` versus `gammat` at one temperature; two scalar output
+sets; two activations; plain versus NPCE; plain versus fine-tune; two transfer
+sources; and different split or dataset manifests. An exact-root
+preexistence check must prove that both existing files survive when no
+explicit overwrite action is present.
+
+**Safety boundary.** Production training must not write several products of
+one family back to back unless output identity distinguishes the products and
+the pair publication is authenticated and atomic.
+
+## Inference: `EmulatorPredictor` and the five Cobaya adapters
+
+`EmulatorPredictor` in `inference.py` owns prediction physics. Each class in
+`cobaya_theory/` is a thin adapter: it contains no `nn.Module` and duplicates
+no prediction physics. A Markov-chain Monte Carlo (MCMC) configuration written
+in YAML names artifact path roots rather than
+repeating architecture or whitening information. Geometry names determine
+the required parameters, and `model_recipe` replaces the retired `extrapar`
+convention; neither fact has a second manually maintained list.
+
+The five adapters expose distinct products. `emul_cosmic_shear` returns a
+data vector with `dv_return: section|3x2pt`; `3x2pt` means the full combined
+three-probe weak-lensing layout, while the default `section` mode lets
+the likelihood join per-probe sections, using `section_sizes` and `probe`
+persisted in the geometry. `emul_scalars` returns derived parameters.
+`emul_cmb` implements `get_Cl`. `emul_baosn` provides piecewise Hubble and
+distance products. `emul_mps` provides the power-spectrum grid and
+interpolator used by the `EMUL2` theory component in the shipped two-emulator
+Cobaya configuration. Each adapter refuses an incompatible artifact and
+names the adapter that owns that artifact kind.
+
+Cobaya loads an external `Theory` class through `python_path`, not `path`.
+Without `python_path`, an incompatible adapter bundled in the CoCoA Cobaya
+fork can shadow the intended class. Configuration examples must therefore use
+`python_path` for these external adapters.
+
+Each family branch in the predictor reuses the training decoder. Factored
+intrinsic alignment calls `TemplateFactoredChi2.decode`; neural polynomial
+chaos uses its residual or ratio decoder; CMB uses the amplitude-law decoder;
+grid output returns `{"z", quantity}`; and grid2d returns law-space
+`{"z", "k", surface}`. The MPS adapter, rather than the predictor, restores
+the Syren analytic base. Transfer dispatch precedes intrinsic-alignment
+dispatch because a factored transfer correction would otherwise enter the
+wrong branch.
+
+Analytic-rescale runs are outside the predictor contract unless an artifact
+persists everything needed to reconstruct the parameter-dependent inverse
+transform. The rescale section below defines the refusal and extension rules.
+Geometry whitening tensors inherit float64 values; because the Apple Metal
+Performance Shaders accelerator backend does not support float64,
+matter-power-spectrum inference may require an explicit downcast. CPU and
+CUDA are the documented targets. A downcast converts a value to a data type
+with fewer representable bits, such as converting float64 to float32. For
+direct scripting without Cobaya, the README appendix “Scripting a saved
+emulator” describes the two-door
+`EmulatorPredictor` pattern. Background-family use pairs it with
+`emulator.background.distance_interpolators`.
+
+### Cobaya dependency and returned-value contracts
 
 The artifact-only adapter tests are not a substitute for a real Cobaya
-dependency-resolution test. Two current defects sit specifically at that
-boundary:
+dependency-resolution test. Two dependency contracts require live Cobaya
+coverage:
 
 - `emul_mps.get_can_support_params()` returns `Pk_grid`,
-  `Pk_interpolator`, and `sigma8`. In Cobaya 3.6 this hook declares
+  `Pk_interpolator`, and `sigma8`, the root-mean-square matter-density
+  fluctuation within spheres of radius 8 megaparsecs divided by `h`. In Cobaya
+  3.6 this hook declares
   input parameters a component is willing to own; it does not declare
   products or derived outputs. The two P(k) products already advertise
   themselves through their `get_...` methods, while `sigma8` must be
-  returned by `get_can_provide_params()`. The present mps-identity gate
-  stubs `Theory`, manually assigns `output_params = []`, and therefore
-  cannot exercise or falsify the real dependency routing.
+  returned by `get_can_provide_params()`. A gate that replaces Cobaya's
+  `Theory` class with a small test substitute and manually assigns
+  `output_params = []` cannot establish real dependency routing.
 - `emul_scalars.calculate()` writes `state["derived"]` only if that key
   already exists. Cobaya's calculate contract makes the component create
-  the derived mapping when `want_derived` is true; the current scalar
-  identity gate tests the artifact-derived name union but never calls the
-  adapter's `calculate` method. A real model can therefore know that a
-  scalar output is available yet receive no derived result from the
-  component state.
+  the derived mapping when `want_derived` is true. Name-union inspection
+  without a call to `calculate` does not establish that the component state
+  receives the derived result.
 
-The MPS amplitude requirement has a second naming fork. The shared Syren
-reader accepts `As_1e9` or `As`, preferring `As_1e9`, but the adapter
-unconditionally adds `As` to its requirements whenever either artifact
-uses a Syren law. The shipped EMUL2 example samples `As_1e9` and masks the
-fork by defining an extra derived `As` bridge. Requirement construction
-must follow the artifact names and the shared reader's alternative-name
-rule, so an `As_1e9` artifact does not require a redundant `As` parameter.
+The shared Syren reader accepts either `As_1e9`, which represents
+`10^9 A_s`, or `As`, which represents the dimensionless primordial scalar
+amplitude `A_s`, and canonicalizes a consistent pair. Requirement construction
+must follow the artifact parameter names and that alternative-name rule. An
+artifact that names `As_1e9` must
+not acquire a redundant `As` requirement merely because it uses a Syren law.
+The EMUL2 example may define a derived `As` bridge for another component, but
+the bridge is not part of the adapter's scientific requirement.
 
-#### Eleventh-wave extension (Architect-VERIFIED, folded into this unit): adapter value-schema + multi-emulator assembly + the CMB request boundary
+#### Adapter values, multi-emulator assembly, and CMB requests
 
-All five adapters whitelist extra-args KEYS but validate no VALUES —
-confirmed anchors: `bool(extra_args.get("compile", False))` in every
-adapter (quoted "false" enables compilation);
-`os.environ.get("ROOTDIR", "")` (a missing ROOTDIR silently makes the
-documented ROOTDIR-relative roots cwd-relative); `emulators` never
-type-checked (a string iterates character-by-character, and a
-two-character string satisfies the BAOSN/MPS len == 2 check);
-`dv_return = str(get(...))` coerced not validated; the unknown-device
-cpu fallback already recorded in the wave-2 entry; fast_params /
-provides accept malformed iterable shapes. Contract: ONE shared
-adapter-value validator used by all five classes — compile exact
-bool; device an exact registered string with invalid names
-distinguished from the documented unavailable-accelerator fallback;
-emulators an exact nonempty sequence of unique nonempty path strings
-(exactly two for BAOSN/MPS); relative paths require a defined valid
-ROOTDIR; canonical roots never duplicate; provides / fast_params /
-dv_return validated against their documented exact shapes BEFORE any
-artifact loads.
+All five adapters validate both extra-argument keys and values. Forbidden
+coercion patterns illustrate the failure:
 
-SEPARATE composition defect (emul_cosmic_shear ~188-192, the
-docstring advertises it): multi-emulator mode blindly
-np.concatenate's predictions — under dv_return "3x2pt" two full
-vectors become one length-2N vector; in section mode duplicate or
-overlapping probe artifacts are concatenated without checking their
-stored probe/section_sizes, so one likelihood block can be served
-twice. Required: refuse multiple predictors in full-vector mode OR
-assemble one global vector only after proving compatible layouts and
-disjoint blocks; section mode requires compatible stored layouts +
-unique non-overlapping probe blocks; duplicate roots/probes and a
-3x2pt artifact combined with any constituent probe fail before
-prediction; a valid disjoint multi-probe case keeps its defined
-ordering.
+- `bool(extra_args.get("compile", False))` treats the nonempty string
+  `"false"` as true and enables compilation.
+- `os.environ.get("ROOTDIR", "")` turns a missing CoCoA root into a path
+  relative to the current directory.
+- An unchecked `emulators` string is iterated one character at a time; a
+  two-character string can even satisfy a length-of-two check.
+- `str(...)` around `dv_return` converts an invalid type instead of refusing
+  it.
 
-CMB request boundary: must_provide applies int(lmax)
-(emul_cmb ~221-224) — fractional requests truncate silently,
-booleans/quoted integers accepted. Require the Cl request to be a
-mapping and every lmax an exact non-bool integer in range; no
-coercion.
+**Rule.** One adapter-value validator serves all five classes. `compile` is
+an exact Boolean. `device` is an exact registered string, and an invalid name
+is distinct from a valid but unavailable accelerator. `emulators` is a
+nonempty sequence of unique, nonempty path strings and has exactly two entries
+for BAOSN or MPS. Relative paths require a valid `ROOTDIR`. Canonical roots
+cannot repeat. `provides`, `fast_params`, and `dv_return` must have their
+documented types and shapes before any artifact is loaded.
 
-Red legs (the red-team list adopted whole): quoted-false compile;
-unknown device; missing ROOTDIR + relative root; string `emulators`
-for one-root and exactly-two-root adapters; duplicate canonical
-roots; malformed fast_params/provides; two full vectors; duplicate
-and overlapping sections; one valid disjoint section pair;
-fractional/boolean/quoted/malformed CMB lmax.
+**Composition rule.** Multi-emulator mode must never concatenate full-vector
+predictions blindly. Under `dv_return: 3x2pt`, multiple predictors are refused
+unless one global vector is assembled after proving compatible layouts and
+disjoint blocks. Section mode requires compatible stored layouts and unique,
+non-overlapping probe blocks. Duplicate roots or probes, and a `3x2pt`
+artifact combined with any constituent probe, fail before prediction. A valid
+disjoint multi-probe case preserves its defined ordering. Blind
+`np.concatenate` would turn two full vectors into one length-`2N` vector or
+serve an overlapping likelihood block twice.
 
-The pair validator also checks only quantity presence and exact grid
-equality. It does not enforce the serve-time tuple
-`pklin/Mpc3/(none|syren_linear)` plus
-`boost/dimensionless/(none|syren_halofit)`. Training validates those
-tuples, but the read side claims artifacts are authoritative and must
-reject a malformed or hand-built h5 rather than silently treating an
-unrecognized-for-that-quantity Syren law as raw output.
+**CMB request rule.** `must_provide` requires the angular-spectrum (`Cl`)
+request to be a mapping. Every maximum multipole, `lmax`, is an exact
+non-Boolean integer in the supported range. Applying `int(lmax)` is forbidden
+because it would truncate fractions and accept Booleans or quoted integers.
 
-Required acceptance is one small real Cobaya construction (not a stubbed
-base class) using synthetic artifacts: dependency resolution must assign
-Pk products to the MPS theory, register sigma8 as derived, run a scalar
-calculate with `want_derived=True`, and prove the returned state contains
-the exact advertised outputs. Separate negative legs cover the wrong MPS
-law/units tuple and an `As_1e9`-only config with no `As` bridge.
+**Acceptance evidence.** The adapter-value checks must refuse a quoted-false
+compile value, an unknown device, a relative root when `ROOTDIR` is missing, a
+string supplied as `emulators`, duplicate canonical roots, and malformed
+`fast_params` or `provides`. Composition checks must refuse two full vectors,
+duplicate sections, and overlapping sections while accepting one disjoint
+section pair. CMB request checks must refuse fractional, Boolean, quoted, or
+otherwise malformed `lmax` values.
 
-### Red-team geometry-state and covariance guards (verified 2026-07-12, open)
+The MPS pair validator enforces the serving tuples
+`pklin/Mpc3/(none|syren_linear)` and
+`boost/dimensionless/(none|syren_halofit)`. The read side rejects a malformed
+or hand-built HDF5 record instead of interpreting an unsupported
+quantity-and-law combination as raw output.
 
-The persisted class marker proves which constructor to call, but neither
-`rebuild_emulator` nor most `from_state` constructors validate that the
-geometry tensors describe a finite invertible transform. Scalar/grid/CMB
-states can carry a zero or non-finite scale; parameter and data-vector
-states can carry a non-positive `sqrt_ev`, malformed basis, duplicate or
-out-of-range `dest_idx`, or inconsistent center/Cinv dimensions. The model
-can still load strictly because weight shapes do not authenticate those
-values, then prediction returns NaN/Inf or a wrong coordinate map.
+**Live Cobaya evidence.** One small real Cobaya construction uses synthetic
+artifacts rather than a stubbed base class. Dependency resolution must assign
+power-spectrum (`Pk`) products to the MPS theory, register `sigma8` as a
+derived value, call the scalar adapter with `want_derived=True`, and place the
+advertised outputs in the returned state. Separate refusal cases cover an
+invalid MPS law-and-units tuple and an `As_1e9`-only configuration with no
+redundant `As` bridge.
 
-The training builders share the numerical hole. `ParamGeometry.from_covmat`,
-the log-parameter builder, amplitude-factor geometry, warm-start extension,
-and `DataVectorGeometry.from_cosmolike` take `sqrt(eigh(...))` without a
-finite/symmetric/strictly-positive eigenvalue check. The block-diagonal
-output geometry is worse: it clips every negative per-bin eigenvalue to
-zero and then divides by its square root. A singular block therefore turns
-an invalid covariance into infinite whitened targets instead of a loud
-error; model heads repeat divisions by the inherited scales.
+### Geometry state and covariance guards
 
-Required contract: one shared validation layer checks shapes, finite values,
+**Reason.** A class marker identifies the constructor but does not prove that
+the saved tensors describe a finite, invertible transform. A zero scale,
+nonpositive covariance eigenvalue, malformed basis, duplicate destination
+index, or inconsistent dimension can preserve model-weight shapes while
+producing nonfinite values or the wrong coordinate map. Clipping a negative
+eigenvalue to zero merely changes an invalid covariance into a later division
+by zero.
+
+**Implementation boundary.** The shared geometry validator runs in
+`ParamGeometry.from_covmat`, every sample- or log-parameter builder,
+amplitude-factor and warm-start construction,
+`DataVectorGeometry.from_cosmolike`, and every `from_state` rebuild. The
+inverse covariance is stored as `Cinv`; `sqrt_ev` stores covariance
+eigen-scales; and `dest_idx` maps kept entries into the full vector.
+
+**Rule.** The validator checks shapes, finite values,
 unique/in-range indices, monotonic finite axes, positive scales/eigenvalues,
 orthonormal bases within a documented tolerance, covariance symmetry and
 positive definiteness, plus family registry/units tuples. Apply it on both
-training construction and h5 rebuild before tensors feed a model. Do not
+training construction and HDF5 rebuild before tensors feed a model. Do not
 silently floor or clip a scientific covariance: reject it with the smallest
 eigenvalue and source/bin name. Gates cover a singular covariance block, a
 tiny negative eigenvalue, a zero scale in a same-shaped h5, duplicate
-`dest_idx`, and a valid ill-conditioned SPD matrix just above the stated
-tolerance.
+`dest_idx`, and a valid ill-conditioned symmetric positive-definite matrix
+just above the stated tolerance.
 
-## Inference numerical boundary (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open; land before the EMUL2 acceptance)
+## Public inference validates numerical inputs and outputs
 
-EmulatorPredictor._as_row (inference.py ~442-457) checks names and
-counts ONLY — its documented raises are KeyError (missing name) and
-ValueError (wrong length); NaN/Inf/bool values enter the whitening
-and the model, and decoded NaN/Inf returns to the caller unguarded.
-CmbFactoredChi2._factor (losses/cmb.py ~316) computes exp(2 tau)/A_s
-with no domain check: As = 0 -> Inf, As < 0 -> a negative factor,
-tau = NaN -> NaN, none raising. Every cobaya adapter routes through
-EmulatorPredictor, so this is the public inference boundary.
+**Reason.** Names and lengths alone do not validate a numerical input. A
+Boolean, not-a-number value (`NaN`), infinity (`Inf`), or nonscalar value can
+enter parameter whitening and
+propagate through a model. Decoding can likewise produce a nonfinite or
+wrong-shaped result that looks structurally valid to an adapter. The CMB
+factor `exp(2 * tau) / A_s` adds a family-specific domain: the scalar
+amplitude `A_s` must be positive and the optical depth `tau` must be finite.
 
-Contract (Implementer; the red-team block of record adopted whole):
-_as_row requires every supplied input to be a real finite scalar
-(bools/NaN/Inf/non-scalars rejected NAMING the stored parameter);
-after pgeom.encode all encoded values finite; after the model
-forward and after each branch decode, exact expected shape + finite
-values before NumPy/dict conversion or scatter. Sign rules stay
-family-specific: the CMB amplitude law requires finite tau, finite
-strictly positive A_s, and a finite strictly positive factor (naming
-the offending columns); BAOSN/MPS positivity lives in their own
-queued units; NO positivity imposed on TE or generic scalar outputs.
-Gates: finite control bitwise; mapping AND ordered-array NaN/Inf/
-bool inputs raise naming the parameter; nonfinite encoded/model/
-decoded values raise at the correct stage; As <= 0, nonfinite
-As/tau, overflowed factor raise; wrong output width raises before
-reshape/scatter; all five return branches covered (scalar, CMB,
-grid, grid2d, data-vector).
+**Rule.** `EmulatorPredictor._as_row` requires each supplied value to be a
+finite real scalar and refuses Booleans, naming the stored parameter. The
+parameter geometry (`pgeom`) must return finite encoded values. Model output
+and every decoder branch must have the exact expected shape and finite values
+before conversion to NumPy, a dictionary, or a scattered vector. The CMB
+amplitude law requires finite `tau`, strictly positive finite `A_s`, and a
+strictly positive finite factor. BAOSN and MPS keep their own positivity
+rules. No positivity rule applies to `TE` or a generic scalar output.
 
-## Fine-tuning (FTW; universal across families)
+**Implementation boundary.** `_as_row` owns input validation;
+`CmbFactoredChi2._factor` owns the CMB domain; and `EmulatorPredictor` owns
+post-encoding, post-model, and post-decoding checks shared by all adapters.
 
-- `train_args.finetune: {from, compile_mode?}`; architecture inherited
-  from the source h5 (a model: block beside finetune: is a loud
-  error); lower LR through the ordinary lr: block (recommend one
-  decade down + warmup_epochs >= 3 — fresh cold Adam moments).
-- THE invariant: at epoch 0 the warm-started model computes EXACTLY
-  the source function, independent of the new parameters' values —
-  checked by the parity gate (max|dv| <= 1e-5 float32; 0.000e+00 on
-  names-equal runs).
-- The mechanism (warmstart.py): block-extended input geometry — source
-  rotation verbatim on shared rows, extras whitened by their MARGINAL
-  covmat block, encoded layout [shared ; extras ; raw amps]; the
-  shared coords are BIT-identical to the source encoding. State
-  transfer is shape-driven: equal shapes copy verbatim; dim-1 grows by
-  exactly n_x -> source columns + EXACT-ZERO new columns. Output
-  geometry PINNED from the source artifact (class-preserving via the
-  cls marker). Accepted tradeoff: extras-shared cross-correlations are
-  NOT whitened away (full decorrelation would destroy exactness).
-- Family branches: every family fine-tunes (scalar/cmb/grid/grid2d
-  pin the SOURCE output geometry wholesale after compatibility
-  checks; wrong-kind + metadata mismatches loud).
-- `finetune.anchor` (optional L2-SP): decoupled post-step
-  W <- W - lr*lam*mask*(W - W_0) with the padded extra columns
-  EXCLUDED from the penalty (they carry the new physics); never a loss
-  term (Adam's moments would rescale it); weight_decay-0 recommended.
-- Provenance attrs: finetuned_from + finetune_extra_names.
+**Acceptance evidence.** A finite control remains bitwise unchanged. Mapping
+and ordered-array inputs containing a Boolean, NaN, or infinity must refuse
+and name the parameter. Separate cases place a nonfinite value after encoding,
+model evaluation, and decoding and require the stage to be named. CMB cases
+cover nonpositive or nonfinite `A_s`, nonfinite `tau`, and an overflowed
+factor. A wrong output width must refuse before reshape or scatter. Scalar,
+CMB, grid, grid2d, and data-vector return branches are all exercised.
 
-### Warm-start source reads and perturbed finite values (Red Team implementation draft, 2026-07-13)
+## Fine-tuning across every family
 
-This branch implements DIDACTICS-67 and DIDACTICS-68 for Architect audit.
-It does not certify the landing.
+`train_args.finetune` accepts `from` and optional `compile_mode`. The source
+HDF5 record owns the architecture; a sibling `model` block is refused. A lower
+learning rate is selected through the ordinary `lr` block. One decade below
+the source rate with `warmup_epochs >= 3` is the teaching recommendation
+because the optimizer moments start cold.
 
-`FinetuneSource` is one in-memory object.  A successful construction opens
-the source HDF5 file twice.  `rebuild_emulator` owns the first open,
+**Epoch-zero rule.** Before the first training update, the warm-started model
+computes the source function independently of the added parameters. The parity
+gate requires `max|dv| <= 1e-5` in float32 and exact zero for equal-name runs.
+
+**Implementation boundary.** `warmstart.py` extends the parameter geometry in
+blocks. Shared rows keep the source rotation bit for bit. Added coordinates
+use their marginal covariance block, so the encoded layout is
+`[shared; extras; raw amplitudes]`. Equal-shaped tensors copy verbatim. Let
+`n_x` denote the number of added input coordinates. When input dimension one
+grows by exactly `n_x`, the source columns are followed by exact-zero added
+columns. The source artifact pins the output-geometry class
+and state. Cross-correlations between added and shared inputs are deliberately
+not whitened because doing so would change the shared encoding.
+
+Scalar, CMB, grid, and grid2d fine-tuning pin the source output geometry after
+family-specific compatibility checks. A wrong family or mismatched metadata
+is refused.
+
+**Anchor rule.** Let `W` be a current trainable parameter, `W_0` the matching
+saved source parameter, `lr` the current learning rate, `lambda` the configured
+anchor strength, and `mask` the binary selection mask. An enabled fine-tune
+anchor applies the decoupled post-step update
+`W <- W - lr*lambda*mask*(W - W_0)`. Added input columns carry the new physics
+and receive mask zero. The anchor is not part of the scalar loss,
+because Adam, an adaptive optimizer that rescales updates using stored first
+and second moments, would rescale it through those moments. A nonzero anchor
+is normally paired with `weight_decay: 0.0`.
+
+Saved provenance uses `finetuned_from` and `finetune_extra_names`.
+
+### Warm-start source reads and perturbed finite values
+
+`FinetuneSource` is one in-memory object. A successful construction opens
+the source HDF5 file twice. `rebuild_emulator` owns the first open,
 reconstructs both geometries and the network, and loads the `.emul` weights
-once.  `load_source` owns the second HDF5 open because the warm-start
-validator needs the model recipe, saved rescale value, and resolved data block that
-`rebuild_emulator` does not return.  The class and loader docstrings now teach
-that sequence directly.  The class attribute list now includes `ia` and
+once. `load_source` owns the second HDF5 open because the warm-start validator
+needs the model recipe, saved rescale value, and resolved data block that
+`rebuild_emulator` does not return. The class and loader docstrings teach
+that sequence directly. The class attribute list includes `ia` and
 defines its three values: `nla`, `tatt`, and `None`.
 
-Both parity paths now name and screen the two values produced only after the
+Both parity paths name and screen the two values produced only after the
 extra-coordinate perturbation:
 
 1. Fine-tuning screens `enc_pert` as `perturbed encoded new-run inputs`, then
@@ -410,100 +486,77 @@ extra-coordinate perturbation:
 2. Transfer screens `enc_pert` as `perturbed encoded run inputs`, then
    screens `composed_pert` as `perturbed epoch-0 composed prediction`.
 
-All four calls use `_require_parity_finite`.  Its existing shared error names
-the pipeline side, the quantity, and the staged source-row coordinates.  The
-comparison runs only after both values are finite.  The baseline path and
+All four calls use `_require_parity_finite`. Its shared error names the
+pipeline side, the quantity, and the staged source-row coordinates. The
+comparison runs only after both values are finite. The baseline path and
 parity tolerances are unchanged.
 
-Focused CPU acceptance lives in
-`ai/tests/test_warmstart_perturbed_finite.py`.  Eleven tests pass with the Cocoa
-Torch 2.6.0 interpreter.  Two finite controls retain the fine-tune and
-transfer parity verdicts.  A NaN appears only in row 9 of each perturbed
-encoding.  An Inf appears only in row 9 of each perturbed output.  Every
-failure names the required side, quantity, and row.  Four mutation tests skip
+**Acceptance evidence.** `ai/tests/test_warmstart_perturbed_finite.py` must
+include two finite controls that retain the fine-tune and
+transfer parity verdicts. A NaN appears only in row 9 of each perturbed
+encoding. An Inf appears only in row 9 of each perturbed output. Every
+failure names the required side, quantity, and row. Four mutation tests skip
 one guard at a time: skipping an input guard changes the reported quantity to
 the later output, while skipping an output guard restores the misleading
-`extra parameters leaked` or `extra parameters moved` diagnosis.  Each
-mutation also counts that the production call it disables was reached, so
-deleting the call cannot leave the mutation test green.
+`extra parameters leaked` or `extra parameters moved` diagnosis. Each
+mutation test first verifies that the targeted production guard executes.
+Disabling or deleting that guard must then make the mutation test fail.
 
-The shared gate files were deliberately not edited during the queue-2
-ownership window.  The exact follow-up is bounded:
+The corresponding gate coverage is:
 
 - `ai/gates/checks/finite_contract.py` Part D receives the fine-tune
   perturbation-only NaN/Inf legs and both skip-one-guard mutation arms.
 - Part E receives the matching transfer legs and mutation arms.
-- The planned documentation-examples gate receives the DIDACTICS-67 runtime
-  read census: a real tiny artifact must produce two `.h5` opens, one
+- The documentation-examples gate receives the runtime read census: a real
+  tiny artifact must produce two `.h5` opens, one
   `.emul` load, one returned `FinetuneSource`, and a constructor-field census
   that includes `ia`.
 
-A direct run of the current `finite_contract.py` confirms that all existing
-Part D and Part E legs still pass.  The whole script is not green on this
-main-line snapshot: four known Part A/C message-prefix checks fail and Part F
-crashes because its synthetic loss object has no `geom`.  Those failures
-predate this bounded warm-start visit and are not presented as acceptance.
-The direct `finetune_identity.py` child is all green.  The direct
-`transfer_identity.py` child passes its warm-start and finite-value-adjacent
-legs, then retains the separately known cross-family fixture red as its sole
-failure.
+These requirements are acceptance only when the registered gate executes the
+legs; a local log or an unrelated passing child is not a substitute.
 
-## Fine-tune anchor truth (red-team 2026-07-12 eighth wave, Architect-VERIFIED, open; a training-truth unit — with or immediately after the finite/selection pair, before any anchored production fine-tune)
+## Fine-tune anchor behavior
 
-Two stacked defects and one live documentation lie, all verified:
+**Availability boundary.** `train_args.finetune.anchor` is refused unless the
+complete anchor contract in this section is implemented and its registered
+gate passes. `validate_finetune_config` therefore raises for the key rather
+than advertising an update that may match no parameters.
 
-1. **Config-blocked**: warmstart.py ~159-163 raises NotImplementedError
-   on ANY train_args.finetune.anchor ("not implemented in V1; it lands
-   as unit 2") — a STALE guard: the shared anchor facility it waited
-   for exists (training.py build_anchor ~306, the decoupled anchor
-   step ~288, warmstart.py anchor_masks ~887), the key is in
-   _FINETUNE_KEYS (~58), and a `>= 0` validator at ~182-186 sits
-   UNREACHABLE behind the rejection. README section on fine-tuning
-   ADVERTISED `anchor: 1.0e-2` as available — the Architect corrected
-   the README + example-YAML comment the day of the finding (docs now
-   say "currently refused, restoring unit queued"); the unit restores
-   the published contract.
-2. **Compile no-op behind it**: once the stale guard is removed, the
-   reference state and masks carry EAGER names (the source is rebuilt
-   "never torch.compile'd", warmstart.py ~86/271) while the live model
-   is compiled and exposes `_orig_mod.`-prefixed names; build_anchor
-   silently skips any parameter absent from the reference (by design
-   for frozen params, ~309-311), so on the production CUDA default the
-   anchor matches ZERO parameters, Anchor.entries is empty, and the
-   artifact records an anchor value that never ran. Transfer-refine's
-   base anchor appears eager (not automatically the same failure) but
-   must be gate-tested.
+**Reason.** Eager execution means an ordinary, uncompiled PyTorch module.
+Source reference tensors and masks use eager-module parameter names. A
+compiled live model can expose `_orig_mod.`-prefixed names. If
+`build_anchor` merely skips absent reference names, a positive anchor can
+produce zero entries and no update while the artifact still records the
+configured value.
 
-Contract (the two red-team blocks of record adopted whole): remove
-the obsolete rejection; the finite nonnegative anchor validator
-becomes live (NaN/Inf lambda raises — NaN passes >= 0 today);
-canonicalize compile prefixes at ONE boundary (or anchor the
-underlying eager module) with exact one-to-one coverage; a positive
-anchor with zero matched trainable parameters FAILS; report/validate
-matched, masked, frozen, and unexpected names; masks go through the
-identical canonical mapping; persist an EXECUTED anchor record
-(matched count + effective lambda), never configuration alone. Gates:
-a real from_config leg proving a positive anchor reaches training
-(not just helper tests); the same one-step known-answer update eager
-vs compiled, both moving by the exact anchor formula and matching;
-padded masks proving extra columns stay free; missing/extra reference
-names; lambda-zero identity; transfer-refine eager coverage; nonzero
-matched count asserted for a positive anchor; the resolved artifact
-record inspected.
+**Rule for enabling the feature.** The anchor strength is a finite,
+nonnegative real; NaN and either infinity are refused. Compile prefixes are
+canonicalized at one boundary, or anchoring operates on the underlying eager
+module, with exact one-to-one parameter coverage. A positive strength with
+zero matched trainable parameters is refused. The implementation reports and
+validates matched, masked, frozen, and unexpected names. Masks use the same
+canonical mapping. The artifact records executed anchor evidence, including
+matched count and effective strength, rather than configuration alone.
 
-### README teaching rider (DIDACTICS-94, Red Team, 2026-07-13; awaiting Architect adjudication)
+**Acceptance evidence.** A real `from_config` run proves that a positive
+anchor reaches training. One eager and one compiled step match the analytic
+update. Added columns remain free under their masks. Missing or extra reference
+names refuse. Strength zero is an identity. Transfer-refine exercises eager
+coverage. A positive strength records a nonzero matched count, and artifact
+readback verifies the resolved record.
 
-The root README currently reduces the fine-tune anchor to “a pull back
-toward the saved weights.”  That does not teach the requested L2
-weight-displacement regularization, the difference from ordinary weight
-decay, which parameters are selected, or the operation the library actually
-executes.  The fine-tuning section must add a compact but complete explanation
-next to the current-state refusal, not send a first-time reader into this
-internal note.
+### Fine-tune anchor teaching contract
+
+**Documentation rule.** The root README must explain the fine-tune anchor as
+weight-displacement regularization, distinguish it from ordinary weight
+decay, identify the selected parameters, and show the executed update. A
+description such as “a pull back toward the saved weights” is insufficient on
+its own.
 
 Let `W_{j,0}` be parameter tensor `j` in the saved source emulator, `W_j` its
-current fine-tuned value, and `M_j` an element-by-element binary mask.  First
-define the *regularization idea* in the familiar L2-SP form
+current fine-tuned value, and `M_j` an element-by-element binary mask. L2
+starting-point regularization (`L2-SP`) penalizes squared distance from the
+saved starting parameters. Its mathematical form is
 
 ```
 R(W) = (lambda / 2) sum_j || M_j * (W_j - W_{j,0}) ||_F^2 .
@@ -515,8 +568,10 @@ Frobenius norm means “square every selected displacement and add the squares.�
 Explain that ordinary weight decay pulls `W_j` toward zero, whereas this
 quantity measures movement away from an already-trained source emulator.
 
-Then state the executable truth.  CoCoA SONIC deliberately does **not** add
-`R(W)` to the scalar scientific loss seen by AdamW.  After the ordinary
+Then state the executable truth. CoCoA SONIC deliberately does **not** add
+`R(W)` to the scalar scientific loss seen by AdamW, the adaptive optimizer
+that performs the ordinary parameter update and applies decoupled weight
+decay. After the ordinary
 optimizer step proposes `W_j^opt`, `Anchor.apply` performs the decoupled,
 in-place update
 
@@ -526,267 +581,178 @@ W_j^+ = W_j^opt
 ```
 
 where `eta_j` is the current learning rate of that parameter's optimizer
-group.  This keeps Adam's adaptive second-moment rescaling out of the anchor.
+group. This keeps Adam's adaptive second-moment rescaling out of the anchor.
 There is no hidden division by batch size, layer width, or number of
-parameters.  `anchor: 0.0` is an exact no-op.  For a one-number example, if
+parameters. `anchor: 0.0` is an exact no-op. For a one-number example, if
 `W_0 = 2.0`, the optimizer proposes `W^opt = 2.4`, `eta = 0.01`, `lambda =
 0.5`, and the mask is one, the anchor removes `0.01 * 0.5 * 0.4 = 0.002` and
-stores `W^+ = 2.398`.  This example must say that the optimizer's scientific
+stores `W^+ = 2.398`. This example must say that the optimizer's scientific
 step happened first; the anchor modifies the resulting displacement.
 
 The parameter-selection paragraph must say that matched, trainable source
 parameters are anchored: matrices, biases, affine-normalization parameters,
 and trainable activation parameters all qualify when they are model
-parameters owned by an optimizer group.  Geometry tensors and other
-non-parameter state do not.  When fine-tuning adds cosmological inputs, the
+parameters owned by an optimizer group. Geometry tensors and other
+non-parameter state do not. When fine-tuning adds cosmological inputs, the
 newly appended input-weight columns start at zero to preserve epoch-0 parity
 and receive mask value zero, so they remain free to learn the new physics;
 the pre-existing columns and other matched trainable parameters receive mask
-value one.  Recommend optimizer `weight_decay: 0.0` beside a nonzero anchor,
+value one. Recommend optimizer `weight_decay: 0.0` beside a nonzero anchor,
 because simultaneous weight decay pulls toward zero rather than toward
 `W_{j,0}`.
 
-Finally, current state must remain adjacent and unambiguous: this is the
-queued anchored-fine-tuning contract, not a claim that it executes today.
-`validate_finetune_config` currently refuses every
-`train_args.finetune.anchor` key before training, so ordinary fine-tuning is
-currently unanchored.  Do not print a usable fine-tune-anchor YAML until this
-unit opens that boundary and its board-listed gate passes.  The already-live
-cosmic-shear `transfer.refine.anchor` is a different path: it anchors only the
-formerly frozen base during joint refinement, not the correction network.
-Diagonal-family transfer refinement remains refused.
+The availability boundary stays adjacent and unambiguous. Ordinary
+fine-tuning is unanchored while `validate_finetune_config` refuses
+`train_args.finetune.anchor`. Documentation must not print a usable
+fine-tune-anchor YAML unless the registered gate passes. The separate
+cosmic-shear `transfer.refine.anchor` path anchors only the frozen base during
+joint refinement, not the correction network. Diagonal-family transfer
+refinement is refused.
 
-Acceptance: root `README.md` contains the definition, executable update,
+**Acceptance evidence.** Root `README.md` contains the definition, executed update,
 symbol definitions, one-number example, mask ownership, weight-decay
-distinction, and current refusal in the fine-tuning section; `emulator/README.md`
-gets a shorter equation-and-owner pointer rather than duplicating the full
-tutorial.  The prose must never say the implementation currently adds an L2
-term “to the loss.”  A stale-claim scan covers “anchor,” “L2-SP,” “penalty,”
-and “refine” across both READMEs.  Documentation-only: Python ASTs and runtime
-behavior remain unchanged.
+distinction, and availability boundary in the fine-tuning section; `emulator/README.md`
+contains a shorter equation-and-owner pointer rather than duplicating the full
+tutorial. The prose must never say the implementation adds an L2
+term “to the loss.” A claim-consistency scan covers “anchor,” “L2-SP,” “penalty,”
+and “refine” across both READMEs. This documentation check does not change
+Python abstract syntax trees or runtime behavior.
 
-## Transfer learning (TPE; family-wide since 2026-07-12, scalar excepted)
+## Transfer learning (family-wide, scalar excepted)
 
-- Scope (RE-RULED 2026-07-12, overnight): the user overturned the
-  BAOSN/MPS permanent forbid and D-CM7's deferral — "I misspoke -
-  this for sure should be allowed for MPS. And it is easy to allow it
-  to BAO/SN - because it is weird to have a feature not symmetric to
-  all cases." Transfer now rides cosmolike + cmb + grid + grid2d.
-  The one family still out is SCALAR (D-SP8 stands — a recorded
-  ruling, not a structural bar; overturning it is the user's call).
-- Concept: the trained base is FROZEN WHOLE; a small parallel
-  correction net sees the FULL new parameter space; composition
-  `gain` = base*(1+r) or `sum` = base + r, in `space` physical or
-  whitened (absent space resolves to the form's recommendation and is
-  MATERIALIZED). The model: block describes the CORRECTION net.
-- The diagonal families use losses/transfer.py::TransferDiagChi2
-  (subclasses CmbDiagonalChi2): plain bases only, space WHITENED only
-  (their metric basis; explicit physical is loud — an elementwise
-  scale away, or a log-law domain edge), both forms with a gain
-  zero-crossing notice (sum recommended), transfer.refine rejected
-  (frozen-base V1), roughness+transfer refused loudly, and on cmb
-  only amplitude_law "none" both sides (one target construction at a
-  time). Base pins mirror the finetune pins (spectrum/ell/sigma; z;
-  z+k; + quantity/units/law equality); a cross-family base is a loud
-  from_config error. build_transfer_start (the D-TP7 parity gate)
-  rides unchanged — it duck-types on decode/base_decode. Legs:
-  check_diagonal in transfer-identity.
-- Why not FTW for new physics sectors: same-capacity adaptation is
-  structurally insufficient; the metric is SAMPLE EFFICIENCY
-  (accuracy per training cosmology — extended-model dumps are the
-  expensive object), never wall-clock.
-- Speed design: the frozen base runs ONCE per row at encode, packed
-  [base ; truth] into the staged target; the hot chi2 composes, never
-  re-runs the base (hook-counted).
-- Identity invariant: correction ≡ 0 -> composed prediction ==
-  frozen base decode BITWISE — except the factored-PHYSICAL leg,
-  where combine/unwhiten reassociation gives ~4e-6: bitwise is
-  demanded only on same-computation legs; cross-path legs relax to a
-  documented ~1e-6/1e-5 (ruled three times).
-- Artifact: the base is EMBEDDED whole (transfer_base group: recipe +
-  state + both geometries + form/space), never referenced; chaining
-  refused. `transfer.refine` (optional stage 2, ULMFiT-style):
-  unfreeze once, per-group LR (base_lr_scale), REQUIRED explicit
-  anchor lambda (0.0 must be stated); refined artifacts keep the
-  PRETRAINED W_0 in transfer_base + the drifted base in
-  drifted_state (two-way consistency loud; drift norms recomputable
-  from the file's two states; predictor picks drifted silently).
-- Four training modes, one dial: from-scratch, anchored warm-start,
-  frozen-base transfer, anchored joint refinement — the decoupled
-  L2-SP lambda spans frozen to free.
+**Scope.** Transfer applies to CosmoLike, CMB, grid, and grid2d families.
+Scalar transfer remains unsupported as an explicit product boundary rather
+than a structural limitation.
 
-### transfer-identity cross-family leg: FIXTURE DEFECT (board run 12, root-caused; fix pending)
+**Reason.** A new physics sector may require capacity beyond an ordinary
+same-size fine-tune. Transfer is judged by sample efficiency, meaning accuracy
+per expensive training cosmology, rather than wall-clock time alone.
 
-The run-12 red (the only board red, 58/59 legs green) is in the GATE
-FIXTURE, not the library. The "cross-family transfer base raises" leg
-(ai/gates/checks/transfer_identity.py, the end of the diagonal section)
-builds a grid2d config whose `transfer.from` points at the
-`diag_transfer` artifact saved two legs earlier — an artifact that
-EMBEDS a transfer_base group (it exists to test composed prediction).
-`_load_diag_transfer` (emulator/experiment.py) calls
-`warmstart.load_source` BEFORE its family-kind check, and load_source's
-chaining refusal ("chaining a transfer over a transfer is out of scope
-(no chaining)") fires first; the leg's needle test wants "never" and
-"families", so it fails on the wrong — but equally correct — message.
-The library's cross-family rule is implemented and correctly ordered
-(kind check immediately after load; message "a transfer never crosses
-families"); the fixture hands it an artifact invalid in TWO ways, and
-the other guard answers first.
+**Composition rule.** The trained base is frozen as a whole. A small parallel
+correction network receives the complete new parameter space and produces a
+correction `r`. Form `gain` computes `base * (1 + r)`; form `sum` computes
+`base + r`. Composition occurs in either physical or whitened space. An
+omitted space resolves to the form's documented recommendation and is saved
+as an explicit value. The `model` block describes the correction network.
 
-**Fix spec (Implementer; gate file only, library frozen):** in that
-leg, save a PLAIN grid base artifact (the leg's local `base` net +
-`geom` through the same save_emulator call, WITHOUT the transfer_base=
-argument, with the same rescale="none" attrs) at its own root, and
-point the grid2d config's `transfer.from` at THAT root. load_source
-then succeeds, the kind check sees GridGeometry != Grid2DGeometry, and
-the cross-family ValueError fires with both needles. No other leg
-changes; the chaining refusal keeps its own dedicated green leg
-(lifecycle: "chaining refused"). Lesson (also in gates-and-board.md
-run 12): a loud-error leg's fixture must be invalid ONLY in the way
-under test.
+Diagonal families use `emulator/losses/transfer.py::TransferDiagChi2`, a
+subclass of `CmbDiagonalChi2`. They accept plain bases and whitened space only
+because physical composition is separated from their metric by an
+elementwise scale and can cross a logarithmic-law domain. Both forms remain
+available, with a zero-crossing notice for `gain` and `sum` recommended.
+`transfer.refine` and roughness with transfer are refused. CMB requires
+`amplitude_law: none` on both sides so only one target-construction rule owns
+the data. Compatibility checks pin spectrum, multipole coordinates, scales,
+redshift coordinates, quantity, units, and law as applicable. A cross-family
+base is refused by `from_config`.
 
-The same Implementer unit carries the gate METADATA truth-up the red
-team tied to the five-leg close (their 2026-07-12 acceptance): the
-ai/gates/board.py cmb-identity registry entry (its `maps` field and the
-gate docstring) must name all five covariance legs — the exact
-contraction, the old-weight miss, raw-vs-scaled fixture integrity, the
-width-3 band projection, the exact zero-band weight — in plain
-language ("independent known-answer check", never "oracle" in prose;
-the `check_covariance_oracle` identifier itself stays). The three
-READMEs were already trued up by the Architect (run-12 status +
-five-leg rows).
+**Efficiency rule.** The frozen base runs once per row during encoding. The
+staged target stores `[base; truth]`, and the repeated chi-square calculation
+composes those cached values without evaluating the base again. Hook counts
+in the acceptance check establish the one-evaluation property.
 
-#### Fixture-fix resume (2026-07-12, Opus) — awaiting Architect audit
+**Identity rule.** An exactly zero correction reproduces the frozen-base
+decode bitwise when both sides use the same arithmetic path. The factored
+physical path reassociates template combination and unwhitening, so it uses a
+documented tolerance from `1e-6` to `1e-5`; the measured reference difference
+is approximately `4e-6`.
 
-Built, gate files only (`emulator/` frozen). Two parts:
+**Artifact rule.** The `transfer_base` HDF5 group embeds the base recipe,
+state, both geometries, form, and space. It is not an external reference, and
+transfer chaining is refused. Optional stage-two `transfer.refine` unfreezes
+the base once, applies per-group `base_lr_scale`, and requires an explicit
+anchor strength, including `0.0`. A refined artifact keeps pretrained
+reference weights `W_0` in `transfer_base` and prediction weights in
+`drifted_state`. The states must permit exact drift recomputation.
 
-- Part 1, `ai/gates/checks/transfer_identity.py` `check_diagonal`: the
-  cross-family leg now saves a PLAIN grid base — this leg's own `base`
-  net + `geom` (a `GridGeometry`) through the same `save_emulator` call,
-  no `transfer_base=`, same `rescale="none"` / `quantity="Hubble"`
-  attrs, `resolved_model=grid_base_recipe(names, int(z.size))` — at its
-  own root `plain_grid_base`, and points the grid2d config's
-  `transfer.from` there (was the `diag_transfer` root, which embeds a
-  transfer_base group). Static trace of the frozen library path
-  (`_load_diag_transfer`, experiment.py:1410-1426): `transfer` present ->
-  `validate_transfer(diagonal=True)` accepts `form: sum` ->
-  `warmstart.load_source(plain_root)` SUCCEEDS (no transfer_base group,
-  so the chaining refusal at warmstart.py:340 never fires) ->
-  `got_cls = "GridGeometry"` != the grid2d branch's
-  `geom_cls_name="Grid2DGeometry"` (experiment.py:2327) -> raises
-  "a transfer never crosses families", so both needles (`"never"`,
-  `"families"`) pass. The chaining refusal keeps its own dedicated leg in
-  `check_lifecycle` ("chaining refused"). The leg needs torch
-  (save_emulator / from_config), so this is a static trace, not a Mac
-  exec run.
-- Part 2, `ai/gates/board.py` cmb-identity entry: the `maps` field, the
-  `gate_cme_a` docstring, and the board `label` now name all five
-  covariance legs in plain language — the exact contraction, the
-  old-weight miss, the raw-vs-scaled fixture integrity, the width-3 band
-  projection, and the exact zero-band weight — as an "independent
-  known-answer" check; "oracle" no longer appears in prose (the
-  `check_covariance_oracle` identifier reference stays).
+The four supported training modes are from-scratch training, anchored warm
+start, frozen-base transfer, and anchored joint refinement. The decoupled
+L2-SP anchor strength spans the refinement range from frozen to free.
 
-Mac gate: `py_compile` clean on both files (`transfer_identity.py`,
-`board.py`); the fixed leg's correctness is the static trace above (no
-torch on this box). No `emulator/` change (library frozen); cmb-smoke
-needs no rerun (gate-file-only, producer unchanged).
+### Cross-family refusal fixtures test one invalid condition at a time
 
-Close (user-run, workstation, after the merge): `python
-ai/gates/run_board.py --force-rerun cmb-identity transfer-identity` —
-transfer-identity proves the fixture fix, cmb-identity re-executes the
-five-leg delta and its board text must match the five executed legs;
-both green closes the run-12 red.
+A test fixture is a controlled input constructed for one acceptance check. A
+refusal fixture must violate only the rule under test. The cross-family
+transfer leg therefore saves a plain `GridGeometry` base and points a grid2d
+configuration at that base. A transfer artifact would violate both the
+no-chaining rule and the cross-family rule, allowing the no-chaining error to
+fire first and hiding whether the family check works.
 
-#### Fixture-fix Architect audit (2026-07-12, Fable): ACCEPTED, committed
+**Code ownership.** `ai/gates/checks/transfer_identity.py` owns the fixture.
+The production family check remains in `_load_diag_transfer`; production code
+must not be changed to accommodate an ambiguous fixture. The dedicated
+no-chaining leg continues to test transfer-over-transfer refusal.
 
-Audited against the raw diff of both files. Part 1 matches the spec
-verbatim (the plain grid base is invalid ONLY in the way under test;
-the chaining refusal keeps its dedicated leg); the static trace
-matches the Architect's own run-12 root-cause chain independently
-derived from the same code. Part 2 verified line by line: the
-docstring, `maps`, and expect label name the five legs plainly, the
-raw-vs-scaled boundary description is physically accurate, and the
-only "oracle" left in board.py is the kept identifier (grep-proven,
-untruncated). py_compile re-run by the Architect: OK. Committed on
-the branch by the Architect with Implementer attribution; the grid2d
-unit's files stay uncommitted pending its REVISION (the stable-moments
-amendment — see data-generation-and-cuts.md). Close = the two-gate
-force-rerun above.
+**Acceptance evidence.** The cross-family leg must raise a `ValueError` that
+names the never-cross-families rule. The plain base must contain no
+`transfer_base` group. The no-chaining leg must pass independently.
+The CMB identity metadata must describe all five covariance checks in plain
+language: exact contraction, pretrained-weight miss, raw-versus-scaled fixture
+integrity, width-three band projection, and exact zero-band weight. A
+GPU-capable environment must rerun both identity gates after a fixture change.
 
-## Follow-the-IDs (git archaeology)
+## Code ownership map
 
-FTW: D-FT1..10, D-FTW-1/2. TPE: D-TP1..10, D-TPE-1, D-TPE2-1..3,
-Ruling 1 (reassociation). Schema: D-SV1/2, D-CT1..3, GCT-D
-(dv_return), Riders 1-5 (paths, .paramnames cross-check, GitHub math
-policy). GEO: D-GEO1..5. Board homes here: save-rebuild-drift,
-cobaya-adapter, finetune-identity/smoke, transfer-identity/smoke,
-geo-paths.
+- Save/rebuild and schema ownership: `emulator/results.py` and
+  `emulator/fixed_facts.py`.
+- Public prediction ownership: `emulator/inference.py`.
+- Fine-tune and transfer-source ownership: `emulator/warmstart.py`.
+- Transfer composition ownership: `emulator/losses/transfer.py`.
+- Adapter ownership: `cobaya_theory/`.
+- Registered acceptance gates: `save-rebuild-drift`, `cobaya-adapter`,
+  `finetune-identity`, `finetune-smoke`, `transfer-identity`,
+  `transfer-smoke`, and `geo-paths`.
 
-## Artifacts are not bound to the code that gives their weights meaning (red-team 45M-13, 2026-07-12, Architect-VERIFIED; queue 37 — folds into the artifact-integrity campaign beside unit 3, implementation identity distinct from pair identity)
+## Artifacts bind the implementation that gives weights meaning
 
-save_emulator writes git_commit as best-effort provenance
-(results.py:398, "unknown" fallback :403) and its documentation
-claims it "marks a v2 file (rebuild refuses one without)" (:192) —
-but rebuild_emulator never reads or validates git_commit (full grep:
-three hits, none in rebuild; the only v2 test is schema_version == 2
-plus the recipe). The recipe stores class NAMES and constructor
-values, then imports the CURRENT class/activation/normalization/
-geometry/decoder/transfer/PCE implementation — a later code change
-under the same names is silently accepted. Sharpest consequence, the
-syren-law MPS path: training learns r = log(P / P_base_old) but
-inference recomputes the base from the current syren/ source, so a
-base change serves P * (P_base_new / P_base_old) with every weight
-loading strictly — vendoring stops a pip upgrade, it does not bind an
-old artifact to the vendored implementation that generated its
-targets.
+**Reason.** `save_emulator` records `git_commit` as best-effort provenance,
+with an `"unknown"` fallback, but repository identity alone does not bind the
+implementation that interprets the weights. A recipe stores class names and
+constructor values; importing a different implementation under the same name
+can change behavior while strict weight loading still succeeds. In the Syren
+law path, training learns `r = log(P / P_base_A)`. Serving the same weights
+with `P_base_B` returns `P * (P_base_B / P_base_A)`. Vendoring prevents an
+uncontrolled package upgrade but does not identify the formula version used
+to generate the targets.
 
-Contract (Implementer): (1) a compatibility manifest persisted for
-every implementation whose behavior interprets the weights
-(model/design, activation, normalization, parameter/output geometry,
-decoder/loss composition, any analytic base such as syren);
-(2) explicit semantic implementation identifiers or content hashes
-backed by a versioned registry — a raw git commit stays provenance,
-never the compatibility mechanism; (3) rebuild compares every
-required identifier BEFORE importing/serving; a mismatch selects a
-retained versioned implementation or refuses with the artifact value,
-runtime value, and migration/retraining action; (4) the MPS artifact
-bound to the exact syren base variant that generated its law-space
-targets (with 45M-14's base-variant naming, queue 38); (5) the
-results.py git_commit documentation corrected — enforce the claim or
-describe it as unvalidated provenance; (6) folded into the
-artifact-integrity campaign, but pair identity does NOT substitute
-for implementation identity. Gate (torch/HDF5, board): save under id
-A rebuilds under A; changing only the syren/base id refuses before
-prediction; changing only a model/geometry semantic id refuses; an
-unrelated repo commit with unchanged semantic ids still rebuilds; a
-registered migration selects the old implementation and reproduces a
-stored known-answer prediction; a deleted manifest key fails loudly.
+**Rule.** Persist a compatibility manifest for every implementation that gives
+the weights meaning: model design, activation, normalization, parameter and
+output geometry, decoder and loss composition, and any analytic base such as
+Syren. Each entry uses an explicit semantic identifier or content hash backed
+by a versioned registry. A Git commit remains provenance rather than the
+compatibility mechanism.
 
-## Unit 96 closed (25M-09): artifact composition is declared, not inferred
+Rebuild compares every required identifier before importing or serving the
+implementation. A mismatch selects a retained versioned implementation or
+refuses with the artifact value, runtime value, and migration or retraining
+action. An MPS artifact binds the exact Syren base variant that generated its
+transformed targets. `emulator/results.py` describes `git_commit` as
+unvalidated provenance unless the program enforces a stronger claim. Pair
+identity and implementation identity are separate required parts of the
+artifact-integrity contract.
 
-Schema-v2 save/rebuild infers scientific composition solely from optional HDF5
-group presence. `save_emulator` writes `pce` only when its argument is non-None
-and likewise writes `transfer_base` conditionally (`results.py:348-396`). The
-resolved YAML stores only `train_args` and `data` (`:429-435`), so it carries
-no independent consumed NPCE/transfer mode. Rebuild reads either group if it
-happens to exist (`:617-663`); when both are absent, inference selects the
-ordinary `geom.decode` path (`inference.py:291-316,388-447`). Strict model
-state loading cannot detect this because the refiner network has the same
-weights in both interpretations.
+**Acceptance evidence.** An artifact saved under semantic identifier `A`
+rebuilds under `A`. Changing only the Syren base identifier or only a model or
+geometry identifier refuses before prediction. An unrelated repository commit
+with unchanged semantic identifiers still rebuilds. A registered migration
+selects the declared retained implementation and reproduces a stored
+known-answer prediction. Removing a required manifest key causes refusal.
 
-Public CPU reproduction on the real save/rebuild/predict path: a valid NPCE
-artifact predicted `H0=69.68846130371094` and
-`omegam=0.31317755579948425`. After only deleting `f['pce']` from its v2 HDF5,
-rebuild and strict state loading still succeeded and returned finite
-`H0=66.8885269165039`, `omegam=0.30848246812820435` (errors about `2.7999344`
-and `0.00469509`). The artifact silently became a different scientific model.
-Unit 3's weight/HDF5 pair identity and unit 76's recipe-key totality do not
-state the required composition mode; this is their scientific-mode interlock.
+## Artifact composition is declared, not inferred
 
-Required contract: persist a native required composition enum (`plain`,
-`npce`, `transfer`) from the executed run, with transfer-refined state as a
-separate native fact. Validate mode against the exact required/forbidden group
+**Reason.** Optional HDF5 group presence alone cannot establish scientific
+composition. Deleting an NPCE `pce` group can leave same-shaped weights that
+strict-load under an ordinary decode and return finite but different values.
+A discriminating numerical example changes the Hubble constant from
+`69.68846130371094` to `66.8885269165039` and the matter-density fraction from
+`0.31317755579948425` to `0.30848246812820435`; the missing PCE contribution
+then changes the finite prediction. Weight-pair identity and recipe-key
+totality therefore do not replace an explicit composition fact.
+
+**Rule.** Persist a native required composition enumeration, meaning exactly
+one value from the closed set `plain`, `npce`, or `transfer`, from the executed
+run. Store transfer-refined state as a separate native fact. Validate mode
+against the exact required and forbidden group
 set in both directions before constructing a model. Authenticate the HDF5
 scientific payload/manifest so deletion cannot leave a valid marker. The
 resolved consumed record retains NPCE/transfer facts. Schema-v2 absence never
@@ -794,42 +760,39 @@ means plain; legacy presence-only artifacts refuse with a migration/re-save
 instruction. Apply the same contract to `pce` and `transfer_base`, including
 mutual exclusion.
 
-Read-side addendum from the continuing audit: `config_yaml` already retains
-the top-level `pce:`/`transfer:` block, but rebuild never cross-checks it;
-`config_resolved_yaml` drops both. On transfer artifacts, deleting the parent
-`transfer_base` group while leaving root `transfer_refined=True` is also
-silently demoted: `_read_native_bool` is called only inside the
-`if "transfer_base" in f` branch (`results.py:635,652`). The existing two-way
-check therefore starts only after trusting parent presence. The gate must
-delete the parent while preserving the refined marker/config and require
-refusal. One authoritative consumed mode owns runtime validation; provenance
+`config_yaml` may retain the top-level `pce` or `transfer` block, but provenance
+YAML cannot substitute for the authoritative native composition facts. The
+acceptance check deletes the parent group while preserving the refined marker
+and configuration, then requires refusal. One authoritative consumed mode
+owns runtime validation; provenance
 YAML is corroborating evidence, not a second inference algorithm.
 
-Presence-inference inventory closure (Red Team, 2026-07-13): an untruncated
-production census found only the required `model_recipe`, optional `pce`,
+**HDF5 presence inventory.** The production census contains the required
+`model_recipe`, optional `pce`,
 optional `transfer_base`, nested `drifted_state`, and warm-start's
-`transfer_base` no-chaining branch at the HDF5 membership layer. Unit 96 owns
-the composition/refined cases. Conditional geometry-state keys are
+`transfer_base` no-chaining branch at the HDF5 membership layer. The
+composition contract owns the composition and refined-state cases.
+Conditional geometry-state keys are
 `section_sizes`/`probe`/`bin_sizes`/`pm_kept`, CMB `as_ref`/`tau_ref`, Grid2D
 `const_mask`, and AmplitudeFactor `names`. Every item except `const_mask`
 either has an explicit governing fact and refusal, raises before its requested
 consumer path, or is already owned by recipe/geometry totality. Only deletion
-of `const_mask` silently reinterprets a valid artifact; that finding is
-`25M-17` in `families-background-mps.md`. Cobaya adapters perform no separate
-direct HDF5 presence dispatch. This closes the Architect-requested class
-inventory without manufacturing findings from loud failures.
+of `const_mask` silently reinterprets a valid artifact; the corresponding
+contract lives in `families-background-mps.md`. Cobaya adapters perform no
+separate direct HDF5 presence dispatch.
 
-Board-listed save/forge/rebuild legs: valid plain, NPCE, frozen transfer, and
-refined-transfer controls; delete `pce`; delete `transfer_base`; flip the enum
-without changing groups; add a forbidden second composition group; delete or
-forge the refined half; and a mutation restoring presence-only inference must
-strict-load the same-shaped net yet fail the known-answer prediction. Run the
-Torch/HDF5 legs on Vivian's workstation; enum/group validation also has a pure
-HDF5 CPU surface.
+**Acceptance evidence.** Save, forge, and rebuild checks cover valid plain,
+NPCE, frozen-transfer, and refined-transfer controls. Separate negative checks
+delete `pce`, delete `transfer_base`, change the enumeration without changing
+the groups, add a forbidden second composition group, and delete or forge the
+refined half. A mutation that restores presence-only inference must
+strict-load a network with the same shape and still fail the known-answer
+prediction. The PyTorch-and-HDF5 checks run in the project GPU environment.
+Enumeration-to-group validation also has a CPU-only HDF5 check.
 
 <a id="artifact-composition-contract"></a>
-**artifact-composition (ACM-A) — the required mode is authoritative before
-construction.** Current saves derive and persist native root facts
+**Artifact composition is authoritative before construction.** The writer
+derives and persists native root facts
 `composition_mode` (`plain`, `npce`, or `transfer`) and `transfer_refined`
 from the executed run. Callers cannot replace either fact through `attrs`.
 
@@ -844,360 +807,306 @@ transfer has only `transfer_base`; refined transfer additionally has
 `transfer_base/drifted_state`. Every required and forbidden edge is checked in
 both directions before recipe parsing, geometry/model construction, or
 `torch.load`. Rebuild, inference, and warm-start then route on the validated
-enum, never on optional-group presence.
+enumeration, never on optional-group presence.
 
 The CPU/HDF5 gate proves the four valid rows, thirty focused forgeries,
-writer/read agreement on the native form/space grammar, and the
-pre-construction call order under the single terminal
-`artifact-composition.contract`. Whole-pair cryptographic binding remains the
-separate artifact-integrity unit; this enum contract does not claim that an
+writer/read agreement on the native form-and-space grammar, and the
+pre-construction call order. The child command emits one final evidence result
+named `artifact-composition.contract` for that assertion. Whole-pair
+cryptographic binding remains the
+separate artifact-integrity unit; this enumeration contract does not claim that an
 attacker cannot rewrite every corroborating HDF5 surface together.
 
-## config_resolved_yaml does not record what the run consumed (red-team 45M-19, 2026-07-12, Architect-VERIFIED; queue 41)
+## `config_resolved_yaml` records what the run consumed
 
-run_emulator's resolved_train labels itself "defaults materialized"
-but stores raw inputs: training.py:3028 records `"loss": loss` (the
-user's block — null when absent, though training consumed the default
-sqrt mode; omitted BerHu knots absent though materialized values were
-consumed); each phase computes effective loss/berhu/ema/trim/focus/
-clip/rewind/lr/wmupe/sched passes but the artifact stores raw
-trunk/head overlays and only the top-level scheduler; transfer
-refinement reuses the final pass's effective settings but persists
-only {epochs, base_lr_scale, anchor}; histories include refinement
-epochs while nepochs stays pre-refinement. Reconstruction therefore
-depends on TODAY'S default-resolution code — the exact drift channel
-the resolved record exists to remove (the house never-trust-defaults
-doctrine, violated on its own flagship surface).
+**Reason.** Raw inputs do not describe the values a run consumed. An absent
+loss block consumes the default square-root mode, and omitted reverse-Huber
+(BerHu) loss knots consume materialized numeric values. Each phase resolves
+effective loss, BerHu knots, exponential-moving-average (EMA) settings,
+trimming, focus, clipping, rewind, learning rate, warmup, and scheduler values.
+Transfer refinement inherits another effective pass. A record containing only
+raw trunk/head overlays, one top-level scheduler, or
+`{epochs, base_lr_scale, anchor}` would require a reader to rerun default and
+inheritance logic. History rows can also include refinement while a
+pre-refinement epoch count does not.
 
-Contract (Implementer): (1) persist a `passes` sequence in execution
-order — phase name, model train phase, epoch count, computed lr,
-warmup, scheduler class + resolved kwargs, fully resolved loss, trim,
-focus, clipping, rewind, EMA; (2) transfer refinement gets its own
-pass entry with every inherited effective value; (3) run-level
-roughness persisted separately if it configures the loss object once;
-(4) total_epochs persisted and required to equal every history
-dataset's row count; (5) the raw YAML kept separately as provenance,
-never overwritten by the resolved form; (6) loading/reporting reads
-the resolved pass record, never re-runs inheritance logic. Acceptance
-(short torch training/artifact gate; config-only probes pure): absent
-loss block records the consumed sqrt mode, not null; omitted BerHu
-knots appear with consumed numerics; trunk/head overrides produce two
-complete pass records; ema null in one phase recorded as disabled
-there; refinement is a third complete record; history lengths
-inconsistent with total_epochs fail before publication.
+**Rule.** Persist a `passes` sequence in execution order. Every entry records
+the phase name, model training phase, epoch count, computed learning rate,
+warmup, scheduler class and resolved keyword arguments, fully resolved loss,
+trimming, focus, clipping, rewind, and EMA settings. Transfer refinement has a
+separate pass entry with every inherited effective value. Persist run-level
+roughness separately when one value configures the loss object for the whole
+run. Persist `total_epochs` and require that value to equal every history
+dataset's row count. Keep the raw YAML separately as provenance. Loading and
+reporting read the resolved pass record and never rerun inheritance logic.
 
-### 45M-08 amendment to the unit-3 campaign (index-received; Architect-verified directly)
+**Implementation boundary.** The shared training configuration resolver owns
+the complete pass records. The artifact writer persists those records and
+`total_epochs`. Artifact readers validate the records before reporting or
+rebuilding training state.
 
-The full 45M-08 block was not relayed, but its finding is verified
-from the code already in evidence: compute_cmb_covariance.py:766-768
-publishes with an unconditional `np.savez(out_path, **out)` — no
-preexistence refusal, no temp-file + rename, so a rerun overwrites a
-prior covariance artifact and a mid-write death leaves a partial
-file. This is exactly unit 3's transactional-publication +
-preexistence-refusal contract extended to the covariance producer;
-adopted as a clause of unit 3 (the twelfth-wave extension above), not
-a new unit. Gate leg: rerun-with-existing-output refuses; kill-mid-
-publication leaves the prior artifact intact.
+**Acceptance evidence.** A short PyTorch training-and-artifact check proves
+that an absent loss block records the consumed square-root mode rather than
+null; omitted BerHu knots appear as consumed numeric values; trunk and head
+overrides produce two complete pass records; a null EMA setting records that
+EMA is disabled for that phase; refinement becomes a third complete record;
+and a history length inconsistent with `total_epochs` fails before publication.
 
-### 45M-33 amendment to unit 41 (transfer-refine artifact truth): the drift metric is buffer-diluted and lies at zero reference (2026-07-12, Architect-VERIFIED)
+### Covariance publication follows the same transaction rule
 
-The refined-transfer driver advertises relative WEIGHT drift but
-iterates state_dict() (cosmic_shear_train_emulator.py:421) —
-persistent non-trainable buffers (ResCNN/ResTRF pad_idx layout
-indices; PCE fixed buffers) contribute zero numerator but their
-squared values inflate sq_den, so the advertised total is diluted by
-layout metadata that cannot drift. Second false report at :427:
-`rel = sqrt(dn/d0) if d0 > 0.0 else 0.0` — a pretrained tensor that
-is exactly zero and MOVES records drift 0.0 (zero reference norm
-makes relative drift undefined, not zero). Both full states are
-retained so prediction is unaffected; the defect is a reassuring
-false summary in root metadata. Amendment: the metric is defined over
-TRAINABLE parameters only via an explicit canonical key set
-(buffers/layout/state excluded); numerator and reference norms (or
-absolute drift + status) persisted beside any relative value;
-||W0|| == 0 reports exact zero ONLY when the drift norm is also zero,
-else a named zero-reference/nonzero-absolute-drift status — never
-relative 0.0; parameter-key equality between the two states verified
-before publication; the stored summary exactly recomputable from the
-persisted states + declared key set; prose/attrs renamed if the
-chosen metric is state drift. Red legs (torch, board-listed): a huge
-fixed integer buffer + one moved parameter — total equals the hand
-calculation, invariant to buffer magnitude; zero-reference unchanged
--> exact zero; zero-reference moved -> absolute drift + status, never
-0; missing/extra key raises before publication; multi-parameter known
-answer; readback recomputes the summary.
+**Rule.** The artifact transaction and preexistence-refusal rules also apply
+to `compute_cmb_covariance.py`. The producer writes a complete temporary
+zipped NumPy archive (`.npz`),
+syncs it according to the publication contract, and renames it only after
+validation. An unconditional `np.savez(out_path, **out)` can overwrite an
+existing covariance or leave a partial file after interruption and is
+therefore outside the contract.
 
-## UNIT 7 AMENDED (45M-45): syren parameter aliases can disagree silently — the alias-consistency boundary
+**Acceptance evidence.** A second run aimed at an existing output must refuse
+before changing that output. Terminating the process during publication must
+leave the preceding valid archive intact.
 
-Adjudicated + reproduced LIVE (Fable, 2026-07-12; the vendored syren
-runs on the Mac). syren_params_from (emulator/syren_base.py) silently
-prefers As_1e9 over As (:67-70) and w over w0 (:82-87); the discarded
-name is never compared against the chosen one. Reachable through BOTH
-public callers, each of which passes a complete resolved mapping: the
-generator hands the full Cobaya to_input dict to the reader
-(dataset_generator_mps.py, the write_base block), and the adapter
-hands its calculate(**params) mapping (emul_mps.py) — RECORD
-CORRECTION (20M-18 addendum, 2026-07-13): that mapping is NOT the
-full resolved dict; real Cobaya routing supplies only the inputs the
-component explicitly requires/supports, so a dynamic bridge such as
-wa = w0pwa - w reaches calculate ONLY when the theory requests wa
-(unit 85 owns the consequence; any gate leaning on the old sentence
-is corrected with it). The shipped
-EMUL2 evaluate YAML DEFINES BOTH amplitude names to bridge the
-requirement fork (README ~:2214-2216), so "both aliases present" is
-an exercised shipped shape, not an invented internal call.
-Reproduced: {As_1e9: 2.1, As: 9e-9} -> the resolver takes 2.1 and
-exactly ignores As; base_pklin max relative difference 0.7667 against
-the As value's base. {w: -1.0, w0: -0.7} -> takes -1.0; max rel
-0.2449 (the red team's grid gave 0.2403 — same mechanism, the
-magnitude is grid-dependent). ALL probe spectra finite and positive,
-so the downstream MPS positivity/finiteness guards cannot catch the
-conflict. Worst case is the law-correction artifact: the network half
-evaluates from the artifact's stored parameter names while the
-analytic base follows this independent precedence rule — the two
-halves can describe different cosmologies with no exception raised.
+### Transfer-refine drift measures trainable parameters only
 
-Contract (folds into THIS unit's adapter/ingress campaign — no second
-syren implementation):
-1. syren_params_from remains the ONE shared generator/adapter
+**Reason.** A relative weight-drift metric must not include persistent,
+non-trainable buffers such as `pad_idx` layout indices from the residual
+convolutional (`ResCNN`) and residual transformer (`ResTRF`) designs, or fixed
+PCE buffers. Such buffers contribute zero to the numerator but can inflate
+the denominator and dilute the reported change. Relative drift is also
+undefined when the reference norm is zero; a moved zero tensor must not be
+reported as relative drift `0.0`.
+
+**Rule.** Define the metric over trainable parameters only through an explicit
+canonical key set, excluding buffers, layout, and other state. Persist the
+numerator and reference norms, or absolute drift plus a named status, beside
+any relative value. If `||W0|| == 0`, report exact zero only when the drift
+norm is also zero. Otherwise report the absolute drift and a
+`zero-reference` status, never relative `0.0`. Verify parameter-key equality
+between the two states before publication. The declared key set and the two
+persisted states must reproduce the stored summary exactly. If the metric
+includes non-parameter state, name it state drift rather than weight drift.
+
+**Acceptance evidence.** A large fixed integer buffer plus one moved parameter
+matches a hand calculation and is invariant to buffer magnitude. An unchanged
+zero-reference parameter reports exact zero; a moved zero-reference parameter
+reports absolute drift and status. Missing or extra keys refuse before
+publication. A multi-parameter known answer and artifact readback both
+recompute the summary.
+
+## Syren parameter aliases must agree
+
+**Reason.** `syren_params_from` in `emulator/syren_base.py` accepts the alias
+pairs `As_1e9`/`As` and `w`/`w0`. Here `w` and `w0` are names for the
+present-day dark-energy equation-of-state value, `wa` is its evolution
+coefficient, and `w0pwa` represents `w0 + wa`. Silently selecting the first
+name without
+comparing the second can make the network and analytic base describe different
+cosmologies. The generator passes its complete Cobaya `to_input` mapping. The
+adapter passes the inputs routed to `calculate(**params)`, which includes only
+the names the theory requests or supports. A dynamic bridge such as
+`wa = w0pwa - w` reaches `calculate` only when the theory requests `wa`.
+Acceptance cases must model those routed inputs. The shipped EMUL2 evaluation
+configuration supplies both amplitude names, so dual-alias input is a public
+configuration shape.
+
+The numerical failure remains finite and can evade downstream checks. For
+`{As_1e9: 2.1, As: 9e-9}`, silently choosing `As_1e9` changes the analytic
+linear-power baseline by a maximum relative difference of `0.7667` compared
+with using `As`. For `{w: -1.0, w0: -0.7}`, silently choosing `w` changes the
+baseline by a grid-dependent maximum relative difference near `0.2449`. A
+law-correction artifact is especially vulnerable because the network reads
+the artifact's stored parameter names while the analytic base could follow a
+separate alias-precedence rule.
+
+**Rule.** Keep one Syren implementation:
+
+1. `syren_params_from` remains the one shared generator/adapter
    authority; alias pairs become an explicit consistency boundary.
-2. Amplitude: As_1e9 alone or As alone is accepted. BOTH present =>
-   require As_1e9 == 1e9 * As within a documented
-   float-representation tolerance; otherwise raise naming both values
-   and the conversion.
-3. Dark energy: w alone or w0 alone. BOTH present => numerical
-   equality within the same stated representation policy; otherwise
-   raise naming both.
-4. Canonicalize only AFTER the consistency proof — never silently
+2. `As_1e9` alone and `As` alone are accepted. When both are present, require
+   `As_1e9 == 1e9 * As` within a documented float-representation tolerance.
+   Otherwise raise an error that names both values and the conversion.
+3. `w` alone and `w0` alone are accepted. When both are present, require
+   numerical equality under the same representation policy and name both
+   values in a mismatch error.
+4. Canonicalize only after the consistency proof; never silently
    prefer one conflicting value.
-5. LCDM rule preserved: neither w nor w0 present => canonical
-   w0 = -1 (a model fact, not a config default); absent wa likewise.
-6. No duplication of the queued value-schema work: finite non-bool
-   real validation stays with generator ingress / adapter value
-   validation; THIS amendment owns only the cross-alias equality that
+5. Preserve the Lambda-cold-dark-matter (LCDM) rule. When neither `w` nor `w0`
+   is present, use canonical `w0 = -1` as a model fact rather than a
+   configuration default. An absent `wa` uses the canonical value `0`.
+6. Do not duplicate the value-schema contract. The generator validates values
+   when a sample enters the generation path, and the adapter validates values
+   received from Cobaya. This rule owns only the cross-alias equality that
    individual-value validation cannot establish.
-7. Requirement construction (this unit's existing As/As_1e9 routing
-   clause) must not REQUIRE a redundant amplitude alias; a second
-   alias supplied deliberately for another component is verified, not
+7. Requirement construction must not require a redundant amplitude alias. A
+   second alias supplied deliberately for another component is verified, not
    ignored.
-8. On failure: emul_mps.calculate leaves NO Pk_grid, interpolator, or
-   derived state keys; the generator rejects the sample BEFORE
+8. On failure, `emul_mps.calculate` leaves no `Pk_grid`, interpolator, or
+   derived state keys. The generator rejects the sample before
    writing any raw/base payload row.
 9. Documentation defines the aliases definitionally (As_1e9 = 10^9
    As; w and w0 are two names for one present-day equation-of-state
    value); "prefers" wording is removed as a correctness policy.
 
-Red legs: As_1e9-only and As-only controls resolve to the same
-canonical amplitude and reproduce current base values; consistent
-dual amplitude names pass; inconsistent dual amplitude names raise
-BEFORE base_pklin or base_boost; w-only and w0-only controls
-reproduce current values; consistent dual dark-energy names pass,
-inconsistent names raise; mutation arm — restore the current
-first-alias-wins branch; both conflict legs must fail the gate;
-adapter state-integrity leg — an inconsistent dual alias leaves no
-partial Pk state; generator leg — the same inconsistency is rejected
-before _dv_write, no base/raw quantity published for the row;
-shipped-bridge control — the actual As_1e9 -> As bridge configuration
-remains accepted. The resolver/base probes are numpy-only
-(Mac-runnable); the adapter/generator integration legs use the
-torch-backed fixtures under ai/gates/checks/, LISTED on the board,
-workstation-run.
+**Acceptance evidence.** `As_1e9`-only and `As`-only controls resolve to the
+same canonical amplitude and reproduce the reference baseline. Consistent
+dual amplitude names pass; inconsistent names refuse before `base_pklin` or
+`base_boost`. Equivalent cases cover `w` and `w0`. A mutation that restores
+first-alias precedence must fail both conflict legs. An adapter conflict leaves
+no partial `Pk` state, and a generator conflict refuses before `_dv_write`
+publishes a raw or baseline row. The shipped `As_1e9`-to-`As` bridge remains a
+valid control. NumPy baseline checks run on CPU; adapter and generator
+integration checks under `ai/gates/checks/` run with Torch in the required
+GPU-capable environment.
 
-## UNIT 11 AMENDED (45M-49): the float32-resolution guard can itself store a zero divisor
+## Geometry scales remain valid after conversion to the storage dtype
 
-Sixth 45M batch (2026-07-12), Architect-verified and reproduced on
-Mac before placement. The un-standardizable-column guard is a
-float64 RELATIVE test, but the constructor stores float32: the guard
-can accept a column whose stored scale is exactly zero.
+**Reason.** A relative scale check performed in 64-bit floating point does not
+prove that the stored 32-bit scale remains positive. Absolute underflow can
+turn a valid-looking pre-cast scale into exact zero, after which encoding
+divides by zero. `ScalarGeometry.from_targets`, `GridGeometry.from_targets`,
+and `Grid2DGeometry.from_stats` all cross this representation boundary.
 
-Verified sites (current HEAD): ScalarGeometry.from_targets computes
-center/scale in float64 and refuses only on
-scale <= 8 * eps32 * |center| (scalar.py:145-146); the constructor
-then casts both to float32 unconditionally (scalar.py:85-90) while
-its own docstring promises a strictly positive scale.
-GridGeometry.from_targets repeats the sequence (grid.py:189-192).
-Grid2DGeometry.from_stats likewise (grid2d.py:196-197), and grid2d's
-const_mask is decided by the SAME float64 relative rule — a column
-that underflows on storage is not entered in const_mask, so it is
-neither pinned nor refused (grid2d.py:198-223): the stored scale is
-0.0 and the point is unusable.
+Let `f = nextafter(float32(0), float32(1))`, the smallest positive 32-bit
+subnormal number, approximately `1.4013e-45`. A subnormal number is smaller
+than the smallest ordinary positive value of the data type and therefore uses
+reduced precision near zero. For targets `[0, 0, f]`, the
+64-bit center is approximately `4.6710e-46` and the population scale is
+approximately `6.6058e-46`, so a purely relative check accepts it. Both values
+round to zero in 32-bit storage. Targets `[0, f, f]` preserve a nonzero stored
+center but still round the scale to zero. These examples show why the stored
+representation, rather than only the pre-cast ratio, owns validity.
 
-Reproduction (numpy, Mac): f = nextafter(float32(0), float32(1)) =
-1.401298464324817e-45, the smallest float32 subnormal — representable
-in the float32 dumps from_targets reads. targets [0, 0, f]: float64
-center 4.670995e-46, population std 6.605784e-46, guard threshold
-4.454608e-52 -> ACCEPTED; stored float32 center 0.0, stored float32
-scale 0.0; encode divides by exact zero (probe returns inf).
-targets [0, f, f]: accepted; stored center nonzero (f survives as
-the smallest subnormal) with stored scale 0.0 — the same zero
-divisor behind a nonzero center. The relative rule cannot see
-absolute underflow: both float64 moments sit below float32's
-subnormal floor while their ratio looks healthy.
+**Rule.** The `from_state` read-side rule and covariance square-root rules
+remain in force:
 
-Contract (amends unit 11; the from_state read-side clause and both
-covariance sqrt mechanisms recorded above stand unchanged):
-
-1. Validate the values that will actually be STORED, never only the
-   pre-cast estimates: cast every produced center/scale pair through
-   the declared artifact/model dtype (float32 today) first.
-2. Require a finite stored center and a finite, STRICTLY POSITIVE
+1. Validate the values that will actually be stored, not only pre-cast
+   estimates. Cast every produced center-and-scale pair through the declared
+   artifact and model data type (`float32`) first.
+2. Require a finite stored center and a finite, strictly positive
    stored scale for every pair; refusal names the column or grid
-   coordinate exactly as the current errors do.
-3. Apply the relative-resolution rule IN that same storage
-   representation, so the two tests compose: absolute underflow and
-   relative collapse are both refused.
-4. Grid2d classifies a post-cast-zero scale as CONSTANT before the
-   partial-pin vs whole-surface-refusal decision — the pin and
+   coordinate through the owning error message.
+3. Apply the relative-resolution rule in that same storage representation:
+   require `scale > 8 * float32_epsilon * abs(center)`. The absolute
+   underflow test and this relative-collapse test must both pass.
+4. Grid2d classifies a post-cast-zero scale as constant before the
+   partial-pin versus whole-surface-refusal decision. The pin and
    dead-dump policies operate on stored-representation facts.
-5. The same representability rule applies to this unit's covariance
-   square-root scales (mechanisms (a) and (b) above): a positive
+5. The same representability rule applies to covariance
+   square-root scales: a positive
    float64 eigenvalue is not sufficient if its stored float32 square
    root is zero; refusal names the smallest stored scale.
 
-Red legs: scalar [0, 0, f] is refused before construction; scalar
-[0, f, f] is refused; one grid column with that payload is refused
-naming its coordinate; one grid2d column with that payload is pinned
-consistently while an all-such surface is refused as dead; an
-otherwise valid scale just above the stated stored-dtype boundary
-survives and round-trips (state -> from_state bitwise); a covariance
-eigen-scale that underflows on storage is refused naming the
-smallest stored scale. The constructor/encode legs are torch legs:
-they join the existing geometry identity checks under ai/gates/checks/
-(scalar-identity, bsn-identity, mps-identity own their geometries),
-LISTED on the board, run on the torch workstation. The arithmetic
-discrimination above stays a numpy-only companion leg (Mac-runnable).
+**Acceptance evidence.** Scalar targets `[0, 0, f]` and `[0, f, f]` must
+refuse before construction. A grid column with the same payload must refuse
+and name its coordinate. A grid2d column is pinned consistently, while a
+surface made entirely of such columns is refused as unusable. A scale just
+above the stated storage boundary survives and round-trips bitwise through
+`state` and `from_state`. A covariance eigen-scale that underflows during
+storage is refused and names the smallest stored scale. NumPy arithmetic
+checks run on CPU. Torch constructor and encoding cases join the registered
+`scalar-identity`, `bsn-identity`, and `mps-identity` geometry checks in the
+required GPU-capable environment.
 
-## UNIT 24 AMENDED (45M-50): scalar fine-tuning erases its source provenance at save
+## Scalar fine-tuning saves source provenance
 
-Seventh 45M batch (2026-07-12), Architect-verified on HEAD. Public
-reachability confirmed: validate_scalar states "fine-tuning IS
-supported"; the from_config scalar fine-tune branch loads the
-source, pins outputs, and sets _scalar/_finetune/_finetune_root
-(experiment.py ~2055-2069). This note's universal fine-tune contract
-(the "Provenance attrs: finetuned_from + finetune_extra_names" line)
-claims every family. The shared family driver honors it
-(cosmic_shear_train_emulator.py:385-387); the scalar driver's own
-save path does not — its attrs mapping (scalar_train_emulator.py
-:201-211) records model/data/best metrics only and never inspects
-exp._finetune. Untruncated grep: `finetuned_from` is written by the
-shared driver ALONE (the only other hits are the finetune-smoke gate
-asserting it — a gate the scalar path never crosses). A scalar
-fine-tuned artifact is therefore valid and inference-loadable with
-no declaration that its initialization and architecture came from
-another artifact; cold and fine-tuned runs produce the same
-provenance key set.
+**Reason.** Scalar fine-tuning loads a source, pins output geometry, and records
+`_scalar`, `_finetune`, and `_finetune_root`. Its saved artifact therefore
+needs the same source-provenance record as every other fine-tuned family. A
+scalar save path that records only model, data, and best-metric attributes
+cannot distinguish a cold run from a run whose architecture and initial
+weights came from another artifact.
 
-Contract (amends unit 24 — the anchor-truth clauses stand):
+**Rule.** The fine-tune anchor rules remain in force:
 
-1. One shared artifact-provenance assembler owns the common attrs
-   for EVERY training driver; scalar adds its family facts (outputs,
-   train/val parameter filenames) but never forks
-   fine-tune/anchor/provenance logic.
-2. Cold run: no fine-tune attrs. Fine-tune run: canonical resolved
-   source identity plus ordered extra names.
+1. One shared artifact-provenance assembler owns the common attributes
+   for every training driver; scalar adds its family facts (outputs,
+   training and validation parameter filenames) but never forks the
+   fine-tuning, anchor, or source-provenance logic.
+2. A cold run stores no fine-tune attributes. A fine-tune run stores the
+   canonical resolved source identity and ordered extra parameter names.
 3. The recorded source identity is the resolved root/digest actually
    loaded, never the raw YAML spelling.
-4. Once unit 24 opens anchors, the executed-anchor record shares
-   this same path — not added to only the shared cosmic driver.
+4. An enabled executed-anchor record shares this same path and is never added
+   to only one family driver.
 
-Red legs: scalar cold save omits fine-tune attrs; scalar
-names-equal fine-tune saves finetuned_from and an explicit EMPTY
-extra-name list; scalar extended-input fine-tune preserves ordered
-extra names; scalar and one shared-driver family produce the same
-common provenance schema; mutation arm — delete the scalar
-provenance branch / shared-assembler call and the artifact readback
-gate must fail. Save/readback legs use torch to build the synthetic
-artifacts: they live under the existing board-listed
-finetune-identity check in ai/gates/checks/, run by the user on the
-torch workstation.
+**Acceptance evidence.** A scalar cold save omits fine-tune attributes. A
+scalar fine-tune with equal parameter names saves `finetuned_from` and an
+explicit empty extra-name list. Extended-input fine-tuning preserves the
+ordered extra names. Scalar and one shared-driver family produce the same
+common provenance schema. A mutation that removes the shared provenance call
+must make artifact readback fail. The registered `finetune-identity` check in
+`ai/gates/checks/` builds and reads the synthetic artifacts with Torch in the
+required GPU-capable environment.
 
-## UNIT 11 AMENDED (45M-65, fifteenth batch, 2026-07-12): parameter-side covariance ingestion joins the read-side integrity contract
+## Parameter covariances use the shared integrity contract
 
-Finding (red team, CONFIRMED live): validate_scalar imposes no
-minimum parameter count (any nonempty input set is legal), and
-the ordinary scalar build then calls ParamGeometry.from_covmat
-(experiment.py:3488-3491), which is loadtxt -> eigh with ZERO
-validation (parameter.py:128-132). A scientifically valid
-one-parameter covariance file ("# x" then "4.0") loads as a
-0-DIMENSIONAL array — np.loadtxt returns shape (), not (1, 1) —
-and np.linalg.eigh deterministically raises
-LinAlgError("0-dimensional array given...") before training
-starts (proven through the REAL from_covmat, 2026-07-12). The
-same probe proved the multi-parameter path is a LIVE instance of
-this unit's mechanism (a) on the parameter side: a covmat with a
-negative variance flows loadtxt -> eigh -> np.sqrt silently to
-sqrt_ev = [nan, 1.0] — the NaN whitening scale built without a
-word. The dimensional collapse repeats on the sample-derived
-path (np.cov(one-feature, rowvar=False) is also 0-d,
-parameter.py:264) and the unvalidated loadtxt -> eigh shape
-repeats at AmplitudeFactorGeometry.from_covmat (:422-437 — a
-THIRD site, found in adjudication, which the finding did not
-cite; note np.ix_ on a 0-d cov breaks there before eigh would).
-Distinct from the queued one-ROW parameter-table fix: that is a
-dataset-shape defect; this is a valid one-PARAMETER geometry
-refused by dimensional accident.
+**Reason.** A nonempty one-parameter model is valid. NumPy loads a scalar
+covariance file such as `# x` followed by `4.0` as shape `()`, not `(1, 1)`,
+and `np.linalg.eigh` refuses that dimensional accident. The sample-derived
+one-feature form from `np.cov(..., rowvar=False)` has the same zero-dimensional
+shape. A multi-parameter covariance with a negative variance can instead reach
+`np.sqrt` and create a NaN whitening scale. The same integrity boundary is
+needed by `ParamGeometry.from_covmat`, sample-derived parameter geometry, and
+`AmplitudeFactorGeometry.from_covmat`. This is separate from a one-row
+parameter-table shape error: the parameter covariance itself is scientifically
+valid when its one-dimensional representation is normalized correctly.
 
-Contract (the red team's six clauses adopted; folded into this
-unit's single mechanism):
+**Rule.** One shared covariance validator owns all parameter-side covariance
+inputs:
 
-1. Covariance input is normalized to an exact two-dimensional
-   square matrix before eigendecomposition (a valid scalar
-   covariance becomes (1, 1)); normalization NEVER blesses
-   malformed input — it feeds the same integrity checks.
+1. Normalize covariance input to an exact two-dimensional square matrix before
+   eigendecomposition. A valid scalar covariance becomes `(1, 1)`.
+   Normalization never accepts malformed input; the normalized matrix still
+   passes every integrity check below.
 2. Header-name count, covariance width, and center width must
    agree exactly; a mismatch is refused naming all three observed
    dimensions.
-3. Finite, symmetric, strictly positive-definite values under
-   this unit's geometry-integrity policy at ALL parameter-side
-   sites — the nan-sqrt_ev probe result makes parameter.py a
-   proven instance of mechanism (a), not a precaution.
-4. The dimensional-totality rule applies wherever covariance is
-   derived from samples (np.cov, one feature) and at
-   AmplitudeFactorGeometry.from_covmat (in scope).
-5. All multi-parameter numerics byte-for-byte.
-6. No new mechanism: this amends unit 11; the validation home is
-   shared with the output.py covariance sites already recorded
-   here.
+3. Require finite, symmetric, strictly positive-definite values under the
+   shared geometry-integrity policy at every parameter-side site. This check
+   prevents `parameter.py` from taking the square root of a negative
+   eigenvalue and producing NaN.
+4. Apply the dimensional-totality rule wherever covariance is derived from
+   samples with `np.cov`, including the one-feature case, and in
+   `AmplitudeFactorGeometry.from_covmat`.
+5. Preserve byte-for-byte numerical results for valid multi-parameter inputs.
+6. Reuse the same validator at the `output.py` covariance sites so parameter
+   and output geometry enforce one integrity policy.
 
-Red legs (CPU numpy legs; the round-trip legs are torch and live
-in the board-listed scalar-identity gate — Architect placement,
-per the red team's request):
+**Acceptance evidence.** The arithmetic checks use CPU NumPy. Round-trip
+checks use Torch in the registered `scalar-identity` gate:
 
-- one header name + positive 1x1 covariance builds and
-  round-trips decode(encode(x)) == x;
-- the whitened displacement has the analytic value
-  (x - center)/sqrt(var);
-- zero, negative, NaN, and Inf scalar variances are refused
-  BEFORE eigh/sqrt;
+- one header name plus a positive one-by-one covariance builds and satisfies
+  `decode(encode(x)) == x`;
+- the whitened displacement equals `(x - center) / sqrt(var)`;
+- zero, negative, NaN, and Inf scalar variances are refused before the
+  eigendecomposition or square root;
 - header count, center width, and covariance dimension mismatches
   are refused with the three observed dimensions named;
 - a normal multi-parameter control remains byte-identical;
-- the sample-derived one-feature constructor, while public API,
-  receives the same one-dimensional acceptance test.
+- the sample-derived one-feature constructor, which is part of the public
+  programming interface, receives the same one-dimensional acceptance test.
 
-Placement: unit 11, where queued (no reshuffle). USER-VISIBLE:
-one-parameter emulators become buildable (today they crash before
-training); malformed covariances are refused loudly (today a
-negative variance trains with NaN whitening).
-## 45M-90 red-team documentation amendment: teach the artifact as a write/read symmetry, not an HDF5 inventory (2026-07-12)
+**User-visible result.** One-parameter emulators become buildable. Malformed
+covariances are refused loudly instead of reaching training with a NaN
+whitening scale.
+
+## Artifact documentation teaches write/read symmetry
 
 `results.py` gives a long inventory of HDF5 groups, but a first-time PyTorch
 reader reaches the nested `write_state`, `_read_group`, `_rebuild_geometry`,
 and `_rebuild_model` functions without the mechanics needed to audit them.
 The distinction between a model object and its `state_dict`, an HDF5 dataset
 and attribute, a tensor and a NumPy array, CPU and accelerator storage, and a
-serialized class name and a live class object is assumed.  The two public
-operations are each about 270 lines, so local comments do not reveal the
-write/read inverse as one system.
+serialized class name and a live class object is assumed. Local comments alone
+do not reveal the write/read inverse as one system.
 
-Required documentation contract, folded into the artifact-pair integrity
-campaign:
+**Rule.** The artifact-pair integrity documentation requires:
 
-- Start with a two-column write/read table.  For every payload, name the
+- Start with a two-column write/read table. For every payload, name the
   writer, stored representation, reader, rebuilt Python type, dtype/device,
   and owning constructor argument.
 - Define `state_dict` as a name-to-tensor mapping of parameters and registered
-  buffers, not a saved model object.  Explain `detach` (remove gradient
+  buffers, not a saved model object. Explain `detach` (remove gradient
   history), `cpu` (copy or move storage to host), `numpy` (share CPU tensor
   storage when possible), and why the saved tensor must not require the
   training GPU to load.
@@ -1209,41 +1118,52 @@ campaign:
   base cases are tensor, string list, numeric scalar, and serialized dtype.
 - Explain dynamic class reconstruction step by step: split the persisted
   `module.Class` string, import the module, retrieve the class object, and call
-  its `from_state` classmethod.  State why `cls(...)` preserves subclasses.
+  its `from_state` classmethod. State why `cls(...)` preserves subclasses.
 - Explain strict weight loading: every expected key must exist and no
-  unexpected key may remain.  Explain why a compiled model's `_orig_mod.`
+  unexpected key may remain. Explain why a compiled model's `_orig_mod.`
   prefix is removed before storage and compilation happens only after the
   eager object and weights are rebuilt.
 - Draw the ordinary, NPCE, transfer, and refined-transfer ownership trees.
   Distinguish pretrained base weights used as reference from drifted base
   weights used for prediction.
-- Current-state prose must match the transactional artifact contract when it
-  lands: the `.emul` and `.h5` pair is one publication, not two independent
-  successful writes.  Until that lands, documentation states the present
-  non-transactional behavior rather than promising atomicity.
+- Prose must match executable behavior. Documentation may describe the
+  `.emul` and `.h5` pair as one atomic publication only when the public writer
+  and reader implement and test that property. Otherwise the direct-write
+  behavior and its interruption limit are stated explicitly.
 - Gates exercise the public save/rebuild pair and inspect the actual on-disk
-  type/dtype/device transitions.  A test double for HDF5 recursion may teach
+  type, dtype, and device transitions. A test double is a small substitute
+  object used only by a check. A test double for HDF5 recursion may teach
   structure but cannot substitute for a real-file round trip.
 
-Completion includes concise docstrings for the nested helpers.  The goal is
-not to repeat 270 lines in prose; it is to give the reader one reversible map
-with enough mechanics to verify every branch.
+Completion includes concise docstrings for the nested helpers. The
+documentation gives the reader one reversible map with enough mechanics to
+verify every branch without copying the implementation into prose.
 
-## Structured evidence map — gate contract anchors (45M-72 foundation)
+## Structured acceptance evidence
 
-The board's structured evidence map (`Gate.evidence`) pins each migrated
-gate to a stable, runner-validated anchor in its home note; the mechanism
-and the audited rollout are documented in `gates-and-board.md`. The
-artifact-side gate anchors here:
+Each registered acceptance command links every named assertion to one stable
+HyperText Markup Language (HTML) anchor, a named location that a link can
+target in this permanent note. The permanent-note evidence validator
+refuses a missing anchor or a repeated evidence identifier. The artifact-side
+gate anchors are listed here:
+
+Every gate-summary block uses the same fields:
+
+- **files** names the temporary or configured inputs and outputs;
+- **subprocess** names the command that performs the checks;
+- **metric** states the numerical comparison or refusal that decides success;
+- **legs** lists the individually named assertions;
+- **evidence** explains how command output proves each named assertion; and
+- **capability boundary** names required software, scientific data, or
+  hardware. A missing capability produces no passing evidence.
 
 ### fixed-facts-schema: a saved emulator records the science it was born under
 
-The persisted scientific record (`emulator/fixed_facts.py`), gated on real HDF5
-files with no accelerator. Two blocks: `fixed_facts` (what was held fixed while
-the sampled parameters varied) and `input_domain` (the region they were drawn
-from). The blocks are siblings because their comparison laws differ in kind, an
-equality law and an overlap law, and one block would need a per-key table of
-exceptions saying which key is compared how.
+`emulator/fixed_facts.py` stores two sibling blocks in a real HDF5 file.
+`fixed_facts` records coordinates held constant while sampled coordinates
+varied and is compared by equality. `input_domain` records the sampled support
+and is compared by overlap. Keeping the blocks separate prevents per-key
+exceptions to one ambiguous comparison rule. These checks need no accelerator.
 
 <a id="fixed-facts-schema-record-round-trip"></a>
 `fixed-facts-schema.record-round-trip` writes both blocks into a real file and
@@ -1254,9 +1174,9 @@ two bounds differing in the last float32 digit stay distinct under the shortest
 decimal that round-trips.
 
 <a id="fixed-facts-schema-rewritten-record-refused"></a>
-`fixed-facts-schema.rewritten-record-refused` proves the two-way check that
-gives "copied verbatim, never re-derived" its teeth. The file carries the
-producer's own text AND the blocks parsed from it; the reader checks them
+`fixed-facts-schema.rewritten-record-refused` proves the two-way check behind
+"copied verbatim, never re-derived." The file carries the producer's own text
+and the blocks parsed from it; the reader checks them
 against each other in both directions. A fact edited in the stored block, and a
 producer text swapped under blocks that no longer match it, are both refused,
 and the refusal prints both sides.
@@ -1270,10 +1190,11 @@ belongs to is refused, not served.
 <a id="fixed-facts-schema-legacy-version-refused"></a>
 `fixed-facts-schema.legacy-version-refused` requires both legacy schema versions
 (1 and 2) to refuse with the migration instruction, requires a block grammar
-from the future to refuse, and requires the CURRENT version to be accepted (a
+from the future to refuse, and requires the supported version to be accepted (a
 check that only ever refuses proves nothing about the file it must let through).
-Authorizing ruling: FORK 3 of the fixed-facts adjudication
-(`ai/notes/gates-and-board.md`).
+The reader accepts exactly the schema version declared by
+`emulator/fixed_facts.py` and refuses every other version with migration
+guidance.
 
 <a id="fixed-facts-schema-sampled-and-fixed-refused"></a>
 `fixed-facts-schema.sampled-and-fixed-refused` requires a coordinate that is
@@ -1283,7 +1204,7 @@ answer "what was w?" differently depending on which half was read.
 
 <a id="fixed-facts-schema-parameter-order-enforced"></a>
 `fixed-facts-schema.parameter-order-enforced` requires a whitening geometry
-whose parameter order is a PERMUTATION of the record's to be refused, with both
+whose parameter order is a permutation of the record's to be refused, with both
 orders printed. A check that counted the names, or compared them as a set, would
 let a permutation through, and a permutation silently pairs every incoming value
 with the wrong parameter's column: the predictions are then confidently wrong
@@ -1291,97 +1212,68 @@ and nothing about the numbers looks unusual.
 
 <a id="fixed-facts-schema-dataset-identity-is-the-chain"></a>
 `fixed-facts-schema.dataset-identity-is-the-chain` requires the dataset identity
-to recompute from the published chain's bytes, two different draws to carry
+to be recomputed from the published chain's bytes, two different draws to carry
 different identities, and the emulator to carry its dataset's identity
-unchanged. It also carries the check's two MUTATION ARMS: re-accepting the old
-schema version reds the version leg, and a bound re-derived a hair wider than
-the producer wrote reds the verbatim-copy leg. Both arms restore the code and a
-control confirms the faithful file still reads. Two independent generator runs
+unchanged. Two negative controls establish that the rule matters: accepting a
+legacy schema must fail the version leg, and deriving a bound even slightly
+wider than the recorded value must fail the verbatim-copy leg. A valid control
+confirms that the faithful file still reads. Two independent generator runs
 can agree on every fixed fact and every bound and still be different datasets
 (same cosmology, same priors, a different seed), so the facts cannot tell them
 apart and the chain's own bytes must.
 
 <a id="fixed-facts-schema-vertical-law-enforced"></a>
-`fixed-facts-schema.vertical-law-enforced` proves the VERTICAL law: does this
-artifact belong to the cosmology being sampled? Every coordinate the artifact
-HELD FIXED must equal the value the resolved global model gives for it. An
-emulator generated at `w = -1.0` is refused against a chain sampling `w = -0.9`,
-and the refusal names the artifact's value, the sampled value, and the way out.
-A model that cannot say what a pinned coordinate is refuses too: the two cannot
-be compared, and an unanswerable question is not a pass. The law reads the
-coordinates the artifact PINNED, never the emulator's input names — comparing
-the input axes and calling it a cosmology check is the exact confusion this law
-exists to end. A synthetic test double, whose every fact reads "n/a", therefore
-fails against any real model, which is the correct answer: a test double must
-never be served to a likelihood.
+`fixed-facts-schema.vertical-law-enforced` verifies compatibility between one
+artifact and the resolved Cobaya model used for inference. Every coordinate
+held fixed during training must equal the corresponding resolved model value.
+A missing model value is a refusal because compatibility cannot be established.
+The comparison reads the artifact's fixed coordinates, not its sampled input
+names. The check refuses an artifact generated at `w = -1.0` when the resolved
+model uses `w = -0.9`, and the error names both values and the corrective
+action. A synthetic record containing `n/a` is also refused before likelihood
+evaluation.
 
 <a id="fixed-facts-schema-horizontal-law-enforced"></a>
-`fixed-facts-schema.horizontal-law-enforced` proves the HORIZONTAL law: do these
-two artifacts belong to each other? A Hubble rate is served beside an angular
-diameter distance, a linear power spectrum beside its nonlinear boost, and each
-pair is combined into ONE prediction, so each pair must come from one dataset and
-one cosmology. The law is equality and it starts with identity. The leg that
-matters most is the one field comparison cannot make: two runs of the same YAML
-with a fresh seed agree on every fixed fact and every bound, and are still
-different datasets — they are refused on `dataset_id`, the digest of the chain
-each was fitted to. The identity is compared as an OPAQUE string: no parsing, no
-special case for a synthetic double. Two halves that disagree on a fixed fact are
-refused naming the fact and both values; two halves sampled over different
-coordinates are refused rather than served over the union of the two.
+`fixed-facts-schema.horizontal-law-enforced` verifies that artifacts combined
+in one prediction use the same `dataset_id`, fixed cosmology, and
+sampled-coordinate set. `dataset_id` is compared as an opaque string. This
+distinguishes independent chains that used the same cosmology and bounds but
+different random draws. A mismatch is refused with both values named.
 
 <a id="fixed-facts-schema-domain-law-enforced"></a>
-`fixed-facts-schema.domain-law-enforced` proves the DOMAIN law: may this artifact
-be asked about this point? An emulator interpolates inside the region it was
-trained over and EXTRAPOLATES outside it, returning a number of the right shape,
-with the right sign, and no warning. A point outside the resolved support is
-refused, naming the artifact's interval, the requested value, and the
-remediation; both endpoints are accepted. The constraint is read FIRST: a record
-that declares no support ("undeclared") is refused for ANY point, and the leg
-proves the refusal is the DESIGNED one — it names the synthetic generator rather
-than dying inside `float("n/a")`, which would be a crash wearing a refusal's
-clothes.
+`fixed-facts-schema.domain-law-enforced` verifies each requested point before
+inference. Both support endpoints are accepted. A point outside the support is
+refused with the interval, requested value, and corrective action. A record
+with undeclared support is refused before numeric conversion, with the
+synthetic generator named, rather than failing incidentally inside
+`float("n/a")`.
 
 <a id="fixed-facts-schema-served-support-is-the-intersection"></a>
-`fixed-facts-schema.served-support-is-the-intersection` proves that the region a
-PAIR may be served over is the overlap of the two artifacts' supports, never
-their union. A point inside one half and outside the other is a point where one
-half is extrapolating, and the combined answer inherits that silently. The leg
-asserts the returned numbers ARE the intersection, and a pair whose regions do
-not overlap on some coordinate is refused rather than served the empty set. This
-is the only law that intersects, which is exactly why the support cannot live in
-the block that is compared by equality.
+`fixed-facts-schema.served-support-is-the-intersection` requires a pair's
+served support to be the coordinate-wise intersection of both supports. A
+point supported by only one artifact and a pair with a disjoint coordinate are
+refused. Support therefore remains separate from the fixed-fact block that is
+compared by equality.
 
 <a id="fixed-facts-schema-comparison-laws-are-load-bearing"></a>
-`fixed-facts-schema.comparison-laws-are-load-bearing` is the arm that gives the
-four legs above their teeth: a law that cannot go red proves nothing. Each law is
-broken on purpose in the SHIPPED module and the leg that guards it is required to
-red — the vertical law with the coordinate the model is silent about SKIPPED
-rather than refused (the silent-model leg reds), the horizontal law with its
-`dataset_id` comparison skipped (the re-run leg reds), the domain law with its
-constraint ignored (the undeclared-record leg reds), the domain law accepting any
-point (the outside-the-box leg reds), and the pair's support UNIONED instead of
-intersected (the disjoint-pair leg reds). Each arm restores the real function and
-a control confirms the faithful code still passes. The vertical arm (2026-07-14,
-audit finding F2) closed the one law that had refusal legs but no mutation arm:
-its legs were load-bearing all along, and now that is checked rather than
-believed.
+`fixed-facts-schema.comparison-laws-are-load-bearing` requires targeted
+negative controls. The checks must fail when a missing resolved coordinate is
+accepted, `dataset_id` comparison is removed, undeclared support is accepted,
+an outside point is accepted, or support union replaces intersection. The
+unmodified implementation must pass the corresponding valid controls.
 
 <a id="fixed-facts-schema-resolved-model-read-once"></a>
-`fixed-facts-schema.resolved-model-read-once` proves the ONE reader of the
-resolved Cobaya model. The producer reads the model to WRITE the record; each
-cobaya adapter reads the same model, at chain setup, to CHECK an artifact's
-record against the cosmology being sampled. If those two readings ever disagreed
-about which block wins a name that both the params block and a theory component
-state, the producer would write a fact the adapter would refuse, and an emulator
-would be unservable in the chain it was generated for. So there is one
-`fixed_facts.resolved_constants(model)` and both call it. The leg drives it over
-a duck-typed model (no cobaya, which is why it runs on a bare numpy interpreter)
-and pins the precedence the generator has always used: a theory component's
-`extra_args` fill first, the params block OVERWRITES a name both state, the first
-component wins a name two components state, a flag stays a flag while a number
-becomes a float, and a model that cannot be walked degrades to ABSENCE — the
-record publishes "n/a" — rather than crashing a run whose data vectors are
-already computed.
+`fixed-facts-schema.resolved-model-read-once` requires the producer and every
+Cobaya adapter to call `fixed_facts.resolved_constants(model)`. The resolver
+uses this precedence: theory-component `extra_args` supply initial values; the
+parameter block overrides duplicate names; and the first theory component
+supplies names duplicated across components. Boolean values remain Booleans,
+and numeric values become floats. If the model cannot be inspected, the
+resolver returns no constants and the record stores `n/a`; compatibility
+checks later refuse that record rather than treating it as verified. The check
+uses a small model-shaped object that supplies the required attributes and
+methods without inheriting from the production model class; it needs only
+NumPy.
 
 <a id="cs-adapter-identity-adapter-contract"></a>
 `cs-adapter-identity.adapter-contract` proves the cosmic-shear adapter reads its
@@ -1390,340 +1282,283 @@ emulator's own stored geometry names, and the vector it serves is the section th
 stored geometry declares (`dv_return: 3x2pt` scatters into the full layout with
 zeros off the mask). A wrong-kind artifact — a scalar emulator, which returns a
 {name: value} dict rather than a vector — is refused by name, pointing at the
-adapter it belongs in. This is the adapter of the five whose only other board gate
-(`cobaya-adapter`) needs CosmoLike and a GPU, so until this gate existed its loud
-errors were exercised nowhere at all.
+adapter it belongs in. This CPU-capable identity leg is required because the
+separate `cobaya-adapter` integration gate needs CosmoLike and a GPU. Neither
+gate may claim the other's capability boundary or evidence.
 
 <a id="cs-adapter-identity-record-laws-refuse"></a>
-`cs-adapter-identity.record-laws-refuse` proves the record's three comparison laws
-fire at the cosmic-shear adapter's own site. Two emulators off one dump are served
-together; two fitted to different datasets are refused as a pair (the horizontal
-law, at the END of initialize, after every configuration law — a misconfigured set
-must be refused as a misconfiguration first). An artifact generated under another
-cosmology is refused when cobaya hands over the provider (the vertical law, once
-per chain, before the first sampled point), and a provider that cannot reach the
-model is refused LOUDLY rather than skipped: a law that skips itself when it
-cannot run is not a law. A point outside the sampled region is refused at
-`predict`, and every point of a double that declares no region is refused there
-too. Each leg needles the WORDS of its own law, because `float("n/a")` raises the
-same ValueError class every refusal in this program does — a leg that asked only
-"did it raise?" would stay green through a broken law.
+`cs-adapter-identity.record-laws-refuse` requires the cosmic-shear adapter to
+enforce all three comparison laws at their owning boundaries. After
+configuration validation, initialization refuses artifacts from different
+datasets. When Cobaya supplies the provider, the adapter checks artifact
+constants against the resolved model once per chain and refuses a provider
+that cannot expose the model. Before encoding each point, `predict` refuses
+values outside stored support and records with undeclared support. Each
+assertion checks law-specific error text so an unrelated `ValueError`,
+including one raised by `float("n/a")`, cannot satisfy the test.
 
 <a id="artifact-readback-typed-bool"></a>
-**artifact-readback (ARB-A) — saved attributes are parsed by type, not
-truthiness.** The shared typed reader accepts a native boolean, returns the
-default for an absent key, and refuses every string / integer (the truthy
-`"False"` that would otherwise load drifted transfer weights) naming the
-file and the schema; a source census confirms no artifact boolean is
-truthiness-coerced. The live save / forge / rebuild proof is
-workstation-owed.
+**Artifact readback parses saved attributes by type, not truthiness.** The
+shared typed reader accepts a native Boolean and returns the declared default
+for an absent optional key. The reader refuses every string or integer,
+including the truthy string `"False"` that would otherwise load drifted
+transfer weights. The refusal names the file and schema. A static search of
+artifact-reading source confirms that
+no Boolean field is coerced through truthiness. A real save, forged record,
+and rebuild check requires the GPU-capable environment.
 
-## UNIT 66 (RT-2026-07-13-02, 2026-07-13): public returned arrays own their storage — no mutable views of persistent state
+## Public returned arrays own their storage
 
-Finding (red team, CONFIRMED by Architect probe): on CPU,
-EmulatorPredictor.predict returns the PERSISTENT grid axes as
-storage-sharing views — self.z at inference.py:520, self.z + self.k
-at :529-530 (.detach().cpu().numpy(): cpu() is a no-op on a CPU
-tensor and numpy() shares storage). A caller edit of the returned
-NumPy array silently edits the predictor's stored scientific axis,
-and the NEXT prediction labels unchanged model values with corrupted
-coordinates (probe: [0,1] -> [99,1]). On CUDA/MPS, .cpu() copies —
-public ownership semantics are device-dependent today (MPS probe:
-the caller edit does NOT reach the tensor). The same pattern returns
-persistent geometry state through public diagnostic dictionaries:
-diagnostics.py :542 (geom.sigma), :585 (geom.ell), :669 (geom.scale),
-:765 + :790 (geom.z), :901 + :917 (geom.z, geom.k).
+**Reason.** On CPU, `.detach().cpu().numpy()` may share storage with a
+persistent tensor because `cpu()` need not copy. On CUDA and the Apple Metal
+Performance Shaders accelerator backend, transfer to CPU creates different
+storage. Without
+an explicit ownership rule, mutating a returned axis can therefore corrupt
+later predictions on one device but not another. Persistent axes include
+`self.z` and `self.k` in `emulator/inference.py` and `sigma`, `ell`, `scale`,
+`z`, and `k` in public dictionaries from `emulator/diagnostics.py`.
 
-Contract:
+**Rule.**
 
 1. Every array a public entry point returns that derives from
-   PERSISTENT model or geometry state is an owned copy — a caller
-   mutation can never reach predictor or geometry state. Freshly
-   computed per-call arrays (decode outputs and friends) have no
-   second owner and are NOT blanket-copied: the contract is
+   persistent model or geometry state is an owned copy. A caller
+   mutation can never reach predictor or geometry state. Newly computed
+   decoder results and model predictions have no
+   second owner and are not blanket-copied. The contract is
    behavioral isolation, not defensive copying of everything.
-2. The census over emulator/inference.py + emulator/diagnostics.py
-   (the .numpy() sites above are the seed, not the bound) decides
-   copy-vs-keep per site and is recorded in the landing notes.
-3. Gate legs (CPU): predict once, mutate EVERY returned array,
-   predict again — the second result is byte-identical to a pristine
-   reference and the stored axes are unchanged; the same discipline
-   for one grid and one grid2d public diagnostic dictionary.
-   Device-parity leg: the same mutation-isolation assertions pass on
-   an MPS-built predictor (Mac-runnable; CUDA parity rides the
-   workstation board). Mutation arm: restoring a bare
-   storage-sharing .numpy() on a persistent axis must FAIL.
-4. Producer model math unchanged. In-repo consumers censused for
-   existing mutation of returned arrays — any hit is a live
-   corruption to REPORT, not silently absorb.
-5. Sequencing: standalone small unit — after the queue-2 evidence
-   rollout, before queue 5 (the workstation run certifies the fixed
-   surface).
+2. A static search of `emulator/inference.py` and
+   `emulator/diagnostics.py` starts from every `.numpy()` conversion and
+   classifies each public return as persistent or newly computed.
+3. Producer model mathematics remains unchanged. Any in-repository consumer
+   that mutates a returned persistent array is reported as an ownership
+   violation rather than accommodated silently.
 
-## UNIT 66 AMENDED (20M-07, 2026-07-13): the ownership surface is every public exit — predictor, diagnostics, AND the Cobaya getters; the census is alias-aware
+**Acceptance evidence.** Call each affected public function, mutate every
+returned array, call it again, and require both the stored axes and second
+result to match an untouched reference exactly. Apply the same check to one
+grid and one grid2d public diagnostic dictionary. Predictors built on CPU and
+on the Apple accelerator backend must behave identically; CUDA uses the
+GPU-capable environment. A mutation that
+restores a storage-sharing `.numpy()` return must fail.
 
-Finding (red team, CONFIRMED): the original unit-66 census
-(.numpy() sites in inference.py + diagnostics.py) misses the
-adapters' second alias path — getters that return live calculation
-state by reference with no .numpy() token: emul_cmb.get_Cl (:283),
-emul_cosmic_shear.get_cosmic_shear (:197), emul_mps.get_Pk_grid
-(:420-421, the whole (k, z, P) tuple). A destructive first consumer
-(unit conversion, calibration, masking, a user diagnostic) corrupts
-the provider cache for every later consumer at the same point.
+### Array ownership covers predictors, diagnostics, and Cobaya getters
 
-Amendment (binding, folds in before the unit lands):
+**Reason.** A search limited to `.numpy()` misses adapters that return cached
+calculation state directly. The affected public methods include
+`emul_cmb.get_Cl`, `emul_cosmic_shear.get_cosmic_shear`, and
+`emul_mps.get_Pk_grid`, whose result contains wavenumber, redshift, and power
+arrays. A destructive first consumer could otherwise corrupt the provider
+cache for every later consumer at the same sampled point.
 
-1. The ownership surface is every PUBLIC exit: EmulatorPredictor
+**Rule.**
+
+1. The ownership surface is every public exit: `EmulatorPredictor`
    returns, public diagnostic dictionaries, and every Cobaya getter
    across the five adapters.
 2. The calculation state is the immutable cached scientific result;
-   each public return owns its arrays AND its mutable containers.
+   each public return owns its arrays and its mutable containers.
    The copy happens at the getter boundary — never by duplicating
    large arrays repeatedly inside calculate.
 3. Nested structures are handled deliberately: the CMB dict plus its
    arrays; the MPS tuple plus all three arrays; the cosmic-shear
    vector. Immutable scalar returns need no copy.
-4. The census detects `return self.current_state[...]` and
-   equivalent nested aliases — an AST/code census, not a .numpy()
-   grep alone.
+4. Static analysis of the Python abstract syntax tree detects
+   `return self.current_state[...]` and equivalent nested aliases; a text
+   search for `.numpy()` alone is insufficient.
 5. Docstrings state that "cache" means provider-owned and read-only
-   to consumers, even though NumPy cannot enforce constness.
+   to consumers, even though NumPy cannot enforce that read-only property.
 
-Added legs (with the original unit-66 legs): per affected getter —
-get once, mutate every returned array and container, get again; the
-second result AND current_state byte-identical to a pristine
-reference; two simulated likelihood consumers (destructive first,
-read-only second); MPS edits to each of k, z, P; CMB edits to ell
-and one spectrum; mutation arms restoring each direct return must
-red. CPU-only. Sequencing unchanged: after queue 2, before queue 5.
+**Acceptance evidence.** For each affected getter, read once, mutate every
+returned array and mutable container, and read again. The second result and
+`current_state` must match an untouched reference exactly. Two simulated
+likelihood consumers exercise a destructive first reader and a read-only
+second reader. MPS cases edit each of `k`, `z`, and `P`; CMB cases edit `ell`
+and one spectrum. Mutations that restore each direct alias must fail. These
+checks run on CPU.
 
-## UNIT 76 (20M-09, 2026-07-13, HIGH): the model recipe is validated total before construction — absence is corruption, explicit None is a value
+## Model recipes are complete before construction
 
-Finding (red team, CONFIRMED end to end on CPU; mechanism verified
-at results.py:683 with the sibling outer-presence lane at :677): a
-schema-v2 artifact whose recipe lost head_act rebuilds silently under
-the constructor default and predicts differently ([-1.7615941763] ->
-[-1.0] on the probe artifact); strict weight loading cannot see it
-because parameterless activations carry no state-dict keys.
+**Reason.** A model recipe is incomplete if any constructor field is absent,
+even when the constructor supplies a default. Strict weight loading
+cannot detect a missing parameterless activation because that activation has
+no state-dictionary keys. Absence therefore differs from an explicit `None`:
+for `head_act`, `None` means inherit the trunk activation, while absence means
+artifact corruption.
 
-Contract (ratified):
+**Rule.**
 
-1. "Key absent" and "key present with explicit None" are DISTINCT
+1. "Key absent" and "key present with explicit `None`" are distinct
    for every constructor field; absence raises before any
    import/construction.
 2. The complete recipe validates before the model class is imported
    or constructed: required top-level keys, an exact kwargs schema
    for the declared class, complete factory specs, no unknown keys
    (unknown keys raise naming the class and the key).
-3. head_act is REQUIRED for a head model; explicit None is the valid
+3. `head_act` is required for a head model; explicit `None` is the valid
    "inherit the trunk activation" value; absence is corruption.
-4. The required-key census derives from the ACTUAL class signature
-   plus the deliberate injected allowlist (input_dim, output_dim,
-   geom, factories) — a newly added constructor default can never
-   reopen the fallback. The same rule closes the outer
-   block_opts-presence lane (:677) and adjudicates every remaining
-   `.get(` on the rebuild path.
+4. The required-field set derives from the class signature plus the documented
+   injected fields `input_dim`, `output_dim`, `geom`, and factories. A new
+   constructor default cannot reopen a fallback. The same rule governs
+   `block_opts` and every optional lookup on the rebuild path.
 5. Embedded transfer-base recipes validate under the same schema.
-6. Complete current artifacts stay byte-identical in prediction.
+6. Complete artifacts stay byte-identical in prediction.
 
-Legs (ratified; CPU + Torch, Mac-runnable, board-listed — the
-artifact gates claim the schema-v2 guarantee, so the guarantee gets
-legs): missing head_act raises before construction; explicit
-head_act: null rebuilds with inherited behavior; the parameterless
-ReLU/tanh deletion probe must red; missing block_opts.act,
-block_opts.norm, n_blocks, and one more scalar default each raise;
-unknown kwargs raise with class + key named; the embedded
-transfer-base recipe repeats the cases; ordinary/head/transfer
-complete controls bitwise equal. Sequencing: the artifact campaign
-(pair-integrity interlock + unit 37 neighborhood); EMUL2-blocking.
+**Acceptance evidence.** Removing `head_act`, `block_opts.act`,
+`block_opts.norm`, `n_blocks`, or another scalar constructor field one at a
+time must cause refusal before construction. Explicit `head_act: null` must
+preserve inherited behavior. Unknown keyword arguments name the class and
+key. Embedded transfer-base recipes repeat the cases. Complete ordinary,
+head, and transfer artifacts retain bitwise-identical predictions.
 
-## UNIT 77 (20M-10, 2026-07-13, CRITICAL): factored physical gain composes on the CENTERED constant template — one composition owner, old-formula artifacts refused
+## Factored physical gain composes on the centered constant template
 
-Finding (red team, CONFIRMED; the docstrings state the defective
-convention): _unwhiten_templates (losses/transfer.py:223-240)
-returns center-free templates, _compose applies T_t(1 + r_t), and
-_composed_physical (:337-353) adds geom.center AFTER — but template
-0 (GG, coefficient identically 1: losses/ia.py:27-45, where the
-center assignment lives in a docstring) has physical base T0 + c,
-so the executed gain differs from the advertised physical gain by
--c*r0 (witness: c=10, GG=12, r=1 -> 14 executed vs 24 advertised),
-and gain leverage vanishes where GG equals the center.
-transfer-identity is green because r=0 parity coincides and
-base_decode shares the convention.
+**Reason.** For the constant-coefficient template, the physical base is
+`T0 + c`, where `c` is the geometry center. A multiplicative correction must
+therefore compute `(T0 + c) * (1 + r0)`. Applying the correction to `T0` and
+adding `c` afterward omits the cross term `c * r0`. For example, `c = 10`,
+physical constant-template value `T0 + c = 12`, and `r0 = 1` produce the
+incorrect value 14 instead of the
+required value 24. A zero correction cannot expose this error, so parity at
+`r0 = 0` is insufficient evidence.
 
-Contract (ratified): (1) in the factored physical representation the
-center attaches to the constant-coefficient template BEFORE gain or
-sum composition, and is never added again after; (2) frozen
-encode/chi2, decode, base_decode, and every reachable live path
-share ONE conversion/composition owner; (3) "template 0 has
-coefficient identically 1" becomes explicit IA-design metadata or is
-validated — not an index literal; (4) physical SUM numerics are
-pinned (moving the center is algebraically equivalent there and must
-not change bytes); (5) zero-correction identity, plain transfer, and
-both whitened paths unchanged; (6) the corrected semantic binds to
-implementation identity — an artifact trained under the old
-factored-gain formula is REFUSED for retraining, never silently
-reinterpreted.
+**Rule.** The center is attached to the constant-coefficient template before
+gain or sum composition and is not added again afterward. Frozen encoding and
+chi-square calculation, `decode`, `base_decode`, and production inference
+share one conversion and composition function. The constant-coefficient
+template is identified by explicit IA metadata or a validated design rule,
+not by an unexplained index. Sum, plain-transfer, whitened, and zero-correction
+paths retain their established numerical behavior. An artifact trained with
+an incompatible factored-gain formula is refused for retraining rather than
+silently reinterpreted.
 
-Legs (ratified, board-listed, Torch — workstation): the analytic
-c=10 / GG=12 / r=1 case returns 24; a nonzero-amplitude case; GG=c
-proves nonzero gain leverage/gradient; a mutation restoring
-post-gain centering must red; zero-correction parity retained;
-factored physical sum pinned; plain physical gain + both whitened
-paths pinned; frozen chi2 / decode / base_decode agree on one
-formula. Sequencing: the transfer campaign, BEFORE any factored
-transfer production run (D-TP9 blocked on it).
+**Acceptance evidence.** The analytic example returns 24. A case with the
+uncentered template value `T0 = 0`, so the physical constant-template value
+equals `c`, retains nonzero gain leverage and gradient. The zero-correction,
+factored-sum, plain-gain, and both whitened paths retain their expected
+values. Frozen chi-square calculation, `decode`, and `base_decode` use the
+same formula. A negative control that restores post-gain centering must fail.
 
-## UNIT 78 (20M-11, 2026-07-13, CRITICAL): the public inference boundary reads the rescale fact — "none" only, everything else refused loudly
+## Public inference reads and enforces the `rescale` fact
 
-Finding (red team, CONFIRMED end to end): the driver persists
-rescale as a root artifact attribute; rebuild_emulator never reads
-it ("rescale" appears in results.py only inside comments/docs), so
-EmulatorPredictor installs the plain decode and returns finite,
-wrong physical vectors for "rescaled"/"residual" artifacts (probe:
-max abs error 28.236); warmstart.py:216-217 already refuses the
-same fact on ITS boundary — the asymmetry is the defect.
+**Reason.** `rescale` is required scientific metadata. Ignoring it installs
+the plain decoder for an artifact that needs a parameter-dependent inverse
+transformation. The result can be finite and correctly shaped yet wrong; the
+recorded numerical example has a maximum absolute error of `28.236`.
 
-Contract (RULING = refusal-first, as recommended): (1)
-rebuild_emulator reads rescale as a REQUIRED native-string artifact
-fact — missing, non-string, or unknown values raise before model
-use; (2) public inference accepts "none" only; "rescaled" and
-"residual" refuse with prose explaining their parameter-dependent
-inverse transform is not reconstructible from the artifact; (3)
-EmulatorPredictor and ALL five Cobaya adapters share the refusal —
-no adapter bypass; (4) full analytic-rescale inference support, if
-ever wanted, is a separate user-gated schema/design unit persisting
-every fact the training decoder needs (cosmo_mid, include_amp,
-u_star, the theta/effective-redshift mapping) and instantiating the
-SAME loss decoder — never a reimplementation, never a silent
-blessing of existing files; (5) plain "none" artifacts byte-
-identical; (6) the note's "inference needs cosmolike" claim is
-corrected — the defect is missing persisted state, not an inherent
-cosmolike dependency.
+**Rule.** `rebuild_emulator` reads `rescale` as a required native string before
+model execution. Public inference supports only `"none"`. Missing,
+non-string, unknown, `"rescaled"`, and `"residual"` values are refused with an
+explanation that the artifact does not contain enough information to rebuild
+their inverse transformation. `EmulatorPredictor` and all five Cobaya adapters
+use this shared check. Supporting a transformed form requires a new schema
+that stores every decoder input, including `cosmo_mid`, `include_amp`,
+`u_star`, and the theta and effective-redshift mapping, and then calls the
+same training-loss decoder. The `"none"` path remains bitwise unchanged.
 
-Legs (ratified, board-listed): "none" control unchanged;
-"rescaled"/"residual" artifacts refused before model execution
-(or exactly reproduced if the full unit ever lands — with non-unit
-parameter-dependent R and the two forms proven separately, never
-one collapsed fixture); missing / numeric / boolean / unknown
-rescale facts refused; all five adapter entry points inherit the
-boundary; a mutation deleting the read/refusal reproduces the
-finite wrong prediction and must red. Sequencing: RIDES the unit-76
-landing (one recipe-totality validation pass in results.py);
-EMUL2-blocking.
+**Acceptance evidence.** Invalid types and values are refused before model
+execution through the predictor and every adapter. The `"none"` control is
+unchanged. A negative control that removes the check reproduces the finite
+error of `28.236` and must fail. Any future support for transformed inference
+requires separate parameter-dependent checks for `"rescaled"` and
+`"residual"`. Each check must use inputs for which the corresponding inverse
+transformation changes the numerical result; one combined fixture is not
+enough.
 
-## UNIT 84 (20M-17, 2026-07-13, HIGH): the artifact records the physical parameter domain its predictions are valid on — enforced centrally at the predictor
+## Artifacts record and enforce the physical parameter domain
 
-Finding (red team, CONFIRMED end to end through a real save/rebuild
-and the real emul_scalars path): ParamGeometry.state() persists only
-{names, center, evecs, sqrt_ev}; _as_row orders values and builds
-the tensor with no domain check; all five adapters cross that
-boundary. The tanh witness (y = x trained on [-0.1, 0.1]) serves
-finite, correctly shaped answers that are 23.84% wrong at x = 1 and
-90% wrong at x = 10 — invisible to every finiteness or type guard.
+**Reason.** `ParamGeometry.state()` records names and transformations but does
+not by itself record where predictions are scientifically valid. A model
+trained on `y = x` for `x` in `[-0.1, 0.1]` can return finite, correctly shaped
+answers that are 23.84% wrong at `x = 1` and 90% wrong at `x = 10`. Finiteness
+and type checks cannot detect this extrapolation.
 
-Contract (ratified): (1) the artifact persists the canonical
-admissible physical input support BY PARAMETER NAME, sourced from
-the declared generator/prior/cut contract — NEVER from observed
-sample minima/maxima; (2) a valid set more restrictive than an
-axis-aligned box persists the actual named constraint or a versioned
-validator identity — no silent widening to a bounding box; (3) the
-support block validates at save AND rebuild (exact name set/order,
-finite endpoints or explicitly supported open bounds, strict
-ordering, no coordinate both sampled and fixed); (4) at adapter
-startup the inference sampler's prior is proven a subset of the
-artifact support wherever Cobaya exposes it — a wider prior refuses
-BEFORE sampling; (5) every point is independently validated before
-pgeom.encode — startup proof never replaces runtime defense; (6) a
-physical cosmology is NEVER clamped to the boundary; (7) multiple
-artifacts in one adapter serve only their declared intersection,
-explicit in the startup record; (8) fine-tuning and transfer persist
-their executed domain — inherited coordinates may narrow, never
-silently widen; new coordinates acquire explicit support; (9) a
-legacy artifact without the block refuses with a migration
-instruction — absence never means unbounded; (10) in-domain
-prediction byte-identical. Unit 46's NPCE domain policy becomes the
-PCE-specific instance and consumes the same persisted block.
+**Rule.** Every artifact stores its admissible physical support by parameter
+name. The support comes from the declared generator, prior, or cut, not from
+observed sample extrema. A non-box constraint stores a named and versioned
+validator rather than a widened bounding box. Save and rebuild validate names,
+order, bounds, and the separation between sampled and fixed coordinates.
+Where Cobaya exposes the sampler prior, adapter startup proves that prior is a
+subset of the artifact support. Every requested point is also checked before
+encoding. Values outside the support are refused and never clamped. When an
+adapter combines artifacts, it serves only their declared intersection.
+Fine-tuning and transfer may narrow inherited support but may not silently
+widen it; every new coordinate receives explicit support. A legacy artifact
+without this block is refused with a migration instruction. In-domain
+predictions remain bitwise unchanged. NPCE uses this same domain record.
 
-Legs (ratified; CPU/Torch, board-listed): the real
-save -> rebuild -> emul_scalars known answer on [-0.1, 0.1]; exact
-boundary values accepted; one representable value below/above
-refused before encode; the finite x = 1 / x = 10 witnesses refused;
-a wider Cobaya prior rejected at startup and a contained prior
-accepted; multi-artifact overlap + disjoint refusal; malformed /
-missing / reordered / sampled-plus-fixed records refused;
-fine-tune/transfer propagation; a mutation deleting the predictor
-check reproduces the 23.84% / 90% answers and reds. Placement: the
-inference/artifact boundary campaign, enforced centrally in
-EmulatorPredictor (never five adapter copies); EMUL2-blocking; the
-domain block's schema placement rides the fixed-facts proposal
-review.
+**Acceptance evidence.** A real save, rebuild, and scalar prediction covers
+the support `[-0.1, 0.1]`. Both endpoints are accepted, while the nearest
+representable values outside each endpoint and the finite `x = 1` and `x = 10`
+examples are refused before encoding. A contained Cobaya prior is accepted and
+a wider one is refused at startup. Tests cover overlapping and disjoint
+multi-artifact domains, malformed and missing records, reordered names,
+sampled-plus-fixed conflicts, and fine-tune and transfer propagation. A
+negative control that removes the predictor check reproduces the 23.84% and
+90% errors and must fail. `EmulatorPredictor` owns the shared enforcement.
 
-## 25M-37 (Red Team finding, awaiting Architect adjudication): an eager CosmoLike import makes four advertised Torch-only gates fail before their first assertion
+## CosmoLike is imported only at the construction boundary that needs it
 
-`emulator/geometries/output.py` imports
-`cosmolike_lsst_y1_interface` at module import time.  Only the
-`DataVectorGeometry.from_cosmolike` construction path uses that interface;
-the plain constructor and `from_state` rebuild path use persisted arrays and
-do not.  The module's own teaching text says that inference never rereads
-CosmoLike, but importing the module still requires the compiled package.
+**Reason.** Only `DataVectorGeometry.from_cosmolike` uses
+`cosmolike_lsst_y1_interface`. The plain constructor and `from_state` rebuild
+path use persisted arrays. Requiring the compiled interface while importing
+`emulator.geometries.output` would therefore prevent artifact-only operations
+and Torch-only acceptance checks from reaching their own code.
 
-This makes the gate capability declarations false.  The board declares
-`scalar-identity`, `finetune-identity`, `transfer-identity`, and
-`finite-contract` with `needs=("torch",)` and their child documentation says
-that CosmoLike is not required.  Each child imports `DataVectorGeometry`
-before entering `main`.  Executing all four with the Cocoa Torch 2.6.0
-interpreter and `PYTHONPATH=.` on a machine without the compiled interface
-produces the same pre-body `ModuleNotFoundError`; no child report or logical
-leg executes.  `finite-contract` therefore cannot even reach its separately
-known `_chi2_domain` red on the environment its own header promises.
+**Rule.** The compiled interface is a dependency of the `from_cosmolike`
+construction boundary, not of importing the persisted geometry type.
+Importing `emulator.geometries.output`, constructing or restoring
+`DataVectorGeometry` from explicit tensors, and rebuilding a saved artifact
+must work with Torch and NumPy when the interface is absent. Calling
+`from_cosmolike` without it must raise a teaching error that names the missing
+compiled dependency and the operation that requested it. With the interface
+installed, construction numerics and saved state remain unchanged.
 
-Required contract: make the compiled interface a dependency of the
-`from_cosmolike` construction boundary, not of importing the persisted
-geometry type.  Importing `emulator.geometries.output`, constructing or
-restoring `DataVectorGeometry` from explicit tensors, and rebuilding a saved
-artifact must work with Torch and NumPy when the interface is absent.
-Calling `from_cosmolike` without it must raise a teaching error that names the
-missing compiled dependency and the operation that requested it.  With the
-interface installed, the existing construction numerics and saved state stay
-unchanged.  Red legs execute the four real child entry points in an
-environment where the interface import is deliberately unavailable; each
-must get past module import and reach its owned assertions.  A mutation that
-restores the eager module-level import must fail all four.  This is production
-geometry ownership plus board capability evidence, not four independent gate
-stubs.
+**Acceptance evidence.** Execute the real `scalar-identity`,
+`finetune-identity`, `transfer-identity`, and `finite-contract` child entry
+points while deliberately making the interface unavailable. Each must pass
+module import and reach its owned assertions. A mutation that restores an
+eager module-level import must fail all four. These checks exercise production
+geometry ownership. Test doubles that merely allow an import, without running
+the production assertions, are not substitutes.
 
-## Queue-2 evidence draft: geometry-module paths
+## Acceptance evidence: geometry module paths
+
+The **gate registry** is the catalog in `ai/gates/board.py`, executed by
+`ai/gates/run_board.py`. Its shared `repo_py_files()` function returns the
+repository Python-file set used by whole-repository checks.
 
 <a id="geo-paths-evidence"></a>
 **geo-paths — fresh artifacts name geometry classes from the geometry package,
 and the retired flat module paths remain absent.**
 
 - files: creates a temporary covariance file plus temporary `.h5` and `.emul`
-  artifact files; scans every repository Python file returned by the board's
-  shared repository-file enumerator except its own check source, which contains
+  artifact files; scans every repository Python file returned by
+  `repo_py_files()` except its own check source, which contains
   the retired names as test data; all generated files are deleted with the
   temporary directory.
 - subprocess: `ai/gates/checks/geo_paths.py`.
-- metric: per-leg attribute-prefix/count and finite-prediction checks, a
-  complete six-name disk/import census, or a repository-Python reference
+- metric: each named leg checks the expected geometry-class module prefix,
+  exact attribute count, and finite prediction; the other legs perform a
+  complete six-name disk/import census or a repository-Python reference
   census with the one named self-exclusion.
 - legs: 3, named `geo-paths.fresh-save-uses-folder-paths`,
   `geo-paths.legacy-flat-paths-absent`, and
   `geo-paths.legacy-reference-census`.
 - evidence: all three legs are asserted in the child; the child's exit status
-  remains the single aggregate verdict and is not a fourth leg.
-- owed: the board registry models CPU PyTorch only. NumPy and HDF5 are also
-  ordinary imports of the child; if either import is absent the child is red
-  before these legs, rather than capability-skipped. A green full board is
-  separate integration evidence and is not minted as a `geo-paths` leg.
+  remains the single aggregate result and is not a fourth leg.
+- capability boundary: the gate registry requires CPU PyTorch. NumPy and HDF5
+  are ordinary child-process imports; if either is absent, the child command
+  fails before these legs rather than reporting a capability skip. A pass of
+  the complete registered acceptance suite is separate integration evidence
+  and is not recorded as a `geo-paths` leg.
 
 <a id="geo-paths-fresh-save-uses-folder-paths"></a>
 `geo-paths.fresh-save-uses-folder-paths` requires a fresh artifact to contain
 at least two attribute values beginning `emulator.geometries.`, no attribute
 value beginning with the retired flat prefix, and a finite prediction after
-rebuild. The current child does not identify which two geometry classes own
-those markers.
+rebuild. This evidence identifies the package prefix but does not identify
+which two geometry classes own the markers; no class-specific claim may be
+derived from this leg.
 
 <a id="geo-paths-legacy-flat-paths-absent"></a>
 `geo-paths.legacy-flat-paths-absent` checks each of the six retired module
@@ -1732,44 +1567,44 @@ absent.
 
 <a id="geo-paths-legacy-reference-census"></a>
 `geo-paths.legacy-reference-census` scans the complete repository Python-file
-set supplied by the shared board enumerator, excluding only the check that
+set supplied by `repo_py_files()`, excluding only the check that
 contains the search terms, and requires zero retired flat-module references.
 
-## Queue-2 evidence blocks: the six wrapper-family gates (Opus, 2026-07-14)
+## Acceptance evidence: wrapper-family gates
 
-These six gates had no red-team naming draft — the throughput rebalance left
-them to me to name — so the blocks below ARE their naming spec. All six live
-here because all six are artifact-lifecycle gates: two identity children that
-run on any torch box, two smoke wrappers that read a real driver's output, and
-the save/rebuild + cobaya pair that needs cosmolike and a GPU.
+The following blocks are the naming and evidence specification for six
+artifact-lifecycle gates: two identity children that run in any CPU
+environment with PyTorch; two smoke wrappers that read a real training
+driver's output; and the paired save/rebuild and Cobaya integration checks,
+which require CosmoLike and a GPU.
 
-Three of the legs below mint UNAVAILABLE by construction, not by accident.
-Each one was, before this pass, a `ctx.log` instruction addressed to a human —
-"the Architect confirms this from the saved artifact", "run the MCMC smoke once
-evaluate is green". A logged instruction is not an executed test, and the
-wrapper it sits in must not be allowed to green it (ruling 6): the leg is
-DECLARED, so it is reconciled every run, and it reports UNAVAILABLE with the
-reason naming what nobody executed. The alternative — dropping the leg — is how
-a board quietly stops claiming the thing it was built to claim.
+Three declared anchors require executable actions beyond the output checks
+described by their wrappers. A log message or an instruction to inspect a file
+is not acceptance evidence. Unless the named action executes, a wrapper must
+record the anchor as unavailable or non-passing and must never infer a pass
+from adjacent output.
 
 <a id="finetune-identity-evidence"></a>
 **finetune-identity — a warm-started emulator computes the source emulator's own
 function before the first training step, whatever new parameters were added.**
 
 - files: creates a temporary source artifact (`.h5` + `.emul`) and a temporary
-  covariance file under a `ftw-` temp directory; no cosmolike, no dataset.
+  covariance file under a `ftw-` temporary directory; no CosmoLike installation
+  or scientific dataset is required.
 - subprocess: `ai/gates/checks/finetune_identity.py`.
 - metric: exact tensor equality for the encoding, the transferred weights and
-  the degenerate state dict; the parity leg reads the warm-start verdict line
-  (`max|dv| = 0.000e+00` on 256 rows); the error legs require a raise.
+  the degenerate state dict; the parity leg reads the warm-start result line
+  (`max|dv| = 0.000e+00` on 256 rows); every refusal case requires the declared
+  exception and message.
 - legs: 7, named `finetune-identity.extended-parameter-encoding`,
   `.weight-transfer-and-padding`, `.pre-train-parity`, `.output-geometry-pin`,
   `.degenerate-no-extras-identity`, `.loud-config-errors`, and
   `.anchor-mask-and-freedom`.
 - evidence: all seven are asserted in the child, which emits one `##AID` per
-  leg; the child's exit status stays the single aggregate verdict and is not an
+  leg; the child's exit status stays the single aggregate result and is not an
   eighth leg.
-- owed: none. The child runs green on a plain CPU torch box.
+- capability boundary: none. The child command passes in a CPU-only PyTorch
+  environment.
 
 <a id="finetune-identity-extended-parameter-encoding"></a>
 `finetune-identity.extended-parameter-encoding` requires the extra names to be
@@ -1783,8 +1618,8 @@ and each padded tensor to be the source columns followed by exact zeros.
 
 <a id="finetune-identity-pre-train-parity"></a>
 `finetune-identity.pre-train-parity` requires `build_warm_start` to pass and
-return its verdict line, and the returned `init_state` to load strict as a full
-state dict.
+return its result line. `load_state_dict(init_state, strict=True)` must accept
+the returned state dictionary without a missing or unexpected key.
 
 <a id="finetune-identity-output-geometry-pin"></a>
 `finetune-identity.output-geometry-pin` requires a matching dataset/probe/width
@@ -1803,8 +1638,8 @@ parameter set (naming the missing source parameter), a `model:` block beside
 <a id="finetune-identity-anchor-mask-and-freedom"></a>
 `finetune-identity.anchor-mask-and-freedom` requires the anchor mask to zero
 exactly the padded extra columns, the source columns to be pinned to the
-`init_state`, the padded extra columns to stay free, and `lambda 0` to be a
-no-op.
+`init_state`, the padded extra columns to stay free, and the configured
+`anchor: 0.0` case to be an exact no-op.
 
 <a id="transfer-identity-evidence"></a>
 **transfer-identity — a frozen base under a zero-output correction predicts the
@@ -1812,7 +1647,8 @@ frozen base itself, in every form and space, and a saved composition reloads to
 the same prediction.**
 
 - files: creates a temporary plain base, factored base, grid base and composed
-  transfer artifact under a `tpe-` temp directory; no cosmolike, no dataset.
+  transfer artifact under a `tpe-` temporary directory; no CosmoLike
+  installation or scientific dataset is required.
 - subprocess: `ai/gates/checks/transfer_identity.py`.
 - metric: exact tensor equality for the epoch-0 identity, the base-encoding
   slice and the save/rebuild composition; `1e-6` for the `EmulatorPredictor`
@@ -1825,18 +1661,17 @@ the same prediction.**
 - evidence: all eight are asserted in the child, one `##AID` each. The two
   legs inside `check_diagonal` are emitted by that function rather than around
   it, so the cross-family refusal reports under its own name.
-- owed: none, but `.cross-family-base-refusal` is RED today and is expected to
-  report FAIL until its fixture is repaired — the raised `ValueError` does not
-  carry the words the leg greps for. The red is in the red-team register; this
-  migration does not touch it, and the child (so the gate) exits non-zero while
-  it stands.
+- capability boundary: none. The cross-family fixture uses a plain grid base
+  so the family refusal, rather than the no-chaining refusal, is the only
+  invalid condition.
 
 <a id="transfer-identity-plain-base-slice-and-identity"></a>
 `transfer-identity.plain-base-slice-and-identity` requires, for a plain base:
 the extras to be `[w0, wa]`, the base encoding to be an exact column slice of
-the run's encoding, and for each of the four form x space combinations the
-target width, the base cache (one base encode, no chi2 recompute) and the
-epoch-0 identity with extras-independence.
+the run's encoding, and every combination in the two-by-two Cartesian product
+of correction form and representation space to preserve the target width, the
+base cache (one base encode and no chi-square recomputation), and the epoch-zero
+identity with independence from the added coordinates.
 
 <a id="transfer-identity-factored-base-slice-and-identity"></a>
 `transfer-identity.factored-base-slice-and-identity` requires the same set for a
@@ -1854,14 +1689,15 @@ non-superset parameter set.
 
 <a id="transfer-identity-artifact-lifecycle-round-trip"></a>
 `transfer-identity.artifact-lifecycle-round-trip` requires a rebuilt transfer
-artifact to return the embedded base with its form/space, its composed predict
-to equal the in-memory composition exactly, `EmulatorPredictor.predict` to
-agree to `1e-6`, and chaining (a transfer used as a base) to be refused.
+artifact to return the embedded base with its form/space, its composed
+prediction to equal the in-memory composition exactly,
+`EmulatorPredictor.predict` to agree to `1e-6`, and chaining (a transfer used
+as a base) to be refused.
 
 <a id="transfer-identity-refined-base-lifecycle"></a>
-`transfer-identity.refined-base-lifecycle` requires a refined artifact's composed
-predict to use the drifted base exactly, and a drifted state without its
-companion attribute to raise.
+`transfer-identity.refined-base-lifecycle` requires a refined artifact's
+composed prediction to use the drifted base exactly, and a drifted state
+without its companion attribute to raise.
 
 <a id="transfer-identity-diagonal-family-composition"></a>
 `transfer-identity.diagonal-family-composition` requires, on the diagonal
@@ -1874,10 +1710,9 @@ exactly.
 <a id="transfer-identity-cross-family-base-refusal"></a>
 `transfer-identity.cross-family-base-refusal` requires `from_config` to raise a
 `ValueError` naming the never-across-families rule when a grid2d run points at a
-grid base. RED TODAY: the raise happens, but its message does not contain the
-words the leg tests for, so the leg reports FAIL. Repairing the fixture (or the
-message) is a separate unit; the leg keeps its own aid so the red names itself
-instead of hiding inside the composition group.
+plain grid base. The fixture must violate only this rule. The leg retains its
+own evidence identifier so a failure names the family refusal rather than the
+larger composition group.
 
 <a id="save-rebuild-drift-evidence"></a>
 **save-rebuild-drift — an emulator rebuilt from its saved artifact pair reproduces
@@ -1887,7 +1722,8 @@ schema cannot honour is refused.**
 - files: trains and saves four tiny emulators under a `gsv-` temp directory, and
   persists one of them (the plain variant) to
   `<driver_root>/chains/gates_emul_evaluate` for the cobaya-adapter gate's
-  evaluate leg to load; reads the deploy dumps.
+  evaluate leg to load. Here `<driver_root>` is the configured training-project
+  directory. The child also reads the configured deployment data files.
 - subprocess: `ai/gates/checks/gsv_bitwise_drift.py`.
 - metric: exact tensor equality between the live and rebuilt outputs; exact CPU
   device type for every value in a nonempty tensor-only raw state dict; a raise
@@ -1898,15 +1734,20 @@ schema cannot honour is refused.**
   `.code-default-drift-ignored`, `.v1-schema-refusal`,
   `.v2-schema-refusal`, and `.old-head-artifact-refusal`.
 - evidence: all nine are asserted in the child, one `##AID` each; the wrapper's
-  rc check is the child's aggregate verdict and carries no aid.
-- owed: the whole gate needs cosmolike, a CUDA GPU, and the deploy dumps, so it
-  is capability-skipped on the Mac. In particular, only a CUDA-trained save
-  can prove that CPU normalization moved a tensor rather than observing one
-  that was already on the CPU. Its live green is WORKSTATION-OWED.
+  return-code check is the child's aggregate result and carries no separate
+  `##AID` record.
+- capability boundary: the whole gate needs CosmoLike, a CUDA GPU, and the
+  configured deployment data files, so the gate is capability-skipped in a
+  CPU-only environment. Only a CUDA-trained save can prove that CPU
+  normalization moved a tensor rather than observing one that was already on
+  the CPU. Execution therefore requires the GPU-capable environment.
 
 <a id="save-rebuild-drift-plain-rebuild-matches-live"></a>
 `save-rebuild-drift.plain-rebuild-matches-live` requires the plain variant's
-rebuilt output to equal the live model's output exactly on a probe.
+rebuilt output to equal the live model's output exactly for the first eight
+validation-input rows. In `gsv_bitwise_drift.py`, `exp` is the experiment
+object, `val_set` is its validation-data mapping, and `"C"` selects the matrix
+of cosmological parameter inputs.
 
 <a id="save-rebuild-drift-cpu-normalized-state"></a>
 `save-rebuild-drift.cpu-normalized-state` loads the just-written plain
@@ -1924,15 +1765,16 @@ Without load-time relocation, the observed device is the one serialized by
 neural-PCE save.
 
 <a id="save-rebuild-drift-head-rebuild-matches-live"></a>
-`save-rebuild-drift.head-rebuild-matches-live` requires the same for a conv-head
-save, whose rebuild must reconstruct the ResCNN from the persisted bin split
-alone, with no dataset ini.
+`save-rebuild-drift.head-rebuild-matches-live` requires the same for a
+convolutional-head save. Rebuild must reconstruct the residual convolutional
+network (`ResCNN`) from the persisted bin split alone, without reading a
+dataset configuration file.
 
 <a id="save-rebuild-drift-code-default-drift-ignored"></a>
 `save-rebuild-drift.code-default-drift-ignored` monkeypatches
 `make_activation`'s `n_gates` default (3 -> 7), rebuilds the plain save, and
 requires the output to be unchanged: the rebuild reads the file, not the
-activation code's current default. Compile-mode persistence is not claimed by
+activation code's runtime default. Compile-mode persistence is not claimed by
 this arm because rebuild is deliberately called with `compile_model=False`.
 
 <a id="save-rebuild-drift-v1-schema-refusal"></a>
@@ -1944,9 +1786,7 @@ the rebuild to raise with the migration instruction named.
 the rebuild to raise with the migration instruction named. A v2 file carried no
 record of the cosmology it was trained under, so it cannot prove it belongs to
 the cosmology it is about to be asked about; the reader refuses it rather than
-guessing. Authorizing ruling: the schema-version bump in the fixed-facts
-adjudication (`ai/notes/gates-and-board.md`, "Fixed-facts adjudication + sweep
-audit", FORK 3).
+guessing. `emulator/fixed_facts.py` is the schema-version authority.
 
 <a id="save-rebuild-drift-old-head-artifact-refusal"></a>
 `save-rebuild-drift.old-head-artifact-refusal` deletes the persisted bin split
@@ -1957,32 +1797,36 @@ a `KeyError` naming the bin-split persistence — never to re-derive the split.
 **compile-recipe — a CUDA rebuild consumes the compile mode persisted in its
 artifact.**
 
-- files: writes opaque `case-a` and `case-b` current schema-v3 scalar artifact
+- files: writes opaque `case-a` and `case-b` schema-3 scalar artifact
   pairs under temporary directories, one with `compile_mode: default` and one
-  with `compile_mode: reduce-overhead`; paths and sidecar labels do not encode
-  either mode, and the check reads no deploy data.
+  with `compile_mode: reduce-overhead`. Paths and nearby descriptive labels do
+  not encode either mode, and the check reads no configured deployment data.
 - subprocess: `ai/gates/checks/compile_recipe.py`.
-- metric: the independently read saved modes; the ordered `torch.compile` mode,
-  eager-input, and delegated-result observations; identity and discarded-result
-  traces; compiler/rebuilt-forward exceptions; and finite callable outputs.
+- metric: the independently read saved modes; each ordered `torch.compile`
+  call's mode, uncompiled input callable, and returned compiled callable;
+  explicit records of an identity compiler result or a rebuild that discards
+  the compiler result; compiler or rebuilt-forward exceptions; and finite
+  callable outputs.
 - legs: 2, ordered as `compile-recipe.observation-controls` and
   `compile-recipe.cuda-persisted-modes`.
-- evidence: the CPU leg writes and reads both real artifacts, exercises the
-  verdict's bad traces, and forges a missing field through production rebuild;
-  the CUDA leg records and delegates the real compiler call for both artifacts,
-  then binds each delegated result to production's exact returned callable.
-- owed: this box has `torch.compile` but no CUDA. The CPU leg runs here; the
-  second leg is explicitly non-green `UNAVAILABLE` until a CUDA workstation
-  supports both modes and executes both `compile_model=True` rebuilds. The
-  standalone fixture needs neither CosmoLike nor deploy dumps.
+- evidence: the CPU leg writes and reads both real artifacts, exercises each
+  rejected observation listed below, and forges a missing field through
+  production rebuild. The CUDA leg records and delegates the real compiler
+  call for both artifacts, then binds each compiled result to production's
+  exact returned callable.
+- capability boundary: the CPU leg does not require CUDA. The CUDA leg requires
+  a CUDA-capable environment that supports both modes and executes both
+  `compile_model=True` rebuilds. The
+  standalone fixture needs neither CosmoLike nor configured deployment data.
 
 <a id="compile-recipe-observation-controls"></a>
-`compile-recipe.observation-controls` requires two real current-schema saves to
-persist the two distinct modes. Its ordered verdict accepts one matching call
-per artifact and rejects a lost call, duplicate call, compiler/forward raise,
-swapped substitution, either hard-coded mode, an identity compiler result, and
-a rebuild that discards the delegated result. Deleting `compile_mode` from one
-otherwise-current recipe must make production `rebuild_emulator` raise a
+`compile-recipe.observation-controls` requires two real supported-schema saves to
+persist the two distinct modes. Its ordered result accepts one matching call
+per artifact and rejects a lost call, duplicate call, an exception from the
+compiler or compiled forward pass, a swapped substitution, either hard-coded
+mode, an identity compiler result, and a rebuild that discards the compiled
+result. Deleting `compile_mode` from one
+otherwise-valid recipe must make production `rebuild_emulator` raise a
 `KeyError` naming the field and the no-code-default rule.
 
 <a id="compile-recipe-cuda-persisted-modes"></a>
@@ -1993,18 +1837,21 @@ matching call through a wrapper that delegates to the captured real
 `torch.compile`. The delegated result must not be the eager input, production's
 rebuild return must be that exact result, and it must produce a finite forward.
 After both capability probes succeed, any save, read, rebuild, compile, or
-forward exception is `FAIL`, not `UNAVAILABLE`. This leg proves that the saved
+forward exception is a test failure rather than a capability limitation. This
+leg proves that the saved
 value reaches the real call and production uses its returned callable; it does
 not claim a particular internal PyTorch optimization strategy.
 
 <a id="cobaya-adapter-evidence"></a>
-**cobaya-adapter — the predictor a cobaya theory block calls at sampling time
+**cobaya-adapter — the predictor a Cobaya theory block calls at sampling time
 reproduces the training-side data vector and scatters it into the layout the
 likelihood expects.**
 
 - files: trains and saves two tiny emulators under a `gct-` temp directory;
   loads the emulator save-rebuild-drift persisted at
-  `<driver_root>/chains/gates_emul_evaluate.h5`; runs the board's evaluate YAML.
+  `<driver_root>/chains/gates_emul_evaluate.h5`; runs the gate registry's
+  evaluate YAML. The registry owns this generated dependency through
+  `deps=("save-rebuild-drift",)` and runs that prerequisite first.
 - subprocess: `ai/gates/checks/gct_parity.py` (the parity legs), then `cobaya-run`
   (the evaluate leg).
 - metric: worst relative error <= `1e-6` for parity (denominator `|want| +
@@ -2014,17 +1861,21 @@ likelihood expects.**
   `.plain-scattered-vector-shape-and-mask`, `.factored-predictor-parity`,
   `.factored-scattered-vector-shape-and-mask`, `.evaluate-emulator-present`,
   `.example-evaluate-run-completes`, and `.mcmc-smoke`.
-- evidence: asserted — the four child parity legs (one `##AID` each) plus the
-  two wrapper evaluate legs; UNAVAILABLE — `.mcmc-smoke`, which no code in this
-  gate executes.
-- owed: cosmolike + cobaya + GPU, so the gate is capability-skipped on the Mac;
-  its live green is WORKSTATION-OWED. The MCMC leg is owed a real short-chain
-  run before it can mint anything but UNAVAILABLE.
+- evidence: the four child parity legs emit one `##AID` each, and the wrapper
+  executes the two evaluate legs. `mcmc-smoke` requires the separate short-chain
+  action described below; evaluate output cannot satisfy it.
+- capability boundary: CosmoLike, Cobaya, and a GPU are required. The wrapper
+  must report `mcmc-smoke` as unavailable or non-passing unless it executes the
+  short chain.
 
 <a id="cobaya-adapter-plain-predictor-parity"></a>
 `cobaya-adapter.plain-predictor-parity` requires the `EmulatorPredictor` built
 from the saved plain file to match the training-side kept-entry data vector to a
-worst relative error of `1e-6` across the probe rows.
+worst relative error of `1e-6` across the first eight validation-input rows.
+In `gct_parity.py`, `exp` is the experiment object, `val_set` is its
+validation-data mapping, and `"C"` selects the matrix of cosmological parameter
+inputs. Each row is paired with the parameter names saved in the artifact
+geometry before predictor input is constructed.
 
 <a id="cobaya-adapter-plain-scattered-vector-shape-and-mask"></a>
 `cobaya-adapter.plain-scattered-vector-shape-and-mask` requires, for the plain
@@ -2042,39 +1893,43 @@ shape and masking set for the factored save.
 
 <a id="cobaya-adapter-evaluate-emulator-present"></a>
 `cobaya-adapter.evaluate-emulator-present` requires the emulator
-save-rebuild-drift persists to exist on disk before the evaluate run is spent on
-a missing file; a lone `--gate cobaya-adapter` invocation must run
-save-rebuild-drift once first.
+produced by `save-rebuild-drift` to exist on disk before the evaluate run
+starts. The gate registry automatically runs `save-rebuild-drift` first through
+the declared `deps=("save-rebuild-drift",)` dependency, including when the
+user requests only `--gate cobaya-adapter`. If the file is still absent after
+that prerequisite, the gate fails before drawing any conclusion about Cobaya.
 
 <a id="cobaya-adapter-example-evaluate-run-completes"></a>
 `cobaya-adapter.example-evaluate-run-completes` requires `cobaya-run` on the
-board's evaluate YAML (the lsst_y1 likelihood, `use_emulator 1`) to exit zero.
-It proves the run completes; the physics parity is the child's job.
+gate registry's evaluate YAML (the `lsst_y1` likelihood, `use_emulator 1`) to
+exit zero.
+It proves that the run completes. Numerical parity is established separately
+by the named predictor assertion.
 
 <a id="cobaya-adapter-mcmc-smoke"></a>
-`cobaya-adapter.mcmc-smoke` would prove the theory block drives a sampler, not
-just an evaluate. UNAVAILABLE: this gate starts no sampler. It was a logged
-instruction ("run it with an mcmc sampler override once the evaluate leg is
-green"), and an instruction is not a test — the leg stays declared, and reports
-UNAVAILABLE every run, until a short-chain run is actually executed here.
+`cobaya-adapter.mcmc-smoke` requires a real short-chain run that drives the
+theory block through a sampler, not merely through `evaluate`. A wrapper that
+does not start the sampler must record this anchor as unavailable or
+non-passing; it cannot use a successful evaluate run as substitute evidence.
 
 <a id="finetune-smoke-evidence"></a>
-**finetune-smoke — a real fine-tune run continues the board's own saved
+**finetune-smoke — a real fine-tune run continues the gate registry's own saved
 emulator.**
 
-- files: reads the emulator save-rebuild-drift persists under the board
-  fileroot; the run writes its own outputs under the driver root.
+- files: reads the emulator produced by `save-rebuild-drift` under the
+  configured driver file root; the run writes its own outputs under the driver
+  root. The registry automatically supplies this file through
+  `deps=("save-rebuild-drift",)`.
 - subprocess: the cosmic-shear training driver, on the `finetune-smoke-config`
   YAML.
-- metric: process exit code, plus selected-text presence of two driver lines
-  (the parity verdict, the warm-start banner).
+- metric: process exit code, plus exact presence of two required driver-output
+  lines: the parity result and the warm-start banner.
 - legs: 4, named `finetune-smoke.run-completes`, `.parity-verdict-printed`,
   `.warm-start-banner`, and `.artifact-provenance-and-round-trip`.
-- evidence: asserted — the first three, in the wrapper, from the driver's exit
-  code and its output; UNAVAILABLE — the provenance/round-trip leg, which this
-  gate does not execute.
-- owed: cosmolike + GPU, so capability-skipped on the Mac; its live green is
-  WORKSTATION-OWED.
+- evidence: the wrapper obtains the first three legs from the driver's exit
+  code and output. The provenance/round-trip leg additionally requires the
+  file action described below; output text cannot satisfy it.
+- capability boundary: CosmoLike and a GPU are required.
 
 <a id="finetune-smoke-run-completes"></a>
 `finetune-smoke.run-completes` requires the fine-tune driver to exit zero.
@@ -2082,7 +1937,7 @@ emulator.**
 <a id="finetune-smoke-parity-verdict-printed"></a>
 `finetune-smoke.parity-verdict-printed` requires the driver's output to carry
 the pre-train parity line (`finetune parity: max|dv|`). This is a text-presence
-leg: it proves the driver ran the parity check and printed its verdict. The
+leg: it proves the driver ran the parity check and printed its result. The
 identity itself is asserted numerically by finetune-identity.
 
 <a id="finetune-smoke-warm-start-banner"></a>
@@ -2090,39 +1945,42 @@ identity itself is asserted numerically by finetune-identity.
 source artifact (`finetune: from `).
 
 <a id="finetune-smoke-artifact-provenance-and-round-trip"></a>
-`finetune-smoke.artifact-provenance-and-round-trip` would prove the saved `.h5`
-carries the `finetuned_from` root attribute and that a `rebuild_emulator` round
-trip predicts identically. UNAVAILABLE: this gate reads the driver's stdout and
-opens no file. The mechanism is asserted by finetune-identity; on THIS artifact
-the claim was a logged instruction for a human at the workstation, and it stays
-declared-and-unavailable until the gate opens the artifact itself.
+`finetune-smoke.artifact-provenance-and-round-trip` requires the wrapper to open
+the saved `.h5`, verify the `finetuned_from` root attribute, rebuild the
+artifact with `rebuild_emulator`, and compare its prediction with the saved
+run's reference prediction. A wrapper that inspects only standard output must
+record this anchor as unavailable or non-passing. `finetune-identity` tests the
+general mechanism but does not replace this file-specific evidence.
 
 <a id="transfer-smoke-evidence"></a>
-**transfer-smoke — a real transfer run composes a correction over the board's own
+**transfer-smoke — a real transfer run composes a correction over the gate registry's own
 saved base.**
 
-- files: reads the plain base save-rebuild-drift persists under the board
-  fileroot; the run saves its own composed artifact under the driver root.
+- files: reads the plain base produced by `save-rebuild-drift` under the
+  configured driver file root; the run saves its own composed artifact under
+  the driver root. The registry automatically supplies this base through
+  `deps=("save-rebuild-drift",)`.
 - subprocess: the cosmic-shear training driver, on the `transfer-smoke-config`
   YAML.
-- metric: process exit code, plus selected-text presence of four driver lines
-  (the epoch-0 parity verdict, the transfer banner, and the two save lines).
+- metric: process exit code, plus exact presence of four required driver-output
+  lines: the epoch-zero parity result, the transfer banner, and the two save
+  lines.
 - legs: 5, named `transfer-smoke.run-completes`, `.parity-verdict-printed`,
   `.transfer-banner`, `.saved-artifact-paths-printed`, and
   `.artifact-provenance-and-round-trip`.
-- evidence: asserted — the first four, in the wrapper, from the driver's exit
-  code and its output; UNAVAILABLE — the provenance/round-trip leg.
-- owed: cosmolike + GPU, so capability-skipped on the Mac; its live green is
-  WORKSTATION-OWED.
+- evidence: the wrapper obtains the first four legs from the driver's exit code
+  and output. The provenance/round-trip leg additionally requires the file
+  action described below; output text cannot satisfy it.
+- capability boundary: CosmoLike and a GPU are required.
 
 <a id="transfer-smoke-run-completes"></a>
 `transfer-smoke.run-completes` requires the transfer driver to exit zero.
 
 <a id="transfer-smoke-parity-verdict-printed"></a>
 `transfer-smoke.parity-verdict-printed` requires the driver's output to carry
-the epoch-0 parity line (`transfer parity: epoch 0 == frozen base`). A
-text-presence leg, as in finetune-smoke; the identity itself is asserted
-numerically by transfer-identity.
+the epoch-zero parity line (`transfer parity: epoch 0 == frozen base`). This
+text-presence check proves that the driver ran and reported the parity check.
+`transfer-identity` separately establishes the numerical identity.
 
 <a id="transfer-smoke-transfer-banner"></a>
 `transfer-smoke.transfer-banner` requires the startup banner to announce the
@@ -2131,12 +1989,13 @@ base and its form/space (`transfer: from `).
 <a id="transfer-smoke-saved-artifact-paths-printed"></a>
 `transfer-smoke.saved-artifact-paths-printed` requires both save lines (`saved
 emulator ->` and `saved run record ->`) in the output. It proves the save ran
-and printed its two paths — NOT that the file reloads, which is the next leg.
+and printed its two paths. Reload behavior belongs to the next leg.
 
 <a id="transfer-smoke-artifact-provenance-and-round-trip"></a>
-`transfer-smoke.artifact-provenance-and-round-trip` would prove the saved `.h5`
-carries the `transfer_from` root attribute and the embedded `transfer_base`
-group, and that `rebuild_emulator` -> composed predict reproduces the in-memory
-composition. UNAVAILABLE, for the same reason as its finetune twin: the gate
-reads stdout and opens no file. The mechanism is asserted by transfer-identity's
-lifecycle leg.
+`transfer-smoke.artifact-provenance-and-round-trip` requires the wrapper to
+open the saved `.h5`, verify the `transfer_from` root attribute and embedded
+`transfer_base` group, rebuild the artifact, and require the composed
+prediction to reproduce the in-memory composition. A wrapper that inspects
+only standard output must record this anchor as unavailable or non-passing.
+`transfer-identity` tests the general lifecycle mechanism but does not replace
+this file-specific evidence.

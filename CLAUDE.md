@@ -84,10 +84,9 @@ delegation choice:
   listed in `ai/README.md`. Only the Architect decides whether an accepted
   change requires one of those notes to change, and only the Architect edits
   it. Implementer and Red Team evidence goes to a local temporary ticket note,
-  never a permanent note. The ONE carve-out (USER RULE 2026-07-13): the
-  `documentation/` TeX sources are red-team-owned — neither the Architect nor
-  the Implementer edits them; a landing that changes taught behavior NAMES
-  the affected guide passage in its notes entry instead.
+  never a permanent note. The `documentation/` TeX sources are Red-Team-owned:
+  neither the Architect nor the Implementer edits them. A change that affects
+  taught behavior names the affected guide passage in the local ticket note.
 
 ## Conventions (pointers, not copies)
 
@@ -99,10 +98,10 @@ flow; every change reported as a paste-ready block), plots
 (colorblind-safe, never red+green), terminal output (essential-only;
 full streams to log files, a debug switch restores them), machines
 (Mac M2/MPS for dev — numpy-only python3; NVIDIA for training), and
-the ROOTDIR environment. Its voice-and-why companion is
-`ai/notes/user-didactics-and-python-voice.md` — who the reader is and
-the register code and docs are written in; read it BEFORE writing
-either. Every README change and every change to explanatory Python comments,
+the ROOTDIR environment. `ai/notes/python-changes-go-no-go.md` is the
+mandatory style contract for every Python change. Read it before writing
+Python and again before the final verdict. Every README change and every
+change to explanatory Python comments,
 docstrings, help, diagnostics, or strings also uses the binary Architect gate
 in `ai/notes/readme-go-no-go.md` before its directive and before its final
 verdict. The Implementer and Red Team never edit any permanent note.

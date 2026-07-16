@@ -533,8 +533,18 @@ Exactly eleven Markdown notes are permanent repository knowledge:
 7. `models-and-designs.md`
 8. `project-and-history.md`
 9. `training-stack.md`
-10. `user-didactics-and-python-voice.md`
+10. `python-changes-go-no-go.md`
 11. `readme-go-no-go.md`
+
+`MEMORY.md` begins with the mandatory GO/NO-GO contract for changing any file
+in this list. Permanent notes state current, reusable knowledge. Dates, ticket
+numbers, role conversations, review waves, and temporary status belong in
+local working records instead.
+
+`python-changes-go-no-go.md` is mandatory for every tracked Python change, not
+only for comments or documentation. The Architect reads the contract before
+writing the directive and again before the final verdict. The contract protects
+explicit, teachable Python even when a ticket has a character-change limit.
 
 The backlog, dated reviews, incident reports, state notes, handoff registers,
 mailbox files, and relay logs are local working records. Do not add them to a

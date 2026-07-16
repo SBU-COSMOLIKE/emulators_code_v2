@@ -24,6 +24,11 @@ CosmoLike, or legacy-porting skills here. If the directive is incomplete,
 contradictory, or leaves a consequential design choice open, return a blocker;
 do not invent the missing architecture.
 
+For any tracked `.py` change, read
+`ai/notes/python-changes-go-no-go.md` before editing and return the required
+evidence block. The style contract is mandatory and cannot be relaxed by a
+passing test or a character-change limit.
+
 Input (the unchanged `ARCHITECT_HANDOFF` block; if it is empty or not an
 Architect handoff, stop and return a blocker to the Architect instead of
 asking the user for instructions):

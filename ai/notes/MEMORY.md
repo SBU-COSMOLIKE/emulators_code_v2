@@ -1,85 +1,191 @@
-# Permanent AI knowledge index
+# Permanent AI knowledge index and change contract
 
-This is the cold-start index for general properties of the emulator library.
-It deliberately contains no ticket chronology, queue state, dated audit, or
-incident narrative. Git history preserves retired material.
+This file is the starting point for durable knowledge about the emulator
+library. Read this file before opening a topic note. Then open only the note
+that owns the behavior under study.
 
-Start with this page, then open the one topic note that owns the behavior you
-are changing. The operating loop itself is taught in [`ai/README.md`](../README.md).
+The permanent notes describe current rules, scientific assumptions, software
+interfaces, failure boundaries, and evidence that remains useful after one
+bounded work request, called a ticket, closes.
+The permanent notes are not a development diary. Git, the repository's
+version-control system, stores old
+wording and superseded designs. The local backlog stores unfinished work.
+
+The operating workflow is explained in [`ai/README.md`](../README.md).
+
+## GO/NO-GO contract for changing a permanent note
+
+This contract is mandatory. Only the Architect may edit a permanent note.
+The Implementer and Red Team may identify missing or incorrect knowledge, but
+must return the proposed correction to the Architect.
+
+### GO before writing
+
+A permanent-note change receives GO only when every statement below is true:
+
+1. The change records a general property that will help a future user or
+   development model understand, modify, test, or review the library.
+2. The information belongs to one topic note in the map below. Existing text
+   will be updated in place instead of receiving a chronological addendum.
+3. The source of truth is available in current code, a current configuration,
+   a scientific definition, a reproducible acceptance command, or an explicit
+   user rule.
+4. Temporary ticket state, its place in the current work list, role
+   conversation, and review chronology remain in local working records.
+5. The planned wording is neutral. The wording addresses **the user**, **the
+   reader**, **the Architect**, **the Implementer**, or **the Red Team** only
+   when the role matters. The wording never points to a named individual.
+6. A historical milestone is included only when the milestone explains a
+   current design choice or prevents a known failed design from being repeated.
+   The milestone is named by capability, not by date, saved repository
+   version, review wave, or overnight narrative.
+
+Any failed statement gives NO-GO. Record the material in a local ticket note
+instead.
+
+### GO for the finished text
+
+The final permanent-note change receives GO only when all of these checks pass:
+
+- The first paragraph states the durable subject and why the subject matters.
+- Every heading names a technical idea. Headings do not contain dates, ticket
+  numbers, queue numbers, audit waves, role verdicts, or temporary status.
+- Current rules use direct language such as **must**, **must not**, **accepts**,
+  **refuses**, **records**, and **returns**.
+- A requirement identifies the owning code path, saved field, configuration
+  key, or gate when that reference helps a future change.
+- A scientific requirement states the physical or mathematical reason. A test
+  recipe states what failure the test must distinguish.
+- Terms are defined at first use. Internal shorthand is removed or linked to a
+  durable definition.
+- Detail is preserved when the detail can prevent a future regression. Large
+  notes are acceptable. Diary entries are not.
+- The text contains no date or timestamp, no named person, no gendered
+  pronoun, and no personal preference attributed to a particular user. The
+  anti-AI contract may quote a first- or second-person phrase only to prohibit
+  that phrase.
+- The text contains no ordinal audit-wave labels, role-verdict labels,
+  temporary review status, personal-awake narratives, numbered run history,
+  or source-control archaeology terminology.
+- Open work is not inferred from the permanent note. The local backlog and
+  executable gates determine current work and current evidence.
+- All links resolve, the permanent-note set remains exactly eleven files, and
+  the integrity guard is updated only for the deliberate accepted change.
+
+Any failed check gives NO-GO. Rewrite the note before accepting the change.
+
+### Required shape for technical findings
+
+When a former audit finding contains durable knowledge, rewrite the finding in
+this order:
+
+1. **Rule:** the behavior the library must provide.
+2. **Reason:** the scientific, numerical, usability, or integrity failure that
+   the rule prevents.
+3. **Implementation boundary:** the code, configuration, saved model
+   publication, or public interface that owns the rule.
+4. **Acceptance evidence:** the smallest test that fails for the forbidden
+   behavior and passes for the required behavior.
+
+Do not preserve the identity of the discovering role, the order of discovery,
+the ticket identifier, or the old review status. Those facts do not change the
+technical rule.
+
+### Integrity update for an intentional note change
+
+SHA-256 is a fixed-length fingerprint calculated from exact file bytes. A
+**tracked** file is a file Git saves in repository versions. A **commit** is
+one saved repository version, and a **diff** is the line-by-line comparison
+between two versions. A **pinned base** is the full commit identifier that the
+Architect selects as the accepted starting point. The SHA-256 guard compares
+the permanent files with that starting point and protects against accidental
+edits. An intentional accepted change does not weaken or bypass the guard.
+
+1. The Architect reviews the complete note diff and every renamed reference.
+2. The Architect confirms that exactly eleven top-level Markdown notes remain
+   tracked under `ai/notes/`.
+3. The relevant note tests, link checks, and prose checks run before commit.
+4. The accepted commit becomes the new pinned base for later work.
+5. `permanent_note_guard.py` runs against that full accepted commit before the
+   next Implementer or Red Team unit begins.
+
+The guard script and protected path list change only when the permanent-note
+map changes deliberately.
 
 ## The permanent eleven
 
 Exactly these eleven Markdown files under `ai/notes/` stay in Git:
 
-1. **[`MEMORY.md`](MEMORY.md)** — this index and the permanent/local boundary.
-2. **[`project-and-history.md`](project-and-history.md)** — project goal,
-   development arc, family pattern, and program-level lessons.
+1. **[`MEMORY.md`](MEMORY.md)** — this index, the permanent/local boundary,
+   and the mandatory permanent-note GO/NO-GO contract.
+2. **[`project-and-history.md`](project-and-history.md)** — project purpose,
+   capability milestones that explain the current design, the family pattern,
+   and program-level lessons.
 3. **[`conventions-and-workflow.md`](conventions-and-workflow.md)** — Python,
    documentation, plotting, terminal, YAML, environment, and collaboration
    rules.
-4. **[`user-didactics-and-python-voice.md`](user-didactics-and-python-voice.md)**
-   — the reader, teaching style, and code voice.
+4. **[`python-changes-go-no-go.md`](python-changes-go-no-go.md)** — the
+   mandatory style contract for every Python change.
 5. **[`models-and-designs.md`](models-and-designs.md)** — model families,
-   correction heads, initialization, conditioning, and design doctrine.
+   correction heads, initialization, conditioning, and design rules.
 6. **[`training-stack.md`](training-stack.md)** — losses, phase schedules,
    snapshots, sizing, diagnostics, and training invariants.
 7. **[`artifacts-inference-warmstart.md`](artifacts-inference-warmstart.md)**
-   — artifact schemas, rebuild, inference adapters, fine-tuning, transfer,
-   and geometry identity.
+   — artifact schemas, rebuild, inference adapters, fine-tuning, transfer, and
+   geometry identity.
 8. **[`data-generation-and-cuts.md`](data-generation-and-cuts.md)** — data
-   generation, sampling, cuts, staging, and publication contracts.
-9. **[`families-background-mps.md`](families-background-mps.md)** — background
-   and matter-power family properties.
+   generation, sampling, cuts, staging, and publication rules.
+9. **[`families-background-mps.md`](families-background-mps.md)** —
+   background and matter-power family properties.
 10. **[`families-scalar-cmb.md`](families-scalar-cmb.md)** — scalar and CMB
     family properties.
-11. **[`readme-go-no-go.md`](readme-go-no-go.md)** — the Architect's required
-    instruction-time and review-time gate for tracked READMEs and explanatory
-    Python comments, docstrings, help, diagnostics, and strings.
+11. **[`readme-go-no-go.md`](readme-go-no-go.md)** — the mandatory contract
+    for tracked READMEs and explanatory Python comments, docstrings, command
+    help, diagnostics, and strings.
 
-The Architect alone decides whether an accepted fix changes a general
-property in this set. Only the Architect edits a permanent note. The
-Implementer and Red Team never edit one, regardless of ticket type.
-`MEMORY.md` changes only when the permanent map itself needs clarification;
-it is not a per-ticket index.
+`MEMORY.md` changes only when the permanent map or the permanent-note contract
+needs clarification. The file is not a per-ticket index.
 
 ## Local working records
 
-The backlog, gate board, state notes, dated audits, incident reports, and
-handoff registers are local working records. They remain in the local checkout
-but are ignored by Git. Implementers and the Red Team write their ticket
-evidence there; mailbox and relay files remain transport copies.
+The backlog, gate board, state notes, audits, incident reports, and handoff
+registers are local working records. These records remain in the local
+checkout and stay outside Git. The records may contain dates and execution
+detail because the records describe temporary work.
 
-The model does not determine the responsibility. The Architect and Red Team
-are the thinking roles: they must resolve design choices and record complete,
-ordered implementation or repair directives in the temporary ticket note.
-The Implementer is the execution role and may be a less capable model; it
-follows the Architect's validated directive and returns a blocker instead of
-inventing missing architecture. A Red Team repair remains candidate input
-until the Architect adjudicates it. The exact packet formats live in
-`.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
+The Architect and Red Team provide the reasoning. A directive must resolve
+design choices and give the Implementer complete, ordered steps. The
+Implementer may use a simpler model and must return a blocker instead of
+inventing missing architecture. A Red Team repair remains a proposal until
+the Architect accepts or rejects the repair. The required fields in each
+role-to-role instruction are defined in `.claude/FABLE_ROLE.md` and
+`.codex/REDTEAM_ROLE.md`.
 
-Mailbox routing retains the explicit binding TERMINAL/no-reply exception
-defined in `conventions-and-workflow.md`. An ambiguous instruction follows the
-ordinary outbound rule.
+Roles exchange instructions by saving and moving Markdown files through the
+mailbox folders. A received final message needs no artificial reply only when
+the message explicitly says that no reply is owed. The explicit binding TERMINAL/no-reply exception
+is narrow; an ambiguous message still requires a saved reply.
+`conventions-and-workflow.md` owns the complete rule.
 
-When unfinished work must move to another developer, package it instead of
-committing these records:
+When unfinished work must move to another developer, package the local records
+instead of committing the records:
 
 ```bash
 python3 ai/tools/backlog_bundle.py pack
 ```
 
-The recipient validates with `read` and stages a fresh local review copy with
-`import`. The bundle records the exact Git base, so the permanent eleven come
-from repository history rather than from emailed worktree bytes.
+The recipient validates the package with the script's `read` action and
+prepares a fresh local copy with its `import` action. The package records the
+exact Git commit from which the package was created. Permanent notes come from
+repository history rather than from emailed working files.
 
 ## Finding current execution state
 
 Use the local `ai/notes/backlog.md` for countable unfinished work. Use
-`python3 ai/gates/run_board.py --list` for the current gate inventory and
-`python3 ai/tools/handoff_router.py --status` for a read-only loop summary.
-Do not infer current work from an old permanent-note paragraph.
+`python3 ai/gates/run_board.py --list` for the gate inventory. Use
+`python3 ai/tools/handoff_router.py --status` for a read-only workflow summary.
+Do not infer current work from a permanent-note paragraph.
 
-The source note wins over a routing summary. A ticket result becomes permanent
-knowledge only after the Architect accepts it and determines that it changes a
-general property documented above.
+The Architect's source note is authoritative for one ticket. A ticket result
+becomes permanent knowledge only after the Architect accepts the result and
+determines that the result changes a general property in the map above.

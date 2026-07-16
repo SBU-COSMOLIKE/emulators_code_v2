@@ -1,1081 +1,525 @@
 # Conventions, workflow, and environment
 
-Consolidated 2026-07-11 from py-module-style-conventions.md,
-dual-fable-opus-workflow.md, ai-collaboration-preferences.md, the
-readme-campaign notes (yaml-chapter, reorg-two-readmes,
-precedence-appendix, run-it-definitions), the micro-convention notes
-(no-global-variables, hanging-indent, construction-via-spec-dicts,
-docstrings-formal-arguments, plots-no-red-green, terminal-output,
-locate-notebook-edits, notebook-to-python-translation), the
-environment notes (cocoa-rootdir-env, dev-machine-mac-m2-32gb,
-test-workstation-gpus), the two audits, and the session-status
-snapshots (retired; full texts in git history).
+This note defines mandatory repository-wide conventions. It records current
+rules, not the history of how those rules were discovered. A future change
+receives **GO** only when the relevant rule and its acceptance evidence are
+satisfied. A contradiction, missing proof, or undocumented exception receives
+**NO-GO**.
 
-## Python house style (emulator/ + drivers; 90 columns)
+`ai/notes/python-changes-go-no-go.md` is the binding GO/NO-GO contract for
+every Python change. The Architect reads that contract before preparing an
+implementation directive and again before accepting the result. The rules in
+this note provide repository context; they do not weaken or replace that
+mandatory review.
 
-- NAMED parameters everywhere the callee allows ("I will forget the
-  meaning of position X"); irreducible positionals (matplotlib x/y,
-  einsum operands, the tensor subject of cat/zeros, model(x)) stay
-  positional WITH a naming comment; keep *args forwarders positional
-  (keywording pred= before *args = the "multiple values" bug).
-- Paren-alignment, one item per line (covers dict pairs and tuples);
-  90 cols is the hard gate; over-90 fallback = 2-space hanging
-  indent, one style per file. (The teaching notebook pytorch1.ipynb
-  is separate: ~60 cols, hanging indent, READ-ONLY reference.)
-- NO comprehensions in non-hot code — explicit C-style loops; KEEP
-  vectorized numpy/torch and anything inside forward()/batch loops;
-  find with an AST scan, not grep. The user is mainly a C coder: no
-  "Alien Python" (walrus, nested comprehensions, lambda-where-a-def-
-  reads-better, starred gymnastics, ternary PILEUPS — single
-  ternaries are fine, C has ?:). Hot paths are never slowed; the fix
-  there is a better comment.
-- No silent module-global DATA reads in functions (symtable audit);
-  the one sanctioned exception carries
-  `# WARNING: reads module global X` on that line.
-- Spec dicts {cls, **kwargs} + make_X helpers for every constructible
-  component; computed/device args injected by the helper, never in
-  the dict.
-- No all-caps emphasis (acronyms + the WARNING marker exempt); no
-  ` -- ` double dash — both rules extend to argparse help, log lines,
-  and error messages (they are prose the user reads).
+## Workflow words used throughout this note
 
-## In-file documentation
+A **watch** is one running mailbox command that repeatedly checks saved
+messages and starts the enabled roles. The long-running watcher process is
+called the **daemon**. To **re-execute** means to start the same command again
+from the saved agent folder with the original options.
 
-Module docstrings are prose (subject + verb). Every function gets a
-formal `Arguments:` block naming EVERY parameter + `Returns:`; a
-block-dict parameter enumerates every key. `PS:` jargon glossary per
-file that uses a term (define-or-drop: the audience is cosmologists —
-one undefined term of art in the opening sentence costs the whole
-header; check scripts especially must read as plain English under
-stress). Cross-module call sites get `# fn (module.py): what it does`
-provenance. Math as display formulas with named symbols. Shape-flow
-diagrams for tensor pipelines — every one ends with `(legend: ...)`
-defining every symbol; magic numbers only as named-symbol derivations
-with the LSST-Y1 concrete example. Enumeration rot is a named defect
-(key counts and lists go stale — grep for them on every schema
-change). Doc-only passes are PROVEN by the AST-minus-docstrings hash
-census, never asserted.
+**Transport** means the mailbox files, locks, and logs that carry one role's
+saved message to another role. **Bootstrap** is the first creation and
+validation of the saved agent worktrees. A Git **worktree** is a separate
+working folder attached to one branch. A **branch** is one named line of saved
+Git versions. A **state record** is a small saved file containing the worktree
+path and branch. A **ticket** is one bounded work request controlled by one
+Architect source note.
 
-Domain-symbol names must not collide with a different established cosmology
-quantity. In particular, reserve `h` for the dimensionless Hubble parameter
-`H0/100`; the covariance finite-difference control is `step_frac` in Python
-and `s_step` in prose/equations, never an unexplained local `h`. This applies
-to code, comments, diagnostics, notes, and handoffs: a reader must not have to
-infer which scientific quantity a one-letter name means from context.
-For covariance calculations, "reasonable cosmology" means the explicit
-Planck-LCDM fiducial recorded in `example_yamls/cmb_covariance_lcdm.yaml`, or
-a scientifically justified neighboring cosmology. An extreme synthetic fake
-can prove validator catch-power but cannot, on its own, prove the science
-answer wrong.
+A **detached** worktree has no branch selected. A **prunable** worktree is one
+whose registered folder Git reports as missing and eligible for removal. A
+**dirty** worktree has uncommitted changes. **Ahead** means its branch has
+local commits not present on `main`; **diverged** means both branches have
+different commits after their last shared version.
 
-Red Team scope ruling (user, 2026-07-13): this is a cosmological research
-code run for emulator production and MCMCs, not a public security boundary.
-Do not spend audit time on cybersecurity, hostile-user threat models,
-permissions, secrets, network attacks, or exploit hardening. Manifest and
-artifact checks are reviewed only where they affect scientific correctness,
-reproducibility, stale-test truth, or the exact model/data used by an MCMC.
+A **gate** is a registered acceptance command. A **fixture** is the fixed
+input setup used by a gate. A **control** is a valid case that must pass. A
+**mutation** deliberately restores forbidden behavior and must fail. **Catch
+power** is the demonstrated ability of a gate to fail for that mutation. A
+**compile lane** is the part of a gate that must run the same check through
+`torch.compile`, the compilation interface in PyTorch, the tensor and
+machine-learning package used by the library.
 
-Red-team documentation census at HEAD 32f7545 (2026-07-12): 92 Python
-files; 6 lack a module docstring, 175 function/method definitions lack
-a docstring, and 6 small gate-stub classes lack one. Those raw numbers
-include the deliberately verbatim lensing generator, the vendored
-Syren files, nested callbacks, and test doubles, so they are a census,
-not permission for a 175-block context dump. The actionable first
-slice is:
+## Python house style
 
-- add concise module contracts to the three new generator siblings
-  (CMB, background, MPS); keep the verbatim lensing and vendored Syren
-  exceptions explicitly recorded rather than silently normalized;
-- document public/runtime boundaries first, including the five missing
-  `save_emulator` arguments and every multiprocessing callback contract;
-- keep trivial private callbacks/test doubles to one-line purpose
-  docstrings where formal blocks would repeat the signature; a useful
-  small contract beats bulk prose that hides the code;
-- remove the six remaining unambiguous internal-ledger leaks from
-  Python prose: `emulator/geometries/__init__.py` and
-  `ai/gates/checks/geo_paths.py` say "GEO unit";
-  `emulator/losses/cmb.py` says "CME resume" and exposes "CME registry"
-  in a user error; the scalar/transfer identity checks retain "FTW" in
-  comments. Replace each with the plain-language fact and note-file
-  pointer where a pointer is useful.
+These rules apply to `emulator/`, public drivers, checks, and support scripts.
 
-The documentation cleanup is a separate doc-only commit. Prove it with
-the AST-minus-docstrings hash, rerun the exact internal-code scan, and
-report the new census; do not mix it into a numerical or lifecycle fix.
+- Keep every Python line at or below 90 columns. Align continuation lines with
+  the opening parenthesis when practical. Otherwise use one consistent
+  two-space hanging indent and place one item on each line.
+- Pass arguments by name whenever the callee permits it. Keep only genuinely
+  positional interfaces positional, such as mathematical operands, plotting
+  coordinates, `model(x)`, and `*args` forwarding. Add a short naming comment
+  when a positional tensor is not obvious.
+- Prefer explicit loops in non-performance-critical code. Keep vectorized
+  NumPy or Torch operations and loops inside compiled, forward, or batch hot
+  paths. Use an abstract syntax tree (AST), Python's parsed representation of
+  code structure, to find comprehensions; text search is not enough.
+- Prefer direct, C-readable control flow. Avoid nested comprehensions, a
+  lambda where a named function reads better, walrus expressions, starred
+  argument tricks, and stacked conditional expressions. A single conditional
+  expression is acceptable when it remains easy to read.
+- Do not read mutable module-global data silently from a function. Pass the
+  value explicitly. A necessary exception carries
+  `# WARNING: reads module global NAME` at the read site.
+- Represent constructible components as `{"cls": class_object, ...kwargs}`
+  dictionaries. A `make_*` helper injects computed values, device values, and
+  runtime state. Those values do not belong in the reusable specification.
+- Use ordinary sentence case. Do not use all capitals for emphasis. Acronyms,
+  interface literals, and the `WARNING` marker keep their required case.
+- Do not use a spaced double dash as prose punctuation. This rule also applies
+  to command help, errors, logs, comments, and docstrings.
 
-The same AST pass found runtime validation expressed as `assert` in 17
-places across `batching.py`, `designs/blocks.py`, `designs/plain.py`,
-`designs/ia.py`, `geometries/output.py`, `geometries/parameter.py`, and
-`losses/core.py`. These are not developer-only impossibilities: they guard
-user data widths and positivity, model dimensions/groups/kernel parity,
-required geometry metadata, and a probe/layout assumption. `python -O`
-removes every one and lets invalid state reach division, reshape, indexing,
-or model construction. The hardening unit replaces public/config/data
-guards with explicit typed exceptions before mutation or accelerator setup;
-an optimized-mode subprocess must reject the same negative fixtures with the
-same messages as ordinary Python. Keep true internal invariants as explicit
-exceptions too when continuing would produce scientific output rather than
-an immediate harmless crash.
+The teaching notebook is a read-only style reference with a narrower line
+width. Notebook-specific formatting does not relax the production rules.
 
-**Internal tracking codes stay in ai/notes/ (user ruling 2026-07-12).**
-The design-decision codes (D-CM9, D-MP2-A, TPE-2, MPS-DIAG, board
-ledger keys like GB-C...) are Architect bookkeeping — the user hit
-"the D-CM9 dispatch" in a docstring and could not parse it. They may
-appear ONLY in ai/notes/ (and as the registry's `spec_code` data field in
-ai/gates/board.py, documented as a notes-ledger key and never rendered).
-Everywhere else — READMEs, docstrings, comments, exception/print
-strings, gate report labels, YAML comments — the code is replaced by
-the plain-language fact it stood for, or dropped when the sentence
-already says it; pointers to note FILES ("spec:
-ai/notes/families-scalar-cmb.md") remain the crosswalk. The 2026-07-12
-sweep translated ~470 hits across ~55 files; the recurring phrases
-live in the glossary inside that sweep's commit message. New code must
-be written this way from the start: state the fact, cite the note
-file, never the code. Verification lesson (red-team catch, same day):
-the sweep's grep required a hyphen/digit after the unit prefixes
-(FTW-1, TPE-2...) and missed BARE codenames ("the FTW machinery",
-"the CME registry" — four instances, one in an exception string). A
-code-leak grep must include the bare unit names too:
-`\b(FTW|TPE|GRF|GBC|POL|SPE|CME)\b` (minus Optuna's TPE sampler in
-the tune driver).
+## Explanatory Python prose
 
-Second verification-grep lesson (2026-07-12, the geometry-clip
-retraction): a grep whose output feeds a NEGATIVE claim ("no X exists
-anywhere") must never be truncated — the Architect piped a clip search
-through `head -20` and the two real `np.clip` hits sat past the cut,
-producing a false "no clip exists" correction the red team had to
-reverse. Rules: (a) count first (`grep -c`) or read the whole output
-before asserting absence; (b) sweep the synonym set in one pattern
-(`clip|clamp|maximum|where`); (c) a negative claim carries the exact
-pattern + scope it was checked with, so the reader can re-run it.
+Code must teach the current program rather than narrate a review history.
 
-## README / didactics
+- A module docstring uses complete sentences with a subject and verb.
+- Every public function and every nontrivial private function has an
+  `Arguments:` block naming each argument and a `Returns:` block. Add a
+  `Raises:` block for meaningful refusal conditions. For a dictionary
+  argument, enumerate the accepted keys, shapes, units, and meanings.
+- A short private callback or test double may use one sentence when a formal
+  block would only repeat the signature.
+- Define a technical term at first use or replace it with plain language. A
+  short local glossary is appropriate when several necessary terms occur in
+  one file.
+- Explain a cross-module call with a short provenance comment when ownership
+  is otherwise unclear: `# function_name (module.py): current purpose`.
+- Write mathematical relationships as formulas with every symbol defined.
+  Tensor pipelines need a shape-flow diagram and a legend defining every
+  dimension.
+- Derive constants from named symbols. A concrete Legacy Survey of Space and
+  Time first-year (LSST-Y1) example may follow the general derivation, but the
+  example cannot replace it.
+- Never state a list length, key count, or family count without checking the
+  source of truth. Schema changes require a complete census for stale counts
+  and enumerations.
+- A documentation-only Python change is proven by comparing ASTs after
+  docstrings are removed. A prose claim is not evidence of no executable
+  change.
 
-The operational review contract is `ai/notes/readme-go-no-go.md`. For every
-tracked README change and every change to explanatory Python comments,
-docstrings, command help, user-facing diagnostics, or explanatory strings,
-the Architect reads that contract before writing the implementation directive
-and reads it again before issuing `GO` or `NO-GO`. It turns the rules in this
-section into binary evidence checks; it does not replace them.
+Domain symbols must not collide with established cosmology notation. Reserve
+`h` for the dimensionless Hubble parameter `H0 / 100`, where `H0` is the
+Hubble constant in kilometers per second per megaparsec. Use `step_frac` in
+Python and `s_step` in prose for covariance finite-difference control. This
+rule applies to code, formulas, logs, comments, notes, and handoffs.
 
-Two-README split (user philosophy: first learn to RUN and configure,
-only later how the code works): the main README = Run it -> the YAML
-chapter -> the family sections -> generation -> appendices, AI-Usage
-LAST and verbatim the user's two sentences; emulator/README.md = the
-code map, "every file's functions" LAST. Definitions before use
-(vocabulary box; never invert the dependency); every ### YAML-knob
-subsection carries its own <=10-line YAML block with template-verbatim
-values; every README passage explaining a YAML concept carries a
-fenced snippet of the REAL block (prose-only unacceptable); equations
-verbatim from the code; dedup by pointers ("point, never restate");
-ASCII flow diagrams (the user loves them). GitHub math policy (the
-five-rule scanner): no backslash + ASCII punctuation inside math, no
-LaTeX environments, no line-initial Markdown tokens inside $$ blocks,
-no whitespace-adjacent $ spans, no code-name underscores in math
-(single-letter symbols + a legend). No workstation assumptions in
-user-facing docs (ai/notes/ exempt). Acceptance for README work: the
-anchor census (every #link resolves) + the path census (every
-backticked repo path exists).
+For covariance checks, a reasonable cosmology means the explicit
+Planck-Lambda cold dark matter (Planck-LCDM) fiducial in
+`example_yamls/cmb_covariance_lcdm.yaml`. This model uses parameters fitted to
+Planck observations and includes a cosmological constant and cold dark
+matter. A scientifically justified nearby cosmology is also reasonable. An
+extreme synthetic case can prove that a validator catches bad input, but
+cannot alone prove that a scientific result is wrong.
 
-**Standing user ruling (2026-07-13): a README presents the current
-library; it is not a diary of how the library was developed.** The root
-README teaches what the library does, how to configure it, what it writes,
-and the restrictions a user must act on. `emulator/README.md` teaches the
-current ownership map and a novice reading order. `ai/gates/README.md` teaches
-how to operate and interpret the acceptance system. Dates, board-run
-numbers, measured proof errors, fixture and rerun status, landing or queue
-state, rejected alternatives, retired formulas, and the reasons an abandoned
-design failed belong in `ai/notes/` or the TeX manuscript, not in a README.
-Scientific source attribution may remain where it defines an implemented
-formula; benchmark comparisons and literature discussion belong in the
-paper. A present limitation may stay only as **scope, consequence, and user
-action**. It must not narrate when the limitation was found or how a future
-repair is sequenced.
+Runtime validation must not depend on `assert`. Public configuration, data,
+shape, geometry, and numerical guards use explicit typed exceptions before
+mutation or accelerator setup. An optimized-mode subprocess must reject the
+same negative fixtures with the same messages as ordinary Python. An internal
+invariant also uses an explicit exception when continuing could publish a
+scientific result.
 
-Parentheses carry only a short local definition, symbol, unit, or acronym.
-They do not carry an essential algorithm, qualification, or second argument.
-If removing a parenthetical would change what the reader must know, promote
-it to a complete sentence, table row, or diagram label. The documentation
-pass flags parentheticals longer than twelve words or containing more than
-one clause for human review; equations, links, and code examples are exempt
-from that candidate scan. This is a readability review, not a punctuation
-quota.
+YAML is the human-readable configuration-file format used by the repository.
+Internal tracking abbreviations and review codes belong only in temporary
+working notes. Public README files, Python prose, errors, logs, YAML comments,
+and check labels state the underlying fact. A permanent note may be cited by
+path when the design record is useful. A repository-wide leak scan must check
+both coded forms and bare abbreviations and must read the complete output.
 
-## Plots, terminal, YAML
+## Scope of scientific review
 
-- Plots: never red+green; explicit color= from the colorblind-safe
-  palette ["#0072B2", "#E69F00", "#CC79A7", "#000000", "#56B4E9"];
-  viridis for cmaps; vary linestyle for grayscale.
-- Terminal: essential-only — headers, verdicts, one-line details,
-  artifact paths; full streams to per-run LOG FILES (never thinned);
-  a debug key/flag restores the mirror.
-- YAML: block style, one key per line, never inline {...}; values
-  column-aligned when the file does; [default, min, max, kind] range
-  convention; EVERY YAML change (keys, values, comments, alignment)
-  is reported as a paste-ready block in context, never prose.
+This repository is scientific software used for emulator production and
+Markov-chain Monte Carlo (MCMC) inference. Ordinary review focuses on
+scientific correctness,
+reproducibility, model and data identity, stale-test truth, numerical
+stability, and publication integrity. Cybersecurity, hostile-user threat
+models, secrets, network attacks, and exploit hardening are outside ordinary
+scope unless explicitly requested or directly required to protect scientific
+results.
 
-## The Architect/Implementer workflow + optional independent Codex red team
+## README and teaching contract
 
-- The Architect and Implementer roles use `.claude/FABLE_ROLE.md` and
-  `.claude/OPUS_ROLE.md`; their default models remain Fable and Opus. Codex is
-  the default topology's separate, independent Red Team
-  (`.codex/REDTEAM_ROLE.md`), not a replacement for the Architect and never an
-  undeclared co-implementer.
-- A watch may deliberately use only Architect and Implementer with
-  `python3 ai/tools/mailbox_daemon.py --watch --skip-redteam` (exact alias:
-  `--no-red-team`). Their handoffs then travel directly to each other. The
-  Architect's raw-evidence audit and exclusive `GO` / `NO-GO` authority remain
-  mandatory; only the optional Sol lane is disabled.
-- In the Fable/Opus loop, the mailbox relays ARCHITECT_HANDOFF /
-  IMPLEMENTER_HANDOFF blocks; the user may still paste a block as valid input.
-  Role is resolved ONCE at session start (explicit assignment > received
-  handoff > normal session); model identity is a sanity check, not the
-  dispatcher.
-- The Architect does not author functional code, but it DOES own every
-  consequential implementation decision. Its note contains a
-  decision-complete directive: exact worktree/branch/base, one visible
-  ``- `path::symbol`: exact edit`` bullet per file or test target, ordered
-  edits, interfaces, types and shapes, algorithms and
-  numerics, failure behavior, named tests and assertions, real validation
-  commands and expected results, forbidden alternatives, stop conditions,
-  and non-overlapping fan-out ownership. Its sibling `## Implementation
-  evidence / resume state` is the only place an Implementer appends results;
-  the validated packet's heading structure stays unchanged. This
-  is intentionally detailed enough for Sonnet, Haiku, an open-source model,
-  or another lower-capability Implementer to execute without designing. Every
-  handoff persists to ai/notes/ BEFORE emission — THE NOTE IS THE SPEC OF
-  RECORD; the Implementer executes the current note even when the relayed
-  block lags it.
-- Audit is FABLE DOMAIN (hard user rule): no milestone closes without
-  Architect sign-off on RAW evidence (never summaries — repeated
-  over-claims proved summaries unreliable); the Architect verifies
-  its own harnesses against a known-good case first; audit failures
-  return as delta re-handoffs (D-XX-N IDs). Authorship discipline
-  (red-team rule, 2026-07-12): Implementer records say "awaiting
-  Architect audit" — an Implementer never pre-writes an Architect
-  verdict, invents an Architect probe, or claims Architect
-  co-authorship; audit text is written only by the Architect, after
-  the audit.
-- When enabled, Codex independently red-teams the named code, Python
-  documentation, READMEs, notes, gates, or Implementer return. It challenges
-  green evidence, searches the bounded scope for skipped failure paths and
-  counterexamples, and reports through `ARCHITECT_REDTEAM_HANDOFF` blocks
-  ending exactly with `ARCHITECT_REDTEAM_HANDOFF ENDS`. Codex records its
-  findings without impersonating or modifying the Architect's role and does
-  not merge to main. A confirmed finding includes a detailed candidate repair
-  directive with root cause, exact symbols, ordered edits, invariants,
-  regression witness, commands, acceptance checks, exclusions, and stop
-  conditions. That candidate returns to the Architect; it is never sent
-  directly to an Implementer or treated as a self-executing ruling.
-- Block-don't-guess for design-sensitive choices: the Implementer reports the
-  exact missing fact or contradiction, and the Architect supplies a revised
-  complete directive. Partial units are an approved
-  shape (coherent gated sub-increment + honest remainder); interface
-  changes are always DECLARED as deviations; forward-walk the WHOLE
-  driver path when adding a config branch; every stop ends with a
-  relayable handoff block.
-- Git: without an explicit grant, the user runs commit/merge/push and
-  sessions return the audited boundary plus concrete landing instructions.
-  The sole standing exception is every Fable daemon dispatch: its Architect
-  creates and pushes exactly one squash commit per audited GO unit in that
-  same turn, after the foreign-commit STOP walk. No other lane inherits the
-  grant. Only Architect turns take the main-landing lock. Sol works in its
-  own saved worktree and can run beside either Claude role. Only main is
-  pushed; working branches stay local.
-- Ticket substance and resume state go to a local temporary note in the same
-  turn. Only the Architect decides whether an accepted fix changes a general
-  property in the permanent eleven; only then does the Architect edit that note
-  and, when useful for discovery, `MEMORY.md`. Milestones do not create
-  permanent-note churn.
+`ai/notes/readme-go-no-go.md` is the binding review contract for README text,
+comments, docstrings, command help, errors, logs, and explanatory strings. The
+Architect reads that contract before writing a directive and again before the
+final GO/NO-GO decision.
 
-### Persisted agent worktrees (binding, amended 2026-07-15)
+The root README first teaches how to run and configure the library. Detailed
+design explanations belong in clearly separated appendices or specialist
+README files. A concept is defined before it is used. Every explained YAML
+concept includes a short fenced example copied from the real schema. Point to
+one authoritative explanation instead of restating it in several places.
 
-The mailbox daemon owns one persisted Claude coordination worktree shared by
-Architect and Implementer. Sharing is intentional: both roles must see the
-same uncommitted code, notes, and staged index, and their lane remains
-serialized. The saved route belongs to the roles, not their models. Changing
-`--architect-model` or `--implementer-model` never selects another worktree.
-Sol owns a second persisted worktree. Ordinary agent turns never execute in
-the user's `REPO_ROOT`. The Architect's explicit audited-GO landing is the one
-narrow exception. A second-Implementer assignment must name the saved Sol
-worktree, its exact non-main branch, and its base commit.
+README files describe the current library. They do not contain development
+dates, review rounds, queue state, landing state, abandoned formulas, or
+biographical commentary. A current limitation may remain only as:
 
-Clean-install defaults are exact:
+1. the present scope;
+2. the consequence for the user; and
+3. the action the user should take.
 
-| Resource | Value |
+Parentheses contain only a short local definition, symbol, unit, or acronym.
+If removing a parenthetical changes an essential instruction, promote that
+content to a sentence, table row, or diagram label. Review parentheticals over
+twelve words or with more than one clause.
+
+GitHub mathematics follows these rules:
+
+- no backslash command immediately followed by ASCII punctuation inside math;
+- no LaTeX environments in Markdown math;
+- no line-initial Markdown token inside a display-math block;
+- no whitespace-adjacent inline dollar delimiter; and
+- no code-name underscore inside math unless it is valid mathematical syntax.
+
+README acceptance includes a complete anchor census and a complete census of
+backticked repository paths. Every link target must resolve and every named
+path must exist.
+
+## Plots, terminal output, and YAML
+
+- Do not combine red and green as the distinguishing plot colors. Use the
+  colorblind-safe palette `#0072B2`, `#E69F00`, `#CC79A7`, `#000000`, and
+  `#56B4E9`; use `viridis` for continuous maps; vary line style for grayscale.
+- Terminal output is a dashboard: a short header, current result, one-line
+  detail, and product paths. Complete streams go to immutable per-run logs. A
+  debug option may mirror the full stream.
+- YAML uses block style, one key per line, and no inline mapping. Preserve
+  established value-column alignment. Range leaves use
+  `[default, minimum, maximum, kind]`.
+- Every YAML change is reported as a paste-ready block with enough surrounding
+  context to identify its location.
+
+## User-facing role boundary
+
+The user communicates only with the Architect. Public mailbox commands accept
+only the `architect` destination. Requests for implementation, review,
+severity, model choice, a widespread search, corrections, or changed scope
+all go to the Architect.
+
+The Architect decides which enabled role acts next and writes the complete
+downstream instruction. The Implementer and Red Team do not accept direct
+user substance. A direct request reaching either role is returned to the
+Architect as a blocker. A human may copy a generated handoff unchanged; that
+copy is transport, not a new user instruction to the receiving role.
+
+The default topology contains Architect, Implementer, and Red Team. A watch
+may intentionally omit Red Team with `--skip-redteam` or `--no-red-team`.
+Omitting Red Team does not weaken Architect planning, evidence review, or
+exclusive GO/NO-GO authority.
+
+A Git worktree is a separate checked-out working folder tied to a branch, so
+an agent can edit without changing the user's checkout. Model choice and role
+choice are separate. Command-line model options may assign a different model
+to Architect, Implementer, or Red Team without changing role authority, Git
+worktree ownership, mailbox route, or evidence requirements.
+
+The Architect's source note is the authority for role topology and discovery
+severity. Manual router options only confirm that saved plan. A disagreement
+between the note and a manual option refuses before any lock, clipboard,
+archive, or mailbox write. A detailed Architect directive includes:
+
+- exact worktree, branch, and base;
+- one `path::symbol` edit target for every owned file or test;
+- ordered edits and named interfaces;
+- types, shapes, algorithms, and numerical invariants;
+- failure behavior and forbidden alternatives;
+- named tests with expected observations;
+- exact validation commands;
+- stop conditions; and
+- non-overlapping ownership when work is divided.
+
+The instruction must be complete enough for a simple Implementer to execute
+without inventing design decisions. A design-sensitive gap is a blocker. The
+Implementer reports the exact missing fact and waits for a revised Architect
+directive.
+
+When enabled, Red Team reviews the named change and directly affected
+behavior. A repository-wide attack happens only when the Architect records an
+explicit user request such as “instruct the Red Team to do a widespread
+search for …”. A confirmed finding returns to the Architect with root cause,
+exact symbols, ordered candidate edits, invariants, a regression witness,
+commands, acceptance checks, exclusions, and stop conditions. Red Team never
+sends repair instructions directly to the Implementer.
+
+The Architect audits raw evidence rather than summaries. A harness is first
+checked against a known-good case and then against a deliberate mutation.
+Only the Architect writes the final GO/NO-GO record.
+
+## Persisted agent worktrees
+
+Ordinary agent work never occurs in the user's repository checkout. The
+mailbox system owns two persisted worktrees. `<REPO_ROOT>` means the top folder
+of the checked-out emulator repository:
+
+| Resource | Required value |
 | --- | --- |
-| Claude name | `mailbox-primary` |
+| Claude coordination name | `mailbox-primary` |
 | Claude worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
 | Claude branch | `refs/heads/claude/mailbox-primary` |
 | Claude state | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
-| Sol name | `mailbox-sol` |
+| Sol worktree name | `mailbox-sol` |
 | Sol worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-sol` |
 | Sol branch | `refs/heads/codex/mailbox-sol` |
 | Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 | Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
 
-The states are ignored, repository-local infrastructure. Each records the
-canonical Git common directory, name, absolute path, and full branch ref. The
-Claude state also carries the dedicated-Sol topology marker; older daemons
-reject that marker instead of dispatching Sol in the user checkout. The
-daemon validates both states against Git's registered worktrees on every
-reuse and re-executes `<saved-primary>/ai/tools/mailbox_daemon.py` with the
-original arguments, Python interpreter, and primary cwd before it touches the
-mailbox.
+Architect and Implementer share the Claude coordination worktree because they
+work one after another and both must see the same uncommitted code, note,
+staging area, and mailbox. Sol uses the independent Sol worktree. Changing a
+model option never selects a different worktree.
 
-A schema-1 primary record is preserved and refused, not automatically
-migrated. An older process may already have validated that record before a
-new process can take any lock, so an in-place migration cannot prove that Sol
-will stay out of the user checkout. Stop every old mailbox process, preserve
-the primary worktree and mailbox, update that worktree to the current daemon,
-move the old local state file aside for recovery, then run the current daemon
-from that saved primary path to initialize the two-worktree topology.
+Each state record stores the canonical Git common directory, stable name,
+absolute path, and full branch reference. Every reuse is checked against
+`git worktree list --porcelain`. Before touching the mailbox, the launcher
+re-executes the saved primary worktree's current daemon with the original
+arguments, interpreter, and working directory. The saved topology marker must
+also prove that Sol has a dedicated worktree.
 
-```mermaid
-stateDiagram-v2
-  [*] --> ValidateCLI
-  ValidateCLI --> NoWrite: help, no action, invalid, or dry-run
-  ValidateCLI --> BootstrapLock: valid live action
-  BootstrapLock --> Reuse: valid saved state
-  BootstrapLock --> SelectPrimary: no state
-  SelectPrimary --> CreateDefault: clean installation
-  SelectPrimary --> BridgeMain: bounded archived-only main
-  SelectPrimary --> AdoptLegacy: safe current legacy
-  SelectPrimary --> Refuse: unsafe or ambiguous evidence
-  CreateDefault --> ReexecPrimary: verify and publish state
-  BridgeMain --> ReexecPrimary: copy, reverify, publish state
-  AdoptLegacy --> ReexecPrimary: preserve transport and publish state
-  Reuse --> ReexecPrimary: verify exact Git identity
-  ReexecPrimary --> SolWorktree: create or verify saved Sol identity
-  SolWorktree --> SharedClaudeLane: Architect + Implementer
-  SolWorktree --> IndependentSolLane: optional Sol
-  Refuse --> [*]: preserve state and every mailbox
-  NoWrite --> [*]
+Command-line interface (CLI) validation happens before worktree provisioning.
+The CLI is the set of options accepted by the terminal command. Help, preview
+with no action, invalid combinations, and dry-run create no branch, worktree,
+state, or lock. Live actions are `--watch`, `--once`, `--send architect`, and
+`--ping architect`.
+
+On a clean clone, establish the primary worktree with one valid live action
+before writing an uncommitted source note. A new worktree starts from
+committed local `main` and cannot see an uncommitted note in another checkout.
+
+Legacy adoption is deliberately narrow. A current, attached, non-main
+worktree under `.claude/worktrees/` may be adopted only when the first live
+command starts from that same worktree and no conflicting active transport
+exists elsewhere. Active, ambiguous, duplicated, or pre-migration transport
+is never copied, merged, renumbered, or deleted. A unique main-checkout store
+containing only completed messages and regular logs may be copied byte for
+byte under both transport locks. Copies are bounded to 16 MiB per file and
+64 MiB total. Partial identical copies are resumable; conflicting bytes
+refuse.
+
+An interrupted clean bootstrap may resume only when the exact default path,
+branch, and Git registration validate. A uniquely registered `git worktree
+move` may update the saved path after full validation. Detached branches,
+wrong branches, deleted refs, manual directory moves, corrupt state, prunable
+worktrees, or unregistered branches refuse without fallback.
+
+The daemon preserves dirty, ahead, and diverged work. It never stashes,
+cleans, resets, checks out, prunes, merges, fetches, pulls, pushes, or invents
+a replacement worktree. Recovery starts by preserving the state and transport
+paths and comparing them with Git's registered worktrees.
+
+## Notes-first communication and mailbox transport
+
+The substantive record for a ticket is a local temporary note under
+`ai/notes/`. The note is written before a handoff. It contains scope,
+scientific evidence, counterexample, design contract, exact file and symbol
+targets, changed files, branch or commit identity, raw-test locations,
+remaining obligations, and acceptance conditions.
+
+The Architect note has one current `## Implementation directive`. A confirmed
+Red Team return has one current `## Repair directive`. The appropriate
+contract checker validates the packet structure before transport. Structural
+validation does not replace scientific review.
+
+A handoff is a compact routing summary that cites the source note. The source
+note remains authoritative when a summary lags or differs. Files under
+`ai/notes/relay/` are immutable transport copies for traceability. They are
+not evidence and are not edited.
+
+Mailbox files live under `ai/notes/mailbox/`. A numbered file is dispatched to
+an internal role and then archived under `done/`. Public commands do not expose
+those internal destinations. A `to-user` status file is not dispatched. A
+terminal inbound that explicitly says no reply is owed does not require an
+artificial receipt. This is the only
+outbound exception; ambiguity requires an outbound response.
+
+In two-role mode, Architect and Implementer communicate directly through the
+mailbox and no Sol message is created. Existing Sol messages remain untouched
+until a normal three-role watch handles them. A cycle limit controls safe
+stopping; cycle zero means continue until admitted mailbox work and recorded
+backlog work are finished. The watcher does not create a request merely from
+backlog prose.
+
+Only the Architect decides whether an accepted change alters a permanent
+general property. Permanent notes are not edited by an Implementer or Red
+Team. Routine milestones do not create permanent-note churn.
+
+## Landing and branch discipline
+
+Without an explicit grant, the user performs commit, merge, and push. A
+daemon-dispatched Architect has the narrow standing grant to create and push
+one squash commit for one audited GO result after checking for foreign
+commits. No other role inherits that authority. Only the Architect uses the
+main-landing lock. Only `main` is pushed; working branches remain local.
+
+After a squash lands on `main`, the working branch merges `main` locally:
+
+```bash
+git merge main
 ```
 
-The live actions are `--watch`, `--once`, `--send`, and `--ping`. Complete CLI
-semantic validation comes first: missing `--unit`, a missing Sol ticket class,
-conflicting actions, and invalid option combinations refuse before
-provisioning. `--help`, a no-action preview, and all `--dry-run` forms create
-no ref, worktree, state, or lock. With no state, dry-run prints the proposed
-bootstrap and previews the launcher's mailbox read-only. With valid saved
-state, dry-run resolves and re-executes that primary read-only.
-
-Bootstrap must precede authoring uncommitted source notes on a clean clone. A
-new worktree starts from committed local `main` and cannot see a note written
-only in the launching checkout. Establish the primary with a valid live
-action, then create and update the source note inside the reported primary.
-
-Legacy adoption is deliberately narrow. When state is absent, one registered,
-attached, non-main worktree under the managed `.claude/worktrees/` root may be
-adopted only if the first live command is launched from that same worktree.
-This preserves its ignored mailbox and relay history. A live watcher or any
-numbered transport file found in another checkout's mailbox root, `failed/`,
-or `inflight/` makes bootstrap from elsewhere refuse and list all candidate
-paths. Active or ambiguous transport is never copied, merged, renumbered, or
-deleted. Evidence discovery covers both `ai/notes/{mailbox,relay}` and the
-pre-migration `notes/{mailbox,relay}` layout in every registered worktree;
-pre-migration evidence is named and never adopted or auto-bridged. A unique
-current-layout main-checkout store whose messages are all completed under
-`done/` and whose only other evidence is regular relay logs is the narrow
-automatic bridge: the daemon holds both legacy transport locks, copies every
-archive byte-for-byte into the new primary, retains the originals, and only
-then publishes state. Exact partial copies make an interrupted bridge
-resumable; conflicting bytes refuse. The bridge is bounded to 16 MiB per file
-and 64 MiB total, and duplicate numeric mailbox sequences refuse even when
-their route suffixes differ.
-
-An interrupted clean bootstrap or archived-main bridge may finish
-automatically: if the exact default path and branch are registered, the daemon
-revalidates the selected recovery and publishes state. A uniquely
-registered `git worktree move` of the saved branch to another managed path may
-also update state after full validation. A manual directory move, detached or
-wrong branch, missing or prunable worktree, deleted branch, corrupt state, or
-an existing unregistered branch refuses without falling back to the caller.
-
-Dirty, ahead, or diverged primary work is preserved. The daemon never stashes,
-cleans, resets, checks out, prunes, merges, fetches, pulls, or pushes. Any
-deliberate branch advance happens outside the daemon after preserving the
-mailbox and checking dirty/ahead/diverged state. Recovery begins by
-preserving the named state and transport paths, comparing them with
-`git worktree list --porcelain`, and restoring the registered path and branch;
-never “recover” by deleting the state or inventing a replacement primary.
-
-### Notes-first inter-agent communication (hard user rule, 2026-07-13)
-
-Every detailed message among the enabled Architect, Implementer, and optional
-Red Team roles must be written to its local temporary ticket file under
-`ai/notes/` before its chat handoff is emitted. Those working records are
-ignored by Git and remain readable in the local checkout.
-The note contains the complete reasoning and execution record: the bounded
-scope, scientific or numerical evidence, counterexample, contract, file and
-line anchors, changed files, branch or commit identity, raw-test locations,
-open obligations and acceptance conditions. Before implementation, its one
-current `## Implementation directive` also contains the exact ordered work
-packet defined in `.claude/FABLE_ROLE.md`. Before a confirmed Red Team finding
-returns, its one `## Repair directive` contains the exact candidate repair
-packet defined in `.codex/REDTEAM_ROLE.md`. The thinking role runs
-`ai/tools/handoff_contract.py` against that packet. This structural check does
-not replace scientific review; it prevents an empty goal summary from being
-mistaken for executable instructions.
-
-A chat handoff is a compact routing summary. It cites the note and says what
-changed, what is ready for review and what remains blocked. It does not
-duplicate the full record. Architect directives are binding for the
-Implementer. Red Team repair directives are candidates that return through
-the Architect for `GO` or `NO-GO`; normal Red Team output never bypasses that
-adjudication by routing a repair directly to the Implementer.
-
-This rule applies to findings, adjudications, implementation returns, audit
-holds, audit approvals, retractions and queue changes. A chat-only decision
-is not durable and cannot be treated as the program's current instruction.
-When a summary and its cited note disagree, the current note is the source of
-record. The Architect alone decides whether the accepted result changes one of
-the eleven permanent general-property notes. `ai/notes/MEMORY.md` indexes only
-that permanent knowledge; it is not a ticket registry.
-
-Relay transport copies (Fable addendum, 2026-07-14): the clipboard router
-`ai/tools/handoff_router.py` archives every captured chat block under
-`ai/notes/relay/` and its local gate logs beside them. Those files are
-TRANSPORT COPIES for traceability only -- they are never the source of
-record, never cited as evidence, and never edited. The agent-written note a
-block cites remains the record; the router's gate log is corroborating
-input to the Architect's audit, which still performs its own re-runs.
-
-The mailbox (Fable addendum, 2026-07-14; mandatory-channel user ruling,
-2026-07-13): `ai/notes/mailbox/` holds pending routing summaries as one file per
-message, `NNN-to-<fable|opus|sol>.md`; `ai/tools/mailbox_daemon.py` dispatches
-each to its addressee's headless CLI and moves it to
-`ai/notes/mailbox/done/`. Mailbox files are routing summaries under the
-notes-first rule. The substance stays in the cited note.
-
-The mailbox is the required channel for every communication among the roles
-enabled by the current watch. This includes turns started by a user
-instruction, local queue work and a prior mailbox dispatch. An agent with a
-relayable result writes the substance to `ai/notes/` first, then writes the
-routing handoff to the next numbered mailbox file. In two-role mode the only
-agent routes are Architect to Implementer and Implementer to Architect; no
-child creates a `to-sol` message.
-
-The default watch enables all three routes. A two-role watch publishes a held
-mode marker, leaves existing `to-sol` roots untouched, and refuses new Sol
-sends and pings until it exits. `--skip-redteam --cycle 0` treats only the
-enabled Architect and Implementer routes as dispatch work: it exits after
-those routes and the literal open ledger drain, and truthfully reports any Sol
-files deferred for a later normal watch.
-
-Pasted chat text does not substitute for the mailbox; chat may report the
-queued or dispatched filename to the user. A direct status intended only for
-the user may use `NNN-to-user.md`, which the daemon does not dispatch. Merges
-and pushes require a user grant. Every Fable-lane dispatch carries the narrow
-standing grant to land an audited GO unit in that same Architect turn after
-the mandatory foreign-commit STOP walk; no other lane inherits it. The only
-outbound exception is an inbound whose binding instruction explicitly says
-the thread is TERMINAL and
-no reply is owed; honor that instruction without manufacturing a receipt.
-Ambiguity follows the ordinary rule and requires an outbound.
-
-### Mandatory-mailbox binding record (2026-07-13)
-
-- User ruling: every inter-agent communication now uses the mailbox. The
-  notes-first rule remains unchanged, so a mailbox file contains the routing
-  summary and cites the substantive note.
-- Red Team binding: `.codex/REDTEAM_ROLE.md` requires an outbound mailbox file
-  for every result addressed to Fable or Opus, regardless of how the turn
-  began. Chat is limited to telling the user which mailbox file was queued or
-  dispatched.
-- Ownership boundary: this increment does not change either Claude role or
-  `ai/tools/mailbox_daemon.py`. Fable and Opus receive the shared ruling through
-  the mailbox and retain their role-file ownership.
-- Git boundary: the change is isolated on `codex/mailbox-mandatory`; main
-  merge and push remain the user's actions. This record is submitted for
-  Fable audit and is not Red Team self-certification.
-
-Red Team role binding and Sol command probe (2026-07-14):
-
-- Scope and resume identity: branch `codex/mailbox-role-binding`, based on
-  `main` at `169bb4a`. The bounded change owns only
-  `.codex/REDTEAM_ROLE.md`, this convention entry and the `ai/notes/MEMORY.md`
-  index pointer. It does not edit either Claude role, the daemon or `main`.
-- `.codex/REDTEAM_ROLE.md` now treats an inbound
-  `ai/notes/mailbox/NNN-to-sol.md` file exactly like a pasted
-  `ARCHITECT_REDTEAM_HANDOFF`. The cited note remains authoritative.
-- A mailbox-started Red Team turn writes its full result to `ai/notes/` first,
-  then writes its outbound block to the next numbered mailbox file addressed
-  to Fable or Opus. The daemon does not gain merge or push authority.
-- The Codex CLI is installed at
-  `/Applications/ChatGPT.app/Contents/Resources/codex`. Read-only probes
-  reported `codex-cli 0.144.2` and accepted `exec` as the noninteractive
-  command. The local Codex configuration names model `gpt-5.6-sol`.
-- The exact safe command array for `AGENT_COMMANDS["sol"]` is:
-
-  ```python
-  [
-      "/Applications/ChatGPT.app/Contents/Resources/codex",
-      "exec",
-      "--model",
-      "gpt-5.6-sol",
-      "--sandbox",
-      "workspace-write",
-      "--cd",
-      "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2",
-  ]
-  ```
-
-  `dispatch()` appends the mailbox preamble and routing summary as the final
-  prompt argument. The probe did not start a model turn or dispatch a mailbox
-  message. Fable still audits the role change before it is merged.
-- Local evidence: `python3 -B ai/tools/mailbox_daemon.py --dry-run` returned
-  `mailbox empty`; the exact command array above accepted `--help` and printed
-  `Run Codex non-interactively`; `git diff --check` returned clean. No
-  functional Python file changed. This is an implementation return for
-  Fable's independent audit, not Red Team self-certification.
-
-Mandatory-mailbox audit adjudication (2026-07-14, Fable): **GO with a
-provenance caveat** on `codex/mailbox-mandatory` at `eb55ea1` (inbound
-`ai/notes/mailbox/0009-to-fable.md`).
-
-- What was audited: the single commit `eb55ea1` atop base `2a83e77`. The
-  diff is 82 lines across exactly the two claimed files
-  (`.codex/REDTEAM_ROLE.md`, `ai/notes/conventions-and-workflow.md`) — verified
-  with `git diff 2a83e77..eb55ea1 --name-only`. Neither Claude role file,
-  `ai/tools/mailbox_daemon.py`, nor any gate surface is touched. The submitted
-  worktree (`.claude/worktrees/codex-mailbox-mandatory`) is checked out at
-  `eb55ea1`, so the audited commit is the submitted tree.
-- Merge cleanliness: `git diff 2a83e77..main -- <both files>` and
-  `git diff 2a83e77..HEAD -- <both files>` (HEAD = this working branch at
-  `50e9dbf`) are both empty — no other lane has moved either file since the
-  branch base; the merge is conflict-free by construction.
-- Content ruling: PASS. The change generalizes the mailbox from "the
-  outbound channel of a mailbox-started turn" to "the required channel for
-  every inter-agent relay, regardless of turn origin," while leaving the
-  notes-first hierarchy untouched (mailbox file = routing summary, cited
-  note = record). That is an extension of the 2026-07-14 Fable addendum in
-  its own spirit, not an architecture reshape. The binding record carries
-  the no-self-certification line and respects the ownership boundary by
-  leaving the Claude role files to the Architect.
-- PROVENANCE CAVEAT (constraint 5): the authorizing "user ruling
-  (2026-07-13)" exists nowhere outside Red Team artifacts (the branch's own
-  binding record and `0009-to-fable.md`); no user-side record of it appears
-  in this repo's notes, mailbox history, or commits. I do not accept a
-  claimed authorizing ruling on the claimant's word. Resolution: main
-  merges are the user's act alone, so the user's merge of `eb55ea1` IS the
-  ratification of their own ruling. If no such ruling was issued, do not
-  merge — reply via the mailbox (or directly) and I will route a revert of
-  the branch instead.
-- Interpretive ruling (binding, recorded here): the mandate governs
-  agent-EMITTED relays only. A handoff block the USER pastes into a session
-  remains valid input — the protocol binds the agents, not the user's
-  prerogative; the receiving agent acts on it and answers through the
-  mailbox. The sentence "Pasted chat text is not an inter-agent relay" in
-  `.codex/REDTEAM_ROLE.md` is to be read outbound-only.
-- Named follow-up (Architect-owned, rides a Claude-side increment, NOT a
-  codex branch): `CLAUDE.md` ("The user (or a runner script) relays the ...
-  blocks") and both Claude role files ("emit exactly this block ... for the
-  user/runner to relay") still describe chat relay as the default vehicle.
-  After the user's merge, each gets a one-line addendum naming the
-  next-numbered mailbox file as the relay vehicle.
-- Chronology nit (not blocking): the binding record dates the ruling
-  2026-07-13 while amending an addendum dated 2026-07-14; the commit is
-  authored 2026-07-13 23:49. This paragraph pins the actual sequence:
-  addendum first, ruling and binding record the same night, audit 2026-07-14.
-- Landing (printed, not run — the merge attempt was permission-blocked this
-  headless turn):
-
-  ```
-  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
-  git merge --no-ff codex/mailbox-mandatory \
-      -m "Merge branch 'codex/mailbox-mandatory': mandatory mailbox for inter-agent relays"
-  git push origin main
-  ```
-
-  (Or merge into `claude/amazing-keller-e798b6` first if the working branch
-  should carry it before main does — both files are untouched there, so
-  either order is conflict-free.)
-- Outbound: `ai/notes/mailbox/0019-to-sol.md`.
-
-Red Team receipt (2026-07-14, Codex): the Architect's **GO with provenance
-caveat** is received as the binding adjudication of this unit; this receipt
-does not independently self-certify the Red Team change. The caveat remains
-unchanged: the user's merge of `eb55ea1` ratifies the claimed ruling, while a
-decision not to merge leaves the branch unlanded and an explicit rejection is
-for the Architect to route as a revert. The Claude-side relay-language
-addendum remains the Architect's named follow-up. Codex made no code change,
-ran no new acceptance test, and did not merge or push.
-
-Landing (printed, not run; the user alone decides whether the provenance
-caveat is satisfied):
-
-```
-cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
-git merge --no-ff codex/mailbox-mandatory \
-    -m "Merge branch 'codex/mailbox-mandatory': mandatory mailbox for inter-agent relays"
-git push origin main
-```
-
-Receipt outbound: `ai/notes/mailbox/0030-to-fable.md`.
-
-
-
-## Environment
-
-- Mac M2 32 GB (dev): python3 is homebrew with numpy + stdlib ONLY —
-  no torch/h5py/yaml/scipy/matplotlib/cosmolike, no conda/venv. The
-  Mac evidence pattern: py_compile/compileall + AST censuses
-  (each-def-exactly-once; keyword-vs-signature; docstring-stripped
-  hash) + numeric probes — prefer exec-ing the REAL function body
-  under a tensor-like fake on KNOWN ANSWERS over a numpy mirror;
-  torch legs ride the workstation board. MPS backend facts: no
-  float64 on device, fp16 AMP, no CUDA graphs.
-- Test workstation: 2x RTX 3060 12 GB; GPU 0 is a SHARED eGPU, GPU 1
-  the internal/display GPU jobs should default to —
-  CUDA_DEVICE_ORDER=PCI_BUS_ID + CUDA_VISIBLE_DEVICES=1 (or "1,0"),
-  set BEFORE the process starts. NVWULF (8x H200) is the production
-  box; nvidia-cuda-mps-control tightens co-located time-slicing.
-- ROOTDIR (not in Cocoa's README): exported by
-  Cocoa/set_installation_options.sh as $(pwd -P) of Cocoa/ when
-  SOURCED (setup/start_cocoa.sh); drivers read os.environ["ROOTDIR"];
-  everything anchors ${ROOTDIR:?}/... (projects/, external_modules/
-  code/, .local/); cobaya-run must run FROM $ROOTDIR. This package's
-  cocoa install path: external_modules/code/emulators/emultrfv2/.
-- Multi-GPU pattern: task-parallel (never DDP), processes not threads
-  (GIL + cosmolike's global C state), spawn not fork, set_device per
-  worker, ram_frac=0 in parallel paths (the private-memmap-copy
-  trap), LPT balancing, the Python 3.14 spawn keepalive trap (hold
-  Queue/Lock refs until join), Optuna via a JournalStorage file.
-
-## Process lessons that recur
-
-Handoffs paste RAW scan output (claimed numbers were cleaner than
-measured, three times); verify every harness on a known-good case
-(the two-point C1 check, the em-dash slugger, exclusion greps eating
-true positives, head -5 truncating a census); fixing layer N unmasks
-layer N+1; sequential commits when units share files; the terminal is
-a dashboard, the log file is the archive.
-
-Added by the 32/32 board saga (2026-07-11/12; the run-by-run table is
-in gates-and-board.md):
-
-- READ `HEAD at run:` in a gate log BEFORE reading its failure —
-  three runs in one night re-tested old code and their reds were
-  already fixed (the pull/merge race is the default failure mode of
-  a two-machine loop).
-- A gate fixture MIRRORS the shipped example YAML, never re-types
-  its keys from memory (the covariance fixture re-invented two of
-  the example's conventions wrong, one board run each).
-- A hand-built fixture value that mirrors a REAL run value must
-  DERIVE every coupled width from it, never hardcode (the 4-wide
-  fracs row vs the 5-entry DEFAULT_THRESHOLDS, in all four smoke
-  gates at once).
-- The "$ROOTDIR for cobaya-run" rule extends to IN-PROCESS get_model
-  with cocoa's relative theory paths — check scripts resolve
-  `external_modules/...` paths absolutely from $ROOTDIR (subprocess
-  legs with cwd=rootdir never hit it, which is why it hid).
-- When a guard needs a carve-out, carve on the PHYSICS axis, not a
-  config axis the physics does not respect (D-MP9: partial-constant
-  = flat physics under ANY law; whole-constant = dead dump).
-- When a mechanism hypothesis about third-party internals fails once
-  on the real machine, stop patching around it and switch to the
-  documented API path (the wants-Cl quirk vs
-  logposterior(cached=False)) — and build the tripwire that can
-  falsify the hypothesis BEFORE trusting the fix.
-
-## Generator entry files must be self-teaching (red-team 45M-03, 2026-07-12, Architect-VERIFIED; queue 31)
-
-The four production generator entry files
-(compute_data_vectors/dataset_generator_{lensing,cmb,background,mps}.py)
-have no module docstring (AST-verified on all four), open with imports
-and C-style separator banners, and their central override
-_compute_dvs_from_sample — the one family-specific physics boundary
-(one sampled row in, reordered, Cobaya provider populated, physics
-executed, payload returned to the shared core) — has no formal
-docstring in any of the four. Three of the four tell the reader the
-shared flags are documented in the lensing file. The family
-_read_train_args and multi-file store hooks are uneven: prose without
-Arguments:/Returns: contracts.
-
-Contract (Implementer; in-file documentation repair, no new note file,
-plus small corrections to the existing README tables if needed):
-
-1. A real module docstring before the imports in each file: what the
-   file produces and which physics engine computes it; a short flow
-   diagram — one sampled row -> reorder into YAML order -> Cobaya
-   provider -> physics call -> family payload -> GeneratorCore store
-   hooks — with every symbol defined and the statement that the
-   callback runs once per requested cosmology.
-2. The subclass contract stated locally: GeneratorCore owns sampling,
-   MPI, checkpoints, failure flags, and publication; the family class
-   owns VALID_PROBES, extra generator-YAML keys,
-   _compute_dvs_from_sample, and any multi-file store hooks.
-3. _compute_dvs_from_sample gets formal Arguments: / Returns: /
-   Raises: blocks with exact shapes, units, dtype, and
-   dictionary/spectrum ordering.
-4. The private Cobaya component loop explained step by step: what
-   _component_order contains, what _params_of_dependencies
-   contributes, why cached is passed, what terminal output is
-   captured. SEQUENCING: unit 33 (45M-06) rewrites that loop — land 33
-   first (or in the same handoff) so this documentation describes the
-   surviving form, not the retired one.
-5. Every store hook defines whether it allocates, writes in place,
-   appends, loads, or returns a copy/view, and names every file member
-   it owns.
-6. One compact runnable command per family, or a direct link to the
-   main README's exact family subsection, while still defining the
-   local flags a reader needs.
-7. All-caps emphasis and C-style separator walls replaced with
-   ordinary headings and formal sentences (MPI, CMB, CAMB, MPS stay
-   uppercase); internal decision codes stay in ai/notes/.
-
-Acceptance is mechanical: all four modules have docstrings; every
-override hook has the formal blocks appropriate to its behavior; a
-generated API inventory lists no undocumented family callback; the
-four files remain syntax-clean.
-
-## Public prose states the current state (red-team 45M-07, 2026-07-12, Architect-VERIFIED; queue 34)
-
-Three verified classes of drift from current-state, reader-facing
-documentation: emulator/README.md:216 narrates audit history ("board
-run 12"; a fixture that "awaits one final identity-gate rerun");
-emulator/warmstart.py:162 raises a user-facing error naming internal
-scheduling ("it lands as unit 2" — a user cannot act on a queue
-number); and ordinary words used as all-caps emphasis persist in
-public prose (README examples: INPUT :24, ONE :68/:136/:183/:347).
-
-Contract (Implementer; documentation-only):
-
-1. Public READMEs state the current capability, the current
-   limitation, and the relevant ai/notes/ pointer. Board-run history and
-   rerun bookkeeping move into gates-and-board.md (no new note file).
-2. The warm-start exception becomes a plain current-state explanation
-   with an actionable remedy; cross-reference the already-queued
-   fine-tune-anchor unit internally; no duplicate implementation unit.
-3. Prose emphasis capitals become formal, definitional wording.
-   Genuine names — CMB, CAMB, MPI, GPU, LCDM, configuration constants,
-   exact literals where case is part of the interface — keep their
-   case.
-4. Acceptance: the prose diff plus a COMPLETE repository-wide scan —
-   an untruncated grep is the evidence; a clipped head result may not
-   feed the zero-matches claim. No torch, workstation, or board gate
-   needed.
-
-### 45M-17 fold-in: the loss decode docstring lies about its shape (2026-07-12, Architect-VERIFIED; rides the documentation batch, units 31 + 34)
-
-CosmolikeChi2.decode documents "(B, total_size) physical dv scattered
-to full length" (losses/core.py:165) but returns
-self.geom.decode(whitened_sq), and DataVectorGeometry.decode
-(geometries/output.py:506-512) explicitly takes and returns the KEPT
-width — unwhiten + center, no scatter; the scatter is the separate
-geom.unsqueeze(...) call, as EmulatorPredictor.predict correctly
-performs. A consumer following the docstring hands a shortened vector
-to a full-vector likelihood, or scatters twice. Correction (docs-only
-unless the audit below finds a caller relying on the false shape):
-the return contract becomes (B, n_keep); state that decode inverts
-the numerical transform ONLY and does not restore masked positions;
-show the full-vector chain (kept = chi2fn.decode(...), then
-full = geom.unsqueeze(kept)); audit every loss subclass's decode
-documentation (RescaledChi2 :544, ResidualBaseChi2 :661) for the same
-kept-vs-full distinction and every decode caller for a reliance on
-the false shape; keep the diagonal-family wording separate — their
-n_keep == total_size coincidence must not redefine the generic
-contract. No new note file, no new gate: the existing inference shape
-gate is the runtime evidence.
-
-### 45M-41 fold-ins: three didactic comments teach false mechanics (2026-07-12, Architect-VERIFIED; documentation-only, each clause folded into its owning unit)
-
-1. WEIGHT-DECAY SELECTION IS ROLE-BASED, NOT SHAPE-BASED. Affine
-   (blocks.py:51) and FeatureAffine (:95) both teach "make_optimizer
-   decays only ndim >= 2 weight matrices" — the abandoned rule.
-   make_optimizer's own docstring states the real mechanism: the
-   .weight of every nn.Linear / nn.Conv1d / BinLinear, "by module
-   role, not tensor shape". Consequences worth teaching correctly: a
-   future 2-D activation parameter stays UNdecayed, and a future
-   weight module missing from the allowlist stays UNdecayed too (the
-   safe default). FOLDED INTO UNIT 49 (optimizer execution protocol):
-   both explanations replaced with the exact owner allowlist +
-   safe-default statement.
-2. TWO GEOMETRY ERRORS REVERSE ENCODE AND DECODE.
-   ScalarGeometry.from_targets' zero-variance error says a tiny scale
-   "would make decode divide by near-zero" (scalar.py:127) — but
-   decode MULTIPLIES by scale; ENCODE divides ((y - center) / scale,
-   :178). CmbDiagonalGeometry repeats the reversal for sigma
-   (cmb.py:186 "decode would divide by it") — whiten/encode divide,
-   unwhiten/decode multiply. The guards are correct; the taught
-   direction is backwards. FOLDED INTO THE DOCUMENTATION BATCH
-   (units 31 + 34, beside the 45M-17 decode-shape fold-in — the same
-   API-docstring-truth class). NB: the red team addressed this to "a
-   geometry totality unit"; no unit carries that name, and the docs
-   batch is the honest owner — recorded as a deviation from their
-   addressing, not from their contract.
-3. THE AMP DOC CLAIMS BFLOAT16 UNIVERSALLY (training.py:1560 vs the
-   float16-on-MPS selection at :1702). ALREADY IN UNIT 51's contract
-   ("documentation corrected to name float16-on-MPS /
-   bfloat16-on-CUDA-CPU") — cross-referenced, no double work.
-
-Shared completion condition, all three clauses: after editing, an
-UNTRUNCATED repo-wide search for the old phrases ("ndim >= 2",
-"decode divide", "decode would divide", the bfloat16 use_amp claim)
-returns zero stale hits — a clipped result may not feed the claim.
-Replacements stay formal and definitional (owner role, tensor
-operation, direction), never vague "normalization failed" prose. No
-new gates: the parent units carry the executable evidence.
-## Continued red-team documentation campaign: code must teach the current program, not its audit history (2026-07-12)
-
-### 45M-85: internal audit identifiers remain in executable Python prose
-
-At HEAD `05d4937`, an untruncated `rg -n '45M' emulator gates --glob '*.py'`
-returns 61 lines.  They occur in module docstrings, comments, gate leg lists,
-and mathematical explanations.  This is the same user-facing leak as the
-earlier design-ledger codes: `45M-60` tells a new reader nothing about a
-roundoff band, a safe square root, or an independent known answer.
-
-Required documentation contract:
-
-- Remove every red-team/audit identifier from `emulator/` and `ai/gates/`
-  prose.  Identifiers remain in `ai/notes/` only.
-- Replace each occurrence with the current-state fact.  “The contraction
-  width sets the roundoff band” is useful; “45M-60” is not.
-- Delete review biography (who ruled, which run reopened it, what the old
-  gate said) from the runtime explanation.  Preserve that history in the
-  owning note and preserve a short note-file pointer only when a reader needs
-  the design record.
-- Keep identifiers and function/class names that the program executes.  This
-  is a prose-only removal, not a rename campaign.
-- Prove completion with an untruncated zero-hit scan over Python files and an
-  AST-with-docstrings-stripped hash showing no executable change.
-
-### 45M-86: the experiment lifecycle is buried in three 700-line methods
-
-The public orchestration surface is described locally but not teachably.
-`EmulatorExperiment.from_config` is 708 lines, `build_geometry` 739,
-`build_specs` 259, and `train` 206.  `training_loop_batched` is 704 lines and
-`run_emulator` 770.  The comments inside them repeatedly explain a historical
-ruling or say “same as the other path,” while the reader needs to know which
-state exists before and after each method.
-
-Required documentation contract:
-
-- Put one lifecycle diagram at the class boundary: resolve paths; validate
-  exactly one family; choose model class; stage train/validation; construct
-  parameter and output geometries; construct the loss; build model/optimizer/
-  scheduler specs; train; persist.
-- For every stage, name its inputs, the instance attributes it creates, which
-  work is eager or deferred, and which state a sweep deliberately reuses.
-- Add a family decision table showing the scalar/CMB/grid/grid2d/cosmolike
-  differences.  Do not repeat five copies of activation precedence,
-  fine-tune inheritance, and transfer setup in prose.
-- Define `classmethod`, `cls(...)`, `**kwargs`, capability flag, cached state,
-  and alternative constructor at first use.
-- Replace “same rule as” comments with the actual rule or a pointer to one
-  shared, nearby definition.  A reader who enters the grid2d branch cold must
-  not need to read the scalar branch first.
-- Separate current mechanics from the configuration-key catalog.  A method
-  docstring should teach its state transition; the README/YAML reference owns
-  the exhaustive key table.
-- Where a 700-line method still performs several independent transitions,
-  split cold-path orchestration into named helpers.  The refactor is accepted
-  only with compile, binding, leftover-pattern, and behavior gates; comments
-  alone cannot make an unbounded branch cascade auditable.
-
-### 45M-87: warm-start and transfer prose begins after the hard tensor step
-
-`warmstart.py` and `losses/transfer.py` describe the high-level intent well,
-but the executable comments jump directly to `n_s`, `n_s'`, `n_n`, “block
-extension,” “parity,” “pin,” and packed `[base ; truth]` targets.  The compact
-slices and concatenations are the part a first-time PyTorch reader cannot
-infer.
-
-Required documentation contract:
-
-- Give one small named-column example: a source with three parameters, a new
-  run with two extra parameters, and the exact encoded column order before
-  and after extension.
-- Draw the source-to-new input-weight transfer with concrete shapes.  Define
-  dimension 0 as output neurons and dimension 1 as input features.  Explain
-  why shared columns are copied, new columns are zero-filled, and `clone`
-  creates independent storage.
-- Explain every slice in `_shared_columns`, `extend_input_geometry`,
-  `transfer_state_dict`, and `_base_input`.  State whether it is a view or a
-  copy and which parameter names occupy it.
-- Define `torch.no_grad` as “do not record operations for gradient
-  calculation,” then contrast the frozen base with live refine mode.  Name
-  which optimizer owns the correction and which owns the base in each stage.
-- Expand the packed target with shapes: plain transfer stages
-  `[base prediction ; truth]`; factored transfer stages one block per template
-  plus truth.  Explain that batching caches the frozen base once, while the
-  loss unpacks it on every minibatch.
-- Define parity as an executed epoch-zero equality check and state what is
-  compared, in which coordinate system, with which dtype/device, and why
-  floating-point reduction order prevents a blanket bitwise claim.
-- Until an advertised feature is reachable, documentation states that it is
-  refused today.  Unreachable validation code and “lands as unit” biography
-  are not a current API explanation.
-
-### 45M-88: gate files describe audit chronology instead of teaching evidence
-
-The identity gates open with long “Legs” inventories containing terms such as
-mutation control, catch power, stale leg, law-space pin, lifecycle, monkeypatch,
-and bitwise identity.  Representative 80--120-line `check_*` functions have
-no docstring at all.  An AST census at HEAD finds 82 public gate functions
-without a docstring.  The number is a triage measure, not a demand for 82
-boilerplate blocks.
-
-Required gate-documentation contract:
-
-- Begin every check file with the user-visible promise it tests, the required
-  dependencies, and the reason the check belongs on the board.  Define
-  “gate” as a test whose failure blocks acceptance.
-- For each nontrivial `check_*`, document four objects: the system under test,
-  the fixture (small constructed input), the independent expected answer, and
-  the deliberately broken implementation or input that proves the assertion
-  can fail.
-- Define test double, fake, stub, monkeypatch, fixture, known-answer test,
-  control arm, mutation arm, and catch power before using them.  Prefer plain
-  wording in report labels.
-- Show execution order: arrange the input, call the real public boundary,
-  compute an independent answer, compare, record failure, and make `main`
-  return nonzero.  Explain the module-level `FAILURES` list as shared test
-  state and why every helper contributes to the final exit status.
-- Historical deleted legs and board-run stories move to notes.  The Python
-  file documents what the current gate executes.
-- A fake must state exactly which external behavior it replaces and which
-  behavior it cannot prove.  “Real function” must name the boundary actually
-  called.  A numerical reference must not be produced by the same helper as
-  the value under test.
-- Prioritize the long undocumented public checks and the nested fake APIs.
-  Trivial `forward` methods may use a one-line purpose docstring; bulk text
-  that repeats a signature is not an improvement.
-
-Acceptance combines the zero-audit-code scan, the existing board behavior,
-and a reviewer exercise: starting from one identity file alone, a new reader
-can say what would fail if the production formula were replaced by the
-mutation without consulting a note ledger.
-
-## Structured evidence map — gate contract anchors (45M-72 foundation)
-
-The board's structured evidence map (`Gate.evidence`) pins each migrated
-gate to a stable, runner-validated anchor in its permanent home note. Local
-gate-board records may preserve a run history, but the executable board never
-depends on those local files. The workflow-side gates anchor here:
+`--ff-only` is incorrect because the squash and fine-grained branch histories
+intentionally diverge even when their trees match.
+
+## Environment assumptions
+
+The lightweight development machine may provide only Python, NumPy, and the
+standard library. Evidence there consists of compilation, AST censuses,
+docstring-stripped AST comparison, and known-answer arithmetic probes against
+the real function body where possible. Torch, CosmoLike, Hierarchical Data
+Format version 5 (HDF5), YAML, SciPy, Matplotlib, and accelerator evidence run
+in the configured Cocoa environment.
+
+Apple Metal Performance Shaders (MPS) does not support device float64 and uses
+float16 autocast. CUDA, NVIDIA's accelerator-computing platform, provides the
+required compiled and
+accelerator checks. Set `CUDA_DEVICE_ORDER` and `CUDA_VISIBLE_DEVICES` before
+process startup. The production system uses task-parallel processes, not
+distributed data parallel (DDP), which replicates a model across workers, or
+threads: spawn, not fork; one device selection per worker; no private copies
+of the full random-access memory (RAM) payload in parallel paths;
+longest-processing-time assignment; and retained Queue/Lock references until
+every child joins.
+
+`ROOTDIR` is defined by the Cocoa startup process. Repository paths anchor to
+that value, and `cobaya-run` starts from `ROOTDIR`. Public installation
+instructions point to Cocoa's official README instead of duplicating its
+environment procedure.
+
+## Recurring evidence rules
+
+- Paste complete raw scan output into the working record. A summary is not a
+  substitute.
+- Read the recorded Git `HEAD`, the commit currently checked out, before
+  interpreting a stored test failure.
+- Build a fixture from the shipped YAML or source schema rather than retyping
+  coupled keys from memory.
+- Derive all coupled fixture widths from one named value.
+- Resolve Cocoa-relative theory paths from `ROOTDIR`, including in-process
+  model construction.
+- Carve out a physical exception on the physical axis, not on an unrelated
+  configuration label.
+- When a hypothesis about a third-party mechanism fails on the real machine,
+  switch to its documented application programming interface (API), the
+  supported set of calls exposed to this repository, and add a tripwire
+  capable of falsifying the replacement assumption.
+- A search supporting “no match exists” must be untruncated. Count or inspect
+  all matches, search the synonym set, and record the pattern and scope.
+
+## Self-teaching generator entry files
+
+Each production generator entry file contains:
+
+1. a module docstring naming the product and physics engine;
+2. a short flow diagram from sampled row to stored family payload;
+3. a local description of the shared-core and family-specific ownership;
+4. formal argument, return, raise, shape, unit, dtype, and ordering contracts
+   for the physics callback;
+5. an explanation of provider component ordering, dependency parameters,
+   caching, and captured output;
+6. a storage-hook contract stating allocation, mutation, append, load, and
+   copy/view behavior; and
+7. a runnable command or direct link to the exact family guide.
+
+Acceptance requires module docstrings in all generator siblings, formal
+contracts on every nontrivial override, a generated callback inventory with
+no undocumented callback, and successful syntax compilation.
+
+## Current-state API explanations
+
+Loss decoding returns the kept-coordinate vector. It inverts the numerical
+transform and does not restore masked positions. Full-vector reconstruction
+is a separate `geometry.unsqueeze(kept)` step. Every loss subclass and caller
+must preserve that distinction; equality of kept and full widths in a
+diagonal family does not redefine the general contract.
+
+Weight decay is selected by module role, not tensor rank. Only `.weight` from
+`Linear`, `Conv1d`, and `BinLinear` is decay-eligible. All other parameters
+remain undecayed unless the allowlist is deliberately expanded.
+
+Geometry encode or whiten operations divide by scale or sigma. Decode or
+unwhiten operations multiply. Errors and comments must name the correct
+direction.
+
+Automatic mixed precision (AMP) runs selected operations at a lower numeric
+precision to reduce accelerator cost. AMP documentation distinguishes float16
+on MPS from bfloat16 on CUDA or CPU.
+
+## Teaching the experiment lifecycle
+
+The experiment class boundary includes one lifecycle diagram:
+
+1. resolve paths;
+2. validate exactly one family;
+3. choose a model class;
+4. stage training and validation data;
+5. construct parameter and output geometries;
+6. construct the loss;
+7. build model, optimizer, and scheduler specifications;
+8. train; and
+9. persist the result.
+
+Every stage names its input, created instance attributes, eager or deferred
+work, and state reused by sweeps. A family decision table records scalar,
+cosmic microwave background (CMB), grid, grid2d, and CosmoLike differences.
+Define `classmethod`, `cls(...)`,
+`**kwargs`, capability flag, cached state, and alternative constructor before
+using those terms. A long method that still owns several independent state
+transitions is split into named cold-path helpers, with compile, binding,
+leftover-pattern, and behavior checks.
+
+Warm-start and transfer documentation includes a concrete named-column
+example, exact encoded column order, input-weight shapes, copied and zeroed
+columns, view/copy ownership, and the meaning of `torch.no_grad`. Packed
+targets are shown with shapes. Parity is an executed epoch-zero equality check
+with coordinate system, dtype, device, and tolerance stated. An unavailable
+feature is described as unavailable and refused rather than promised through
+unreachable code.
+
+Gate files begin with the user-visible promise, dependencies, and why a
+failure blocks acceptance. A nontrivial check documents the system under test,
+fixture, independent expected answer, and deliberate mutation. Terms such as
+fixture, test double, fake, stub, monkeypatch, known answer, control, mutation,
+and catch power are defined before use. A numerical reference cannot be
+computed by the same helper as the value under test.
+
+## Stable workflow evidence anchors
 
 <a id="board-selftest-exit-truth"></a>
-**board-selftest (BRD-A) — the runner reports what actually ran.**
-Dependency skips, unknown or conflicting selectors, compile-lane skips, stale
-or edited stored logs, unresolved evidence anchors, duplicate assertion ids,
-and malformed anchor shapes all produce a non-green result. A stored PASS is
-reusable only while its cited raw log and digest remain intact.
+**The board runner reports what actually ran.** Unknown or conflicting
+selectors, dependency skips, compile-lane skips, stale or edited logs,
+unresolved anchors, duplicate assertion identifiers, and malformed evidence
+all produce a non-green result. A stored pass is reusable only while its raw
+log and digest remain intact.
 
 <a id="cli-strict-strict-parse"></a>
-**cli-strict (CLI-A) — every public executable rejects a misspelled flag.**
-All eight public entry points parse with `parse_args` (never
-`parse_known_args`), and two representative driver mains reject a misspelled
-flag (`--activaton`) with a nonzero exit before the expensive boundary,
-while a valid command line reaches it.
+**Every public executable rejects a misspelled flag.** Public entry points use
+strict argument parsing. Representative drivers reject `--activaton` before
+expensive work while a valid command reaches the intended boundary.
 
 <a id="family-first-family-owned"></a>
-**family-first (FAM-A) — every driver owns exactly one data-block family.**
-A direct cosmic_shear run owns the cosmolike data-vector family and rejects
-a CMB / grid / grid2d / scalar YAML naming its driver; a clean cosmic-shear
-YAML trains; the per-family wrappers accept their own block. The census
-confirms the four cosmic_shear drivers default `family=cosmolike`, always
-check, and drop the dispatcher prose.
+**Every driver owns exactly one data family.** The cosmic-shear driver owns the
+CosmoLike data-vector family and rejects scalar, CMB, grid, and grid2d YAML.
+Family wrappers accept only their own family block. A source census verifies
+the pinned family and strict check in every wrapper.
 
-## Documentation Current-gap paragraphs: triage + the currency rule (Architect, 2026-07-13)
+## Documentation ownership
 
-documentation/emulator_code_guide.tex teaches the package with labeled
-"Current gap" paragraphs so a reader never mistakes documented intent
-for shipped behavior. The original 2026-07-13 Architect triage catalogued
-20 such paragraphs; entries stay here as history when later work closes
-them:
+The Architect decides what tracked documentation must change, writes a
+detailed directive for that change, and reviews the rendered result. The
+Implementer may edit a README or explanatory Python prose only when the
+Architect's bounded directive names the exact section or symbol. The Red Team
+may report a README or Python-prose defect but does not edit those artifacts.
+TeX source under `documentation/` has separate Red Team ownership defined in
+`CLAUDE.md`; that narrow ownership does not extend to READMEs, Python prose,
+or permanent notes.
 
-- SIXTEEN document known defects that already carry adjudicated unit
-  specs — no new units were needed. Map (guide line -> owner):
-  :450 config-surface totality -> units 23 + 29 + 59; :565 no-cut
-  sweep pool counting -> CLOSED 2026-07-15 by the shared named-column
-  resolver plus optional-cut pool/staging parity gate
-  (data-generation-and-cuts.md "Closed: no-cut learning-curve pool
-  counting"); :604 parallel study parent -> the parallel-truth item
-  (+ unit 55); :664 bake-off liveness -> the activation-bakeoff
-  liveness item; :771 dataset certification -> checkpoint-set
-  integrity + units 56/57 + the ingress cluster; :2238 NPCE domain
-  policy -> unit 46; :2652 fused/closure optimizer -> unit 49;
-  :2720 ramp direction -> unit 18; :3032 MPS float16 scaler ->
-  unit 51; :3169 finetune.anchor -> unit 24; :3734 background
-  zero-anchor extrapolation -> unit 58 (wave-4 background visit
-  15+58+62); :3995 diagnostics NaN totality -> the
-  validation/diagnostic-memory-truth item; :4105 two-file
-  transaction -> the artifact-pair-integrity item; :4261 adapter
-  value-schema -> units 15/58/62 + 16/63 + 65; :4283 CMB multipole
-  identity -> unit 47; :4308 finite-verdict-before-provider-read ->
-  the acceptance-fact ordering spec + unit 33.
-- TWO are STALE — the code already moved: :4691 (dirty-tree watch
-  scope; queue 1c landed _EXECUTABLE_DIRS covering all five
-  executable roots) and the raw-log half of :4723 (queue 1a made
-  stale-log a first-class non-green resume state). The refresh is
-  RED-TEAM work under the custody rule below.
-- TWO are IN FLIGHT: the digest half of :4723 is queue 1b (building
-  now); :4666 declared-vs-executed reconciliation is queue 2 (next).
-- ONE was blocked on the user and is now RESOLVED: :3885 sigma8
-  radius — USER RULING 2026-07-13 = R = 8 Mpc/h (recorded in
-  families-background-mps.md "USER RULING (2026-07-13)").
-
-THE CURRENCY RULE + GUIDE CUSTODY (binding; ownership corrected by
-USER RULE the same day): documentation/emulator_code_guide.tex is
-RED-TEAM-OWNED — neither the Architect nor the Implementer edits it
-(user instruction, 2026-07-13). A landing that changes behavior
-taught by a Current-gap paragraph therefore does NOT carry the guide
-edit itself; instead the landing's notes entry NAMES the affected
-paragraph(s), the Architect carries the owed delta into the next
-ARCHITECT_HANDOFF_FOR_THE_RED_TEAM block, and the RED TEAM updates
-the guide — closing a gap rewrites the passage to the new behavior;
-narrowing one rewrites it to the remaining gap. A Current-gap
-paragraph is a contract surface, not decoration: a stale "gap"
-teaches a defect the code no longer has, which is the same falsehood
-as documenting a feature that does not exist. The queued full
-line-by-line guide review (a separate Architect item) verifies the
-remaining paragraphs against code and hands its findings to the red
-team the same way — the Architect reads and audits the guide, only
-the red team writes it.
-
-## Post-squash resync ritual (updated 2026-07-15)
-
-An accepted unit becomes an independent squash commit on main. The working
-branch retains its fine-grained commits, so the two histories intentionally
-diverge even when their trees match. Immediately after the Architect pushes
-the one-unit landing, it returns to the working branch and runs:
-
-    git merge main
-
-This local merge-back records the squash commit in the working branch and
-makes the next `git diff main..<working-branch>` describe only new content.
-`--ff-only` is wrong here because divergence after a squash is expected. The
-working branch remains local; only main is pushed.
-
-### Guide review of 2026-07-13 (user-authorized Architect edit)
-
-The user ordered a direct Architect review-and-edit of the guide
-("you can edit") — an explicit one-off exception to the custody rule
-above; custody returns to the red team afterward. What the review
-found and did:
-
-- EDITORIAL PASS: a separate prose-quality review, run against the
-  user's private review standards (which live outside this repo and
-  are not restated here), required NO text changes — the guide's
-  register already meets them. An apparent "{m km}" TeX typo was a
-  terminal rendering artifact of {\rm ...}; the source is correct.
-- CURRENCY: the red team had already refreshed everything through
-  THIS MORNING's adjudications (stale-log first-class, the strip()
-  head-line story, the RT-02 ownership gap incl. the derived-cached-
-  tensor case, the RT-05 flat-only gap with the exact sinh
-  counterexample, the RT-06 latex gap, the sigma8 8/h Mpc ruling).
-  The ONE stale area was the digest story, written before 1b phases
-  1-2 landed: fixed in four passages — the two-regime digest
-  narrative, a pre-manifest row in the resume-state table, the
-  Current-gap paragraph narrowed to population, and the Required-
-  closure paragraph split into current-behavior vs the remaining
-  population work. All 22 other Current-gap paragraphs re-verified
-  still true against the unit map.
-- PDF: rebuilt clean (pdflatex from the REPO ROOT — the figure paths
-  are texnotes/-prefixed; two passes, zero errors, zero unresolved
-  references) so the tracked build product matches its source. The
-  red team's tracked-PDF policy ruling (untrack vs freshness check)
-  stays owed.
+A behavior change that affects a “Current gap” paragraph names that paragraph
+in the Architect source note. The directive requires the Implementer to
+rewrite the paragraph to current behavior or narrow it to the remaining
+limitation. A stale gap is a documentation defect. Permanent notes remain
+Architect-only under [`MEMORY.md`](MEMORY.md), even when a documentation unit
+is active.

@@ -1,2969 +1,984 @@
-# Data generation, staging, and the physical parameter cuts
-
-Consolidated 2026-07-11 from compute-data-vectors-import.md,
-param-cuts-nested-block.md, omegam2h2-window-cut.md,
-omegamh2-ns-product-cuts.md, triangle-cut-shading-all-windows.md,
-data-staging-ram-and-source-dict.md (retired; full texts in git
-history). Code homes: compute_data_vectors/, emulator/data_staging.py.
-The user-facing story is README section 18 ("Generating the training
-set" — the four-generator table + the shared-core walkthrough).
-
-## The generators (compute_data_vectors/)
-
-- One shared core, `generator_core.py` (D-CM3-A): the CLI (15 flags),
-  the tempered/uniform sampling, the MPI master/worker farm, the
-  checkpointing, capture_native_output. Four thin drivers subclass it:
-  dataset_generator_lensing.py (cosmolike dv), _cmb.py (four spectra
-  files _tt/_te/_ee/_pp), _background.py (the _h/_dm pair + _z.npy
-  sidecars; desert-overlap loud), _mps.py (pklin/boost surfaces + the
-  syren _base files when write_syren_base + _z/_k sidecars; the
-  wants-Cl CAMB quirk kept verbatim). Fifth tool:
-  compute_cmb_covariance.py (the analytic per-multipole covariance;
-  families-scalar-cmb.md has its physics; its params block is PLAIN
-  NUMBERS with the script's OWN names omegabh2/omegach2 — mirror
-  example_yamls/cmb_covariance_lcdm.yaml, both conventions are
-  validated loudly and each was re-invented wrong once by a gate
-  fixture).
-- TWO evaluation idioms, deliberately unharmonized (board runs 1-5,
-  2026-07-11): lensing/cmb/mps evaluate each sample through the
-  legacy hand-rolled check_cache_and_compute(cached=True) component
-  loop — proven by their gates (dumps vary, trainings collapse). The
-  BACKGROUND generator instead uses the standard
-  model.logposterior(point, cached=False) lifecycle: with its
-  background-only requirement set the legacy loop served a STALE
-  first-sample CAMBdata (every dump row one cosmology, bitwise), and
-  the wants-Cl quirk did NOT cure it (the bsn-smoke dump-variance
-  tripwire falsified that hypothesis at spread exactly 0.0). Do not
-  harmonize either direction without gate evidence; the full saga is
-  in families-background-mps.md.
-- The MPS Pk requirement's k_max is DERIVED, not the legacy constant:
-  max(2 x k grid top, 20) — equal to the verbatim 200 on the
-  production grid (k top 100), ~10x cheaper for a small-grid smoke
-  (the first full mps-smoke run burned ~1 h computing k = 200
-  transfers against a grid topping at 10). Every dumped k stays
-  computed, never extrapolated; extrap_kmax remains the served
-  interpolator's tail edge.
-- The lensing generator was imported VERBATIM from the user's
-  production copy (byte-identical except one header path) —
-  battle-tested production code gets NO house-style retrofit; the
-  README, not the script, carries the didactic layer.
-- Two sampling modes, peers: tempered (--unif 0) samples
-  log p_T = [-(1/2)(theta-theta_0)^T Sigma~^-1 (theta-theta_0)
-  + log pi(theta)] / T with Sigma~ = the params covmat, correlations
-  CLIPPED to |corr| <= maxcorr (default 0.15); uniform (--unif 1)
-  fills the temperature-stretched box (bounds widened T*width/5; lnp
-  = 1; files tag `_<probe>_unifs`). WHY each knob: T widens the cloud
-  past the posterior (chains at the edge must stay inside the training
-  support); maxcorr fattens the Fisher pancake PERPENDICULAR to
-  degeneracies; --boundary < 1 shrinks val/test INSIDE the training
-  support (accuracy dies at the cloud edge).
-- The output contract (closes every loop):
-  `<paramfile>_<probe>_<T>.1.txt` (weights/lnp/params/chi2*; staging
-  drops the bookends), `.paramnames` (first column = cobaya names ->
-  ParamGeometry -> h5 -> get_requirements — THE naming loop),
-  `.covmat` (the INPUT whitening basis), `.ranges`, the dv store
-  (per-family file set), `<failfile>` (recompute with --loadchk 1).
-- Loud disambiguation: the generator YAML is a COBAYA yaml with its
-  OWN train_args (probe/ord/fiducial/params_covmat_file) — unrelated
-  to the trainer's train_args. Two stages, two schemas.
-
-## Original unit 2: a generated dataset is ready only when every published row is valid
-
-This is the durable topic-level contract for the dataset-readiness half of
-the first red-team queue. The state ledger recorded the mechanism, but this
-file previously described the fail file without specifying how it controls
-publication and training.
-
-The current failure path is reachable and silent. A provider failure marks
-the corresponding fail-file entry and leaves a zero-filled data-vector row.
-The generator then calls `MPI.Finalize()` and exits with status zero
-unconditionally. `emulator/data_staging.py` does not read the fail file, so
-the trainer can treat a fabricated zero row as ordinary science. A separate
-input error has the same trust shape: a `--boundary` value `<= 0` or `> 1` is
-silently replaced by `1` instead of being rejected (`1` also takes the
-fallback branch but is the valid unchanged endpoint). At the audited HEAD,
-`generator_core.py` still contains both the unconditional `exit(0)` tail and
-the boundary rewrite, and the staging module still contains no fail-file
-consumer.
-
-Required contract:
-
-1. A row is successful only if the provider lifecycle accepted that exact
-   cosmology and the complete stored payload passes the family's publication
-   predicate after its storage-dtype cast. A returned array or a finite
-   subset is not enough.
-2. Failure state carries the original row identity and is part of the same
-   checkpoint/dataset generation as the parameter table, axes, and payloads.
-   Missing, stale, wrong-length, or forged failure metadata makes the set
-   unreadable.
-3. A production-ready marker is published only when the requested post-cut
-   count is made entirely of successful rows. A run that ends incomplete
-   exits nonzero or publishes an explicit non-ready status. Checkpoint
-   material may retain failed proposals for an explicit retry, but it is not
-   training input.
-4. Every loader and staging entry loudly excludes **or** rejects flagged rows
-   before `n_train`/`n_val`, sampling, thinning, centering, or device work. If
-   exclusion is the chosen policy, the successful pool must still satisfy the
-   requested count; a smaller dataset cannot be published silently. This is
-   the original either/or ruling, not a later refusal-only redesign.
-5. `boundary` is a native finite non-boolean real with `0 < boundary <= 1`.
-   Validation happens before any output path is opened; no invalid value is
-   rewritten to a default.
-6. Refusal preserves every previously valid file byte-for-byte. This unit
-   composes with checkpoint-set transactionality and row authenticity; neither
-   substitutes for the readiness verdict.
-
-This unit consumes the existing owners rather than cloning them: unit 33
-(45M-64/70) owns the provider-lifecycle verdict; unit 56 (45M-48) owns the
-post-cast payload predicate; the 20M-15 checkpoint-ingress amendment to that
-same unit 56 owns resumed-row revalidation; unit 82 owns row authenticity;
-and the amended 45M-81 contract owns RNG continuation. Dataset readiness
-combines those exact verdicts into the final ready/non-ready state. An "almost
-equivalent" local predicate would recreate the drift this program is trying
-to remove.
-
-Required gates use a small deterministic dataset: one provider rejection that
-leaves a zero payload; a nonzero fail flag paired with an otherwise plausible
-row; an all-success forged fail file paired with an invalid payload; missing
-and wrong-length failure metadata; and a fully successful control. Each
-failure must produce a non-success readiness verdict and either a loader
-refusal naming the original row or a loudly reported exclusion that still
-delivers the exact requested successful-row count. Missing or wrong-length
-metadata errors name the path and expected/observed structure rather than
-inventing a row number. Boundary controls cover zero, a negative value, a
-value above one, NaN, a boolean, the valid endpoint `1`, and a valid interior
-value. A mutation that restores unconditional exit zero or removes the
-staging-side readiness check must turn the board leg red.
-
-The MPS `sigma8` half that originally shared unit 2 has its complete modern
-contract in `families-background-mps.md` (including the later 45M-67 domain
-extension). Keeping the two halves in their scientific owner notes avoids
-making generator readiness depend on one derived MPS quantity.
-
-## Staging (emulator/data_staging.py)
-
-- Memmap the dv dump (never loaded whole); params load to RAM;
-  phys_cut_idx is params-only. `stage_source(C, dv, idx, ram_frac)`:
-  if the sorted-unique row subset fits ram_frac of free RAM,
-  materialize the COMPACT copy and reindex locally; else keep the
-  memmap with global idx — invisible to consumers because everything
-  touches C/dv THROUGH idx. The source dict carries the centers
-  (C_mean, dv_mean via chunked stream_stats).
-- Multi-GPU rule: parallel paths set ram_frac = 0 — np.asarray on a
-  shared memmap makes a PRIVATE per-worker copy (the shared-budget
-  trap in parallel form).
-- `load_source` returns `dump_rows` (sorted-unique disk rows) so a
-  sibling dump file — the MPS syren base dumps — stays row-aligned
-  through a shuffled staging.
-- The .paramnames cross-check: when the sidecar exists, its first
-  column must match the covmat-header names ORDER INCLUDED; mismatch
-  is a loud error naming both lists.
-
-## Remaining checkpoint-publication gaps (updated 2026-07-15)
-
-### A checkpoint is not yet one committed dataset
-
-The checkpoint census and publication order do not describe one atomic
-generation of the dataset:
-
-- The requested-load preflight now includes `.paramnames`, scientific facts,
-  every family payload, and the background/MPS grid sidecars. Named parameter
-  layout, literal `0`/`1` failure-flag lines, configured background/MPS axes, and family
-  widths are validated before append can sample. There is still no manifest
-  tying those independently read files to one generation or authenticating
-  their bytes. Same-shaped stale payloads, covariance, ranges, or facts can
-  therefore remain internally plausible.
-- Multi-member families replace/flush each `.npy` independently. Append
-  first extends the parameter text, then the fail file, then each data
-  member in sequence. A process death can expose a mixture of old and new
-  generations; row counts catch some interruptions but same-shaped stale
-  members and old sidecars remain admissible.
-- Requested resume/append failures now stop and retain their original cause;
-  they cannot be converted into fresh generation. This closes the former
-  overwrite fallback, but it does not make multi-file append atomic.
-
-Required contract: a manifest binds every member (params, paramnames,
-ranges, covmat, fail flags, all quantity arrays, every axis sidecar) to a
-shared dataset id, config/order digest, dimensions, and per-file digest.
-Publish a new manifest last after all temporary members are durable; load
-only the manifest's exact generation. A requested load/append that cannot
-validate must stop nonzero without modifying the prior files. Gates inject
-failure after each append/publication boundary, remove or swap an axis
-sidecar, permute same-width parameter order, and prove both loud refusal
-and survival of the previous good generation.
-
-### The ordinary `.1.txt` naming check is now shared
-
-The generator writes `X.1.txt` and `X.paramnames`. The shared
-`emulator/parameter_table.py` resolver tries the exact stem and then strips a
-purely numeric chain suffix. Ordinary staging, scalar staging, pool sizing,
-and generator checkpoint readback now all use it. The parameter-table gate
-proves the staging/pool consumers; checkpoint-refusal proves generator
-readback, including exact sampled-parameter order and the final `chi2*`
-declaration. Missing producer metadata has no positional fallback.
-
-### Grid2d staging defeats its own memory ladder
-
-The documented production MPS grid is 122 redshifts x 2,000 k values;
-the shipped trainer asks for 50,000 rows and `k_stride: 10`. The raw
-selected float32 surface is 45.449 GiB. `_grid2d_law_rows` currently:
-
-1. calls ordinary `load_source(..., with_means=True)`, which streams
-   statistics over every unthinned raw column even though that mean is
-   discarded;
-2. fancy-indexes every selected raw row and casts the whole selection
-   to float64 (90.897 GiB);
-3. fancy-indexes the whole base selection and casts that to float64
-   too (another 90.897 GiB, simultaneously resident);
-4. forms the ratio/log, and only then keeps the 201 k columns selected
-   by the stride (the final float32 target is about 4.568 GiB);
-5. forcibly replaces the source with an in-RAM array, ignoring the
-   `ram_frac` / memmap decision the preceding staging step made; and
-6. later passes the whole thinned matrix through
-   `Grid2DGeometry.from_targets`, which casts it to float64 again to
-   compute center/scale instead of using streamed statistics.
-
-This is a production blocker and contradicts every "never loads the
-dump whole" statement. The required behavior is outcome-based:
-
-- derive and validate the kept `(z, k)` columns first; read only those
-  columns for bounded row chunks from both raw and base memmaps;
-- perform positivity checks and the law transform on consumed entries
-  in those chunks; never materialize an unthinned selected matrix;
-- compute `dv_mean` from the thinned law-space rows, not from the raw
-  dump, compute scale/constant pins with the same bounded statistics,
-  and preserve exact `C` / `dv` / `dump_rows` alignment;
-- honor `ram_frac` after transformation: the final thinned source may
-  be resident or memmapped, and train/validation workers must not each
-  create an unconditional private full copy;
-- validate both row count and width for every raw/base/grid member.
-
-Add this as a leg of `mps-identity`, not a new board item: a synthetic
-122 x 2,000 grid with stride 10, a deliberately tiny memory budget, and
-guarded memmap reads must prove that every read is row-chunked and
-column-thinned, the result has 122 x 201 columns, its values/mean equal
-a small direct known-answer calculation, and the low-RAM result remains
-disk-backed. The
-test must fail on the current whole-selection implementation.
-
-This unit closes ordinary grid2d training, fine-tuning, and frozen-base
-transfer only. The optional grid2d PCE fit has a separate scale blocker:
-`_fit_diag_pce` materializes every thinned target, moves it all to the
-GPU, copies it back as float64, and runs a dense SVD. At the documented
-production shape the target alone is about 4.568 GiB float32 / 9.135 GiB
-float64, before SVD workspace, and cannot fit the 12 GiB test cards.
-The identity gate proves only smoke-scale algebra. Do not claim
-production-sized MPS PCE until a separate streamed/randomized low-rank
-fit contract and accuracy calculation are designed; do not smuggle that
-research change into the bounded-staging unit.
-
-#### Bounded staging resume (2026-07-12, Opus) — awaiting Architect audit
-
-Built. Five surfaces:
-
-- `emulator/experiment.py` `_grid2d_law_rows` rewritten: it builds the
-  kept `(z, k)` columns FIRST (k_stride, top edge always kept), then
-  reads only those columns in bounded row chunks (`_GRID2D_CHUNK_BYTES`,
-  256 MiB of float64 per read -> derived chunk height) from the raw and
-  base memmaps as a single `raw[rows[:,None], cols[None,:]]` gather (never
-  a whole row block), takes `log(raw / base)` per chunk (raw itself under
-  law "none"), checks positivity per chunk with the original error text,
-  and writes the thinned float32 rows into a result that is resident if
-  it fits `ram_frac` else a disk-backed temp memmap (unlinked at exit).
-  The per-point law-space moments (mean + population std) are STREAMED
-  over the same chunks. New signature adds `with_means` (train streams
-  the moments + `dv_mean`; val only forms the rows). Handles both a
-  memmap source (read by `dump_rows`) and a RAM-staged compact source
-  (read by local arange).
-- `emulator/data_staging.py` `load_source` gains `stage_dv=True`; the
-  grid2d path (`stage_train` / `stage_val`) passes `stage_dv=not
-  self._grid2d`, keeping the raw dump a memmap (no unthinned 45 GiB
-  float32 selection) and skipping the discarded raw `dv_mean`.
-- `emulator/geometries/grid2d.py`: `from_stats(center, scale, ...)` added
-  as the SINGLE home of the constant-pin / dead-dump rules; `from_targets`
-  now computes the two moments and delegates to it. `from_config`'s plain
-  grid2d branch builds the geometry from the streamed
-  `self._grid2d_center` / `_scale` via `from_stats`, so the thinned
-  surface is never read whole (the disk-backed result is never
-  materialized). Finetune / transfer branches unchanged (they pin the
-  source geometry).
-- `ai/gates/checks/mps_identity.py`: `check_bounded_staging` — 122 x 2,000,
-  stride 10, tiny budget, a `_GuardProxy` that fails a whole-block /
-  over-tall / unthinned read. Asserts the 122 x 201 result, values +
-  streamed mean vs an independent known answer, disk-backed low-RAM
-  result, and that the guard trips on the old `mm[rows]` pattern (so the
-  leg fails against the pre-fix code). Part two runs the real
-  `load_source(stage_dv=False)` memmap branch (resident vs disk by
-  `ram_frac`). Existing `check_staging` updated for the new signature.
-- `ai/gates/board.py`: the cmb-identity maps rider (eq-6 now five legs).
-
-Scope note for the audit: the boundary excludes the "geometry" queue
-unit, which is item 11 in state-2026-07-11-and-next.md (covariance SPD /
-block-whitening / rebuild validation). `from_stats` is not that unit —
-it is this unit's clause 3 ("constant pins computed streaming, never via
-a materialized unthinned selection") and the note's "compute scale /
-constant pins with the same bounded statistics". Without it the
-disk-backed result would be re-materialized at geometry build, defeating
-the ram_frac honoring. Flagged for the Architect to confirm the read.
-
-Known limitation (flagged, not fixed): the disk-backed temp memmap is
-unlinked at process exit; a learning-curve sweep that re-stages many
-times ON A BOX TOO SMALL to hold the 4.568 GiB thinned result would
-accumulate temp files until exit. That path is the tiny-RAM edge (any
-real MPS training box holds the thinned result resident); a per-restage
-unlink is a small follow-on if it ever matters.
-
-Mac gate (numpy exec-probes of the shipped bodies, no torch):
-`probe_grid2d.py` 10/10 PASS (bounded transform bitwise vs the known
-answer, reads chunked + thinned, disk-backed under tiny budget /
-resident under ample, streamed moments = center + population std of the
-answer, law-none passthrough, guard trips on the old read);
-`probe_grid2d_geom.py` 6/6 PASS (from_stats pin / dead-dump / length
-rules, from_targets delegates the two moments). `py_compile` +
-`compileall` clean on all five files.
-
-Close (user-run, workstation): `python ai/gates/run_board.py --force-rerun
-mps-identity` — the bounded-staging legs ride mps-identity; return the
-raw log, close requires green. (transfer-identity remains the standing
-open red from the prior unit, unrelated.)
-
-### Bounded-staging Architect audit (2026-07-12, Fable): STRUCTURE ACCEPTED, REVISION REQUIRED before landing
-
-Audited against the raw diff (eight files; the handoff said six — the
-transfer-fixture fix and its resume rode along, see below). Verdict:
-
-- Clauses 1, 2, 4, 5 VERIFIED in the diff: kept columns built from the
-  sidecars + k_stride before any read; every read
-  `raw[rows[:, None], cols[None, :]]`; chunk height from
-  _GRID2D_CHUNK_BYTES / thinned width; stage_dv=False keeps the raw
-  dump a memmap; per-chunk width/rows/positivity with the original
-  error texts; tempfile memmap + atexit unlink. The gate leg's
-  _GuardProxy + the must-fail-on-old sub-check match the acceptance
-  contract.
-- **Clause 3 is the blocker (the red team's in-flight audit,
-  Architect-CONFIRMED by independent reproduction):** the streamed
-  moments use the naive one-pass `(s2 - s1*s1/n)/n` with a
-  clamp-to-zero. On a high-offset small-spread column (float32 1e8
-  alternating with 1e8+8, true population std exactly 4.0) the naive
-  form returns 3.9659 in the Architect's single-sum probe and 4.1279
-  in the red team's chunked probe — the answer DEPENDS ON SUMMATION
-  ORDER, proving non-equivalence to the former Y.std(0) contract, and
-  under other orderings goes negative so the clamp converts a
-  genuinely varying column into a FALSE constant pin (worst under law
-  none, where physical spectra carry large offsets). REVISION: replace
-  s1/s2 with per-chunk mean/M2 merged pairwise (Chan/Welford),
-  float64 accumulation; reproduce float64 np.std(ddof=0) within a
-  stated tight tolerance; the clamp may cover only the bounded
-  round-off residue of the STABLE accumulator. Red legs (must FAIL
-  the s1/s2 form): the 50k-row 1-ULP fixture; uneven chunk sizes and
-  orderings; a constant column; the ordinary log-ratio fixture;
-  streamed center/scale + the resulting encode vs the materialized
-  known answer.
-- Deviation 1 (Grid2DGeometry.from_stats + the from_targets
-  delegation): SCOPE READ CONFIRMED — the excluded geometry unit is
-  the covariance-SPD / block-whitening / from_state-validation item;
-  the pin/scale construction is this unit's clause 3. Single-sourcing
-  the pin and dead-dump rules through from_stats is accepted.
-- Deviation 2 (temp files accumulate across re-stagings on a
-  too-small box until process exit): accepted as flagged; the
-  per-restage unlink is a recorded follow-on, not a blocker.
-- The folded-in transfer-fixture fix (ai/gates/checks/transfer_identity.py):
-  matches the Architect's spec verbatim (a plain grid base saved
-  without transfer_base; the chaining refusal keeps its own leg) —
-  ACCEPTED as-is; it lands with this unit's revision in one commit.
-- Prose rider joining the revision (the red team's terminology
-  handoff): every HUMAN-FACING "oracle" in ai/gates/board.py (maps,
-  docstrings, log labels — including the five-leg maps line this unit
-  edits) and ai/gates/checks/cmb_identity.py (module docstring, comments,
-  report text) becomes "independent known-answer calculation/check";
-  callable identifiers (check_covariance_oracle, _oracle_truth) stay.
-- Close after revision: ONE commit (staging revision + fixture fix +
-  prose rider), then the user runs
-  `python ai/gates/run_board.py --force-rerun mps-identity cmb-identity transfer-identity`
-  — three raw logs; 32/32 expected.
-
-### Red-team amendment to bounded grid2d staging: stable moments over the stored payload
-
-The Implementer's in-flight bounded-read design (kept columns chosen
-before every read; row chunks; RAM-or-memmap result) closes the memory
-mechanism, but the reviewed draft computes population variance as
-`(s2 - s1*s1/n)/n` and clamps negatives to zero. That subtraction is
-not equivalent to the former `Y.std(0)` path: for 50,000 alternating
-float32 values 1e8 and its next representable value, the true std is
-4.0 while the draft returns 4.127875...; at one million rows it becomes
-negative and the clamp turns a varying column into an exact constant.
-That can change whitening and the physical-constant/dead-dump decision.
-
-The draft also accumulates moments from the pre-cast float64 law chunk,
-then trains on its float32 cast. The old path cast the law rows to
-float32 first and computed geometry statistics from those exact stored
-targets promoted to float64. Required before landing: merge chunk
-mean/M2 with a stable Chan/Welford algorithm in float64, but feed it the
-exact float32 payload written to the result. Gates compare center,
-population std, constant mask, and encoded rows against the former
-materialized-float32 path across uneven chunks, a high-offset/one-ULP
-spread, a true constant, and ordinary log-ratio rows. An analytic
-pre-cast log result alone is not the reference.
-
-**Architect adjudication (Fable, at the merge):** ADOPTED WHOLE into
-the revision above. The cancellation half was independently confirmed
-before this recording arrived (the audit verdict's probe); the
-FLOAT32-PAYLOAD half is NEW and accepted — the in-flight draft indeed
-accumulates from the float64 pre-cast chunk while storing (and later
-training on) its float32 cast, so the revision's Chan/Welford
-accumulator must be fed `law_chunk.astype("float32")` promoted back to
-float64 (the exact stored payload), and the gate's reference is the
-former materialized-float32 path, never an analytic pre-cast result.
-This clause is binding on the revision handoff.
-
-#### Revision resume (2026-07-12, Opus) — awaiting Architect re-audit
-
-Revised. `_grid2d_law_rows` now streams the geometry moments with a
-module-level `_merge_chunk_moments` (Chan's parallel form of Welford, all
-float64): per chunk it computes the block mean and the block M2 about
-that mean, then merges into the running `(count, mean, M2)` — no
-`sum(x^2)` to cancel against `sum(x)^2`. The final population variance is
-`M2 / count`, and the clamp is `np.maximum(var, 0.0)`, which now only
-absorbs the round-off residue of an exactly constant column (the stable
-M2 is accurately positive for a varying one). Per the binding
-float32-payload clause, the merge is fed the EXACT stored payload: after
-`law_rows[a:b] = law_chunk.astype("float32")` it reads `stored =
-np.asarray(law_rows[a:b], dtype="float64")` and merges THAT, so the
-moments match the former materialized-float32 `from_targets` path (which
-promoted the stored float32 targets), never the pre-cast float64 chunk.
-
-Gate: `ai/gates/checks/mps_identity.py` gains `check_stable_moments` (+ the
-`_run_law_none` helper) — the red legs that fail the s1/s2 form and pass
-this one: (1) the 50,000-row float32 1e8/1-ULP column across several
-chunk heights, streamed scale = np.std(ddof 0) = 4.0 with no false pin,
-the chunkings agreeing; (2) a constant column pins while a varying
-large-mean column does not (through `from_stats`); (3) the ordinary
-log-ratio fixture, streamed scale = np.std and the `from_stats` encode
-matching the materialized standardization. Prose rider (this unit's half,
-board.py's was already landed in the fixture commit): every human-facing
-"oracle" in `ai/gates/checks/cmb_identity.py` (module docstring, comments,
-report line) is now "known-answer" / "these legs"; `_oracle_truth` and
-`check_covariance_oracle` stay.
-
-State note: the transfer-fixture fix + board.py five-leg cmb metadata
-already landed as their own commit (6e9757f, Architect-audited), so this
-held commit is the whole bounded-staging unit (revised with the Chan
-moments), the cmb_identity.py "oracle" prose rider, and the mps-identity
-board registry prose for the new legs (gate_mps_a docstring + the
-mps-identity maps field) — seven files (experiment / data_staging /
-grid2d / mps_identity / cmb_identity / board / this note).
-
-Corrected queue order (Architect, at this revision): after the
-bounded-staging revision lands, the next units are finite training/
-evaluation contract (CRITICAL) -> selection-record truth (CRITICAL,
-depends on the finite contract) -> covariance-input validation. The
-training-truth pair protects every production run and precedes the
-covariance-input unit (my earlier order had them reversed).
-
-Mac gate (numpy exec-probes of the shipped bodies, no torch):
-`probe_grid2d.py` 10/10 and `probe_grid2d_geom.py` 6/6 still green;
-`probe_grid2d_moments.py` 8/8 PASS — 1e8/1-ULP stable std exactly 4.0
-(the old s1/s2 form gives 3.9659, matching the audit probe), uneven
-chunkings agree, constant -> 0 and varying-large-mean -> nonzero, and the
-real `_grid2d_law_rows` streamed scale + encode match the materialized
-answer bitwise. `probe_cm11a.py` 5/5 still green after the prose rider.
-`py_compile` clean on all five files.
-
-Close (user-run, workstation, one commit): `python ai/gates/run_board.py
---force-rerun mps-identity cmb-identity transfer-identity` — three raw
-logs; 32/32 expected.
-
-#### Revision re-audit (2026-07-12, Fable): NUMERICS ACCEPTED; TWO AMENDMENTS BEFORE COMMIT
-
-Independent probe (`audit_grid2d_revision.py`, exec-extraction of the
-shipped bodies, stub psutil — not a new dependency, data_staging.py
-already imports it): 23 of 24 legs pass, and the one failure is the
-deliberate reproduction of a gate-fixture defect, not a code defect.
-
-What the probe proved about the shipped code, all independently
-re-derived:
-
-- `_merge_chunk_moments` reproduces float64 `np.std(ddof 0)` of the
-  stored payload on the 1e8/1-ULP fixture at rtol 1e-9 across chunk
-  heights 7 / 337 / 4096 / whole, the chunkings mutually identical at
-  rtol 1e-12. The old s1/s2 form on the SAME fixture returns column-0
-  std 0.0 / 4.5795 / 13.7384 at those chunkings against true 4.0 — the
-  0.0 is the false constant pin reproduced verbatim, and the spread is
-  the order-dependence. Chan's M2 is non-negative by construction, so
-  the `np.maximum(var, 0.0)` clamp is provably a no-op — strictly
-  stronger than the contract asked.
-- The float32-payload clause holds and is DISCRIMINATED: on a fixture
-  whose stored-float32 std differs from the pre-cast float64 std by
-  12% (law values 100 + 1e-5 noise against ULP(100) = 7.6e-6), the
-  shipped scale matches the stored payload and fails against the
-  pre-cast reference.
-- `_grid2d_law_rows` end to end: values bitwise against the direct
-  known answer on both the memmap and RAM-staged-compact branches
-  across three chunkings; C compacted in dump_rows order with local
-  arange idx; dv_mean = float32(mean of stored payload); kept axes
-  stashed; tiny-ram_frac result a disk-backed memmap with bitwise
-  values; with_means False leaves the moments None; the positivity and
-  base-too-short guards raise.
-- `from_stats` / `from_targets` single-sourcing: identical center /
-  scale / mask through both routes; wholly-constant raises; length
-  mismatch raises.
-
-Amendment 1 (gate fixture, REQUIRED): `check_stable_moments` leg 2
-CRASHES the whole mps-identity gate on the workstation. The shipped pin
-threshold is RELATIVE — `tiny = 8 * eps32 * |center|`, which is ~95.4
-at center 1e8 — so the leg's 1-ULP column (streamed scale 4.0) is
-classified constant, and with the other column exactly constant,
-`zero.size == n_out` fires the dead-dump ValueError (reproduced in the
-probe with the leg's exact numbers). Note the Mac probe was green
-because it checked the STREAMED scale (nonzero, correct); the gate leg
-goes through `from_stats`, where the relative threshold rules. The
-pinning of a 1-ULP spread is CORRECT behavior — a column varying by one
-float32 ULP is numerically constant for standardization — so the fix is
-the fixture, not the rule: the varying column's spread must sit clearly
-above the relative threshold (e.g. alternate +-1024 at 1e8: std 1024 ~
-10.7x tiny). Binding requirements: (i) no dead-dump crash; (ii) an
-above-threshold varying large-mean column asserted NOT pinned; (iii)
-the relative-threshold rule documented in the leg — recommended shape
-is three columns [constant -> pins, 1-ULP at 1e8 -> pins BY THE
-RELATIVE RULE (assert it, with a comment saying why that is correct),
-+-1024 at 1e8 -> must not pin], which turns the discovered behavior
-into a documented leg and keeps the whole-surface guard out of reach.
-
-Amendment 2 (docstring, REQUIRED): the `_grid2d_law_rows` shape-flow
-diagram still says "accumulate s1 / s2 (streamed mean / std)" and its
-legend still defines "s1 / s2 = running sum and sum-of-squares"
-(experiment.py:2888 and :2895 at this diff) — the accumulator the
-revision deleted. Update the diagram line and the legend to the Chan
-merge's (count, mean, M2); every symbol in the legend, per the house
-shape-flow rule.
-
-Everything else stands as delivered: the board registry prose
-(gate_mps_a docstring + maps), the cmb_identity.py prose rider (my full
-uncut sweep of `-i "oracle"` over ai/gates/ + emulator/ finds only the
-identifiers `_oracle_truth` / `check_covariance_oracle` / the importlib
-tag `cmb_cov_oracle`, and board.py:1012 naming the function — exactly
-the rider's carve-out), and the corrected queue order. The commit stays
-HELD for the two amendments; on their delivery I re-check just those
-two spots and commit the whole seven-file unit myself.
-
-**Amendments applied (2026-07-12, Opus) — awaiting the two-spot re-check.**
-Amendment 1: `check_stable_moments` leg 2 is now a THREE-column fixture
-that keeps `zero.size < n_out` (no dead-dump crash) and documents the
-relative rule — col 0 exactly constant pins; col 1 a 1-ULP spread at 1e8
-(streamed std 4, ~4e-8 relative, below float32 precision) pins BY THE
-RELATIVE RULE, asserted with a comment on why that is correct
-standardization; col 2 a std-1024 spread at 1e8 (~10.7x tiny) is
-resolvable and must NOT pin. The leg asserts `const_mask == [True, True,
-False]`. Amendment 2: the `_grid2d_law_rows` shape-flow diagram + legend
-now read "merge (count, mean, M2) over the STORED float32 rows" and
-define count / mean / M2 as the Chan/Welford aggregate (the deleted
-s1 / s2 is gone from both the arrow line and the legend). Nothing else in
-the seven files touched. Mac re-verification: `probe_grid2d_geom.py` now
-9/9 — it reproduces the two-all-sub-threshold-column whole-surface raise
-(the pre-fix leg-2 crash) and proves the three-column
-`const_mask [True, True, False]`; `probe_grid2d.py` 10/10,
-`probe_grid2d_moments.py` 8/8, `probe_cm11a.py` 5/5 unchanged;
-`py_compile` clean on all seven files.
-
-**Amendments re-checked (2026-07-12, Fable): ACCEPTED, unit committed.**
-Two-spot re-check done with independent probes of the shipped bodies:
-the three-column fixture returns `const_mask [True, True, False]`
-through the real `from_stats` (pinned scales set to 1.0, column 2
-keeping 1024.0), and the full 23-leg audit probe stays green on the
-current `_grid2d_law_rows` / `_merge_chunk_moments` bodies, proving the
-amendment touched nothing else. The shape-flow diagram + legend now name
-the (count, mean, M2) Chan aggregate; `grep s1` over experiment.py = 0.
-The other five files' diffs are byte-identical to the accepted delivery
-(stat-verified). One collateral fix at this re-check: the append above
-had eaten the "File names and row counts" section header below —
-restored. Close (user-run, workstation): `python ai/gates/run_board.py
---force-rerun mps-identity cmb-identity transfer-identity`; 32/32
-expected.
-
-#### Close REOPENED (2026-07-12, red team; Architect-ADJUDICATED): disk-backed staging files accumulate across sweep points
-
-Red-team reopen of the c03a084 close, verified whole and ACCEPTED. The
-numerical contract is untouched; this is lifecycle fallout of the new
-disk-backed result. The Architect's original deviation-2 acceptance
-("temp files accumulate for the process") is hereby CORRECTED: it was
-scoped to a single train run (at most one train + one val file per
-process) and is falsified in the sweep context — the shared N-train
-sweep reuses ONE experiment per lane, calls `stage_train(n_train=N)`
-per point, and cleans up with `exp.train_set = None`
-(cosmic_shear_sweep_ntrain_emulator.py:160 and :168, all thin family
-sweeps import this main), so every low-RAM point orphans its
-`.g2law.dat` until worker exit. At the production 50,000 x 24,522
-shape each file is 4,904,400,000 bytes (~4.57 GiB); a lane sweeping
-several sizes can exhaust temporary storage with RAM fully bounded.
-The lane's `except Exception` keeps workers alive across failures, so
-failed points accumulate files too. Verified mechanics: mkstemp +
-atexit-only at experiment.py:2977-2981; dropping the memmap reference
-closes the mapping but never unlinks; the gate's disk-backed leg
-asserts only `isinstance(np.memmap)` — no restage or absence
-assertion, so the leak stays green.
-
-Micro-revision spec (Architect; land BEFORE the three-gate rerun so
-the workstation run is spent once):
-
-- Ownership on the EXPERIMENT, not the source dict: two slots,
-  `self._grid2d_train_tmp` / `self._grid2d_val_tmp` (path or None) —
-  train and val lifetimes stay independent (the sweep lane keeps its
-  val staging across points). `_grid2d_law_rows` reports the created
-  temp path to its caller; stage_train / stage_val own the slots.
-- Supersede-on-restage: stage_train releases the train slot BEFORE
-  staging a replacement (close the mapping where we still hold it,
-  unlink the path; `_unlink_quietly` tolerates the already-gone);
-  stage_val likewise for the val slot. The current mapping is never
-  released while its point's loaders run — release happens only at
-  the NEXT staging call or an explicit release.
-- Public release for the drivers: `release_train_staging()` /
-  `release_val_staging()`; the shared sweep lane's cleanup block calls
-  `release_train_staging()` where it now sets `exp.train_set = None`
-  (both the success and the except paths reach it), so a failed
-  training releases that point's file and a finished lane holds at
-  most its val staging.
-- Failure hygiene inside the transform: wrap the chunk loop so any
-  exception after the temp file exists unlinks the partial file
-  before re-raising (transform, positivity, base-shape errors).
-  atexit stays registered as FALLBACK ONLY (it already tolerates
-  double-unlink); SIGKILL/OOM/MPI.Abort remain out of scope, as
-  before.
-- Red legs (adopted verbatim): (a) low-RAM staging twice on one
-  experiment — the first path is absent, the second readable;
-  (b) three N-train sweep points — live temp count and bytes bounded
-  to current sources, never cumulative; (c) injected mid-transform
-  failure leaves no file; (d) failed training after successful
-  staging releases that point's train file through the lane-style
-  cleanup; (e) resident-RAM control creates no temp file and stays
-  byte-identical. Then rerun the existing bounded-read,
-  stable-moments, cmb-identity, and transfer-identity legs.
-
-Amended close (user-run, workstation, after THIS lands): the same
-`python ai/gates/run_board.py --force-rerun mps-identity cmb-identity
-transfer-identity`; 32/32 expected. Do not spend the rerun before the
-micro-revision.
-
-##### Lifecycle micro-revision resume (2026-07-12, Opus) — awaiting Architect audit
-
-Built; numerics frozen (`_merge_chunk_moments`, the chunk read/merge
-order, and the geometry path untouched — the 4 numeric Mac probes rerun
-green). Files:
-
-- `emulator/experiment.py`: two ownership slots in `__init__`
-  (`self._grid2d_train_tmp` / `self._grid2d_val_tmp`, path or None).
-  `_grid2d_law_rows` now RETURNS the created temp path (None when
-  resident) and wraps the chunk-loop transform in `try/except
-  BaseException` that drops the mapping and `_unlink_quietly`s the
-  partial file before re-raising (failure hygiene; atexit stays as
-  last-resort fallback only). `stage_train` / `stage_val` call
-  `release_train_staging` / `release_val_staging` (supersede) before
-  staging and store the returned path in their own slot. New public
-  `release_train_staging()` / `release_val_staging()` — path-only unlink,
-  clear the slot, idempotent; independent train / val lifetimes (POSIX
-  unlink-while-mapped frees space on close, the name goes immediately).
-- `cosmic_shear_sweep_ntrain_emulator.py`: the per-point cleanup calls
-  `exp.release_train_staging()` where it drops `exp.train_set` (reached
-  on both the success and the `except` paths); val staging is kept across
-  points, so it is NOT released there.
-- `ai/gates/checks/mps_identity.py`: `check_staging_lifecycle` — the five
-  red legs on the REAL stage_train / release paths: (a) double low-RAM
-  staging (first file absent, second readable); (b) three sweep points,
-  live temp count/bytes bounded to one point, 0 at end; (c) a
-  mid-transform positivity failure leaves no temp file; (d) failed-point
-  lane cleanup releases the train file; (e) resident control makes no
-  temp file and is byte-identical. Wired into main(); module docstring
-  bullet added.
-
-Design note (resolved while coding): `release_*_staging` only unlinks the
-tracked PATH and never touches `train_set["dv"]` — mid-`stage_train`,
-`train_set["dv"]` is the fresh RAW-dump memmap, not the old temp file, so
-dropping it would corrupt the in-progress transform. The mapping is
-closed by `train_set` reassignment / None-ing (sweep) before release.
-
-Mac gate: `probe_grid2d_lifecycle.py` 5/5 (disk-backed returns a live
-path / resident returns None; mid-transform failure unlinks the partial
-with 0 orphans; release unlinks + clears + idempotent; train/val slots
-independent). The stage_train supersede wiring and the sweep-lane cleanup
-are torch (load_source) — the gate's `check_staging_lifecycle` runs them
-for real on the workstation. `probe_grid2d` / `_moments` / `_geom` /
-`probe_cm11a` rerun green (numerics unchanged); `py_compile` clean on
-experiment.py, the sweep driver, and mps_identity.py. Held for audit.
-
-Note: the finite training/evaluation contract (unit 14) is HELD in the
-same worktree on separate files (training.py + training-stack.md) — no
-overlap with this micro-revision's files.
-
-##### Audit (2026-07-12, Fable): ACCEPTED — unit committed; the amended close is spendable
-
-- Independent probe (exec-extracted shipped bodies, stubbed psutil, no
-  torch): all sub-checks green over five legs — resident returns None
-  with bitwise passthrough and np.mean / np.std(ddof 0) moments;
-  disk-backed returns a live path whose contents are bitwise the
-  resident answer; the real release unlinks + clears + is idempotent; a
-  disk-backed positivity failure propagates ValueError with zero
-  orphans; a resident failure makes no file; train / val slots
-  independent through the real release methods.
-- Wiring read-verified: stage_train / stage_val supersede-on-restage
-  (release before staging, slot assigned from the return); the sweep
-  lane's release sits AFTER the try/except
-  (cosmic_shear_sweep_ntrain_emulator.py:174) so success and failed
-  points both reach it; a failed stage_train leaves the slot None, so
-  the lane release is a no-op, never a double unlink.
-- Gate crash-risk check (the amendment-1 class from the parent unit):
-  an AST fan-out over stage_train -> _grid2d_law_rows ->
-  release_train_staging shows the only self attributes read beyond the
-  gate fake's set are `outputs` (scalar branch only; the fake sets
-  _scalar False) and `train_set` (stored before every read) — so
-  check_staging_lifecycle cannot AttributeError on the workstation. The
-  fixture's params layout matches the file's established IN_NAMES
-  pattern, and train_set["dump_rows"] survives the transform (read-only
-  there), so leg (e)'s known answer is well-formed.
-- Numerics frozen confirmed: the chunk-loop diff is indentation-only
-  (the try wrapper plus the return); merge order and the geometry path
-  untouched.
-- Design-note ruling: the path-only unlink (release never touches
-  train_set["dv"]) is ACCEPTED with the Implementer's reasoning —
-  recorded as the unit's semantics, not a deviation.
-- One rider, NOT a hold: ai/gates/board.py:1427-1431 (the mps-identity
-  `maps` string) still names only the bounded-staging + stable-moments
-  legs; add the staging-lifecycle leg to that string on the next
-  Implementer commit touching ai/gates/ (docs parity, the parent unit's
-  own convention).
-- The mkstemp -> np.memmap window (an allocation failure between file
-  creation and the try wrapper) is covered by the atexit fallback only;
-  reviewed and accepted — the realistic failure (positivity, mid-loop)
-  is inside the wrapper and gate-checked.
-
-The amended close is now SPENDABLE (user-run, workstation):
-`python ai/gates/run_board.py --force-rerun mps-identity cmb-identity
-transfer-identity`; 32/32 expected.
-
-### File names and row counts do not prove dataset identity
-
-`load_source` checks only that parameter and dv row counts match. A
-parameter table from run A and a same-shaped dv from run B silently
-train as pairs; the MPS raw/base/grid/fail members have the same issue.
-The finalized generator output needs one manifest identity covering the
-parameter order, row count, parameter file, every dv/base/grid member,
-and the failure mask, with strong content digests. Staging verifies the
-bundle before cuts or shuffles. Because the dumps are large and sweeps
-spawn many readers, verification must be performed once per immutable
-file identity and shared/cached safely rather than re-hashing the full
-bundle in every worker. The gate swaps same-shaped dv files between two
-fixtures and requires a pre-staging identity failure.
-
-### Family sidecar paths and validation axes are not bound (red-team continuation — ADJUDICATED: these are queue units 25 + 26 below)
-
-**Architect adjudication (Fable, at the merge):** verified and
-numbered before this recording merged — the same two findings are
-queue units 25 ("Nested data paths never resolve") and 26
-("Validation grid axes are never identified"), specs later in this
-note, cluster-ruled with the checkpoint manifest (8) and generator
-ingress (17) as one file-set authenticity boundary. This section
-stands as the red-team record; the numbered sections are the specs of
-record.
-
-`resolve_cocoa_config` resolves the five flat dv/parameter/covmat paths
-under `<project>/chains`, but leaves `data.cmb.covariance`,
-`data.grid.z_file`, and grid2d's `z_file` / `k_file` / `train_base` /
-`val_base` cwd-relative. The shipped examples use bare names and tell
-the user to launch from `$ROOTDIR`; a direct resolver probe therefore
-made `train_dv` absolute while leaving `z_file` and `train_base` bare.
-Existing gates hide the split by constructing absolute nested paths.
-One dotted-path registry must resolve every file-valued leaf against its
-documented base (absolute paths unchanged), and missing-file errors name
-the dotted key.
-
-There is also only one background z sidecar and one grid2d (z,k) pair:
-the training axes are reused to interpret validation dumps. A validation
-dump/base from a different generator run with the same width passes and
-is scored on the wrong coordinates; CMB has the analogous same-width
-ell identity gap. The committed dataset manifest should bind each
-train/val raw/base dump to its own axis bytes, parameter order, failure
-mask, settings, and generation id, then require exact train/val axis
-equality before staging. Until that manifest lands, explicit validation
-sidecars plus `array_equal` guards are the minimum. Red legs use shifted,
-reversed, and permuted same-width axes and a swapped same-shaped val base;
-byte-identical separately written axes pass.
-
-### Closed: no-cut learning-curve pool counting
-
-The original defect was that `EmulatorExperiment.pool_size` recognized
-that scalar, CMB, grid, and grid2d configs may omit `data.param_cuts`,
-assigned `{}`, and then read `pc["omegabh2_hi"]`. Their family
-`*_sweep_ntrain_emulator.py` wrappers could therefore die with `KeyError`
-before the first point. The scalar branch also re-sliced the chain
-positionally instead of using the sidecar-resolved input columns shared
-with `load_scalar_source`.
-
-The shared named-column resolver closed the scalar positional split, and
-the optional-cut parity slice closed the no-cut failure. Pool counting now
-reuses staging's selection contract: no cuts means the full row count;
-active cuts use the same named input columns, formulas, and bounds as
-`stage_train`; and the reported pool equals the maximum legal
-`stage_train(n_train=...)`. The parameter-table gate drives both states for
-all four optional-cut families and refuses `pool + 1` before downstream
-training or grid2d transformation.
-
-## Nested data paths never resolve (red-team 2026-07-12, Architect-VERIFIED, open; the file-set authenticity cluster)
-
-resolve_cocoa_config (emulator/cocoa.py ~135-139) rewrites ONLY the
-flat _DATA_PATH_KEYS under data:; the nested file leaves —
-data.cmb.covariance, data.grid.z_file, data.grid2d.{z_file, k_file,
-train_base, val_base} — are never touched, and the family builders
-np.load those strings directly. The shipped examples use bare
-filenames + the documented run-from-$ROOTDIR workflow, so the
-advertised CMB/background/MPS examples are internally split across
-two path bases and fail unless launched from chains/ (the gates hide
-it by writing absolute nested paths). The function's own docstring
-claims it "rewrites every data-block file path" — false until this
-lands.
-
-Contract (the red-team block of record adopted whole): one dotted
-path registry resolves EVERY file-valued schema leaf against the
-correct project base; absolute paths pass through; errors name full
-dotted paths; covariance + sidecars/base dumps live with the chain
-products unless an explicit documented base says otherwise; persist
-the resolved absolute consumed paths (or a clear portable-root form)
-consistently. Red legs: each shipped CMB/background/MPS example under
-a temp ROOTDIR with placeholder files in project/chains resolves
-whole and loads from a different cwd; absolute nested paths pass
-unchanged; missing files name the dotted key; a negative leg proves
-the old cwd-relative location is not consulted. The resolver
-docstring/README promise is corrected in the same unit.
-
-## Validation grid axes are never identified (red-team 2026-07-12, Architect-VERIFIED, open; the file-set authenticity cluster)
-
-Background has one z_file, grid2d one z_file/k_file — the TRAINING
-axes interpret BOTH train and val dumps (the staging comment says it
-outright: "val borrows the" training axes; experiment.py ~3145).
-There are no validation-axis keys and no manifest digest, so a val
-dump produced on different coordinates with the same column count
-passes every width check and is silently scored on the wrong grid;
-the val base can likewise come from a different same-shaped run; CMB
-val rows are interpreted on the covariance ell grid with width-only
-identity.
-
-Contract (adopted whole): train and val dumps each carry/point to
-their own axis identity, startup requires exact train/val equality
-before staging. The PREFERRED home is the already-queued committed
-dataset manifest (bind every raw/base dump to axis bytes, parameter
-order, generation settings, fail mask; configs reference manifest
-members); until it exists, explicit val sidecars + exact array_equal.
-Red legs: same-width shifted/reversed/permuted val z; altered k;
-swapped val base from another run; CMB same-width shifted ell; all
-fail before geometry/training; byte-identical separately-written axes
-pass; train/val raw/base/axis members share one manifest generation
-id. SEQUENCING (red-team ruling, adopted): this unit + the checkpoint
-manifest + generator ingress + the nested-path resolver are ONE
-file-set authenticity boundary — the Implementer takes them as one
-cluster.
-
-## Tenth wave: validation leakage + data-control totality (red-team, Architect-VERIFIED; CRITICAL first clause; folded into the file-set authenticity cluster)
-
-Four clauses, all confirmed, all joining the 8 + 17 + 25 + 26 cluster:
-
-1. **Validation can BE the training set (CRITICAL).** stage_train and
-   stage_val both recreate torch.Generator().manual_seed(the SAME
-   split_seed) — experiment.py ~3086 / ~3142 / ~3169 — and the
-   stage_val docstring states the unenforced premise verbatim ("the
-   val file differs, so the same seed gives an independent
-   selection"). No samefile/realpath/duplicate-payload check exists.
-   Aliased or row-overlapping train/val paths make the same shuffled
-   prefix the "validation" set: reported validation performance is
-   then training performance, silently. Contract: reject train/val
-   path aliases before staging; the manifest cluster binds stable
-   row/sample identities and PROVES train/val disjointness (not just
-   distinct filenames + matching axes); same-pool splitting is
-   unsupported today and must be REFUSED (if ever supported, one
-   explicit partition operation with a proven empty intersection).
-   Red legs: identical paths; symlink/hardlink aliases; separately
-   named duplicate payloads; partial row overlap; a valid disjoint
-   pair.
-2. **One-row contract contradiction.** validate_sizes permits
-   n_train/n_val = 1, but load_source (data_staging.py ~536:
-   `np.loadtxt(...)[:, param_cols]`), load_scalar_source (~779), and
-   pool_size index loadtxt output as 2-D; NumPy returns (n_columns,)
-   for one row -> IndexError (generator_core.py ~610 already uses
-   np.atleast_2d — the idiom exists in-repo). Contract: normalize
-   text tables to exact 2-D + validate column counts; a one-row val
-   file stages normally; one-row training reaches the INTENTIONAL
-   geometry/standardization verdict, never an incidental parse crash.
-3. **Data controls whitelisted, not validated.** split_seed consumed
-   through bare int() (fractional truncates, bool becomes int), never
-   required/type-checked; ram_frac unchecked (`float(get(...))` —
-   NaN/negative silently force streaming, > 1 or inf can force unsafe
-   full materialization); param_cuts validates keys only (NaN bounds
-   reject every row silently, inf erases the cut, bools act numeric,
-   quoted values fail late).
-4. **Contract:** one pure data-control validator in from_config
-   before any staging — split_seed required, exact non-bool int in a
-   stated range; ram_frac (when present) finite non-bool real in
-   [0, 1]; every active cut bound finite non-bool real with lo < hi
-   on paired bounds; NO coercion; shipped valid configs unchanged.
-
-## Generator ingress identity (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open)
-
-train_args.ord is validated by SET equality only
-(generator_core.py ~337), so duplicate names pass whenever the set
-matches — and the two reorder helpers (~458-466) collapse the
-duplicate DIFFERENTLY: yaml_to_ord maps the duplicated name twice
-([0, 1, 2, 1] for ord [As, H0, omch2, H0]), ord_to_yaml's dict
-comprehension keeps the LAST occurrence ([0, 3, 2]); the sampler runs
-at dimension 4 against a model of dimension 3, and the chain/header/
-sidecars can carry duplicate columns. The covariance-header pidx
-(~326) has the same last-duplicate-wins defect.
-
-Contract (Implementer unit; the red-team block of record adopted
-whole): validate ord structurally (the one-list form, nonempty unique
-string names); compare cardinality AND membership against cobaya's
-sampled set, reporting missing/extra/duplicate separately; the covmat
-header nonempty + unique before pidx; the loaded covariance finite,
-2-D, square, aligned with the header length before subsetting (SPD
-handling unchanged); fiducials finite numeric non-bool before
-sampling; an MCMC thin/unique shortfall FAILS instead of warning and
-publishing a smaller dataset under the requested identity;
-run_generator rejects unparsed CLI arguments. Pure gates (no
-CAMB/MPI): valid unique reorders preserve today's index maps;
-duplicate/missing/extra/wrong-nesting/non-string ord raise with
-separate diagnostics; duplicate header + header/matrix mismatch
-raise; NaN/Inf covariance or fiducial raise before sampling;
-insufficient unique rows cannot publish; an unknown optional flag is
-rejected. The verbatim lensing physics loop is untouched.
-
-## Generator scalar/grid configuration finiteness (red-team continuation — ADJUDICATED: folded into unit 17, generator ingress identity)
-
-**Architect adjudication (Fable, at the merge):** VERIFIED and folded
-into unit 17 as its finiteness extension — same ingress boundary, one
-validator surface. Spot-confirmed anchors: dataset_generator_mps
-_read_train_args coerces with int()/bool() (~110-139: int(seg[2]),
-bool(seg[3]), bool(train_args["write_syren_base"]) — a quoted "false"
-is True, 8.9 truncates to 8); generator_core ~659 uses
-`math.isinf(logprior)` and isinf(NaN) is False, so a NaN cobaya prior
-is accepted and written with the uniform lnp = 1. The contract below
-is binding on unit 17's implementation.
-
-The family generators validate ranges only after lossy coercion.
-Executed probes against their real `_read_train_args` methods found:
-MPS `n=8.9` / `nk=8.9` truncate to 8, quoted endpoint and
-`write_syren_base: "false"` become true, and NaN `extrap_kmax` is
-stored; CMB `lrange: [2.9, 500.9]` becomes `[2, 500]`; background
-`nz=8.9` becomes 8. Validate the parsed values before conversion:
-counts/multipoles exact non-bool ints, switches exact bool, every grid
-edge/extrapolation limit finite, unknown family keys loud, and
-`extrap_kmax >= max(k)` after finiteness. Valid shipped axes and model
-requirements must remain byte-identical.
-
-The shared post-sampling prior check uses only `math.isinf(logprior)`;
-`math.isinf(NaN)` is false, so a uniform sample whose Cobaya prior is
-NaN is accepted and written with the hard-coded uniform `lnp = 1`.
-Before sampling require finite ordered bounds (and finite fiducial /
-covariance / Cholesky / inverse on Gaussian runs); every prior result
-uses `isfinite` in the log-posterior, post-sampling, append, and reload
-paths. Nonfinite modeled columns or metadata fail before chain/dv
-publication and name their parameter/row.
-
-## The physical cuts (data.param_cuts)
-
-- Schema: nested `data.param_cuts:` block, whitelist of 8 keys;
-  `omegabh2_hi` REQUIRED; omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/
-  hi, omegamh2ns_lo/hi optional (absent = that side open). Legacy flat
-  keys / `omegabh2_cut` raise the paste-ready migration ValueError.
-- The formulas (verbatim, strict inequalities, intersection-composed):
-  obh2 = omegab*(H0/100)^2; g2 = (omegam*H0/100)^2 (= Gamma^2, the
-  transfer shape parameter; Planck ~0.045); omh2 = omegam*(H0/100)^2
-  (Planck ~0.143); omh2ns = omh2*ns (Planck ~0.138). Implementation is
-  a QUANTITY TABLE (name, tag, needed cols, formula, lo, hi) — adding
-  a window = one helper + one row, never an if-ladder. One-character
-  traps (omegamh2 vs omegam2h2, ~3x scale apart) are why the whitelist
-  is loud.
-- THE FRAMING LESSON (the user's coverage argument beat the
-  failure-targeted fit): n_train draws from the CUT pool, so cutting
-  rarefied volume DENSIFIES the kept region instead of costing data —
-  a coverage cut, not a failure cut. Evidence: sparsity and failure
-  rate are U-shaped along omegam^2h^2 (the sampling cloud's long axis
-  in (lnOm, lnh)); the (0.015, 0.08) window removed 96% of dchi2>100
-  and took frac>0.2 from 0.59 to 0.156 same-day.
-- Post-cut signature: residual failures HUG the cut boundaries
-  (one-sided training support at the window edge) — the motivation for
-  the generator's --boundary < 1.
-- Live production values (2026-07-03, user-confirmed): omegabh2
-  (0.005, 0.035), omegam2h2 (0.015, 0.08); omegamh2/omegamh2ns windows
-  exist but ship commented out in the example YAML.
-- The banner prints each active window's formula tag + per-window kept
-  count (the only starvation diagnostic under stacked windows); the
-  pool guard raises "physical pool too small after param_cuts" naming
-  kept/requested and the remedy.
-
-## Cut shading on the diagnostics triangle
-
-Every active window shades sharp panels in ONE shared semi-transparent
-grey `_CUT_GREY = (0.55, 0.55, 0.55, 0.30)` at zorder 0 (superposition
-composes the union); sharp-only principle — no fuzzy projections onto
-panels that do not determine a window; each plotting-side formula
-carries a provenance comment naming phys_cut_idx's quantity-table
-helper (ONE source of truth). D-GTB-1 lesson: the gate classifies the
-shading layer by its design contract (zorder 0), never by rendering
-heuristics.
-
-## Generator physics execution: no silent zip truncation, no order-picked truth source (red-team 45M-06, 2026-07-12, Architect-VERIFIED; queue 33 — joins the file-set/ingress campaign, now 8+17+25+26+28+33)
-
-Verified anchors: dataset_generator_lensing.py:103,
-dataset_generator_cmb.py:307 AND :327 (two loops — the execute loop
-and the read-results loop), dataset_generator_mps.py:364 all run
-Cobaya components via
-`for (x, _), z in zip(self.model._component_order.items(),
-self.model._params_of_dependencies)` with z never used and
-cached=True. zip stops at the shorter input, and both structures are
-PRIVATE Cobaya internals (leading underscore, no stability promise) —
-a length mismatch silently skips the remaining physics components,
-with no count assertion anywhere. This exact hand-built lifecycle has
-already failed once in this repo: dataset_generator_background.py
-:321-335 records the bitwise-constant H(z) dump it produced and the
-switch to the public model.logposterior(sample, cached=False)
-lifecycle. The other three generators still run the failed pattern.
-Separately, dataset_generator_lensing.py:99 picks its truth object by
-YAML insertion order
-(`self.model.likelihood[list(self.model.likelihood.keys())[0]]`) — a
-dummy or auxiliary likelihood listed first silently changes the
-data-vector producer without changing the requested probe.
-
-Contract (Implementer):
-
-1. Component execution is never zipped against an unused private
-   list.
-2. PREFERRED: the public logposterior(cached=False) lifecycle in all
-   four generators — background is the worked reference. If a private
-   component loop must remain for a demonstrated reason, validate the
-   two structures' lengths and identities before iteration and fail
-   loudly on any mismatch; silent truncation is forbidden.
-3. Lensing selects the data-vector likelihood by an explicit unique
-   capability/identity rule, not mapping order; zero or multiple
-   candidates raise and list their names; the selected producer is
-   validated against the requested probe.
-4. The sampled-row reordering, name/value mapping, Cobaya input
-   transformation, provider update, and physics evaluation split into
-   named steps (the relevant alien-Python repair; ordinary tensor
-   method chains stay allowed per the user ruling).
-5. The producer that served each sample is recorded in generator
-   provenance or the manifest, so a dump's truth source is auditable.
-6. One physics evaluation per accepted sample; current output shapes
-   and units preserved.
-
-Gates:
-
-- Fake-Cobaya pure legs under ai/gates/checks/, registered on the board:
-  a component/dependency length mismatch cannot skip a component;
-  reversing likelihood insertion order does not change the selected
-  producer; zero/multiple data-vector producers raise diagnostically;
-  every intended component executes exactly once; a mutation arm
-  reproduces the old truncated/private-loop form and proves the gate
-  catches it.
-- Workstation (Cobaya/CAMB): the lensing, CMB, and MPS generator
-  smoke legs gain two distinct cosmologies; the generator payload is
-  compared against the corresponding public-provider result for each,
-  and the two payloads are asserted non-stale / non-identical.
-
-## The old unstable variance survived beside the Chan accumulator (red-team 45M-23, 2026-07-12, Architect-REPRODUCED; queue 44 — amends the stable-moments standard, one numerical-statistics design repo-wide)
-
-data_staging.py::stream_stats(method=1) (:113-129) still ships the
-exact s1/s2 algorithm the grid2d revision prohibited: sum(x) and
-sum(x^2) accumulators (:117-123) subtracted as
-(s2 - s1*s1/n)/(n-1) (:128), with comments claiming float64 "avoid[s]
-overflow" — the real hazard is catastrophic cancellation, not
-overflow. Architect reproduction on the exec-extracted shipped body:
-10,000 rows at offset 1e8 give std 1.8103 vs true 1.0017 (silently
-wrong); offset 1e10 gives NaN (negative variance under the sqrt).
-Scope, per the red team's own honest note: load_source keeps only
-dv_mean and discards this std, so today's ordinary target centering
-is NOT corrupted — the defect is a documented public normalization
-function returning false or NaN scales, and two contradictory
-numerical standards now living side by side.
-
-Contract: method 1 reimplemented with the SAME float64 per-chunk
-mean/M2 + Chan merge accepted for bounded grid2d staging (ddof=1
-preserved); method validated exactly in {1, 2}; CHUNK a positive
-non-bool integer; 2-D input; nonempty unique in-range indices;
-method 1 needs >= 2 rows; nonfinite selected payloads and nonfinite
-outputs rejected naming the column; the zero-scale policy explicit
-(no division poison); docstring/comments corrected to name
-Chan/Welford and the sample-variance convention. Red legs (torch
-return -> an existing identity gate or a small board-listed staging
-gate on the workstation): high-offset/small-spread truth vs
-np.std(ddof=1); multiple chunk sizes and index orders; a fixture that
-FAILS the s1/s2 formula (catch-power); empty/one-row/duplicate/
-out-of-range indices; invalid method/chunk; nonfinite input; constant
-column.
-
-## A CMB dump has no multipole identity (red-team 45M-30, 2026-07-12, Architect-VERIFIED; queue 47 — CRITICAL, joins the file-set-authenticity cluster, now 8+17+25+26+28+33+47; sharpens the 45M-27 amendment to unit 26)
-
-The CMB generator slices all four spectra by train_args.lrange
-(dataset_generator_cmb.py:322-327, lsel) but writes only four
-ANONYMOUS 2-D stores (_tt/_te/_ee/_pp.npy) — unlike the background
-and MPS generators, no axis sidecar exists. Training checks ONLY
-width: experiment.py:3549 `dv.shape[1] != ell.size` against the
-covariance, then labels dump column 0 with the COVARIANCE's first
-multipole. A dump generated for lrange [10, 1008] has the same 999
-columns as a covariance for 2..1000: training accepts it and every
-row, center, sigma, roughness stencil, convolution coordinate,
-prediction, and saved artifact is consistently wrong with no shape
-error. The checkpoint path is weaker still: the cmb _dv_load_chk
-(:143-155) plus the core loader check 2-D shape/rows/RAM policy only
-— no axis fact exists to compare, so a resumed run reuses a stale
-same-width dump generated under a different multipole interval.
-
-Contract (Implementer):
-1. The generator publishes a CMB ell sidecar in the same file set —
-   the exact integer column axis used to slice all four spectra.
-2. Fresh allocation, checkpoint resume, append, and training all
-   require exact equality among generator lrange, sidecar ell, every
-   spectrum width, and covariance ell.
-3. The axis must be the exact consecutive observable grid
-   np.arange(lmin, lmax + 1), with the ruled production requirement
-   lmin == 2 where applicable.
-4. The sidecar is a REQUIRED member of the transactional checkpoint
-   manifest (the unit-25 contract): missing, stale, noninteger,
-   duplicated, gapped, shifted, or wrong-length axes fail before any
-   row is trained.
-5. The artifact persists the verified axis as today, but records
-   that it was verified against the DUMP-side axis, not inferred
-   from the covariance.
-6. Science coordinates are never inferred from a filename or a
-   width.
-
-Red legs: valid generator -> checkpoint reload -> training chain
-with one exact axis passes unchanged; same-width shifted dump vs
-covariance (10..1008 vs 2..1000) raises; gapped/permuted/duplicated/
-noninteger sidecar raises; missing sidecar on a checkpoint raises
-before trusting any spectrum store; one of TT/TE/EE/PP with a width
-inconsistent with the shared sidecar raises and leaves no accepted
-checkpoint; the YAML lrange changed over old same-width files —
-resume raises rather than relabeling columns; an anonymous legacy
-CMB .npy with no axis fact raises with a migration instruction,
-never guessing from covariance width. Relation to 45M-27 (unit 26
-amendment) adopted as argued: validating the covariance's ell
-sequence is necessary but insufficient — the dump must declare and
-match its OWN sequence.
-
-## UNIT 56 (45M-48): generators mark non-finite science payloads successful
-
-Sixth 45M batch (2026-07-12), Architect-verified on HEAD. The shared
-generator validates SAMPLING inputs, but no common boundary
-validates the computed science payload before writing it and setting
-failed[i] = False. Joins the file-set/ingress campaign — cluster now
-8+17+25+26+28+33+56. Distinct from unit 17 (parameter/covariance/
-config ingress) and unit 33 (component-execution truth): this unit
-owns the payload boundary between the producer and the store. It is
-NOT a separate publication system.
-
-Verified chain: serial success path generator_core.py:908-921 sets
-failed[i] = False inside the try and calls _dv_write OUTSIDE it, so
-a broadcast-compatible wrong shape writes silently after the flag is
-already cleared; MPI main receive :990-999 and drain :1048-1057 both
-run kind != "err" -> blind _dv_write + failed = False. The default
-store write :588-590 assigns blindly, as do the family overrides
-(cmb :276-279, background :295-298, mps :333-336 — all per-quantity
-`store[i] = dvs[q]`, numpy-broadcastable). Only the allocator's
-FIRST payload receives family shape checks (cmb :247,
-background :266). Producers close nothing: lensing casts to float32
-with no finite check (dataset_generator_lensing.py:118-120); CMB
-fills four spectra unchecked; background casts h/dm unchecked; MPS
-checks only PRE-CAST pk_lin (dataset_generator_mps.py:390) — pk_nl,
-boost, and both syren bases are unchecked, and a finite float64 can
-overflow to Inf in the float32 cast AFTER the existing check.
-Untruncated grep: the only payload-side isfinite in
-compute_data_vectors/ is that mps :390 line.
-
-Reproduction (numpy, Mac): float64 source [1, NaN, Inf, 1e100]
-stores as float32 [1, nan, inf, inf] under the current success path
-with failed = False. The 1e100 element is finite before conversion
-and non-finite in the actual dump — validation must describe the
-STORED payload, not the producer's pre-cast result. A scalar payload
-broadcasts silently into a full row.
-
-Contract:
-
-1. One shared payload-validation boundary runs on the first payload
-   and every subsequent serial/MPI result BEFORE _dv_write and
-   BEFORE clearing the failure flag.
-2. Validation happens after conversion to the exact storage dtype.
-3. Exact family structure and shape: lensing one exact-width vector;
-   CMB exact (4, nell); background exact keys h and dm, each
-   matching its grid; MPS exact configured quantity keys, each
-   matching nz*nk.
-4. Every stored value finite. Legal signed quantities (CMB TE) are
-   preserved; positivity rules remain family-specific.
-5. MPS additionally requires finite, positive pk_lin, pk_nl, and
-   boost, plus finite configured syren bases.
-6. A bad payload follows the existing failed-row mechanism and can
-   never be marked successful or published as usable training data.
-   Final dataset closure (failed-row exclusion at staging + a
-   nonzero exit) remains the wave-1 dataset-readiness unit's
-   responsibility.
-
-Gate legs (CPU-only; no torch or GPU): finite control; second-row
-NaN and +-Inf; a finite float64 value overflowing to float32 Inf;
-a wrong but broadcast-compatible later-row shape; a missing and an
-extra mapping key; MPS finite pk_lin with NaN pk_nl or boost; a
-legal negative-TE control; and the serial and MPI-result handlers
-proven to invoke the IDENTICAL validator.
-
-## UNIT 56 AMENDED (45M-48 addendum): broadcast relabeling + write-once/read-back
-
-Seventh 45M batch (2026-07-12). The addendum's mechanism was already
-reproduced during the unit's adjudication (a scalar payload
-broadcasts silently into a full stored row); numpy row assignment is
-not an exact-shape check, and the allocator's first-payload contract
-protects nothing after row 0. Amendment to the contract:
-
-1. The shared payload boundary requires, for every sample and every
-   named family component, an EXACT key set and an EXACT predeclared
-   shape before storage; scalar and length-one broadcasting are
-   forbidden.
-2. After the shape gate: cast to the real storage dtype, require
-   every stored value finite, write ONCE, then read back (or
-   validate the exact cast payload) before clearing the failed bit.
-3. The family _dv_write methods are writers only — never independent
-   validators.
-
-Added red legs: first payload right-width, second payload length-one
--> the second sample is failed, never broadcast-successful; a
-background/MPS dict omitting or adding one quantity key -> exact-key
-refusal; a CMB later payload with a broadcast-compatible non-(4,
-n_ell) shape -> refusal; serial and MPI result paths produce the
-same failed/status verdict with no science row marked successful.
-
-Rider REJECTED as factually absent (recorded so it is not
-re-proposed): the claimed duplicate `self.datavectors[i] = dvs` in
-the generic _dv_write does not exist on main or on the branch HEAD —
-generator_core.py:588-590 contains exactly one assignment (verified
-on both checkouts, 2026-07-12). No code change owed.
-
-## UNIT 57 (45M-52): the generator reads its error capture before buffered writers publish
-
-Seventh 45M batch (2026-07-12), Architect-verified and REPRODUCED
-with the real repository function body. Joins the file-set/ingress
-campaign — cluster now 8+17+25+26+28+33+56+57. Complementary to
-unit 56, not subsumed by it: post-cast finiteness/shape validation
-cannot catch a finite payload the solver itself declared invalid or
-unconverged in text. Interlocks unit 33: if 33's preferred-path
-harmonization replaces terminal parsing with a solver
-status/exception API, that route satisfies this contract too.
-
-Verified chain: capture_native_output (generator_core.py:163-185)
-dup2-redirects fds 1/2 to a TemporaryFile with NO flush of Python,
-C, or Fortran user-space buffers on entry; every family reads
-tmp.read() INSIDE the with block (lensing :101-116, cmb :305-320,
-background :333-341, mps :362-377) with no flush before the read;
-the error-keyword scan then decides success and failed[i] is
-cleared. MPI does not repair it — the worker makes the same
-premature decision and sends "ok".
-
-Reproduction (Mac, the exec'd real body, stdout block-buffered as in
-a batch job): os.write(1, b"OS ERROR") IS captured; print("PYTHON
-ERROR") captures EMPTY; libc.printf(b"C ERROR") captures EMPTY and
-the text leaks to the RESTORED stdout after a later fflush; and the
-un-flushed PYTHON ERROR text from one capture block appeared INSIDE
-THE NEXT capture block together with pre-entry text — cross-sample
-misattribution in BOTH directions (a clean sample can inherit its
-predecessor's error text, and a failing sample's text can vanish
-into a later row's verdict). A native component can therefore print
-a declared-fatal string, return a finite-looking payload, and be
-marked successful.
-
-Contract (adopted):
-
-1. Native-output synchronization is part of the correctness
-   boundary, not a logging convenience. Flush Python streams before
-   redirection (no earlier text misattributed); after the theory
-   call, flush every supported writer before reading.
-2. No generic Fortran/C capture claim unless the implementation
-   proves the actual CAMB writer is synchronized. If in-process
-   flushing cannot be proven reliable, isolate the solver behind a
-   process boundary whose exit closes/flushes streams, or replace
-   terminal parsing with a solver status/exception API carrying the
-   same failure semantics.
-3. Read the capture only after synchronization, scan once under a
-   named documented case policy, and include the captured text in
-   the raised error.
-4. Restoration and temp-file cleanup stay exception-safe; a
-   flush/read failure FAILS the sample, never silently downgrades
-   the guard.
-5. Serial and worker paths use the identical helper and verdict.
-
-Red legs (pure CPU generator-core gate): immediate os.write caught;
-buffered Python output caught without leaking to the restored
-stream; buffered C printf caught; text emitted before entry not
-attributed to the sample; an exception restores both descriptors; an
-"ERROR"-emitting finite-payload fake is failed/zeroed in serial and
-reported "err" by the worker decision helper. The C/Fortran leg must
-exercise a genuinely buffered native writer — the current unflushed
-body must FAIL it. If CAMB-specific flushing is the chosen design,
-one small real-runtime leg, or an explicit refusal of unsupported
-native runtimes rather than an advertised universal capture.
-
-## UNIT 33 AMENDED (45M-64, fifteenth batch, 2026-07-12): the lifecycle verdict is the acceptance fact, not "the call returned"
-
-Finding (red team, CONFIRMED live): the background generator's
-repaired lifecycle is verdict-blind. _compute_dvs_from_sample
-calls self.model.logposterior(sample[idx], cached=False) and
-DISCARDS the returned object
-(dataset_generator_background.py:335); success is then the
-ABSENCE of {"ERROR", "error", "Did not converge"} in captured
-terminal text, after which the provider getters run
-unconditionally. Proven on REAL cobaya 3.6.2 (2026-07-12): a
-rejecting component returns LogPosterior(logpost=-inf) as a
-NORMAL return value — no raise, no keyword text — while the
-explicit prior precheck stays finite (it covers only the prior,
-not a theory/likelihood rejection). The reachable wrong result:
-a rejected point leaves the provider holding the PREVIOUS
-point's finite arrays; H and D_M are read and returned as a
-successful payload; the shared writer records a success. This is
-exactly the stale-physics class the cached=False repair was
-built to close — disabling the cache forces recomputation when
-computation HAPPENS, but does not validate that it succeeded.
-Unit 56's payload boundary cannot distinguish those finite stale
-values from new physics (its charter is the stored array, not
-the execution). Entry 33's own text called background:335 "the
-worked reference" for the three migrations — the worked
-reference is the patient; it becomes the FIRST PATIENT of the
-acceptance helper this amendment defines.
-
-Contract amendment (the red team's seven clauses adopted, one
-concretization):
-
-1. Every generator captures the lifecycle's returned LogPosterior
-   and requires a FINITE accepted logpost BEFORE reading any
-   provider output. The verdict is the acceptance fact.
-2. Acceptance uses cobaya's documented result API
-   (LogPosterior.logpost; fields verified on cobaya 3.6.2:
-   logpost/logpriors/loglikes/derived). Captured terminal text is
-   DEMOTED to supplementary diagnostic evidence attached to the
-   error report — never the verdict.
-3. A rejected result invalidates the sample even when the
-   provider contains finite values.
-4. This-call provenance, PRECISION CONCRETIZATION (Architect):
-   real cobaya exposes no provider generation token, so in the
-   real path provenance is established by the CONJUNCTION
-   (cached=False forced recomputation) AND (accepted finite
-   verdict, checked BEFORE the first getter call) — a recorded
-   derivation, not a new API; the fake-Cobaya gate proves the
-   ORDER mechanically (legs below). Acceptance never rests on "a
-   getter returned".
-5. Unit 56's payload validator remains defense in depth AFTER
-   lifecycle validation; a finite payload does not prove accepted
-   execution.
-6. ONE shared acceptance helper, executed identically by all four
-   generator drivers — background immediately, lensing/CMB/MPS at
-   their unit-33 migration — so the background omission is never
-   copied three times.
-7. Error reporting names the sample index, the parameter mapping,
-   and the lifecycle verdict (logpost, and the rejecting
-   component when cobaya reports one); no keyword scans as logic,
-   no secret dumping.
-8. Consequence, recorded: any background dump generated BEFORE
-   this amendment lands is suspect for SPARSE stale rows (the
-   bsn-smoke dump-variance tripwire catches only whole-dump
-   constancy); science-grade dumps are regenerated after landing.
-
-Red legs (in unit 33's fake-Cobaya, board-listed gate; no torch
-needed):
-
-- accepted finite lifecycle + fresh provider payload passes;
-- rejected/non-finite lifecycle + stale finite provider payload
-  fails BEFORE any getter or write — the instrumented fake
-  provider PROVES zero getter calls were made;
-- rejected lifecycle + fresh-looking finite payload still fails;
-- accepted lifecycle + non-finite payload reaches and fails unit
-  56's boundary (the defense-in-depth ordering leg);
-- generation-token leg IN THE FAKE: the fake provider tags its
-  arrays with the lifecycle call generation; the accepted leg
-  asserts the arrays read belong to THIS call — the
-  read-after-verdict discipline made mechanical;
-- mutation arm: restore the discard-the-return / scan-text form —
-  it must ACCEPT the stale payload, proving catch power;
-- census leg: all four generator drivers execute the IDENTICAL
-  acceptance helper once per sample.
-
-Distinct from unit 56 (it validates the stored science array;
-this amendment validates that the requested cosmology actually
-produced it). Placement: rides unit 33 in the ingress cluster
-(8+17+25+26+28+33), unchanged. USER-VISIBLE: rejected points now
-fail their sample loudly with the verdict named (previously they
-could write the previous cosmology's physics as a success).
-
-## UNIT 8 EXTENDED (45M-68, seventeenth batch, 2026-07-12): the loader verifies parameter names, then ignores them and slices by position
-
-Finding (red team, CONFIRMED live): load_source cross-checks the
-GetDist .paramnames sidecar against the covariance header
-(check_paramnames, data_staging.py:527-533), then DISCARDS the
-resolved name list and selects columns with the positional
-default param_cols = slice(2, -1) (:448, :536) — exactly two
-leading bookkeeping columns, exactly one trailing derived column,
-an assumption the check's own docstring bakes in ("e.g. chi2* —
-which the staging slice already drops"). pool_size repeats the
-literal slice (experiment.py:3303), so staging and pool
-accounting share the defect instead of one checking the other.
-Reproduced through the REAL load_source (2026-07-12): a valid
-table [weight, lnp, a, b, d1*, d2*] with a fully-declaring
-sidecar passes check_paramnames and returns C of width 3 (both
-inputs plus the first derived value) against the two-name
-covariance — the whitening dimension mismatch downstream; a
-zero-derived table [weight, lnp, a, b] passes the same check and
-returns C of width 1 — sampled parameter b silently DROPPED. The
-sharpest fact is in-file: _scalar_columns (:632) ALREADY resolves
-columns by name for load_scalar_source, and its docstring states
-outright that "a fixed slice like load_source's slice(2, -1)
-cannot locate them" — the scalar path does it right while the
-main path guesses.
-
-Contract (the red team's seven clauses adopted; the resolver
-GENERALIZES _scalar_columns — no parallel mechanism):
-
-1. ONE shared named-column resolver owns the parameter table for
-   load_source, load_scalar_source, pool_size, checkpoint reload,
-   and any generator readback.
-2. It parses the COMPLETE .paramnames sequence including which
-   entries are derived, and maps each covariance/header input
-   name to its exact numeric column after the two GetDist
-   bookkeeping columns.
-3. Never infer "last column is chi2": derived-column count and
-   placement come from the sidecar/manifest.
-4. Exact uniqueness, presence, numeric table width, and order
-   agreement are required before any value is selected.
-5. The repository generator's current [weight, lnp, sampled...,
-   chi2] form selects byte-for-byte identical values.
-6. A missing sidecar follows ONE explicit documented legacy
-   format contract or is refused with migration instructions —
-   never an undocumented positional guess.
-7. pool_size calls the same resolver and returns the same
-   legal-row ceiling as stage_train.
-
-Red legs (CPU):
-
-- a current generator-shaped file selects the same sampled matrix
-  exactly;
-- zero, one, and multiple derived columns select the named
-  sampled inputs correctly;
-- a derived column interleaved among sampled names is selected
-  correctly by the declared map, or refused if the documented
-  format forbids the layout;
-- duplicate/missing sidecar names, table-width mismatch, and
-  covariance-name mismatch fail before staging;
-- mutation arm: restore [:, 2:-1] — the zero-derived and
-  two-derived legs must fail;
-- pool_size and stage_train use the identical selected parameter
-  matrix under every accepted layout;
-- one-row versions compose with unit 11's exact-2D normalization
-  contract (the 45M-65 amendment).
-
-Distinct from the queued one-row normalization and no-cut
-pool_size findings (row rank and optional cuts); this defect
-chooses the wrong scientific COLUMNS on a multi-row finite table
-whose sidecar declares everything correctly. Placement: unit 8
-(checkpoint-set/file-set integrity), ingress cluster
-8+17+25+26+28+33 — no new number. USER-VISIBLE: non-generator
-GetDist tables now load their declared columns or refuse
-(today: wrong columns, silently or via a downstream shape error).
-
-## UNIT 33 AMENDED AGAIN (45M-70, seventeenth batch, 2026-07-12): the gate-side lifecycle calls have the same verdict blindness
-
-Finding (red team, CONFIRMED by read at all six sites; the
-rejection mechanism proven on real cobaya 3.6.2 in the 45M-64
-adjudication): the three cobaya smoke gates and the CMB
-covariance producer call model.logposterior(...), discard the
-returned LogPosterior, and immediately read provider/theory
-getters — cmb_smoke.py:441-442, bsn_smoke.py:248-252 and
-:291-295, mps_smoke.py:331-335 and :376-380,
-compute_cmb_covariance.py:420-422. None passes cached=False.
-Since rejection is a NORMAL -inf return, a theory can populate
-provider state, a downstream component can reject the point, and
-the gate then compares the populated state against the reference
-and greens: the gates prove "a value was readable", not "the
-full lifecycle accepted the cosmology whose value they claim to
-validate". The two-call forms can additionally bless a prior
-accepted point's state after a rejected second evaluation.
-
-Contract (the red team's eight clauses adopted, one ordering
-ruling):
-
-1. Every gate-side logposterior call captures the returned
-   object.
-2. Before the FIRST provider or theory getter, the point verdict
-   is asserted accepted via the documented numeric fields — never
-   exception absence or terminal-text matching.
-3. cached=False whenever a gate intentionally evaluates multiple
-   points.
-4. A rejected point executes ZERO getters and reds the gate.
-5. The rule applies to BOTH the emulator-provider and the
-   CAMB-reference calls — an invalid reference lifecycle is never
-   accepted as truth.
-6. ONE Cobaya acceptance definition shared with the 45M-64
-   generator helper. ORDERING RULING (Architect): whichever side
-   lands first ESTABLISHES the shared definition — the gate-side
-   fixes ride the wave-4 family gate visits, which come before
-   the ingress cluster, so the gates will likely establish it and
-   the generator migration consumes it; the Implementer proposes
-   a home importable from both ai/gates/ and compute_data_vectors/;
-   two definitions never exist.
-7. The existing numerical comparisons are preserved after the
-   verdict guard.
-8. The CMB covariance producer is amended through the same
-   acceptance helper: its fiducial result is captured and
-   validated before get_Cl or get_CAMBdata.
-
-Red legs (in the existing board-listed cmb/bsn/mps smoke gates;
-workstation torch/cobaya):
-
-- real-cobaya accepted control: finite verdict, then getter, the
-  existing numerical comparison unchanged;
-- a rejecting likelihood after a theory populates state: current
-  code reaches the getter and can green; repaired code reds
-  BEFORE it;
-- valid first point + rejected second point: no stale/current
-  provider output is read for the rejected point;
-- instrumented provider counts getter calls; rejection requires
-  exactly zero;
-- CAMB-reference rejection is red, never reference truth;
-- mutation arm: discard the returned LogPosterior and proceed —
-  the rejection leg must fail.
-
-Placement: rides unit 33 (verdict truth), with the gate legs
-executing at the wave-4 family gate visits and the covariance
-producer at the 33 helper landing. USER-VISIBLE: smoke gates can
-newly red on rejected points (previously green on readable stale
-state).
-## Continued red-team findings: staging must teach its row coordinates and count every host copy (2026-07-12)
-
-### 45M-83: the row-coordinate comments are correct only after a reader already understands the implementation
-
-`load_source` builds `src["dump_rows"]` beside `C`, `dv`, and `idx`, but its
-comment begins with internal nouns (on-disk indices, staged rows, sibling
-dump) and an expression split across comment lines.  The nearby comments for
-`C_mean` and the grid2d exception assume the reader already knows the two
-staging regimes, why resident staging changes the row-coordinate system, why
-the base dump does not change with it, and why only training owns means.
-
-Required documentation contract:
-
-- Define the two coordinate systems before the dictionary: a global row is a
-  row number in the original files; a local row is a row number in the compact
-  resident copy.
-- Walk one concrete example through both regimes.  If original rows
-  `[9, 2, 9, 5]` are selected, show the sorted unique disk rows `[2, 5, 9]`,
-  the resident arrays in that order, and the local coordinates that address
-  them.  State which arrays are copies and which object remains a memmap.
-- Define `dump_rows` as the coordinate list for a second file written in the
-  same row order, then name grid2d's base dump as the consumer.  Do not use
-  “sibling” before defining it.
-- Explain `param_stats` and `stream_stats` separately.  The first statistic
-  returned is the training-column center.  The unused second return is the
-  scale, because the parameter covariance supplies the input scale on this
-  path.  Validation never estimates its own center.
-- Explain why grid2d defers the output moments: it first thins the k axis and
-  transforms the raw surface into the target-law quantity, so a mean of the
-  raw, unthinned file is a different statistic and is deliberately not
-  computed.
-- Correct the overgeneralization in the current comment: NumPy advanced
-  indexing of a memmap materializes the requested result.  The source remains
-  disk-backed because each requested block is materialized on demand, not
-  because the indexed result is itself a memmap view.
-
-Acceptance is documentation-only: no AST-with-docstrings-stripped code hash
-changes.  A first-time reader must be able to label every index as global or
-local and every array access as eager, lazy, view, or copy without consulting
-the gate history.
-
-### 45M-84: the host-RAM decision omits the parameter copy it creates
-
-`stage_source` computes
-`rows.size * dv.shape[1] * dv.dtype.itemsize`, compares that number with the
-RAM allowance, and, on the resident branch, materializes both `dv[rows]` and
-`C[rows]`.  The parameter copy is absent from the decision.  This is the same
-shared-resource-accounting class as the GPU loader defect: a storage decision
-must count every object whose lifetime it creates, even when one is usually
-smaller than the other.
-
-Required implementation contract:
-
-- The predicted resident bytes equal the bytes of the stored representation
-  of `dv[rows]` plus the bytes of the stored representation of `C[rows]`, with
-  no count based on the source dtype when the stored copy changes dtype.
-- The comparison and the verbose line report the same named components and
-  the same total.
-- The disk-backed branch remains lazy for the data-vector dump and does not
-  claim that the already-eager parameter table is disk-backed.
-- A CPU-only gate chooses a memory allowance between “dv alone fits” and
-  “dv plus C fits.”  Current code must take the resident branch and the fixed
-  code must take the disk-backed branch.
-- Companion legs cover the exact-fit boundary, a resident control, a
-  disk-backed control, and numerical/row-order identity across the two
-  regimes.
-
-The comment rewrite in 45M-83 and the accounting correction land together so
-the code does not teach a byte formula that the implementation no longer
-uses.
-
-## Structured evidence map — gate contract anchors (45M-72 foundation)
-
-The board's structured evidence map (`Gate.evidence`) pins each migrated
-gate to a stable, runner-validated anchor in its home note; the mechanism
-and the audited rollout are documented in `gates-and-board.md`. The two
-generation-side gates anchor here:
+# Data generation, staging, and physical parameter cuts
+
+This note is the durable engineering contract for dataset generation,
+checkpointing, staging, and physical-window selection. It is not a development
+diary. A future change should update the rule that changed, the reason for the
+rule, the code that owns it, and the evidence that proves it.
+
+The user-facing introduction belongs in the repository README. This note keeps
+the deeper rules needed by maintainers and automated development tools.
+
+## Terms used throughout this note
+
+A **checkpoint** is saved progress from an incomplete generator run.
+**Staging** selects, validates, and places saved rows into arrays used by
+training. A **sidecar** is a small companion file that records names, order,
+axes, or other facts about a larger data file. A **gate** is a registered
+acceptance command.
+
+A **publication transaction** turns one complete draft dataset into the
+dataset visible to readers without exposing a partial copy. A **slot** is the
+stable destination assigned to one dataset identity. A **generation** is one
+complete version stored in that slot; a **draft** remains writable, while a
+**sealed generation** no longer changes. A file **descriptor** is the
+operating system's handle for one open file.
+
+A **digest** is a fixed-size fingerprint calculated from exact bytes. A
+**manifest** is the complete list of a generation's members together with
+their paths, lengths, and digests. The **active record** is
+the small `active.json` file that names the sealed generation readers must
+open. Replacing that record is the **active-pointer switch**.
+
+A **probe** names the requested physical output, such as background or CMB. A
+family **variant** selects one documented representation, such as native or
+Syren-base matter power. A **registry** is a fixed mapping of accepted names
+to their owners. A **canonical projection** is the documented subset of
+resolved settings, written in one stable order and encoding before its digest
+is calculated.
+
+The **maximum-correlation policy** limits the largest absolute off-diagonal
+correlation in the covariance used by Gaussian Markov-chain Monte Carlo
+sampling. Gaussian mode records a finite limit greater than `0.01` and no
+greater than `1.0`. Uniform mode does not use a covariance correlation limit
+and must record `null`. This mode-dependent rule is the policy's
+**applicability**.
+
+## Ownership map
+
+Message Passing Interface (MPI) lets separate generator processes coordinate
+work. The cosmic microwave background (CMB) is the relic radiation from the
+early universe measured by the CMB family.
+
+| Subject | Primary owner |
+|---|---|
+| Shared command line, sampling, MPI, and checkpoints | `compute_data_vectors/generator_core.py` |
+| Family-specific physics and family sidecars | `compute_data_vectors/dataset_generator_*.py` |
+| CMB covariance generation | `compute_data_vectors/compute_cmb_covariance.py` |
+| Dataset publication transaction | `compute_data_vectors/dataset_publication.py` |
+| Parameter-table schema | `emulator/parameter_table.py` |
+| Row selection and host-memory staging | `emulator/data_staging.py` |
+| Family staging and pool-size decisions | `emulator/experiment.py` |
+| Physical-window formulas | the shared parameter-cut quantity table |
+| Gate claims | `ai/gates/checks/` and the stable anchors in this note |
+
+## Generator families
+
+### Rule
+
+`generator_core.py` owns the common command line, the two sampling modes, MPI
+coordination, checkpoint control, and native-output capture. Thin family
+drivers own only family physics and family-specific files:
+
+- lensing writes the CosmoLike data vector;
+- CMB writes temperature-temperature (TT), temperature and E-mode
+  polarization cross-spectrum (TE), E-mode polarization auto-spectrum (EE),
+  and lensing-potential auto-spectrum (PP) arrays. It also writes the
+  multipole identity required by the dataset contract;
+- background writes Hubble and transverse-comoving-distance arrays with their
+  redshift axes;
+- matter power writes linear power, boost, redshift and wavenumber axes, and
+  both base arrays when the Syren-base variant is requested. Syren is the
+  analytic matter-power baseline that this project can combine with an
+  emulator correction.
+
+`compute_cmb_covariance.py` is a separate producer. Its `params` block uses
+the script's own names, including `omegabh2` and `omegach2`, and contains plain
+resolved numbers.
+
+The background generator evaluates each point with the standard Cobaya
+`model.logposterior(point, cached=False)` lifecycle. Other generators may keep
+a different lifecycle only when their gates prove that every intended
+component executes once and that every dumped row belongs to the requested
+cosmology. A private zipped component loop may never truncate silently.
+
+The matter-power-spectrum (MPS) `Pk_grid` request uses
+`k_max = max(2 * max(requested_k), 20)`. Every dumped wavenumber must be
+computed rather than extrapolated. The served interpolator may have a
+separate, validated extrapolation limit.
+
+### Why
+
+The shared core prevents checkpoint and publication rules from drifting among
+families. Family physics remains explicit so changes to one scientific product
+do not hide inside a generic storage abstraction. Lifecycle rules exist because
+a finite provider cache can contain values from an earlier cosmology after a
+later cosmology is rejected.
+
+### Acceptance evidence
+
+- Every family emits its exact required member set and no undeclared member.
+- Two distinct cosmologies produce distinct, row-matched payloads when the
+  underlying physics differs.
+- The lifecycle result is accepted before any provider getter is called.
+- A rejected lifecycle causes zero getter calls and cannot publish a row.
+- The public-provider result and the generator payload agree for each tested
+  cosmology.
+- A mutation that restores silent zip truncation or discards the lifecycle
+  verdict must fail.
+
+## Sampling and dataset identity
+
+### Rule
+
+Tempered sampling uses the resolved parameter covariance and a recorded random
+number generator. Uniform sampling uses the resolved legal interval after the
+boundary-interior policy has moved each endpoint one representable value toward
+the interval interior. No boundary policy may depend on distance from zero.
+
+Temperature, maximum-correlation value and applicability, boundary policy,
+requested and resolved support, sampling algorithm, seed, complete
+random-generator state, ordered parameter names, family, mode, and all
+scientific settings are dataset identity. Coincident numeric bounds do not
+erase the requested policy.
+
+The complete generator-owned random state is checkpoint state. Append restores
+that state before drawing another row. Reinitializing from the seed is not
+continuation.
+
+### Why
+
+Uniform support changes when infinite prior endpoints are resolved with a
+temperature. A filename that records only `unifs` cannot distinguish those
+scientific supports. Seed-only append restarts the random stream and can
+duplicate the original dataset.
+
+### Acceptance evidence
+
+- Same-width intervals translated along the number line retain the same
+  fractional interior width.
+- Narrow offset intervals either have a representable interior or refuse before
+  output mutation.
+- Two temperatures produce distinct request identities even if hard bounds make
+  their effective numeric supports equal.
+- Fresh `N` followed by append `M` produces the same canonical parameter rows
+  and order as one fresh `N+M` run.
+- Missing, stale, or corrupt random state refuses append without changing the
+  prior generation.
+- A mutation that restores endpoint multiplication or
+  `default_rng(seed)` at append must fail.
 
 <a id="generator-seed-owned-rng"></a>
-**generator-seed (GEN-A) — the dataset generator samples from an owned,
-recorded RNG.** A required integer `--seed` owns a numpy Generator threaded
-through the uniform parameter sampling, the emcee walker init and the
-sampler's own moves, and the thinning subselection (no process-global
-`np.random` draw remains); the seed is type-checked and written to the
-chain header, and same-seed draws reproduce. Append-replay and
-worker-invariance ride the workstation smoke gates.
+### Owned random-number generation
 
-<a id="stage-ram-both-copies"></a>
-**stage-ram (SRM-A) — host-RAM staging counts every array and keeps the
-seeded row order.** Two silent-divergence surfaces. (1) Accounting:
-`stage_source` counts BOTH the parameter and target compact copies (each at
-its own dtype and width) plus the reindex array, so a narrow-output dump
-keeps the disk-backed branch when the two copies together exceed the budget.
-(2) Seeded order: `idx` is the run's seeded selection order (a distinct,
-generally unsorted permutation prefix); both branches must present those rows
-in that one canonical order, because the training loop applies the same epoch
-permutation to whichever index stage_source returns. The resident branch
-returns `searchsorted(rows, idx)` — the local coordinates that walk the sorted
-compact copy in selection order — not a plain `arange`; the disk branch
-returns the global selection order unchanged. The gate drives the real
-per-source loader (`_build_loaders_one`) in both storage regimes (resident
-gather and disk stream), draws one shared epoch permutation, and requires the
-executed parameters, targets, and minibatch membership and order to match
-row-for-row against a selection-order anchor, with a mutation arm restoring
-`arange` that must break the match. A duplicate row in the selection refuses
-loudly (the selection is a unique permutation prefix by construction, so a
-repeat is upstream corruption that would train one cosmology twice and skew
-the normalization stats). Companion legs: resident / disk controls, an
-unequal-dtype case, the duplicate refusal with a unique control, the exact-fit
-boundary (need below / equal / above budget, strict less-than a deliberate
-policy), the honest three-term banner
-(`params + dv + idx = total`, the operator that held, the branch), the
-dv-only-estimate mutation arm, and `dump_rows[idx_src]` recovering the global
-selection order so a row-matched base dump lines up in either regime.
+#### Rule
 
-## UNIT 64 (BLOAT-02, RT-2026-07-13-01, 2026-07-13): one generator storage engine — the seven duplicated _dv_* operations move to generator_core
+A required native integer seed initializes an owned NumPy generator. The same
+owned generator supplies uniform draws, Gaussian walker initialization, sampler
+moves, and thinning or subselection. Process-global `np.random` draws are not
+part of the generator contract. The complete state, not merely the seed, is
+recorded for continuation.
 
-Finding (red team, CONFIRMED): dataset_generator_background.py (365
-lines), dataset_generator_cmb.py (364), and dataset_generator_mps.py
-(429) each carry the SAME seven storage operations by name and
-structure — _dv_chk_files, _dv_load_chk, _dv_save, _dv_append,
-_dv_alloc, _dv_write, _dv_zero — plus the _read_train_args frame;
-roughly 449 shared lines maintained in triplicate, so a checkpoint or
-append fix must be applied three times and can drift.
-dataset_generator_lensing.py (136 lines) is thinner and must be
-censused by the proposal (it may already delegate).
+#### Acceptance evidence
 
-Contract:
+- Equal seed and equal request produce equal rows.
+- A different seed changes the selected rows.
+- Append continuation equals a one-shot run.
+- Worker count does not change the canonical parameter table.
+- A scan and mutation check prove that no process-global random draw enters the
+  generation path.
 
-1. PROPOSAL-FIRST (large-unit rule): the layout proposal is written
-   in this note and audited by the Architect BEFORE implementation.
-2. One multi-array store in compute_data_vectors/generator_core.py
-   owning the seven operations, written as ordinary loops (C-readable;
-   no comprehension cleverness) — the store handles N named arrays so
-   the MPS multi-quantity case and the single-dv families use the
-   same code.
-3. Family physics (_compute_dvs_from_sample and friends) and sidecar
-   generation STAY in the family drivers; the store owns bytes,
-   checkpoints, and resume arithmetic only.
-4. Acceptance is byte-identity: for all four generators, the dumps,
-   checkpoints, and headers produced on the same seed + YAML are
-   byte-identical before and after the refactor, including the
-   append-and-restart path (a one-shot N+M equals fresh N then append
-   M remains the separately-owed 45M-81 workstation leg, unchanged
-   by this unit).
-5. Sequencing: AFTER the generator-ingress cluster (units 8, 17, 25,
-   26, 28, 33) — those units edit the same files, and consolidating
-   under them would churn every open spec.
+## Canonical parameter rows
 
-## UNIT 68 (RT-2026-07-13-06, 2026-07-13): optional latex metadata must not crash the run after sampling
+### Rule
 
-Finding (red team, CONFIRMED by Architect probe on the real Cobaya):
-a sampled parameter declared {prior: {min: 0, max: 1}} is valid and
-yields model.info()['params'] WITHOUT a 'latex' key —
-generator_core.py:808 evaluates param_info[x]['latex']
-unconditionally, raising KeyError AFTER sampling completed and after
-the chain .txt was written (:798-801). The run loses its
-.paramnames / .covmat epilogue to a missing presentation string.
+One canonical parameter representation is materialized before any science
+evaluation. Every family producer receives rows bitwise equal to the rows the
+training loader later recovers from the published table. Fresh, resume, append,
+serial, and MPI paths share that representation and row order.
 
-Contract (RULING): the parameter NAME becomes the GetDist display
-label when 'latex' is absent — GetDist's own convention;
-presentation metadata is NOT promoted to a required key and is NOT a
-refusal surface. Legs: a real-Cobaya no-latex control runs the whole
-epilogue and the emitted .paramnames is READ BACK by the getdist
-reader (loadMCSamples), not just written; a with-latex control stays
-byte-identical to today; the covmat epilogue executes in both.
-Sequencing: rides the generator-ingress cluster (same file,
-generator_core.py); no standalone landing.
+The public table uses GetDist's reserved columns honestly. GetDist is the
+chain-table format and reader used for saved sampling results. Column two
+stores `minus_logpost`, not raw log posterior. When the trailing field represents
+`chi2* = -2 log p`, `minus_logpost == chi2*/2` under the declared rounding
+policy. Uniform generation must not claim to have measured a posterior that it
+did not evaluate.
 
-## UNIT 56 — checkpoint-ingress amendment (20M-15, 2026-07-13, binding): resumed rows revalidate through the publication predicate
+`.ranges`, the chain table, and the parameter reader use one decimal or exact
+representation policy derived from the owned dtype. A valid interval must not
+collapse during serialization.
 
-Finding (red team, CONFIRMED; shipped loader body executed with only
-unavailable imports stubbed): a two-row checkpoint holding [NaN, 1] /
-[Inf, 2] under a both-succeeded sidecar loads cleanly, prints
-"Loaded models", schedules no recomputation, and republishes — the
-loaders validate existence / row counts / rank / nbytes only
-(generator_core.py:503-521, :540, :580-594, :619-640) and trust the
-sidecar bits.
+### Why
 
-Amendment (binding, the unit's read-side half): (1) immediately
-after every _dv_load_chk — before printing, before loadedfromchk,
-before scheduling — every row whose failure bit is FALSE revalidates
-through the EXACT family-specific stored-payload predicate used at
-publication (unit 56's write-side), on the actual stored dtype,
-exact expected shape, and family semantics (generic/lensing exact
-vectors; all four CMB spectra with signed TE; the background-domain
-rules; the MPS positivity/linear/nonlinear/boost/base rules); (2) a
-failed row's documented zero placeholder stays legal; (3) an invalid
-row under a false success bit is a checkpoint/sidecar inconsistency:
-REFUSE with nonzero status, modify neither file, never silently flip
-a bit; (4) manifests/digests remain provenance, never a substitute
-for payload validity; (5) valid resume byte-identical.
+Writing float64 decimal rows while computing from an independently cast
+float32 copy can move a coordinate by one float32 unit. The resulting data
+vector then belongs to a different cosmology than the printed row. Low-
+precision range output can also collapse two distinct bounds.
 
-Legs (ratified; CPU): valid rows load; NaN / +Inf / -Inf under a
-success bit refuse; a dtype-overflow value refuses on readback;
-every family's domain-invalid payload refuses (incl. nonpositive MPS
-products where positivity is required); the zero placeholder stays
-legal; refusal fires BEFORE "Loaded models" with both files
-untouched; a mutation restoring the structural-only loader accepts
-the corrupt row and schedules nothing (must red); a census leg
-proves every loader calls the ONE shared predicate.
+### Acceptance evidence
 
-## UNIT 82 (20M-16, 2026-07-13): row authenticity — the published parameter table IS the computed one, bitwise, on every path
+- A midpoint-adjacent witness is bitwise equal at producer input, table
+  readback, and staging.
+- Fresh, append, resume, serial, and MPI paths agree on canonical rows.
+- GetDist selects the higher-posterior row in a two-row known answer.
+- The reserved-column sign mutation selects the wrong row and must fail.
+- Float32-distinct range-bound pairs serialize and read back as distinct,
+  ordered bounds containing all canonical rows.
 
-Finding (red team, CONFIRMED; mechanism verified in code): fresh
-generation writes the float64 chain at nine decimal digits
-(generator_core.py:798-801) and independently casts the computation
-copy to float32 (:804), while append reloads the written chain
-(:365-368) — decimal and binary rounding do not commute at
-midpoint-adjacent values (witness: default_rng(0) uniform index
-1582, one float32 ULP; ~700 per million draws), so a fresh run
-computes science one representable cosmology away from the row it
-publishes, finite and shape-correct throughout.
+## Dataset readiness
 
-Contract (ratified): (1) ONE canonical published parameter table is
-materialized exactly once, before any science call; (2) the rows
-every _compute_dvs_from_sample receives are BITWISE identical to the
-rows the real training loader recovers from the published chain;
-(3) fresh, resume, append, serial, and MPI share that representation
-and row order; (4) never write float64 xf and independently cast a
-second copy — either write a representation that round-trips exactly
-to the canonical computation dtype, or write first and reload once
-through the shared reader before any computation; the owner and the
-conversion are explicit; (5) lnp, chi2, bound checks, and other
-row-labelled facts are recomputed at the canonical row OR explicitly
-stored as pre-canonical sampling diagnostics — never facts about a
-different row; (6) the checkpoint/artifact manifest records the
-canonical parameter dtype and representation; (7) valid values and
-row order otherwise unchanged.
+### Rule
 
-Legs (ratified; CPU): the seed-0/index-1582 witness through fresh
-generation with an identity producer; chain read back through the
-real load_source with bitwise equality among producer row, staged
-row, and identity payload; an away-from-boundary control; fresh ==
-append == resume on the same canonical rows; serial == MPI;
-multi-parameter rows with one boundary-crossing coordinate; a
-mutation restoring write-then-independent-cast must fail on the
-witness; a census proving no producer call receives any table but
-the canonical one. Placement: the generator-ingress campaign
-(rides with the ingress cluster; distinct from 20M-15's payload
-validity — 15 asks whether the stored answer is legal, 82 whether
-it belongs to the printed cosmology).
+A row is successful only when all of these statements are true:
 
-## 45M-81 AMENDED (2026-07-13, CONFIRMED CURRENT FAILURE): append restarts the RNG stream and duplicates the original dataset — RNG state is checkpoint state
+1. The lifecycle accepted that exact cosmology.
+2. The complete family payload has the exact declared key set and shape.
+3. Validation runs after conversion to the exact storage dtype.
+4. Every stored value is finite.
+5. Family-specific domain rules hold.
+6. The row was written once and the accepted cast payload can be read back.
+7. Only then may the failure flag be cleared.
 
-Finding (red team; Architect re-executed the repro exactly): fresh
-generation with --seed S followed by --loadchk 1 --append 1 --seed S
-reconstructs default_rng(S) from the beginning
-(generator_core.py:270), the checkpoint restores rows/payloads but
-NO generator state or draw offset, and the append branch calls the
-same rng.uniform (:748): at the public minimum N = M = 200 every
-appended row duplicates an original, fresh+append != one-shot, and
-the first appended row is draw 1, not draw N+1. The :792 chain
-header ("seed=... rng=numpy.default_rng") implies seed-only
-provenance — false for append.
+Failure metadata belongs to the same dataset generation as the parameter
+table, payloads, axes, and facts. Missing, stale, forged, or wrong-length
+failure metadata makes the dataset unreadable.
 
-Binding amendment (converts the owed acceptance proof into this
-contract): (1) the COMPLETE owned RNG state is persisted
-transactionally with checkpoint generation — never the seed alone;
-(2) append restores that exact state before any draw, OR
-replays/advances only under a manifest-proven algorithm + prior-row
-count with the resulting state VERIFIED; (3) every sampling engine
-that owns state is covered, including the emcee move/random state on
-the Gaussian branch (the queue-5 sampler._random rider joins here:
-the private-attr assignment gains its attribute-presence assert and
-its state joins the persisted block); (4) one-shot N+M and
-fresh-N-then-append-M produce the SAME canonical parameter rows and
-row order; (5) missing, stale, or mismatched RNG state REFUSES
-append before modifying the old dataset; (6) the chain header stops
-implying seed-only replay provenance; (7) MPI worker count must not
-affect the parameter table (science-row ordering remains unit 82's
-coordinated half). CAUTION: no dataset may be produced via append
-until this lands; unit 82 is orthogonal (it would faithfully
-canonicalize the duplicates).
+A production-ready dataset contains the exact requested number of successful
+rows. A loader may reject failed rows or explicitly exclude them, but an
+exclusion policy still has to deliver the requested successful-row count.
+Failed proposals may remain in a retry checkpoint; they are not training data.
 
-Legs (CPU now): real uniform fresh/append restart; exact equality to
-one-shot; no cross-half duplicates; state readback; missing/corrupt
-state refusal; a mutation reinitializing default_rng(seed) must
-reproduce the 200/200 duplication and red. The Gaussian/emcee
-continuation and worker-invariance legs may stay workstation-bound
-where their dependencies require it. Placement: the
-generator-ingress campaign beside unit 82; blocks any production
-append.
+`boundary` is a finite native non-Boolean real with
+`0 < boundary <= 1`. Invalid values refuse before any output path is opened.
 
-## UNIT 87 (20M-21, 2026-07-13): the chain's reserved column carries minus_logpost — named honestly, exact against chi2*, uniform mode never fakes a posterior
+### Why
 
-Finding (red team, CONFIRMED; Architect live GetDist probe
-reproduces the reversal): the generator writes raw lnp into chain
-column 2 on fresh AND append (generator_core.py:798, :844), which
-GetDist defines as -log(posterior) and minimizes for the best fit —
-row ranking, shading, and cooling all reverse. The trailing
-chi2* = -2*lnp has the right sign but does not repair the reserved
-column. Uniform mode fabricates lnp = 1 / chi2* = -2 (:751, :760),
-which must never be described as an evaluated posterior.
+A provider failure can leave a zero-filled row while the program exits zero.
+Finiteness before a float32 cast misses overflow created by that cast. A
+broadcast-compatible shape can fill a row without representing the declared
+family structure. Structural checkpoint checks alone can also republish a
+not-a-number value (`NaN`) or infinity (`Inf`) under a success bit.
 
-Contract (ratified): (1) the in-memory quantity is named logpost;
-minus_logpost = -logpost is materialized at the PUBLICATION
-boundary; (2) minus_logpost is written into reserved column 2 on
-fresh and append; (3) the exact relation minus_logpost == chi2*/2
-holds when chi2* means -2 log p; (4) headers/sidecars are honest —
-"lnp" may not label a negative-log-posterior column, and "chi2" may
-not silently mean posterior; (5) the uniform-sampling record is
-explicit: no evaluated posterior means the GetDist-required neutral
-value with a declared unavailable status, or the derived diagnostic
-omitted under a documented format — never -2 published as measured
-chi-squared; (6) old sign-reversed chains carry an explicit
-migration marker/tool or refuse — the convention is never inferred
-from numeric values; (7) parameter rows and science payloads
-unchanged.
+### Owner
 
-Legs (ratified; CPU, real GetDist): the [-1, -10] known-answer pair
-selects the -1 row; the current-sign mutation selects the worse row
-and must red; fresh and append read back one convention; column 2 ==
-trailing chi2*/2 exactly under the declared rounding policy;
-headers/sidecars distinguish posterior from likelihood; uniform mode
-claims no measured posterior; legacy missing-convention and migrated
-chains covered. Placement: the generator publication/provenance
-campaign (with the 45M-81 RNG amendment and units 68 + 82);
-production Gaussian/MCMC generation blocked on it alongside them.
+- lifecycle acceptance: the shared lifecycle helper;
+- stored-payload predicate: one shared family-aware validator;
+- resume revalidation: every family checkpoint loader;
+- final readiness: generator publication and staging entry points.
 
-## UNIT 8 AMENDED (20M-23, 2026-07-13): the run-control state machine validates before any path mutation — an illegal append pair cannot touch the prior dataset
+### Acceptance evidence
 
-Finding (red team, CONFIRMED live; the constraint is in the CLI help
-text and enforced nowhere): --append 1 --loadchk 0 parses cleanly
-(generator_core.py:139-154), the flags are copied independently
-(:238, :255), __load_chk returns False whenever loadchk != 1, and
-:699 routes to the FRESH branch — np.savetxt replaces the existing
-chain and the family path allocates fresh storage: the sentinel
-dataset was destroyed by an accepted command.
+- Finite control rows publish.
+- NaN, positive or negative Inf, and finite-float64-to-float32 overflow fail.
+- A second-row scalar or length-one payload cannot broadcast into a full row.
+- Missing or extra family keys fail.
+- Signed CMB TE remains legal while family auto-spectrum rules remain active.
+- Serial and MPI result handlers invoke the same validator.
+- A successful flag paired with an invalid resumed payload refuses before a
+  “loaded” report and leaves all files unchanged.
+- A failed-row zero placeholder remains legal.
+- Boundary controls cover zero, negative, above one, NaN, Boolean, one, and a
+  valid interior value.
+- Restoring unconditional success or removing the staging-side readiness check
+  makes the gate fail.
 
-Amendment (binding; extends the unit-8 dataset-transaction/manifest
-campaign, no new mechanism): (1) the run-control state machine
-validates BEFORE any output directory or file is created:
-append == 1 requires loadchk == 1; (2) a legal append additionally
-requires the manifest-authenticated prior generation unit 8 already
-specifies; (3) the illegal pair raises a teaching error naming both
-values and explaining that append EXTENDS the validated prior
-dataset — it is not fresh generation at the same path; (4) rejection
-preserves every byte and timestamp of the existing chain, fail
-flags, data-vector members, axes, parameter-name sidecar,
-covariance, ranges, and manifest; (5) fresh 0/0, resume 1/0, and
-authenticated append 1/1 are the exhaustive legal states; any other
-programmatic non-bool/non-integer state refuses before path
-mutation; (6) 45M-81's RNG-state continuation stays an INDEPENDENT
-requirement of legal append (authenticate the old dataset AND
-continue the stochastic stream).
+## Native-output and lifecycle acceptance
 
-Legs (ratified; CPU): seed a complete sentinel bundle, drive the
-REAL public CLI, assert the illegal pair raises with ALL member
-digests identical; controls for the three legal states; a mutation
-restoring independent flag handling must visibly destroy the
-sentinel and red. Placement: the generator publication/provenance
-cluster (with the 45M-81 amendment and units 68/82/87); production
-generation blocked on the cluster.
+### Rule
 
-### Unit 8 run-control slice: validation now dominates setup
+Native-output capture is supplementary diagnostic evidence. The scientific
+acceptance fact is a finite accepted Cobaya `LogPosterior.logpost`, checked
+before the first getter call. Terminal keyword scans never decide scientific
+success.
 
-The generator now normalizes its three binary controls through one pure,
-immutable `RunControl` before it looks up `ROOTDIR`, reads configuration, or
-calls setup. `None` retains the CLI defaults. Every supplied value must be a
-native non-Boolean integer `0` or `1`.
+Python streams are flushed before file-descriptor redirection. Every supported
+writer is flushed after the theory call and before reading captured text. If a
+native writer cannot be synchronized reliably, the solver must be isolated
+behind a process boundary. The other valid choice is a supported application
+programming interface (API) for status or exceptions. An API here means the
+documented calls that report solver state. Capture cleanup and descriptor
+restoration remain exception-safe.
+
+### Why
+
+Buffered Python or C output can appear in the next sample's capture. A rejected
+Cobaya point normally returns `-inf`; it need not raise or print a keyword.
+The provider can still contain a finite array from an earlier accepted point.
+
+### Acceptance evidence
+
+- Immediate `os.write`, buffered Python output, and a genuinely buffered native
+  writer are captured in the correct sample.
+- Text written before entry is not assigned to the sample.
+- Exceptions restore both descriptors.
+- A rejected result with a stale finite provider array performs zero getters
+  and cannot write.
+- An accepted lifecycle followed by a nonfinite payload reaches the payload
+  validator and fails there.
+- Generator and gate-side lifecycle calls use the same acceptance definition.
+
+## Run-control state
 
 <a id="generator-run-control-binary-state"></a>
-The legal `(loadchk, append)` states are exactly `(0, 0)` fresh, `(1, 0)`
-resume, and `(1, 1)` append. The independent `chain` axis records either
-`full` or `chain-only`; it does not change the operation. The normalized
-record is frozen. The gate's Boolean-coercion mutation must fail this arm.
+### Binary controls
+
+#### Rule
+
+`loadchk`, `append`, and `chain` accept only native non-Boolean integers
+`0` or `1`. The normalized run-control record is immutable. Legal
+`(loadchk, append)` pairs are exactly `(0,0)` for fresh generation, `(1,0)`
+for resume, and `(1,1)` for append. `chain` independently selects `full` or
+`chain-only` mode.
+
+#### Acceptance evidence
+
+- Boolean and coerced numeric controls refuse.
+- The three legal operation pairs reach their intended branches.
+- Every other pair refuses before setup.
 
 <a id="generator-run-control-append-requires-load"></a>
-`append=1, loadchk=0` now raises a teaching error that names both values and
-explains that append extends a validated prior dataset; it never means fresh
-generation at the same output path. An independent-flags mutation must make
-this arm red.
+### Append requires a validated prior generation
+
+#### Rule
+
+`append=1, loadchk=0` is illegal. The error names both values and explains
+that append extends a validated prior dataset. It never means fresh generation
+at an existing path.
+
+#### Acceptance evidence
+
+A complete sentinel dataset keeps every byte and modification time after the
+illegal command. Restoring independent flag handling must visibly damage the
+sentinel and fail the gate.
 
 <a id="generator-run-control-pre-mutation-refusal"></a>
-The board check executes the production constructor with setup replaced by a
-filesystem mutation sentinel. Invalid intent must raise with no setup event or
-sentinel file. Legal full generation reaches setup, sampling, and data-vector
-work; legal chain-only reaches setup and sampling but not data-vector work.
-The check also requires a direct validator assignment to be constructor
-statement zero,
-with its exact three CLI attributes, and its only module binding to be the
-`dataset_manifest` import. Setup must consume normalized append/load values.
-Deliberately forcing the normalized mode to disagree with raw `chain` proves
-the final branch consumes the record. Prefix, wrapped-RHS (a preceding
-expression hidden in statement zero), shadow-binding, raw-setup, raw-mode, and
-setup-first mutations must all make this arm red.
+### Validation precedes setup
 
-This is a bounded implementation slice, not Unit 8 closure. Dataset-manifest
-authentication, complete RNG continuation, and atomic publication remain
-open. The chain-only/full location-and-census repair is the bounded, closed
-slice below. The named-column and requested-checkpoint
-slices below now cover checkpoint readback and corrupt-load refusal. The word
-`resume` here still describes command state; exact prior-bundle identity
-requires the later manifest slice.
+#### Rule
 
-### Unit 8 fail-closed-load slice: a requested checkpoint cannot become a fresh run
+The constructor assigns the direct run-control validator before environment
+lookup, configuration reads, directory creation, or setup. Setup consumes the
+normalized values. Final mode selection consumes the normalized record rather
+than raw command-line attributes.
 
-Resume and append now have a different failure meaning from fresh generation.
-Fresh generation may begin when no checkpoint exists. If the user explicitly
-asks to resume or append, the loader must confirm the current checkpoint or
-stop. It may never reinterpret missing or damaged input as permission to replace
-the dataset at the same filenames.
+#### Acceptance evidence
+
+Filesystem sentinels prove that invalid intent creates no setup event or file.
+Legal full mode reaches sampling and family work. Legal chain-only mode reaches
+sampling but no data-vector work. Statement-order, hidden-expression,
+shadow-binding, raw-value, and setup-first mutations must fail.
+
+## Requested checkpoint refusal
 
 <a id="checkpoint-refusal-missing-member"></a>
-The current pre-manifest census includes every family data-vector member plus
-failure flags, covariance, parameter names, ranges, the chain, and the
-scientific-facts sidecar. Fresh mode returns `not loaded` without looking for
-them. Resume and append name every missing member in a teaching error and say
-that no existing dataset file was changed. The focused gate removes each of the
-seven generic members in turn for both requested operations; all fourteen
-cases must refuse before parsing or writing, with every surviving member's
-bytes and modification time unchanged. A mutation that restores the old
-behavior by deleting the member preflight must turn this arm red. The same arm
-executes each family's production census, including background/MPS axes and
-both MPS base-file modes.
+### Complete member census
+
+#### Rule
+
+Fresh mode may start without a checkpoint. Resume and append require the exact
+mode- and family-specific member census. Missing members are all named, and no
+surviving member is changed.
+
+#### Acceptance evidence
+
+Each generic and family member is removed in turn for resume and append. Every
+case refuses before parsing or writing, with unchanged bytes and timestamps.
 
 <a id="checkpoint-refusal-corrupt-load"></a>
-Once the census exists, named-table validation errors remain errors. The
-generator uses the shared producer-schema resolver, which requires every
-bookkeeping, sampled, and derived numeric cell to be finite. The generator then
-requires exactly the sampled parameters in `train_args` order followed by
-`chi2*`, and requires the resolver to have selected the producer-owned root
-sidecar rather than an unexpected `X.1.paramnames` shadow. Every failure-flag
-line must be exactly the producer token `0` or `1`; numerically similar text is
-not accepted. A resolver error, one nonfinite value in each numeric column
-role, a shadow sidecar, a mislabeled derived column, and each of `2`, `1e-400`,
-near-one decimals, `-0`, and embedded control separators must all stop before
-sampling. The parser accepts ordinary LF, CRLF, and bare-CR physical lines but
-does not reinterpret vertical tab, form feed, or ASCII record separators as
-producer lines. The requested operation wraps each error while retaining its
-cause and preserving every checkpoint byte and modification time. Mutations
-that swallow the resolver error or remove the finiteness and semantic checks
-must turn this arm red.
+### Corrupt checkpoints remain errors
+
+#### Rule
+
+Checkpoint readback uses the shared producer-schema resolver. Bookkeeping,
+sampled, and derived numeric cells must be finite. The exact producer
+`.paramnames` sidecar owns sampled order and the final `chi2*` declaration.
+Failure lines are literal `0` or `1` producer tokens. Similar numeric text,
+shadow sidecars, control separators, and mislabeled derived columns refuse.
+
+#### Acceptance evidence
+
+Tests cover a resolver error, nonfinite values in every column role, wrong
+sidecar root, wrong derived label, and malformed failure tokens. Three
+physical line endings are accepted: line feed (LF), used on Unix; carriage
+return followed by line feed (CRLF), used on Windows; and bare carriage return
+(CR), used by older systems. Vertical tab, form feed, and record separators
+are not reinterpreted as rows. Every refusal preserves the original cause and
+all checkpoint bytes and times.
 
 <a id="checkpoint-refusal-no-fresh-fallback"></a>
-The sampling decision consumes the normalized operation, not an exception-
-derived Boolean. Only `fresh` may enter the fresh writer; `append` may enter its
-separate branch only after a successful load; `resume` writes nothing. The gate
-places a sentinel at the first fresh operation and makes both requested loaders
-raise. The original error must remain in the exception chain and the sentinel
-must stay untouched. A mutation that catches the error and touches fresh work
-must turn this arm red. A valid-resume control must set both loaded-state flags
-without touching sampling; a separate mutation that routes resume into the
-fresh/append sampler must also turn this arm red.
+### No fresh fallback
+
+#### Rule
+
+Only normalized `fresh` may enter the fresh writer. A failed resume or append
+may not become fresh generation. Valid resume reads without sampling.
+
+#### Acceptance evidence
+
+Sentinels at the first fresh operation stay untouched when requested loaders
+raise. The exception chain retains the original failure. A fallback mutation
+must touch the sentinel and fail.
 
 <a id="checkpoint-refusal-family-geometry"></a>
-Background and MPS checkpoints persist their coordinate arrays beside the
-payloads. The loader now requires those axes to be one-dimensional, to have
-the configured shape, and to equal the configured coordinates exactly. CMB
-has no persisted multipole-axis file, so its loader instead requires every
-spectrum width to equal the configured inclusive `lrange`. The family-geometry
-arm executes valid controls plus a changed background coordinate, a short MPS
-axis, and a short CMB spectrum. Removing the axis and width checks must turn
-the arm red. This does not claim an authenticated CMB axis; that needs a
-persisted identity or manifest in a later slice.
+### Family geometry at checkpoint readback
 
-This remains a bounded safety slice. The current census is not a dataset
-manifest and does not authenticate bytes or bind the whole configuration,
-mode, and RNG state to one generation. It validates named parameter order,
-background/MPS coordinates, and family dimensions, but cannot detect every
-same-shaped stale member. Atomic generation publication, exact-identity resume,
-and safe stochastic continuation for append remain open. The bounded
-chain-only/full location-and-census repair is described immediately below; it
-does not provide those broader guarantees. Unit 56
-still owns stored science-payload revalidation, Unit 82 owns canonical row
-authenticity, and Unit 87 owns weight/posterior/`chi2*` meaning. Until those
-slices land, this gate proves refusal behavior rather than full resume/append
-correctness.
+#### Rule
 
-### Unit 8 dataset-mode isolation slice: chain-only files cannot collide with a full dataset
+Background and MPS axes are one-dimensional, have the configured shape, and
+equal the configured coordinates exactly. CMB members have widths consistent
+with the configured inclusive multipole range until the persisted CMB axis is
+the authoritative manifest member.
 
-The generator has two dataset modes. A `full` run owns parameter rows, a
-failure mask, and data-vector files. A `chain-only` run owns parameter-side
-files only. This slice gives those two modes separate filenames and separate
-checkpoint censuses; it does not infer the mode from matching shapes, seeds,
-or row counts.
+#### Acceptance evidence
+
+Changed background coordinates, short MPS axes, and short CMB spectra refuse.
+Valid controls pass. Removing the axis or width checks must fail.
+
+## Full and chain-only isolation
 
 <a id="generator-run-control-dataset-mode-isolation"></a>
-Every chain-only parameter, failure, and data-vector stem receives the literal
-suffix `_chain_only`. Scoping all three stems matters even though the
-chain-only path does not create failure or data-vector members: later code
-cannot borrow a full dataset's files merely because the unsuffixed names
-exist. Full-dataset stems remain unchanged, so this bounded repair does not
-rename existing full outputs.
+### Rule
 
-A requested chain-only resume or append requires exactly five parameter-side
-members: `.covmat`, `.paramnames`, `.ranges`, `.1.txt`, and the fixed-facts
-sidecar. Its loader returns after validating and reading that parameter table;
-it does not open a failure mask or any data-vector or axis file. Chain-only
-append likewise returns from the mode barrier before failure-mask or
-data-vector append work. A full resume or append keeps the complete
-family-specific census and behavior described by the fail-closed-load slice
-above.
+Chain-only parameter, failure, and data-vector stems carry `_chain_only`.
+Scoping all stems prevents later code from borrowing an unsuffixed full-dataset
+member. A requested chain-only resume or append requires exactly covariance,
+parameter names, ranges, chain, and facts, then returns before any failure,
+payload, or axis I/O. Full mode keeps the full family census.
 
-This bounded location-and-census slice is closed, not all of Unit 8. The
-focused suite covers both modes and both requested operations. Its fourth
-run-control AID executes the real loader and append barrier, while seventeen
-targeted mutations include unscoped stems, borrowed family members, a bypassed
-barrier, and moving that barrier into the fresh branch. The complete AI test
-suite and board self-test pass, and the final correctness, adversarial, and
-evidence reviews are GO after their findings were repaired.
+### Why
 
-The slice does not authenticate checkpoint bytes, publish a multi-file
-generation atomically, continue the saved RNG stream during append, prove that
-stored rows came from one generation, or revalidate the scientific meaning of
-stored payloads. Those remain owned by the manifest/atomic-publication,
-RNG-continuation, row-authenticity, and payload-semantics work respectively.
+A chain-only run at full-dataset stems can replace parameter rows while leaving
+old payload rows and failure flags, creating a same-shaped but scientifically
+false pairing.
 
-### Unit 8 immutable-generation publication foundation: one pointer selects one sealed set
+### Acceptance evidence
 
-This bounded CPU-only slice adds `compute_data_vectors/dataset_publication.py`.
-It is the transaction that the generator and training readers will use in a
-later slice. It does **not** yet change their flat checkpoint paths, so it does
-not close Unit 8 or make today's generator output atomic.
+- Full and chain-only stems are distinct.
+- Chain-only resume and append read exactly five parameter-side members.
+- Chain-only paths perform no family payload or axis I/O.
+- Full mode retains the complete family census.
+- Unscoped stems, borrowed members, and a bypassed or misplaced mode barrier
+  make the focused gate fail.
 
-Each logical dataset owns one private slot below `chains/.datasets`. A writer
-builds an unlisted mutable draft below that slot's `work/` directory. Publication
-copies the declared files into exclusive sealed inodes, writes one canonical
-manifest beside them, installs the directory below `generations/`, removes all
-write bits, and replaces the slot's single `active.json` record last. There are
-no per-file “current” links whose sequential updates could mix generations.
+## Immutable dataset publication
+
+This foundation defines the publication transaction. Generator and consumer
+integration must not claim atomic datasets until they both use it.
 
 <a id="dataset-publication-slot-identity"></a>
-`dataset-publication.slot-identity` binds a slot to the portable basenames of
-the parameter, data-vector, and failure stems, the family, and the explicit
-`full` or `chain-only` mode. Relocating the complete `chains/` directory keeps
-the same slot id; changing any identity axis changes it. The three stems must
-remain distinct even on a case-insensitive filesystem. Descriptor, manifest,
-and active records accept one sorted, whitespace-free UTF-8 JSON encoding with
-an LF terminator. Duplicate or unknown keys, nonfinite numbers, unsupported
-types, and integers longer than 1,024 decimal digits refuse before use.
+### Slot identity
+
+#### Rule
+
+A slot identity binds portable parameter, payload, and failure basenames,
+family, and explicit mode. Relocating the complete `chains/` directory keeps
+the identity. Changing any identity axis changes it. Stems must remain distinct
+on case-insensitive filesystems. Descriptor, manifest, and active records use
+one sorted whitespace-free JavaScript Object Notation (JSON) encoding in
+Unicode Transformation Format, 8-bit (UTF-8), with an LF terminator. JSON is
+the key-and-value text format used for these records; UTF-8 defines how that
+text is stored as bytes. Unknown or duplicate keys, nonfinite values,
+unsupported types, and unbounded integers refuse.
+
+#### Acceptance evidence
+
+Relocation preserves the slot id; changing each identity field changes it.
+Canonical-format and resource-bound mutations refuse.
 
 <a id="dataset-publication-exact-census"></a>
-`dataset-publication.exact-census` requires the caller's complete semantic
-role-to-relative-path map. Every declared role occurs once, every declared path
-occurs once, and the observed files **and directories** equal that declaration.
+### Exact census
+
+#### Rule
+
+The caller supplies a complete semantic role-to-relative-path map. Every role
+and path occurs once. Observed files and directories equal the declaration.
 Missing, extra, empty, traversing, linked, symlinked, special, renamed, or
-writable published entries refuse. The manifest records each exact relative
-path, byte length, and SHA-256. A reader supplies the expected identity and the
-same exact role-to-path map; it accepts neither a familiar digest under a wrong
-basename nor a correct subset of a larger generation.
+writable published entries refuse. The manifest records path, length, and
+SHA-256, the cryptographic digest of the exact file bytes. Readers provide the
+expected identity and exact census.
+
+#### Acceptance evidence
+
+Neither a familiar digest at a wrong basename nor a valid subset of a larger
+generation is accepted. Every unsafe entry class has a refusal leg.
 
 <a id="dataset-publication-sealed-epoch"></a>
-`dataset-publication.sealed-epoch` requires the integration to stop/close all
-writers and complete its MPI barrier before publication. The publisher then
-opens and fingerprints **every** source member before copying the first one,
-keeps all descriptors open, and checks every inode/size/mtime/ctime token plus
-the complete census after the final copy. Once all members have been acquired,
-a change to any source refuses, preventing the A-old/B-new race caused by
-sequential per-file checks. This verifies one on-disk state after the final
-open; the mandatory external writer/MPI barrier is what proves that state is
-one intended scientific run. Published files are new inodes, so a retained
-writable source descriptor or memmap cannot alter the accepted generation.
-Resume and append must later stream-copy an authenticated active generation
-into a new mutable draft; they must never hardlink and reopen published
-members.
+### Sealed epoch
+
+#### Rule
+
+All writers close and the Message Passing Interface (MPI) barrier completes
+before publication. The barrier waits until every parallel process reaches
+the same point. The publisher opens and fingerprints every source before
+copying the first one and keeps each file descriptor, the operating system's
+open-file handle, active. After the final copy, the publisher rechecks the
+inode, the filesystem identity of the underlying file, together with size,
+time tokens, and census. Published members receive new sealed inodes. Resume
+and append copy an authenticated generation into a new mutable draft; they
+never create a hardlink, a second filename for the same inode, and reopen a
+published member through it.
+
+#### Acceptance evidence
+
+A source mutation at any acquisition or copy boundary refuses. Retained source
+descriptors cannot change the sealed generation.
 
 <a id="dataset-publication-atomic-switch"></a>
-`dataset-publication.atomic-switch` serializes compliant publishers with one
-per-slot advisory lock and compares the SHA-256 of the **entire** previously
-read canonical active record. A stale token refuses even if only its generation
-field changed. The reader opens the replaceable active record once, accepts the
-old or new inode, authenticates the named manifest and complete generation,
-and returns paths under that one generation. A later switch therefore does not
-redirect an already-resolved path. Those paths pin a name rather than an open
-file descriptor: future garbage collection must retain the directory for the
-whole consuming operation.
+### Atomic active pointer
+
+#### Rule
+
+One per-slot advisory lock serializes compliant publishers. A publisher
+compares the SHA-256 of the complete previously read active record. It installs
+the sealed generation before replacing `active.json` last. A reader opens the
+active record once and resolves paths below one named generation. Garbage
+collection retains that generation for the entire consuming operation.
+
+#### Acceptance evidence
+
+A live reader sees complete generation A or complete generation B, never mixed
+members. A stale active token refuses even when only the generation field
+changed.
 
 <a id="dataset-publication-durability-and-recovery"></a>
-`dataset-publication.durability-and-recovery` writes and syncs sealed members,
-the manifest, the installed tree, and the active-record temporary in that
-order, using Darwin `F_FULLFSYNC` for regular files when available. It then
-atomically replaces `active.json` and syncs the slot directory. Directory setup
-syncs both an ensured directory and its parent on every retry, including when a
-prior attempt completed `mkdir` but failed during the parent sync. A normal
-pre-install refusal removes its temporary active file and sealed duplicate
-while preserving the source draft for retry; successful publication removes
-the mutable source without allowing a cleanup warning to turn the committed
-transaction into a reported failure.
+### Durability and recovery
 
-The focused evidence records the real file and directory sync calls and proves
-that every sealed member, the manifest, and the active-record temporary has a
-successful sync **after** its final `fchmod(0444)`, keyed by device and inode.
-It also proves that the installed generation directories are synced before
-`active.json` is replaced and the slot directory is synced immediately
-afterward. A second witness injects a failure while syncing the parent of a
-newly created directory, retries after `mkdir` has already succeeded, and
-proves that both the existing child and its parent are synced again. A
-primitive-level witness also requires the helpers to reach `os.fsync` for both
-regular files and directories and, when the platform provides it, Darwin
-`F_FULLFSYNC`; wrapper call order alone is not accepted as durability evidence.
+#### Rule
 
-The five callback names in the focused test are injected **process-fault**
-boundaries, not a simulation of storage-controller or power recovery. Before
-`active-replaced`, a live inspection sees old generation A; afterward it sees
-complete B. Until the final slot-directory sync has returned, portable power
-recovery has no namespace-durability guarantee: it may expose A, B, or no
-active pointer. Any surviving authenticated pointer names one complete
-generation. An installed but inactive generation may remain for explicit
-recovery after a later pre-switch failure; generation discovery/garbage
-collection is intentionally deferred.
+Sealed members, manifest, installed tree, the temporary file that will become
+`active.json`, the replacement of `active.json`, and the slot directory are
+synchronized in that order. Here **synchronized** means that pending writes
+are forced from memory toward durable storage. Regular files use the strongest
+available platform synchronization, including Darwin `F_FULLFSYNC` when
+available. Directory creation synchronizes both the child and parent on every
+retry. A refusal before the active-pointer switch removes only temporary
+publication material and preserves the source draft. Cleanup after a
+successful switch cannot turn a committed publication into a reported
+failure.
 
-The trust boundary is the repository owner plus compliant concurrent writers.
-The module rejects unsafe POSIX entries and modes, but it does not defend
-against the same account rewriting ancestor directories or manipulating ACLs
-during an operation. GeneratorCore rebinding, consumer pinning, copy-on-write
-resume/append, RNG continuation, and MPI integration remain OPEN follow-on
-work.
+#### Acceptance evidence
 
-### Unit 8 request-contract slice: one invariant request selects exact members
+Instrumentation proves a successful sync after final read-only mode for every
+member and manifest, an installed-generation directory sync before pointer
+replacement, and an immediate slot-directory sync afterward. Retry after a
+parent-sync failure repeats both child and parent syncs. Fault injection shows
+the old pointer before replacement and a complete new pointer afterward.
 
-This slice defines the information that must be identical when a command asks
-to resume or append one logical dataset. It is deliberately a pure contract:
-the current generator does not publish through it yet. That separation lets the
-schema and every family census be tested without Cobaya, MPI, Torch, or a
-workstation dataset, while making the next integration fail closed instead of
-inventing identity during file copying.
+## Invariant dataset request
 
 <a id="dataset-request-contract-identity"></a>
-`dataset-request-contract.identity` requires one strict schema with no missing
-or unknown fields. It binds full versus chain-only mode; generator, canonical
-family, probe, and family variant; uniform versus Gaussian-MCMC sampling;
-temperature, effective boundary factor, maximum-correlation applicability,
-the exact supported sampling algorithm, seed, NumPy PCG64 policy, and the
-Gaussian-only emcee MT19937 engine; plus the exact Unit-94 boundary-interior
-policy, ordered float32 parameter names, and SHA-256 digests of the resolved
-configuration and append-stable scientific contract. Immutable registries bind
-each probe to its one family and generator, and each sampling mode to its one
-algorithm/RNG policy. The request validator and `GeneratorCore` share the
-probe-family registry; integration must feed that validated family into the
-sidecar, slot, identity, and member census.
+### Request identity
 
-The scientific-contract digest follows the permanent one-author ruling.
-Requested and resolved support live only in `<paramsf>.facts.yaml`;
-`fixed_facts.scientific_contract_digest` validates those producer blocks and
-hashes a versioned, resource-bounded canonical projection that copies every
-declared value except
-`fixed_facts.dataset_id`. That one excluded value is the committed chain digest
-and necessarily changes when rows are appended. The request therefore stays
-the same across a valid append, while each generation separately authenticates
-the complete sidecar and chain as manifest members. A consumer never rebuilds
-a second bounds mapping. Temperature remains explicit even when two
-hard-bounded runs happen to have identical support, so the 25M-02 collision
-cannot return.
+#### Rule
 
-The resolved-configuration digest is not a hash of YAML spelling, comments, or
-absolute checkout paths. Its future producer must cover the resolved
-model/prior/theory/likelihood configuration, ordered Gaussian fiducial and
-covariance, all family geometry and switches, and every other row- or
-payload-affecting resolved setting. Referenced scientific files contribute
-content digests. This slice validates the digest field; the integration slice
-still owns that canonical producer.
+One strict request schema binds mode, generator, family, probe, variant,
+sampling mode, temperature, boundary, maximum-correlation applicability,
+algorithm, seed, random-engine policy, ordered float32 parameter names,
+resolved configuration digest, and append-stable scientific-contract digest.
+Immutable registries bind probe to family and generator and sampling mode to
+algorithm and random-engine policy.
 
-Run controls (`loadchk`, `append`, operation, and checkpoint frequency) are not
-scientific identity. Neither are the append row delta or committed total rows.
-Putting those mutable values in the invariant request would make a valid append
-unable to match its prior generation. Complete NumPy and, for Gaussian runs,
-emcee continuation state instead belongs in a separate authenticated generation
-member with its committed row count and chain digest. That state member and the
-one-shot `N+M` equivalence proof remain OPEN under 45M-81.
+The scientific-contract digest hashes a versioned, resource-bounded canonical
+projection of resolved facts. A generation-specific dataset or chain digest is
+not part of the append-invariant request. Run controls and append row count are
+also not scientific identity. Complete continuation state is a separate
+authenticated generation member.
+
+#### Acceptance evidence
+
+Requests with missing or unknown fields, Boolean seeds, wrong family or
+algorithm, reordered parameters, omitted temperature, changed scientific
+facts, or excessive canonical structures refuse. Valid append requests keep
+the same invariant identity while their generation-specific chain digest
+changes.
 
 <a id="dataset-request-contract-family-members"></a>
-`dataset-request-contract.family-members` maps stable semantic roles to the
-historical, already mode-scoped basenames. Every chain-only generation has
-exactly five members: chain, parameter schema, covariance, ranges, and facts.
-A full generation adds its failure mask and the following family files:
+### Family member map
 
-| Family and variant | Additional semantic members | Total |
-|---|---|---:|
-| CosmoLike | one vector payload | 7 |
-| CMB | TT, TE, EE, PP payloads and one persisted integer multipole axis | 11 |
-| Grid | H and D_M payloads, each with its own redshift axis | 10 |
-| Grid2D native | linear-power and boost payloads, redshift axis, wavenumber axis | 10 |
-| Grid2D Syren base | native members plus the linear-power and boost base pair | 12 |
+#### Rule
 
-The two Grid2D base members are an all-or-none variant, never independent
-optional files. Temporary files, locks, GetDist cache byproducts, and the
-publisher-created manifest/pointer are not semantic members and therefore
-refuse as extras in a finalized draft. Full CMB publication now requires
-`<dvsf>_ell.npy`; the current CMB generator does not yet write it. Integration
-must add that exact axis or stop with a targeted missing-axis error. Inferring
-multipoles from array width, covariance, filename, or `lrange` is not accepted.
+Every chain-only generation has five members: chain, parameter schema,
+covariance, ranges, and facts. Full generation adds failure state and:
+
+| Family | Additional members |
+|---|---|
+| CosmoLike | one vector payload |
+| CMB | TT, TE, EE, PP, and exact integer multipole axis |
+| Background grid | Hubble rate `H` and transverse comoving distance `D_M`, each with its redshift axis |
+| Native grid2d | linear power, boost, redshift axis, wavenumber axis |
+| Syren-base grid2d | native members plus both base arrays |
+
+The two base members are all-or-none. Temporary files, locks, caches, manifest,
+and pointer are not semantic members. CMB multipoles are never inferred from
+width, covariance, filename, or configured range.
+
+#### Acceptance evidence
+
+Every family and variant has an exact-census control. Missing CMB axis,
+one-sided Syren base, extra cache files, or chain-only borrowing fails.
 
 <a id="dataset-request-contract-mutation-controls"></a>
-`dataset-request-contract.mutation-controls` keeps this contract load-bearing.
-Fifteen in-memory source mutations must all be exposed: dropping temperature,
-sorting parameter names, accepting a wrong Unit-94 policy, allowing a Boolean
-seed, omitting scientific-contract digest validation, dropping the CMB axis,
-accepting only one Syren base member, borrowing full members in chain-only
-mode, splitting a string into parameter names, accepting a mismatched
-generator or sampling algorithm, omitting final case-insensitive member-path
-collision checks, accepting an integer the canonical publisher refuses,
-putting the generation-specific chain digest back into the invariant
-scientific projection, and bypassing that projection's recursive resource
-bounds.
+### Load-bearing request controls
 
-This closes only the invariant request and family-map foundation. GeneratorCore
-rebinding, facts/config production before output mutation, immutable fresh
-publication, authenticated continuation state, copy-on-write resume/append,
-reader pinning, and MPI coordination remain OPEN.
+#### Rule
 
-### Unit 8 named-column slice: staging and pool sizing use the producer schema
+Mutation evidence must cover omission or corruption of temperature, parameter
+order, boundary policy, seed type, scientific digest, CMB axis, Syren base
+pairing, chain-only census, family/generator mapping, algorithm, path-collision
+checks, canonical integer bounds, append-stable projection, and recursive
+resource bounds.
 
-The shared torch-free `emulator/parameter_table.py` resolver now treats the
-producer's complete `.paramnames` declaration as the only authority for a
-parameter table. Ordinary and scalar staging consume its named arrays, and
-`EmulatorExperiment.pool_size` calls the same resolver before applying the
-same physical cuts. The parameter-table gate deliberately covers those
-staging/pool consumers. Generator checkpoint reload and append readback now
-use the same resolver; the separate checkpoint-refusal gate owns that call
-site and its exact generator schema.
+#### Acceptance evidence
+
+Every listed mutation must be observed by a distinct refusal. A test that
+mutates two consumers together does not prove either consumer independently.
+
+## Parameter-table schema
 
 <a id="parameter-table-schema-and-layout"></a>
-`parameter-table.schema-and-layout` requires exact-stem sidecar lookup first,
-numeric-chain-root lookup second, and no stripping of a nonnumeric dotted
-stem. Every nonblank declaration is retained with its derived marker and
-numeric column after the two GetDist bookkeeping columns. Normalized names,
-requested inputs, and requested outputs are unique; requested names are
-present; the complete nonderived sequence equals the requested input sequence
-including order; outputs are derived; numeric width equals two plus the
-declaration count. Returned inputs and outputs are float32 and exactly 2-D,
-including one-row and zero-output tables. Gate-owned literal arrays cover the
-current generator layout, zero derived columns, and multiple derived columns
-interleaved with sampled inputs. A UTF-8 byte-order mark is accepted as
-transport syntax, not as part of the first name; repeated `*` and the invalid
-GetDist `?` marker refuse. Duplicate requested inputs/outputs, an extra
-nonderived declaration, and widths both one short and one long are executable
-refusal cases. A missing sidecar refuses with both candidate paths and
-migration instructions; it never activates an inferred positional format.
-Restoring `[:, 2:-1]` or a missing-sidecar compatibility guess must make this
-leg red.
+### Schema and layout
+
+#### Rule
+
+`emulator/parameter_table.py` is the only authority for parameter-table
+columns. It resolves the exact stem first and a purely numeric chain-root stem
+second. Nonnumeric dotted stems are not stripped. Every nonblank `.paramnames`
+declaration is retained with its derived marker and numeric column after the
+two GetDist bookkeeping columns.
+
+Normalized names and requested inputs and outputs are unique. Requested names
+exist. The complete nonderived sequence equals the requested input sequence,
+including order. Requested outputs are derived. Numeric width equals two plus
+the declaration count. Returned arrays are float32 and exactly two-dimensional,
+including one-row and zero-output cases. A UTF-8 byte-order mark is transport
+syntax; repeated `*` and `?` refuse. Missing metadata refuses with candidate
+paths and migration guidance. There is no positional fallback.
+
+#### Acceptance evidence
+
+Current generator layout, zero derived columns, multiple interleaved derived
+columns, one row, and zero outputs pass. Duplicate, missing, extra, reordered,
+wrong-marker, and short or long table cases refuse. Restoring `[:, 2:-1]` or a
+missing-sidecar guess must fail.
 
 <a id="parameter-table-pre-dv-refusal"></a>
-`parameter-table.pre-dv-refusal` requires ordinary `load_source` to assign the
-direct resolver call before the direct data-vector `np.load`, then assign `C`
-from that resolver result. The real production loader is driven with both a
-missing and an invalid declaration while its data-vector open and staging
-boundaries are sentinels; both errors must leave the event list empty. The AST
-contract rejects a data-vector open moved before resolution, a resolver RHS
-wrapped around a hidden earlier evaluation, or a resolver result that is
-ignored in favor of another parameter source. It also censuses every
-data-vector `np.load` and staging call, so an extra open or a staging call
-inserted before resolution cannot pass beside the reviewed assignment. Each
-corresponding in-memory mutation must make the leg red.
+### Parameter refusal precedes payload I/O
+
+#### Rule
+
+`load_source` directly resolves the parameter table before opening a data-
+vector member or staging data. The returned named input array is the source of
+`C`, the parameter-input matrix whose rows are cosmologies and whose columns
+follow the declared parameter names.
+
+#### Acceptance evidence
+
+Missing and invalid declarations leave payload-open and staging sentinels
+untouched. Hidden earlier evaluation, wrapped right-hand sides, ignored
+resolver output, extra payload opens, and pre-resolution staging mutations
+must fail.
 
 <a id="parameter-table-stage-pool-parity"></a>
-`parameter-table.stage-pool-parity` requires `load_source`,
-`load_scalar_source`, and `pool_size` each to make one direct shared-resolver
-assignment and consume its named inputs; the scalar staging and pool paths
-also pass the requested output names so an invalid target declaration cannot
-be counted as stageable. A literal scalar table places derived decoys before,
-between, and after the two sampled inputs. An active omega-baryon window has
-an independently known two-row survivor set; real pool sizing must count two,
-and real staging must return exactly those two named input rows and their two
-named target values. Real ordinary `load_source` also accepts independent
-zero-derived and interleaved/multiple-derived fixtures and returns the exact
-literal parameter and data-vector rows. Its isolated positional mutation must
-red. A scalar-staging-only positional resolver mutation is then run with the
-correct pool resolver, followed by a pool-only positional mutation with
-correct staging. None of the isolated mutations may pass; the gate never
-mutates two consumers together. Both consumer modules must have exactly one
-resolver binding, their reviewed sibling-module import; shadow-binding
-mutations red the census.
+### Staging and pool parity
 
-For every optional-cut family (scalar, CMB, grid, and grid2d), an absent
-`param_cuts` block is an executable no-cut state: `pool_size()` returns the
-full named table, `stage_train(n_train=pool_size())` succeeds, and one more row
-refuses. With the omega-baryon window active, both paths instead share the
-same independently known survivor ceiling. Restoring required-key lookup for
-`omegabh2_hi` must make the no-cut witness red. The grid2d witness keeps its
-real named loader and disk-backed source; only its downstream law-space
-transform is stubbed because it is not part of row selection.
+#### Rule
 
-This gate does not by itself close the whole 45M-68 contract. Generator
-checkpoint and append/readback now use the shared resolver, but that evidence
-belongs to checkpoint-refusal and cannot be inferred from the three
-staging/pool AIDs above. Manifest identity and atomic append remain open.
+Ordinary staging, scalar staging, pool sizing, and generator checkpoint
+readback call the same resolver. Scalar and pool paths include requested output
+names so an invalid target declaration is not counted as stageable. Pool size
+and `stage_train` apply the same named columns and physical cuts.
 
-## 25M-01 (CLOSED by Unit 94 on current main): uniform sampling once shrank absolute coordinates instead of the legal interval
+No-cut configs are valid for scalar, CMB, grid, and grid2d. Their pool is the
+full named table. Active cuts produce the same independently known survivor
+set in pool sizing and staging. `pool + 1` refuses before training or grid2d
+transformation.
 
-Public reachability is any generator invocation with `--unif 1` and a
-finite ordered sampled-parameter prior. In `generator_core.py:742-750`, the
-uniform branch copies the resolved bounds and moves each positive lower bound
-by multiplying the coordinate by `1.0001`; it moves each positive upper bound
-by multiplying by `0.9999` (with sign-dependent reversed factors for negative
-coordinates). The margin is therefore proportional to the coordinate's
-distance from zero, not to the interval width.
+#### Acceptance evidence
 
-The concrete wrong result is large and translation-dependent. A legal H0
-interval `[70.0, 70.02]` becomes `[70.007, 70.012998]`, retaining only
-`0.2999` of the requested width. The equally legal interval
-`[1000.0, 1000.01]` becomes `[1000.1, 999.909999]`; NumPy then raises
-`ValueError: high - low < 0`. Shifting an otherwise identical interval can
-therefore turn a successful public generation into either a different prior
-or a crash. Unit 17's ingress finiteness work does not own this defect: the
-input bounds can be finite and ordered before this branch corrupts them.
+Each consumer is mutated separately while siblings remain correct. Every
+isolated positional or required-cut-key mutation fails. Grid2d keeps the real
+named loader and disk-backed source in the witness.
 
-Required contract: one named boundary-interior helper works in interval
-coordinates. Prefer nearest representable interior endpoints via
-`nextafter(low, high)` and `nextafter(high, low)`, or document a named
-width-relative margin; in either case validate a finite, ordered,
-representably nonempty interior before sampling. Persist requested and
-resolved per-name support in dataset identity. Any compatibility choice for
-broad shipped priors is explicit and numerically pinned; no policy depends on
-the coordinate origin.
+## Host-memory staging
 
-CPU red legs: same-width intervals at zero and at a large offset retain the
-same fractional width; the H0 witness reaches the intended near-boundary
-support rather than only its central 30%; the narrow offset interval either
-has a legal interior or refuses before output mutation; positive and negative
-translated controls agree; a float32-adjacent interval is handled
-representably; and a mutation restoring endpoint-times-constant reproduces
-the shrink/inversion and must red.
+### Rule
 
-## 25M-02 (CONFIRMED; Unit 8 identity persistence remains OPEN): temperature changes uniform support but is erased from output identity
+Parameter rows are eager in memory. Data-vector dumps remain memory mapped
+unless a compact resident selection fits the allowed memory. Two coordinate
+systems are explicit:
 
-`dataset_generator_lensing.py:40` teaches that `--temp` is needed even for
-uniform sampling. The implementation confirms why: `generator_core.py:362-375`
-obtains finite confidence bounds and, for every infinite hard-prior endpoint,
-stretches the finite bound by `temp * width / 5`. Yet
-`generator_core.py:422-429` names every uniform parameter, failure, and
-data-vector bundle only `_<probe>_unifs`; temperature is absent from every
-path.
+- a global row is a row in the original files;
+- a local row is a row in a compact resident copy.
 
-The public wrong-result chain requires no interruption. With finite confidence
-bounds `[65,75]`, temperature 64 resolves the box to `[-63,203]`, while
-temperature 128 resolves it to `[-191,331]`. Two healthy invocations using
-the same YAML, stems, probe, and `--unif 1` therefore generate different
-scientific supports at identical paths. A fresh run can replace/mix the first
-bundle; `--loadchk 1` can accept its rows under the second temperature; append
-can combine both supports under a filename that says only `unifs`. This is a
-specific acceptance leg for the unit-8 manifest, not a second publication
-mechanism.
+If selected global rows are `[9, 2, 9, 5]`, uniqueness validation rejects the
+repeat. For the legal unique example `[9, 2, 5]`, sorted compact storage is
+`[2, 5, 9]`, while local coordinates `[2, 0, 1]` preserve the seeded selection
+order. `dump_rows` records the global rows for a second row-aligned file such
+as the grid2d base dump.
 
-Required contract: dataset identity includes sampling mode, requested
-temperature, actual resolved per-name bounds, boundary factor, seed/RNG
-policy, and every other row-affecting control. Resume and append require exact
-identity before mutation; a complete bundle with a different identity is
-refused or uses a digest-derived distinct path. Header/readback reports the
-resolved support. A hard-bounded-prior control may resolve to the same numeric
-bounds under two temperatures, but still records requested and resolved
-policy rather than inferring provenance from coincident values.
+The resident-byte prediction counts the parameter copy, target copy, and index
+array using their stored dtypes and widths. The diagnostic line reports the
+same components, total, comparison operator, and chosen branch.
 
-CPU red legs: two temperatures on a Gaussian-prior fake produce distinct
-identities (or an early mismatch refusal); the first complete bundle remains
-byte-identical after refusal; same-identity resume/append remains legal;
-hard-bounded and infinite-endpoint controls separate requested from effective
-support; and a mutation dropping temperature/resolved bounds recreates the
-collision and must red.
+<a id="stage-ram-both-copies"></a>
+### Both copies and seeded order
 
-## 25M-03 (bounded location/census leg CLOSED; manifest transaction leg OPEN): chain-only mode could silently relabel an existing full dataset
+#### Rule
 
-The documented `--chain 1` mode generates parameters for visualization
-without computing data vectors (`dataset_generator_lensing.py:42`). In the
-confirmed pre-repair control flow, the order was unsafe. Rank zero replaced
-the parameter chain, `.paramnames`, `.ranges`, and `.covmat` at the same stems
-used by a full run, then skipped data-vector generation. Old data-vector and
-failure files at those stems were neither removed nor rebound.
+Resident staging requires the combined parameter, target, and reindex bytes to
+fit. The strict exact-fit policy is explicit. Resident and disk-backed branches
+present the same seeded row order to the training loader. A duplicate selected
+row is upstream corruption and refuses.
 
-The confirmed wrong result was reachable by publishing a complete
-`--chain 0` dataset and then running `--chain 1 --loadchk 0` with the same
-stems/probe/temperature and row count but a different seed. The second
-command replaced every parameter row while retaining the old finite
-data-vector rows and all-success failure file. Shapes and row counts still
-agreed, so staging could pair new cosmology row `i` with old physics row `i`.
-This was a successful two-command corruption, not merely interrupted
-publication, and violated unit 82's row-authenticity contract and unit 8's
-file-set identity.
+#### Acceptance evidence
 
-The bounded repair gives chain-only stems an explicit
-`_chain_only` suffix and limits requested chain-only load/append to the five
-parameter-side members. Its load and append paths must return before failure,
-data-vector, or axis I/O. That addresses the historical location and census
-collision without renaming full outputs. That location-and-census defect is
-closed. The five files are not yet authenticated as one committed generation,
-so the broader manifest transaction leg remains open.
+- A budget between target-only bytes and complete bytes selects disk-backed
+  staging.
+- Below, equal, and above-budget controls pin the comparison policy.
+- Resident and disk-backed loaders produce identical parameters, targets,
+  minibatch membership, and order under one epoch permutation.
+- `dump_rows[idx]` recovers the same global order in both regimes.
+- A mutation returning plain `arange` or counting only target bytes fails.
 
-Required contract: chain-only output owns a distinct identity/location or
-refuses before mutation when any full-dataset member exists. Its transaction
-publishes a chain-only manifest and cannot borrow or leave data-vector,
-failure, or axis members. Conversely, full generation cannot silently adopt a
-colliding chain-only bundle. The manifest records mode, and no safety decision
-is inferred from coincident seeds, rows, or dimensions.
+## Grid2d bounded staging
 
-The closed bounded gate proves separate reachable stems, an exact five-member
-chain-only census, the delegated full-family census, early loader returns, and
-the append branch's mode barrier. A mutation that moves the barrier into the
-fresh branch now turns the AID red. The future manifest/atomic-publication gate
-still owns the broader transaction witness with an identity producer
-`dv=f(parameters)`, full-bundle digests, same-seed coincidence controls, and
-crash-boundary tests.
+### Rule
 
-## 25M-06 (Red Team CONFIRMED, awaiting Architect adjudication): the ranges sidecar collapses distinct bounds below the generator's own parameter precision
+Grid2d staging chooses retained `(z,k)` columns before reading any payload.
+It reads only those columns in bounded row chunks from raw and base memmaps,
+checks positivity and shapes per chunk, performs the law transform, and writes
+stored float32 rows to a resident array or temporary memmap according to the
+same memory policy. It never materializes an unthinned selected matrix.
 
-Fresh generation writes `.ranges` bounds with only `%.5e` precision
-(`generator_core.py:780-786`), while the same generator writes parameter rows
-with `%.9e` (`:797-801`) and owns float32 parameters with roughly seven
-significant decimal digits. The scientific support sidecar can therefore lose
-information that remains present in the rows it is supposed to describe.
+Means and population standard deviations are accumulated from the exact stored
+float32 payload promoted to float64. The stable accumulator merges
+`(count, mean, M2)` with the Chan/Welford formula. Here `M2` is the running sum
+of squared deviations from the current mean; after all values are included,
+`M2 = sum((x - mean)^2)`. The accumulator never subtracts `sum(x)^2` from
+`sum(x^2)`. Raw and base row counts and widths match exactly. The original
+seeded selection order survives the grid2d law transform.
 
-The CPU witness uses values that are distinct in float32. Bounds
-`70.00001` and `70.00002` serialize to the identical string `7.00000e+01`;
-`0.12345674` and `0.12345676` both serialize as `1.23457e-01`. The sidecar
-therefore declares a zero-width interval even though generation sampled an
-ordered nonzero interval and the chain preserves distinct endpoints. Legal
-published rows can also appear outside the rounded declared range. A manifest
-would faithfully digest this false sidecar, so file identity cannot substitute
-for representation truth. This is the `.ranges` extension of unit 82's
-canonical representation and unit 87's one-decimal-contract coupling, not a
-new serialization mechanism.
+Train and validation temporary files have independent owners. Restaging
+releases the superseded file. Explicit release functions support sweep cleanup.
+Any transform failure unlinks a partial file; process-exit cleanup is only a
+fallback.
 
-Required contract: one canonical decimal representation is derived from the
-owned parameter dtype and shared by chain/header/ranges publication. Every
-persisted bound round-trips to the intended canonical value with order and
-containment preserved; an exact-enough shortest representation or hexadecimal
-form is acceptable if readers own it explicitly. Publication refuses before
-mutation if conversion collapses a valid interval. Existing broad shipped
-bounds remain numerically equivalent under the declared representation.
+### Why
 
-CPU red legs: both float32-distinct witness pairs round-trip as distinct;
-boundary-adjacent canonical rows remain inside the read-back ranges; broad
-production-style bounds are unchanged in meaning; parameter and range readers
-agree on dtype/decimal policy; and a mutation restoring `%.5e` collapses the
-witness and must red.
+Production grid2d arrays are too large for whole-selection float64 copies.
+Naive variance can turn a varying high-offset column into a false constant.
+Pre-cast moments describe different values from those used by training.
+Process-exit-only cleanup can accumulate one multi-gigabyte file per sweep
+point.
 
-## 25M-32 (Red Team CONFIRMED, awaiting Architect adjudication): grid2d law staging erases queue 3's canonical seeded row order
+### Acceptance evidence
 
-Queue 3 makes the original seeded selection order canonical across storage
-regimes.  Ordinary `stage_source` now returns the correct coordinate map, but
-every public grid2d training path subsequently calls `_grid2d_law_rows`.
-That method reads the sorted compact `dump_rows` sequence and then overwrites
-`src["idx"]` with `np.arange(n_used)` (`emulator/experiment.py:3034-3043,
-3140-3142`).  Grid2d uses `stage_dv=False`, so this second transformation is
-not exercised by `stage-ram`'s queue-3 loader proof.
+- A production-width synthetic grid under a tiny budget proves column-thinned,
+  row-chunked reads and a disk-backed final result.
+- Values and means equal an independent stored-float32 known answer.
+- Whole-selection and mean-before-cast mutations fail.
+- High-offset uneven-chunk controls agree with NumPy population statistics.
+- A fixture straddling the relative pin boundary distinguishes pre-cast from
+  stored-payload moments categorically.
+- Raw/base sizes `N-1`, `N`, and `N+1` cover exact row-count equality.
+- Real loaders after the law transform preserve seeded order in resident and
+  disk-backed regimes; an `arange` mutation fails.
+- Restaging removes the first temporary file, a multi-point sweep holds at
+  most one train file, failure leaves no partial file, and resident mode makes
+  no temporary file.
+- The sweep failure leg executes the real sweep function rather than manually
+  imitating cleanup.
 
-Executed real-body witness with seeded selection `[6, 1, 5, 2]`: the method
-executes parameter rows `[1, 2, 5, 6]` and leaves `idx=[0,1,2,3]`.  The seed
-still controls membership but no longer order; the training loop's shared
-epoch permutation therefore maps to a different cosmology sequence.  The
-current MPS gate explicitly blesses the defect by requiring
-`src["idx"] == np.arange(40)` (`ai/gates/checks/mps_identity.py:258-273`).
+Optional production-scale polynomial chaos expansion (PCE) fitting is outside
+this bounded-staging claim until a streamed or randomized low-rank fit and
+accuracy contract exists.
 
-Required repair: keep `C`, transformed `dv`, and `dump_rows` in sorted compact
-storage order, but preserve the original selection sequence in loader
-coordinates.  For the public memmap path this is
-`searchsorted(dump_rows, original_global_idx)`; for a resident compact source,
-retain/map its existing local-coordinate sequence rather than replace it.
-Drive the real loader after `_grid2d_law_rows` in both resident-result and
-disk-result regimes.  Under one shared epoch permutation, parameters,
-transformed targets, base-row identity, minibatch membership, and minibatch
-order must match the original seeded anchor.  Restore-`arange` is the mutation
-arm.  Replace the current assertion that treats `arange` as correct.
+## Data controls
 
-This reopens an explicit queue-3 clause and the audit statement that the
-defect was “solely” in `stage_source`; the ordinary staging fix remains
-correct, but the forward walk stopped before grid2d's second coordinate
-rewrite.
+### Rule
 
-## 25M-33 (Red Team CONFIRMED, awaiting Architect adjudication): bounded grid2d staging never implemented exact raw/base row-count equality
+One pure validator runs before staging:
 
-The original bounded-staging contract above requires both row-count and width
-validation for every raw/base/grid member.  `_grid2d_law_rows` checks raw
-width, base width, and only that the base contains the maximum selected global
-row (`experiment.py:3027-3071`).  It never requires
-`base.shape[0] == raw.shape[0]`.
+- `split_seed`: required native non-Boolean integer in the documented range;
+- `ram_frac`: finite native non-Boolean real in `[0,1]`;
+- every active cut bound: finite native non-Boolean real;
+- paired lower and upper bounds: `lower < upper`;
+- one-row text tables: normalized to exact two-dimensional form with validated
+  column count.
 
-Real-body reproduction: an 8-row raw dump paired with a same-width 9-row base
-having one extra leading row is accepted and produces a maximum
-`log(raw/base)` error of `0.6931472439` (approximately `log(2)`).  A shorter
-base also passes whenever the selected subset happens not to request its
-missing tail.  The result is finite and trains normally on row-shifted law
-targets; file manifests would only authenticate the wrong pair and cannot
-replace semantic row alignment.
+No coercion is allowed. Train and validation paths must not alias by realpath,
+symlink, hardlink, duplicate payload, or row identity. A same-pool split is
+unsupported and refuses. Any supported split must be one explicit
+partition operation with an empty-intersection proof.
 
-Required repair: before any chunk read, require exact base/raw row-count
-equality as well as exact width equality.  Gate base sizes `N-1`, `N`, and
-`N+1`; the `N-1` fixture deliberately selects early rows so today's
-max-selected-row test would accept it.  Include a shifted-row finite mutation
-whose known law answer differs by `log(2)`.  The valid `N` pair remains
-bitwise unchanged.  This is the already-issued row-count clause, not a new
-manifest mechanism.
+### Acceptance evidence
 
-## 25M-34 (Red Team CONFIRMED, awaiting Architect adjudication): the stored-float32 moments implementation is correct, but its gate does not discriminate it from the forbidden pre-cast accumulator
+Tests cover malformed seed and memory values, NaN/Inf/Boolean cut bounds,
+reversed bounds, one-row validation, identical paths, symlink and hardlink
+aliases, separately named duplicate payloads, partial overlap, and a valid
+disjoint pair.
 
-The producer correctly writes `law_chunk.astype("float32")` and merges moments
-from the stored payload read back as float64 (`experiment.py:3123-3132`).  The
-binding amendment requires a gate that fails if moments are instead
-accumulated from pre-cast float64 `law_chunk`.  `check_stable_moments` has no
-fixture where those two references change the geometry decision; its current
-log-ratio comparison is close enough that the `np.allclose` absolute default
-also masks the small difference.
+## Generator ingress
 
-Discriminating finite fixture (independently reproduced): alternate raw
-float32 values `10000.0` and the value 158 float32 ULPs above it; use base
-float32 `3.0`.  The pre-cast log-space population standard deviation is
-`7.714784231893644e-6`; the stored-float32 standard deviation is
-`8.106231689453125e-6`; the geometry's relative pin threshold is
-`7.735954113741172e-6`.  The forbidden pre-cast reference pins the column,
-while the required stored-payload reference leaves it trainable—a 4.83%
-scale separation with a categorical mask difference.
+### Rule
 
-Add this fixture through the real `_grid2d_law_rows` plus
-`Grid2DGeometry.from_stats`.  Assert stored-payload center/scale/mask, and make
-an explicit pre-cast-accumulator mutation pin the column and red.  Set both
-`rtol` and `atol` explicitly; no default absolute tolerance may decide catch
-power.  Keep the existing Chan/Welford and chunk-order legs.  This reopens
-only the missing discrimination clause; current producer numerics are
-accepted.
+`train_args.ord` is one nonempty list of unique native strings. Cardinality,
+membership, and order are checked against Cobaya's sampled parameter set, with
+missing, extra, and duplicate names reported separately. Covariance headers are
+nonempty and unique; matrices are finite, two-dimensional, square, and aligned
+before subsetting. Fiducials are finite non-Boolean numbers.
 
-## 25M-35 (Red Team CONFIRMED, awaiting Architect adjudication): the failed-sweep lifecycle leg manually performs cleanup instead of executing the driver path it claims to prove
+Family grid counts and multipoles are native non-Boolean integers. Switches are
+native Booleans. Grid edges and extrapolation limits are finite. Unknown family
+keys refuse. `extrap_kmax >= max(k)` after validation. Priors, covariance,
+Cholesky factors, triangular matrices `L` satisfying `L @ L.T = covariance`,
+inverses, modeled columns, and metadata are finite. A
+Markov-chain Monte Carlo (MCMC) unique-row shortfall refuses rather than
+publishing a smaller dataset. Unknown command-line arguments refuse.
 
-The lifecycle contract requires a training failure after successful staging
-to release that sweep point's file because both success and exception paths
-reach the shared lane cleanup.  The actual driver currently calls
-`release_train_staging()` after its `try/except`
-(`cosmic_shear_sweep_ntrain_emulator.py:158-179`), which is correct.
-`mps_identity.check_staging_lifecycle` leg (d), however, never calls
-`_sweep_job` and never injects a training failure.  It stages directly, then
-manually executes `exp.train_set = None; exp.release_train_staging()`
-(`ai/gates/checks/mps_identity.py:812-824`).  Deleting the driver's release line
-would leave the gate green.
+Optional `latex` is presentation metadata. When absent, the parameter name is
+the GetDist label. Its absence may not abort an otherwise valid run.
 
-Repair the gate, not the currently-correct driver: execute the real
-`_sweep_job` with a fake/light experiment whose disk-backed staging succeeds
-and whose `train()` then raises.  Assert the returned point is the documented
-failure result, the staged path is absent, the train ownership slot is clear,
-and the validation staging slot remains live.  Add success-path control and a
-mutation that removes/bypasses the driver's release call; it must leak the
-path and red.  The direct release/idempotence legs remain useful helper tests,
-but may not substitute for the public driver call whose ordering is the
-claim.
+### Acceptance evidence
 
-## 25M-38 (Red Team CONFIRMED, awaiting Architect adjudication): a one-parameter generator writes a parser-shaped ranges header and aborts
+Unique reorder controls preserve index maps. Duplicate, missing, extra, wrong-
+nesting, non-string, header/matrix mismatch, nonfinite covariance or fiducial,
+lossy integer/Boolean coercion, unknown key, unique-row shortfall, and unknown
+flag cases all refuse before sampling or output mutation. A real-Cobaya
+parameter without `latex` completes sidecar and covariance publication and is
+read back by GetDist.
 
-A real two-rank background-generator run reached Cobaya 3.6.2 and CAMB
-1.6.7, wrote its first three parameter sidecars, then returned status 1 before
-it could write the covariance, failure flags, targets, or grid sidecars.  The
-interpreter carried GetDist 1.7.2.  `ROOTDIR` named a temporary directory with
-the normal CoCoA `.local`, CAMB, and emulator-repository paths.  The executed
-generator command was:
+## Nested data paths and axis identity
 
-```bash
-D=external_modules/code/emulators_code_v2
-mpirun -n 2 python $D/compute_data_vectors/dataset_generator_background.py \
-  --root projects/generator_example \
-  --fileroot generator \
-  --yaml background_minimal.yaml \
-  --datavsfile background_dvs \
-  --paramfile background_params \
-  --failfile background_failures \
-  --chain 0 \
-  --nparams 200 \
-  --unif 1 \
-  --temp 1 \
-  --seed 1234 \
-  --freqchk 1000 \
-  --loadchk 0 \
-  --append 0
-```
+### Rule
 
-No `--boundary` value was supplied, so the run used the full sampled support.
-The one-parameter YAML was:
+One dotted-path registry resolves every file-valued config leaf against its
+documented project base. Absolute paths pass through. Errors name the full
+dotted key. Resolved consumed paths or a documented portable-root form are
+persisted consistently.
 
-```yaml
-likelihood:
-  background_anchor:
-    external: "lambda _self: 0.0"
-    requires:
-      Hubble:
-        z: [0.1]
-        units: km/s/Mpc
+Train and validation payloads each declare their own axes. Exact train/val
+axis equality is required before staging. The dataset manifest binds every raw
+and base payload to axis bytes, parameter order, failure state, settings, and
+generation id. CMB payloads carry their own exact integer multipole sidecar;
+width is never axis identity.
 
-theory:
-  camb:
-    path: ./external_modules/code/CAMB
+### Acceptance evidence
 
-params:
-  H0:
-    prior:
-      min: 60.0
-      max: 75.0
-    latex: H_0
-  ombh2:
-    value: 0.02237
-  omch2:
-    value: 0.1200
-  mnu:
-    value: 0.06
-  w:
-    value: -1.0
+- Shipped family configs resolve from a working directory different from the
+  chain directory.
+- Absolute paths stay unchanged; missing paths name their dotted key; an old
+  cwd-relative decoy is not consulted.
+- Shifted, reversed, permuted, duplicated, gapped, and same-width wrong axes
+  refuse before geometry or training.
+- Separately written but byte-identical axes pass.
+- CMB missing or anonymous multipole identity refuses with migration guidance.
 
-train_args:
-  probe: background
-  ord:
-    - [H0]
-  z_sn: [0.1, 1.0, 8]
-  z_rec: [1000.0, 1200.0, 8]
-```
+## Physical parameter cuts
 
-The zero-valued likelihood gives Cobaya a real consumer for one background
-quantity during dependency construction.  The driver then adds the complete
-Hubble and comoving-distance requirements.  The configuration therefore
-reaches the generator's parameter-output path without CosmoLike.
+### Rule
 
-The decisive terminal output was:
+Physical cuts live under `data.param_cuts`. The whitelist is:
+
+- required: `omegabh2_hi` when the block is active;
+- optional: `omegabh2_lo`, `omegam2h2_lo`, `omegam2h2_hi`,
+  `omegamh2_lo`, `omegamh2_hi`, `omegamh2ns_lo`, `omegamh2ns_hi`.
+
+Legacy flat keys and `omegabh2_cut` refuse with migration guidance. Each
+window is a row in one quantity table containing name, label, required input
+columns, formula, lower bound, and upper bound. In these formulas, `H0` is the
+Hubble constant measured in kilometers per second per megaparsec; `omegab` is
+the baryon density fraction; `omegam` is the total matter density fraction;
+and `ns` is the scalar spectral index. The strict formulas are:
 
 ```text
-[0 : model] *WARNING* Ignored blocks/options: ['train_args']
-[1 : model] *WARNING* Ignored blocks/options: ['train_args']
-[0 : camb] `camb` module loaded successfully from <ROOTDIR>/external_modules/code/CAMB/camb
-[0 : background_anchor] Initialized external likelihood.
-[1 : background_anchor] Initialized external likelihood.
-ValueError: could not convert string to float: 'weights'
-MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
-Errorcode: 1
+omegabh2   = omegab * (H0/100)^2
+omegam2h2  = (omegam * H0/100)^2
+omegamh2   = omegam * (H0/100)^2
+omegamh2ns = omegamh2 * ns
 ```
 
-Rank zero had written this 44-byte ranges file:
+Active windows intersect. The banner names each formula and reports the
+independently reproducible kept count. If the pool is too small, the error
+reports kept and requested rows and explains the remedy. Cutting sparse volume
+densifies the retained region because `n_train` is drawn after the cut.
 
-```text
-# weights lnp H0
-H0 6.00000e+01 7.50000e+01
-```
+### Acceptance evidence
 
-Its exact hexadecimal bytes were:
+- No-cut pool size equals the full table.
+- Each individual formula and each stacked intersection has an independent
+  known-answer survivor set.
+- Pool sizing and staging select the same named rows in the same seeded order.
+- A banner-only mutation with wrong rows fails.
 
-```text
-23 20 77 65 69 67 68 74 73 20 6c 6e 70 20 48 30
-0a 48 30 20 36 2e 30 30 30 30 30 65 2b 30 31 20
-37 2e 35 30 30 30 30 65 2b 30 31 0a
-```
+## Triangle-plot cut shading
 
-`GeneratorCore.__run_mcmc` writes the comment before calling
-`loadMCSamples` to form the covariance.  GetDist 1.7.2 does not skip comments
-in a `.ranges` file.  It treats every three-token or four-token line as a
-range record.  The one-parameter header has four tokens, so GetDist treats
-`#` as a parameter name and tries to convert `weights` to a float.
+### Rule
 
-The blast radius is exact.  All four dataset drivers inherit this writer, so
-every fresh one-parameter lensing, CMB, background, or matter-power run can
-fail here.  Both uniform and tempered sampling take the path.  Both
-`--chain 0` and `--chain 1` take it.  A header for two or more sampled
-parameters has at least five tokens, which this GetDist version ignores.
-That token-count accident is why wider generator configurations can pass the
-same line.
+Each active physical window shades only panels whose coordinates determine the
+window. Every cut artist uses `_CUT_GREY = (0.55, 0.55, 0.55, 0.30)` at
+z-order zero. Multiple windows compose by artist superposition. Plotting
+formulas cite the shared cut-table helper. No fuzzy projection appears on a
+panel that cannot determine the window.
 
-The failed run left only `.ranges`, `.paramnames`, and `.1.txt`.  It did not
-produce a complete checkpoint or a complete training result.  DIDACTICS-79
-therefore remains held.  A repair needs a GetDist-readable one-parameter
-range file plus a regression that drives the same covariance-loading call.
-The end-to-end command must then be replayed before it is printed as a working
-README command.
-
-## 25M-38 implementation and DIDACTICS-79 replay (Red Team, awaiting Architect audit)
-
-The bounded production change removes only the comment write from
-`GeneratorCore.__run_mcmc`. The writer still forms the same ordered
-`name lower upper` rows and still formats both bounds with `%.5e`. Unit 82 owns
-that decimal representation and remains untouched. The now-unused `hd`
-assignment also remains untouched so the production diff is the ruled one-line
-removal.
-
-The CPU regression lives in the dedicated
-`ai/gates/checks/generator_ranges.py` child. The existing foundation
-`generator_seed.py` remains byte-identical because its evidence aid is
-specifically about random-number ownership. The new child parses
-`generator_core.py`, requires exactly one active `.ranges` writer and executes
-that writer's production syntax-tree statements with small bounds. This
-prevents a copied test-only writer from drifting away from production. It also
-lets a later cleanup remove the now-unused `hd` assignment. The extractor
-includes `hd` only when the writer actually reads it, as the retired-header
-mutation does. GetDist 1.7.2 `ParamBounds` then reads two cases:
-
-1. one sampled parameter, `H0` with bounds 60 and 75;
-2. two sampled parameters, `H0` and `ombh2`, as the wider control.
-
-Both cases pass on the repaired writer. The child itself restores the deleted
-line in a temporary copy of the producer. The one-parameter leg then fails with
-`ValueError: could not convert string to float: 'weights'`, the two-parameter
-control stays green and the mutation leg passes only when it observes that
-asymmetry. The production file is never modified by the mutation.
-
-The Cocoa CPU interpreter completed the repaired check with all assertions
-green. `py_compile` completed for the producer and check. The command was:
-
-```bash
-/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
-  ai/gates/checks/generator_ranges.py
-```
-
-The README command was then executed verbatim in an isolated CoCoA-shaped
-tree at `/private/tmp/cocoa-sonic-readme-exact`. Its `.local`, CAMB and
-emulator-code paths were symlinks to the real Cocoa interpreter, CAMB checkout
-and this worktree. The YAML bytes matched the README block, including the
-relative CAMB path. The executed command was:
-
-```bash
-export ROOTDIR=/private/tmp/cocoa-sonic-readme-exact
-cd "$ROOTDIR"
-REPO="$ROOTDIR/external_modules/code/emulators_code_v2"
-PYTHON="$ROOTDIR/.local/bin/python"
-
-"$PYTHON" "$REPO/compute_data_vectors/dataset_generator_background.py" \
-  --root projects/generator_example \
-  --fileroot generator \
-  --yaml background_minimal.yaml \
-  --datavsfile background_dvs \
-  --paramfile background_params \
-  --failfile background_failures \
-  --chain 0 \
-  --nparams 200 \
-  --unif 1 \
-  --temp 1 \
-  --seed 1234 \
-  --freqchk 1000 \
-  --loadchk 0 \
-  --append 0
-```
-
-The command returned status zero after Cobaya 3.6.2 loaded CAMB 1.6.7. The
-serial invocation created one MPI rank. Rank zero sampled the table, evaluated
-all CAMB rows and wrote the files. There were no worker ranks. Since 200 is
-below the 1,000-row intermediate-checkpoint interval, the run wrote only the
-unconditional final checkpoint.
-
-The readback established:
-
-- the output file set had exactly the four parameter sidecars, two background
-  target arrays, two grid sidecars and one failure sidecar;
-- the `.ranges` bytes were exactly
-  `H0 6.00000e+01 7.50000e+01\n`;
-- real `ParamBounds` returned names `['H0']` and bounds 60 and 75;
-- the chain had shape `(200, 4)` and its first line recorded
-  `seed=1234 rng=numpy.default_rng`;
-- both target arrays had shape `(200, 8)`, dtype float32 and finite entries;
-- the first Hubble column had nonzero spread 14.100456237792969 and the first
-  distance column had nonzero spread 591.2666015625; and
-- the 200-entry failure sidecar contained zero failed rows.
-
-A second successful serial run used the same YAML, seed and options from a
-different temporary root. The chain, range, parameter-name, covariance and
-failure files were byte-identical across the two runs. Both target arrays were
-array-identical. This is a real same-seed serial replay. It does not replace
-the separately owed comparison across worker counts.
-
-The root README now prints this executed minimal YAML and command. It defines
-an MPI rank, distinguishes the one-rank serial path from rank-zero coordination
-with worker ranks and explains why this 200-row command has only a final
-checkpoint. This closes the implementation evidence for 25M-38 and the held
-DIDACTICS-79 command/process teaching. The Red Team does not certify either
-closure; both remain for Architect audit.
-
-The new child is deliberately not reported under
-`generator-seed.owned-rng`. Queue 2 still owns board registration and evidence
-mapping for foundation gates. Its owner must give the sidecar check a distinct,
-narrow claim before this branch can be called board-complete. This integration
-hold keeps a format failure from being mislabeled as an RNG failure.
-
-## Queue-2 evidence draft: data-selection and triangle gates
-
-The blocks below are the note-side specification for the structured evidence
-rollout. A leg name describes only what the current check executes. In
-particular, seeing a banner is evidence that the banner was printed; it is not
-evidence that the values in the banner equal an independent row count.
+## Stable evidence anchors
 
 <a id="param-window-cuts-evidence"></a>
-**param-window-cuts — the configured training driver runs and reports that a
-parameter-window cut was applied.**
+### Parameter-window driver evidence
 
-- files: reads the resolved `param-window-cuts-config` YAML and its six
-  manifest-declared cosmic-shear inputs. The likelihood `.dataset` input is a
-  pointer: the driver also reads its data-vector, covariance, mask, and n(z)
-  siblings transitively, outside that six-path manifest hash. It writes the
-  driver's ordinary `.emul`/`.h5` pair and the driver stream to the immutable
-  gate log. The wrapper does not read the saved pair back.
-- subprocess: `cosmic_shear_train_emulator.py` through the board's driver
-  launcher.
-- metric: per-leg exit-status or selected-text presence; the manual
-  `init_probes` item has no executable metric.
-- legs: 3, named `param-window-cuts.driver-exit-zero`,
-  `param-window-cuts.cut-count-banner-present`, and
-  `param-window-cuts.init-probes-inspection`.
-- evidence: the first two legs are asserted by the wrapper; the
-  `init_probes` item is logged-only and must emit `UNAVAILABLE` until it is an
-  executable comparison.
-- owed: the asserted legs require the Torch, CosmoLike, and GPU workstation;
-  the `init_probes` A/B comparison needs a real assertion before it can become
-  green evidence.
+The gate reads the resolved cut config and manifest-declared inputs, launches
+the training driver, and records ordinary artifact and stream output. Its
+three claims remain narrow.
 
 <a id="param-window-cuts-driver-exit-zero"></a>
-`param-window-cuts.driver-exit-zero` requires the training subprocess to exit
-with status zero.
+`param-window-cuts.driver-exit-zero` requires the driver subprocess to exit
+zero.
 
 <a id="param-window-cuts-cut-count-banner-present"></a>
-`param-window-cuts.cut-count-banner-present` requires one line matching
-`used N of P cut rows`; it does not claim that a separate count was compared
-with `N` or `P`.
+`param-window-cuts.cut-count-banner-present` requires a line matching
+`used N of P cut rows`. Presence alone does not prove an independent count.
 
 <a id="param-window-cuts-init-probes-inspection"></a>
-`param-window-cuts.init-probes-inspection` is `UNAVAILABLE`: the current gate
-prints a manual inspection instruction and executes no A/B comparison.
+`param-window-cuts.init-probes-inspection` requires a real A/B comparison.
+A manual inspection instruction does not satisfy this acceptance check.
 
 <a id="triangle-shading-evidence"></a>
-**triangle-shading: a synthetic corner plot places each physical-window
-artist on the exact parameter panel that determines that window.**
+### Triangle-shading evidence
 
-- files: no external input or persistent output; the child constructs
-  synthetic arrays and a Matplotlib figure in memory.
-- subprocess: `ai/gates/checks/gt_b_triangle.py`.
-- metric: figure existence; exact identity of every
-  `(x parameter, y parameter, window)` artist; a complete color census; and
-  exact ownership and interval bounds of the `omegamh2` marginal patches.
-- legs: 4, named `triangle-shading.figure-produced`,
-  `triangle-shading.panel-window-set-exact`,
-  `triangle-shading.all-cut-artists-use-shared-gray`, and
-  `triangle-shading.omegamh2-marginal-bands-exact`.
-- evidence: all four legs are asserted in the child. The panel/window leg
-  derives its expected set and masks from a gate-owned formula table. Its
-  mutation moves one real filled collection to the wrong Axes while preserving
-  the former global artist, panel, color, and band counts; the exact-set
-  predicate rejects it. The child's exit status remains the single aggregate
-  verdict and is not a fifth leg.
-- owed: the board registry models CPU PyTorch only. The child also imports
-  Matplotlib and GetDist; absence of either is a pre-leg red import failure,
-  not an `UNAVAILABLE` capability disposition.
+The synthetic plotting check maps each axes object to exact parameter
+coordinates, traces every z-order-zero cut mask, and compares the complete
+artist tuple set with an independent formula table.
 
 <a id="triangle-shading-figure-produced"></a>
-`triangle-shading.figure-produced` requires the plotting helper to return a
-figure for the synthetic sample and recognized parameter names.
+`triangle-shading.figure-produced` requires the helper to return a figure for
+recognized parameter names.
 
 <a id="triangle-shading-panel-window-set-exact"></a>
-`triangle-shading.panel-window-set-exact` maps every equal-size triangle Axes
-to its x and y parameter coordinates. It traces the boolean mask passed to
-each z-order-zero `contourf` call, identifies the physical window by an
-independent formula, and requires the observed tuple set and artist count to
-equal the gate-owned reference. A moved-artist mutation must fail while the
-former global counts remain equal.
+`triangle-shading.panel-window-set-exact` requires exact panel ownership,
+window identity, mask, and artist count. Moving an artist to a wrong panel
+must fail while global counts stay unchanged.
 
 <a id="triangle-shading-all-cut-artists-use-shared-gray"></a>
-`triangle-shading.all-cut-artists-use-shared-gray` examines every collection
-and patch on the z-order-zero cut layer and requires each face color to match
-the shared `_CUT_GREY` RGBA value.
+`triangle-shading.all-cut-artists-use-shared-gray` requires every collection
+and patch on the cut layer to match `_CUT_GREY` exactly.
 
 <a id="triangle-shading-omegamh2-marginal-bands-exact"></a>
-`triangle-shading.omegamh2-marginal-bands-exact` requires exactly two
-z-order-zero interval patches on the `(omegamh2, omegamh2)` diagonal Axes,
-none on another Axes, and endpoints equal to the lower and upper excluded
-intervals.
+`triangle-shading.omegamh2-marginal-bands-exact` requires exactly two excluded
+interval patches on the `omegamh2` diagonal, none elsewhere, with exact
+endpoints.
 
-## Unit 94 implementation readback: uniform support resolves in interval coordinates
+## Refactor boundaries
 
-This readback is the generation-side implementation return for 25M-01, routed
-by mailbox dispatch 0117. The candidate branch is
-`codex/unit94-boundary-interior`, based on main commit
-`204748e2389a079cbc0c70446a306a6daf9771a6`. Before branch creation, the bounded
-clone check ran `git worktree list --porcelain`, listed local and remote branch
-names matching unit 94 or boundary interior, scanned the visible `june2026`
-tree for Git repositories and matching directory names, inspected the
-standalone Codex clone's branches and tips, and searched every visible
-`compute_data_vectors/generator_core.py` below `.claude/worktrees` for
-`nextafter`. It found no unit-94 linked worktree, branch, named standalone
-clone, or generator-core `nextafter` implementation. The statement is limited
-to those visible clones and names.
+The seven repeated family storage operations may move into one ordinary-loop
+multi-array store in `generator_core.py`. Family physics and sidecar creation
+stay in family drivers. Acceptance is byte identity across fresh, checkpoint,
+and append paths. Consolidation follows correctness work on the same files so
+the refactor does not multiply review churn.
 
-The executable scope is the uniform-branch margin region of
-`compute_data_vectors/generator_core.py` plus the new
-`ai/gates/checks/redteam_unit94_boundary_witness.py`. The only additional files in
-the unit's claimed scope are this readback and the durable register in
-`ai/notes/red-team-audit-and-didactics-2026-07-13.md`. The confidence-bound code,
-board registry, shared checks, fixed-facts files, and `texnotes/` are outside
-the unit.
+The staging comments are part of the contract. A first-time reader must be able
+to label every coordinate global or local and every access eager, lazy, view,
+or copy without reconstructing old gate history.
 
-The named helper is `resolve_uniform_sampling_support(names, bounds)`. The
-constant `UNIFORM_BOUNDARY_INTERIOR_POLICY` names its rule as
-`nextafter-toward-interval-interior-v1`. For each interval, the lower endpoint
-moves one representable value toward the upper endpoint and the upper endpoint
-moves one representable value toward the lower endpoint. This policy depends
-on interval endpoints and representable spacing, not on either coordinate's
-distance from zero. The helper validates a finite, ordered requested interval
-and a finite, ordered, representably nonempty resolved interior before the
-uniform sampler is called. Empty, inverted, nonfinite, or representably empty
-requests refuse before sampling.
+## Claims that must remain explicit
 
-The returned mapping has exactly `policy`, `requested`, `resolved`, and
-`bounds`. Requested and resolved support are per parameter name; `bounds` is
-the resolved array used for sampling. `GeneratorCore` publishes the mapping at
-`self.uniform_sampling_support` and makes `self.bounds` the resolved array.
-The mapping is the generation-side fact needed by both later consumers: unit
-8 persists requested and resolved support plus the policy in dataset identity,
-and the fixed-facts sidecar declares the same resolved support. Unit 94 writes
-neither persistence surface. The fixed-facts sidecar, its schema, the shared
-reader, and the 45M-68 named-column resolver remain untouched.
-
-The executable witness must green both original minting examples,
-`[70.0, 70.02]` and `[1000.0, 1000.01]`, plus the negative-endpoint mirror.
-It must also prove that an empty, inverted, nonfinite, or representably empty
-request refuses before a sampling sentinel runs. Every mutation arm must red
-the witness. The endpoint-times-constant restoration arm is required to
-recover the old translation-dependent shrink or inversion; separate arms must
-keep the returned support and pre-sampling refusal load-bearing.
-
-Root's final re-verification produced the following exact aggregate results:
-
-```text
-ordinary witness                rc 0  uniform-boundary-witness: ALL PASS
-endpoint-times-constant         rc 1  FAIL (4 failed arms)
-request-validation-bypass       rc 1  FAIL (5 failed arms)
-resolved-validation-bypass      rc 1  FAIL (1 failed arm)
-sampling-before-resolution      rc 1  FAIL (7 failed arms)
-board self-test                 rc 0  176 PASS / 0 FAIL; ALL PASS
-py_compile, both Python files   rc 0
-git diff --check                rc 0
-fixed-facts patch apply check   rc 0  no generator-core conflict
-```
-
-The ordinary production-dtype witnesses measured H0 retained fraction
-`0.9992369413375854` and resolved the offset interval to
-`[1000.0000610351562, 1000.0099487304688]`. Every invalid-request green arm
-recorded zero sampling calls. The request-validation mutation reached the
-sampler for both infinite-endpoint fixtures; the resolved-validation mutation
-reached it for the float32-adjacent fixture; and the call-order mutation
-reached it before all six refusals. The endpoint restoration recovered the
-old coordinate-scaled shrink and offset inversion.
-
-The branch's 176-pass board count is the exact `204748e` baseline. The 182-pass
-dispatch count included the separate fixed-facts work already present in the
-shared in-flight tree. This unit changes no shared self-test. The register
-entry in `ai/notes/red-team-audit-and-didactics-2026-07-13.md` carries the exact
-turn-local log paths and the printed user-only fetch block. Fable still must
-re-run the evidence against the fetched branch tip. This readback contains no
-Architect verdict, GO, merge authorization, or push authorization.
-
-This is independent Red Team evidence submitted for Fable adjudication. It does not self-certify unit 94 and does not authorize a merge.
+- A member census is not a cryptographic dataset manifest.
+- A manifest authenticates bytes and identity; it does not replace payload
+  validity, axis semantics, or lifecycle acceptance.
+- Dataset-publication primitives do not make current flat generator paths
+  atomic until generator and consumer integration uses them.
+- Bounded grid2d staging does not certify production-sized PCE fitting.
+- Temporary-file recovery does not promise survival of `SIGKILL`, the
+  operating-system signal that stops a process without cleanup; an
+  out-of-memory (OOM) termination; or storage-controller failure beyond the
+  documented sync boundary.
+- A valid scientific gate compares values with an independent known answer;
+  a process exit, banner, shape, or previous log alone is not that evidence.

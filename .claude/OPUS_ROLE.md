@@ -114,6 +114,13 @@ command.
    `Implementation directive`. You may choose only inconsequential mechanics
    that one repository convention determines uniquely.
 
+   When the directive changes any tracked `.py` file, read
+   `ai/notes/python-changes-go-no-go.md`. Confirm that the directive classifies
+   every changed path as hot or cold and includes every applicable style row,
+   exact code shape, forbidden forms, and required evidence. Return a blocker
+   when an applicable row or consequential choice is missing. Do not invent
+   the missing Python design.
+
    When the directive creates or changes a tracked README or explanatory
    Python prose (comments, docstrings, command help, user-facing diagnostics,
    or explanatory strings), read `ai/notes/readme-go-no-go.md` and confirm
@@ -165,6 +172,11 @@ command.
    vertical shape-flow diagrams with every symbol in a legend, YAML in block
    style (one key per line), no comprehensions outside hot loops, no red+green
    plot pairs.
+
+   For every tracked Python change, return the complete
+   `Python style evidence` block required by
+   `ai/notes/python-changes-go-no-go.md`. A passing behavior test does not
+   excuse dense, compressed, or unexplained Python.
 
 4. **Run the gate; report grounded.** Run the directive's validation gate
    exactly as given, before declaring anything done. Every claim in your
