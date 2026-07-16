@@ -30,6 +30,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
         cls.python_contract = read("ai/notes/python-changes-go-no-go.md")
         cls.conventions = read("ai/notes/conventions-and-workflow.md")
         cls.ai_readme = read("ai/README.md")
+        cls.gates_readme = read("ai/gates/README.md")
         cls.router = read("ai/tools/handoff_router.py")
 
     def test_old_goal_only_rule_is_absent_from_binding_surfaces(self):
@@ -302,12 +303,58 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.readme_contract)
         self.assertIn("the result the user can observe",
                       self.readme_contract)
+        self.assertIn("A specialist folder README opens",
+                      self.readme_contract)
+        self.assertIn("Neighbor distinction", self.readme_contract)
+        self.assertIn("An operational paragraph has one job",
+                      self.readme_contract)
+        self.assertIn("`test (gate in the code)` receives `NO-GO`",
+                      self.readme_contract)
         self.assertIn("`test_parameter_table.py` gives the loader a table",
                       self.ai_readme)
         self.assertIn("the dataset-publication gate runs",
                       self.ai_readme)
         self.assertIn("**validation board** is the saved list of all gates",
                       self.ai_readme)
+
+    def test_backlog_ticket_contract_is_human_first_and_count_safe(self):
+        self.assertIn("### Backlog ticket GO / NO-GO", self.conventions)
+        for required_part in (
+                "**High-level summary**",
+                "**Current status**",
+                "**What is already fixed**",
+                "**What is missing**",
+                "**Technical record for development tools**"):
+            with self.subTest(required_part=required_part):
+                self.assertIn(required_part, self.conventions)
+        self.assertIn("two or three sentences in ordinary language",
+                      self.conventions)
+        self.assertIn("one linked index line begins with the exact",
+                      self.conventions)
+        self.assertIn("every index link resolves to exactly one detailed open",
+                      self.conventions)
+        self.assertIn("A workstation-only check stays open",
+                      self.conventions)
+        self.assertIn("Uses only `unit 8`", self.conventions)
+
+    def test_gates_guide_keeps_tests_gates_and_board_concrete(self):
+        self.assertIn("It is not limited to the cosmic-shear emulator",
+                      self.gates_readme)
+        self.assertIn("supplies saved CMB progress\nfiles without `dv_ell.npy`",
+                      self.gates_readme)
+        self.assertIn("python3 -m unittest", self.gates_readme)
+        self.assertIn("python3 ai/gates/run_board.py --gate "
+                      "dataset-publication", self.gates_readme)
+        self.assertIn("[harness] GATE dataset-publication: PASS",
+                      self.gates_readme)
+        self.assertIn("`pre-manifest`", self.gates_readme)
+        self.assertIn("`UNAVAILABLE` is additional information inside a PASS",
+                      self.gates_readme)
+        self.assertIn("dataset-publication.20260716-143012-123456.log",
+                      self.gates_readme)
+        self.assertIn("`.inprogress` added at the end",
+                      self.gates_readme)
+        self.assertNotIn("\npython ", self.gates_readme)
 
     def test_every_python_change_uses_the_mandatory_style_gate(self):
         contract_path = "ai/notes/python-changes-go-no-go.md"

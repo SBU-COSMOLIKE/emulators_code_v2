@@ -319,6 +319,55 @@ scientific evidence, counterexample, design contract, exact file and symbol
 targets, changed files, branch or commit identity, raw-test locations,
 remaining obligations, and acceptance conditions.
 
+### Backlog ticket GO / NO-GO
+
+`ai/notes/backlog.md` is the local list of unfinished and completed tickets.
+It is written for a human reader first and retains a separate technical record
+for development tools. The Architect owns its structure and is the only role
+that admits a ticket, changes its status, or moves it between the open and
+closed sections.
+
+The file begins with **Open tickets** and **Closed tickets** entries in its
+contents list. The full **Open tickets** section comes before **Closed
+tickets**. Under the open heading, one linked index line begins with the exact
+text `- OPEN` for each unfinished ticket. This exact marker is required because
+the watcher counts it. There is no second `- OPEN` line inside that ticket, and
+every index link resolves to exactly one detailed open section.
+
+Every ticket section has these parts in this order:
+
+1. **High-level summary** gives two or three sentences in ordinary language.
+   It states what goes wrong now, gives one concrete example when the problem
+   is broad, and explains the user or scientific consequence. An internal unit
+   number may follow a plain title, but it never replaces that title.
+2. **Current status** says exactly `OPEN` or `CLOSED` and gives the reason.
+3. **What is already fixed** names completed work without implying that it
+   closes the ticket.
+4. **What is missing** names every action, machine run, review, or decision
+   still required. A closed ticket says `Nothing for this ticket`; separate
+   unfinished work must have its own linked open ticket.
+5. **Technical record for development tools** retains exact files, symbols,
+   commits, branches, evidence counts, failure cases, and source-note anchors.
+
+The Architect applies this decision table whenever a ticket is added or
+updated:
+
+| Check | `GO` | `NO-GO` |
+| --- | --- | --- |
+| Human title | Names the problem in words a physics student can understand; an internal ID is secondary | Uses only `unit 8`, an acronym, a gate ID, or another internal label |
+| Human summary | Gives the current failure, a real example when needed, and its consequence in two or three sentences | Starts with commits, evidence counts, internal stages, or unexplained software language |
+| Status | Appears in the correct Open or Closed section and agrees with the linked `- OPEN` index | Is missing, contradictory, or described as closed while required work remains hidden in prose |
+| Partial work | Separates completed work from missing work | Treats a landed partial fix or local test result as ticket closure |
+| Technical detail | Preserves exact evidence in the technical record after the human explanation | Removes evidence or makes a human decode it before learning the problem |
+| Closure | Every required action passed and `What is missing` says nothing remains for this ticket | A required hardware run, scientific check, review, merge, or note update remains |
+| Open-count check | The number of linked `- OPEN` index lines equals the number of detailed open ticket sections | The watcher count can omit, duplicate, or point to a missing ticket |
+
+A workstation-only check stays open when it is required for acceptance. If a
+large ticket is split, each follow-up either remains under the parent ticket's
+missing-work list or becomes its own linked open ticket. A closed section may
+mention a limitation outside its scope only by linking to the open ticket that
+owns that work.
+
 The Architect note has one current `## Implementation directive`. A confirmed
 Red Team return has one current `## Repair directive`. The appropriate
 contract checker validates the packet structure before transport. Structural
@@ -479,9 +528,10 @@ with coordinate system, dtype, device, and tolerance stated. An unavailable
 feature is described as unavailable and refused rather than promised through
 unreachable code.
 
-Gate files begin with the user-visible promise, dependencies, and why a
-failure blocks acceptance. A nontrivial check documents the system under test,
-fixture, independent expected answer, and deliberate mutation. Terms such as
+Gate files begin with the exact behavior they require, one real input and
+visible result, their dependencies, and why a failure blocks acceptance. A
+nontrivial check documents the system under test, fixture, independent
+expected answer, and deliberate mutation. Terms such as
 fixture, test double, fake, stub, monkeypatch, known answer, control, mutation,
 and catch power are defined before use. A numerical reference cannot be
 computed by the same helper as the value under test.

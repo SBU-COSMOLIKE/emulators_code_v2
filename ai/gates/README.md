@@ -1,160 +1,365 @@
-# The gates board
+# Gates: final checks for emulator changes
 
-A self-driving test suite for the cosmic-shear emulator. One command,
-`python ai/gates/run_board.py`, runs every deferred verification on the
-workstation (the NVIDIA + cocoa machine), writes one raw log per test,
-and leaves a pass/fail table. You run it; it does not need a Claude
-session on the box.
+The gates board records the final checks used to decide whether a change is
+ready. It covers cosmic shear, scalar quantities, cosmic microwave background
+(CMB) spectra, background-distance emulators, matter-power emulators, data generation,
+saved models, Cobaya adapters, fine-tuning, transfer, and the gate runner
+itself. It is not limited to the cosmic-shear emulator.
 
-## What it is
+The board is intended for the configured CoCoA workstation with an NVIDIA
+GPU and the project data. Developers can still run the smaller checks in
+[`ai/tests/`](../tests/README.md) on an ordinary CPU machine.
 
-Each **test** ("gate" in the code) pins down one feature or contract:
-it runs a short training or a small check script, then judges pass/fail
-on the banner lines or numeric values that feature must produce. Tests
-are grouped into three **tiers** (`backlog`, `new-features`,
-`save-and-sample`) and run in a fixed order.
+## Contents
 
-## Vocabulary
+**Main guide**
 
-| Term | Meaning |
-|------|---------|
-| board | the ordered list of tests |
-| gate | one test: its commands and its pass/fail rule ("test" in prose) |
-| tier | the grouping `--tier` selects |
-| golden run | the same config trained on the current code and on a pinned older commit; selected log lines must match exactly |
-| smoke | a short training run judged on its banner lines |
-| banner | a driver status line a test checks for |
-| worktree | a throwaway git checkout of another commit; never touches your tree |
-| preflight | the pre-GPU checks (git tip, clean tree, cocoa imports, data paths) |
-| resume | a rerun skips tests already marked PASS |
-| home note | the file under `ai/notes/` that defines what a test must prove |
+- [Tests, gates, and the board are different](#tests-gates-and-the-board-are-different)
+- [See which gates exist](#see-which-gates-exist)
+- [Check the workstation before a long run](#check-the-workstation-before-a-long-run)
+- [Run one gate or the full board](#run-one-gate-or-the-full-board)
+- [Read the result](#read-the-result)
+- [Continue after an interruption](#continue-after-an-interruption)
 
-## How it is implemented
+**Common questions raised by developers**
 
-```
-ai/gates/
-  run_board.py     the CLI + runner: preflight, order, per-test logs,
-                   resume, and golden runs in a throwaway worktree
-  board.py         the list of tests: a small Gate class + the tests, each
-                   with its home note, a maps line, and a run function
-  board_config.json  deployment paths (root, dumps, yaml dir) + per-test
-                   golden bases + the smoke-config paths
-  configs/         one small YAML per test-leg (the smoke run's knobs)
-  checks/          the numeric check scripts a test launches (the census,
-                   the eval-batch invariance, the save/rebuild bitwise,
-                   the parity probe) + pure log-scan helpers
-  logs/            (ships empty) one <test>.log per run + BOARD.md +
-                   board_status.json
-```
+*Appendices about commands and refusal*
 
-The runner builds a small helper per test that streams every command
-into that test's log and notes each check. A test never touches
-subprocess, files, or git directly; it goes through that helper, so the
-log is complete and every path comes from `board_config.json`.
+- [FAQ A1. Which command-line options can I use?](#faq-a1-which-command-line-options-can-i-use)
+- [FAQ A2. What does the workstation check inspect?](#faq-a2-what-does-the-workstation-check-inspect)
+- [FAQ A3. Why did a gate refuse to start?](#faq-a3-why-did-a-gate-refuse-to-start)
 
-Some tests carry a **golden run**: they build the same config both on
-the current tree and on a pinned pre-feature commit, and require the
-selected log lines identical to the character. That pinned build runs
-in a throwaway `git worktree` the runner always removes, so it never
-disturbs your working tree. Only the EMA identity test pins a base by
-default; the others run this leg only when you set their base in
-`board_config.json`, and otherwise fall back to a plain smoke run.
+*Appendices about results and files*
 
-## How to run it
+- [FAQ B1. When may an earlier PASS be reused?](#faq-b1-when-may-an-earlier-pass-be-reused)
+- [FAQ B2. What happens after one gate fails?](#faq-b2-what-happens-after-one-gate-fails)
+- [FAQ B3. Which files define and record the board?](#faq-b3-which-files-define-and-record-the-board)
+- [FAQ B4. What is a golden comparison?](#faq-b4-what-is-a-golden-comparison)
 
-```
-cd $ROOTDIR                # the Cocoa root; the cocoa env already active
-                           # (torch + cosmolike + cobaya importable)
-R=external_modules/code/emulators_code_v2
-G=$R/ai/gates
+## Tests, gates, and the board are different
 
-git -C $R pull                       # tip must be the harness commit
-edit $G/board_config.json            # fill root / driver paths once
-python $G/run_board.py --check       # preflight only (no GPU time)
-python $G/run_board.py --dry-run     # print the plan, run nothing
-python $G/run_board.py               # the whole board, in order
-git -C $R add -f ai/gates/logs
-git -C $R commit -m "workstation board run: logs"
-git -C $R push
+A **test** asks one narrow question about the code. For example,
+`test_missing_axis_is_a_requested_load_refusal` supplies saved CMB progress
+files without `dv_ell.npy`, the file that records the multipole values. The
+test confirms that loading stops before any spectrum file is opened.
+
+From the repository root, the folder that contains `ai/` and `emulator/`, run:
+
+```bash
+python3 -m unittest \
+  ai.tests.test_cmb_checkpoint_axis.CmbCheckpointAxisTests.test_missing_axis_is_a_requested_load_refusal
 ```
 
-The harness finds its own files from its location, so it can be run
-from any directory; `$ROOTDIR` is just the natural cocoa working spot.
+The command uses temporary files, does not update the gates board, and ends
+with `Ran 1 test` followed by `OK` when the refusal works.
 
-Preflight aborts before any GPU time on a stale git tip, a dirty watched
-tree, a missing cocoa import, or a missing data path, and prints the
-remedy. The dirty-tree watch covers the whole executable surface —
-`emulator/`, `ai/gates/`, `compute_data_vectors/`, `cobaya_theory/`, and
-`syren/` — plus the root drivers, so a dirty generator, cobaya adapter, or
-vendored syren formula fails preflight just as a dirty package does. An
-unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
-suggestion and a nonzero exit, rejected before any test runs, so automation
-can never silently run a smaller surface than the one it named.
-Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
-`--from <name>`, `--dry-run`. A rerun skips tests already marked PASS
-(`--force-rerun <name>` overrides for named gates; `--force-rerun-all`
-reruns EVERY selected gate — the full regression pass after a batch of
-library changes, composing with the selectors and never deleting the
-resume map); a crash loses only the in-flight test.
+A **gate** is one named final check registered in `ai/gates/board.py`. A gate
+may combine many tests, run a check program, start a real training job, or do
+all three. For example, the `dataset-publication` gate combines 44 focused
+tests into six required results. On the configured workstation, this command
+runs that gate:
 
-## The tests
-
-The `BOARD` list in `ai/gates/board.py` is the authoritative registry — count and
-name the tests from it, never from a number in prose. Run
-`python ai/gates/run_board.py --list` for the live set with each
-gate's current resume state. The table below describes the core tests; the
-most recent board-integrity and family gates (for example board-selftest,
-cli-strict, family-first, stage-ram, artifact-readback, generator-seed,
-artifact-composition, diagnostics-domain) are registered in `board.py` and may
-not all appear here yet.
-
-| Test | What it confirms |
-|------|------------------|
-| ema-off-identity | EMA off leaves runs byte-identical to the pre-EMA build |
-| ema-smoke | EMA on: the horizon banner prints and a plateau rewind fires |
-| production-diagnostic | one --diagnostic run closes the dead-class census, the cut count, the sizes line, the shaded triangle |
-| single-phase-demotion | a resmlp config with phase keys trains (previously a traceback); the two-phase model is unaffected |
-| head-scheduler-override | a head scheduler with patience 10 cuts the lr on its own cadence |
-| eval-batch-invariance | validation chi2 agrees across eval batch sizes to rtol 1e-6 |
-| berhu-loss | a head-berhu run shows a plain-sqrt trunk banner and a berhu_capped head banner |
-| loss-schema-equivalence | the same config in the nested loss schema reproduces the old epoch lines |
-| berhu-anneal | the berhu shape is continuous at the hold boundary and full by epoch 15 |
-| ema-anneal | the EMA average appears only after the hold, at the live point |
-| param-window-cuts | a tight density window trains end to end and the pool shrinkage matches the banner |
-| triangle-shading | (optional) the synthetic four-window triangle shades exactly the coverage panels |
-| joint-training | the phase-2 trunk digest changes when `freeze_trunk: false` and stays identical in the frozen control |
-| head-activation-pin | a pinned gated_power head shows in the model-spec banner; the illegal pin errors |
-| relu-tanh-norm | ReLU with `per_feature` and Tanh with `affine`; CPU witnesses check finite learning, while full drivers check workstation routing. |
-| weight-decay-census | weight decay touches exactly the Linear / Conv1d / BinLinear weight matrices |
-| npce-training | NPCE residual and ratio train, the exclusivity errors fire, a 2-point n_train sweep refits per point |
-| artifact-composition | required plain / NPCE / transfer mode and refined fact agree with exact HDF5 groups and resolved YAML before construction; presence-only artifacts refuse |
-| save-rebuild-drift | a saved emulator rebuilds bitwise-equal (plain, factored, NPCE, and the conv-head save whose persisted bin split reconstructs the ResCNN), survives a drifted code default, refuses a v1 file and a pre-persistence head file |
-| cobaya-adapter | the inference predictor matches the training side to rtol 1e-6, including the factored round-trip |
-| finetune-identity | warm-start mechanics: source validation, input-geometry extension, the output pin, epoch-0 parity, anchor masks, the loud config errors |
-| finetune-smoke | a real fine-tune run: epoch 0 reproduces the source, then improves on the new data |
-| transfer-identity | frozen-base transfer mechanics: the base loads, the correction composes (gain / sum), epoch-0 parity, the family-scope guards |
-| transfer-smoke | a real frozen-base + correction run end to end with the collapse bar |
-| scalar-identity | scalar save/rebuild/predict bitwise, ScalarGeometry state, auto-provides, the trunk-only head guard, every loud error leg, scalar finetune parity |
-| scalar-smoke | a real scalar train on the analytic omegamh2 fixture: collapse, off-center predict, the cobaya evaluate readback, the scalar diagnostics pages |
-| cmb-identity | the ruled sigma_l constants, the amplitude law both ways, save/rebuild bitwise, the roughness legs, CMB finetune parity, the ResTRF correction-head leg (identity basis, n_tokens, the head rebuild round-trip), and the five non-Gaussian covariance legs against an independent known-answer calculation (the exact contraction, the old-weight miss, raw-vs-scaled fixture integrity, the width-3 band projection, the exact zero-band weight) |
-| cmb-smoke | the CMB pipeline end to end on real CAMB: generator, covariance-script execution and structure — including the non-Gaussian path run end to end with its normalization asserted in the output's provenance — training with the relative collapse bar, the cobaya Cl lifecycle, the CMB pages. The normalization's numerical truth rides cmb-identity's known-answer legs (ai/notes/families-scalar-cmb.md) |
-| bsn-identity | background geometry, the `log_offset` law, piecewise windows and the refused gap, save/rebuild identity, fine-tune parity, and numerical consistency of the production distance integrator on analytic fixtures |
-| bsn-smoke | the BAOSN pipeline end to end vs CAMB's OWN background (truth available): generator + the stale-cache tripwire, two trainings, the cobaya getters within 2%, the grid pages |
-| mps-identity | grid2d geometry + the staging law + the constant-column pinning + emul_mps assembly math on stub bases + MPS finetune parity + the ResCNN correction-head leg |
-| mps-smoke | the MPS pipeline end to end on real CAMB (law-none path): generator, two trainings, the get_Pk round-trips, the matter-power pages |
-| geo-paths | fresh saves write the geometries/ folder class paths, the legacy flat paths are DEAD (loud), and the tree census is clean |
-
-## How to read a log
-
-Each `logs/<test>.log` opens with a header naming the test, its home
-note, and the git HEAD. Then it streams every command's full output
-live. Each check writes a line
-
-```
-[harness] CHECK <what was checked>: PASS  (the value behind it)
+```bash
+python3 ai/gates/run_board.py --gate dataset-publication
 ```
 
-and the file ends with `[harness] GATE <test>: PASS` or `FAIL <reason>`.
-`logs/BOARD.md` is the one-line-per-test summary; a review reads the raw
-logs, not the summary. Each test's home note (named in the header) is the
-definitive spec for what that test must prove.
+A successful attempt exits with code 0 and prints a line beginning
+`[harness] GATE dataset-publication: PASS`. Code 0 is the number the terminal
+uses for a successful command. The attempt also updates the board's saved
+results and writes a text log containing the commands, output, and results.
+
+The **board** is the ordered collection of gates plus the program that runs
+them. It chooses the requested gates, checks the workstation, records one text
+log for each gate that starts, and remembers which earlier results can still
+be trusted.
+
+The difference is practical:
+
+- After changing CMB checkpoint loading, run the focused CMB test above. A
+  failure points back to that loading behavior.
+- When the source note requires a named gate for final review, run that gate.
+  It may require several related results or a real training job.
+- Run the full board before a release or after a group of related changes.
+
+## See which gates exist
+
+Run this from the repository root. It reads the gate list from
+`ai/gates/board.py` and earlier attempt results from
+`ai/gates/logs/board_status.json`; it does not run a gate or change either
+file.
+
+```bash
+python3 ai/gates/run_board.py --list
+```
+
+The command prints every current gate ID, group, optional status, saved result,
+and permanent note that owns the required behavior. Use this live list instead
+of counting a table in this guide.
+
+These examples show the board's range; they are not the full inventory.
+
+| Gate ID | Concrete job |
+| --- | --- |
+| `dataset-publication` | Checks that `active.json`, the small file selecting a saved generation, names one complete, read-only set of dataset files. |
+| `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |
+| `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |
+| `bsn-smoke` | Compares a background-distance emulator with values from CAMB, the reference cosmology program used by this check. |
+| `mps-smoke` | Generates and trains matter-power data, then compares the Cobaya adapter with CAMB. |
+| `save-rebuild-drift` | Confirms that saved emulator variants rebuild with the same output after code defaults change. |
+
+## Check the workstation before a long run
+
+Start CoCoA by following the
+[official CoCoA instructions](https://github.com/CosmoLike/cocoa/blob/main/README.md),
+then change to this repository root. The shipped `ai/gates/board_config.json`
+reads the CoCoA root from `$ROOTDIR` and already names the usual driver and
+YAML folders. Leave it unchanged when those paths match the installation.
+Edit it when CoCoA stores those folders elsewhere.
+
+Then run:
+
+```bash
+python3 ai/gates/run_board.py --check
+```
+
+This command checks the saved Git history, unsaved files, required Python
+imports, GPU availability, CoCoA root, driver folder, and YAML folder. It does
+not start a gate, spend GPU time, update a board result, or write an attempt
+log. Success ends with `== preflight PASSED ==` and returns code 0, the
+terminal's success value. Each refusal names the failed condition so it can be
+corrected before a long run.
+
+The workstation check is global. Even a selected gate whose own calculation
+uses only the CPU must pass the board's GPU, CoCoA, and path checks when it is
+started through `run_board.py`. A developer who only needs the CPU test should
+run that test directly from `ai/tests/`.
+
+## Run one gate or the full board
+
+First print a plan. A dry run shows commands but does not perform the
+workstation check, run a gate, or update the saved results.
+
+```bash
+python3 ai/gates/run_board.py --dry-run --gate dataset-publication
+```
+
+The first line is `selected 1 gate(s): dataset-publication`. The next line
+begins `dry-run plan`, followed by the check program the gate would start. No
+board result or log is written.
+
+On the configured workstation, run that one gate with:
+
+```bash
+python3 ai/gates/run_board.py --gate dataset-publication
+```
+
+This real run updates the board result files and writes a log for the completed
+attempt. The result files are `ai/gates/logs/BOARD.md` and
+`ai/gates/logs/board_status.json`. A successful run prints the PASS line shown
+in the test-and-gate comparison above.
+
+Run every nonoptional gate in board order with:
+
+```bash
+python3 ai/gates/run_board.py
+```
+
+The full board can generate data, train small models, and use the GPU. It
+writes the output paths configured in `board_config.json` as well as the board
+results and attempt logs.
+
+Success exits with code 0 and prints `board run complete` with zero failed and
+zero dependency-skipped gates. The exact number of gates can change; use
+`--list` for the current inventory.
+
+The optional `triangle-shading` gate runs only when named explicitly. The live
+`--list` output identifies optional gates if that set changes.
+
+## Read the result
+
+A completed gate attempt writes a file such as
+`dataset-publication.20260716-143012-123456.log` inside the existing
+`ai/gates/logs/` folder. The name contains the gate ID followed by the date,
+time, and microseconds, so each attempt has a different name. The log contains
+the command that started the check, the program output, the individual
+required results, and the final gate result.
+
+If the board process stops before a gate finishes, its unfinished log keeps
+the same name with `.inprogress` added at the end. A gate reused from an
+earlier current PASS does not create a new attempt log.
+
+After a real run, `BOARD.md` inside that folder gives one row per gate. Read it
+to find the failed or out-of-date item. If its row names a completed log, open
+that text file next. The runner also creates `board_status.json` there so the
+program can remember earlier results.
+
+The result column can say more than PASS or FAIL:
+
+| Result | Meaning and next action |
+| --- | --- |
+| `PASS` | Every result that ran passed, at least one result ran, and any result that could not run is named as `UNAVAILABLE`. The saved files must also still match this attempt. |
+| `FAIL` | The gate did not prove its required behavior. Open the log named in the row. If no log is named, read the row's Detail cell and the terminal output; a missing declared input can stop a gate before its log is created. |
+| `SKIP-DEP` | An earlier gate required by this gate does not have a current PASS. It may have failed, been interrupted, never run, or become out of date. Resolve that earlier result first. |
+| `interrupted` | A previous attempt started but did not finish; run the same selection again. |
+| `stale-code`, `stale-input`, `stale-log`, or `stale-dependency` | Program files, input files, the saved log, or an earlier required gate changed; rerun the gate. |
+| `pre-manifest` | An old PASS was saved before the gate began recording its complete file list. Rerun the gate so the new record covers those files. |
+| `not run` | No saved attempt exists for this gate. |
+
+`UNAVAILABLE` is additional information inside a PASS row, not a separate
+board result. It means the gate declared a result but could not perform that
+part on this run, for the reason printed beside it. The Architect must read
+those reasons before issuing the final GO decision; a displayed PASS does not
+turn an unavailable comparison into evidence that it succeeded.
+
+## Continue after an interruption
+
+The runner saves `RUNNING` before it starts a gate. If the process stops, the
+next ordinary run repeats that interrupted gate. Earlier PASS gates are
+skipped only when their program files, inputs, saved log, and required earlier
+gates are unchanged.
+
+For example, if a full-board run stops during `cmb-smoke`, run the ordinary
+full-board command again:
+
+```bash
+python3 ai/gates/run_board.py
+```
+
+Do not add `--force-rerun-all` when the goal is to continue. That option
+deliberately repeats every selected PASS gate.
+
+## Common questions raised by developers
+
+### Appendices about commands and refusal
+
+#### FAQ A1. Which command-line options can I use?
+
+The normal choices are:
+
+| Option | What it selects or changes |
+| --- | --- |
+| `-h`, `--help` | Print the command summary and exit. |
+| `--list` | Print the live gate list and saved states; run nothing. |
+| `--check` | Check the configured workstation; run no gate. |
+| `--dry-run` | Print the commands for the selected gates; run nothing. |
+| `--gate ID [ID ...]` | Select only the named gates. Optional gates are allowed here. |
+| `--tier backlog` | Select the nonoptional gates in the `backlog` group. |
+| `--tier new-features` | Select the nonoptional gates in the `new-features` group. |
+| `--tier save-and-sample` | Select the nonoptional gates in the `save-and-sample` group. |
+| `--from ID` | Start at one gate and continue in board order, skipping later optional gates. |
+| `--force-rerun ID [ID ...]` | Repeat named selected gates even when their saved PASS is current. |
+| `--force-rerun-all` | Ask every selected gate to run again instead of reusing a current PASS. A failed earlier gate can still cause a later gate to be skipped. |
+| `--debug` | During a real run, also copy full command output and the configuration values to the terminal. Completed logs receive this information without the option. |
+
+`--gate`, `--tier`, and `--from` are alternative ways to choose gates; use
+only one in a command. `--list` and `--check` cannot be combined with each
+other. They also cannot be combined with a gate choice, a rerun option, or
+`--dry-run`.
+
+An unknown gate ID is a command error. The runner exits with code 2, suggests
+nearby valid IDs, and runs nothing. Code 2 tells the terminal that the command
+was not valid. The command also uses code 2 when a `--force-rerun` ID is not
+part of the selected gates; it explains that the ID must be added to `--gate`
+or removed from `--force-rerun`.
+
+#### FAQ A2. What does the workstation check inspect?
+
+The check confirms all of these conditions before a real board run:
+
+1. The current Git history includes the board's required starting commit, one
+   saved version of the repository.
+2. There are no unsaved changes under `emulator/`, `ai/gates/`,
+   `compute_data_vectors/`, `cobaya_theory/`, `syren/`, or the repository's
+   top-level Python drivers.
+3. Python can import PyTorch, CosmoLike, and Cobaya.
+4. PyTorch can see a CUDA GPU.
+5. The effective CoCoA root exists. It comes from the explicit `rootdir` value
+   in `board_config.json`, or from `$ROOTDIR` when that value is `null`.
+6. The configured driver folder and YAML folder exist.
+7. The `debug` setting is exactly `true` or `false`.
+8. `driver_fileroot`, the short name placed at the start of files made by a
+   driver run, is present and is not placeholder text inside angle brackets.
+
+`ai/gates/board_config.json` is allowed to differ because it stores
+machine-specific paths. `ai/tests/` is not part of this particular unsaved-file
+check; gates that use test files name them in their own file lists so a change
+invalidates the related saved PASS.
+
+This workstation check does not inspect every scientific input named under
+`deploy_data` in `board_config.json`. After the workstation check, each
+selected gate checks the input files it declares before starting its
+calculation. A missing declared input records FAIL and may do so before an
+attempt log exists; read the terminal output or the Detail cell in `BOARD.md`.
+
+#### FAQ A3. Why did a gate refuse to start?
+
+Read the first `[FAIL]` line printed by `--check`. Common examples are an
+unset `$ROOTDIR` while `board_config.json` leaves `rootdir` as `null`, a path
+in that file that does not exist, a missing CosmoLike import, a GPU that
+PyTorch cannot see, or an unsaved file change in one of the checked folders.
+
+The Git check does not require the current saved version to equal one exact
+newest version. It requires the current history to include the board's fixed
+starting commit, which is one saved repository version. Later saved versions,
+including versions that add gate logs, are allowed.
+
+### Appendices about results and files
+
+#### FAQ B1. When may an earlier PASS be reused?
+
+The runner reuses a PASS only when all of the following still match:
+
+- the files executed by that gate;
+- the input files and relevant configuration values;
+- the saved log and its SHA-256 fingerprint, a calculated label that changes
+  when even one byte in the log changes;
+- the gate's required-result list; and
+- every earlier gate on which it depends.
+
+If one item differs, `--list` reports the relevant stale state and the next
+ordinary run repeats that gate. This is why a word such as PASS alone is not
+enough; the recorded evidence must still describe the current program and
+input files.
+
+#### FAQ B2. What happens after one gate fails?
+
+One failure does not stop unrelated later gates. The board continues so the
+workstation run can collect other independent results. A later gate that
+needs an earlier gate without a current PASS is recorded as `SKIP-DEP` and
+does not start. The earlier result may be FAIL, interrupted, out of date, or
+not run.
+
+The command exits with a nonzero code when any selected gate fails or is
+skipped because a required gate lacks a current PASS. The Architect or another
+program can therefore distinguish a fully accepted selection from a partial
+run.
+
+#### FAQ B3. Which files define and record the board?
+
+| Path | Purpose |
+| --- | --- |
+| `ai/gates/board.py` | Registers each gate, its title, group, file list, earlier gates it needs, required results, and run function. |
+| `ai/gates/run_board.py` | Parses commands, checks the workstation, selects gates, writes logs, and decides whether an earlier PASS is current. |
+| `ai/gates/board_config.json` | Stores workstation paths, debug choice, small-run YAML paths, and optional older comparison commits. |
+| `ai/gates/configs/` | Holds the small YAML files used by gate runs. |
+| `ai/gates/checks/` | Holds focused programs that gates call for numerical or structural results. |
+| `ai/gates/logs/` | Holds attempt logs, `BOARD.md`, and `board_status.json`. |
+
+Gate run functions use the runner's logging helper when they launch a command.
+The log records that command and everything it prints. A program called by the
+gate may create temporary files, train models, or start another program. Those
+internal actions appear in the gate log only when the called program prints
+them.
+
+#### FAQ B4. What is a golden comparison?
+
+A golden comparison runs the same small configuration on the current code and
+on a named older commit, then compares selected output lines exactly. A commit
+is a saved version of the repository. The older commit is opened in a
+temporary Git worktree, which is a separate folder for that saved version;
+the runner removes that folder after the comparison.
+
+Only the EMA identity gate has an older comparison commit configured by
+default. Other gates use this extra comparison only when
+`ai/gates/board_config.json` supplies one; otherwise they use their normal
+small run.

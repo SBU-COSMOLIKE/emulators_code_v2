@@ -104,6 +104,26 @@ first successful run.
 Small package READMEs do not need artificial appendices. They still put the
 first useful command or code example before internal design detail.
 
+A specialist folder README opens by naming the folder's complete current
+scope. It does not describe a multi-family tool as belonging to one emulator
+family, and it does not present a hand-maintained partial list as the complete
+inventory. When the program can print its live inventory, the README gives
+that command and explains one visible result.
+
+When two nearby folders or tools have similar names, the README explains the
+difference before introducing internal vocabulary. It gives one real example
+from each side, including the input or command, the action, and the visible
+result. One object keeps one name in teaching prose. A code identifier with a
+different name is explained once in the command reference; wording such as
+`test (gate in the code)` receives `NO-GO` because it teaches two names before
+the difference is clear.
+
+An operational paragraph has one job. Readiness checks, choosing work,
+continuing after an interruption, reading results, and forcing a rerun belong
+in separate paragraphs or headings, each with its own example when the action
+is not obvious. A dense paragraph that mixes these actions receives `NO-GO`
+even when every sentence is factually correct.
+
 Python comments explain a non-obvious reason, invariant, unit, shape, failure,
 or compatibility rule. They do not narrate the next line of code. Docstrings
 state the callable's real inputs, outputs, shapes, units, side effects, and
@@ -168,6 +188,7 @@ The Architect answers these questions before dispatch.
 | Source of truth | Names the exact code, shipped file, command, or current policy that supports each behavior | Relies on memory, chat, an old README statement, or a temporary audit note |
 | Vocabulary | Lists the non-physics technical words the passage needs and gives a plain definition or replacement for each | Assumes that a later section, glossary, or software background will rescue an undefined term |
 | Abstraction examples | Identifies every new broad idea and supplies one or two real repository examples that will make the idea concrete | Says only “add an example,” leaves the Implementer to invent one, or permits a broad title or definition with no real case |
+| Neighbor distinction | For similarly named folders or tools, supplies one real example from each and states the visible difference | Defines the names with circular wording or says one is the other “in code” |
 | Edit plan | Names every file, heading, paragraph, table, diagram, link, and exact-output block that may change | Gives a broad file-level request and asks the Implementer to choose the structure |
 | Examples | Supplies or identifies a real copy-paste example, where to run it, whether it changes files, and the visible successful result | Requests an illustrative example that need not pass the real parser or command |
 | Visual choice | For a README, states which sequence, branch, comparison, or feedback loop a diagram will clarify; otherwise records `not applicable` for Python-only prose | Requests “more graphs” without naming the relationship each graph must show, or omits the applicability decision |
@@ -186,6 +207,8 @@ best judgment.”
 | Cold-reader test | A physics undergraduate can restate the passage and identify the next action without opening another section | Understanding depends on software-engineering or AI knowledge that the passage never supplies |
 | Local definitions | Every unfamiliar term is replaced or defined in concrete words at its first use in that section | A definition uses another undefined term or points only to a distant definition |
 | Examples for abstractions | A broad idea is followed or introduced by one or two real cases that name an input or file, the action, and the visible result | The reader receives only a broad label, a circular definition, or a toy example when a current repository case exists |
+| Specialist scope | The opening names every major family or job the folder currently serves, or points to a live inventory command | The opening narrows the tool to one family or relies on a stale partial list |
+| Stable names | One object keeps one teaching name; a different code identifier is introduced only where the reader needs it | The prose rotates among synonyms or teaches `X (called Y in code)` before explaining the boundary |
 | One job per paragraph | Each paragraph explains one action, fact, warning, or consequence | One paragraph mixes setup, mechanism, exception, and recovery |
 | Manageable length | Ordinary prose is split before it becomes a wall of text; a paragraph over four sentences or about 100 words has a recorded reason to remain whole | Long prose is retained only because it is technically correct or appears in an appendix |
 | Parentheses | Parentheses contain a short definition, symbol, unit, or acronym | Removing a parenthetical would remove an essential rule or a second argument |
