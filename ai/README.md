@@ -152,8 +152,8 @@ using different mailboxes or placing an agent in your main folder.
 | --- | --- |
 | `ai/README.md` | This operating guide |
 | `ai/notes/` | Durable knowledge and local ticket records |
-| `ai/tests/` | Regression tests and focused reproductions |
-| `ai/gates/` | Validation board, checks, configuration, and logs |
+| [`ai/tests/`](tests/README.md) | Small repeatable checks, scripts that rebuild earlier failures, and the command for each group |
+| [`ai/gates/`](gates/README.md) | Checks that need named scientific data or hardware, plus their setup and saved logs |
 | [`ai/tools/README.md`](tools/README.md) | Which tool to run, what it changes, command options, setup, and recovery |
 
 ### The one rule to remember
@@ -518,9 +518,11 @@ shows the exact commands and the saved ticket lines.
 All important instructions belong in notes. Mailbox messages should be short
 summaries that cite the relevant section.
 
-A **test** checks one behavior. A **gate** is a repeatable acceptance command
-with a required result. The **validation board** lists and runs those gates so
-the Architect can audit machine output instead of trusting a summary.
+A **test** checks one behavior. The [developer test guide](tests/README.md)
+explains the CPU test modules, stand-alone reproductions, temporary-file rules,
+and exact commands. A **gate** is a repeatable acceptance command with a
+required result. The **validation board** lists and runs those gates so the
+Architect can audit machine output instead of trusting a summary.
 
 Git's `main` branch is the public sequence of accepted project versions. Each
 accepted fix enters `main` as one commit containing the fix, its tests, and
