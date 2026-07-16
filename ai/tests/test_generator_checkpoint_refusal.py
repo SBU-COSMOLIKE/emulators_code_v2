@@ -31,7 +31,8 @@ GENERATOR = ROOT / "compute_data_vectors" / "generator_core.py"
 FAMILIES = {
   "cmb": (ROOT / "compute_data_vectors" / "dataset_generator_cmb.py",
           {"SPECTRA": ("tt", "te", "ee", "pp")},
-          ("dv_tt.npy", "dv_te.npy", "dv_ee.npy", "dv_pp.npy")),
+          ("dv_tt.npy", "dv_te.npy", "dv_ee.npy", "dv_pp.npy",
+           "dv_ell.npy")),
   "background": (
     ROOT / "compute_data_vectors" / "dataset_generator_background.py",
     {"QUANTITIES": ("h", "dm")},
@@ -56,11 +57,12 @@ class _FakeSamples:
 class _FakeArray:
   """Small array-shaped value used by the family checkpoint loaders."""
 
-  def __init__(self, shape, values=None):
+  def __init__(self, shape, values=None, dtype="float32"):
     self.shape = tuple(shape)
     self.ndim = len(self.shape)
     self.nbytes = max(1, 4 * self._size())
     self.values = values
+    self.dtype = dtype
 
   def _size(self):
     size = 1
@@ -77,6 +79,8 @@ class _FakeArray:
 
 class _FamilyNumpy:
   """Read-only NumPy boundary for family geometry validation."""
+
+  int64 = "int64"
 
   def __init__(self, files):
     self.files = dict(files)
@@ -96,6 +100,15 @@ class _FamilyNumpy:
   @staticmethod
   def array_equal(left, right):
     return left.shape == right.shape and left.values == right.values
+
+  @staticmethod
+  def arange(start, stop, dtype):
+    values = tuple(range(start, stop))
+    return _FakeArray((len(values),), values=values, dtype=dtype)
+
+  @staticmethod
+  def dtype(value):
+    return value
 
 
 class _FakeFailed:
@@ -335,6 +348,9 @@ def _compile_family_loader(name, numpy_boundary):
     wanted.add("_grid_of")
   if name == "mps":
     wanted.add("_quantities")
+  if name == "cmb":
+    wanted.add("_load_multipole_axis")
+    wanted.add("_multipole_axis")
   methods = [copy.deepcopy(node) for node in classes[0].body
              if isinstance(node, ast.FunctionDef) and node.name in wanted]
   if len(methods) != len(wanted):
@@ -387,6 +403,8 @@ def _family_geometry_fixture(name, corrupt=False):
   elif name == "cmb":
     files = {"dv_" + spectrum + ".npy": _FakeArray((1, 3))
              for spectrum in ("tt", "te", "ee", "pp")}
+    files["dv_ell.npy"] = _FakeArray(
+      (3,), values=(2, 3, 4), dtype="int64")
     if corrupt:
       files["dv_tt.npy"] = _FakeArray((1, 2))
   else:

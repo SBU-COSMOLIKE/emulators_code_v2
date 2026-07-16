@@ -58,6 +58,8 @@ from generator_core import (GeneratorCore, capture_native_output,
 #      lcdm_dvs_train_cmblensed_unifs_te.npy
 #      lcdm_dvs_train_cmblensed_unifs_ee.npy
 #      lcdm_dvs_train_cmblensed_unifs_pp.npy
+#      # Exact int64 multipoles shared by the four spectrum files:
+#      lcdm_dvs_train_cmblensed_unifs_ell.npy
 #      # Training parameters in which the computation failed (or not computed)
 #      lcdm_params_failed_train_cmblensed_unifs.txt
 #
@@ -85,8 +87,9 @@ class dataset(GeneratorCore):
   CMB spectra generator: one CAMB-through-cobaya call per sample yields
   all four spectra at once, stored as four per-spectrum 2D arrays
   ({dvsf}_tt.npy ... {dvsf}_pp.npy) — the core's dv-store hooks are all
-  overridden together. The per-sample payload is a (4, nell) float32
-  array in SPECTRA row order.
+  overridden together. The companion {dvsf}_ell.npy file stores the exact
+  int64 multipole axis. The per-sample payload is a (4, nell) float32 array
+  in SPECTRA row order.
   """
   VALID_PROBES = ("cmblensed", "cmbunlensed")
   EXTRA_TRAIN_KEYS = ("lrange",)
@@ -133,15 +136,52 @@ class dataset(GeneratorCore):
   #-----------------------------------------------------------------------------
   # data-vector store: four per-spectrum 2D arrays -> {dvsf}_<spec>.npy
   #-----------------------------------------------------------------------------
+  def _multipole_axis(self):
+    """Return every configured CMB multipole as a 1D int64 array."""
+    lmin = int(self.lrange[0])
+    lmax = int(self.lrange[1])
+    return np.arange(lmin, lmax + 1, dtype=np.int64)
+
+  def _load_multipole_axis(self):
+    """Load the CMB axis sidecar and require its exact saved coordinates."""
+    axis_path = f"{self.dvsf}_ell.npy"
+    observed = np.load(axis_path, allow_pickle=False)
+    expected_dtype = np.dtype(np.int64)
+    if observed.dtype != expected_dtype:
+      raise ValueError(
+        f"checkpoint CMB multipole axis has dtype {observed.dtype}, "
+        f"expected {expected_dtype}; use a checkpoint written for this "
+        "CMB train_args.lrange")
+    if observed.ndim != 1:
+      raise ValueError(
+        f"checkpoint CMB multipole axis must be 1D, got {observed.shape}; "
+        "use a checkpoint written for this CMB train_args.lrange")
+
+    expected = self._multipole_axis()
+    if observed.shape != expected.shape:
+      raise ValueError(
+        f"checkpoint CMB multipole axis has shape {observed.shape}, "
+        f"expected {expected.shape} from train_args.lrange; use a matching "
+        "checkpoint")
+    if not np.array_equal(observed, expected):
+      raise ValueError(
+        "checkpoint CMB multipole axis must contain every integer from "
+        f"{expected[0]} through {expected[-1]} in increasing order; use a "
+        "checkpoint written for this CMB train_args.lrange")
+    return observed
+
   def _dv_chk_files(self):
     """Files the checkpoint loader must find before trusting a chk."""
     files = []
     for spec in SPECTRA:
       files.append(f"{self.dvsf}_{spec}.npy")
+    files.append(f"{self.dvsf}_ell.npy")
     return files
 
   def _dv_load_chk(self):
     """Load all four per-spectrum stores (RAM-aware, one shared policy)."""
+    self._load_multipole_axis()
+
     RAMneed = self.samples.nbytes + self.failed.nbytes
     for spec in SPECTRA:
       arr = np.load(f"{self.dvsf}_{spec}.npy",
@@ -248,11 +288,14 @@ class dataset(GeneratorCore):
     """
     Allocate all four stores for nrows samples, sized from the first
     computed (4, nell) payload (RAM-aware: in-RAM zeros or on-disk
-    memmaps, one shared policy).
+    memmaps, one shared policy). Save the exact int64 multipole axis beside
+    those stores.
     """
-    if first_dvs.shape != (len(SPECTRA), (self.lrange[1]-self.lrange[0])+1):
+    multipoles = self._multipole_axis()
+    expected_shape = (len(SPECTRA), multipoles.shape[0])
+    if first_dvs.shape != expected_shape:
       raise ValueError(f"first computed payload has shape {first_dvs.shape}, "
-                       f"expected {(len(SPECTRA), (self.lrange[1]-self.lrange[0])+1)} "
+                       f"expected {expected_shape} "
                        f"from train_args.lrange {self.lrange.tolist()}")
     ncols = first_dvs.shape[1]
     RAMneed = ( self.samples.nbytes +
@@ -278,6 +321,8 @@ class dataset(GeneratorCore):
         self.datavectors[spec].flush()
       else:
         self.datavectors[spec] = np.zeros((nrows, ncols), dtype=self.dtype)
+
+    np.save(f"{self.dvsf}_ell.npy", multipoles)
 
   def _dv_write(self, i, dvs):
     """Write one (4, nell) payload at row i of each per-spectrum store."""
