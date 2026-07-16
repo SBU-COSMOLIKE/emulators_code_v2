@@ -761,10 +761,10 @@ file checks are in
 TT, TE, and EE may remove the leading dependence on primordial amplitude
 \(A_s\) and optical depth \(\tau\). For row \(i\),
 
-\[
+$$
 f_i=\frac{A_{s,\mathrm{ref}}}{A_{s,i}}
     \exp\!\left[2(\tau_i-\tau_\mathrm{ref})\right].
-\]
+$$
 
 Training encodes \(f_i C_{i\ell}\), while decoding divides by \(f_i\). Set
 `amplitude_law: none` to learn the raw spectrum. The optional roughness term
@@ -925,9 +925,9 @@ supplies the entries retained by the likelihood and the covariance
 
 If \(r\) is prediction minus truth on the retained entries, the score is
 
-\[
+$$
 \Delta\chi^2=r^{\mathsf T}\Sigma^{-1}r.
-\]
+$$
 
 This measures emulator error in the same uncertainty units used by inference.
 [FAQ D2](#20-appendix-the-chi2-metric-mahalanobis) explains the equation.
@@ -959,9 +959,9 @@ prediction is returned in physical units.
 
 For cosmic shear, the physical error is
 
-\[
+$$
 \Delta\chi^2=r^{\mathsf T}\Sigma^{-1}r,
-\]
+$$
 
 where \(r\) is prediction minus truth and \(\Sigma\) is the analysis
 covariance. Other families define a matching error for their physical output
@@ -1037,9 +1037,9 @@ An activation function is the nonlinear curve applied between learned linear
 layers. In a residual block, the default \(H\) activation learns a separate
 shape for each hidden feature:
 
-\[
+$$
 H(x)=\left[\gamma+(1-\gamma)\sigma(\beta x)\right]x,
-\]
+$$
 
 where \(\sigma\) is the logistic sigmoid. It begins at \(H(x)=x/2\) and can
 learn different left- and right-side behavior while retaining nonzero tail
