@@ -188,46 +188,497 @@ rg -n "skip-redteam" ai/tests --glob '*.py'
 `rg` prints each matching filename and line number. Exit code 1 means that no
 line matched; it does not mean Python ran a test.
 
-Use the tables below when the search term appears in several files. The first
-two tables list modules found by `unittest discover`. The third lists scripts
-that must be called directly. Each description follows the same order: the
-file or small input created by the test, the action performed, and the result
-that must be accepted or refused.
+Use the tables below when the search term appears in several files. The tables
+under “Scientific and data test inventory” and “AI workflow and policy test
+inventory” list modules found by `unittest discover`. The table under “Direct
+reproduction inventory” lists scripts that must be called directly. The
+detailed scientific entries name the example input, the action performed, the
+required result, a refused case, and why that result matters.
 
 ## Scientific and data test inventory
 
-These modules check numerical rules, training setup, generated data, and saved
-emulator files. Grid2D means data arranged on a redshift-by-wavenumber grid.
-A warm start begins from a saved emulator rather than new random weights.
-SHA-256 is a fixed-length identifier calculated from exact file bytes.
+This section covers tests for scientific input files, generated training data,
+training calculations, and saved emulators. The short tables only help find
+the file that answers a question. The explanations below each table then show
+a real input, the action performed, the required result, one case that must
+stop, and why that result matters.
 
-Neural polynomial chaos expansion (NPCE) combines a frozen polynomial base
-with a neural model that learns the remaining difference. A checkpoint is a
-saved generator-progress file. A saved group is one named section inside an
-emulator result file.
+A **checkpoint** is the set of files saved so an interrupted data-generation
+run can continue. A **SHA-256 fingerprint** is calculated from the exact bytes
+in a file; changing one byte changes the fingerprint. Grid2D data form a
+redshift-by-wavenumber surface.
 
-| File | What it checks |
+### Input tables and generated training data
+
+| File | Question answered |
 | --- | --- |
-| `test_background_grid_contract.py` | Builds small background-data settings for `Hubble` in `km/s/Mpc` and `D_M` in `Mpc`, then sends those settings through the training geometry and the Cobaya reader. The correct pairs and finite offsets pass; an unknown unit, a Boolean or infinite offset, or altered saved center and scale values must stop before the program uses the background data. |
-| `test_batching_sizing.py` | Creates a three-row toy batch with two inputs and either 7 or 14 stored target values. It checks the exact number of bytes required for `float32` and `float64` targets, confirms that this number changes the selected batch count, and requires a clear refusal when the available memory cannot hold one whole batch. |
-| `test_cmb_checkpoint_axis.py` | Writes temporary CMB progress files containing the `tt`, `te`, `ee`, and `pp` spectra and the integer multipole values that label their columns. A correct axis loads every spectrum without changing the files; a missing, shifted, repeated, wrong-length, or wrong-number-format axis must stop loading before even the first spectrum is read. |
-| `test_data_staging_paramnames.py` | Creates examples such as a numbered chain `train.1.txt` with shared names in `train.paramnames`, and a plain table with names beside its exact filename. It checks which names file wins, stops before opening a data vector when the names are absent or disagree, and confirms that all staging paths use the same maximum number of rows. |
-| `test_d5_training_behavior_witnesses.py` | Runs small CPU calculations that stand in for the longer training gate. The checks pin the annealing values at every join, the learning-rate change after training only the final layers, the first moving-average record, and learning by the ReLU and Tanh models instead of a dead or mean-only control. They also calculate identifiers from the exact values in the earlier shared layers and confirm that those layers change during joint training but stay fixed while only the final layers learn. |
-| `test_dataset_publication.py` | Builds a nested generated-data folder in a temporary directory, accepts it as a read-only saved generation, and then tries damaged files, extra files, links, path escapes, interrupted writes, and two writers switching the active generation. It requires every accepted file to match its recorded size and SHA-256 value, and it checks that later resume or append work begins from new private writable copies rather than modifying the accepted files. |
-| `test_dataset_request_contract.py` | Builds uniform- and Gaussian-sampling requests for every supported scientific family, converts each request to the exact saved JSON bytes, and lists every file that request must generate. Changing a scientific field must change those bytes, while invalid bounds, duplicate parameter names, missing family files, or a wrong sampling field must refuse; settings used only to manage the write must not pretend to change the scientific request. |
-| `test_finetune_post_step_and_provenance.py` | Trains a tiny one-weight model for one step and compares the order of three actions: the optimizer update, the pull back toward the saved starting weight, and the moving average of recent weights. The pull must occur after the update and before the average, and the fine-tune and transfer drivers must save the same facts about which earlier emulator supplied the starting weights. |
-| `test_generator_checkpoint_refusal.py` | Creates complete, missing, and damaged progress-file sets for each data generator. Starting a new run may find no progress files, but an explicit resume or append request must require the exact files and axis lengths for that family; a bad requested set must stop instead of silently starting a new calculation, and chain-only mode must read only its parameter files. |
-| `test_generator_member_binding.py` | Gives each real generator a family, variant, output filename prefix, and full or chain-only choice, then asks which absolute filenames it owns before any file is opened. The returned list must match that generator's actual progress-file methods; a family sent to the wrong generator, an invalid Boolean setting, or an unsafe filename prefix must stop before the program checks whether any candidate file exists. |
-| `test_generator_payload_success.py` | Gives the generators small valid and invalid arrays, saves the valid arrays once, and reads them back from disk. A row becomes successful only when its shape, finite numbers, stored number format, and read-back values all match; overflow, a changed saved value, a wrong CMB spectrum count, wrong background keys, or matter-power files inconsistent with the selected mode must leave the row failed without rewriting an existing bad file. |
-| `test_generator_run_control.py` | Tries the command-line switches for a new run, resume, append, full output, and chain-only output. Only native integer `0` or `1` values are accepted, append without resume is refused, the saved decision cannot later be edited, and chain-only output receives a different filename stem so it cannot overwrite a full generated set. |
-| `test_grid2d_const_mask.py` | Creates a two-redshift by three-wavenumber Grid2D surface and marks the coordinates whose stored value must replace a network prediction. It checks that even an all-false mask is explicitly saved and restored, that a real low-wavenumber mask survives a save/load round trip, and that a missing, wrong-shaped, or wrong-number-format mask refuses instead of being guessed. |
-| `test_grid2d_staging_row_contract.py` | Creates the same Grid2D rows once in memory and once in a disk-backed NumPy file, then selects rows with the same random seed. Both routes must preserve the identical selected order and must reject a claimed original row count that is zero, non-integer, or different from the rows actually present before allocating the staged result. |
-| `test_parameter_table.py` | Writes one-row, multirow, reordered, and malformed parameter tables beside realistic `.paramnames` files. It checks that a one-row table stays two-dimensional, derived output columns are found by name, numbered chains use the correct shared names file, and duplicate names, missing columns, a wrong table width, an empty table, or any NaN or infinite value stops with a useful error. |
-| `test_results_composition_mode.py` | Creates small in-memory emulator result files for plain output, NPCE output, frozen transfer, and refined transfer. Before a model is built, the reader must find the correct `plain`, `npce`, or `transfer` label, the required saved sections, and matching YAML settings after defaults have been filled in; missing labels, forbidden sections, wrong value types, or a label inferred only from which section happens to exist must refuse. |
-| `test_results_const_mask_declaration.py` | Saves a Grid2D constant-coordinate mask and the SHA-256 value calculated from its exact ordered bytes. The result writer owns this fact: a caller may repeat the same declaration, but changing one mask position, changing the saved identifier, using it for non-Grid2D data, or omitting it from an older result format must refuse. |
-| `test_results_rebuild_fixed_facts_names.py` | Creates an emulator result whose saved input names either agree or disagree across two internal records, then starts a rebuild. Matching names may reach model-weight loading; changing both records together must still stop first when the saved geometry has the original names, so compatible-looking model weights cannot hide a result file that describes different inputs. |
-| `test_trf_token_width.py` | Builds tiny Transformer configurations with one feature or two features in each token. One feature is refused before ordinary layer construction because the old block produced an output independent of its input, while both supported two-feature configurations must still construct and respond to changed inputs. |
-| `test_warmstart_perturbed_finite.py` | Feeds valid, NaN, and infinite comparison rows to the fine-tune and transfer warm-start paths. Valid rows keep the prior numerical result; a bad input after conversion or a bad output after conversion back to physical values must report the correct row and quantity immediately. Deliberately removing either check must make the test fail by reproducing the older misleading diagnosis. |
+| `test_background_grid_contract.py` | Do training setup and the Cobaya adapter accept the same background quantities and physical units? |
+| `test_cmb_checkpoint_axis.py` | Can each saved CMB spectrum column be matched to the correct multipole `ell` value before any spectrum is loaded? |
+| `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
+| `test_dataset_publication.py` | Can readers see only one complete, unchanged generated dataset while resume or append work uses separate writable copies? |
+| `test_dataset_request_contract.py` | Does a saved request describe the exact scientific calculation and the exact files that calculation must produce? |
+| `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
+| `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
+| `test_generator_payload_success.py` | Is a generated row marked successful only after its scientific values survive validation, writing, and exact read-back? |
+| `test_generator_run_control.py` | Do the three legal run choices select new work, resume, or append without allowing one output kind to overwrite another? |
+| `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
+| `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
+
+#### Background quantities and physical units
+
+`test_background_grid_contract.py` uses three artificial measurements of the
+Hubble rate or transverse distance at two redshifts.
+
+- **Example used:** the accepted pairs are `Hubble` with `km/s/Mpc`, and
+  `D_M` with `Mpc`. The example also supplies the offset used before an
+  optional logarithm.
+- **What the test does:** it validates the training settings, constructs and
+  rebuilds the numerical transformation, and initializes a small Cobaya
+  adapter that reads the same list of accepted quantity-and-unit pairs.
+- **Pass means:** the requested quantity and unit stay paired, the offset is an
+  ordinary finite number, every training value remains finite through the
+  transformation, and the saved offset, center, and scale are finite when the
+  transformation is rebuilt.
+- **A refusal it proves:** `Hubble` with `Mpc`, an unknown unit, `NaN`,
+  infinity, a Boolean, text in place of the offset, or a `NaN` or infinite
+  saved center or scale must stop before background values are used.
+- **Why it matters:** arrays can have the expected shape while still carrying
+  the wrong physical units. Such an array can produce a finite but
+  scientifically incorrect prediction.
+
+#### CMB multipole labels
+
+`test_cmb_checkpoint_axis.py` checks the coordinate labels saved beside the
+four CMB spectra `TT`, `TE`, `EE`, and `PP`.
+
+- **Example used:** four spectrum columns represent
+  `ell = 2, 3, 4, 5`. The companion NumPy file must contain those exact
+  consecutive integers using the `int64` format.
+- **What the test does:** it first asks the loader to verify the coordinate
+  file, and records whether the loader tries to open any spectrum.
+- **Pass means:** the exact coordinate file is accepted, all four spectra load,
+  and none of the checkpoint files change.
+- **A refusal it proves:** a missing coordinate file, `int32` storage, a
+  two-dimensional array, the wrong length, a shifted range, reversed values, a
+  gap, or a changed order must stop before the first spectrum is read.
+- **Why it matters:** without this check, a valid number in one spectrum
+  column could be interpreted as the power at the wrong multipole.
+
+#### Parameter names used while selecting training rows
+
+`test_data_staging_paramnames.py` checks how a numeric table is connected to
+the file that names its columns. Selecting and copying the rows needed for
+training is called **staging** in this library.
+
+- **Example used:** `chain.1.txt` may use `chain.1.paramnames` when it
+  exists, and otherwise may use `chain.paramnames`. A plain file such as
+  `lcdm.v2.txt` uses `lcdm.v2.paramnames`; `v2` is part of its name, not
+  a chain number.
+- **What the test does:** it resolves names for sampled parameters and a
+  derived `chi2*` column before a scalar, CMB, Grid, or Grid2D loader opens
+  the matching data vector.
+- **Pass means:** the exact or allowed shared names file is chosen, all
+  requested columns are found by name, and every loader agrees on the number
+  of usable rows.
+- **A refusal it proves:** absent or reordered sampled names stop the operation
+  before the data-vector file is opened.
+- **Why it matters:** opening the data vector first could pair one cosmological
+  parameter name with another column's numbers.
+
+#### Publishing one complete generated dataset
+
+`test_dataset_publication.py` checks how a finished group of generated files
+becomes the group that readers use. A **generation** is one complete named
+group. A small active-record file names the currently selected generation.
+
+- **Example used:** the test publishes nested files as generation A, publishes
+  generation B, and opens readers before and after the change. It also starts
+  a writable continuation from A.
+- **What the test does:** it records every required path, byte count, and
+  SHA-256 fingerprint; makes the accepted files read-only; and then simulates
+  changed bytes, extra files, links, interrupted copies, failed disk
+  synchronization, cleanup failures, and two writers finishing in a different
+  order.
+- **Pass means:** a reader that already opened A keeps reading A, a later
+  reader sees complete B, and continuation files are separate writable copies
+  whose edits cannot change A. An older writer cannot replace a newer active
+  record.
+- **A refusal it proves:** missing or extra files, changed bytes, symbolic or
+  hard links, a filename that leaves the generation folder, a file changed
+  during copying, or a stale writer must stop without changing the usable
+  active generation.
+- **Why it matters:** training must never combine some files from A with other
+  files from B, nor use files that changed after they were accepted.
+
+#### The saved description of a requested dataset
+
+`test_dataset_request_contract.py` checks the record that says exactly which
+scientific dataset a generator was asked to produce.
+
+- **Example used:** records cover uniform and Gaussian sampling, the random
+  seed, ordered parameter names, full or chain-only output, configuration
+  fingerprint, generator family, and matter-power variant. The **probe** is
+  the observable being requested, such as cosmic shear, CMB, background
+  quantities, or matter power.
+- **What the test does:** it converts each record to a fixed JSON byte
+  sequence and separately lists the required output files, such as four CMB
+  spectra plus their multipole coordinates or matter-power grids plus their
+  coordinate arrays.
+- **Pass means:** the same scientific request always gives the same JSON bytes
+  and file list. Changing a scientific choice, including the seed, parameter
+  order, sampling temperature, probe, or variant, changes the record.
+- **A refusal it proves:** duplicate parameter names, a uniform-sampling
+  boundary factor or Gaussian maximum-correlation value outside its allowed
+  range, an incompatible family, probe, generator, or variant, or a field
+  belonging to the other sampling method must stop. Checkpoint frequency and
+  other write-management choices must not be inserted as if they changed the
+  science.
+- **Why it matters:** a resume must continue the same calculation, not a
+  different calculation that happens to use similar filenames and shapes.
+
+#### Missing or damaged progress files
+
+`test_generator_checkpoint_refusal.py` checks the files used to continue an
+interrupted data-generation run.
+
+- **Example used:** it creates complete, incomplete, and damaged progress
+  groups for lensing, CMB, background, and matter-power generation.
+- **What the test does:** it requests a new run, a resume, or an append and
+  watches whether sampling begins. It also checks full-data and chain-only
+  requests separately.
+- **Pass means:** a new run may correctly report that no progress exists. A
+  requested resume or append loads only after every required parameter file,
+  failure marker, data file, and coordinate array for that generator passes
+  its checks. Chain-only work requires only its parameter-chain files.
+- **A refusal it proves:** a missing CMB multipole file, a coordinate array
+  with the wrong length, an invalid failure marker, or any other missing
+  required member stops instead of silently starting again from row zero.
+- **Why it matters:** silently starting over could overwrite useful progress
+  or combine old and newly generated rows under one filename.
+
+#### The filenames owned by each generator
+
+`test_generator_member_binding.py` checks the complete file list assigned to
+each scientific generator.
+
+- **Example used:** lensing, CMB, background, and matter-power generators are
+  tested in full-data and chain-only modes. The optional Syren matter-power
+  base adds exactly two base arrays.
+- **What the test does:** after validating the settings, it asks the generator
+  for every absolute path it may use and compares that list with the files the
+  generator's real save and load methods expect. No candidate file is opened
+  during this step.
+- **Pass means:** each generator receives only its own family and variant
+  files, full and chain-only names remain separate, and the saved file list is
+  reused by later operations.
+- **A refusal it proves:** a family sent to the wrong generator, an
+  incompatible family variant, output names that resolve to different
+  folders, two names differing only by letter case, a driver whose file list
+  cannot be verified, or a non-Boolean Syren switch stops before the program
+  checks whether any path exists.
+- **Why it matters:** similar filenames must not let one generator read files
+  that belong to another scientific calculation.
+
+#### When a generated row becomes successful
+
+`test_generator_payload_success.py` checks the point at which one generated
+sample changes from failed to successful.
+
+- **Example used:** small flat vectors, four CMB spectra, two background
+  quantities, and matter-power output with and without the optional base are
+  saved in temporary progress files.
+- **What the test does:** it validates a row, converts it to the configured
+  storage format, writes it once, reads it back, and compares the stored bytes
+  with the validated values. Existing rows already marked successful or
+  failed are also checked during resume.
+- **Pass means:** the failure marker clears only after names, shape, finite
+  numbers, storage type, and exact read-back values all agree. A saved row
+  already marked failed stays failed.
+- **A refusal it proves:** `NaN`, infinity, conversion overflow, a missing
+  background quantity, a wrong CMB spectrum length, an unexpected
+  matter-power quantity, or changed bytes after writing leaves the row failed
+  and does not silently repair an existing file.
+- **Why it matters:** an interrupted or overflowing calculation must not be
+  counted as valid training data merely because some bytes were written.
+
+#### New work, resume, append, and chain-only output
+
+`test_generator_run_control.py` checks the three command settings
+`loadchk`, `append`, and `chain`.
+
+- **Example used:** the test tries every combination of omitted values, the
+  exact integers `0` and `1`, and look-alikes such as `True`, `1.0`,
+  and the text `"1"`.
+- **What the test does:** it turns the first two settings into one operation
+  and the third setting into either full-data or chain-only output. It then
+  asks for the filename beginning used by that output.
+- **Pass means:** `(0, 0)` selects new work, `(1, 0)` selects resume, and
+  `(1, 1)` selects append. Chain-only output adds `_chain_only`, and the
+  validated decision cannot later be edited.
+- **A refusal it proves:** append without resume, a value other than an exact
+  integer `0` or `1`, or an empty or unknown output choice stops before a
+  generator file changes.
+- **Why it matters:** these checks prevent an accidental fresh run or a
+  chain-only request from overwriting a complete generated dataset.
+
+#### Selecting Grid2D rows from memory or disk
+
+`test_grid2d_staging_row_contract.py` checks that two storage methods select
+the same scientific samples.
+
+- **Example used:** seven matter-power rows are stored once fully in memory
+  and once in a NumPy file opened a few rows at a time. With the fixed seed,
+  both routes must select source rows `5, 1, 6, 2` in that order.
+- **What the test does:** it selects and converts both the raw surface and its
+  matching base surface, then compares parameters, target values, and order
+  from the two routes.
+- **Pass means:** both routes return the same four rows in the seeded order.
+  The raw and base files each contain exactly the declared seven rows before
+  memory for the converted result is allocated.
+- **A refusal it proves:** a file with six or eight rows, or a row count given
+  as `True`, zero, a negative number, text, or a NumPy integer stops before
+  allocating the converted array.
+- **Why it matters:** a changed order or incorrect row count could pair one
+  cosmology's parameters with another cosmology's power spectrum.
+
+#### Reading sampled and derived parameter columns
+
+`test_parameter_table.py` checks GetDist-style numeric tables and their
+companion `.paramnames` files. A trailing `*` in that names file marks a
+quantity calculated from the sampled parameters.
+
+- **Example used:** one-row and multirow tables contain two GetDist
+  bookkeeping columns followed by sampled and derived columns. Numbered chains,
+  reordered requested outputs, and a UTF-8 names file are included.
+- **What the test does:** it chooses the allowed names file and extracts input
+  and output columns by name rather than by a remembered position.
+- **Pass means:** one row remains a two-dimensional table, zero requested
+  outputs have shape `(rows, 0)`, derived outputs may be requested in a new
+  order, and returned values use `float32`.
+- **A refusal it proves:** duplicate or missing names, an invalid `*` marker,
+  overlap between inputs and outputs, a table one column too short or long, an
+  empty table, `NaN`, or infinity stops with an error naming the unsafe
+  mapping. A missing names file lists the paths tried instead of guessing.
+- **Why it matters:** selecting by a remembered column number can silently
+  assign a parameter's values to the wrong physical name.
+
+### Training calculations
+
+| File | Question answered |
+| --- | --- |
+| `test_batching_sizing.py` | Does the batch planner count the actual memory used by every stored target value before training starts? |
+| `test_d5_training_behavior_witnesses.py` | Do small numerical examples support the learning-rate, moving-average, activation, and frozen-layer results required by the longer training gate? |
+| `test_finetune_post_step_and_provenance.py` | Does fine-tuning update one weight in the required order and save which earlier emulator supplied the starting weights? |
+| `test_trf_token_width.py` | Does a Transformer refuse a one-number token that cannot respond to its input while continuing to accept supported two-number tokens? |
+| `test_warmstart_perturbed_finite.py` | Does a warm start report the exact input or output that first becomes `NaN` or infinite? |
+
+#### Memory needed for one training batch
+
+`test_batching_sizing.py` checks how much memory is needed for the group of
+rows processed together during one training step.
+
+- **Example used:** three samples each have two input parameters. An ordinary
+  target stores seven numbers per sample; a packed target stores fourteen.
+  Both `float32` and `float64` storage are tried.
+- **What the test does:** it counts the bytes used by inputs, model outputs,
+  targets, and temporary calculations, then asks how many complete batches fit
+  in a stated memory allowance.
+- **Pass means:** `float64` target values use twice the target bytes of
+  `float32`, the packed target changes the chosen batch count, and the
+  streaming loader uses the same width and number format in its calculation.
+- **A refusal it proves:** if the allowance is even four bytes short of one
+  complete batch, the planner raises `MemoryError` and reports the byte
+  breakdown instead of forcing one batch that does not fit.
+- **Why it matters:** starting with a batch that cannot fit can terminate a
+  long training job after its data have already been prepared.
+
+#### Small numerical examples for training behavior
+
+`test_d5_training_behavior_witnesses.py` supplies CPU examples for several
+results that the longer training gate must later observe. BerHu is an optional
+rule for calculating training loss. A moving average is a smoothed record of
+recent model weights or measurements.
+
+- **Example used:** it creates a smooth BerHu-loss schedule, a moving-average
+  schedule, tiny ReLU and Tanh networks, a complete 30-epoch learning-rate
+  record, and fingerprints calculated from the earlier shared network layers.
+- **What the test does:** it checks selected epochs and both points where each
+  schedule changes behavior, trains the small networks on a nonlinear table,
+  recomputes the first moving-average coefficient, reads the learning-rate
+  record, and compares shared-layer fingerprints before and after two kinds of
+  training.
+- **Pass means:** the schedules rise at the stated epochs without a jump; ReLU
+  and Tanh learn more than a model that always predicts the mean; the
+  final-layer learning rate changes exactly once at epoch 20; the first live
+  moving-average record is complete; and shared layers change only when all
+  layers are allowed to learn.
+- **A refusal it proves:** a constant or early schedule, a network whose loss
+  does not decrease, `NaN` loss, a missing or duplicate epoch, an incorrect
+  moving-average coefficient, or a changed supposedly frozen shared layer
+  makes the test fail.
+- **Why it matters:** printed labels such as “changed” or “frozen” are not
+  accepted on trust; the test recalculates the numerical result.
+
+#### Order of operations after a fine-tuning step
+
+`test_finetune_post_step_and_provenance.py` uses a model with one adjustable
+number so the required order can be calculated by hand.
+
+- **Example used:** a one-weight arithmetic example starts at 4. An anchor
+  operation uses the optimizer's learning rate to move the weight to 3, and a
+  moving average configured to copy the current value must also become 3.
+- **What the test does:** it reads the production training loop and confirms
+  that its optimizer, anchor, and moving-average calls occur in that order.
+  The separate arithmetic example executes the anchor and moving average. The
+  test also checks that the cosmic-shear and scalar training drivers call one
+  shared function to save the starting-emulator description.
+- **Pass means:** the moving average includes the already anchored weight, and
+  both drivers save the same concrete facts about the earlier emulator that
+  supplied the starting weights.
+- **A refusal it proves:** moving the anchor call before the optimizer or after
+  the moving-average call fails the order check. The test also fails if either
+  training driver stops using the shared function that writes the source
+  description.
+- **Why it matters:** operation order changes the trained weight, while the
+  saved source facts let a later reader identify which emulator the run
+  started from.
+
+#### Transformer token width
+
+`test_trf_token_width.py` checks how many numbers a Transformer places in
+each token, a small group of related numbers processed together. Plain and
+factored are the two supported Transformer layouts in this library.
+
+- **Example used:** tiny plain and factored Transformers produce either one
+  number or two numbers per token.
+- **What the test does:** it tries both layouts with one and two numbers per
+  token, and runs the older one-number calculation on two different inputs.
+- **Pass means:** one-number tokens stop before a model is built. Supported
+  two-number tokens build normally and produce different corrections for
+  different inputs.
+- **A refusal it proves:** the older one-number calculation gives the same
+  correction to two different inputs. Removing the early refusal therefore
+  makes this test fail.
+- **Why it matters:** a block whose output does not depend on its input cannot
+  learn the requested relationship, even though its arrays have legal shapes.
+
+#### Invalid numbers during a warm start
+
+`test_warmstart_perturbed_finite.py` checks fine-tuning and transfer learning
+that begin from an earlier saved emulator rather than random weights.
+
+- **Example used:** twelve artificial parameter rows are prepared, with source
+  rows 4 and 9 selected. One added parameter changes from zero to one. A
+  fixture can create a `NaN` while row 9 is converted to network input, or
+  infinity in row 9's initial fine-tune model output or transfer-composed
+  prediction.
+- **What the test does:** both warm-start routes compare the unchanged and
+  perturbed calculation after parameters are converted into the numbers read
+  by the network and after the initial model or combined prediction is
+  produced. The test temporarily bypasses each finite-number check in memory
+  to prove which check detects the problem.
+- **Pass means:** finite control rows preserve the earlier numerical result.
+  Invalid input or output reports source row 9 and the exact named quantity
+  that first became nonfinite.
+- **A refusal it proves:** without the early input or output check, the older
+  code later blames a different comparison. The temporary removal must
+  reproduce that misleading diagnosis and make the test fail.
+- **Why it matters:** the first invalid number identifies the real
+  transformation that needs attention; a later error can point to the wrong
+  scientific quantity.
+
+### Saved emulator files and reconstruction
+
+An emulator result is stored in an HDF5 file. HDF5 divides one file into named
+sections, similar to named folders inside the file. Rebuilding means opening
+that saved result and constructing the model needed for new predictions.
+
+| File | Question answered |
+| --- | --- |
+| `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
+| `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
+| `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
+| `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
+
+#### Fixed coordinates in a Grid2D surface
+
+`test_grid2d_const_mask.py` checks a one-dimensional mask stored in the
+coordinate order of a two-redshift by three-wavenumber surface. A `1` means
+“use the saved fixed value here”; a `0` means “use the network prediction.”
+
+- **Example used:** one mask has no fixed coordinates. A second mask fixes the
+  lowest-wavenumber point at each redshift.
+- **What the test does:** it saves the geometry, rebuilds it, applies a toy
+  network output, and compares the result with the original surface rule.
+- **Pass means:** even the all-zero mask is saved explicitly. The two fixed
+  positions in the second mask survive saving and loading and use the exact
+  stored value.
+- **A refusal it proves:** an absent mask, a two-dimensional mask, the wrong
+  stored number format, or a value other than zero or one stops instead of
+  being guessed.
+- **Why it matters:** guessing that a missing mask means “no fixed
+  coordinates” can change the reconstructed matter-power surface.
+
+#### How a saved model forms its final prediction
+
+`test_results_composition_mode.py` checks the explicit rule used to combine a
+network output with any saved base. Plain mode uses the network directly.
+Neural polynomial chaos expansion (NPCE) adds a saved polynomial-chaos base.
+Transfer mode uses an earlier emulator, either unchanged or refined.
+
+- **Example used:** four in-memory result files represent plain output, NPCE,
+  unchanged transfer, and refined transfer. Each contains the saved YAML
+  settings and the named HDF5 sections required by that form.
+- **What the test does:** the writer, reader, rebuild path, and prediction path
+  must agree on the explicit mode, whether transfer was refined, and the
+  required sections. The test watches whether geometry or weight loading
+  begins before validation finishes.
+- **Pass means:** exactly the four supported combinations pass, and the
+  prediction path selects its additional data from the saved mode rather than
+  guessing from whichever HDF5 section is present.
+- **A refusal it proves:** a missing or unknown mode, text `"False"` in
+  place of a Boolean, a missing required section, a section belonging to
+  another mode, or disagreement between YAML and the saved attributes stops
+  before geometry construction or weight loading.
+- **Why it matters:** different forms can have weights with identical shapes
+  but require different mathematics to produce a physical prediction.
+
+#### Fingerprint for the Grid2D fixed-coordinate mask
+
+`test_results_const_mask_declaration.py` checks a SHA-256 fingerprint
+calculated by the result writer from the complete mask in coordinate order.
+
+- **Example used:** two masks have the same number of fixed positions, but the
+  `1` occurs at a different coordinate in each mask.
+- **What the test does:** it calls the writer's fingerprint calculation,
+  stores the result in a small in-memory HDF5 section, and then calls the
+  reader's validator to recalculate the fingerprint from the stored mask.
+- **Pass means:** the saved fingerprint matches the exact ordered mask. Moving
+  one fixed position produces a different fingerprint.
+- **A refusal it proves:** a caller cannot replace the writer's fingerprint;
+  changing a mask position after saving, attaching the declaration to a
+  non-Grid2D result, or opening an older Grid2D result with no declaration
+  stops and requests a new save.
+- **Why it matters:** merely counting fixed positions would miss a mask moved
+  to a different physical coordinate.
+
+#### Input names checked before model weights load
+
+`test_results_rebuild_fixed_facts_names.py` checks independent records of the
+input parameter order inside one saved emulator.
+
+- **Example used:** the saved geometry says `alpha, beta`. A damaged example
+  changes the structured scientific record and its saved text copy together
+  to `beta, alpha` but leaves the geometry unchanged.
+- **What the test does:** it reopens the emulator and records whether PyTorch
+  is asked to load model weights.
+- **Pass means:** an untouched file whose names agree reaches weight loading.
+  The test stops there because reaching that point proves that a valid file
+  was not rejected.
+- **A refusal it proves:** those two coordinated changes still disagree with
+  the geometry and must stop before model weights are requested.
+- **Why it matters:** otherwise the model can receive valid finite numbers in
+  the wrong parameter order and return a scientifically incorrect prediction.
 
 ## AI workflow and policy test inventory
 
