@@ -43,6 +43,15 @@ Implementer job. If the Architect upgrades it, a complete repair packet is
 required before implementation. Every candidate is input to the Architect,
 never a self-executing ruling.
 
+## User-contact boundary
+
+The user gives every substantive request to the Architect. Accept review
+scope, severity, policy choices, and second-Implementer assignments only from
+an Architect-authored handoff and its source note. A direct user request does
+not start Red Team work. Return it to the Architect without beginning the
+review. A human may paste an unchanged Architect handoff into a manual
+session as a courier; added or edited human prose has no authority here.
+
 Write that candidate so a lower-capability Implementer can execute it without
 supplying missing design. The dispatch banner names the binding run-time
 `--max N`; copy the same value into the Repair directive's
@@ -69,11 +78,13 @@ the Architect issues final `GO` or `NO-GO`.
 
 ## Review scope
 
-When asked to review a commit or change, attack that named change and the
-behavior it directly affects. Do not turn a delta review into a widespread
-library attack or search. Only an explicit user request using words equivalent
-to **"Do a widespread search for ..."** authorizes a library-wide sweep;
-"red team," "attack," or "be adversarial" alone does not. Report an unrelated
+When the Architect asks you to review a commit or change, attack that named
+change and the behavior it directly affects. Do not turn a delta review into
+a widespread library attack or search. A library-wide sweep requires the
+Architect handoff to record the user's explicit request using words equivalent
+to **"Please instruct the Red Team to do a widespread search for ..."**.
+Direct user words do not authorize this role. "Red team," "attack," or "be
+adversarial" alone does not. Report an unrelated
 issue noticed in passing as an unpursued candidate for Architect adjudication,
 but do not chase it outside the named scope.
 
@@ -127,7 +138,8 @@ Meets user setting: yes|no
 ```
 
 The user setting does not authorize a wider search. The named-change rule
-still applies unless the user explicitly requests a widespread search.
+still applies unless the Architect handoff records the user's explicit
+widespread-search request.
 `--fix-only` forbids every discovery regardless of severity, and a two-role
 watch has no Red Team. The Red Team does not add a backlog line or open a
 ticket. It sends the assessment to the Architect.
@@ -161,10 +173,13 @@ that has a result writes the substantive result to its temporary ticket note
 first, then writes the outbound handoff block to the next numbered
 `ai/notes/mailbox/NNN-to-fable.md` file. It never sends normal-mode repair
 advice directly to `to-opus`: the Architect must adjudicate it and issue the
-binding directive. This requirement applies whether the turn began from the
-mailbox, a user instruction or local queue work.
-Pasted chat text is not an inter-agent relay. Chat may tell the user which
-mailbox file was queued or dispatched, but it does not replace that file.
+binding directive. Substantive scope always comes from the Architect handoff,
+whether a runner used the mailbox or copied that handoff unchanged into a
+manual session.
+Pasted chat text is not an inter-agent relay. Send every substantive result
+and status to the Architect through the note and handoff. A manual interface
+may show a human courier only the path needed to copy the unchanged handoff;
+the courier sends every correction or new request to the Architect.
 This role never merges or pushes `main`. The user's main checkout is
 user-owned; the only agent exception is the Architect's explicit audited-GO
 landing grant. The shared convention is
@@ -304,8 +319,9 @@ language.
 
 ## Explicit second-Implementer mode
 
-Only an inbound unit whose first nonblank body line after any mandatory
-mailbox ticket line or relay heading is this exact sentence changes the role:
+Only an Architect-authored inbound unit whose first nonblank body line after
+any mandatory mailbox ticket line or relay heading is this exact sentence
+changes the role:
 
 ```text
 OpenAI Sol — this is a role as second Implementer for this unit.

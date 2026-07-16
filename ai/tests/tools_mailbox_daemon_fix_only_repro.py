@@ -311,26 +311,20 @@ def arm_classification_is_explicit_and_fail_closed():
             print("invalid-kind " + repr(ticket_kind)
                   + " refused=" + str(passed))
 
-    # The CLI also owns the mandatory field.  A direct caller cannot bypass
-    # it by omitting the option, and argparse owns invalid vocabulary.
+    # The public CLI exposes no Sol address or ticket-classification option.
+    # Internal callers above still own the strict classification contract.
     with scratch_daemon(open_count=0, create_mailbox=False) as (
             daemon, root, _, _):
         before = tree_snapshot(root)
-        rc_missing, out_missing, err_missing = run_main(
+        rc_sol, out_sol, err_sol = run_main(
             daemon, ["--send", "sol", "--unit", "close one line"])
-        rc_invalid, out_invalid, err_invalid = run_main(
-            daemon, ["--send", "sol", "--unit", "close one line",
-                     "--ticket-kind", "attack"])
-        rc_transport, out_transport, err_transport = run_main(
-            daemon, ["--send", "sol", "--unit", "not a ping",
-                     "--ticket-kind", "transport"])
-        passed = (rc_missing != 0 and rc_invalid != 0
-                  and rc_transport != 0
+        rc_kind, out_kind, err_kind = run_main(
+            daemon, ["--send", "architect", "--unit", "close one line",
+                     "--ticket-kind", "closure"])
+        passed = (rc_sol != 0 and rc_kind != 0
                   and before == tree_snapshot(root)
-                  and "ticket-kind" in (out_missing + err_missing)
-                  and "invalid choice" in (out_invalid + err_invalid)
-                  and "invalid choice" in (
-                      out_transport + err_transport))
+                  and "invalid choice" in (out_sol + err_sol)
+                  and "unrecognized arguments" in (out_kind + err_kind))
         checks.append(passed)
         print("CLI kind contract passed=" + str(passed))
     return all(checks)
@@ -364,14 +358,16 @@ def arm_inherited_fix_only_send():
                 == (TICKET_HEADER + "closure\n\n"
                     "close an existing line\n"))
 
-        # Transport is a narrow internal class, never a public --ticket-kind.
-        # Only main()'s exact generated Sol ping may use it in fix-only.
+        # Transport is a narrow internal class, never a public target or
+        # ticket-kind. Only the daemon's exact Sol body may use it.
         with scratch_daemon(open_count=0) as (daemon, _, _, _):
-            rc, output, error = run_main(daemon, ["--ping", "sol"])
+            ping_is_transport, _ = captured_send(
+                daemon, agent="sol",
+                text=daemon.transport_ping_text(agent="sol"),
+                dry_run=False, ticket_kind="transport")
             pending = [pathlib.Path(path)
                        for path in daemon.pending_messages()]
-            ping_is_transport = (
-                rc == 0 and error == "" and len(pending) == 1
+            ping_is_transport = (ping_is_transport and len(pending) == 1
                 and read_text_exact(pending[0])
                 .startswith(TICKET_HEADER + "transport\n"))
     finally:
@@ -887,7 +883,8 @@ def arm_truthy_values_and_watch_scope():
             passed = (helper_value is True and rc == 0 and error == ""
                       and calls == [(False, True)]
                       and "fix-only watch active" in output
-                      and "no discovery tickets or new backlog lines"
+                      and "do not add tickets for newly found problems or "
+                      "new backlog lines"
                       in output)
             checks.append(passed)
             print("truthy " + repr(value) + " passed=" + str(passed))
@@ -911,9 +908,9 @@ def arm_truthy_values_and_watch_scope():
         ["--fix-only", "true"],
         ["--once", "--fix-only", "true"],
         ["--dry-run", "--fix-only", "true"],
-        ["--send", "opus", "--unit", "body", "--fix-only", "true"],
-        ["--ping", "sol", "--fix-only", "true"],
-        ["--watch", "--send", "opus", "--unit", "body",
+        ["--send", "architect", "--unit", "body", "--fix-only", "true"],
+        ["--ping", "architect", "--fix-only", "true"],
+        ["--watch", "--send", "architect", "--unit", "body",
          "--fix-only", "true"],
     ]
     for argv in conflict_argv:
@@ -935,9 +932,10 @@ def arm_truthy_values_and_watch_scope():
 
     primary_conflicts = [
         ["--once", "--watch"],
-        ["--watch", "--send", "opus", "--unit", "body"],
-        ["--once", "--ping", "sol"],
-        ["--send", "opus", "--unit", "body", "--ping", "sol"],
+        ["--watch", "--send", "architect", "--unit", "body"],
+        ["--once", "--ping", "architect"],
+        ["--send", "architect", "--unit", "body",
+         "--ping", "architect"],
     ]
     for argv in primary_conflicts:
         with scratch_daemon(create_mailbox=False) as (
@@ -1138,7 +1136,9 @@ def arm_help_and_readme_parity():
         candidates.append(readme[body_start:end])
         position = end + 3
     passed = (rc == 0 and error == "" and candidates == [help_output]
-              and "--ticket-kind {closure,discovery}" in help_output
+              and "--send {architect}" in help_output
+              and "--ping {architect}" in help_output
+              and "--ticket-kind" not in help_output
               and "--severity {high,medium,low}" in help_output
               and "--fix-only" in help_output
               and all(word in help_output for word in ("1", "true", "yes")))
@@ -1491,9 +1491,10 @@ def arm_source_mutations():
             "Sol envelope hides placeholder",
             lambda text: replace_exact(
                 text,
-                "placeholder_body = (sol_ticket_body(message=message)\n"
-                "                        if agent == \"sol\" else message)",
-                "placeholder_body = message"),
+                "    if agent == \"sol\":\n"
+                "        placeholder_body = sol_ticket_body(message=message)\n",
+                "    if agent == \"sol\":\n"
+                "        placeholder_body = message\n"),
             probe_sol_envelope_placeholder,
         ),
         (

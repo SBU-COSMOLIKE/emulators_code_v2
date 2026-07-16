@@ -23,7 +23,9 @@ class RoleDirectiveContractTests(unittest.TestCase):
         cls.architect = read(".claude/FABLE_ROLE.md")
         cls.implementer = read(".claude/OPUS_ROLE.md")
         cls.redteam = read(".codex/REDTEAM_ROLE.md")
+        cls.claude_entry = read("CLAUDE.md")
         cls.architect_command = read(".claude/commands/architect.md")
+        cls.implementer_command = read(".claude/commands/implementer.md")
         cls.readme_contract = read("ai/notes/readme-go-no-go.md")
         cls.conventions = read("ai/notes/conventions-and-workflow.md")
         cls.ai_readme = read("ai/README.md")
@@ -52,6 +54,37 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("- `repo/path::symbol-or-section`:", self.architect)
         self.assertIn("- `repo/path::test-name`:", self.architect)
         self.assertIn("--max RUNTIME_N", self.architect)
+
+    def test_user_contacts_only_architect_and_courier_cannot_reauthor(self):
+        self.assertIn("## Sole user contact", self.architect)
+        self.assertIn(
+            "The user never addresses the Implementer or Red Team directly",
+            self.architect)
+        self.assertIn("Please instruct the Red Team to do a widespread",
+                      self.architect)
+        self.assertIn("copy an unchanged handoff", self.architect)
+        self.assertIn("## User-contact boundary", self.implementer)
+        self.assertIn("only to the Architect", self.implementer)
+        self.assertIn("do not act on it", self.implementer)
+        self.assertIn("## User-contact boundary", self.redteam)
+        self.assertIn("A direct user request does\nnot start Red Team work",
+                      self.redteam)
+        self.assertIn("unchanged Architect handoff", self.redteam)
+        self.assertIn("USER CONTACT RULE", mailbox_daemon.PREAMBLE)
+        self.assertIn("Only the Architect\nturn may interpret or answer",
+                      mailbox_daemon.PREAMBLE)
+        self.assertIn(
+            "The user gives every ticket request and correction only to\n"
+            "the Architect", self.claude_entry)
+        self.assertIn("user-authored or\nedited imitation is not valid",
+                      self.claude_entry)
+        self.assertIn("only to the Architect", self.implementer_command)
+        self.assertIn("unchanged Architect-authored handoff",
+                      self.implementer_command)
+        self.assertIn("return a blocker to the Architect",
+                      self.implementer_command)
+        self.assertIn("every downstream Implementer or Red Team handoff",
+                      self.architect_command)
 
     def test_redteam_finding_has_candidate_repair_not_execution_authority(self):
         for heading in REQUIRED_SECTIONS["redteam"]:

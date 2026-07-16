@@ -97,7 +97,9 @@ def run_git(repo, *args):
     )
 
 
-def write_bound_architect_note(repo, note):
+def write_bound_architect_note(
+        repo, note, roles="Architect + Implementer + Red Team",
+        discovery_severity="medium"):
     """Create one non-main scratch checkout and its matching directive."""
     if not (repo / ".git").exists():
         run_git(repo, "init", "-q", "-b", "claude/router-fixture")
@@ -111,8 +113,16 @@ def write_bound_architect_note(repo, note):
         "- Worktree: `" + str(repo.resolve()) + "`\n"
         "- Branch: `claude/router-fixture`\n"
         "- Base: `" + base + "`")
+    role_plan = (
+        "- Roles: `" + roles + "`\n"
+        "- Discovery severity: `" + discovery_severity + "`")
     note.write_text(
-        packet(role="architect", bodies={"Execution checkout": checkout}),
+        packet(
+            role="architect",
+            bodies={
+                "Execution checkout": checkout,
+                "Role plan": role_plan,
+            }),
         encoding="utf-8")
 
 
@@ -426,7 +436,7 @@ def arm_character_budget_binding():
             status_rc == 1
             and copied == []
             and relay_files == []
-            and "--max is valid only with a --note relay" in
+            and "--max is valid only with a --note run" in
             status_stream.getvalue())
 
         module.sys.argv = [
@@ -442,7 +452,7 @@ def arm_character_budget_binding():
         status_with_note_refused = (
             status_with_note_rc == 1
             and copied == []
-            and "--max is valid only with a --note relay" in
+            and "--max is valid only with a --note run" in
             status_with_note_stream.getvalue())
 
         module.sys.argv = [
@@ -524,7 +534,7 @@ def arm_character_budget_binding():
         failed_guard_reaches_architect = (
             failed_route_rc == 0
             and len(copied) == 3
-            and "Router gate summary: NOT all green." in copied[-1]
+            and "Local check summary: NOT all green." in copied[-1]
             and "issue NO-GO" in copied[-1]
             and "does not close the ticket" in copied[-1])
 
@@ -549,7 +559,7 @@ def arm_character_budget_binding():
 
 
 def arm_discovery_severity_binding():
-    """Bind one severity to Red Team and Architect, never Implementer."""
+    """The Architect note binds severity; other inputs only confirm it."""
     with tempfile.TemporaryDirectory(prefix="router-severity-") as tmp:
         root = Path(tmp)
         module, repo = load_scratch_router(
@@ -587,16 +597,17 @@ def arm_discovery_severity_binding():
                 module.sys.argv = original_argv
             return rc, copied, stream.getvalue()
 
-        expected = []
-        for arguments, inherited, value in (
-                ([], None, "medium"),
-                ([], "low", "low"),
-                (["--severity", "high"], None, "high")):
+        successful_bindings = []
+        for arguments, inherited in (
+                ([], None),
+                (["--severity", "medium"], None),
+                (["--mode", "redteam", "--severity", "medium"], None),
+                ([], "medium")):
             rc, copied, _output = route(
                 extra_arguments=arguments,
                 environment_value=inherited)
             phrase = ("User severity setting for any new Red Team ticket: "
-                      + value + ".")
+                      "medium.")
             passed = (
               rc == 0
               and len(copied) == 3
@@ -605,28 +616,32 @@ def arm_discovery_severity_binding():
               and phrase in copied[2]
               and "Red Team severity" in copied[1]
               and "accepts, upgrades, or downgrades" in copied[2])
-            expected.append(passed)
+            successful_bindings.append(passed)
 
         rc, copied, _output = route(
-            extra_arguments=["--severity", "high"], gates_green=False)
+            extra_arguments=["--severity", "medium"], gates_green=False)
         gate_failure_keeps_setting = (
           rc == 0
           and len(copied) == 3
-          and "User severity setting for any new Red Team ticket: high."
+          and "User severity setting for any new Red Team ticket: medium."
           in copied[-1]
           and "NOT all green" in copied[-1])
 
         refusal_cases = (
-          (["--severity", "high"], "low", "does not match inherited"),
+          (["--severity", "high"], None,
+           "does not match the Architect Role plan medium"),
+          ([], "low", "Role plan medium does not match"),
+          (["--severity", "medium"], "low",
+           "Role plan medium does not match"),
           ([], " HIGH ", "must be exactly"),
-          (["--status", "--severity", "high"], None,
-           "valid only with a --note relay"),
-          (["--skip-redteam", "--severity", "high"], None,
-           "Red Team step is enabled"),
-          (["--no-red-team", "--severity", "high"], None,
-           "Red Team step is enabled"),
-          (["--mode", "second-implementer", "--severity", "high"], None,
-           "Red Team step is enabled"),
+          (["--status", "--severity", "medium"], None,
+           "only confirm the Role plan in a --note run"),
+          (["--skip-redteam"], None,
+           "--skip-redteam does not match the Architect Role plan"),
+          (["--no-red-team"], None,
+           "--skip-redteam does not match the Architect Role plan"),
+          (["--mode", "second-implementer"], None,
+           "does not match the Architect Role plan"),
         )
         refusals = []
         for arguments, inherited, message in refusal_cases:
@@ -664,19 +679,21 @@ def arm_discovery_severity_binding():
         help_bound = (
           help_proc.returncode == 0
           and "--severity {high,medium,low}" in help_text
-          and "valid only when the Red Team step runs" in help_text)
+          and "confirm the discovery severity saved in the Architect note"
+          in help_text
+          and "this option cannot change that value" in help_text)
 
         print("ARM discovery severity")
-        print("  default, inherited, and explicit values bound:",
-              all(expected))
+        print("  source-note default and matching confirmations succeed:",
+              all(successful_bindings))
         print("  Implementer excluded; Red Team and Architect agree:",
-              all(expected))
+              all(successful_bindings))
         print("  failed gates preserve the Architect setting:",
               gate_failure_keeps_setting)
-        print("  invalid scopes and inherited values refuse zero-write:",
+        print("  attempted overrides and invalid scopes refuse zero-write:",
               all(refusals))
-        print("  help lists values and scope:", help_bound)
-        assert all(expected)
+        print("  help says the option only confirms the note:", help_bound)
+        assert all(successful_bindings)
         assert gate_failure_keeps_setting
         assert all(refusals)
         assert help_bound
@@ -848,67 +865,103 @@ def arm_primary_checkout_on_feature_branch_refusal():
 
 
 def arm_second_implementer_mode():
-    """Assign one unit to Sol instead of duplicating it through Opus."""
+    """A source-note plan, not ``--mode``, assigns Sol to implement."""
     with tempfile.TemporaryDirectory(prefix="router-second-implementer-") as tmp:
         root = Path(tmp)
         module, repo = load_scratch_router(
           root, "scratch_router_second_implementer", linked=True)
         note = repo / "ai" / "notes" / "spec.md"
-        write_bound_architect_note(repo=repo, note=note)
+        write_bound_architect_note(
+            repo=repo,
+            note=note,
+            roles="Architect + Sol as Implementer",
+            discovery_severity="not-used")
         module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        relay = repo / "ai" / "notes" / "relay"
 
-        copied = []
-        waited_headers = []
-        returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
-
-        def capture_copy(text):
-            copied.append(text)
-
-        def next_handoff(header, **_kwargs):
-            waited_headers.append(header)
-            return next(returns)
-
-        module.copy_to_clipboard = capture_copy
-        module.wait_for_block = next_handoff
         module.run_gates = lambda commands, seq: (
           "ai/notes/relay/scratch-gates.md", True)
 
-        original_argv = module.sys.argv
-        module.sys.argv = [
-          "handoff_router.py",
-          "--note", "ai/notes/spec.md",
-          "--mode", "second-implementer",
-        ]
-        routed_stream = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(routed_stream):
-                routed_rc = module.main()
-        finally:
-            module.sys.argv = original_argv
+        def route(extra_arguments):
+            copied = []
+            waited_headers = []
+            module.copy_to_clipboard = copied.append
 
-        sol_prompts = [
-          text for text in copied
-          if (text.startswith("### ARCHITECT_HANDOFF")
-              and module.SECOND_IMPLEMENTER_MODE_SENTENCE in text)
-        ]
+            def implementer_return(header, **_kwargs):
+                waited_headers.append(header)
+                return "### IMPLEMENTER_HANDOFF: DONE\n"
+
+            module.wait_for_block = implementer_return
+            original_argv = module.sys.argv
+            module.sys.argv = [
+              "handoff_router.py", "--note", "ai/notes/spec.md",
+            ] + list(extra_arguments)
+            stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stream):
+                    rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            return rc, copied, waited_headers, stream.getvalue()
+
+        routed = [route([]), route(["--mode", "second-implementer"])]
         expected = (
           "OpenAI Sol — this is a role as second Implementer for this unit.")
         declaration_exact = (
           module.SECOND_IMPLEMENTER_MODE_SENTENCE == expected)
-        prompt_exact = (
-          len(sol_prompts) == 1
-          and len([text for text in copied
-                   if text.startswith("### ARCHITECT_HANDOFF")]) == 1
-          and sol_prompts[0].count(expected) == 1
-          and "\n\n" + expected + "\n\n" in sol_prompts[0]
-          and ".claude/OPUS_ROLE.md" in sol_prompts[0]
-          and "Execution checkout" in sol_prompts[0]
-          and waited_headers == ["### IMPLEMENTER_HANDOFF:"])
-        routed_output = routed_stream.getvalue()
-        full_progress_exact = all(
-          marker in routed_output
-          for marker in ("[1/3]", "[2/3]", "[3/3]"))
+        routed_exactly = []
+        for routed_rc, copied, waited_headers, routed_output in routed:
+            sol_prompts = [
+              text for text in copied
+              if (text.startswith("### ARCHITECT_HANDOFF")
+                  and module.SECOND_IMPLEMENTER_MODE_SENTENCE in text)
+            ]
+            prompt_exact = (
+              routed_rc == 0
+              and len(copied) == 2
+              and len(sol_prompts) == 1
+              and len([text for text in copied
+                       if text.startswith("### ARCHITECT_HANDOFF")]) == 1
+              and sol_prompts[0].count(expected) == 1
+              and "\n\n" + expected + "\n\n" in sol_prompts[0]
+              and "Architect + Sol as Implementer" in sol_prompts[0]
+              and "Discovery severity: not-used" in sol_prompts[0]
+              and ".claude/OPUS_ROLE.md" in sol_prompts[0]
+              and "Execution checkout" in sol_prompts[0]
+              and waited_headers == ["### IMPLEMENTER_HANDOFF:"]
+              and all(marker in routed_output
+                      for marker in ("[1/3]", "[2/3]", "[3/3]")))
+            routed_exactly.append(prompt_exact)
 
+        override_refusals = []
+        for arguments, diagnostic in (
+                (["--mode", "redteam"],
+                 "does not match the Architect Role plan"),
+                (["--skip-redteam"],
+                 "--skip-redteam does not match the Architect Role plan"),
+                (["--severity", "medium"],
+                 "does not include Red Team")):
+            before = sorted(path.name for path in relay.glob("*.md"))
+            copied = []
+            module.copy_to_clipboard = copied.append
+            original_argv = module.sys.argv
+            module.sys.argv = [
+              "handoff_router.py", "--note", "ai/notes/spec.md",
+            ] + arguments
+            stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stream):
+                    refused_rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            after = sorted(path.name for path in relay.glob("*.md"))
+            override_refusals.append(
+                refused_rc == 1
+                and diagnostic in stream.getvalue()
+                and copied == []
+                and after == before)
+
+        original_argv = module.sys.argv
         module.sys.argv = ["handoff_router.py", "--mode", "backup"]
         invalid_stream = io.StringIO()
         backup_rejected = False
@@ -921,21 +974,21 @@ def arm_second_implementer_mode():
             module.sys.argv = original_argv
 
         print("ARM second-Implementer mode")
-        print("  ruled CLI value completes routing:", routed_rc == 0)
-        print("  exact declaration routed once:",
-              declaration_exact and prompt_exact)
-        print("  one-owner progress has three steps:",
-              full_progress_exact)
+        print("  note alone and matching --mode complete routing:",
+              all(routed_exactly))
+        print("  exact declaration routed once in each run:",
+              declaration_exact and all(routed_exactly))
+        print("  attempts to change the saved plan refuse zero-write:",
+              all(override_refusals))
         print("  retired backup value rejected:", backup_rejected)
-        assert routed_rc == 0
         assert declaration_exact
-        assert prompt_exact
-        assert full_progress_exact
+        assert all(routed_exactly)
+        assert all(override_refusals)
         assert backup_rejected
 
 
 def arm_skip_redteam_aliases():
-    """Prove both skip spellings bypass Sol with truthful three-step output."""
+    """A two-role note skips Sol; either skip spelling only confirms it."""
     aliases = ["--skip-redteam", "--no-red-team"]
     for index, alias in enumerate(aliases):
         with tempfile.TemporaryDirectory(
@@ -944,78 +997,86 @@ def arm_skip_redteam_aliases():
             module, repo = load_scratch_router(
               root, "scratch_router_skip_redteam_" + str(index), linked=True)
             note = repo / "ai" / "notes" / "spec.md"
-            write_bound_architect_note(repo=repo, note=note)
+            write_bound_architect_note(
+                repo=repo,
+                note=note,
+                roles="Architect + Implementer",
+                discovery_severity="not-used")
             module.ROUTER_LOCK_PATH = str(root / "router.lock")
 
-            copied = []
-            waited_headers = []
-            archived_names = []
-            gate_calls = []
+            def route(extra_arguments):
+                copied = []
+                waited_headers = []
+                archived_names = []
+                gate_calls = []
 
-            def capture_copy(text):
-                copied.append(text)
+                def implementer_handoff(header, last_copied):
+                    waited_headers.append(header)
+                    assert last_copied == copied[-1]
+                    return "### IMPLEMENTER_HANDOFF: DONE\n"
 
-            def implementer_handoff(header, last_copied):
-                waited_headers.append(header)
-                assert last_copied == copied[-1]
-                return "### IMPLEMENTER_HANDOFF: DONE\n"
+                def archive_transport(seq, name, text):
+                    archived_names.append(name)
+                    return "ai/notes/relay/" + seq + "-" + name + ".md"
 
-            def archive_transport(seq, name, text):
-                archived_names.append(name)
-                return "ai/notes/relay/" + seq + "-" + name + ".md"
+                def green_gates(commands, seq):
+                    gate_calls.append((commands, seq))
+                    return (
+                        "ai/notes/relay/" + seq + "-gates-log.md", True)
 
-            def green_gates(commands, seq):
-                gate_calls.append((commands, seq))
-                return "ai/notes/relay/" + seq + "-gates-log.md", True
+                module.copy_to_clipboard = copied.append
+                module.wait_for_block = implementer_handoff
+                module.archive = archive_transport
+                module.run_gates = green_gates
+                original_argv = module.sys.argv
+                module.sys.argv = [
+                  "handoff_router.py", "--note", "ai/notes/spec.md",
+                ] + list(extra_arguments)
+                stream = io.StringIO()
+                try:
+                    with contextlib.redirect_stdout(stream):
+                        rc = module.main()
+                finally:
+                    module.sys.argv = original_argv
+                return (rc, copied, waited_headers, archived_names,
+                        gate_calls, stream.getvalue())
 
-            module.copy_to_clipboard = capture_copy
-            module.wait_for_block = implementer_handoff
-            module.archive = archive_transport
-            module.run_gates = green_gates
-
-            original_argv = module.sys.argv
-            module.sys.argv = [
-              "handoff_router.py",
-              "--note", "ai/notes/spec.md",
-              alias,
-            ]
-            routed_stream = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(routed_stream):
-                    routed_rc = module.main()
-            finally:
-                module.sys.argv = original_argv
-
-            routed_output = routed_stream.getvalue()
-            sol_prompt_copied = any(
-              text.startswith("### ARCHITECT_REDTEAM_HANDOFF")
-              for text in copied)
-            fable_prompt = copied[-1] if copied else ""
-            direct_audit = (
-              fable_prompt.startswith("### RELAY FOR AUDIT")
-              and "Implementer return (transport copy):" in fable_prompt
-              and "Sol return (transport copy):" not in fable_prompt)
-            progress_exact = all(
-              marker in routed_output
-              for marker in ("[1/3]", "[2/3]", "[3/3]"))
-            no_four_step_marker = "/4]" not in routed_output
-            skipped_cleanly = (
-              routed_rc == 0
-              and len(copied) == 2
-              and not sol_prompt_copied
-              and waited_headers == ["### IMPLEMENTER_HANDOFF:"]
-              and archived_names == ["implementer"]
-              and len(gate_calls) == 1
-              and direct_audit
-              and progress_exact
-              and no_four_step_marker)
+            routes = [route([]), route([alias])]
+            route_checks = []
+            for (routed_rc, copied, waited_headers, archived_names,
+                 gate_calls, routed_output) in routes:
+                sol_prompt_copied = any(
+                  text.startswith("### ARCHITECT_REDTEAM_HANDOFF")
+                  for text in copied)
+                fable_prompt = copied[-1] if copied else ""
+                direct_audit = (
+                  fable_prompt.startswith("### RELAY FOR AUDIT")
+                  and "Architect + Implementer" in fable_prompt
+                  and "Discovery severity: not-used" in fable_prompt
+                  and "Implementer return (saved copy):" in fable_prompt
+                  and "Red Team return (saved copy):" not in fable_prompt)
+                progress_exact = all(
+                  marker in routed_output
+                  for marker in ("[1/3]", "[2/3]", "[3/3]"))
+                no_four_step_marker = "/4]" not in routed_output
+                route_checks.append(
+                  routed_rc == 0
+                  and len(copied) == 2
+                  and not sol_prompt_copied
+                  and waited_headers == ["### IMPLEMENTER_HANDOFF:"]
+                  and archived_names == ["implementer"]
+                  and len(gate_calls) == 1
+                  and direct_audit
+                  and progress_exact
+                  and no_four_step_marker)
 
             print("ARM skip-redteam alias " + alias)
-            print("  Sol copy/wait/archive skipped:", skipped_cleanly)
-            print("  direct Architect audit prompt:", direct_audit)
-            print("  progress is exactly three steps:",
-                  progress_exact and no_four_step_marker)
-            assert skipped_cleanly
+            print("  note alone and matching alias skip Sol:",
+                  all(route_checks))
+            print("  direct Architect audit has saved role plan:",
+                  all(route_checks))
+            print("  progress is exactly three steps:", all(route_checks))
+            assert all(route_checks)
 
     help_proc = subprocess.run(
       [sys.executable, str(SOURCE), "--help"],
@@ -1027,49 +1088,79 @@ def arm_skip_redteam_aliases():
     help_exact = (
       help_proc.returncode == 0
       and "--skip-redteam, --no-red-team" in normalized_help
-      and "skip the entire Sol step" in normalized_help
-      and "Implementer -> local gates -> Architect" in normalized_help)
-    print("  both aliases and route are documented in --help:", help_exact)
+      and "confirm that the Architect note chose only Architect and "
+          "Implementer" in normalized_help
+      and "cannot remove Red Team from another plan" in normalized_help)
+    print("  help says both aliases only confirm the note:", help_exact)
     assert help_exact
 
 
 def arm_skip_redteam_mode_conflict():
-    """Reject a Sol Implementer mode when the whole Sol step is disabled."""
-    aliases = ["--skip-redteam", "--no-red-team"]
-    expected = ("--skip-redteam/--no-red-team cannot be combined with "
-                "--mode second-implementer")
-    for index, alias in enumerate(aliases):
-        with tempfile.TemporaryDirectory(
-                prefix="router-skip-conflict-") as tmp:
-            root = Path(tmp)
-            module, _repo = load_scratch_router(
-              root, "scratch_router_skip_conflict_" + str(index))
+    """Refuse every ``--mode`` value when the note selects two roles."""
+    cases = (
+        (["--mode", "redteam"], "redteam without a skip flag"),
+        (["--mode", "second-implementer"],
+         "second Implementer without a skip flag"),
+        (["--skip-redteam", "--mode", "redteam"],
+         "redteam with --skip-redteam"),
+        (["--no-red-team", "--mode", "redteam"],
+         "redteam with --no-red-team"),
+        (["--skip-redteam", "--mode", "second-implementer"],
+         "second Implementer with --skip-redteam"),
+        (["--no-red-team", "--mode", "second-implementer"],
+         "second Implementer with --no-red-team"),
+    )
+    with tempfile.TemporaryDirectory(prefix="router-skip-conflict-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+          root, "scratch_router_skip_conflict", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(
+            repo=repo,
+            note=note,
+            roles="Architect + Implementer",
+            discovery_severity="not-used")
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        relay = repo / "ai" / "notes" / "relay"
+
+        for arguments, label in cases:
             side_effects = []
 
             def forbidden_copy(text):
-                side_effects.append(text)
+                side_effects.append(("copy", text))
+
+            def forbidden_wait(**_kwargs):
+                side_effects.append(("wait", "called"))
+                return "### IMPLEMENTER_HANDOFF: DONE\n"
 
             module.copy_to_clipboard = forbidden_copy
+            module.wait_for_block = forbidden_wait
+            module.run_gates = lambda commands, seq: (
+                "ai/notes/relay/unexpected-gates.md", True)
             original_argv = module.sys.argv
             module.sys.argv = [
               "handoff_router.py",
-              alias,
-              "--mode", "second-implementer",
-            ]
+              "--note", "ai/notes/spec.md",
+            ] + list(arguments)
+            before = sorted(path.name for path in relay.glob("*.md"))
             refused_stream = io.StringIO()
             try:
                 with contextlib.redirect_stdout(refused_stream):
                     refused_rc = module.main()
             finally:
                 module.sys.argv = original_argv
+            after = sorted(path.name for path in relay.glob("*.md"))
 
             refused_output = refused_stream.getvalue()
             refused_cleanly = (
               refused_rc == 1
-              and expected in refused_output
-              and side_effects == [])
-            print("ARM skip-redteam conflict " + alias)
-            print("  second-Implementer mode rejected before routing:",
+              and "refused role confirmation" in refused_output
+              and "--mode" in refused_output
+              and "Architect + Implementer" in refused_output
+              and side_effects == []
+              and after == before)
+            print("ARM two-role mode refusal: " + label)
+            print("  --mode refused before clipboard/archive work:",
                   refused_cleanly)
             assert refused_cleanly
 

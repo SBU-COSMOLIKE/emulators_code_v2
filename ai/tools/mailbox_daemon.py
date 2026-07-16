@@ -46,11 +46,9 @@ Usage:
                                                     # stop safely after 2 cycles
     python ai/tools/mailbox_daemon.py --watch --skip-redteam
                                                     # Architect + Implementer only
-    python ai/tools/mailbox_daemon.py --send opus --unit "ai/notes/<spec>.md ..."
-                                                    # drop a first message
-    python ai/tools/mailbox_daemon.py --send sol --ticket-kind closure \
-        --unit "Close the existing ledger item in ai/notes/<spec>.md."
-                                                    # classify every Sol send
+    python ai/tools/mailbox_daemon.py --send architect \
+        --unit "Coordinate the ticket in ai/notes/<spec>.md."
+                                                    # user's only work target
     python ai/tools/mailbox_daemon.py --watch --fix-only Yes
                                                     # close existing work only
     python ai/tools/mailbox_daemon.py --watch --opus-effort high
@@ -260,7 +258,7 @@ SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
 MAILBOX_TOPOLOGY_VERSION = 2
-MAILBOX_PROTOCOL_VERSION = 1
+MAILBOX_PROTOCOL_VERSION = 2
 MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
 MAX_PRIMARY_STATE_BYTES = 16384
 MAX_PRIMARY_DAEMON_BYTES = 2 * 1024 * 1024
@@ -1501,7 +1499,8 @@ def _require_primary_daemon_topology_support(primary_path):
     if protocol_declarations != [
             str(MAILBOX_PROTOCOL_VERSION).encode("ascii")]:
         raise PrimaryWorktreeError(
-            "saved primary daemon does not support discovery severity; "
+            "saved primary daemon does not enforce the current "
+            "Architect-only user entry point; "
             "update that non-main worktree from main without discarding "
             "its local work, then retry: " + primary_path)
 
@@ -2077,7 +2076,7 @@ def _rendezvous_turn_finished():
 
 
 def waiting_messages_text(count):
-    """Return a grammatically exact root-queue count for safe statuses."""
+    """Return a grammatically exact waiting-message count."""
     if count == 0:
         return "no messages waiting"
     noun = "message" if count == 1 else "messages"
@@ -2085,12 +2084,14 @@ def waiting_messages_text(count):
 
 
 def run_safe_kill_countdown(controller):
-    """Print the main-thread 20-second all-idle window, then reopen work."""
+    """Print 20 safe seconds when no role is starting or running."""
     if not controller.window_ready():
-        raise RuntimeError("safe-kill countdown requested before all-idle")
+        raise RuntimeError(
+            "safe Ctrl-C countdown requested while a role is still active")
     for seconds_more in range(SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):
         waiting = len(pending_messages())
-        print("all lanes idle; safe to Ctrl-C for " + str(seconds_more)
+        print("every enabled role is idle; safe to Ctrl-C for "
+              + str(seconds_more)
               + "s more; " + waiting_messages_text(count=waiting) + ".",
               flush=True)
         time.sleep(1)
@@ -2099,16 +2100,16 @@ def run_safe_kill_countdown(controller):
 
 
 def report_ordinary_safe_poll(controller, reset_cadence=True):
-    """Mark the existing idle poll delay as an ordinary safe opportunity.
+    """Report a safe Ctrl-C wait when every role job is idle.
 
-    An unbounded watch preserves the historical reset after every ordinary
-    idle poll. A cycle-bounded watch does not reset here: ordinary polls are
-    safe Ctrl-C opportunities, but only a due K/M rendezvous ends a cycle.
+    An unlimited watch starts a new work period after this wait. A watch with
+    ``--cycle`` counts only a completed five-request or 15-minute work period,
+    so this ordinary mailbox check does not complete a cycle.
     """
     if not controller.all_idle():
         return False
     waiting = len(pending_messages())
-    print("all lanes idle; safe to Ctrl-C for this "
+    print("every enabled role is idle; safe to Ctrl-C for this "
           + str(WATCH_POLL_SECONDS) + "s poll; "
           + waiting_messages_text(count=waiting) + ".", flush=True)
     if reset_cadence:
@@ -2267,35 +2268,37 @@ def release_cycle_completion_barrier(lock_file):
 
 def report_cycle_limit_exit(completed_cycles, cycle_limit,
                             skip_redteam=False):
-    """Report a positive cycle limit at a proven all-idle rendezvous."""
+    """Report a positive cycle limit after every active role job ends."""
     waiting = len(pending_messages())
     ledger = backlog_ledger_count()
     cycle_noun = "cycle" if completed_cycles == 1 else "cycles"
-    ledger_noun = "job" if ledger == 1 else "jobs"
+    ledger_noun = "item" if ledger == 1 else "items"
     print("cycle limit reached (" + str(completed_cycles) + "/"
           + str(cycle_limit) + " " + cycle_noun
-          + "); all lanes idle; watcher exiting safely; "
+          + "); every enabled role is idle; watcher stopped; "
           + waiting_messages_text(count=waiting) + "; " + str(ledger)
-          + " open ledger " + ledger_noun + " remain.", flush=True)
+          + " backlog " + ledger_noun
+          + " still begin with '- OPEN'.", flush=True)
     if skip_redteam:
         report_deferred_sol_messages()
 
 
 def report_cycle_work_complete(completed_cycles, skip_redteam=False):
-    """Report explicit cycle mode draining both mailbox and literal ledger."""
+    """Report cycle zero after its waiting-work checks all pass."""
     noun = "cycle" if completed_cycles == 1 else "cycles"
     if skip_redteam:
         deferred = len(deferred_sol_messages())
         deferred_noun = "message" if deferred == 1 else "messages"
         print("cycle work complete after " + str(completed_cycles) + " "
-              + noun + "; Architect and Implementer lanes idle; enabled "
-              "mailbox routes and ledger empty; " + str(deferred)
-              + " Sol " + deferred_noun
-              + " deferred; watcher exiting safely.", flush=True)
+              + noun + "; no Architect or Implementer message is waiting "
+              "or running; ai/notes/backlog.md has no '- OPEN' item; "
+              + str(deferred) + " Red Team " + deferred_noun
+              + " remain waiting; watcher stopped.", flush=True)
         return
     print("cycle work complete after " + str(completed_cycles) + " " + noun
-          + "; all lanes idle; mailbox and ledger empty; watcher exiting "
-          "safely.", flush=True)
+          + "; no role message is waiting or running; "
+          "ai/notes/backlog.md has no '- OPEN' item; watcher stopped.",
+          flush=True)
 
 
 def report_cycle_completion_unverified(error):
@@ -2500,6 +2503,12 @@ PREAMBLE = (
     "below. The substance is in entries under this exact notes directory:\n"
     "    " + os.path.join(AI_ROOT, "notes") + "\n"
     "Read the cited entries there first. Do the work per your role file.\n"
+    "USER CONTACT RULE: the user gives every ticket request, clarification,\n"
+    "policy choice, and scope change to the Architect. Only the Architect\n"
+    "turn may interpret or answer that substance. Implementer and Red Team\n"
+    "turns act only on an Architect-authored handoff. A human may copy an\n"
+    "unchanged handoff between sessions as a courier, but that does not make\n"
+    "the human its author and the human must not add instructions.\n"
     "Ordinary rule: end\n"
     "your turn by\n"
     "(1) writing your substance to the appropriate entry INSIDE the exact\n"
@@ -2519,6 +2528,9 @@ PREAMBLE = (
     "using the binding value in MAILBOX_DISCOVERY_SEVERITY:\n"
     "    MAILBOX-SEVERITY: LEVEL\n"
     "Replace LEVEL with exactly high, medium, or low.\n"
+    "A public request to the Architect uses that same severity line as its\n"
+    "first line. The daemon validates it and exports its value to the\n"
+    "Architect turn; it is not a Sol ticket classification.\n"
     "That saved value records the user's minimum severity for a new ticket.\n"
     "The daemon's exact no-work transport ping is\n"
     "the sole reserved MAILBOX-TICKET: transport exception.\n"
@@ -2808,6 +2820,40 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None):
     if not payload.endswith("\n"):
         payload = payload + "\n"
     return payload
+
+
+def architect_user_request_payload(text, discovery_severity=None):
+    """Build the persisted public envelope addressed only to Architect."""
+    if discovery_severity is None:
+        discovery_severity = DEFAULT_DISCOVERY_SEVERITY
+    if discovery_severity not in DISCOVERY_SEVERITIES:
+        raise ValueError("invalid discovery severity: "
+                         + repr(discovery_severity))
+    payload = (SOL_SEVERITY_HEADER + discovery_severity + "\n\n" + text)
+    if not payload.endswith("\n"):
+        payload = payload + "\n"
+    return payload
+
+
+def architect_user_request_severity(message):
+    """Return a valid public Architect envelope severity, or ``None``."""
+    if not message.startswith(SOL_SEVERITY_HEADER):
+        return None
+    first_line = message.splitlines()[0]
+    severity = first_line[len(SOL_SEVERITY_HEADER):]
+    if severity not in DISCOVERY_SEVERITIES:
+        return None
+    if not message.startswith(first_line + "\n\n"):
+        return None
+    return severity
+
+
+def architect_user_request_body(message):
+    """Return the exact user text after a valid Architect envelope."""
+    severity = architect_user_request_severity(message=message)
+    if severity is None:
+        return message
+    return message[len(SOL_SEVERITY_HEADER + severity + "\n\n"):]
 
 
 def valid_sol_transport(message):
@@ -3140,7 +3186,8 @@ def exact_duration(value):
 
 def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                     fix_only=False, skip_redteam=False,
-                    discovery_severity=None, saved_discovery=False):
+                    discovery_severity=None, saved_discovery=False,
+                    saved_architect_request=False):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -3173,6 +3220,10 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
         lines.append(
             "user's saved minimum severity for this discovery: "
             + discovery_severity)
+    elif saved_architect_request:
+        lines.append(
+            "user's saved minimum severity for any discovery requested "
+            "by this ticket: " + discovery_severity)
     else:
         lines.append(
             "minimum severity to save on any new discovery ticket: "
@@ -4014,6 +4065,28 @@ def dispatch_under_main_checkout_lock(
 
     ticket_kind = None
     effective_discovery_severity = DISCOVERY_SEVERITY
+    saved_architect_severity = None
+    if agent == "fable" and message.startswith(SOL_SEVERITY_HEADER):
+        saved_architect_severity = architect_user_request_severity(
+            message=message)
+        if saved_architect_severity is None:
+            reason = ("invalid public Architect request header; use exactly "
+                      "'MAILBOX-SEVERITY: high', 'MAILBOX-SEVERITY: "
+                      "medium', or 'MAILBOX-SEVERITY: low', followed by "
+                      "one blank line")
+            if dry_run:
+                print("[dry-run] would refuse " + name + ": " + reason
+                      + "; no file changed.")
+                return False
+            if park_failed_message(dispatch_path=dispatch_path):
+                print("refused " + name + ": " + reason
+                      + "; parked in failed/.")
+            else:
+                print("refused " + name + ": " + reason
+                      + "; failed-state move was not verified; inspect "
+                      "inflight/ and failed/.")
+            return False
+        effective_discovery_severity = saved_architect_severity
     if agent == "sol":
         ticket_kind = sol_ticket_kind(message=message)
         severity_problem = sol_discovery_severity_problem(message=message)
@@ -4042,8 +4115,12 @@ def dispatch_under_main_checkout_lock(
                       "inflight/ and failed/.")
             return False
 
-    placeholder_body = (sol_ticket_body(message=message)
-                        if agent == "sol" else message)
+    if agent == "sol":
+        placeholder_body = sol_ticket_body(message=message)
+    elif agent == "fable":
+        placeholder_body = architect_user_request_body(message=message)
+    else:
+        placeholder_body = message
     marker = placeholder_in(message=placeholder_body)
     if marker is not None:
         if dry_run:
@@ -4088,7 +4165,8 @@ def dispatch_under_main_checkout_lock(
         fix_only=fix_only,
         skip_redteam=skip_redteam,
         discovery_severity=effective_discovery_severity,
-        saved_discovery=(ticket_kind == "discovery"))
+        saved_discovery=(ticket_kind == "discovery"),
+        saved_architect_request=(saved_architect_severity is not None))
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
     # role-specific banner sits between them. Consequently PREAMBLE's
     # --- MESSAGE --- delimiter remains immediately before the exact raw
@@ -4597,9 +4675,10 @@ def report_demand(backlog, skip_redteam=False):
           + " | total demand: " + str(total))
     if total >= SECOND_IMPLEMENTER_THRESHOLD and not skip_redteam:
         print("  hint: " + str(SECOND_IMPLEMENTER_THRESHOLD)
-              + " or more items are waiting. Give Sol separate "
-              "implementation jobs as a second Implementer, but only a "
-              "message with the required declaration changes Sol's role; "
+              + " or more items are waiting. Ask the Architect to give Sol "
+              "separate implementation jobs as a second Implementer, but "
+              "only an Architect message with the required declaration "
+              "changes Sol's role; "
               "otherwise Sol remains the Red Team.")
     report_landing_debt()
 
@@ -5040,21 +5119,22 @@ def reconcile_landing_debt_handoff(snapshot=None):
 
 
 def send(agent, text, dry_run, ticket_kind=None, severity=None):
-    """Drop a new message into the mailbox (the loop's entry point).
+    """Save one internal mailbox message or one user request for Architect.
 
     Arguments:
-      agent   = "fable", "opus", or "sol".
-      text    = the routing summary (point at ai/notes/; do not inline specs).
-      dry_run    = True to print the file that would be queued and write
-                   nothing. Rehearsing --send used to queue a real message
-                   (main() returned before the dry-run branch ever ran), so a
-                   junk body became a live dispatched turn as soon as a watch
-                   picked it up -- the 0022 audit's unrunnable gate leg.
-      ticket_kind = ``closure`` or ``discovery`` for public Sol work.  The
+      agent   = recipient name "fable", "opus", or "sol" used inside this
+                program. The public command line maps its sole ``architect``
+                target to ``fable``. Role-to-role callers use this function
+                or save the next numbered mailbox file.
+      text    = exact message text; internal role messages point to the source
+                note under ``ai/notes/``.
+      dry_run = True to print the file path without writing the message.
+      ticket_kind = ``closure`` or ``discovery`` for internal Sol work. The
                     exact internal Sol ping alone uses ``transport``.
-      severity = the user's minimum ``high``, ``medium``, or ``low`` value
-                 for a discovery. Omission uses the inherited run value or
-                 the medium default. Other ticket kinds accept no severity.
+      severity = the Architect-approved minimum ``high``, ``medium``, or
+                 ``low`` value for an internal Sol discovery. Omission uses
+                 the inherited run value or medium. Other ticket kinds and
+                 internal recipients accept no severity here.
 
     Returns:
       True when the message was queued, or would be queued in a dry run.
@@ -5151,56 +5231,62 @@ def main():
     global _ACTIVE_WATCH_RENDEZVOUS
 
     parser = argparse.ArgumentParser(
-        description="file mailbox + headless dispatch for the agent loop")
+        description="save mailbox requests and start the assigned role for "
+                    "each request")
     parser.add_argument("--dry-run", action="store_true",
-                        help="show what would happen and change nothing: "
-                             "pending dispatches are printed, not run, and "
-                             "--send/--ping print the message file they "
-                             "would queue without writing it")
+                        help="show the message files and work this command "
+                             "would handle, but do not start a role or write "
+                             "a message file")
     parser.add_argument("--once", action="store_true",
-                        help="process the current backlog and exit")
+                        help="start every request that is waiting now, "
+                             "then exit")
     parser.add_argument("--watch", action="store_true",
-                        help="poll the mailbox every 20 seconds")
+                        help="check the mailbox every 20 seconds and start "
+                             "waiting requests")
     parser.add_argument("--cycle", metavar="count",
                         type=nonnegative_cycle_count, default=None,
-                        help="with --watch, exit safely after this many "
-                             "global rendezvous cycles; 0 waits until the "
-                             "enabled dispatch queue and open ledger are "
-                             "empty; "
-                             "omitting the option keeps watching indefinitely")
+                        help="with --watch, stop after this many work "
+                             "periods; one period ends after five requests "
+                             "finish or 15 minutes pass from its start, but "
+                             "waits for every job already starting or "
+                             "running to finish; 0 "
+                             "instead waits until no enabled role has a "
+                             "waiting message and ai/notes/backlog.md has no "
+                             "open item; omit this option to keep watching")
     parser.add_argument(
         "--max", dest="max_characters", metavar="characters",
         type=nonnegative_max_characters, default=None,
         help="with --watch or --once, limit each ticket to this many added "
-             "plus deleted characters from the starting commit in its "
-             "directive; use only digits 0 through 9; 0 means no limit "
-             "(default: 0)")
+             "and removed characters, counted from the starting saved Git "
+             "version named in the Architect's instructions; use only "
+             "digits 0 through 9; 0 means no limit (default: 0)")
     parser.add_argument("--skip-redteam", "--no-red-team",
                         dest="skip_redteam", action="store_true",
-                        help="with --watch, dispatch only Architect and "
-                             "Implementer routes; disable the entire Sol "
-                             "route and leave existing to-sol messages "
-                             "queued for a later normal watch")
+                        help="with --watch, start Architect and Implementer "
+                             "jobs but no Red Team job; Red Team messages "
+                             "remain waiting for a later watch without this "
+                             "option")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
-                        help="with --watch, close existing ledger work only; "
+                        help="with --watch, tell roles to finish work already "
+                             "recorded in ai/notes/backlog.md and refuse new "
+                             "Red Team discovery messages; this option does "
+                             "not create mailbox requests from backlog text; "
                              "the value accepts 1, true, or yes in any "
                              "capitalization")
-    parser.add_argument("--send", metavar="AGENT",
-                        choices=["fable", "opus", "sol"],
-                        help="queue a message to this agent and exit")
-    parser.add_argument("--ping", metavar="AGENT",
-                        choices=["fable", "opus", "sol"],
-                        help="queue a transport-confirmation ping to this "
-                             "agent (its reply lands as a -to-user.md file "
-                             "the daemon never dispatches)")
+    parser.add_argument("--send", metavar="{architect}",
+                        choices=["architect"],
+                        help="save the user's ticket request for the "
+                             "Architect and exit")
+    parser.add_argument("--ping", metavar="{architect}",
+                        choices=["architect"],
+                        help="save a connection-check message for the "
+                             "Architect; its reply is saved in a -to-user.md "
+                             "file and is not sent to another role")
     parser.add_argument("--unit", default="",
-                        help="the message text for --send (a routing "
-                             "summary pointing at ai/notes/)")
-    parser.add_argument("--ticket-kind", choices=SOL_TICKET_KINDS,
-                        help="required with --send sol: declare whether the "
-                             "unit closes existing work or seeks new "
-                             "findings")
+                        help="the user's request text for --send architect; "
+                             "include the path to its source note in "
+                             "ai/notes/")
     parser.add_argument(
         "--severity", choices=DISCOVERY_SEVERITIES, default=None,
         help="minimum severity for new discovery tickets: high keeps only "
@@ -5208,50 +5294,54 @@ def main():
              "loss, halt system operations, or make the science wrong; "
              "medium also keeps probable normal-operation bugs "
              "but not improbable edge cases; low keeps every concrete "
-             "discovered bug (default: medium)")
+             "discovered bug; with --send architect, save the choice for "
+             "that request (default: medium)")
     parser.add_argument("--architect-model", metavar="MODEL",
                         type=validate_model_name,
                         default=DEFAULT_ARCHITECT_MODEL,
-                        help="Claude model alias or full name for the "
-                             "Architect route (legacy fable address; "
-                             "default: " + DEFAULT_ARCHITECT_MODEL + ")")
+                        help="Claude model alias or full name used for the "
+                             "Architect; mailbox filenames for this role "
+                             "still contain fable (default: "
+                             + DEFAULT_ARCHITECT_MODEL + ")")
     parser.add_argument("--implementer-model", metavar="MODEL",
                         type=validate_model_name,
                         default=DEFAULT_IMPLEMENTER_MODEL,
-                        help="Claude model alias or full name for the "
-                             "Implementer route (legacy opus address; "
-                             "default: " + DEFAULT_IMPLEMENTER_MODEL + ")")
+                        help="Claude model alias or full name used for the "
+                             "Implementer; mailbox filenames for this role "
+                             "still contain opus (default: "
+                             + DEFAULT_IMPLEMENTER_MODEL + ")")
     parser.add_argument("--fable-effort", default=DEFAULT_FABLE_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
                         help="claude CLI reasoning effort for the Architect "
-                             "route (legacy fable address; default: "
-                             + DEFAULT_FABLE_EFFORT + ")")
+                             "(default: " + DEFAULT_FABLE_EFFORT + ")")
     parser.add_argument("--opus-effort", default=DEFAULT_OPUS_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
                         help="claude CLI reasoning effort for the Implementer "
-                             "route (legacy opus address; default: "
-                             + DEFAULT_OPUS_EFFORT + ")")
+                             "(default: " + DEFAULT_OPUS_EFFORT + ")")
     parser.add_argument("--sol-effort", default=DEFAULT_SOL_EFFORT,
                         choices=CODEX_EFFORT_CHOICES,
-                        help="codex CLI reasoning effort for Sol "
-                             "dispatches (default: "
+                        help="codex CLI reasoning effort for the Red Team "
+                             "(default: "
                              + DEFAULT_SOL_EFFORT + ")")
     parser.add_argument("--dispatch-timeout", metavar="MINUTES",
                         type=positive_int, default=DISPATCH_TIMEOUT_MINUTES,
-                        help="kill a dispatched turn that runs past "
-                             "this many minutes and park its message "
-                             "in failed/ (default: "
+                        help="stop a running role after this many minutes and "
+                             "try to move its request file to failed/; if the "
+                             "result or move cannot be verified, the file may "
+                             "remain in inflight/ for inspection (default: "
                              + str(DISPATCH_TIMEOUT_MINUTES) + ")")
     parser.add_argument("--claude-context", metavar="TOKENS",
                         type=positive_int,
                         default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-                        help="Architect and Implementer Claude turns compact "
-                             "their context whenever it reaches this many "
-                             "tokens (default: "
+                        help="ask Claude to replace older Architect and "
+                             "Implementer conversation text with a shorter "
+                             "summary when it reaches this many tokens "
+                             "(default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
                         type=positive_int, default=DEFAULT_SOL_CONTEXT_BUDGET,
-                        help="Sol turns compact their context whenever "
+                        help="ask Codex to replace older Red Team "
+                             "conversation text with a shorter summary when "
                              "it reaches this many tokens (default: "
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
@@ -5280,23 +5370,15 @@ def main():
         if conflicting_action:
             print("--skip-redteam is valid only with --watch")
             return 1
-    if args.ticket_kind is not None and args.send != "sol":
-        print("--ticket-kind is valid only with --send sol")
-        return 1
-    if args.send == "sol" and args.ticket_kind is None:
-        print("--send sol needs --ticket-kind closure or discovery; "
-              "the daemon will not guess from prose")
-        return 1
     if args.severity is not None:
         severity_run = args.watch or args.once
-        severity_send = (args.send == "sol"
-                         and args.ticket_kind == "discovery")
+        severity_send = args.send == "architect"
         if not (severity_run or severity_send):
             print("--severity is valid only with --watch, --once, or "
-                  "--send sol --ticket-kind discovery")
+                  "--send architect")
             return 1
     if args.send is not None and not args.unit:
-        print("--send needs --unit with the routing-summary text")
+        print("--send architect needs --unit with the user's request text")
         return 1
     primary_actions = sum((
         bool(args.once),
@@ -5313,9 +5395,7 @@ def main():
         return 1
 
     selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
-    severity_action = (args.watch or args.once
-                       or (args.send == "sol"
-                           and args.ticket_kind == "discovery"))
+    severity_action = args.watch or args.once or args.send == "architect"
     if severity_action:
         try:
             selected_discovery_severity = resolve_discovery_severity(
@@ -5368,7 +5448,7 @@ def main():
     if args.watch:
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model
-              + " (legacy routes fable/opus)")
+              + " (internal mailbox names: fable/opus)")
         if skip_redteam:
             print("effort levels: architect/fable=" + args.fable_effort
                   + " implementer/opus=" + args.opus_effort
@@ -5389,33 +5469,35 @@ def main():
                   + " tokens (a turn compacts at its budget)")
         if args.cycle == 0:
             if skip_redteam:
-                print("cycle mode: drain enabled Architect/Implementer "
-                      "routes and open ledger, then exit at a proven "
-                      "all-enabled-lanes-idle point")
+                print("cycle 0: wait until no Architect or Implementer "
+                      "message is waiting or running and "
+                      "ai/notes/backlog.md has no '- OPEN' item, then exit; "
+                      "this two-role watch ignores Red Team messages")
             else:
-                print("cycle mode: drain dispatch queue and open ledger, "
-                      "then exit at a proven all-lanes-idle point")
+                print("cycle 0: wait until no role message is waiting or "
+                      "running and ai/notes/backlog.md has no '- OPEN' item, "
+                      "then exit")
         elif args.cycle is not None:
-            print("cycle mode: exit safely after " + str(args.cycle)
-                  + " global rendezvous cycles")
+            print("cycle limit: stop after " + str(args.cycle)
+                  + " completed work periods; finish every role job already "
+                  "starting or running before exit")
 
     if args.ping:
-        ping_text = transport_ping_text(agent=args.ping)
+        ping_text = transport_ping_text(agent="architect")
         queued = send(
-            agent=args.ping,
+            agent="fable",
             text=ping_text,
-            dry_run=args.dry_run,
-            ticket_kind="transport" if args.ping == "sol" else None)
+            dry_run=args.dry_run)
         return 0 if queued else 1
 
     if args.send:
-        queued = send(
-            agent=args.send,
+        request = architect_user_request_payload(
             text=args.unit,
-            dry_run=args.dry_run,
-            ticket_kind=args.ticket_kind,
-            severity=(DISCOVERY_SEVERITY
-                      if args.ticket_kind == "discovery" else None))
+            discovery_severity=selected_discovery_severity)
+        queued = send(
+            agent="fable",
+            text=request,
+            dry_run=args.dry_run)
         return 0 if queued else 1
 
     if args.dry_run:
@@ -5464,12 +5546,13 @@ def main():
                     release_fix_only_lock(lock_file=fix_only_lock)
                 release_dispatch_lock(lock_file=dispatch_lock)
                 return 1
-        print("watching " + MAILBOX + " (stop only when an all-lanes-idle "
-              "line says Ctrl-C is safe; never stop while a turn is in "
-              "flight)")
+        print("watching " + MAILBOX + " (press Ctrl-C only when the program "
+              "says every enabled role is idle and shows the 20-second "
+              "countdown; do not stop while a role is starting or running)")
         if fix_only:
-            print("fix-only watch active: closing existing ledger work "
-                  "only; no discovery tickets or new backlog lines")
+            print("fix-only watch active: finish only work already listed "
+                  "in ai/notes/backlog.md; do not add tickets for newly "
+                  "found problems or new backlog lines")
         # a daemon fix is a no-op for the loop already running (the
         # 2026-07-14 placeholder incident): watch our own source and
         # exit when it changes, so stale code can never keep dispatching.

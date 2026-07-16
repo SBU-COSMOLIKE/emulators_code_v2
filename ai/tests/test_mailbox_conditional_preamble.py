@@ -92,9 +92,12 @@ class ConditionalPreambleTest(unittest.TestCase):
                       " ".join(redteam_role.split()))
         self.assertIn("audited GO or NO-GO + delta", architect_role)
         self.assertIn(
-            "When asked to review a commit or change, attack that named "
+            "When the Architect asks you to review a commit or change, "
+            "attack that named "
             "change", redteam_role.replace("\n", " "))
-        self.assertIn('"Do a widespread search for ..."', redteam_role)
+        self.assertIn(
+            '"Please instruct the Red Team to do a widespread search for '
+            '..."', redteam_role.replace("\n", " "))
 
 
 if __name__ == "__main__":

@@ -59,7 +59,8 @@ def terminal_literal_violations(source):
 
         # The role filename is data, not emphasis. The remaining uppercase
         # words in shipped print literals must be genuine acronyms.
-        prose = literal.replace(".claude/FABLE_ROLE.md", "")
+        prose = (literal.replace(".claude/FABLE_ROLE.md", "")
+                 .replace("'- OPEN'", ""))
         for word in re.findall(r"(?<![A-Za-z0-9])([A-Z]{2,})"
                                r"(?![A-Za-z0-9])", prose):
             if word not in ALLOWED_TERMINAL_ACRONYMS:
@@ -190,9 +191,10 @@ def main():
 
     hint = runtime_hint_line()
     expected_hint = (
-        "  hint: 10 or more items are waiting. Give Sol separate "
-        "implementation jobs as a second Implementer, but only a message "
-        "with the required declaration changes Sol's role; otherwise Sol "
+        "  hint: 10 or more items are waiting. Ask the Architect to give Sol "
+        "separate implementation jobs as a second Implementer, but only an "
+        "Architect message with the required declaration changes Sol's "
+        "role; otherwise Sol "
         "remains the Red Team.")
     refusal = runtime_refusal_line()
     expected_refusal = (

@@ -169,7 +169,8 @@ def start_main_thread(daemon, arguments):
 def countdown_lines(output):
     """Return only the exact safe-window countdown lines."""
     return [line for line in output.splitlines()
-            if line.startswith("all lanes idle; safe to Ctrl-C for ")
+            if line.startswith(
+                "every enabled role is idle; safe to Ctrl-C for ")
             and "s more;" in line]
 
 
@@ -181,7 +182,7 @@ def expected_countdown(waiting):
         noun = "message" if waiting == 1 else "messages"
         count_text = str(waiting) + " " + noun + " waiting"
     return [
-        "all lanes idle; safe to Ctrl-C for " + str(remaining)
+        "every enabled role is idle; safe to Ctrl-C for " + str(remaining)
         + "s more; " + count_text + "."
         for remaining in range(COUNTDOWN_SECONDS - 1, -1, -1)
     ]
@@ -413,7 +414,7 @@ def arm_minute_cadence_and_idle_status(source=None):
         del error_output
         lines = countdown_lines(output)
         idle_lines = [line for line in output.splitlines()
-                      if "all lanes idle" in line
+                      if "every enabled role is idle" in line
                       and "safe to Ctrl-C" in line
                       and "s more;" not in line]
         try:
@@ -491,7 +492,8 @@ def arm_safe_line_expires_before_claim(source=None):
         output = result.get("output", "")
         try:
             safe_index = output.index(
-                "all lanes idle; safe to Ctrl-C for this 20s poll; "
+                "every enabled role is idle; safe to Ctrl-C for this "
+                "20s poll; "
                 "no messages waiting.")
             closed_index = output.index(
                 "safe interval ended; not safe to stop.", safe_index + 1)
@@ -706,7 +708,8 @@ def arm_cycle_argument_contract(source=None):
             and valid_error is None and valid_rc == 0 and released
             and not daemon.fix_only_watch_is_active()
             and "fix-only watch active" in valid_output
-            and "cycle mode: drain dispatch queue and open ledger"
+            and "cycle 0: wait until no role message is waiting or running "
+            "and ai/notes/backlog.md has no '- OPEN' item, then exit"
             in valid_output
             and "cycle work complete after 0 cycles" in valid_output)
         print("cycle parser/action contract=" + str(passed))
@@ -726,10 +729,12 @@ def arm_omitted_cycle_remains_unbounded(source=None):
             daemon.release_dispatch_lock(lock_file=retry_lock)
         passed = (
             rc is None and isinstance(error, KeyboardInterrupt) and released
-            and "all lanes idle; safe to Ctrl-C for this 20s poll; "
+            and "every enabled role is idle; safe to Ctrl-C for this "
+            "20s poll; "
             "no messages waiting." in output
-            and "cycle mode:" not in output
-            and "watcher exiting safely" not in output)
+            and "cycle 0:" not in output
+            and "cycle limit:" not in output
+            and "watcher stopped" not in output)
         print("omitted cycle remains unbounded=" + str(passed))
         return passed
 
@@ -763,8 +768,9 @@ def arm_positive_cycle_limit_preserves_queue(source=None):
         if retry_lock is not None:
             daemon.release_dispatch_lock(lock_file=retry_lock)
         terminal = (
-            "cycle limit reached (2/2 cycles); all lanes idle; watcher "
-            "exiting safely; 1 message waiting; 0 open ledger jobs remain.")
+            "cycle limit reached (2/2 cycles); every enabled role is idle; "
+            "watcher stopped; 1 message waiting; 0 backlog items still "
+            "begin with '- OPEN'.")
         passed = (
             error is None and rc == 0 and released
             and launches == [first.name, second.name]
@@ -801,14 +807,16 @@ def arm_positive_cycle_waits_for_exact_boundary(source=None):
         rc, output, _, error = call_main(
             daemon, ["--watch", "--cycle", "2"])
         terminal = (
-            "cycle limit reached (2/2 cycles); all lanes idle; watcher "
-            "exiting safely; no messages waiting; 0 open ledger jobs remain.")
+            "cycle limit reached (2/2 cycles); every enabled role is idle; "
+            "watcher stopped; no messages waiting; 0 backlog items still "
+            "begin with '- OPEN'.")
         passed = (
             error is None and rc == 0 and launches == [first.name]
             and not first.exists()
             and countdown_lines(output) == expected_countdown(waiting=0)
             and output.count(
-                "all lanes idle; safe to Ctrl-C for this 20s poll; "
+                "every enabled role is idle; safe to Ctrl-C for this "
+                "20s poll; "
                 "no messages waiting.") == 1
             and output.count("safe interval ended; not safe to stop.") == 2
             and "cycle work complete" not in output and terminal in output)
@@ -858,11 +866,13 @@ def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
             and daemon.backlog_ledger_count() == 0
             and countdown_lines(output) == []
             and output.count(
-                "all lanes idle; safe to Ctrl-C for this 20s poll; "
+                "every enabled role is idle; safe to Ctrl-C for this "
+                "20s poll; "
                 "no messages waiting.") == 1
             and output.count("safe interval ended; not safe to stop.") == 1
-            and "cycle work complete after 1 cycle; all lanes idle; mailbox "
-            "and ledger empty; watcher exiting safely." in output)
+            and "cycle work complete after 1 cycle; no role message is "
+            "waiting or running; ai/notes/backlog.md has no '- OPEN' item; "
+            "watcher stopped." in output)
         print("zero cycle drains ledger and preserves cadence=" + str(passed))
         return passed
 
@@ -894,8 +904,9 @@ def arm_zero_cycle_waits_for_queue(source=None):
             and launches == [first.name, second.name]
             and not first.exists() and not second.exists()
             and countdown_lines(output) == expected_countdown(waiting=1)
-            and "cycle work complete after 2 cycles; all lanes idle; mailbox "
-            "and ledger empty; watcher exiting safely." in output)
+            and "cycle work complete after 2 cycles; no role message is "
+            "waiting or running; ai/notes/backlog.md has no '- OPEN' item; "
+            "watcher stopped." in output)
         print("zero cycle waits for queue=" + str(passed))
         return passed
 
@@ -938,8 +949,9 @@ def arm_zero_cycle_send_before_cutoff_is_seen(source=None):
             and launches == ["0001-to-opus.md"]
             and daemon.pending_messages() == []
             and not (mailbox / "0001-to-opus.md").exists()
-            and "cycle work complete after 0 cycles; all lanes idle; mailbox "
-            "and ledger empty; watcher exiting safely." in output)
+            and "cycle work complete after 0 cycles; no role message is "
+            "waiting or running; ai/notes/backlog.md has no '- OPEN' item; "
+            "watcher stopped." in output)
         print("send before cycle-zero cutoff is observed=" + str(passed))
         return passed
 
@@ -1075,8 +1087,7 @@ def arm_cycle_ledger_fail_closed(source=None):
                 rc is None and isinstance(error, KeyboardInterrupt)
                 and released and expected in output
                 and "watcher remains active" in output
-                and "cycle work complete" not in output
-                and "mailbox and ledger empty" not in output)
+                and "cycle work complete" not in output)
     passed = results == [True, True]
     print("cycle-zero ledger failures stay active=" + str(passed))
     return passed

@@ -39,6 +39,7 @@ REQUIRED_SECTIONS = {
         "Starting point",
         "Execution checkout",
         "Character-change budget",
+        "Role plan",
         "Files and symbols",
         "Ordered implementation steps",
         "Interfaces and exact behavior",
@@ -65,6 +66,24 @@ REQUIRED_SECTIONS = {
         "Stop and ask if",
         "Architect adjudication required",
     ),
+}
+
+ARCHITECT_ROLE_PLANS = {
+    "Architect + Implementer + Red Team": {
+        "route": "three-role",
+        "uses_red_team": True,
+        "uses_sol_as_implementer": False,
+    },
+    "Architect + Implementer": {
+        "route": "two-role",
+        "uses_red_team": False,
+        "uses_sol_as_implementer": False,
+    },
+    "Architect + Sol as Implementer": {
+        "route": "sol-as-implementer",
+        "uses_red_team": False,
+        "uses_sol_as_implementer": True,
+    },
 }
 
 HEADING_RE = re.compile(
@@ -200,6 +219,13 @@ CHARACTER_BUDGET_ROWS = (
     re.compile(r"^- Limit: `([0-9]+)`$"),
     re.compile(r"^- Planned maximum: `([0-9]+)`$"),
     re.compile(r"^- Readability plan: (.+)$"),
+)
+ROLE_PLAN_ROWS = (
+    re.compile(
+        r"^- Roles: `(Architect \+ Implementer \+ Red Team|"
+        r"Architect \+ Implementer|Architect \+ Sol as Implementer)`$"),
+    re.compile(
+        r"^- Discovery severity: `(high|medium|low|not-used)`$"),
 )
 REDTEAM_SEVERITY_ROWS = (
     ("User severity setting",
@@ -936,6 +962,44 @@ def _require_character_change_budget(body, expected_max):
     }
 
 
+def _require_architect_role_plan(body):
+    """Return the exact role plan written by the Architect.
+
+    The manual router may verify command-line confirmations against this
+    section, but it must never let those confirmations replace the plan in
+    the source note.
+    """
+    structural = _binding_markdown_text(text=body)
+    rows = [line for line in structural.split("\n") if line.strip()]
+    if len(rows) != len(ROLE_PLAN_ROWS):
+        raise DirectiveError(
+            "section 'Role plan' requires exactly these rows in order: "
+            "- Roles: `...`; - Discovery severity: `...`")
+    matches = []
+    for row, pattern in zip(rows, ROLE_PLAN_ROWS):
+        match = pattern.fullmatch(row)
+        if match is None:
+            raise DirectiveError(
+                "section 'Role plan' requires one supported Roles value "
+                "and one Discovery severity value")
+        matches.append(match)
+
+    roles = matches[0].group(1)
+    severity = matches[1].group(1)
+    plan = dict(ARCHITECT_ROLE_PLANS[roles])
+    if plan["uses_red_team"] and severity == "not-used":
+        raise DirectiveError(
+            "section 'Role plan' must name high, medium, or low discovery "
+            "severity when the Red Team is included")
+    if not plan["uses_red_team"] and severity != "not-used":
+        raise DirectiveError(
+            "section 'Role plan' must use discovery severity `not-used` "
+            "when the Red Team is not included")
+    plan["roles"] = roles
+    plan["discovery_severity"] = severity
+    return plan
+
+
 def _require_redteam_severity_assessment(body, expected_user_severity=None):
     """Return the five ordered discovery-assessment fields."""
     structural = _binding_markdown_text(text=body)
@@ -1294,7 +1358,8 @@ def validate_directive_text(role, text, expected_max=0,
 
     Returns:
       A parsed dictionary containing the role, packet title, character-change
-      budget, and Architect execution checkout when applicable.
+      budget, and the Architect's execution checkout and role plan when
+      applicable.
       ``DirectiveError`` is raised when the packet is incomplete or its
       character-change limit differs from ``expected_max``.
     """
@@ -1335,6 +1400,8 @@ def validate_directive_text(role, text, expected_max=0,
         execution_checkout = _require_execution_checkout(
             body=bodies["Execution checkout"])
         result["execution_checkout"] = execution_checkout
+        result["role_plan"] = _require_architect_role_plan(
+            body=bodies["Role plan"])
         _require_locator(bodies=bodies, heading="Tests to write")
         _require_evidence_destination(text=text, packet_title=title)
     else:

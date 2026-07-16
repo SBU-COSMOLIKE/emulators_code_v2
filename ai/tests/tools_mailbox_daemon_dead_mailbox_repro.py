@@ -321,7 +321,7 @@ def arm_advisory_send_and_ping_succeed():
                    and warning_lines(output) == [OWN_WARNING + str(mailbox)])
     with scratch_daemon() as (daemon, _, mailbox):
         previous_argv = sys.argv
-        sys.argv = [str(DAEMON_PATH), "--ping", "opus"]
+        sys.argv = [str(DAEMON_PATH), "--ping", "architect"]
         stream = io.StringIO()
         try:
             with contextlib.redirect_stdout(stream):
@@ -332,7 +332,7 @@ def arm_advisory_send_and_ping_succeed():
         ping_ok = (rc == 0 and len(paths) == 1
                    and pathlib.Path(paths[0]).read_text(
                        encoding="utf-8").startswith(
-                           "RELAY CONFIRMATION PING for opus.")
+                           "RELAY CONFIRMATION PING for architect.")
                    and warning_lines(stream.getvalue())
                    == [OWN_WARNING + str(mailbox)])
     print("advisory send_ok=" + str(send_ok)

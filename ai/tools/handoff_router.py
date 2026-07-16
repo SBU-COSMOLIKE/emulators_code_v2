@@ -1,61 +1,41 @@
 #!/usr/bin/env python3
-"""Clipboard relay for the audited Architect / Implementer agent loop.
+"""Carry approved handoff blocks between manual web conversations.
 
-The user runs each agent in its own web session (subscription plans, no API).
-The default route also includes the independent Sol Red Team; passing
-``--skip-redteam`` or ``--no-red-team`` makes that third session optional.
-This router removes the copy/paste bookkeeping while KEEPING the program's
-communication rules intact:
+A source note is the Markdown file under ``ai/notes/`` that contains the
+Architect's checked plan. The user gives every request and correction only to
+the Architect. A human courier may paste a generated handoff block unchanged
+into the Implementer or Red Team conversation.
 
-  - NOTES-FIRST: the prompts this script copies are ROUTING SUMMARIES that
-    point at `ai/notes/` entries. The substance always lives in the note the
-    agents themselves write. Captured chat blocks are archived under
-    `ai/notes/relay/` as TRANSPORT COPIES ONLY -- they are never the source of
-    record; the agent-written note is.
-  - GATE INTEGRITY: the router runs the validation gates LOCALLY, on this
-    machine, and archives the raw log. The agents never get to invent that
-    output. The Architect still re-runs evidence per its role file; the
-    router's log is corroborating input, not the audit.
-  - ROLE FILES GOVERN: each prompt names the exact role file. The long
-    directive remains in the cited note; the prompt reminds the receiver to
-    validate it rather than restating it. The one required mode sentence --
-    the second-Implementer declaration -- is inserted verbatim when
-    --mode second-implementer is passed.
+Copies of returned blocks and command output are saved under
+``ai/notes/relay/``. They support the Architect's review, but they do not
+replace the source note. The Architect reruns every required check and alone
+decides ``GO`` or ``NO-GO``.
 
-Flow (one unit per run):
+For one ticket, this program:
 
-    validated directive ready
-          |
-          v
-    [1] copy one Implementer prompt       -> Opus normally, Sol only when
-                                             --mode second-implementer
-    [2] capture IMPLEMENTER_HANDOFF       <- copy the one owner's block
-    [3] run the local gates, archive log
-    [4] optionally copy the Sol Red Team prompt (normal mode only;
-        skipped with --skip-redteam or when Sol owns implementation)
-    [5] capture the Red Team handoff       <- copy the block from Sol
-    [6] copy the Fable routing prompt     -> paste into the Fable session
-          |
-          v
-    Fable audits per its role file (its own re-runs), emits the verdict.
+1. checks the Architect's source note;
+2. puts the approved Implementer block on the clipboard;
+3. waits for the Implementer's returned block;
+4. runs the local check commands and saves their exact output;
+5. includes Red Team only when the source note requires it; and
+6. puts every saved result on the clipboard for the Architect.
 
 Usage:
 
-    python ai/tools/handoff_router.py --note ai/notes/<ticket>.md \\
-        --section "Implementation directive" \\
-        --mode second-implementer
-    python ai/tools/handoff_router.py --note ai/notes/<spec>.md            # full loop
-    python ai/tools/handoff_router.py --note ai/notes/<spec>.md --skip-redteam
-    python ai/tools/handoff_router.py --note ai/notes/<spec>.md --no-red-team
+    python ai/tools/handoff_router.py --note ai/notes/<spec>.md --section \\
+        "Implementation directive"
+    python ai/tools/handoff_router.py --note ai/notes/<spec>.md
 
-The gate commands default to the board's cheap surfaces and can be replaced
-with the unit's own validation gate:
+The source note may choose three roles, two roles, or Sol as the Implementer.
+``--mode``, ``--skip-redteam``, and ``--severity`` can confirm that saved
+choice. They cannot change it.
+
+Use ``--gate-cmd`` to name a ticket's local check command:
 
     --gate-cmd "PYTHONPATH=. <cocoa-python> ai/gates/checks/<child>.py"
 
-Lost between manual handoffs? Run the status sweep -- no clipboard, no
-waiting, just the current program state read mechanically from git and the
-notes:
+Use ``--status`` to read the current Git branches and saved records without
+changing the clipboard or waiting for another conversation:
 
     python ai/tools/handoff_router.py --status
 """
@@ -84,7 +64,6 @@ from handoff_contract import resolve_character_limit
 from handoff_contract import validate_directive_file
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
 DISCOVERY_SEVERITIES = ("high", "medium", "low")
-DEFAULT_DISCOVERY_SEVERITY = "medium"
 DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 RUN_RESERVATIONS_DIR = os.path.join(RELAY_DIR, ".router-runs")
 ROUTER_LOCK_PATH = os.path.join(
@@ -156,7 +135,7 @@ def wait_for_block(header, last_copied):
     """Block until the clipboard holds a new handoff with the right heading.
 
     The comparison baseline is the text THIS script last copied, so the
-    routing prompt itself cannot be captured as the response. Requiring a
+    instruction itself cannot be mistaken for the response. Requiring a
     Markdown heading also prevents ordinary prose that mentions the handoff
     token from being mistaken for a return block.
 
@@ -167,7 +146,7 @@ def wait_for_block(header, last_copied):
                     the clipboard.
 
     Returns:
-      the captured clipboard text.
+      the returned clipboard text.
     """
     print("... waiting for a copied block headed '" + header + "'")
     while True:
@@ -303,19 +282,19 @@ def resolve_note_path(note):
 
 
 def archive(seq, name, text):
-    """Write one transport copy under ai/notes/relay/ and return its path.
+    """Save one supporting copy under ai/notes/relay/ and return its path.
 
     Arguments:
       seq  = the run sequence stamp (shared by all files of this run).
       name = short role tag for the filename ("implementer", "sol", ...).
-      text = the captured block or log text.
+      text = the returned block or command-output text.
     """
     os.makedirs(RELAY_DIR, exist_ok=True)
     path = os.path.join(RELAY_DIR, seq + "-" + name + ".md")
     with open(path, "w", encoding="utf-8") as f:
-        f.write("<!-- TRANSPORT COPY (non-authoritative). The source of\n"
-                "     record is the agent-written note this block cites.\n"
-                "     Archived by ai/tools/handoff_router.py. -->\n\n")
+        f.write("<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
+                "     that this block cites remains authoritative.\n"
+                "     Saved by ai/tools/handoff_router.py. -->\n\n")
         f.write(text)
         if not text.endswith("\n"):
             f.write("\n")
@@ -323,18 +302,18 @@ def archive(seq, name, text):
 
 
 def run_gates(commands, seq):
-    """Run the validation gates locally; archive the full log.
+    """Run local checks and save their complete output.
 
-    The console shows one verdict line per command (essential-only house
-    rule); the complete streams go to the relay log file.
+    The console shows one result line per command. Complete output goes to a
+    log file under ``ai/notes/relay/``.
 
     Arguments:
       commands = list of shell command strings to run from the repo root.
       seq      = the run sequence stamp for the log filename.
 
     Returns:
-      (log_path, all_green) -- the archive path and whether every command
-      exited zero.
+      (log_path, all_green) -- the saved log path and whether every command
+      returned exit code zero.
     """
     lines = []
     all_green = True
@@ -443,17 +422,17 @@ def _git(args_list):
 
 
 def status_report():
-    """Print where the program stands, read mechanically from git + notes.
+    """Print current work saved by Git and the note files.
 
-    No clipboard, no waiting. The output is itself a valid re-orientation
-    text: paste it into any of the three sessions and the agent can pick up
-    from the notes it names.
+    No clipboard, no waiting. If the user needs help interpreting the output,
+    they give it to the Architect. The user does not send it to the
+    Implementer or Red Team.
     """
-    print("== HANDOFF STATUS (mechanical sweep) ==\n")
+    print("== AI WORK STATUS ==\n")
 
-    # 1. the working branch vs main: is a landing block pending?
+    # Compare the Architect's work branch with main, the user's branch.
     main_tip = _git(["log", "--oneline", "-1", "main"])
-    print("main tip:            " + main_tip)
+    print("latest saved version on main: " + main_tip)
     branches = _git(["branch", "--list", "claude/*", "codex/*",
                      "--format=%(refname:short) %(committerdate:unix)"])
     working = ""
@@ -468,15 +447,17 @@ def status_report():
     if working:
         tip = _git(["log", "--oneline", "-1", working])
         ahead = _git(["rev-list", "--count", "main.." + working])
-        print("working branch:      " + tip)
+        print("Architect work branch:        " + tip)
         if ahead != "0":
-            print("  -> " + ahead + " commit(s) not on main. Landing block:")
+            print("  -> " + ahead + " saved change(s) are not on main.")
+            print("     After a GO verdict, only the Architect runs:")
             print("     git merge --no-edit " + working
                   + " && git push origin main")
         else:
-            print("  -> main is current; no landing block pending.")
+            print("  -> main already includes this branch's saved changes.")
 
-    # 2. red-team / second-Implementer branches: integrated or awaiting Fable?
+    # Show Red Team or second-Implementer branches and whether main or the
+    # Architect work branch already includes them.
     print("\ncodex/* branches:")
     any_open = False
     for line in branches.splitlines():
@@ -499,15 +480,15 @@ def status_report():
         if is_integrated:
             state = "integrated"
         else:
-            state = "OPEN -- awaiting Fable audit/merge (or still in work)"
+            state = "OPEN -- awaiting Architect audit/merge (or still in work)"
             any_open = True
         tip = _git(["log", "--oneline", "-1", name])
         print("  [" + state + "] " + tip)
     if not any_open:
         print("  (none open)")
 
-    # 3. the newest adjudication records (their titles carry the verdicts).
-    print("\nlatest records in ai/notes/gates-and-board.md:")
+    # Show the latest saved Architect decisions.
+    print("\nlatest Architect records in ai/notes/gates-and-board.md:")
     gb = os.path.join(NOTES_DIR, "gates-and-board.md")
     if os.path.isfile(gb):
         heads = []
@@ -518,7 +499,7 @@ def status_report():
         for head in heads[-6:]:
             print("  " + head)
 
-    # 4. the newest relay transport copies, if the router has run.
+    # Show recent copies of handoff blocks saved by this tool.
     if os.path.isdir(RELAY_DIR):
         names = []
         for name in os.listdir(RELAY_DIR):
@@ -527,51 +508,52 @@ def status_report():
                 names.append(name)
         names.sort()
         if names:
-            print("\nnewest relay transport copies (non-authoritative):")
+            print("\nrecent copied handoff records (supporting records only):")
             for name in names[-3:]:
                 print("  " + os.path.relpath(RELAY_DIR, REPO_ROOT)
                       + "/" + name)
 
-    print("\nNext action, in order of precedence:")
-    print("  1. any OPEN codex branch above -> relay its handoff (or this")
-    print("     status text) to the Fable session for audit + merge.")
-    print("  2. a pending landing block -> run it (it is printed above).")
-    print("  3. otherwise -> the loop is idle; start the next unit with")
-    print("     --note, or paste this status into any session and ask.")
+    print("\nNext action:")
+    print("  1. If a codex/* branch says OPEN, give this status to the")
+    print("     Architect for review.")
+    print("  2. If saved changes are not on main, the Architect audits them")
+    print("     and runs the printed Git commands only after a GO verdict.")
+    print("  3. Otherwise, the work is idle. Give the next request to the")
+    print("     Architect, who may start a validated --note run.")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Clipboard relay for the Architect/Implementer loop "
-                    "with an optional Sol Red Team")
+        description="copy approved Architect instructions between manual "
+                    "web conversations")
     parser.add_argument("--status",
                         action="store_true",
-                        help="print the mechanical program status (branches, "
-                             "pending landing block, latest records) and exit")
+                        help="show saved AI work, changes not yet on main, "
+                             "and recent Architect records, then exit")
     parser.add_argument("--note",
                         required=False,
-                        help="ai/notes/ file carrying the ARCHITECT handoff "
-                             "(the substance; the prompt only points here)")
+                        help="source note under ai/notes/ containing the "
+                             "Architect's checked Implementation directive")
     parser.add_argument("--section",
                         default="",
                         help="optional exact section name; only "
                              "'Implementation directive' is valid")
     parser.add_argument("--mode",
                         choices=["redteam", "second-implementer"],
-                        default="redteam",
-                        help="use ordinary Opus plus optional Sol review "
-                             "(default), or assign this unit to Sol instead "
-                             "of Opus with the explicit declaration")
+                        default=None,
+                        help="confirm the role plan saved by the Architect; "
+                             "this option cannot change that plan")
     parser.add_argument("--skip-redteam", "--no-red-team",
                         dest="skip_redteam",
                         action="store_true",
-                        help="skip the entire Sol step and route Implementer "
-                             "-> local gates -> Architect")
+                        help="confirm that the Architect note chose only "
+                             "Architect and Implementer; this option cannot "
+                             "remove Red Team from another plan")
     parser.add_argument("--gate-cmd",
                         action="append",
                         default=[],
-                        help="validation command (repeatable); replaces the "
-                             "default board surfaces")
+                        help="local check command (repeatable); replaces the "
+                             "default check commands")
     parser.add_argument(
         "--max", metavar="characters",
         type=nonnegative_character_limit, default=None,
@@ -579,22 +561,20 @@ def main():
              "omitted, use MAILBOX_MAX_CHARACTERS if present, otherwise 0")
     parser.add_argument(
         "--severity", choices=DISCOVERY_SEVERITIES, default=None,
-        help="minimum severity for a new ticket found by the Red Team "
-             "(default: medium; valid only when the Red Team step runs)")
+        help="confirm the discovery severity saved in the Architect note; "
+             "this option cannot change that value")
     args = parser.parse_args()
 
     if args.max is not None and (not args.note or args.status):
-        print("--max is valid only with a --note relay")
+        print("--max is valid only with a --note run")
         return 1
-    if args.skip_redteam and args.mode == "second-implementer":
-        print("--skip-redteam/--no-red-team cannot be combined with "
-              "--mode second-implementer")
-        return 1
-    if args.severity is not None and (
-            args.skip_redteam or args.mode != "redteam"
-            or not args.note or args.status):
-        print("--severity is valid only with a --note relay whose Red Team "
-              "step is enabled")
+    role_confirmation_used = (
+        args.mode is not None
+        or args.skip_redteam
+        or args.severity is not None)
+    if role_confirmation_used and (not args.note or args.status):
+        print("--mode, --skip-redteam, and --severity only confirm the "
+              "Role plan in a --note run")
         return 1
     if args.status:
         status_report()
@@ -612,28 +592,6 @@ def main():
     except DirectiveError as exc:
         print("refused character-change limit: " + str(exc))
         return 1
-    discovery_severity = DEFAULT_DISCOVERY_SEVERITY
-    if not args.skip_redteam and args.mode == "redteam":
-        inherited_severity = os.environ.get(
-            DISCOVERY_SEVERITY_ENVIRONMENT)
-        if (inherited_severity is not None
-                and inherited_severity not in DISCOVERY_SEVERITIES):
-            print("refused discovery severity: "
-                  + DISCOVERY_SEVERITY_ENVIRONMENT
-                  + " must be exactly high, medium, or low")
-            return 1
-        discovery_severity = (args.severity
-                              if args.severity is not None
-                              else (DEFAULT_DISCOVERY_SEVERITY
-                                    if inherited_severity is None
-                                    else inherited_severity))
-        if (args.severity is not None and inherited_severity is not None
-                and args.severity != inherited_severity):
-            print("refused discovery severity: --severity " + args.severity
-                  + " does not match inherited "
-                  + DISCOVERY_SEVERITY_ENVIRONMENT + " "
-                  + inherited_severity)
-            return 1
     try:
         note_path, note_display = resolve_note_path(args.note)
         directive = validate_directive_file(
@@ -643,6 +601,48 @@ def main():
     except DirectiveError as exc:
         print("refused incomplete Architect directive: " + str(exc))
         return 1
+    role_plan = directive["role_plan"]
+    if role_plan["uses_sol_as_implementer"]:
+        expected_mode = "second-implementer"
+    elif role_plan["uses_red_team"]:
+        expected_mode = "redteam"
+    else:
+        expected_mode = None
+    if args.mode is not None and args.mode != expected_mode:
+        print("refused role confirmation: --mode " + args.mode
+              + " does not match the Architect Role plan `"
+              + role_plan["roles"] + "`")
+        return 1
+    if args.skip_redteam and role_plan["route"] != "two-role":
+        print("refused role confirmation: --skip-redteam does not match the "
+              "Architect Role plan `" + role_plan["roles"] + "`")
+        return 1
+    if args.severity is not None:
+        if not role_plan["uses_red_team"]:
+            print("refused severity confirmation: the Architect Role plan "
+                  "does not include Red Team")
+            return 1
+        if args.severity != role_plan["discovery_severity"]:
+            print("refused severity confirmation: --severity "
+                  + args.severity + " does not match the Architect Role "
+                  "plan " + role_plan["discovery_severity"])
+            return 1
+    inherited_severity = os.environ.get(DISCOVERY_SEVERITY_ENVIRONMENT)
+    if (inherited_severity is not None
+            and inherited_severity not in DISCOVERY_SEVERITIES):
+        print("refused discovery severity: "
+              + DISCOVERY_SEVERITY_ENVIRONMENT
+              + " must be exactly high, medium, or low")
+        return 1
+    if (role_plan["uses_red_team"]
+            and inherited_severity is not None
+            and inherited_severity != role_plan["discovery_severity"]):
+        print("refused discovery severity: Architect Role plan "
+              + role_plan["discovery_severity"] + " does not match "
+              + DISCOVERY_SEVERITY_ENVIRONMENT + " "
+              + inherited_severity)
+        return 1
+    discovery_severity = role_plan["discovery_severity"]
     try:
         router_lock = acquire_router_lock()
     except RuntimeError as exc:
@@ -656,6 +656,10 @@ def main():
         + str(budget["limit"]) + " characters; planned maximum "
         + str(budget["planned_maximum"]) + " characters. Zero removes the "
         "size cap only; readable complete tested work remains mandatory.\n\n")
+    role_prompt = (
+        "Architect's validated role plan: " + role_plan["roles"] + ". "
+        "Discovery severity: " + discovery_severity + ". The runner and "
+        "human courier may not change this plan.\n\n")
     severity_prompt = (
         "User severity setting for any new Red Team ticket: "
         + discovery_severity + ". High means severe core harm, data loss, "
@@ -666,15 +670,15 @@ def main():
         "the finding meets this setting. "
         "The Architect accepts, upgrades, or downgrades the rating and "
         "makes the final GO or NO-GO decision.\n\n")
-    total_steps = (3 if args.skip_redteam
-                   or args.mode == "second-implementer" else 4)
+    total_steps = 4 if role_plan["uses_red_team"] else 3
 
     # [1] One execution owner receives this unit. Second-Implementer mode
     # assigns it to Sol INSTEAD OF Opus; it never duplicates one directive.
-    if args.mode == "second-implementer":
+    if role_plan["uses_sol_as_implementer"]:
         implementer_prompt = (
             "### ARCHITECT_HANDOFF (relay)\n\n"
             + SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
+            + role_prompt
             + budget_prompt
             + "The decision-complete Implementation directive is in "
             + where + ". Read .codex/REDTEAM_ROLE.md for this explicit mode "
@@ -688,27 +692,29 @@ def main():
     else:
         implementer_prompt = (
             "### ARCHITECT_HANDOFF (relay)\n\n"
+            + role_prompt
             + budget_prompt
             + "The decision-complete Implementation directive for your next "
             "unit is in " + where + " of this repository. Read "
             ".claude/OPUS_ROLE.md, read that entry and its [[links]], run the "
             "directive check, verify its Execution checkout, then follow its "
             "ordered plan and reply with your IMPLEMENTER_HANDOFF block (a "
-            "routing summary; append substance under the sibling evidence "
+            "short return; append the full result under the sibling evidence "
             "heading first).\n\n### ENDS\n")
         implementer_name = "Opus"
         archive_name = "implementer"
 
     copy_to_clipboard(implementer_prompt)
     print("[1/" + str(total_steps) + "] " + implementer_name
-          + " routing prompt copied -- paste it into that session.")
+          + " instruction copied -- paste it unchanged into that session.")
     implementer_block = wait_for_block(
         header="### IMPLEMENTER_HANDOFF:",
         last_copied=implementer_prompt)
     path = archive(seq, archive_name, implementer_block)
-    print("      captured -> " + path)
+    print("      returned block saved -> " + path)
 
-    # [3] objective local gates (the anti-hallucination anchor).
+    # [2] Run local checks and save their exact output. The Architect still
+    # reruns every check required by the directive before deciding.
     commands = list(args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS)
     if budget["limit"] > 0:
         guard = directive["ticket_change_guard"]
@@ -722,59 +728,60 @@ def main():
             "--base", guard["base"],
             "--max", str(guard["max"]),
         ]))
-    print("[2/" + str(total_steps) + "] running the local validation gates:")
+    print("[2/" + str(total_steps) + "] running the local checks:")
     log_path, all_green = run_gates(commands=commands, seq=seq)
-    print("      gates " + ("ALL PASS" if all_green else "NOT all green")
+    print("      checks " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
 
     redteam_block = ""
-    if not args.skip_redteam and args.mode == "redteam":
+    if role_plan["uses_red_team"]:
         sol_prompt = (
             "### ARCHITECT_REDTEAM_HANDOFF (relay)\n\n"
+            + role_prompt
             + budget_prompt
             + severity_prompt
             + "The named delta is specified in " + where + ". Read\n"
             ".codex/REDTEAM_ROLE.md and stay within that delta. The\n"
-            "Implementer's return transport copy is at " + path + " and\n"
-            "the local gate log is at " + log_path + ". A confirmed\n"
+            "saved Implementer return is at " + path + " and\n"
+            "the local check log is at " + log_path + ". A confirmed\n"
             "finding needs a validated, implementation-ready candidate\n"
             "Repair directive in ai/notes/; return it to the Architect in\n"
             "ARCHITECT_REDTEAM_HANDOFF, never directly to the Implementer.\n\n"
             "### ENDS\n")
         copy_to_clipboard(sol_prompt)
-        print("[3/4] Sol routing prompt copied (redteam mode) -- "
-              "paste it into the Sol session.")
+        print("[3/4] Red Team instruction copied -- paste it unchanged into "
+              "the Sol session.")
         redteam_block = wait_for_block(
             header="### ARCHITECT_REDTEAM_HANDOFF:",
             last_copied=sol_prompt)
         sol_path = archive(seq, "sol", redteam_block)
-        print("      captured -> " + sol_path)
+        print("      returned block saved -> " + sol_path)
 
-    # [5] Fable routing prompt: point at everything; the audit is Fable's
-    #     own (its role file requires its own re-runs -- the router's log is
-    #     corroborating input, never a substitute).
-    fable_prompt = (
+    # [3 or 4] Return every record to the Architect. The Architect reruns the
+    # required checks; the router's log is supporting evidence, not a verdict.
+    architect_prompt = (
         "### RELAY FOR AUDIT\n\n"
+        + role_prompt
         + budget_prompt
         + (severity_prompt if redteam_block else "")
         + "Unit spec: " + where + "\n"
-        "Implementer return (transport copy): " + path + "\n"
-        + ("Red Team return (transport copy): " + sol_path + "\n"
+        "Implementer return (saved copy): " + path + "\n"
+        + ("Red Team return (saved copy): " + sol_path + "\n"
            if redteam_block else "")
-        + "Router's local gate log: " + log_path + "\n\n"
-        + "Router gate summary: "
+        + "Local check log: " + log_path + "\n\n"
+        + "Local check summary: "
         + ("ALL PASS.\n" if all_green else
            "NOT all green. The Architect must inspect the failed command "
-           "and issue NO-GO or a new binding directive; this relay does not "
+           "and issue NO-GO or new instructions; this tool does not "
            "close the ticket.\n")
-        + "Audit per your role file -- including your own re-runs of the\n"
-        "evidence. The archived blocks and the gate log are inputs, not\n"
-        "the audit.\n\n"
+        + "Review per your role file, including your own reruns of every\n"
+        "required check. The saved blocks and check log support the review;\n"
+        "they do not replace it.\n\n"
         "### ENDS\n")
-    copy_to_clipboard(fable_prompt)
+    copy_to_clipboard(architect_prompt)
     print("[" + str(total_steps) + "/" + str(total_steps)
-          + "] Fable routing prompt copied -- paste it into the Fable "
-          "session for the verdict.")
+          + "] Architect return prompt copied -- paste it unchanged into "
+          "the Architect session for the verdict.")
     release_router_lock(router_lock)
     return 0
 

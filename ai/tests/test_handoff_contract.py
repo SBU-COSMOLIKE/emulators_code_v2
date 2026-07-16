@@ -39,6 +39,9 @@ ARCHITECT_BODIES = {
         "- Planned maximum: `900`\n"
         "- Readability plan: Keep descriptive names and explicit control "
         "flow throughout the complete tested change."),
+    "Role plan": (
+        "- Roles: `Architect + Implementer + Red Team`\n"
+        "- Discovery severity: `medium`"),
     "Files and symbols": (
         "- `ai/tools/example.py::validate`: modify the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
@@ -163,6 +166,78 @@ class HandoffContractTests(unittest.TestCase):
                     role=role, text=packet(role=role))
                 self.assertEqual(
                     result["character_change_budget"]["limit"], 0)
+
+    def test_architect_role_plan_selects_roles_and_severity(self):
+        cases = (
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `high`",
+                {
+                    "route": "three-role",
+                    "uses_red_team": True,
+                    "uses_sol_as_implementer": False,
+                    "roles": "Architect + Implementer + Red Team",
+                    "discovery_severity": "high",
+                },
+            ),
+            (
+                "- Roles: `Architect + Implementer`\n"
+                "- Discovery severity: `not-used`",
+                {
+                    "route": "two-role",
+                    "uses_red_team": False,
+                    "uses_sol_as_implementer": False,
+                    "roles": "Architect + Implementer",
+                    "discovery_severity": "not-used",
+                },
+            ),
+            (
+                "- Roles: `Architect + Sol as Implementer`\n"
+                "- Discovery severity: `not-used`",
+                {
+                    "route": "sol-as-implementer",
+                    "uses_red_team": False,
+                    "uses_sol_as_implementer": True,
+                    "roles": "Architect + Sol as Implementer",
+                    "discovery_severity": "not-used",
+                },
+            ),
+        )
+        for role_plan, expected in cases:
+            with self.subTest(role_plan=role_plan):
+                result = validate_directive_text(
+                    role="architect",
+                    text=packet(
+                        role="architect", bodies={"Role plan": role_plan}))
+                self.assertEqual(result["role_plan"], expected)
+
+    def test_architect_role_plan_refuses_runner_choices_in_the_note(self):
+        invalid_plans = (
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `not-used`",
+                "must name high, medium, or low",
+            ),
+            (
+                "- Roles: `Architect + Implementer`\n"
+                "- Discovery severity: `medium`",
+                "must use discovery severity `not-used`",
+            ),
+            (
+                "- Roles: `Architect + Implementer`\n"
+                "- Discovery severity: `not-used`\n"
+                "- Runner override: `Red Team`",
+                "requires exactly these rows",
+            ),
+        )
+        for role_plan, message in invalid_plans:
+            with self.subTest(role_plan=role_plan):
+                with self.assertRaisesRegex(DirectiveError, message):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Role plan": role_plan}))
 
     def test_redteam_severity_assessment_is_ordered_and_consistent(self):
         result = validate_directive_text(

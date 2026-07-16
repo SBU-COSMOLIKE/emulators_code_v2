@@ -152,7 +152,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
     def test_cli_scope_environment_and_run_defaults_fail_closed(self):
         invalid_commands = (
             ["--severity", "high"],
-            ["--ping", "sol", "--severity", "high"],
+            ["--ping", "architect", "--severity", "high"],
             ["--send", "fable", "--unit", "work", "--severity", "high"],
             ["--send", "sol", "--unit", "close", "--ticket-kind",
              "closure", "--severity", "high"],
@@ -175,8 +175,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             before = tree_snapshot(root)
             rc, output, _ = run_main(
                 daemon,
-                ["--send", "sol", "--unit", "review", "--ticket-kind",
-                 "discovery"])
+                ["--send", "architect", "--unit", "review"])
             self.assertNotEqual(rc, 0)
             self.assertIn("must be exactly", output)
             self.assertEqual(before, tree_snapshot(root))
@@ -190,8 +189,8 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             before = tree_snapshot(root)
             rc, output, _ = run_main(
                 daemon,
-                ["--send", "sol", "--unit", "review", "--ticket-kind",
-                 "discovery", "--severity", "high"])
+                ["--send", "architect", "--unit", "review",
+                 "--severity", "high"])
             self.assertNotEqual(rc, 0)
             self.assertIn("does not match inherited", output)
             self.assertEqual(before, tree_snapshot(root))
@@ -370,8 +369,8 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
              "        env[DISCOVERY_SEVERITY_ENVIRONMENT] = "
              "DISCOVERY_SEVERITY\n", saved_value_reaches_child),
             ("saved banner removed",
-             '        saved_discovery=(ticket_kind == "discovery"))\n',
-             "        saved_discovery=False)\n",
+             '        saved_discovery=(ticket_kind == "discovery"),\n',
+             "        saved_discovery=False,\n",
              saved_value_reaches_child),
             ("legacy follows mutable run default",
              "        return DEFAULT_DISCOVERY_SEVERITY\n",

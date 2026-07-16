@@ -301,7 +301,8 @@ def arm_two_role_watch_preserves_sol(source=None):
             in output
             and "red-team route disabled; leaving 1 to-sol message queued "
             "and untouched." in output
-            and "Give Sol separate implementation jobs" not in output)
+            and "Ask the Architect to give Sol separate implementation jobs"
+            not in output)
 
         # A later normal dispatch must consume the exact deferred file.
         restart = daemon.process_backlog(dry_run=False)
@@ -412,10 +413,11 @@ def arm_cycle_zero_defers_sol(source=None):
         passed = (
             rc == 0 and error is None and errors == "" and launches == []
             and sol.is_file() and file_identity(sol) == before
-            and "Architect and Implementer lanes idle" in output
-            and "enabled mailbox routes and ledger empty" in output
-            and "1 Sol message deferred" in output
-            and "all lanes idle; mailbox and ledger empty" not in output
+            and "no Architect or Implementer message is waiting or running"
+            in output
+            and "ai/notes/backlog.md has no '- OPEN' item" in output
+            and "1 Red Team message remain waiting" in output
+            and "no role message is waiting or running" not in output
             and not daemon.skip_redteam_watch_is_active())
         print("cycle zero deferred Sol=" + str(passed))
         return passed
@@ -445,8 +447,8 @@ def arm_cli_contract(source=None):
         ["--skip-redteam"],
         ["--once", "--skip-redteam"],
         ["--dry-run", "--skip-redteam"],
-        ["--send", "opus", "--unit", "body", "--skip-redteam"],
-        ["--ping", "sol", "--skip-redteam"],
+        ["--send", "architect", "--unit", "body", "--skip-redteam"],
+        ["--ping", "architect", "--skip-redteam"],
     ]
     rejected = True
     for arguments in invalid:
@@ -474,7 +476,8 @@ def arm_cli_contract(source=None):
     help_ok = (
         isinstance(error, SystemExit) and rc == 0 and errors == ""
         and "--skip-redteam, --no-red-team" in normalized_help
-        and "leave existing to-sol messages" in normalized_help)
+        and "Red Team messages remain waiting for a later watch"
+        in normalized_help)
     passed = rejected and accepted and help_ok
     print("two-role CLI contract=" + str(passed))
     return passed
@@ -1147,11 +1150,13 @@ def arm_source_mutations():
                 text,
                 "        skip_redteam=skip_redteam,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
-                "        saved_discovery=(ticket_kind == \"discovery\"))\n"
+                "        saved_discovery=(ticket_kind == \"discovery\"),\n"
+                "        saved_architect_request=(saved_architect_severity is not None))\n"
                 "    # The dynamic banner precedes",
                 "        skip_redteam=False,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
-                "        saved_discovery=(ticket_kind == \"discovery\"))\n"
+                "        saved_discovery=(ticket_kind == \"discovery\"),\n"
+                "        saved_architect_request=(saved_architect_severity is not None))\n"
                 "    # The dynamic banner precedes"),
             arm_two_role_watch_preserves_sol,
         ),

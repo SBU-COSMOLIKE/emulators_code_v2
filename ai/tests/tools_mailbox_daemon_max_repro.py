@@ -248,9 +248,9 @@ def arm_invalid_values_and_actions(source=None):
          "--max is valid only with --watch or --once"),
         (["--dry-run", "--max", "0"], 1,
          "--max is valid only with --watch or --once"),
-        (["--send", "fable", "--unit", "scratch", "--max", "7"], 1,
+        (["--send", "architect", "--unit", "scratch", "--max", "7"], 1,
          "--max is valid only with --watch or --once"),
-        (["--ping", "opus", "--max", "7"], 1,
+        (["--ping", "architect", "--max", "7"], 1,
          "--max is valid only with --watch or --once"),
     ]
     observations = []

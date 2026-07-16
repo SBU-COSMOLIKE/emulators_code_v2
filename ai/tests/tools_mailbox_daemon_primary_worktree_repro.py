@@ -360,12 +360,11 @@ def arm_all_live_actions_bootstrap(source=None):
     cases = [
         ("once", ["--once"]),
         ("watch", ["--watch", "--cycle", "0"]),
-        ("send", ["--send", "fable", "--unit",
+        ("send", ["--send", "architect", "--unit",
                   "Coordinate the committed scratch unit."]),
-        ("discovery", ["--send", "sol", "--ticket-kind", "discovery",
-                       "--severity", "high", "--unit",
-                       "Review the committed scratch change."]),
-        ("ping", ["--ping", "fable"]),
+        ("severity", ["--send", "architect", "--severity", "high",
+                      "--unit", "Coordinate the named review."]),
+        ("ping", ["--ping", "architect"]),
     ]
     results = []
     for label, arguments in cases:
@@ -375,17 +374,17 @@ def arm_all_live_actions_bootstrap(source=None):
             primary = default_primary(root)
             sol = default_sol(root)
             acted_in_primary = True
-            if label in ("send", "discovery", "ping"):
+            if label in ("send", "severity", "ping"):
                 acted_in_primary = (
                     len(pending_markdown(primary)) == 1
                     and pending_markdown(root) == [])
-                if label == "discovery" and acted_in_primary:
+                if label in ("send", "severity") and acted_in_primary:
+                    expected = ("medium" if label == "send" else "high")
                     acted_in_primary = (
                         pending_markdown(primary)[0].read_text(
                             encoding="utf-8")
                         .startswith(
-                            "MAILBOX-TICKET: discovery\n"
-                            "MAILBOX-SEVERITY: high\n\n"))
+                            "MAILBOX-SEVERITY: " + expected + "\n\n"))
             records = worktree_records(root)
             passed = (
                 rc == 0 and stderr == ""
@@ -410,7 +409,7 @@ def arm_all_live_actions_bootstrap(source=None):
 
 def arm_stale_primary_protocol_refuses(source=None):
     """Refuse re-exec when the saved daemon lacks the current protocol."""
-    marker = "MAILBOX_PROTOCOL_VERSION = 1"
+    marker = "MAILBOX_PROTOCOL_VERSION = 2"
     if source is None or source.count(marker) != 1:
         return False
     with scratch_repository(source=source) as root:
@@ -419,7 +418,7 @@ def arm_stale_primary_protocol_refuses(source=None):
             return False
         primary = default_primary(root)
         stale_source = source.replace(
-            marker, "MAILBOX_PROTOCOL_VERSION = 0", 1)
+            marker, "MAILBOX_PROTOCOL_VERSION = 1", 1)
         write_exact(
             primary / "ai" / "tools" / "mailbox_daemon.py",
             stale_source.encode("utf-8"))
@@ -429,11 +428,11 @@ def arm_stale_primary_protocol_refuses(source=None):
         root_before = root_checkout_identity(root)
         rc, stdout, _stderr = invoke(
             root,
-            ["--send", "sol", "--ticket-kind", "discovery",
-             "--severity", "high", "--unit", "Review one named change."])
+            ["--send", "architect", "--severity", "high", "--unit",
+             "Please coordinate one named review."])
         passed = (
             rc != 0
-            and "does not support discovery severity" in stdout
+            and "does not enforce the current Architect-only" in stdout
             and pending_markdown(root) == []
             and pending_markdown(primary) == []
             and state_path(root).read_bytes() == state_before
@@ -448,11 +447,11 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
     invocations = [
         ("help", ["--help"], 0),
         ("preview", ["--dry-run"], 0),
-        ("preview-send", ["--dry-run", "--send", "fable",
+        ("preview-send", ["--dry-run", "--send", "architect",
                           "--unit", "scratch preview"], 0),
-        ("preview-ping", ["--dry-run", "--ping", "fable"], 0),
+        ("preview-ping", ["--dry-run", "--ping", "architect"], 0),
         ("two-actions", ["--watch", "--once"], 1),
-        ("missing-unit", ["--send", "fable"], 1),
+        ("missing-unit", ["--send", "architect"], 1),
         ("unclassified-sol", ["--send", "sol", "--unit", "scratch"], 1),
         ("misplaced-two-role", ["--once", "--skip-redteam"], 1),
         ("bad-model", ["--once", "--architect-model", "bad model"], 1),
@@ -502,7 +501,7 @@ def arm_reuse_and_cross_checkout_converge(source=None):
         try:
             rc, stdout, stderr = invoke(
                 other,
-                ["--send", "fable", "--unit",
+                ["--send", "architect", "--unit",
                  "Audit the committed scratch unit.",
                  "--architect-model", "opus",
                  "--implementer-model", "sonnet"])
@@ -549,7 +548,8 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
         adopted = (rc == 0 and validate_topology(
             root, primary_path=existing, primary_branch=expected_branch))
         rc_send, _stdout, _stderr = invoke(
-            root, ["--send", "fable", "--unit", "Scratch after adoption."])
+            root, ["--send", "architect", "--unit",
+                   "Scratch after adoption."])
         queued = pending_markdown(existing)
         passed = (
             adopted and rc_send == 0
@@ -688,7 +688,7 @@ def arm_archived_main_transport_is_bridged(source=None):
             and "bridged archived main-checkout" in stdout)
 
         rc_send, _stdout, _stderr = invoke(
-            root, ["--send", "fable", "--unit",
+            root, ["--send", "architect", "--unit",
                    "Audit the first post-bridge scratch unit."])
         queued = pending_markdown(primary)
         passed = (
@@ -1132,7 +1132,7 @@ def arm_sol_collisions_and_corrupt_state_fail_closed(source=None):
             write_exact(sol_state_path(root), payload)
             before = file_identity(sol_state_path(root))
             rc, _stdout, _stderr = invoke(
-                root, ["--send", "fable", "--unit", "must not queue"])
+                root, ["--send", "architect", "--unit", "must not queue"])
             refused = (
                 rc != 0 and file_identity(sol_state_path(root)) == before
                 and file_identity(state_path(root)) == primary_state_before
@@ -1174,6 +1174,7 @@ def arm_sol_registered_move_and_reuse_are_preserved(source=None):
         rc, _stdout, _stderr = invoke(root, ["--once"])
         if rc != 0 or not validate_topology(root):
             return False
+        primary = default_primary(root)
         sol = default_sol(root)
         moved = managed_base(root) / "mailbox-sol-moved"
         dirty = sol / "preserve-sol-dirty.txt"
@@ -1193,10 +1194,12 @@ def arm_sol_registered_move_and_reuse_are_preserved(source=None):
             return False
         saved_before_reuse = file_identity(sol_state_path(root))
         rc_reuse, _reuse_out, reuse_err = invoke(root, ["--once"])
-        rc_queue, _queued, queue_err = invoke(
-            root,
-            ["--send", "sol", "--ticket-kind", "closure",
-             "--unit", "Review the saved moved Sol checkout."])
+        daemon = load_scratch_daemon(primary)
+        queued = daemon.send(
+            agent="sol", ticket_kind="closure",
+            text="Review the saved moved Sol checkout.", dry_run=False)
+        rc_queue = 0 if queued else 1
+        queue_err = ""
         rc_preview, preview, preview_err = invoke(
             root, ["--dry-run", "--once"])
         checks = {
@@ -1266,14 +1269,13 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         rc, _stdout, _stderr = invoke(root, ["--once"])
         if rc != 0 or not validate_topology(root):
             return None
-        rc, _stdout, _stderr = invoke(
-            root,
-            ["--send", "sol", "--ticket-kind", "closure", "--unit", unit])
         primary = default_primary(root)
-        pending = pending_markdown(primary)
-        if rc != 0 or len(pending) != 1:
-            return None
         daemon = load_scratch_daemon(primary)
+        queued = daemon.send(
+            agent="sol", ticket_kind="closure", text=unit, dry_run=False)
+        pending = pending_markdown(primary)
+        if not queued or len(pending) != 1:
+            return None
         if activate:
             daemon.ensure_primary_execution(live_action=True, dry_run=False)
             daemon.AGENT_COMMANDS = daemon.build_agent_commands(
@@ -1538,7 +1540,7 @@ def arm_corrupt_and_redirected_state_fail_closed(source=None):
             write_exact(state_path(root), payload)
             before = file_identity(state_path(root))
             rc, _stdout, _stderr = invoke(
-                root, ["--send", "fable", "--unit", "must not queue"])
+                root, ["--send", "architect", "--unit", "must not queue"])
             passed = (
                 rc != 0 and file_identity(state_path(root)) == before
                 and pending_markdown(root) == []
@@ -1629,13 +1631,14 @@ def arm_route_topology_remains_role_based(source=None):
             return False
         primary = default_primary(root)
         sol = default_sol(root)
-        rc_queue, _queued, queue_err = invoke(
-            root,
-            ["--send", "sol", "--ticket-kind", "closure",
-             "--unit", "Review the saved Sol worktree topology."])
+        daemon = load_scratch_daemon(primary)
+        queued = daemon.send(
+            agent="sol", ticket_kind="closure",
+            text="Review the saved Sol worktree topology.", dry_run=False)
+        rc_queue = 0 if queued else 1
+        queue_err = ""
         rc_preview, preview, preview_err = invoke(
             root, ["--dry-run", "--once"])
-        daemon = load_scratch_daemon(primary)
         command = daemon.AGENT_COMMANDS["sol"]
         cd_value = command[command.index("--cd") + 1]
         notes_value = command[command.index("--add-dir") + 1]
@@ -1864,7 +1867,8 @@ def mutation_cases(source):
         "    if protocol_declarations != [\n"
         "            str(MAILBOX_PROTOCOL_VERSION).encode(\"ascii\")]:\n"
         "        raise PrimaryWorktreeError(\n"
-        "            \"saved primary daemon does not support discovery severity; \"\n"
+        "            \"saved primary daemon does not enforce the current \"\n"
+        "            \"Architect-only user entry point; \"\n"
         "            \"update that non-main worktree from main without discarding \"\n"
         "            \"its local work, then retry: \" + primary_path)",
         "    if False:\n"

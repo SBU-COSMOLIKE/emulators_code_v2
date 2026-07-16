@@ -94,6 +94,30 @@ flowchart TD
   I --> C["Architect checks the result"]
 ```
 
+### Talk only to the Architect
+
+Give every ticket request, clarification, policy choice, and scope change to
+the Architect. Do not write instructions to the Implementer or Red Team. If
+you want a Red Team review, tell the Architect, for example:
+
+```text
+Please instruct the Red Team to do a widespread search for ...
+```
+
+The Architect writes the decisions in the ticket's **source note**, the
+Markdown file that records the problem, allowed work, and required checks.
+**Discovery severity** says how serious a newly found problem must be before
+it may become another ticket.
+
+In a manual run, each role has a separate web conversation. The **relay
+tool**, `handoff_router.py`, checks the source note and puts an approved
+instruction block on the clipboard. A **clipboard block** is the exact text
+to paste into the next conversation.
+
+The tool may add file paths and saved-record locations. It cannot replace the
+Architect's decisions. Copy each block unchanged; you are carrying the
+approved instructions, not writing a message to the Implementer or Red Team.
+
 If the check finds a problem, the Architect writes repair instructions and
 the Implementer tries again. The optional Red Team adds another review; its
 place in the loop is explained later.
@@ -254,13 +278,16 @@ waiting.
 In another terminal, from any project folder that Git recognizes:
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --send fable \
-  --unit "You are the Architect. Coordinate the version-flag ticket in ai/notes/version-flag.md."
+python3 ai/tools/mailbox_daemon.py --send architect \
+  --unit "Please coordinate the version-flag ticket in ai/notes/version-flag.md."
 ```
 
-Expected result: one numbered `to-fable` file is saved in the mailbox. `fable`
-is the stable Architect mailbox address even when it starts a different Claude
-model.
+Expected result: one numbered `to-fable` file is saved in the mailbox.
+`to-fable` is the internal Architect address; users select the plain
+`architect` target and do not address internal roles. The file also saves the
+ticket's discovery threshold. Omitting `--severity` saves `medium`; an
+explicit `--severity high` or `--severity low` travels to the Architect with
+the request.
 
 ### 6. Follow GO or NO-GO
 
@@ -302,7 +329,8 @@ Models can change from run to run. Authority does not.
 
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
-not name the model or give a role authority.
+not name the model or give a role authority. These addresses are for internal
+handoffs. The user's command target is always `architect`.
 
 ### The thinking roles must finish the plan
 
@@ -319,6 +347,13 @@ Before implementation, the Architect's temporary ticket note must say:
 - the interfaces, types, shapes, algorithms, constants, and failure behavior;
 - the exact tests, fixtures, assertions, commands, and expected results;
 - what is off-limits, when to stop, and who owns each parallel file.
+
+The Architect's source note also records which roles will work on the ticket
+and, when Red Team is included, the discovery severity. A normal mailbox user
+does not edit these internal rows. If you must carry instructions between
+manual web conversations, follow the
+[manual relay examples](tools/README.md#useful-daily-commands); their options
+can confirm the Architect's saved choices but cannot change them.
 
 Each file or test target begins its own visible bullet:
 
@@ -406,15 +441,20 @@ inherit that authority.
 
 In the default three-role setup, the Red Team role is available for each
 ticket's normal review. Enabling the role does not start a review. Sol runs
-only after the Architect or user saves a `to-sol` message. That review covers
-the named commit or change and behavior directly affected by that change.
+only after the Architect saves an internal `to-sol` message. That review
+covers the named saved Git version or change and the behavior directly
+affected by it.
 
 It does **not** turn a ticket review into a broad attack on the library. A
 widespread search happens only when the user explicitly writes:
 
 ```text
-Do a widespread search for ...
+Please instruct the Red Team to do a widespread search for ...
 ```
+
+Send those words only to the Architect. The Architect records them in the
+source note and decides whether to write a Red Team handoff. A user message
+never starts Red Team work directly.
 
 A Red Team finding is input to the Architect. Its detailed repair plan is a
 candidate, never a self-executing ruling and never a direct instruction to the
@@ -462,8 +502,8 @@ Team's original assessment.
 The setting controls whether a newly found problem becomes separate work. It
 does not make an unsafe current change acceptable: a defect in the named
 change can still make that change `NO-GO`. It also does not widen the search.
-A library-wide search still needs the user's explicit “Do a widespread search
-for ...” request.
+A library-wide search still needs the user's explicit “Please instruct the
+Red Team to do a widespread search for ...” request to the Architect.
 
 `--fix-only` is stronger than every severity value and permits no discovery.
 A two-role watch started with `--skip-redteam` or `--no-red-team` has no Red
@@ -602,24 +642,27 @@ python3 ai/tools/mailbox_daemon.py --watch --fix-only yes
 ```
 
 Here, **closure** means finishing work that is already recorded. **Discovery**
-means asking Sol to search for a new problem.
+means asking the Architect to have Sol search for a new problem.
 
 Existing closure work remains eligible, while new Sol discovery is refused.
 Even `--severity low` cannot override fix-only mode.
+The watcher does not turn backlog lines into mailbox requests. Give the item
+to the Architect, who writes the instructions for the roles.
 The [tool guide](tools/README.md#fix-only-watches) explains the accepted values,
 how another terminal learns the same rule, stored-message checks, and
 combinations with cycle and two-role options.
 
 ## Choose and run a command-line tool
 
-The five scripts under `ai/tools/` have different jobs. The
+The six scripts under `ai/tools/` have different jobs. The
 [tool command guide](tools/README.md) provides a task-based chooser, daily
 commands, current option reference, safe stopping instructions, setup,
 recovery, and unfinished-work transfer.
 
 The first-ticket commands above are enough for a normal run. Use the separate
-guide when you need another send, a manual clipboard relay, a protected-note
-check, a fix-only combination, or an exact command-line option.
+guide when you need another request to the Architect, a manual clipboard
+relay, a protected-note check, a fix-only combination, or an exact
+command-line option.
 
 # Common questions raised by developers
 
@@ -649,7 +692,9 @@ flowchart TD
 ```
 
 Messages ending in `-to-user.md` are replies for a person to read. The watcher
-never starts an AI role from those files.
+never starts an AI role from those files. The public ping targets the
+Architect. Implementer and Red Team ticket results return internally to the
+Architect instead of starting a separate user conversation.
 
 ### FAQ A2. What if the watcher cannot tell whether a message finished safely? <a id="faq-a2-unverified-outcome"></a>
 
@@ -745,15 +790,16 @@ The documentation calls this sum **total demand**. If ten or more existing
 items are already waiting, the tool refuses a request for Sol to search for a
 new problem. This prevents another discovery request from creating still more
 work while many known items remain unfinished. A library-wide search still
-requires the user's explicit widespread-search request.
+requires the user's explicit request to the Architect.
 
 The new search does not count against itself: with nine existing items, it
 may be accepted as the tenth. The tool checks again just before starting it.
 If ten other items exist by then, it refuses the search and tries to move its
 message to `failed/`.
 
-Put the proposed search at the end of `ai/notes/backlog.md`. Retry only when
-total demand is below ten, including any `- OPEN` line added for this proposal.
+Ask the Architect to put the proposed search at the end of
+`ai/notes/backlog.md`. The Architect retries it only when total demand is
+below ten, including any `- OPEN` line added for this proposal.
 Sol may still review or help finish a specific known item. Work that closes a
 known item may continue.
 
@@ -769,7 +815,9 @@ flowchart TD
 
 ### FAQ D2. When may Sol implement instead of review? <a id="faq-d2-second-implementer"></a>
 
-Having ten unfinished items does not automatically change Sol's role. The
+Having ten unfinished items does not automatically change Sol's role. Ask the
+Architect if you want Sol to implement a ticket. The Architect writes the
+validated directive and internal assignment. The
 first non-empty line after the required ticket line selects Sol's role for
 this message. One optional line beginning `### ARCHITECT_HANDOFF` may appear
 between them. To select the second-Implementer role, that first non-empty
@@ -780,9 +828,10 @@ sentence, `unit` means this ticket:
 OpenAI Sol — this is a role as second Implementer for this unit.
 ```
 
-Putting that sentence later in the message, or merely quoting it in a
-discussion, does not change the role. Without the declaration in the required
-place, Sol remains the Red Team and reviews only the named change.
+The user never sends this declaration to Sol. Putting that sentence later in
+an Architect message, or merely quoting it in a discussion, does not change
+the role. Without the Architect-authored declaration in the required place,
+Sol remains the Red Team and reviews only the named change.
 
 The declaration selects the role; it does not by itself permit an edit. Sol
 may begin editing only after the cited Architect `Implementation directive`
@@ -794,9 +843,12 @@ second-Implementer work, Sol follows `.claude/OPUS_ROLE.md` and sends an
 `IMPLEMENTER_HANDOFF`, the structured result sent back to the Architect. Sol
 does not also Red Team review the same job.
 
-The [manual second-Implementer guide](tools/README.md#use-sol-as-a-second-implementer)
+The [manual second-Implementer guide](tools/README.md#ask-the-architect-to-use-sol-as-a-second-implementer)
 explains the command, separate-worktree check, and printed reminder. The
-watcher never creates those jobs or changes Sol's role by itself.
+watcher never creates those jobs or changes Sol's role by itself. The manual
+relay also requires the Architect's validated role plan to name
+`Architect + Sol as Implementer`; a command-line option cannot create that
+assignment.
 
 ### FAQ F1. Which folder does each role use? <a id="appendix-f--what-is-the-worktree-topology"></a>
 

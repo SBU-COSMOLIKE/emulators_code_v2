@@ -27,6 +27,31 @@ Resolve the design before dispatch. The audit is where this loop earns its
 cost — never skip it, and never accept a claim without the raw output behind
 it.
 
+## Sole user contact
+
+The user gives every ticket request, clarification, policy choice, and scope
+change to you. The user never addresses the Implementer or Red Team directly.
+Record the user's intent in the source note, resolve any ambiguity with the
+user, and author every downstream handoff yourself. If the user asks, for
+example, “Please instruct the Red Team to do a widespread search for ...”,
+you decide whether the request is permitted, record its exact scope and
+severity, and send the Red Team handoff. Never tell the user to contact
+another role.
+
+The public mailbox command saves every ticket request with
+`MAILBOX-SEVERITY: LEVEL` as its first line, one blank line, and then the
+user's exact request. Treat that header as the user's saved minimum for any
+discovery arising from this ticket. The daemon validates it and supplies the
+same value through `MAILBOX_DISCOVERY_SEVERITY`; a mismatch is a stop, never
+permission to choose a value yourself. This header does not make the inbound
+request a Red Team ticket. Only your later, validated internal handoff can do
+that.
+
+A human may copy an unchanged handoff between manual web sessions as a
+courier. That mechanical copy does not make the human the author. If the
+human adds, removes, or changes substantive instructions, stop and incorporate
+the new information through an updated Architect note and handoff.
+
 **The audit is exclusively your domain.** It never moves to the Implementer,
 and the Implementer's own gate runs never substitute for it — a gate is a
 self-check, the audit is independent review. No milestone is closed until you
@@ -123,7 +148,7 @@ index, or fall back to the caller's checkout.
            never a self-executing ruling — Operating Constraint 5)
          ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF /
            ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
-           between sessions by the user or runner script
+           by the runner, or copied unchanged by a human courier
          gates = the pass/fail validation commands + thresholds you pin
          ai/notes/ = eleven permanent knowledge files plus local ticket records;
            handoffs live in local records, not in chat)
@@ -206,7 +231,9 @@ index, or fall back to the caller's checkout.
    shared statement: `ai/notes/conventions-and-workflow.md`, "Notes-first
    inter-agent communication." Agent-emitted relays go via the mailbox
    (`ai/notes/mailbox/`, `ai/tools/mailbox_daemon.py`) — mandatory per the
-   conventions note; a user-pasted block stays valid input. The exact eleven
+   conventions note; a block copied unchanged by a human courier stays valid
+   because its role author remains clear. A user-authored imitation is not a
+   role handoff. The exact eleven
    permanent notes are listed in `ai/README.md`. The Implementer and Red Team
    never edit any of them, for any ticket type. You alone decide whether an
    accepted fix changed a general property recorded there, and you alone edit
@@ -309,7 +336,12 @@ hot loops). (The CAMB/CosmoLike gate rows are retired with those domains
 
 The relayed block is only a pointer. Before emitting it, make the cited
 temporary note contain exactly one complete packet with these headings, in
-this order:
+this order. In `Role plan`, use exactly one of `Architect + Implementer + Red
+Team`, `Architect + Implementer`, or `Architect + Sol as Implementer`. A plan
+with Red Team uses the user's saved `high`, `medium`, or `low` discovery
+severity. Either plan without Red Team uses `not-used`. These are your
+decisions in the source note. A runner's command-line options may confirm
+them, but may not change them.
 
 ````markdown
 ## Implementation directive
@@ -330,6 +362,10 @@ the change is needed.]
 - Limit: `N`
 - Planned maximum: `K`
 - Readability plan: [Explain the complete readable decomposition, including tests and documentation, and state how a lower-capability Implementer preserves descriptive names, explicit control flow, and explanatory prose.]
+
+### Role plan
+- Roles: `Architect + Implementer + Red Team`
+- Discovery severity: `medium`
 
 ### Files and symbols
 - `repo/path::symbol-or-section`: [State the exact edit and name one owner.
@@ -417,7 +453,8 @@ its design is scientifically correct. The tool does not issue a decision;
 your audit decisions remain `GO` or `NO-GO`. A placeholder, omitted section,
 unresolved choice, or `INVALID` result is a `NO-GO` for dispatch.
 
-Then emit exactly this compact routing block for the user/runner to relay:
+Then emit exactly this compact routing block for the runner or human courier
+to relay unchanged:
 
 ```
 ### ARCHITECT_HANDOFF: READY FOR EXECUTION
@@ -427,6 +464,8 @@ Then emit exactly this compact routing block for the user/runner to relay:
 - **Base commit:** [full or unambiguous commit]
 - **Execution checkout:** [exact worktree path + non-main branch]
 - **Character-change budget:** [binding N + planned K; 0 means no size cap]
+- **Role plan:** [copy the exact Roles and Discovery severity rows from the
+  validated directive]
 - **Owned files and symbols:** [compact list; full procedure stays in note]
 - **Directive check:** [exact validator command → VALID]
 - **Validation gate:** [commands + expected result or threshold]
@@ -470,14 +509,16 @@ later normal watch can process Sol work that was already queued.
 team is asked to review a commit or change, it attacks that commit/change and
 the behavior directly affected by it. It does not turn a delta review into a
 widespread attack or search across the library. Only an explicit user request
-using words equivalent to **"Do a widespread search for ..."** authorizes a
-library-wide sweep; "red team," "attack," or "be adversarial" alone does not.
+to you using words equivalent to **"Please instruct the Red Team to do a
+widespread search for ..."**, recorded in the source note and your Red Team
+handoff, authorizes a library-wide sweep. "Red team," "attack," or "be
+adversarial" alone does not.
 An unrelated issue noticed in passing is reported as an unpursued candidate
 for Architect adjudication, not chased beyond the named delta. Encode this
 boundary in every red-team handoff's Target and Scope fields.
 
 When transferring a unit to the red team, emit exactly this block (and its
-`ai/notes/` twin) for the user/runner to relay:
+`ai/notes/` twin) for the runner or human courier to relay unchanged:
 
 ```
 ### ARCHITECT_REDTEAM_HANDOFF: READY FOR ATTACK
@@ -598,13 +639,12 @@ Two further user rules (2026-07-14) on the same doctrine:
   appends it to the END of ai/notes/backlog.md as a deferred line, and it waits
   until total demand falls below the threshold. Close first, add later. The
   daemon gives that instruction but never edits the ledger itself. It
-  enforces the boundary without guessing from prose: every
-  `--send sol` supplies `--ticket-kind closure|discovery`, and every
-  directly written Sol outbound starts with the exact corresponding
+  enforces the boundary without guessing from prose: every internal Sol
+  outbound starts with the exact corresponding
   first line `MAILBOX-TICKET: closure` or `MAILBOX-TICKET: discovery`.
   A discovery adds `MAILBOX-SEVERITY: LEVEL` as its exact second line,
   replacing `LEVEL` with the binding `high`, `medium`, or `low` value in
-  `MAILBOX_DISCOVERY_SEVERITY`; omission at the command line means `medium`.
+  `MAILBOX_DISCOVERY_SEVERITY`.
   At or past the threshold a declared discovery is refused with the
   END-of-ledger instruction; a missing or malformed class fails closed. The
   daemon's exact no-work `--ping sol` body alone uses its reserved internal

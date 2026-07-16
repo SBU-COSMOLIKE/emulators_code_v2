@@ -16,7 +16,7 @@ do I run, what does it change, and what result should I expect?
 2. [Where do I run these commands?](#where-do-i-run-these-commands)
 3. [Which commands only inspect, and which commands change files?](#which-commands-only-inspect-and-which-commands-change-files)
 4. [Useful daily commands](#useful-daily-commands)
-5. [Use Sol as a second Implementer](#use-sol-as-a-second-implementer)
+5. [Ask the Architect to use Sol as a second Implementer](#ask-the-architect-to-use-sol-as-a-second-implementer)
 6. [Check protected project notes](#check-protected-project-notes)
 7. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
 8. [Fix-only watches](#fix-only-watches)
@@ -49,12 +49,19 @@ do I run, what does it change, and what result should I expect?
 
 ## Which tool do I use?
 
-The guide uses five terms throughout:
+The guide uses these terms throughout:
 
 - A **mailbox** is a set of folders containing small Markdown request files.
 - A **watcher** is the long-running mailbox command.
-- A **directive** is the full written plan in a ticket note.
-- A **relay** copies a short pointer or result between sessions.
+- A **source note** is the Markdown file that records one ticket's problem,
+  allowed work, and required checks. It is the source of truth.
+- A **directive** is the Architect's full written plan inside a source note.
+- **Discovery severity** says how serious a newly found problem must be before
+  it may become another ticket.
+- A **manual relay** carries an approved instruction or result between web
+  conversations without changing it.
+- A **clipboard block** is the exact text the relay tool asks a human courier
+  to paste unchanged.
 - A **dry run** prints an action without performing it.
 
 A **permanent note** is one of the eleven protected Markdown files listed in
@@ -69,9 +76,18 @@ Claude and Sol use different worktrees for code. Sol can also read and write
 the Claude worktree's `ai/notes/` folder so every role can use the same source
 notes and mailbox records.
 
+The user sends every request that can change the work to the Architect. The
+Architect writes the source note, including the roles and any discovery
+severity.
+
+During a manual relay, `handoff_router.py` checks that note. It adds the file
+paths and saved-record locations needed by each open AI conversation. The
+human courier copies each clipboard block unchanged and does not add
+instructions for the Implementer or Red Team.
+
 | What you want to do | Program | First command | Effect |
 | --- | --- | --- | --- |
-| Preview, start, or stop the mailbox workflow; send work; choose role models | `mailbox_daemon.py` | `python3 ai/tools/mailbox_daemon.py --dry-run` | A dry run only prints. Commands that write files may create AI work folders, save or move mailbox files, write logs, and start AI roles. |
+| Preview, start, or stop the mailbox workflow; send a request to the Architect; choose role models | `mailbox_daemon.py` | `python3 ai/tools/mailbox_daemon.py --dry-run` | A dry run only prints. Commands that write files may create AI work folders, save or move mailbox files, write logs, and start AI roles. |
 | Check that an Architect or Red Team instruction contains every required part | `handoff_contract.py` | `python3 ai/tools/handoff_contract.py --help` | Reads one Markdown note. It does not run its tests or judge the scientific plan. |
 | Read status or run the manual clipboard workflow | `handoff_router.py` | `python3 ai/tools/handoff_router.py --status` | Status only reads. A run with `--note` changes the clipboard, waits for copied replies, runs local commands, and writes relay records. |
 | Check that eleven protected project notes still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the notes. It changes nothing and does not issue `GO` or `NO-GO`. |
@@ -112,7 +128,7 @@ project folder, but using the top folder keeps paths in examples predictable.
 | `ticket_change_guard.py --base FULL_COMMIT --max NUMBER` | No | Counts characters added and removed between the named starting commit and current `HEAD`, Git's name for the current saved commit. |
 | `backlog_bundle.py pack --dry-run` | No | Lists the proposed package without writing it. |
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
-| `mailbox_daemon.py --send` or `--ping` | Yes | If its options are written correctly, this command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
+| `mailbox_daemon.py --send architect` or `--ping architect` | Yes | This is the user's only role target. The command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered Architect mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
 | `mailbox_daemon.py --once` or `--watch` | Yes | May create or reuse AI work folders, start roles, move mailbox files, and write relay or saved workflow records. |
 | `handoff_router.py --note NOTE` | Yes | Changes the clipboard, writes local relay records, and runs the selected shell commands. It does not launch a web session for you. |
 | `backlog_bundle.py pack` | Yes | Writes a new ignored `.tar.xz` file and never replaces an existing file. |
@@ -183,27 +199,42 @@ python3 ai/tools/handoff_router.py --status
 This prints a read-only summary of branches, completed reviews, review requests
 that remain open, and next actions.
 
-### Preview one send
+### Preview one request to the Architect
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --dry-run --send opus \
-  --unit "You are the Implementer. Follow the ARCHITECT_HANDOFF in ai/notes/version-flag.md."
+python3 ai/tools/mailbox_daemon.py --dry-run --send architect \
+  --unit "Please coordinate the ticket in ai/notes/version-flag.md."
 ```
 
-The command prints the mailbox filename it would create, but writes no file.
+The command prints the internal `to-fable` mailbox filename it would create,
+but writes no file. `to-fable` is the Architect's internal address.
 
-### Send work to the Implementer
+### Send a ticket request to the Architect
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --send opus \
-  --unit "You are the Implementer. Follow the ARCHITECT_HANDOFF in ai/notes/version-flag.md."
+python3 ai/tools/mailbox_daemon.py --send architect \
+  --unit "Please coordinate the ticket in ai/notes/version-flag.md."
 ```
 
-Success prints `queued PATH` and writes one numbered `to-opus` request file.
-The send command itself does not start the role. An active watcher handles the
-request.
+Success prints `queued PATH` and writes one numbered `to-fable` request file.
+The send command itself does not start the Architect. An active watcher
+handles the request. The user does not select `opus`, `sol`, or the internal
+`fable` address. The file starts with the discovery-severity choice and then
+keeps the user's exact request. Omitting `--severity` saves the default,
+`medium`; add `--severity high` or `--severity low` when this ticket needs a
+different discovery threshold.
 
 ### Run a two-role manual relay
+
+First ask the Architect for a two-role plan. The validated source note must
+contain these exact rows under `### Role plan`:
+
+```markdown
+- Roles: `Architect + Implementer`
+- Discovery severity: `not-used`
+```
+
+Then carry out the plan:
 
 ```bash
 python3 ai/tools/handoff_router.py \
@@ -216,6 +247,16 @@ clipboard, waits for copied result sections, creates local relay records, and
 runs the selected validation commands. Read every `--gate-cmd` string before
 allowing the shell to run it.
 
+The Architect wrote the decisions in the source note. The relay tool checks
+those decisions and builds each clipboard block by adding the paths and
+record locations needed for this run. `--skip-redteam` only confirms the
+two-role plan; it cannot change another plan into a two-role plan.
+
+Copy each generated block unchanged. Do not edit it, add a request for
+another role, or answer on that role's behalf. Give new information to the
+Architect. The Architect must update and revalidate the source note before
+another relay.
+
 This command controls only that clipboard relay. It does not change the roles
 used by an already running mailbox watcher. Its source must be an ordinary
 `.md` file rather than a linked shortcut in this project folder's `ai/notes/`
@@ -225,58 +266,65 @@ source note.
 
 In a path, `../` asks to move above the current folder.
 
-### Ask the Red Team to search one named change
+### Ask the Architect for a Red Team search
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --send sol \
-  --ticket-kind discovery \
+python3 ai/tools/mailbox_daemon.py --send architect \
   --severity medium \
-  --unit "You are the Independent Red Team. Review the version-flag change named in ai/notes/version-flag.md. Stay within that change."
+  --unit "Please instruct the Red Team to review the version-flag change in ai/notes/version-flag.md. Keep the review within that change and use medium as the minimum discovery severity."
 ```
 
-Success prints `queued PATH` and writes one numbered `to-sol` request file
-labelled `discovery`. It also saves `MAILBOX-SEVERITY: medium` as the second
-line. The send command itself does not start Sol. An active watcher handles
-the request.
+Success prints `queued PATH` and writes one numbered request to the Architect.
+The Architect records the scope and severity, checks whether new discovery is
+allowed, and writes the internal Red Team handoff. If accepted, that later
+internal `to-sol` request contains `MAILBOX-TICKET: discovery` and
+`MAILBOX-SEVERITY: medium`.
 
 A **discovery** asks the Red Team to look for a new problem in the named
 change. It is refused when fix-only mode is on or when ten or more known items
 are already waiting. The role guide explains this
 [limit on new searches](../README.md#appendix-d--what-is-the-demand-guard).
 
-Omitting `--severity` uses `medium`. Use `high` or `low` when the user wants a
-different minimum for this request. The saved value wins if a later watcher
-uses another default.
+The user states a ticket-specific `high`, `medium`, or `low` choice to the
+Architect. A watcher or one-time run may also set the default. The Architect
+saves the selected value in the internal discovery request, so a later
+watcher's default cannot change it.
 
-### Ask the Red Team to finish a recorded review
+### Ask the Architect to finish a recorded Red Team review
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --send sol \
-  --ticket-kind closure \
-  --unit "You are the Independent Red Team. Close the existing item described in ai/notes/backlog.md."
+python3 ai/tools/mailbox_daemon.py --send architect \
+  --unit "Please instruct the Red Team to finish the existing review described in ai/notes/backlog.md."
 ```
 
 A **closure** asks the Red Team to finish or recheck a problem that is already
-recorded. Success prints `queued PATH` and writes one numbered `to-sol`
-request file beginning with `MAILBOX-TICKET: closure`. The send command itself
-does not start Sol. An active watcher handles the request.
+recorded. Success here writes the user's request to the Architect. The
+Architect later writes the internal `to-sol` request beginning with
+`MAILBOX-TICKET: closure`.
 
-### Check whether a role can receive and reply
+### Check whether the Architect can receive and reply
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --ping opus
+python3 ai/tools/mailbox_daemon.py --ping architect
 ```
 
 This sends a small test message rather than a work assignment. Success prints
-`queued PATH` and writes one numbered `to-opus` test request. The reply is
-addressed `to-user`. The watcher leaves it for a human and does not send it to
-another role.
+`queued PATH` and writes one numbered `to-fable` Architect test request. The
+reply is addressed `to-user`. The watcher leaves it for a human and does not
+send it to another role.
 
-## Use Sol as a second Implementer
+## Ask the Architect to use Sol as a second Implementer
 
-The role rule and exact declaration are in
+First ask the Architect to assign the ticket to Sol. The Architect owns the
+validated directive and the exact role declaration. The role rule is in
 [FAQ D2 of the role guide](../README.md#faq-d2-second-implementer). The manual
-command below sends one supplied implementation job to Sol instead of Opus:
+command below carries that already validated Architect job to Sol instead of
+Opus:
+
+```markdown
+- Roles: `Architect + Sol as Implementer`
+- Discovery severity: `not-used`
+```
 
 ```bash
 python3 ai/tools/handoff_router.py \
@@ -290,6 +338,10 @@ a prompt, the tool confirms that Git recognizes the folder, that it uses the
 named non-`main` branch, and that its current commit matches the full starting
 commit in the directive.
 
+`--mode second-implementer` confirms the Architect's role plan. It cannot
+assign Sol when the note names another plan. The router refuses a mismatch
+before it changes the clipboard.
+
 The command never asks both Implementers to perform the same instruction. It
 does not also run Sol as Red Team. `--skip-redteam` cannot be combined with
 `--mode second-implementer`.
@@ -297,7 +349,7 @@ does not also run Sol as Red Team. `--skip-redteam` cannot be combined with
 When ten or more items are waiting, the watcher prints this reminder:
 
 ```text
-  hint: 10 or more items are waiting. Give Sol separate implementation jobs as a second Implementer, but only a message with the required declaration changes Sol's role; otherwise Sol remains the Red Team.
+  hint: 10 or more items are waiting. Ask the Architect to give Sol separate implementation jobs as a second Implementer, but only an Architect message with the required declaration changes Sol's role; otherwise Sol remains the Red Team.
 ```
 
 The watcher does not create those jobs or change Sol's role by itself.
@@ -337,25 +389,27 @@ change for a new bug that could become a separate piece of work.
 minimum for opening new work from a Red Team discovery. The default is
 `medium`.
 
-From any project folder that Git recognizes, choose one value when saving a
-discovery request:
+From any project folder that Git recognizes, tell the Architect when one
+request needs a particular value:
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --send sol \
-  --ticket-kind discovery \
+python3 ai/tools/mailbox_daemon.py --send architect \
   --severity high \
-  --unit "Review the named change in ai/notes/version-flag.md."
+  --unit "Please instruct the Red Team to review the named change in ai/notes/version-flag.md."
 ```
 
-The saved request begins with two lines:
+Success prints `queued PATH` and writes one numbered request to the Architect.
+Its first line saves `MAILBOX-SEVERITY: high`; the user's exact request follows
+after one blank line. The Architect decides whether discovery is allowed and
+writes the internal Red Team request. That internal request begins with two
+lines:
 
 ```text
 MAILBOX-TICKET: discovery
 MAILBOX-SEVERITY: high
 ```
 
-Success prints `queued PATH` and writes one numbered `to-sol` request. It
-does not start Sol; an active watcher handles the saved request.
+The user does not create or send this `to-sol` request directly.
 
 The three values mean:
 
@@ -383,8 +437,16 @@ Each new discovery still saves its value in the request file. A saved value
 does not change when a later watch uses another default. Older request files
 that predate the second line use `medium`.
 
-For a manual clipboard relay, open the exact work folder whose path appears in
-the source note's `Execution checkout`, then set the same rule this way:
+For a manual clipboard relay, first ask the Architect to write these rows in
+the source note:
+
+```markdown
+- Roles: `Architect + Implementer + Red Team`
+- Discovery severity: `high`
+```
+
+Open the exact work folder whose path appears in the source note's `Execution
+checkout`, then confirm the saved severity:
 
 ```bash
 python3 ai/tools/handoff_router.py \
@@ -397,6 +459,14 @@ for the returned sections, runs the named checks, copies the Red Team and
 Architect prompts, and writes local records under `ai/notes/relay/`. It does
 not start a mailbox watcher or create a mailbox request.
 
+Here `--severity high` confirms the Architect's saved value. It cannot change
+the value or add a Red Team to another role plan. The router refuses a
+mismatch before it changes the clipboard.
+
+Copy those generated prompts and returned blocks unchanged. The user is a
+courier in this manual mode, not the author of an Implementer or Red Team
+instruction. Send any new request or correction to the Architect first.
+
 The Red Team records the user's setting, its own severity rating, whether the
 bug is probable or improbable, the evidence for that likelihood, and whether
 the finding meets the user's setting. The Architect checks those items,
@@ -404,7 +474,8 @@ accepts, upgrades, or downgrades the rating with a reason, and makes the final
 `GO` or `NO-GO` decision. The Red Team never opens the backlog ticket itself.
 
 This value does not request a broad search. The Red Team still reviews only
-the named change unless the user explicitly asks for a widespread search.
+the named change unless the user asks the Architect for a widespread search
+and the Architect records that scope in the Red Team handoff.
 It also cannot override fix-only mode or a Red Team disabled with
 `--skip-redteam` or `--no-red-team`. A new discovery is refused when ten or
 more known items are waiting; close recorded work first.
@@ -421,10 +492,14 @@ python3 ai/tools/mailbox_daemon.py --watch --fix-only yes
 The value also accepts `1` or `true`, in any capitalization.
 
 Here, **closure** means finishing work that is already recorded. **Discovery**
-means asking Sol to search for a new problem.
+means asking the Architect to have Sol search for a new problem.
 
 Severity does not weaken this rule. Even `--severity low` cannot create a
 discovery while fix-only mode is active.
+
+The watcher does not turn a line in `ai/notes/backlog.md` into a mailbox
+request. Give the recorded item to the Architect; the Architect writes the
+instructions and starts the internal handoffs.
 
 When the Sol role is enabled, fix-only mode behaves as follows:
 
@@ -529,7 +604,7 @@ text formats, unsaved files, and other counting details.
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + Sol |
 | AI job timeout | `--dispatch-timeout` | 60 minutes |
 | Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
-| Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop at cycle N; `0`: finish enabled waiting messages and open backlog items |
+| Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop at cycle N; `0`: stop only when no enabled message is waiting or running and no backlog line begins `- OPEN` |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
 | Discovery policy | `--fix-only` | off |
@@ -572,8 +647,8 @@ The current transcript is kept here for offline reading and regression checks.
 ```
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
                          [--max characters] [--skip-redteam]
-                         [--fix-only value] [--send AGENT] [--ping AGENT]
-                         [--unit UNIT] [--ticket-kind {closure,discovery}]
+                         [--fix-only value] [--send {architect}]
+                         [--ping {architect}] [--unit UNIT]
                          [--severity {high,medium,low}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
@@ -582,71 +657,82 @@ usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
                          [--dispatch-timeout MINUTES]
                          [--claude-context TOKENS] [--sol-context TOKENS]
 
-file mailbox + headless dispatch for the agent loop
+save mailbox requests and start the assigned role for each request
 
 options:
   -h, --help            show this help message and exit
-  --dry-run             show what would happen and change nothing: pending
-                        dispatches are printed, not run, and --send/--ping
-                        print the message file they would queue without
-                        writing it
-  --once                process the current backlog and exit
-  --watch               poll the mailbox every 20 seconds
-  --cycle count         with --watch, exit safely after this many global
-                        rendezvous cycles; 0 waits until the enabled dispatch
-                        queue and open ledger are empty; omitting the option
-                        keeps watching indefinitely
+  --dry-run             show the message files and work this command would
+                        handle, but do not start a role or write a message
+                        file
+  --once                start every request that is waiting now, then exit
+  --watch               check the mailbox every 20 seconds and start waiting
+                        requests
+  --cycle count         with --watch, stop after this many work periods; one
+                        period ends after five requests finish or 15 minutes
+                        pass from its start, but waits for every job already
+                        starting or running to finish; 0 instead waits until
+                        no enabled role has a waiting message and
+                        ai/notes/backlog.md has no open item; omit this option
+                        to keep watching
   --max characters      with --watch or --once, limit each ticket to this many
-                        added plus deleted characters from the starting commit
-                        in its directive; use only digits 0 through 9; 0 means
-                        no limit (default: 0)
+                        added and removed characters, counted from the
+                        starting saved Git version named in the Architect's
+                        instructions; use only digits 0 through 9; 0 means no
+                        limit (default: 0)
   --skip-redteam, --no-red-team
-                        with --watch, dispatch only Architect and Implementer
-                        routes; disable the entire Sol route and leave
-                        existing to-sol messages queued for a later normal
-                        watch
-  --fix-only value      with --watch, close existing ledger work only; the
-                        value accepts 1, true, or yes in any capitalization
-  --send AGENT          queue a message to this agent and exit
-  --ping AGENT          queue a transport-confirmation ping to this agent (its
-                        reply lands as a -to-user.md file the daemon never
-                        dispatches)
-  --unit UNIT           the message text for --send (a routing summary
-                        pointing at ai/notes/)
-  --ticket-kind {closure,discovery}
-                        required with --send sol: declare whether the unit
-                        closes existing work or seeks new findings
+                        with --watch, start Architect and Implementer jobs but
+                        no Red Team job; Red Team messages remain waiting for
+                        a later watch without this option
+  --fix-only value      with --watch, tell roles to finish work already
+                        recorded in ai/notes/backlog.md and refuse new Red
+                        Team discovery messages; this option does not create
+                        mailbox requests from backlog text; the value accepts
+                        1, true, or yes in any capitalization
+  --send {architect}    save the user's ticket request for the Architect and
+                        exit
+  --ping {architect}    save a connection-check message for the Architect; its
+                        reply is saved in a -to-user.md file and is not sent
+                        to another role
+  --unit UNIT           the user's request text for --send architect; include
+                        the path to its source note in ai/notes/
   --severity {high,medium,low}
                         minimum severity for new discovery tickets: high keeps
                         only bugs that severely impact core functionality,
                         cause data loss, halt system operations, or make the
                         science wrong; medium also keeps probable normal-
                         operation bugs but not improbable edge cases; low
-                        keeps every concrete discovered bug (default: medium)
+                        keeps every concrete discovered bug; with --send
+                        architect, save the choice for that request (default:
+                        medium)
   --architect-model MODEL
-                        Claude model alias or full name for the Architect
-                        route (legacy fable address; default: claude-fable-5)
+                        Claude model alias or full name used for the
+                        Architect; mailbox filenames for this role still
+                        contain fable (default: claude-fable-5)
   --implementer-model MODEL
-                        Claude model alias or full name for the Implementer
-                        route (legacy opus address; default: claude-opus-4-8)
+                        Claude model alias or full name used for the
+                        Implementer; mailbox filenames for this role still
+                        contain opus (default: claude-opus-4-8)
   --fable-effort {low,medium,high,xhigh,max}
-                        claude CLI reasoning effort for the Architect route
-                        (legacy fable address; default: xhigh)
-  --opus-effort {low,medium,high,xhigh,max}
-                        claude CLI reasoning effort for the Implementer route
-                        (legacy opus address; default: max)
-  --sol-effort {none,low,medium,high,xhigh}
-                        codex CLI reasoning effort for Sol dispatches
+                        claude CLI reasoning effort for the Architect
                         (default: xhigh)
+  --opus-effort {low,medium,high,xhigh,max}
+                        claude CLI reasoning effort for the Implementer
+                        (default: max)
+  --sol-effort {none,low,medium,high,xhigh}
+                        codex CLI reasoning effort for the Red Team (default:
+                        xhigh)
   --dispatch-timeout MINUTES
-                        kill a dispatched turn that runs past this many
-                        minutes and park its message in failed/ (default: 60)
+                        stop a running role after this many minutes and try to
+                        move its request file to failed/; if the result or
+                        move cannot be verified, the file may remain in
+                        inflight/ for inspection (default: 60)
   --claude-context TOKENS
-                        Architect and Implementer Claude turns compact their
-                        context whenever it reaches this many tokens (default:
-                        500000)
-  --sol-context TOKENS  Sol turns compact their context whenever it reaches
-                        this many tokens (default: 500000)
+                        ask Claude to replace older Architect and Implementer
+                        conversation text with a shorter summary when it
+                        reaches this many tokens (default: 500000)
+  --sol-context TOKENS  ask Codex to replace older Red Team conversation text
+                        with a shorter summary when it reaches this many
+                        tokens (default: 500000)
 ```
 
 </details>
@@ -663,14 +749,16 @@ options:
   `--once`. Omitting it or writing `--max 0` sets no character limit.
 - `--skip-redteam` and `--no-red-team` are two names for the same watch-only
   setting.
-- A two-role watch preserves waiting Sol files and refuses new Sol sends and
-  pings until that watcher stops and releases its saved two-role rule.
+- A two-role watch preserves waiting internal Sol files and refuses new
+  role-to-role Sol files until that watcher stops and releases its saved
+  two-role rule.
 - `--unit` is required with `--send`.
-- A Sol send also requires `--ticket-kind` followed by either `closure` or
-  `discovery`.
+- The only public send and ping target is `architect`. The `fable`, `opus`,
+  and `sol` addresses are for role-to-role files created after the Architect
+  decides what should happen.
 - `--severity` accepts `high`, `medium`, or `low`. It is valid with `--watch`,
-  `--once`, or `--send sol --ticket-kind discovery`. Omitting it uses
-  `medium`.
+  `--once`, or `--send architect`. An Architect send saves the choice in its
+  request file. Omitting it saves `medium`.
 - `--dispatch-timeout`, `--claude-context`, and `--sol-context` accept integers
   from 1 through 1,000,000.
 - For actions that exit on their own, `--dry-run` prints the proposed action
@@ -684,8 +772,9 @@ The manual relay has separate live help:
 python3 ai/tools/handoff_router.py --help
 ```
 
-Its `--skip-redteam` option controls one clipboard relay, not a running
-watcher.
+Its `--mode`, `--skip-redteam`, and `--severity` options confirm the matching
+values in the Architect's validated role plan. They cannot change that plan.
+These options apply to one clipboard relay, not a running watcher.
 
 Every tool has live help. These commands only print and exit:
 
@@ -781,8 +870,8 @@ Read the watcher's latest status line:
 | `dispatch preparation admitted; not safe to stop` | The watcher is starting a role | No |
 | `safe interval ended; not safe to stop` | An earlier safe period has ended | No |
 | `safe to Ctrl-C` | No AI role is running or starting during the printed countdown | Yes |
-| `watcher exiting safely` | The watcher has already stopped | Yes; no action is needed |
-| A timeout message | The watcher is stopping one long-running role and saving its result | No. Wait for a later `safe to Ctrl-C` or `watcher exiting safely` line. After it stops, inspect `failed/` (failed requests) and `inflight/` (requests being handled) before sending the request again |
+| `watcher stopped` | The watcher has already stopped | Yes; no action is needed |
+| A timeout message | The watcher is stopping one long-running role and saving its result | No. Wait for a later `safe to Ctrl-C` or `watcher stopped` line. After it stops, inspect `failed/` (failed requests) and `inflight/` (requests being handled) before sending the request again |
 
 ### FAQ B2. What does `--cycle` count? <a id="faq-b2-cycle-count"></a>
 
@@ -814,8 +903,8 @@ Choose how long the watcher should run:
 | --- | --- |
 | `--watch` | Keep watching until you stop it during a printed safe countdown |
 | `--watch --cycle 2` | Exit safely after two completed cycles, even if more work is waiting |
-| `--watch --cycle 0` | Exit only when no enabled mailbox message is waiting and `ai/notes/backlog.md` has no line that begins `- OPEN` |
-| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Sol messages untouched for a later run |
+| `--watch --cycle 0` | Exit only when no role message is waiting or running and `ai/notes/backlog.md` has no line that begins `- OPEN` |
+| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Red Team messages untouched for a later run |
 
 `--cycle 0` does not read a backlog description and invent an AI request from
 it. Someone must still send the appropriate mailbox message. The roles that
@@ -831,12 +920,12 @@ instead of guessing that the work is finished.
 This line marks a safe countdown:
 
 ```text
-all lanes idle; safe to Ctrl-C for 19s more; 3 messages waiting.
+every enabled role is idle; safe to Ctrl-C for 19s more; 3 messages waiting.
 ```
 
-The words `all lanes idle` mean that no AI role is running or starting. The
-last number says how many request files still wait, including work for a role
-that may be disabled in this run.
+The first part means that no enabled AI role is running or starting. The last
+number says how many request files still wait, including work for a role that
+may be disabled in this run.
 
 While a role is running, a periodic progress message looks like this:
 
@@ -848,12 +937,12 @@ It names the request, elapsed time, and current log-file size. The final path
 is the log that an experienced user may inspect while the job runs.
 
 ```text
-cycle limit reached (2/2 cycles); all lanes idle; watcher exiting safely; 3 messages waiting; 4 open ledger jobs remain.
+cycle limit reached (2/2 cycles); every enabled role is idle; watcher stopped; 3 messages waiting; 4 backlog items still begin with '- OPEN'.
 ```
 
 This last line means the requested two cycles are complete and the watcher
-has stopped safely. “Open ledger jobs” means backlog lines that still begin
-with `- OPEN`.
+has stopped. It also gives the number of request files and recorded backlog
+items that remain.
 
 The watcher also waits 20 seconds when it simply finds no work. Interrupting
 during that idle wait is safe, but the idle wait does not complete a cycle.
