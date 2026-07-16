@@ -144,39 +144,13 @@ def validate_dataset_request_identity(identity):
       "dataset request schema must be the native integer "
       + str(DATASET_REQUEST_SCHEMA) + "; got " + repr(identity["schema"]))
 
-  dataset_mode = identity["dataset_mode"]
-  if dataset_mode not in ("full", "chain-only"):
-    raise ValueError(
-      "dataset request mode must be 'full' or 'chain-only'; got "
-      + repr(dataset_mode))
+  _validate_dataset_route(
+    dataset_mode=identity["dataset_mode"],
+    family=identity["family"],
+    family_variant=identity["family_variant"],
+    generator=identity["generator"],
+    probe=identity["probe"])
 
-  probe = _portable_string(identity["probe"], "dataset probe")
-  if probe not in DATASET_PROBE_FAMILIES:
-    raise ValueError("unknown dataset probe " + repr(probe))
-  family = identity["family"]
-  expected_family = DATASET_PROBE_FAMILIES[probe]
-  if family != expected_family:
-    raise ValueError(
-      "dataset probe " + repr(probe) + " belongs to family "
-      + repr(expected_family) + ", not " + repr(family))
-
-  variant = identity["family_variant"]
-  if family == "grid2d":
-    if variant not in ("native", "syren-base"):
-      raise ValueError(
-        "grid2d family variant must be 'native' or 'syren-base'; got "
-        + repr(variant))
-  elif variant != "standard":
-    raise ValueError(
-      "family " + repr(family) + " requires variant 'standard'; got "
-      + repr(variant))
-
-  generator = _portable_string(identity["generator"], "dataset generator")
-  expected_generator = DATASET_PROBE_GENERATORS[probe]
-  if generator != expected_generator:
-    raise ValueError(
-      "dataset probe " + repr(probe) + " requires generator "
-      + repr(expected_generator) + "; got " + repr(generator))
   _require_digest(identity["scientific_contract_sha256"],
                   "invariant scientific contract")
 
@@ -259,6 +233,83 @@ def validate_dataset_request_identity(identity):
   return identity
 
 
+def _validate_dataset_route(*, dataset_mode, family, family_variant,
+                            generator, probe):
+  """Return the validated fields that route one dataset to its driver."""
+  if dataset_mode not in ("full", "chain-only"):
+    raise ValueError(
+      "dataset request mode must be 'full' or 'chain-only'; got "
+      + repr(dataset_mode))
+
+  probe = _portable_string(probe, "dataset probe")
+  if probe not in DATASET_PROBE_FAMILIES:
+    raise ValueError("unknown dataset probe " + repr(probe))
+  expected_family = DATASET_PROBE_FAMILIES[probe]
+  if family != expected_family:
+    raise ValueError(
+      "dataset probe " + repr(probe) + " belongs to family "
+      + repr(expected_family) + ", not " + repr(family))
+
+  variant = family_variant
+  if family == "grid2d":
+    if variant not in ("native", "syren-base"):
+      raise ValueError(
+        "grid2d family variant must be 'native' or 'syren-base'; got "
+        + repr(variant))
+  elif variant != "standard":
+    raise ValueError(
+      "family " + repr(family) + " requires variant 'standard'; got "
+      + repr(variant))
+
+  generator = _portable_string(generator, "dataset generator")
+  expected_generator = DATASET_PROBE_GENERATORS[probe]
+  if generator != expected_generator:
+    raise ValueError(
+      "dataset probe " + repr(probe) + " requires generator "
+      + repr(expected_generator) + "; got " + repr(generator))
+  return {
+    "dataset_mode": dataset_mode,
+    "family": family,
+    "family_variant": variant,
+    "generator": generator,
+    "probe": probe,
+  }
+
+
+@dataclass(frozen=True)
+class DatasetMemberCensus:
+  """Validated route and member names for one generator checkpoint."""
+
+  route: MappingProxyType
+  members: MappingProxyType
+
+
+def build_dataset_member_census(*, dataset_mode, family, family_variant,
+                                generator, probe, params_stem, dvs_stem,
+                                fail_stem):
+  """Build the immutable route and member names known before publication.
+
+  This census deliberately excludes configuration and scientific digests. It
+  lets a generator bind its validated driver route and exact checkpoint names
+  before any checkpoint file is inspected. The complete request identity is a
+  later publication input and remains mandatory at that boundary.
+  """
+  route = _validate_dataset_route(
+    dataset_mode=dataset_mode,
+    family=family,
+    family_variant=family_variant,
+    generator=generator,
+    probe=probe)
+  stems = _validate_dataset_stems(
+    params_stem=params_stem,
+    dvs_stem=dvs_stem,
+    fail_stem=fail_stem)
+  members = _build_dataset_member_map(route=route, stems=stems)
+  return DatasetMemberCensus(
+    route=MappingProxyType(dict(route)),
+    members=MappingProxyType(dict(members)))
+
+
 def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
   """Return the exact semantic role-to-basename map for one request.
 
@@ -269,6 +320,22 @@ def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
   array width.
   """
   validate_dataset_request_identity(identity)
+  route = {
+    "dataset_mode": identity["dataset_mode"],
+    "family": identity["family"],
+    "family_variant": identity["family_variant"],
+    "generator": identity["generator"],
+    "probe": identity["probe"],
+  }
+  stems = _validate_dataset_stems(
+    params_stem=params_stem,
+    dvs_stem=dvs_stem,
+    fail_stem=fail_stem)
+  return _build_dataset_member_map(route=route, stems=stems)
+
+
+def _validate_dataset_stems(*, params_stem, dvs_stem, fail_stem):
+  """Return three portable, case-distinct publication basenames."""
   stems = {}
   for label, value in (("parameter", params_stem),
                        ("data-vector", dvs_stem),
@@ -284,7 +351,11 @@ def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
     raise ValueError(
       "parameter, data-vector, and failure stems must be distinct on "
       "case-insensitive filesystems")
+  return stems
 
+
+def _build_dataset_member_map(*, route, stems):
+  """Build one role-to-basename map from an already validated route."""
   params = stems["parameter"]
   dvs = stems["data-vector"]
   fail = stems["failure"]
@@ -295,12 +366,12 @@ def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
     "parameters.ranges": params + ".ranges",
     "metadata.scientific-facts": params + ".facts.yaml",
   }
-  if identity["dataset_mode"] == "chain-only":
+  if route["dataset_mode"] == "chain-only":
     _require_unique_member_paths(members)
     return members
 
   members["rows.failure-mask"] = fail + ".txt"
-  family = identity["family"]
+  family = route["family"]
   if family == "cosmolike":
     members["payload.cosmolike.vector"] = dvs + ".npy"
   elif family == "cmb":
@@ -317,7 +388,7 @@ def build_dataset_member_map(identity, *, params_stem, dvs_stem, fail_stem):
     members["payload.grid2d.boost"] = dvs + "_boost.npy"
     members["axis.grid2d.redshift"] = dvs + "_z.npy"
     members["axis.grid2d.wavenumber"] = dvs + "_k.npy"
-    if identity["family_variant"] == "syren-base":
+    if route["family_variant"] == "syren-base":
       members["base.grid2d.pklin"] = dvs + "_pklin_base.npy"
       members["base.grid2d.boost"] = dvs + "_boost_base.npy"
   else:

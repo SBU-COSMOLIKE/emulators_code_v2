@@ -606,6 +606,51 @@ width, covariance, filename, or configured range.
 Every family and variant has an exact-census control. Missing CMB axis,
 one-sided Syren base, extra cache files, or chain-only borrowing fails.
 
+<a id="dataset-request-contract-generator-member-binding"></a>
+### Generator member binding
+
+#### Rule
+
+Each generator binds its route and progress-file names once, after it reads
+the driver-specific settings and chooses the full or chain-only output stems.
+The running class's defining Python filename supplies the generator name. The
+immutable probe registry must agree with that filename, the output family,
+and the family variant.
+
+The parameter, data-vector, and failure stems are normalized to absolute
+paths and must share one folder. Only their portable basenames enter the
+immutable member census. Checkpoint preflight joins that saved folder to the
+saved member names; it does not ask a family driver to rebuild a second list.
+Chain-only mode therefore remains the same five common members for every
+family.
+
+For matter-power generation, `write_syren_base` must be a YAML Boolean. A
+false value binds the native Grid2D variant; a true value binds the
+Syren-base variant and both base members. Fixed scientific facts reuse the
+saved family, variant, and generator. Changing a probe, filename, or base
+switch later cannot reclassify an already bound run.
+
+This early census is not the complete dataset request and is not a published
+manifest. It deliberately contains no configuration digest, scientific
+digest, random state, transaction state, or consumer pin.
+
+#### Acceptance evidence
+
+Both modes and every family or variant produce the same members as the full
+request contract. The complete family checkpoint methods agree with the
+bound full census. A wrong driver filename, mismatched folder, case-colliding
+stem, missing module filename, invalid family variant, or non-Boolean base
+switch refuses before a checkpoint file is opened. Independent source
+mutations fail when they restore the old family list, copy the expected
+driver instead of observing the running file, erase the matter-power
+variant, lend full members to chain-only mode, or recompute fixed facts from
+mutable state. Further mutations fail when they move the binding before
+driver settings and scoped stems, or bypass the matter-power Boolean
+validator at its real assignment. Family-parity mutations also fail when a
+lensing driver adds an override or when CMB and background change their
+source-owned member constants without the canonical census changing with
+them.
+
 <a id="dataset-request-contract-mutation-controls"></a>
 ### Load-bearing request controls
 

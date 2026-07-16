@@ -1964,7 +1964,7 @@ def gate_generator_run_control(ctx):
   chain-only routing. It also AST-executes the real stem scoping, checkpoint
   census, and requested-load branch: all three stems must be mode-scoped,
   chain-only owns exactly five parameter members and never asks for a failure
-  or data-vector member, while full mode retains its delegated family census.
+  or data-vector member, while full mode retains its bound canonical census.
   A valid
   chain-only load returns immediately after parameter readback, and the later
   append branch crosses one mode barrier before failure/data-vector I/O.
@@ -2038,17 +2038,18 @@ def gate_dataset_publication(ctx):
 
 
 def gate_dataset_request_contract(ctx):
-  """dataset-request-contract: identity and family members are exact.
+  """dataset-request-contract: request, route, and members are exact.
 
-  The CPU child runs 15 focused schema/member witnesses and 15 source
-  mutations. It proves a strict versioned invariant request, one-owner stable
-  scientific-contract digest, ordered names, exact mode-specific sampling and
-  RNG policy, immutable probe/family/generator registries, and the complete
-  chain-only/full semantic member map.
+  The CPU child runs 27 focused witnesses and 25 source mutations. It proves a
+  strict versioned invariant request, one-owner stable scientific-contract
+  digest, ordered names, exact mode-specific sampling and RNG policy,
+  immutable probe/family/generator registries, the complete chain-only/full
+  semantic member map, and the generator's early binding to its actual driver
+  filename and exact progress-file census.
 
-  This is still a pure contract. GeneratorCore does not yet publish through it,
-  and authenticated continuation state, copy-on-write append, consumer pinning,
-  and MPI integration remain later Unit-8 work.
+  The early generator census is not a complete request or a publication.
+  Authenticated continuation state, copy-on-write append, consumer pinning,
+  and MPI publication remain later Unit-8 work.
   """
   rc, out = ctx.run_check(
     "ai/gates/checks/dataset_request_contract.py")
@@ -2438,7 +2439,7 @@ BOARD = [
             "or any output-path mutation. Full and chain-only runs scope all "
             "three stems separately; chain-only checkpoint readback owns "
             "exactly five parameter members and touches no failure/data-vector "
-            "member, while full mode keeps its delegated family census. The "
+            "member, while full mode keeps its bound canonical census. The "
             "append branch crosses a mode barrier that returns before full-"
             "dataset I/O in chain-only mode. Seventeen targeted mutations bind bool "
             "refusal, independent-append refusal, statement-zero order, a "
@@ -2602,9 +2603,13 @@ BOARD = [
             "CosmoLike, CMB, Grid, and Grid2D, including mandatory persisted "
             "axes and the all-or-none Syren base pair; derived paths and the "
             "stable projection are resource-bounded before serialization. "
-            "This does not claim "
-            "GeneratorCore publication, mutable RNG state, append continuity, "
-            "consumer pinning, or MPI integration",
+            "After driver settings and all three scoped stems, GeneratorCore "
+            "binds the actual defining driver filename, family, variant, one "
+            "normalized output folder, and the immutable member census before "
+            "checkpoint inspection; checkpoint paths and fixed facts reuse "
+            "that saved route. This early census is not a complete "
+            "request and does not claim publication, mutable RNG state, append "
+            "continuity, consumer pinning, or MPI integration",
        evidence=(Assertion(
                    "dataset-request-contract.identity",
                    "data-generation-and-cuts.md#dataset-request-contract-identity"),
@@ -2612,14 +2617,23 @@ BOARD = [
                    "dataset-request-contract.family-members",
                    "data-generation-and-cuts.md#dataset-request-contract-family-members"),
                  Assertion(
+                   "dataset-request-contract.generator-member-binding",
+                   "data-generation-and-cuts.md#"
+                   "dataset-request-contract-generator-member-binding"),
+                 Assertion(
                    "dataset-request-contract.mutation-controls",
                    "data-generation-and-cuts.md#dataset-request-contract-mutation-controls")),
        run=gate_dataset_request_contract,
        manifest=Manifest(
          code=("compute_data_vectors/dataset_manifest.py",
                "compute_data_vectors/generator_core.py",
+               "compute_data_vectors/dataset_generator_lensing.py",
+               "compute_data_vectors/dataset_generator_cmb.py",
+               "compute_data_vectors/dataset_generator_background.py",
+               "compute_data_vectors/dataset_generator_mps.py",
                "emulator/fixed_facts.py",
-               "ai/tests/test_dataset_request_contract.py"),
+               "ai/tests/test_dataset_request_contract.py",
+               "ai/tests/test_generator_member_binding.py"),
          inputs=()),
        needs=()),
   Gate(id="cli-strict",

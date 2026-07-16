@@ -78,6 +78,7 @@ from emulator.parameter_table import resolve_parameter_table
 from compute_data_vectors.dataset_manifest import (
   DATASET_PROBE_FAMILIES,
   UNIFORM_BOUNDARY_INTERIOR_POLICY as DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY,
+  build_dataset_member_census,
   load_checkpoint_or_refuse,
   require_checkpoint_members,
   scope_dataset_stem,
@@ -328,7 +329,6 @@ def capture_native_output():
 # One pure request-contract module owns this mapping so the publication
 # identity, family member census, and scientific sidecar cannot classify one
 # probe three different ways.
-PROBE_FAMILY = DATASET_PROBE_FAMILIES
 
 # The units the CMB driver asks cobaya for at every sample
 # (dataset_generator_cmb.py calls get_Cl(ell_factor=False, units="muK2")). The
@@ -398,6 +398,9 @@ class GeneratorCore:
     self.covmat = None
     self.dtype = np.float32
     self.dvsf = None
+    self.dataset_member_directory = None
+    self.dataset_members = None
+    self.dataset_route = None
     self.derived = True
     self.dvs_is_memmap = False
     self.freqchk = 5000 if self.args.freqchk is None else self.args.freqchk
@@ -601,6 +604,7 @@ class GeneratorCore:
       self.paramsf, self.run_control.dataset_mode)
     self.failf = scope_dataset_stem(
       self.failf, self.run_control.dataset_mode)
+    self._bind_dataset_member_census()
 
     #---------------------------------------------------------------------------
     # Validate fiducial is inside the sampling bounds (Gaussian sampling only)
@@ -637,6 +641,75 @@ class GeneratorCore:
       train_args = the YAML's train_args mapping.
     """
     return
+
+  def _generator_program_name(self):
+    """Return the filename stem that defines the concrete driver class.
+
+    The registry states which driver a probe requires, but it cannot prove
+    which Python file defined the object that is running. This method obtains
+    that independent fact from the concrete class's loaded module.
+
+    Raises:
+      ValueError when the defining module or its Python file cannot be proved.
+    """
+    module_name = type(self).__module__
+    module = sys.modules.get(module_name)
+    defining_file = getattr(module, "__file__", None)
+    if type(defining_file) is not str or not defining_file:
+      raise ValueError(
+        "the dataset generator's defining Python file cannot be proved for "
+        "module " + repr(module_name))
+    program_name = Path(defining_file).stem
+    if not program_name:
+      raise ValueError(
+        "the dataset generator's defining Python file has no filename stem: "
+        + repr(defining_file))
+    return program_name
+
+  def _family_variant(self):
+    """Return the publication variant used by non-Grid2D drivers."""
+    return "standard"
+
+  def _bind_dataset_member_census(self):
+    """Bind one validated route and checkpoint census without reading files.
+
+    The three output stems must share one folder. Only their basenames enter
+    the portable member census; the common folder is stored separately and is
+    joined to those names when a requested checkpoint is inspected.
+
+    Raises:
+      ValueError when the stems use different folders, the concrete driver
+      does not match its probe, or the route/member names are invalid.
+    """
+    parameter_path = Path(os.path.abspath(os.path.normpath(self.paramsf)))
+    data_vector_path = Path(os.path.abspath(os.path.normpath(self.dvsf)))
+    failure_path = Path(os.path.abspath(os.path.normpath(self.failf)))
+    member_directory = parameter_path.parent
+    if data_vector_path.parent != member_directory \
+        or failure_path.parent != member_directory:
+      raise ValueError(
+        "dataset parameter, data-vector, and failure stems must share one "
+        "folder; got " + repr((
+          str(parameter_path.parent),
+          str(data_vector_path.parent),
+          str(failure_path.parent))))
+
+    probe = self.probe
+    if probe not in DATASET_PROBE_FAMILIES:
+      raise ValueError(
+        "the dataset probe has no registered output family: " + repr(probe))
+    census = build_dataset_member_census(
+      dataset_mode=self.run_control.dataset_mode,
+      family=DATASET_PROBE_FAMILIES[probe],
+      family_variant=self._family_variant(),
+      generator=self._generator_program_name(),
+      probe=probe,
+      params_stem=parameter_path.name,
+      dvs_stem=data_vector_path.name,
+      fail_stem=failure_path.name)
+    self.dataset_route = census.route
+    self.dataset_members = census.members
+    self.dataset_member_directory = member_directory
 
   def _compute_dvs_from_sample(self, sample):
     """
@@ -1038,21 +1111,11 @@ class GeneratorCore:
   # save/load checkpoint
   #-----------------------------------------------------------------------------
   def _checkpoint_member_paths(self):
-    """Return the exact checkpoint census for the normalized dataset mode."""
-    parameter_members = [
-      f"{self.paramsf}.covmat",
-      f"{self.paramsf}.paramnames",
-      f"{self.paramsf}.ranges",
-      f"{self.paramsf}.1.txt",
-      f"{self.paramsf}{fixed_facts.SIDECAR_SUFFIX}",
-    ]
-    if self.run_control.dataset_mode == "chain-only":
-      return parameter_members
-    if self.run_control.dataset_mode != "full":
-      raise ValueError(
-        "Unknown normalized generator dataset mode: "
-        + repr(self.run_control.dataset_mode))
-    return self._dv_chk_files() + [f"{self.failf}.txt"] + parameter_members
+    """Return checkpoint paths from the census bound during setup."""
+    checkpoint_paths = []
+    for relative_name in self.dataset_members.values():
+      checkpoint_paths.append(self.dataset_member_directory / relative_name)
+    return checkpoint_paths
 
   def __load_chk(self):
     if self.run_control.operation == "fresh":
@@ -1297,16 +1360,9 @@ class GeneratorCore:
       flat_only, dark_energy_law, dark_energy_inputs, cl_units, base_identity.
 
     Raises:
-      ValueError when the run's probe has no output family, or when the
-      matter-power base cannot be named.
+      ValueError when the matter-power base cannot be named.
     """
-    if self.probe not in PROBE_FAMILY:
-      raise ValueError(
-        "the probe " + repr(self.probe) + " has no output family, so the "
-        "dataset cannot record which family it feeds. Add the probe to "
-        "PROBE_FAMILY in compute_data_vectors/generator_core.py when a driver "
-        "starts accepting it.")
-    family = PROBE_FAMILY[self.probe]
+    family = self.dataset_route["family"]
 
     sampled = set(self.sampled_params)
     pinned  = self._resolved_constants()
@@ -1361,21 +1417,16 @@ class GeneratorCore:
     # the frozen base the dataset sits on top of. Only the matter-power dumps
     # have one, and only when the run asked for it: a run with write_syren_base
     # off writes no base file and its emulator corrects nothing, so it has no
-    # base to name. write_base is the mps driver's own switch, so the base class
-    # asks for it rather than assuming every driver has one.
+    # base to name. Setup binds that choice as the validated family variant, so
+    # later mutable driver fields cannot change the scientific record.
     base_identity = fixed_facts.NOT_APPLICABLE
-    if self.probe == "mps" and getattr(self, "write_base", False):
+    if self.dataset_route["family_variant"] == "syren-base":
       base_identity = self._syren_base_identity()
 
-    # the driver that produced the dataset, by the name a user types on the
-    # command line. All four driver classes are named `dataset`, so the class
-    # name says nothing about which one ran; the module it was defined in does.
-    # A driver run by path is the __main__ module, whose file is that script.
-    generator = type(self).__module__
-    module = sys.modules.get(generator, None)
-    path = getattr(module, "__file__", None)
-    if path is not None:
-      generator = Path(path).stem
+    # Setup has already proved the concrete driver file against the registry.
+    # Reusing that immutable route prevents later mutable class or probe state
+    # from changing the producer name written into the scientific sidecar.
+    generator = self.dataset_route["generator"]
 
     return {"generator":           generator,
             "family":              family,

@@ -172,6 +172,7 @@ emulator result file.
 | `test_dataset_request_contract.py` | The exact scientific request fields and generated member names for each supported family and sampling mode. |
 | `test_finetune_post_step_and_provenance.py` | The pull toward saved fine-tune weights happens after the optimizer step, the moving weight average sees that pull, and both drivers save the same origin facts. |
 | `test_generator_checkpoint_refusal.py` | Missing or corrupt requested progress files refuse instead of silently starting fresh, and each family names its required files and axes. |
+| `test_generator_member_binding.py` | Each generator binds its real driver, output family, variant, and exact progress-file names before it looks for an existing file. |
 | `test_generator_payload_success.py` | A generated row is marked successful only after its array shape, finite values, stored number format, and exact contents are checked again after saving; each family also checks its expected array shape. |
 | `test_generator_run_control.py` | The three generation operations, chain-only choice, strict integer switches, and the complete saved run-control record. |
 | `test_grid2d_const_mask.py` | Construction, storage, and validation of the Grid2D constant-column mask. |

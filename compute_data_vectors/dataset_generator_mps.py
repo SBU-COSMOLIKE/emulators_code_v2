@@ -136,7 +136,7 @@ class dataset(GeneratorCore):
         f"train_args.extrap_kmax ({self.extrap_kmax}) must reach the "
         f"k grid's top ({self.k_mps[-1]}); the interpolator cannot be "
         f"evaluated beyond its extrapolation edge")
-    self.write_base = bool(train_args["write_syren_base"])
+    self.write_base = self._read_write_base(train_args)
     if self.write_base:
       # fail at setup, not at sample 1 of an MPI farm: prove the base
       # formulas import on this rank (the syren package is vendored
@@ -169,6 +169,21 @@ class dataset(GeneratorCore):
       }, "Cl": {  # DONT REMOVE THIS - SOME WEIRD BEHAVIOR IN CAMB WITHOUT WANTS_CL
         'tt': 0
       }})
+
+  def _read_write_base(self, train_args):
+    """Require the YAML base-file switch to be a native boolean."""
+    write_base = train_args["write_syren_base"]
+    if type(write_base) is not bool:
+      raise ValueError(
+        "train_args.write_syren_base must be the YAML boolean true or false; "
+        "got " + repr(write_base))
+    return write_base
+
+  def _family_variant(self):
+    """Name whether this matter-power dataset includes both base members."""
+    if self.write_base:
+      return "syren-base"
+    return "native"
 
   def _quantities(self):
     """The store's quantity tags (base files ride the switch)."""

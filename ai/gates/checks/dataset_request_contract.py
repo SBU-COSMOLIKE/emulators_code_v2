@@ -5,6 +5,7 @@ import copy
 import io
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 
@@ -15,13 +16,25 @@ if str(ROOT) not in sys.path:
 
 from ai.tests.test_dataset_request_contract import DatasetMemberMapTests
 from ai.tests.test_dataset_request_contract import DatasetRequestIdentityTests
+from ai.tests.test_generator_member_binding import CASES
+from ai.tests.test_generator_member_binding import GeneratorMemberBindingTests
+from ai.tests.test_generator_member_binding import _assert_mps_write_base_binding
+from ai.tests.test_generator_member_binding import _assert_setup_member_binding_order
+from ai.tests.test_generator_member_binding import _bind_instance
+from ai.tests.test_generator_member_binding import _census
+from ai.tests.test_generator_member_binding import _compile_core
+from ai.tests.test_generator_member_binding import _family_checkpoint_paths
+from ai.tests.test_generator_member_binding import _mps_variant_method
 
 
 MANIFEST_SOURCE = ROOT / "compute_data_vectors" / "dataset_manifest.py"
 FIXED_FACTS_SOURCE = ROOT / "emulator" / "fixed_facts.py"
+GENERATOR_SOURCE = ROOT / "compute_data_vectors" / "generator_core.py"
+MPS_SOURCE = ROOT / "compute_data_vectors" / "dataset_generator_mps.py"
 LEG_AIDS = (
   "dataset-request-contract.identity",
   "dataset-request-contract.family-members",
+  "dataset-request-contract.generator-member-binding",
   "dataset-request-contract.mutation-controls",
 )
 
@@ -29,6 +42,8 @@ IDENTITY_TESTS = tuple(unittest.defaultTestLoader.getTestCaseNames(
   DatasetRequestIdentityTests))
 MEMBER_TESTS = tuple(unittest.defaultTestLoader.getTestCaseNames(
   DatasetMemberMapTests))
+BINDING_TESTS = tuple(unittest.defaultTestLoader.getTestCaseNames(
+  GeneratorMemberBindingTests))
 
 
 def _run_suite(case, methods):
@@ -186,10 +201,10 @@ def _mutation_controls():
     ),
     (
       "borrow-full-members-in-chain-only",
-      '  if identity["dataset_mode"] == "chain-only":\n'
+      '  if route["dataset_mode"] == "chain-only":\n'
       '    _require_unique_member_paths(members)\n'
       '    return members\n',
-      '  if identity["dataset_mode"] == "chain-only" and False:\n'
+      '  if route["dataset_mode"] == "chain-only" and False:\n'
       '    _require_unique_member_paths(members)\n'
       '    return members\n',
       lambda module: len(module.build_dataset_member_map(
@@ -296,6 +311,245 @@ def _digest_hostile_contract(module):
   return module.scientific_contract_digest(blocks)
 
 
+def _member_binding_mutations():
+  """Run ten independent regressions against the binding witnesses."""
+  generator_source = GENERATOR_SOURCE.read_text(encoding="utf-8")
+  manifest_source = MANIFEST_SOURCE.read_text(encoding="utf-8")
+  mps_source = MPS_SOURCE.read_text(encoding="utf-8")
+  results = []
+
+  label = "move-binding-before-driver-settings"
+  try:
+    mutated = _mutate(
+      generator_source,
+      '    self._bind_dataset_member_census()\n',
+      '',
+      label)
+    mutated = _mutate(
+      mutated,
+      '    self._read_train_args(train_args)\n',
+      '    self._bind_dataset_member_census()\n'
+      '    self._read_train_args(train_args)\n',
+      label)
+    try:
+      _assert_setup_member_binding_order(mutated)
+      killed = False
+    except AssertionError:
+      killed = True
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  label = "bypass-mps-write-base-validator"
+  try:
+    mutated = _mutate(
+      mps_source,
+      '    self.write_base = self._read_write_base(train_args)\n',
+      '    self.write_base = bool(train_args["write_syren_base"])\n',
+      label)
+    try:
+      _assert_mps_write_base_binding(mutated)
+      killed = False
+    except AssertionError:
+      killed = True
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  driver_mutations = (
+    (
+      "override-lensing-checkpoint-members",
+      CASES[0],
+      '  EXTRA_TRAIN_KEYS = ()\n',
+      '  EXTRA_TRAIN_KEYS = ()\n'
+      '\n'
+      '  def _dv_chk_files(self):\n'
+      '    return [f"{self.dvsf}_driver_override.npy"]\n',
+    ),
+    (
+      "drop-cmb-spectrum-constant",
+      CASES[1],
+      'SPECTRA = ("tt", "te", "ee", "pp")\n',
+      'SPECTRA = ("tt", "te", "ee")\n',
+    ),
+    (
+      "drop-background-quantity-constant",
+      CASES[2],
+      'QUANTITIES = ("h", "dm")\n',
+      'QUANTITIES = ("h",)\n',
+    ),
+  )
+  for label, case, old, new in driver_mutations:
+    try:
+      driver_source = case["source"].read_text(encoding="utf-8")
+      mutated = _mutate(driver_source, old, new, label)
+      core_class = _compile_core()
+      with tempfile.TemporaryDirectory() as directory:
+        census = _census(case, "full")
+        expected = {
+          Path(directory) / relative
+          for role, relative in census.members.items()
+          if role.startswith(("payload.", "axis.", "base."))
+        }
+        observed = set(_family_checkpoint_paths(
+          core_class, case, directory, source=mutated))
+        killed = observed != expected
+    except Exception as exc:
+      print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+      killed = False
+    print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+    results.append(killed)
+
+  label = "rebuild-old-checkpoint-census"
+  module_name = None
+  try:
+    mutated = _mutate(
+      generator_source,
+      '    checkpoint_paths = []\n'
+      '    for relative_name in self.dataset_members.values():\n'
+      '      checkpoint_paths.append(self.dataset_member_directory / relative_name)\n'
+      '    return checkpoint_paths\n',
+      '    return self._dv_chk_files()\n',
+      label)
+    core_class = _compile_core(mutated)
+    with tempfile.TemporaryDirectory() as directory:
+      instance, module_name = _bind_instance(
+        core_class, CASES[0], directory, dataset_mode="chain-only")
+      calls = []
+
+      def old_census():
+        calls.append("called")
+        return []
+
+      instance._dv_chk_files = old_census
+      instance._checkpoint_member_paths()
+      killed = calls == ["called"]
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  finally:
+    if module_name is not None:
+      sys.modules.pop(module_name, None)
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  label = "copy-expected-generator"
+  module_name = None
+  try:
+    mutated = _mutate(
+      generator_source,
+      '      generator=self._generator_program_name(),\n',
+      '      generator=DATASET_PROBE_GENERATORS[probe],\n',
+      label)
+    core_class = _compile_core(mutated)
+    with tempfile.TemporaryDirectory() as directory:
+      instance, module_name = _bind_instance(
+        core_class,
+        CASES[0],
+        directory,
+        defining_file=CASES[1]["source"])
+      killed = instance.dataset_route["generator"] == CASES[0]["generator"]
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  finally:
+    if module_name is not None:
+      sys.modules.pop(module_name, None)
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  label = "force-mps-standard-variant"
+  try:
+    mutated = _mutate(
+      mps_source,
+      '  def _family_variant(self):\n'
+      '    """Name whether this matter-power dataset includes both base members."""\n'
+      '    if self.write_base:\n'
+      '      return "syren-base"\n'
+      '    return "native"\n',
+      '  def _family_variant(self):\n'
+      '    """Mutation that erases the matter-power variant."""\n'
+      '    return "standard"\n',
+      label)
+    method = _mps_variant_method(mutated)
+    control = types.SimpleNamespace(write_base=False)
+    based = types.SimpleNamespace(write_base=True)
+    killed = method(control) == "standard" and method(based) == "standard"
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  label = "give-chain-only-full-members"
+  mutant_name = None
+  try:
+    mutated = _mutate(
+      manifest_source,
+      '  if route["dataset_mode"] == "chain-only":\n'
+      '    _require_unique_member_paths(members)\n'
+      '    return members\n',
+      '  if route["dataset_mode"] == "chain-only" and False:\n'
+      '    _require_unique_member_paths(members)\n'
+      '    return members\n',
+      label)
+    mutant_name, module = _load_mutant(mutated, label)
+    census = module.build_dataset_member_census(
+      dataset_mode="chain-only",
+      family="cosmolike",
+      family_variant="standard",
+      generator="dataset_generator_lensing",
+      probe="cs",
+      params_stem="params",
+      dvs_stem="dvs",
+      fail_stem="fail")
+    killed = len(census.members) != 5
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  finally:
+    if mutant_name is not None:
+      sys.modules.pop(mutant_name, None)
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  label = "recompute-fixed-facts-route"
+  module_name = None
+  try:
+    mutated = _mutate(
+      generator_source,
+      '    family = self.dataset_route["family"]\n',
+      '    family = DATASET_PROBE_FAMILIES[self.probe]\n',
+      label)
+    core_class = _compile_core(mutated)
+    with tempfile.TemporaryDirectory() as directory:
+      instance, module_name = _bind_instance(
+        core_class, CASES[0], directory)
+      instance.sampled_params = ()
+      instance._resolved_constants = lambda: {}
+      instance.write_base = False
+      instance.probe = "cmblensed"
+      sys.modules[module_name].__file__ = str(CASES[1]["source"])
+      facts = instance._resolve_fixed_facts()
+      killed = (
+        facts["family"] == "cmb"
+        and facts["generator"] == "dataset_generator_lensing")
+  except Exception as exc:
+    print("  [FAIL] mutation " + label + " could not run: " + str(exc))
+    killed = False
+  finally:
+    if module_name is not None:
+      sys.modules.pop(module_name, None)
+  print("  [" + ("PASS" if killed else "FAIL") + "] mutation " + label)
+  results.append(killed)
+
+  return all(results) and len(results) == 10
+
+
 def _terminal(aid, passed, witnesses):
   mark = "PASS" if passed else "FAIL"
   print("  [" + mark + "] " + aid + " (" + witnesses + ")")
@@ -306,13 +560,19 @@ def _terminal(aid, passed, witnesses):
 def main():
   identity = _run_suite(DatasetRequestIdentityTests, IDENTITY_TESTS)
   member = _run_suite(DatasetMemberMapTests, MEMBER_TESTS)
+  binding = _run_suite(GeneratorMemberBindingTests, BINDING_TESTS)
   mutations = _mutation_controls()
+  binding_mutations = _member_binding_mutations()
   passed = (
     _terminal(LEG_AIDS[0], identity,
               str(len(IDENTITY_TESTS)) + " focused witnesses"),
     _terminal(LEG_AIDS[1], member,
               str(len(MEMBER_TESTS)) + " focused witnesses"),
-    _terminal(LEG_AIDS[2], mutations, "15/15 source mutations killed"),
+    _terminal(LEG_AIDS[2], binding and binding_mutations,
+              str(len(BINDING_TESTS))
+              + " focused witnesses; 10/10 mutations killed"),
+    _terminal(
+      LEG_AIDS[3], mutations, "15/15 source mutations killed"),
   )
   if all(passed):
     print("dataset-request-contract: ALL PASS")

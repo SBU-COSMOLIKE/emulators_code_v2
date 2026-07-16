@@ -25,6 +25,7 @@ from types import SimpleNamespace
 import tempfile
 
 from compute_data_vectors.dataset_manifest import RunControl
+from compute_data_vectors.dataset_manifest import build_dataset_member_census
 from compute_data_vectors.dataset_manifest import require_checkpoint_members
 from compute_data_vectors.dataset_manifest import scope_dataset_stem
 from compute_data_vectors.dataset_manifest import validate_run_control
@@ -649,12 +650,31 @@ def _checkpoint_class(tree, resolver, member_preflight):
 def _parameter_members(paramsf):
   """Return the exact five parameter members owned by chain-only mode."""
   return [
-    paramsf + ".covmat",
-    paramsf + ".paramnames",
-    paramsf + ".ranges",
     paramsf + ".1.txt",
+    paramsf + ".paramnames",
+    paramsf + ".covmat",
+    paramsf + ".ranges",
     paramsf + ".facts.yaml",
   ]
+
+
+def _install_member_census(instance, directory, dataset_mode):
+  """Give an extracted generator the canonical saved member census."""
+  census = build_dataset_member_census(
+    dataset_mode=dataset_mode,
+    family="cosmolike",
+    family_variant="standard",
+    generator="dataset_generator_lensing",
+    probe="cs",
+    params_stem=Path(instance.paramsf).name,
+    dvs_stem=Path(instance.dvsf).name,
+    fail_stem=Path(instance.failf).name)
+  instance.dataset_member_directory = Path(directory)
+  instance.dataset_route = census.route
+  instance.dataset_members = census.members
+  return tuple(
+    instance.dataset_member_directory / relative
+    for relative in census.members.values())
 
 
 def _checkpoint_census_contract(tree):
@@ -682,12 +702,14 @@ def _checkpoint_census_contract(tree):
   instance = checkpoint_class()
   instance.paramsf = "/repo/chains/params"
   instance.failf = "/repo/chains/fail"
+  instance.dvsf = "/repo/chains/dv"
   instance.run_control = RunControl(
     loadchk=1, append=0, chain=1,
     operation="resume", dataset_mode="chain-only")
+  expected_parameters = _install_member_census(
+    instance, "/repo/chains", "chain-only")
   chain_members = instance._checkpoint_member_paths()
-  expected_parameters = _parameter_members(instance.paramsf)
-  if chain_members != expected_parameters:
+  if tuple(chain_members) != expected_parameters:
     return False, "chain-only census=" + repr(chain_members)
   if dv_calls:
     return False, "chain-only census touched " + repr(dv_calls)
@@ -695,27 +717,22 @@ def _checkpoint_census_contract(tree):
   instance.run_control = RunControl(
     loadchk=1, append=0, chain=0,
     operation="resume", dataset_mode="full")
+  expected_full = _install_member_census(instance, "/repo/chains", "full")
   full_members = instance._checkpoint_member_paths()
-  expected_full = [
-    "/repo/chains/dv_a.npy",
-    "/repo/chains/dv_axis.npy",
-    "/repo/chains/fail.txt",
-  ] + expected_parameters
-  if full_members != expected_full:
+  if tuple(full_members) != expected_full:
     return False, "full census=" + repr(full_members)
-  if dv_calls != ["dv-census"]:
+  if dv_calls:
     return False, "full census DV calls=" + repr(dv_calls)
 
-  instance.run_control = SimpleNamespace(dataset_mode="unknown")
   try:
-    instance._checkpoint_member_paths()
+    _install_member_census(instance, "/repo/chains", "unknown")
   except ValueError as exc:
     if "unknown" not in str(exc):
       return False, "unknown-mode refusal did not name the value"
   else:
     return False, "unknown normalized mode was accepted"
-  return True, ("chain-only=5 parameter members; full=delegated family DV "
-                "census + fail + 5")
+  return True, ("chain-only=5 parameter members; full=bound payload + fail "
+                "+ 5; old DV census unused")
 
 
 def _drive_chain_only_loader(tree, operation):
@@ -770,6 +787,7 @@ def _drive_chain_only_loader(tree, operation):
     instance = checkpoint_class()
     instance.paramsf = paramsf
     instance.failf = os.path.join(directory, "absent-fail")
+    instance.dvsf = os.path.join(directory, "absent-dv")
     instance.sampled_params = ("alpha", "beta")
     instance.loadedsamples = False
     instance.loadedfromchk = False
@@ -779,6 +797,8 @@ def _drive_chain_only_loader(tree, operation):
       chain=1,
       operation=operation,
       dataset_mode="chain-only")
+    expected_members = _install_member_census(
+      instance, directory, "chain-only")
     error = None
     result = None
     try:
@@ -786,7 +806,6 @@ def _drive_chain_only_loader(tree, operation):
     except Exception as exc:
       error = exc
 
-    expected_members = tuple(_parameter_members(paramsf))
     expected_required = [(operation, expected_members)]
     if error is not None:
       return False, operation + " error=" + repr(error)
@@ -1004,36 +1023,32 @@ def _mutation_scope_on_raw_chain(tree):
 def _mutation_chain_census_borrows_dv(tree):
   """Mutation: make chain-only preflight inspect full-dataset DV members."""
   method = _generator_method(tree, "_checkpoint_member_paths")
-  changes = 0
-  for node in method.body:
-    if not isinstance(node, ast.If) or not _is_mode_compare(
-        node.test, "chain-only"):
-      continue
-    returns = [item for item in node.body if isinstance(item, ast.Return)]
-    if len(returns) != 1:
-      raise AssertionError("chain census mutation needs one return")
-    returns[0].value = ast.BinOp(
-      left=ast.Call(
-        func=ast.Attribute(
-          value=ast.Name(id="self", ctx=ast.Load()),
-          attr="_dv_chk_files",
-          ctx=ast.Load()),
-        args=[],
-        keywords=[]),
-      op=ast.Add(),
-      right=ast.Name(id="parameter_members", ctx=ast.Load()))
-    changes += 1
-  if changes != 1:
-    raise AssertionError("chain census mutation needs one mode branch")
+  old_census_call = ast.Expr(value=ast.Call(
+    func=ast.Attribute(
+      value=ast.Name(id="self", ctx=ast.Load()),
+      attr="_dv_chk_files",
+      ctx=ast.Load()),
+    args=[],
+    keywords=[]))
+  method.body.insert(1, old_census_call)
 
 
 def _mutation_full_census_is_parameter_only(tree):
   """Mutation: drop the full dataset's payload and failure members."""
   method = _generator_method(tree, "_checkpoint_member_paths")
-  returns = [node for node in method.body if isinstance(node, ast.Return)]
-  if len(returns) != 1:
-    raise AssertionError("full census mutation needs one final return")
-  returns[0].value = ast.Name(id="parameter_members", ctx=ast.Load())
+  loops = [node for node in method.body if isinstance(node, ast.For)]
+  if len(loops) != 1:
+    raise AssertionError("full census mutation needs one member loop")
+  loops[0].iter = ast.Subscript(
+    value=ast.Call(
+      func=ast.Name(id="tuple", ctx=ast.Load()),
+      args=[loops[0].iter],
+      keywords=[]),
+    slice=ast.Slice(
+      lower=None,
+      upper=ast.Constant(value=5),
+      step=None),
+    ctx=ast.Load())
 
 
 def _mutation_remove_chain_early_return(tree):
