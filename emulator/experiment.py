@@ -157,7 +157,8 @@ from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
-  validate_loss, _loss_migration_message, _is_finite_real)
+  validate_loss, _loss_migration_message)
+from .validation import _is_finite_real
 
 
 # per-chunk read budget for the bounded grid2d law transform
@@ -901,20 +902,21 @@ def validate_grid(cfg, train_args, rescale="none"):
     present exactly when the law needs it).
 
   Raises:
-    ValueError on: a missing or unknown sub-key; a quantity outside
-    Hubble / D_M; a law outside the TARGET_LAWS registry; an offset
-    missing (log_offset) or present (none); a cosmolike / scalar / cmb
-    key beside data.grid; a missing dv/params/covmat file key; a
-    data-vector-only feature (rescale, model.ia). The pce: and
-    transfer: blocks are legal (the 2026-07-12 family-wide rulings —
-    the transfer forbid was overturned by the user); validate_pce /
-    validate_transfer vet them with diagonal=True on the from_config
-    grid branch.
+    ValueError on: a missing or unknown sub-key; a quantity and units pair
+    outside the shared background registry; a law outside TARGET_LAWS; a
+    missing or non-finite log_offset offset; an offset present under law
+    "none"; a cosmolike, scalar, or CMB key beside data.grid; a missing
+    dv/params/covmat file key; or a data-vector-only feature (rescale,
+    model.ia). The pce: and transfer: blocks are legal; validate_pce and
+    validate_transfer check them with diagonal=True on the from_config grid
+    branch.
   """
-  # the target-law registry lives with the grid geometry; imported here
-  # (not at module top) so this validator stays importable in the same
-  # torch-light contexts as the rest of the config logic.
-  from .geometries.grid import TARGET_LAWS
+  # The background metadata registries live with the grid geometry; import
+  # them here so validation and geometry construction use the same values.
+  from .geometries.grid import (
+    TARGET_LAWS,
+    validate_background_quantity_units,
+  )
 
   data = cfg["data"]
   grid = data["grid"]
@@ -935,13 +937,14 @@ def validate_grid(cfg, train_args, rescale="none"):
         "background function the rows hold; units = its units string; "
         "law = the TARGET_LAWS name; z_file = the generator's _z.npy "
         "grid sidecar); it is missing")
-  quantity = str(grid["quantity"])
-  if quantity not in ("Hubble", "D_M"):
-    raise ValueError(
-      "data.grid.quantity must be 'Hubble' (the SN-range H(z) emulator) "
-      "or 'D_M' (the recombination-window comoving distance); got "
-      + repr(grid["quantity"]))
-  law = str(grid["law"])
+  quantity = grid["quantity"]
+  units = grid["units"]
+  validate_background_quantity_units(
+    quantity=quantity,
+    units=units,
+    where="data.grid",
+  )
+  law = grid["law"]
   if law not in TARGET_LAWS:
     raise ValueError(
       "data.grid.law " + repr(law) + " is not in the registry "
@@ -952,6 +955,11 @@ def validate_grid(cfg, train_args, rescale="none"):
       "the log_offset law needs data.grid.offset (the additive constant "
       "in log(target + offset), the legacy emulbaosn convention — state "
       "it explicitly, never a default); it is missing")
+  if law == "log_offset" and not _is_finite_real(grid["offset"]):
+    raise ValueError(
+      "data.grid.offset must be a finite real number for law "
+      "'log_offset', not a Boolean or string; got "
+      + repr(grid["offset"]) + ". Set offset to a finite number.")
   if law == "none" and "offset" in grid:
     raise ValueError(
       "law 'none' has no offset; drop data.grid.offset")
@@ -983,13 +991,9 @@ def validate_grid(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid run has no ia (remove it)")
-  # transfer learning IS in scope since the 2026-07-12 symmetry ruling
-  # (an earlier permanent forbid overturned by the user: "I misspoke -
-  # ... it is easy to allow it to BAO/SN"); validate_transfer
-  # (diagonal=True) vets the block on the from_config grid branch, and
-  # build_geometry pins the base's grid/quantity/law loudly.
-  # fine-tuning IS in scope: validated on the from_config grid
-  # branch; the source geometry is pinned in build_geometry.
+  # Transfer and fine-tuning remain legal. Their validators check the run
+  # configuration, and build_geometry requires the source to use the same
+  # grid, quantity, units, law, and offset.
   return dict(grid)
 
 
@@ -2366,9 +2370,12 @@ class EmulatorExperiment:
             "cosmolike / scalar / CMB artifact fine-tunes on its own "
             "family's path)")
         sgeom = source.geom
-        want = (str(grid["quantity"]), str(grid["units"]),
-                str(grid["law"]),
-                float(grid.get("offset", 0.0)))
+        want = (
+          grid["quantity"],
+          grid["units"],
+          grid["law"],
+          grid.get("offset", 0.0),
+        )
         have = (sgeom.quantity, sgeom.units, sgeom.law, sgeom.offset)
         if want != have:
           raise ValueError(
@@ -3978,10 +3985,10 @@ class EmulatorExperiment:
     if self._grid:
       from .geometries.grid import GridGeometry
       from .losses.scalar import make_scalar_chi2
-      quantity = str(self.grid["quantity"])
-      units    = str(self.grid["units"])
-      law      = str(self.grid["law"])
-      offset   = float(self.grid.get("offset", 0.0))
+      quantity = self.grid["quantity"]
+      units = self.grid["units"]
+      law = self.grid["law"]
+      offset = self.grid.get("offset", 0.0)
       z = np.load(self.grid["z_file"], allow_pickle=False)
       z = np.asarray(z, dtype="float64").reshape(-1)
       dv  = train_set["dv"]

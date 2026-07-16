@@ -51,6 +51,7 @@ from .batching import build_loaders
 from .designs.plain import ResMLP
 from .designs.blocks import Affine, BinLinear
 from .losses.core import anneal_value, screen_chi2
+from .validation import _is_finite_real
 
 
 def pick_device(name=None):
@@ -166,27 +167,6 @@ def make_model(model_opts, input_dim, output_dim, device,
     # model's epoch time is mostly the CPU dispatching kernels).
     model.emul_compile_mode = compile_mode
   return model
-
-
-def _is_finite_real(value):
-  """True only for a finite, non-boolean real number (a plain int or float).
-
-  A public numeric control is validated by type, never made valid by
-  coercion. Two values would slip through a float()-then-range check: bool is
-  a subclass of int (float(True) is 1.0), and a numeric string converts
-  (float("0.1") is 0.1). This admits only a genuine int or float that is not a
-  bool and whose value is finite, so True / False / "0.1" / NaN / inf are all
-  rejected at the boundary rather than silently accepted.
-
-  Arguments:
-    value = the candidate configuration value.
-
-  Returns:
-    True when value is a finite int or float and not a bool.
-  """
-  if isinstance(value, bool) or not isinstance(value, (int, float)):
-    return False
-  return math.isfinite(value)
 
 
 def _validate_optimizer_opts(opt_opts, lr):

@@ -331,12 +331,27 @@ A compatible grid source passes epoch-zero warm-start parity. Metadata and
 quantity mismatches refuse before staging.
 
 <a id="bsn-identity-missing-quantity-refused"></a>
-### Missing quantity refusal
+### Unsupported background metadata refusal
 
-The fixture contains two otherwise valid grid artifacts with distinct
-quantities but no `D_M`. Shared dataset identity is valid so the missing-
-quantity guard, rather than an earlier pair-identity guard, is the refusal
-being tested.
+**Rule:** An unknown background quantity or a quantity paired with the wrong
+unit refuses at the shared registry before geometry construction, artifact
+publication, or adapter setup.
+
+**Reason:** The registry has exactly two supported quantities. Two distinct,
+valid background artifacts therefore already contain one `Hubble` artifact
+and one `D_M` artifact. A test cannot create two distinct valid artifacts that
+omit `D_M`; doing so would bypass the production registry and would not test a
+publicly reachable state.
+
+**Implementation boundary:** `validate_grid`, `GridGeometry`, artifact rebuild,
+and `emul_baosn` use the registry owned by `emulator/geometries/grid.py`. The
+adapter keeps its missing-member check as a defensive assertion after loading.
+
+**Acceptance evidence:** The `bsn-identity.missing-quantity-refused` evidence
+leg supplies an unsupported quantity/unit pair and requires the shared
+registry to refuse it before an artifact can be saved. Focused tests also
+mutate valid quantities to wrong, non-string, and mismatched units at the
+configuration, geometry, rebuild, and adapter boundaries.
 
 <a id="bsn-smoke-evidence"></a>
 ## Background smoke evidence

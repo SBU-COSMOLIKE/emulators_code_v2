@@ -69,13 +69,6 @@ N_IN = len(IN_NAMES)
 # carry one identity, which is what handing them the same label does.
 ADAPTER_PAIR_LABEL = "bsn-identity/adapter-background-pair"
 
-# The missing-quantity leg's pair: two grid artifacts declaring neither of the
-# quantities this adapter serves. They are one fixture, built for one purpose,
-# so they carry one identity — and a pair with one identity leaves the
-# dataset-identity law nothing to say, so the guard this leg targets is the one
-# that speaks.
-MISSING_QUANTITY_LABEL = "bsn-identity/missing-quantity-pair"
-
 # The region every grid double this gate PREDICTS THROUGH declares. An emulator
 # now refuses any point outside the interval its record was drawn over, so a
 # double the gate asks a question of has to stand in for a real emulator's
@@ -1056,47 +1049,32 @@ def check_adapter(tmp, device):
 
 
 def check_missing_quantity(tmp, device):
-    """emul_baosn refuses a pair that declares neither quantity it serves.
-
-    The adapter serves exactly two quantities, one 'Hubble' and one 'D_M', and
-    a set that carries neither of them cannot be assembled into an expansion
-    history at all. That guard (cobaya_theory/emul_baosn.py:134) has never been
-    reached from this gate, and the reason is worth stating, because it is the
-    same trap the missing-D_M leg's comment describes: a ONE-root list is
-    refused by the "exactly TWO" law before a single artifact is loaded, so no
-    fixture that hands over one root can ever arrive here.
-
-    The fixture is therefore TWO valid grid artifacts with distinct quantities,
-    neither of them one the adapter serves. They pass the count law (two roots),
-    the wrong-kind law (both grid), and the duplicate law (distinct quantities),
-    and then die on the law this leg exists to prove. They share one label, so
-    they are one dataset: a pair with one identity leaves the dataset-identity
-    law nothing to refuse, and the guard this leg targets is the one that
-    speaks.
+    """Refuse an unknown quantity before an artifact can be saved.
 
     Arguments:
-      tmp    = the tempdir this gate's fixtures live in.
-      device = the torch device to save + rebuild on.
+      tmp    = unused temporary-folder path supplied by the gate driver.
+      device = the torch device used to build the candidate geometry.
     """
-    cls = _load_emul_baosn_stubbed()
-    # never predicted through (initialize refuses the set), so neither declares
-    # a support: that is the honest record for a double nobody may ask anything.
-    root_dv = os.path.join(tmp, "mq_dv")
-    save_synthetic_grid(root_dv, device, tmp, label=MISSING_QUANTITY_LABEL,
-                        quantity="D_V", units="Mpc", law="none", offset=0.0,
-                        z=np.linspace(0.001, 3.0, 64), seed=130)
-    root_dh = os.path.join(tmp, "mq_dh")
-    save_synthetic_grid(root_dh, device, tmp, label=MISSING_QUANTITY_LABEL,
-                        quantity="D_H", units="Mpc", law="none", offset=0.0,
-                        z=np.linspace(1000.0, 1200.0, 24), seed=140)
+    del tmp
+    z = np.array([0.1, 0.2], dtype="float64")
+    targets = np.array([[1.0, 2.0], [2.0, 3.0]], dtype="float64")
     try:
-        _build(cls, [root_dv, root_dh])
-        report("a pair declaring neither served quantity raises",
-               False, "no raise")
-    except ValueError as e:
-        report_refusal("a pair declaring neither served quantity raises", e,
-                       needle="no loaded artifact declares quantity",
-                       law="the missing-quantity law")
+        GridGeometry.from_targets(
+            device=device,
+            targets=targets,
+            z=z,
+            quantity="D_V",
+            units="Mpc",
+            law="none",
+        )
+        report("an unknown background quantity raises", False, "no raise")
+    except ValueError as error:
+        report_refusal(
+            "an unknown background quantity raises",
+            error,
+            needle="accepted pairs",
+            law="the shared background quantity/units registry",
+        )
 
 
 def check_finetune(tmp, device):

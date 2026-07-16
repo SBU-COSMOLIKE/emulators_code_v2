@@ -50,6 +50,10 @@ from emulator.inference import EmulatorPredictor      # noqa: E402
 from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
                                 check_artifacts_pair_up)
 from emulator.background import distance_interpolators, C_KMS  # noqa: E402
+from emulator.geometries.grid import (                     # noqa: E402
+    BACKGROUND_QUANTITY_UNITS,
+    validate_background_quantity_units,
+)
 
 # The only extra_args the schema-v2 convention accepts (the legacy ord /
 # extrapar / extra / file / TMAT / ZLIN keys are retired: the h5 recipe +
@@ -122,27 +126,34 @@ class emul_baosn(Theory):
                     + " geometry); this theory serves grid artifacts "
                     "only; that emulator belongs in " + where + "'s "
                     "emulators list")
-            if predictor.quantity in by_quantity:
+            quantity = predictor.quantity
+            units = predictor.units
+            validate_background_quantity_units(
+                quantity=quantity,
+                units=units,
+                where="emul_baosn artifact " + repr(root),
+            )
+            if quantity in by_quantity:
                 raise ValueError(
                     "emul_baosn: two artifacts both declare quantity "
-                    + repr(predictor.quantity) + "; the pair must be one "
+                    + repr(quantity) + "; the pair must be one "
                     "'Hubble' + one 'D_M'")
-            by_quantity[predictor.quantity] = predictor
+            by_quantity[quantity] = predictor
             for name in predictor.names:
                 req[name] = None
 
-        for quantity, units in (("Hubble", "km/s/Mpc"), ("D_M", "Mpc")):
+        for quantity, units in BACKGROUND_QUANTITY_UNITS.items():
             if quantity not in by_quantity:
                 raise ValueError(
                     "emul_baosn: no loaded artifact declares quantity "
                     + repr(quantity) + " (loaded: "
                     + repr(sorted(by_quantity)) + "); the pair must be "
                     "one 'Hubble' + one 'D_M'")
-            got = by_quantity[quantity].units
-            if got != units:
+            stored_units = by_quantity[quantity].units
+            if stored_units != units:
                 raise ValueError(
                     "emul_baosn: the " + quantity + " artifact stores "
-                    "units " + repr(got) + " but this adapter serves "
+                    "units " + repr(stored_units) + " but this adapter serves "
                     + repr(units) + "; regenerate the dump with the v2 "
                     "generator (it writes " + repr(units) + ")")
         self.p_h  = by_quantity["Hubble"]
