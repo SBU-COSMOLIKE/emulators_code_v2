@@ -332,8 +332,8 @@ class ScalarAndCmbContractTests(unittest.TestCase):
       "emul_scalars.py", "adapter_contract_scalar_publication")
     cls.cmb = _load_adapter("emul_cmb.py", "adapter_contract_cmb_requests")
 
-  def test_scalar_calculate_creates_derived_and_publishes_only_subset(self):
-    """A requested subset is created under ``derived`` and nowhere else."""
+  def test_scalar_calculate_uses_its_validated_publication_names(self):
+    """Only the adapter's validated names enter Cobaya's derived mapping."""
     first = types.SimpleNamespace(
       predict=lambda params: {"H0": 70.0, "rdrag": 147.0})
     second = types.SimpleNamespace(
@@ -352,8 +352,8 @@ class ScalarAndCmbContractTests(unittest.TestCase):
     self.assertEqual(
       state, {"derived": {"existing": 2.0, "rdrag": 147.0}})
 
-  def test_scalar_declared_subset_controls_cobaya_metadata(self):
-    """Initialization exposes the requested artifact subset, not its superset."""
+  def test_scalar_declared_subset_checks_without_filtering_metadata(self):
+    """A check-only list cannot hide other outputs saved in the artifacts."""
     class _Predictor:
       def __init__(self, root, device, compile_model=False):
         del device, compile_model
@@ -374,7 +374,16 @@ class ScalarAndCmbContractTests(unittest.TestCase):
          mock.patch.object(self.scalars, "check_artifacts_pair_up",
                            lambda **kwargs: None):
       adapter.initialize()
-    self.assertEqual(adapter.get_can_provide_params(), ["rdrag"])
+    self.assertEqual(
+      adapter.get_can_provide_params(), ["H0", "rdrag", "omegam"])
+
+    adapter.extra_args["provides"] = []
+    with mock.patch.object(self.scalars, "EmulatorPredictor", _Predictor), \
+         mock.patch.object(self.scalars, "check_artifacts_pair_up",
+                           lambda **kwargs: None):
+      adapter.initialize()
+    self.assertEqual(
+      adapter.get_can_provide_params(), ["H0", "rdrag", "omegam"])
 
   def test_scalar_artifact_output_names_are_nonempty_unique_strings(self):
     """A rebuilt artifact cannot advertise an unusable derived name."""
@@ -678,8 +687,16 @@ class MatterPowerDependencyTests(unittest.TestCase):
         self.names = ["As_1e9"] if self.quantity == "pklin" else []
         self.z = torch.tensor([0.0, 0.5, 1.0, 2.0])
         self.k = torch.tensor([0.01, 0.1, 1.0, 10.0])
+        self.units = ("Mpc3" if self.quantity == "pklin"
+                      else "dimensionless")
         self.law = ("syren_linear" if self.quantity == "pklin"
                     else "syren_halofit")
+        if "bad-law" in root:
+          self.law = ("syren_halofit" if self.quantity == "pklin"
+                      else "syren_linear")
+        if "bad-units" in root:
+          self.units = ("dimensionless" if self.quantity == "pklin"
+                        else "Mpc3")
 
     adapter = self.module.emul_mps()
     adapter.extra_args = {
@@ -697,6 +714,48 @@ class MatterPowerDependencyTests(unittest.TestCase):
     self.assertNotIn("As", requirements)
     for name in ("ns", "H0", "omegab", "omegam"):
       self.assertIn(name, requirements)
+
+  def test_matter_power_artifact_tuple_must_match_its_quantity(self):
+    """A rebuilt artifact cannot give one surface another surface's law."""
+    class _Predictor:
+      def __init__(self, root, device, compile_model=False):
+        del device, compile_model
+        self._grid2d = True
+        self._scalar = self._cmb = self._grid = False
+        self.quantity = "pklin" if "pklin" in root else "boost"
+        self.names = []
+        self.z = torch.tensor([0.0, 0.5, 1.0, 2.0])
+        self.k = torch.tensor([0.01, 0.1, 1.0, 10.0])
+        self.units = ("Mpc3" if self.quantity == "pklin"
+                      else "dimensionless")
+        self.law = ("syren_linear" if self.quantity == "pklin"
+                    else "syren_halofit")
+        if "bad-law" in root:
+          self.law = ("syren_halofit" if self.quantity == "pklin"
+                      else "syren_linear")
+        if "bad-units" in root:
+          self.units = ("dimensionless" if self.quantity == "pklin"
+                        else "Mpc3")
+
+    cases = (
+      ("/tmp/pklin-bad-law", "/tmp/boost-valid"),
+      ("/tmp/pklin-bad-units", "/tmp/boost-valid"),
+      ("/tmp/pklin-valid", "/tmp/boost-bad-law"),
+      ("/tmp/pklin-valid", "/tmp/boost-bad-units"),
+    )
+    for pklin_root, boost_root in cases:
+      adapter = self.module.emul_mps()
+      adapter.extra_args = {
+        "device": "cpu",
+        "emulators": [pklin_root, boost_root],
+        "compile": False,
+      }
+      with self.subTest(roots=(pklin_root, boost_root)), \
+           mock.patch.object(self.module, "EmulatorPredictor", _Predictor), \
+           mock.patch.object(self.module, "check_artifacts_pair_up",
+                             lambda **kwargs: None):
+        with self.assertRaisesRegex(ValueError, r"unsupported \(units, law\)"):
+          adapter.initialize()
 
 
 if __name__ == "__main__":

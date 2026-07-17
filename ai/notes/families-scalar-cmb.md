@@ -165,10 +165,12 @@ as top-level state keys. `state["params"]` and
 `state["dependency_params"]` remain untouched. `get_param` reads the same
 derived mapping Cobaya exposes.
 
-`provides` in YAML may restrict the available union; it is never a source of
-outputs. Duplicate outputs, unavailable supersets, input/output overlap, and
-wrong-family artifacts refuse. Multi-artifact calculation is atomic: all
-predictions are validated in a local mapping before state is modified.
+`provides` in YAML is an optional check-only list. Every listed name must
+belong to the artifact union, but the list never hides another artifact
+output. An empty list makes no additional assertion. Duplicate outputs,
+unknown names, input/output overlap, and wrong-family artifacts refuse.
+Multi-artifact calculation is atomic: all predictions are validated in a
+local mapping before state is modified.
 
 Output names are native nonempty strings and cannot collide with Cobaya-owned
 reserved names. Namespace publication is the primary safety mechanism; the
@@ -181,8 +183,9 @@ scientific coordinate system.
 
 #### Acceptance evidence
 
-- Ordinary scalar and explicit-subset requests pass.
-- Duplicate output, unavailable superset, chaining, and wrong-family cases
+- Ordinary scalar requests, a check-only subset, and an empty check list pass;
+  the adapter still advertises and publishes the complete artifact union.
+- Duplicate output, unknown check name, chaining, and wrong-family cases
   refuse.
 - Reserved output names refuse during config validation and through a real
   Cobaya lifecycle.

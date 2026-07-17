@@ -335,6 +335,31 @@ class emul_mps(Theory):
         self.p_lin   = by_quantity["pklin"]
         self.p_boost = by_quantity["boost"]
 
+        # A rebuilt Grid2D geometry validates that each field is registered,
+        # but the serving adapter must also validate their physical pairing.
+        # Otherwise a hand-built artifact can label a nonlinear correction as
+        # linear power (or attach dimensional power units to a ratio) and still
+        # produce a smooth, plausible array.
+        allowed_tuples = {
+            "pklin": {
+                ("Mpc3", "none"),
+                ("Mpc3", "syren_linear"),
+            },
+            "boost": {
+                ("dimensionless", "none"),
+                ("dimensionless", "syren_halofit"),
+            },
+        }
+        for quantity, predictor in (("pklin", self.p_lin),
+                                    ("boost", self.p_boost)):
+            observed = (predictor.units, predictor.law)
+            if observed not in allowed_tuples[quantity]:
+                raise ValueError(
+                    "emul_mps: artifact quantity " + repr(quantity)
+                    + " has unsupported (units, law) " + repr(observed)
+                    + "; accepted pairs are "
+                    + repr(sorted(allowed_tuples[quantity])))
+
         # the two artifacts must share one (z, k) grid exactly (they
         # come from one generator run) — the boost multiplies the
         # linear P point-for-point.

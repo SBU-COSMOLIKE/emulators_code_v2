@@ -926,6 +926,12 @@ _DYNAMIC_IMPORT_WAIVERS = {
 # cs_adapter_identity.py's load_emul_cosmic_shear_stubbed; the smokes'
 # python_path blocks).
 _RUNTIME_LOADER_COVERS = {
+  "ai/tests/test_cobaya_adapter_contracts.py": (
+      "cobaya_theory/emul_cosmic_shear.py",
+      "cobaya_theory/emul_scalars.py",
+      "cobaya_theory/emul_cmb.py",
+      "cobaya_theory/emul_baosn.py",
+      "cobaya_theory/emul_mps.py"),
   "ai/gates/checks/scalar_identity.py": ("cobaya_theory/emul_scalars.py",),
   "ai/gates/checks/cs_adapter_identity.py": ("cobaya_theory/emul_cosmic_shear.py",),
   "ai/gates/checks/cmb_identity.py":    ("cobaya_theory/emul_cmb.py",

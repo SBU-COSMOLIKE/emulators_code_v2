@@ -366,9 +366,10 @@ Cobaya coverage:
   cannot establish this routing.
 - When `want_derived` is true, `emul_scalars.calculate()` creates a new
   `state["derived"]` mapping when a direct caller did not supply one, retains
-  any existing derived values, and publishes only the selected artifact
-  outputs there. A real Cobaya construction asks a likelihood for one scalar
-  and requires that value to travel through the same derived-result route.
+  any existing derived values, and publishes the artifact outputs there. The
+  optional `provides` list checks names but never filters that artifact union.
+  A real Cobaya construction asks a likelihood for one scalar and requires
+  that value to travel through the same derived-result route.
 
 The shared Syren reader accepts either `As_1e9`, which represents
 `10^9 A_s`, or `As`, which represents the dimensionless primordial scalar
@@ -380,13 +381,15 @@ The EMUL2 example may define a derived `As` bridge for another component, but
 the bridge is not part of the adapter's scientific requirement.
 
 <a id="adapter-contracts-strict-inputs-and-composition"></a>
-#### Adapter values, multi-emulator assembly, and CMB requests
+#### Focused input and cosmic-shear composition evidence
 
 `adapter-contracts.strict-inputs-and-composition` checks the shared value and
 path rules below, then constructs concrete cosmic-shear section plans. It
 requires disjoint sections to follow physical block order and requires
 overlaps, incompatible layouts, repeated full vectors, and wrong widths to
 stop before they can become a likelihood vector.
+
+#### Adapter values, multi-emulator assembly, and CMB requests
 
 All five adapters validate both extra-argument keys and values. Forbidden
 coercion patterns illustrate the failure:
@@ -1405,12 +1408,16 @@ GPU-capable environment. A mutation that
 restores a storage-sharing `.numpy()` return must fail.
 
 <a id="adapter-contracts-publication-and-owned-results"></a>
-### Array ownership covers predictors, diagnostics, and Cobaya getters
+### Focused Cobaya publication and ownership evidence
 
-`adapter-contracts.publication-and-owned-results` checks two observable
-boundaries below. Scalar results must enter Cobaya's derived-result mapping,
-and a caller that changes a returned array or container must not change the
-scientific result seen by the next caller.
+`adapter-contracts.publication-and-owned-results` checks the five adapters'
+public boundary. Scalar results must enter Cobaya's derived-result mapping;
+CMB requests must use exact names and integer limits; matter-power artifacts
+must use the correct quantity, units, and target law; and the covered Cobaya
+getters must return owned arrays and containers. The focused checks do not
+claim to cover every predictor or diagnostic return described below.
+
+### Array ownership covers predictors, diagnostics, and Cobaya getters
 
 **Reason.** A search limited to `.numpy()` misses adapters that return cached
 calculation state directly. The affected public methods include

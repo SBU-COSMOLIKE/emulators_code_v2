@@ -483,9 +483,9 @@ theory:
 ```
 
 The saved file supplies its input names and output names. An optional
-`provides` list restricts which of those saved outputs this theory publishes.
-Every listed name must exist in a loaded artifact. The list cannot invent or
-rename an output.
+`provides` list checks that the named outputs exist; it does not hide other
+artifact outputs or rename them. An empty list is a valid check that makes no
+additional assertion.
 
 ## FAQ B5. How do I write a cosmic-microwave-background theory block? <a id="faq-b5"></a>
 
@@ -692,12 +692,11 @@ total-matter-density spectrum.
 The two saved roots must use identical stored $z$ and $k$ grids. A non-finite,
 non-positive linear spectrum or boost rejects that parameter point.
 
-The adapter checks the `pklin` and `boost` quantity names and exact grid
-equality. It does not check units or prove that `pklin` uses
-`syren_linear` while `boost` uses `syren_halofit`. For EMUL2, verify that
-`pklin` stores `Mpc3` with `syren_linear` and that the dimensionless
-`boost` uses `syren_halofit`. A `none` formula is also allowed when the
-saved emulator learned the raw surface.
+The adapter checks the `pklin` and `boost` quantity names, exact grid
+equality, units, and starting formula. A `pklin` artifact must store `Mpc3`
+with either `syren_linear` or `none`. A `boost` artifact must be
+dimensionless and use either `syren_halofit` or `none`. Any crossed or
+unsupported combination refuses before Cobaya receives a result.
 
 The adapter can also provide conventional $\sigma_8$. It converts `H0` to
 $h=H_0/100$ and uses the required radius $R=8/h$ Mpc because the saved

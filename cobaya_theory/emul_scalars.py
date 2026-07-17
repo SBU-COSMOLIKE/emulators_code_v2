@@ -5,7 +5,7 @@ nn.Module and holds no prediction physics. Its whole job is the cobaya
 contract: pick a device, build one predictor per saved scalar-emulator path
 root, declare the sampled parameters the predictors need and the derived
 parameters they provide (both read from the h5s' stored geometry names), and
-on each step publish the selected outputs in Cobaya's derived mapping.
+on each step publish the artifact outputs in Cobaya's derived mapping.
 
 One generic class replaces the legacy per-emulator classes (emultheta,
 emulrdrag, ...): each of those hard-coded one getter method per output
@@ -58,9 +58,9 @@ class emul_scalars(Theory):
       emulators = list of saved scalar-emulator path roots, one per emulator
                   (ROOTDIR-relative unless absolute). Each root provides its
                   own stored output names.
-      provides  = optional list restricting the derived-parameter names to a
-                  subset of the artifact union. A mismatch is a loud error.
-                  It can select stored outputs but can never invent one.
+      provides  = optional check-only list of derived-parameter names. Every
+                  name must belong to the artifact union, but the list does
+                  not hide other artifact outputs or invent a new one.
       compile   = optional bool, torch.compile each module on CUDA (default
                   False; batch-1 MCMC latency rarely pays off the compile).
     """
@@ -80,7 +80,7 @@ class emul_scalars(Theory):
         if "provides" in self.extra_args:
             declared = name_sequence(
                 self.extra_args["provides"], adapter="emul_scalars",
-                option="provides", allow_empty=False)
+                option="provides")
         else:
             declared = None
 
@@ -148,8 +148,10 @@ class emul_scalars(Theory):
                 "scalar emulators is out of scope (each output must be a fresh "
                 "derived parameter, not another emulator's input)")
 
-        # Optional provides restricts the artifact union. Every declared name
-        # must be one the artifacts actually provide; it never invents output.
+        # Optional provides checks a subset of the artifact union. It is not a
+        # selector: existing configurations may name only the outputs another
+        # component asks for while the adapter still advertises every output
+        # recorded by its artifacts.
         if declared is not None:
             missing = []
             for name in declared:
@@ -164,7 +166,7 @@ class emul_scalars(Theory):
                     "check, never a source of the provided names")
 
         self._req = req
-        self._provides = list(provides if declared is None else declared)
+        self._provides = list(provides)
         reserved = {"derived", "params", "dependency_params"}
         collisions = sorted(reserved.intersection(self._provides))
         if collisions:
@@ -244,7 +246,7 @@ class emul_scalars(Theory):
 
         Returns:
           True. When want_derived is true, state["derived"] is created when
-          absent and receives the selected output names. No arbitrary output
+          absent and receives the artifact output names. No arbitrary output
           is written at the top level of state.
         """
         pending = {}

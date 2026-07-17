@@ -2962,9 +2962,10 @@ BOARD = [
             "Cobaya adapters. Actual booleans, documented device names, "
             "known YAML keys, and distinct model paths are required. "
             "Cosmic-shear sections follow physical block order and refuse "
-            "overlaps or inconsistent widths. Scalar and CMB results follow "
-            "Cobaya's requested shape, matter power keeps one amplitude name, "
-            "and every public array result is an owned copy",
+            "overlaps or inconsistent widths. The gate validates exact "
+            "scalar and CMB request forms, matter power keeps "
+            "one amplitude name and a valid quantity/unit/law tuple, and "
+            "each covered public array result is an owned copy",
        evidence=(Assertion(
                    "adapter-contracts.strict-inputs-and-composition",
                    "artifacts-inference-warmstart.md#adapter-contracts-"
@@ -2974,6 +2975,19 @@ BOARD = [
                    "artifacts-inference-warmstart.md#adapter-contracts-"
                    "publication-and-owned-results")),
        run=gate_adapter_contracts,
+       manifest=Manifest(
+         code=("cobaya_theory/_adapter_contract.py",
+               "cobaya_theory/emul_cosmic_shear.py",
+               "cobaya_theory/emul_scalars.py",
+               "cobaya_theory/emul_cmb.py",
+               "cobaya_theory/emul_baosn.py",
+               "cobaya_theory/emul_mps.py",
+               "emulator/inference.py",
+               "emulator/designs",
+               "emulator/losses",
+               "ai/tests/test_cobaya_adapter_contracts.py",
+               "ai/gates/checks/adapter_contracts.py"),
+         inputs=()),
        needs=("torch", "cobaya")),
   Gate(id="artifact-readback",
        spec_code="ARB-A",
