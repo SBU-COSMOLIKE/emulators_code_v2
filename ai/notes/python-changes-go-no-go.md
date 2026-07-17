@@ -63,6 +63,27 @@ C-like control flow but may not know advanced Python idioms. Code must remain
 easy to trace one operation at a time. User-facing prose must define software
 and machine-learning terms where the terms first matter.
 
+### Keep the repair proportional to the problem
+
+A narrow bug normally needs a narrow production-code change. Robustness is
+useful, but it does not justify building a new framework around one failure.
+
+The Architect gives NO-GO when a candidate adds a registry, policy layer,
+general validation system, or other large abstraction where a short direct
+check would fix the named bug. A large production diff needs a concrete
+explanation of why the smaller direct design is unsafe. Without that
+explanation and explicit user approval, the ticket must be split or simplified.
+
+Tests under `ai/tests/` and checks under `ai/gates/checks/` may be longer than
+the production fix because they show valid and invalid examples. They must
+still be readable, but their useful examples are not evidence that production
+code should also grow.
+
+Treat `emulator/`, `compute_data_vectors/`, and `cobaya_theory/` as the
+scientific reading path. The Architect must keep changes there small, direct,
+and understandable line by line. Prefer deleting duplicated machinery, using
+an existing function, or adding one local check over creating a new subsystem.
+
 Use neutral audience nouns:
 
 - **the user** for a person running or configuring the library;

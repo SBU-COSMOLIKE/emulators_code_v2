@@ -51,6 +51,11 @@ A permanent-note change receives GO only when every statement below is true:
    Architect creates or updates a local backlog ticket in the same turn. A
    deliberate unsupported capability is stated as a present boundary, not as
    promised future work.
+9. The planned edit is the smallest change that records the durable fact.
+   Ordinary work does not rewrite, reorganize, or shorten unrelated permanent
+   sections. A large permanent-note change requires an explicit user request,
+   a section-by-section reason, and a separate review of the note diff.
+   `--max 0` does not relax this rule.
 
 Any failed statement gives NO-GO. Record the material in a local ticket note
 instead.
@@ -76,6 +81,9 @@ The final permanent-note change receives GO only when all of these checks pass:
   alone.
 - Detail is preserved when the detail can prevent a future regression. Large
   notes are acceptable. Diary entries are not.
+- The diff is narrow. It changes only the passages required by the accepted
+  durable fact. A SHA-256 guard proves which bytes changed; it does not make a
+  broad rewrite acceptable.
 - The text contains no development date, policy-provenance timestamp, named
   person, gendered pronoun, or personal preference attributed to a particular
   user. A date is allowed only when it is part of scientific, release,
