@@ -217,6 +217,13 @@ evaluation. Every family producer receives rows bitwise equal to the rows the
 training loader later recovers from the published table. Fresh, resume, append,
 serial, and MPI paths share that representation and row order.
 
+In MPI mode, rank zero records which row it assigned to each worker. A result
+may change a payload store only when it comes from a worker with a live
+assignment and reports that exact row. An unknown worker, duplicate result,
+stale result, malformed message, or different reported row refuses before the
+assignment is removed or any row is written. A worker's stop acknowledgement
+must likewise come from a worker awaiting shutdown and name that same rank.
+
 The public table uses GetDist's reserved columns honestly. GetDist is the
 chain-table format and reader used for saved sampling results. Column two
 stores `minus_logpost`, not raw log posterior. When the trailing field represents
@@ -240,6 +247,9 @@ precision range output can also collapse two distinct bounds.
 - A midpoint-adjacent witness is bitwise equal at producer input, table
   readback, and staging.
 - Fresh, append, resume, serial, and MPI paths agree on canonical rows.
+- Scripted MPI replies prove that a valid out-of-order result reaches only its
+  assigned row, while a wrong row, inactive worker, duplicate reply, malformed
+  reply, and false stop acknowledgement change no stored row.
 - GetDist selects the higher-posterior row in a two-row known answer.
 - The reserved-column sign mutation selects the wrong row and must fail.
 - Float32-distinct range-bound pairs serialize and read back as distinct,
