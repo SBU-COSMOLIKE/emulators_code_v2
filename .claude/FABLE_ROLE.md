@@ -466,6 +466,14 @@ It never starts or completes a ticket cycle.
    `compute_data_vectors/`, and `cobaya_theory/` must always remain easy for a
    physics student to trace line by line.
 
+   For each bug, separately count added plus deleted characters outside
+   `ai/tests/` and `ai/gates/checks/`. A result above 1,500 creates a strong
+   presumption of `NO-GO`, even when `--max 0` removes the complete-ticket
+   ceiling. This is a warning threshold, not an automatic rejection. Override
+   it only with an unusually strong, concrete explanation of why a smaller
+   direct repair is unsafe and why complete independent ticket splits cannot
+   solve the problem. Passing tests alone is insufficient.
+
 2b. **Plan bounded Implementer subagents (hard user rule).** Every
    implementation directive must use its `Parallel work plan` to split the
    ticket into bounded parts and must direct the Implementer to launch those
