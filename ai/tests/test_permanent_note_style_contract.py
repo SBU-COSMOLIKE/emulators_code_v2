@@ -138,8 +138,13 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
             "identity",
             generation)
         self.assertIn(
-            "changing random-engine and continuation state belongs to the "
-            "sealed generation",
+            "current sealed generation does not save enough changing "
+            "random-engine, sampler, walker, log-probability, and "
+            "unique-row-selection state to continue the sequence exactly",
+            generation)
+        self.assertIn(
+            "Append therefore authenticates the active generation and then "
+            "refuses without drawing or publishing a row",
             generation)
         self.assertIn("output decoder and loss composition", artifact)
         self.assertIn("When `TCMB` is a sampled input", cmb)

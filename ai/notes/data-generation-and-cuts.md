@@ -19,9 +19,11 @@ validation job whose required result is written before it starts.
 A **publication transaction** turns one complete draft dataset into the
 dataset visible to readers without exposing a partial copy. A **slot** is the
 stable destination assigned to one append-stable request identity. A
-**generation** is one complete version stored in that slot; a **draft** remains writable, while a
-**sealed generation** no longer changes. A file **descriptor** is the
-operating system's handle for one open file.
+**generation** is one complete version stored in that slot; a **draft**
+remains writable, while a **sealed generation** no longer changes. A
+**locator** connects the familiar parameter-chain filename in a training YAML
+to its stable slot and request. It never names a particular generation. A
+file **descriptor** is the operating system's handle for one open file.
 
 A **digest** is a fixed-size fingerprint calculated from exact bytes. A
 **manifest** is the complete list of a generation's members together with
@@ -70,6 +72,7 @@ early universe measured by the CMB family.
 | Family-specific physics and family sidecars | `compute_data_vectors/dataset_generator_*.py` |
 | CMB covariance generation | `compute_data_vectors/compute_cmb_covariance.py` |
 | Dataset publication transaction | `compute_data_vectors/dataset_publication.py` |
+| Logical filename and generation resolution | `emulator/cocoa.py` |
 | Parameter-table schema | `emulator/parameter_table.py` |
 | Row selection and host-memory staging | `emulator/data_staging.py` |
 | Family staging and pool-size decisions | `emulator/experiment.py` |
@@ -147,22 +150,24 @@ later cosmology is rejected.
 
 ### Rule
 
-Tempered sampling uses the resolved parameter covariance and a recorded random
-number generator. Uniform sampling uses the resolved legal interval after the
-boundary-interior policy has moved each endpoint one representable value toward
-the interval interior. No boundary policy may depend on distance from zero.
+Fresh tempered sampling uses the resolved parameter covariance and an owned
+random number generator. Fresh uniform sampling uses the resolved legal
+interval after the boundary-interior policy has moved each endpoint one
+representable value toward the interval interior. No boundary policy may
+depend on distance from zero.
 
 Temperature, maximum-correlation value and applicability, boundary policy,
 requested and resolved support, sampling algorithm, seed, random-engine
 policy, ordered parameter names, family, mode, scientific settings, and the
 target-producing physics implementations belong to request identity.
-Coincident numeric bounds do not erase the requested policy. The complete
-changing random-engine and continuation state belongs to the sealed generation
-and changes generation identity when an append creates a new generation.
+Coincident numeric bounds do not erase the requested policy.
 
-The complete generator-owned random state is checkpoint state. Append restores
-that state before drawing another row. Reinitializing from the seed is not
-continuation.
+The current sealed generation does not save enough changing random-engine,
+sampler, walker, log-probability, and unique-row-selection state to continue
+the sequence exactly. Append therefore authenticates the active generation
+and then refuses without drawing or publishing a row. Before exact append may
+be enabled, that complete continuation state must become authenticated
+checkpoint state. Reinitializing from the seed is not continuation.
 
 ### Why
 
@@ -179,10 +184,13 @@ duplicate the original dataset.
   output mutation.
 - Two temperatures produce distinct request identities even if hard bounds make
   their effective numeric supports equal.
-- Fresh `N` followed by append `M` produces the same canonical parameter rows
-  and order as one fresh `N+M` run.
-- Missing, stale, or corrupt random state refuses append without changing the
-  prior generation.
+- Current append intent authenticates the active generation and then refuses
+  without changing it.
+- A future exact-append implementation must prove that fresh `N` followed by
+  append `M` produces the same canonical parameter rows and order as one fresh
+  `N+M` run.
+- A future append implementation must refuse missing, stale, or corrupt
+  continuation state without changing the prior generation.
 - A mutation that restores endpoint multiplication or
   `default_rng(seed)` at append must fail.
 
@@ -195,15 +203,17 @@ A required native integer seed initializes an owned NumPy PCG64 generator for
 parameter draws, Gaussian walker initialization, and unique-row selection.
 The emcee sampler owns a separate NumPy `RandomState` using MT19937 for its
 moves. Process-global `np.random` draws are not part of the generator contract.
-Continuation authenticates both random states, walker coordinates, walker log
-probabilities, and the unique-row-selection state; a seed alone is
-insufficient.
+The current published members do not contain the complete states needed for
+continuation. Before append may be enabled, it must authenticate both random
+states, walker coordinates, walker log probabilities, and unique-row-selection
+state; a seed alone is insufficient.
 
 #### Acceptance evidence
 
 - Equal seed and equal request produce equal rows.
 - A different seed changes the selected rows.
-- Append continuation equals a one-shot run.
+- Current append refuses after authenticating the active generation. A future
+  exact append must equal a one-shot run.
 - Worker count does not change the canonical parameter table.
 - A scan and mutation check prove that no process-global random draw enters the
   generation path.
@@ -214,8 +224,10 @@ insufficient.
 
 One canonical parameter representation is materialized before any science
 evaluation. Every family producer receives rows bitwise equal to the rows the
-training loader later recovers from the published table. Fresh, resume, append,
-serial, and MPI paths share that representation and row order.
+training loader later recovers from the published table. Fresh serial and MPI
+paths share that representation and row order. Resume copies the authenticated
+representation into a private draft. Append has no accepted row-producing path
+until complete continuation state is saved.
 
 In MPI mode, rank zero records which row it assigned to each worker. A result
 may change a payload store only when it comes from a worker with a live
@@ -246,7 +258,8 @@ precision range output can also collapse two distinct bounds.
 
 - A midpoint-adjacent witness is bitwise equal at producer input, table
   readback, and staging.
-- Fresh, append, resume, serial, and MPI paths agree on canonical rows.
+- Fresh serial and MPI paths agree on canonical rows, and resume preserves the
+  authenticated rows exactly. Current append refuses before producing rows.
 - Scripted MPI replies prove that a valid out-of-order result reaches only its
   assigned row, while a wrong row, inactive worker, duplicate reply, malformed
   reply, and false stop acknowledgement change no stored row.
@@ -492,8 +505,10 @@ false pairing.
 
 ## Immutable dataset publication
 
-This foundation defines the publication transaction. Generator and consumer
-integration must not claim atomic datasets until they both use it.
+The production generator, Cocoa configuration resolver, and staging path use
+this transaction. The lower-level publisher owns immutable files and the
+active switch; the sections below also state where the production bridge adds
+request binding, worker coordination, reader pinning, and row selection.
 
 <a id="dataset-publication-slot-identity"></a>
 ### Slot identity
@@ -537,16 +552,22 @@ generation is accepted. Every unsafe entry class has a refusal leg.
 
 #### Rule
 
-All writers close and the Message Passing Interface (MPI) barrier completes
-before publication. The barrier waits until every parallel process reaches
-the same point. The publisher opens and fingerprints every source before
-copying the first one and keeps each file descriptor, the operating system's
-open-file handle, active. After the final copy, the publisher rechecks the
-inode, the filesystem identity of the underlying file, together with size,
-time tokens, and census. Published members receive new sealed inodes. Resume
-and append copy an authenticated generation into a new mutable draft; they
-never create a hardlink, a second filename for the same inode, and reopen a
-published member through it.
+Rank zero prepares a private draft before sampling. If draft preparation or
+sampling refuses, it broadcasts that refusal before any worker enters the
+data-vector calculation. On success, every retained memory map is flushed and
+closed, and the Message Passing Interface (MPI) barrier completes before rank
+zero publishes. The barrier waits until every parallel process reaches the
+same point.
+
+The publisher opens and fingerprints every source before copying the first
+one and keeps each file descriptor, the operating system's open-file handle,
+active. After the final copy, the publisher rechecks the inode, the filesystem
+identity of the underlying file, together with size, time tokens, and census.
+Published members receive new sealed inodes. Resume copies an authenticated
+active generation into a new mutable draft. Append authenticates the active
+generation and then refuses until complete continuation state is available.
+Neither path creates a hardlink or another writable name for a published
+member.
 
 #### Acceptance evidence
 
@@ -594,9 +615,11 @@ files and the original saved value prevent both failures.
 
 #### Implementation boundary
 
-This helper prepares a safe mutable copy only. Generator routing, saved random
-state, Message Passing Interface coordination, training-reader pinning, and
-old-generation removal require separate integration and evidence.
+This helper prepares a safe mutable copy. Generator resume uses it and keeps
+the returned active-record digest for compare-and-swap publication. Exact
+append, recovery of a first interrupted unpublished draft, saved random state,
+and old-generation removal remain separate functionality. Cocoa reader
+pinning and MPI publication order have their own production checks.
 
 #### Acceptance evidence
 
@@ -664,34 +687,35 @@ the old pointer before replacement and a complete new pointer afterward.
 One strict request schema binds mode, generator, family, probe, variant,
 sampling mode, temperature, boundary, maximum-correlation applicability,
 algorithm, seed, random-engine policy, ordered float32 parameter names,
-resolved configuration digest, append-stable scientific-contract digest, and
-ordered semantic or content identifiers for every target-producing physics
-formula.
+canonical parsed configuration digest, append-stable scientific-contract
+digest, and ordered semantic or content identifiers for every target-producing
+physics formula.
 Immutable registries bind probe to family and generator and sampling mode to
 algorithm and random-engine policy.
 
 The scientific-contract digest hashes a versioned, resource-bounded canonical
 projection of resolved facts. A generation-specific dataset or chain digest is
 not part of the append-invariant request. Run controls and append row count are
-also not scientific identity. Complete continuation state is a separate
-authenticated generation member.
+also not scientific identity. The current member map contains no complete
+continuation-state member. A future exact-append implementation must add and
+authenticate that state without moving it into request identity.
 
 #### Acceptance evidence
 
 Requests with missing or unknown fields, Boolean seeds, wrong family or
 algorithm, reordered parameters, omitted temperature, changed scientific
-facts, or excessive canonical structures refuse. Valid append requests keep
-the same invariant identity while their generation-specific chain digest
-changes.
+facts, or excessive canonical structures refuse. Current append intent keeps
+the same invariant request identity, authenticates the active generation, and
+then refuses without changing its chain digest. A future successful append
+must keep that request identity while changing generation-specific content.
 
 <a id="dataset-request-contract-family-members"></a>
 ### Family member map
 
 #### Rule
 
-Every chain-only generation has six members: chain, parameter schema,
-covariance, ranges, facts, and authenticated continuation state. Full
-generation adds failure state and:
+Every chain-only generation has five members: chain, parameter schema,
+covariance, ranges, and facts. Full generation adds the failure mask and:
 
 | Family | Additional members |
 |---|---|
@@ -836,6 +860,44 @@ transformation.
 Each consumer is mutated separately while siblings remain correct. Every
 isolated positional or required-cut-key mutation fails. Grid2d keeps the real
 named loader and disk-backed source in the witness.
+
+<a id="failed-row-staging-and-selection-identity"></a>
+### Failed rows and exact staged selection
+
+#### Rule
+
+A full data-vector source resolved by Cocoa requires the authenticated
+failure-mask member from its pinned generation. The mask contains exactly one
+ASCII `0` or `1` line for every parameter and payload row. A missing mask,
+another token, or a different row count refuses. Chain-only scalar data has no
+data-vector failure mask. A caller that invokes staging directly supplies its
+own mask path; staging validates the tokens and row count but does not prove
+that file came from a sealed generation. That direct caller owns the source
+trust decision.
+
+The generator may keep a private draft containing failed placeholder rows for
+diagnosis, but a mask containing any `1` refuses publication. Staging removes
+failed rows before physical cuts, seeded selection, and pool-size reporting.
+It cannot satisfy a requested training size with a failed row.
+
+Cocoa resolves training and validation once each and saves both generation
+pins. After staging, the saved source pin adds the original source row count,
+split seed, physical cuts, selected count, and an order-sensitive SHA-256 of
+the exact disk rows addressed by the loader. For a compact resident source,
+that order is `dump_rows[idx]`. For a disk-backed source, `idx` already holds
+global disk rows. The recorder derives the applicable order from the staged
+array sizes and refuses unless it equals `selected_rows` exactly.
+
+#### Acceptance evidence
+
+- A four-row source with mask `0, 1, 0, 1` can stage only rows zero and two.
+- Missing, short, malformed, and failed-row masks refuse before training.
+- Resident, disk-backed, scalar, and all-row selections save the disk order
+  that the loader actually addresses.
+- Equal counts with a different permutation refuse before the fingerprint is
+  saved.
+- Both saved configuration records retain the accepted generation and row
+  selection identity.
 
 ## Host-memory staging
 
@@ -1122,8 +1184,13 @@ or copy without reconstructing old gate history.
 - A member census is not a cryptographic dataset manifest.
 - A manifest authenticates bytes and identity; it does not replace payload
   validity, axis semantics, or lifecycle acceptance.
-- Dataset-publication primitives do not make current flat generator paths
-  atomic until generator and consumer integration uses them.
+- Production YAML filenames are logical locator keys, not mutable flat-file
+  paths. Missing locators require explicit regeneration or migration; there is
+  no legacy flat-file fallback.
+- A first interrupted unpublished draft cannot yet be resumed. Exact append
+  also refuses because NumPy, sampler, walker, log-probability, and unique-row
+  selection state are not yet persisted. Both limitations fail closed and do
+  not change an earlier active generation.
 - Bounded grid2d staging does not certify production-sized PCE fitting.
 - Temporary-file recovery does not promise survival of `SIGKILL`, the
   operating-system signal that stops a process without cleanup; an
