@@ -366,6 +366,14 @@ does not change the scope of a named-change review.
   does not qualify. Medium is the default.
 - **Low** permits every concrete defect, including an improbable edge case.
 
+**Low — Edge Case** is not a discovery severity. It is a parked remainder
+from a bounded repair that removed the actionable failure and left only a
+harmless exceptional case. The Architect uses it when complete coverage would
+add disproportionate complexity and the remainder is below the Low work
+boundary. No command-line severity selects it. Only an explicit user request
+naming that exact parked ticket authorizes the Architect to activate it as
+ordinary Low work.
+
 Harm and likelihood are separate judgments. The Red Team reports High,
 Medium, or Low severity, likelihood, impact, scope, and evidence. The
 Architect accepts, upgrades, or downgrades that assessment with a reason and
@@ -586,12 +594,11 @@ for development tools. The Architect owns its structure and is the only role
 that admits a ticket, changes its status, or moves it between the open and
 closed sections.
 
-The file begins with **Open tickets** and **Closed tickets** entries in its
-contents list. The full **Open tickets** section comes before **Closed
-tickets**. Its index contains exactly one linked line for each unfinished
-ticket. That line begins with the exact text `- OPEN` because the watcher
-counts this marker. There is no second `- OPEN` line inside that ticket, and
-every index link resolves to exactly one detailed open section.
+The file begins with **Open tickets**, **Parked edge cases**, and **Closed
+tickets** entries in its contents list, in that order. The open index contains
+exactly one linked `- OPEN` line for each actionable unfinished ticket because
+the watcher counts that marker. Parked edge cases use `- PARKED`, never enter
+that count, and are never selected automatically.
 
 The Architect classifies every admitted ticket as Critical, High, Medium, or
 Low using the harm and likelihood rules above. The linked index shows that
@@ -617,6 +624,13 @@ capability. Priority says when the ticket should be worked.
 - “After the backlog is closed” means a Low feature whose prerequisites are
   every ticket that was already open when the feature was admitted. The
   feature's own open line is not one of those prerequisites.
+
+A **Low — Edge Case** is always a Bug fix and is below this work order. The
+Architect may create it only to preserve the exact harmless exceptional
+remainder of a bounded repair. It stays parked until the user explicitly asks
+the Architect to solve that ticket by its human title. The Architect then
+moves it to the Low group and replaces its parked line with an ordinary
+`- OPEN **LOW**` line.
 
 Within one permitted group, preserve index order unless a recorded blocker or
 prerequisite requires moving to the next ticket.
@@ -682,6 +696,7 @@ recreates it from this contract and updates it whenever a ticket changes.
 ## Contents
 
 - [Open tickets](#open-tickets)
+- [Parked edge cases](#parked-edge-cases)
 - [Closed tickets](#closed-tickets)
 
 ## How to read this backlog
@@ -727,6 +742,10 @@ No open Medium tickets.
 
 No open Low tickets.
 
+# Parked edge cases
+
+No parked edge cases.
+
 # Closed tickets
 
 No closed tickets.
@@ -742,6 +761,16 @@ replaces the `No open PRIORITY tickets.` sentence with the index line; the
 empty sentence and a ticket line never appear together. A clean clone with no
 accepted work still receives the complete skeleton, including all four empty
 priority groups and the `No closed tickets.` sentence.
+
+Every parked edge case uses this exact form under `# Parked edge cases`:
+
+```text
+- PARKED **LOW — EDGE CASE** **BUG FIX** — [Plain human title](#unique-anchor)
+```
+
+It has the same human summary and technical record as an open ticket, but its
+current status is `PARKED` and it has no other `- OPEN` marker. The command-line
+severity choices cannot create or activate it.
 
 Every open index line uses this exact form:
 
@@ -926,7 +955,7 @@ Every ticket section has these parts in this order:
    user or scientific consequence. More sentences are allowed when a reader
    needs them. An internal unit number may follow a plain title, but it never
    replaces that title.
-2. **Current status** says exactly `OPEN` or `CLOSED`, records `Bug fix` or
+2. **Current status** says `OPEN`, `CLOSED`, or `PARKED`, records `Bug fix` or
    `New functionality`, gives its priority reason, records the nonnegative
    Red Team reopen count and exact reopening state, and names any blocker or
    prerequisite.
@@ -945,10 +974,11 @@ updated:
 | --- | --- | --- |
 | Human title | Names the problem in words a physics student can understand; an internal ID is secondary | Uses only `unit 8`, an acronym, a gate ID, or another internal label |
 | Human summary | Gives normal purpose with a concrete example, the current failure, and its consequence in at least three complete sentences | Starts with commits, evidence counts, internal stages, or unexplained software language |
-| Status | Appears in the correct Open or Closed section and agrees with the linked `- OPEN` index | Is missing, contradictory, or described as closed while required work remains hidden in prose |
+| Status | Appears in the correct Open, Parked, or Closed section and agrees with its `- OPEN` or `- PARKED` index | Is missing, contradictory, or described as closed while required work remains hidden in prose |
 | Partial work | Separates completed work from missing work | Treats a landed partial fix or local test result as ticket closure |
 | Ticket type | Records Bug fix or New functionality and applies its ordering rule | Omits type, labels a feature Critical, or lets a feature bypass a higher-priority item |
 | Severity | The Architect records Critical, High, Medium, or Low from concrete harm and likelihood, explains why Medium is insufficient for High and why High is insufficient for Critical, names the primary result or core workflow harmed by a High bug, and places the ticket in that priority group | Severity is omitted, copied from Red Team without review, says only “wrong science,” promotes a plot or diagnostic defect without evidence of primary harm, High or Critical lacks its required comparison, or a ticket is ordered below a lower-severity ticket without a recorded blocker |
+| Parked edge case | Records the exact exceptional remainder of a bounded repair below Low, uses `- PARKED`, and waits for an explicit user request naming the ticket before activation | Uses `- OPEN`, appears as a command-line severity, is selected automatically, hides a probable or scientifically consequential failure, or is activated without the named user request |
 | Reopen count | Uses one canonical nonnegative integer, starts at zero, never resets, and increments for every formal Red Team `REOPEN` assessment | Omits the count, uses prose instead of an integer, resets it, or loses a Red Team reopening return |
 | Reopening state | Uses exactly `allowed` until an Architect NO-GO permanently changes it to `barred by Architect NO-GO`; a barred ticket cannot be reopened | Omits the state, removes a permanent bar, changes a barred ticket after another REOPEN, or treats a different defect as the same ticket |
 | Repeated reopening | Immediately restores every Red Team `REOPEN` return, then later compares new evidence with earlier attempts; a count above five forces Low | Delays the bookkeeping for a full audit, calls every repeated objection obnoxious without evidence, or keeps a priority above Low after the sixth attempt |

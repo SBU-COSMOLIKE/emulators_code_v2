@@ -91,12 +91,17 @@ accept the change only when the directive explains specifically why a smaller
 direct repair would be unsafe and why the ticket cannot be split into complete
 independent fixes. Passing tests or `--max 0` is not that justification.
 
-A bounded repair may remove the High- or Medium-severity failure while leaving
-an improbable edge case. When evidence shows that the remainder now meets only
-the Low boundary, the Architect accepts the bounded repair, closes the urgent
-ticket, and records the remainder as a linked **LOW — EDGE CASE** bug ticket.
-The accepted ticket states the exact unhandled case and never claims complete
-coverage. Do not use this rule to downgrade a probable failure, wrong primary
+A bounded repair may remove an actionable ticket's demonstrated failure while
+leaving a harmless exceptional case below Low. When complete coverage would add
+disproportionate complexity, choosing the simple bounded repair is acceptable
+and may be preferable. The Architect closes the actionable ticket and records
+the exact remainder as a linked, parked **LOW — EDGE CASE** bug ticket without
+claiming complete coverage.
+
+This parked class is not ordinary Low work. It has no `- OPEN` line, is not a
+`--severity` choice, and is never dispatched automatically. Only an explicit
+user request naming that exact ticket authorizes the Architect to activate it
+as Low work. Do not use this rule to park a probable failure, wrong primary
 scientific result, data loss, or broken core operation.
 
 ### Refuse unsupported dependency versions
