@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Run the CPU checks for safe CMB covariance publication.
 
-The checks use tiny NumPy archives.  They do not run CAMB or train an
-emulator.  A failure names whether writing, synchronization, readback, a late
-competing file, or the command's early existing-file refusal broke the
-publication rule.
+The checks use tiny NumPy archives. They do not run CAMB or train an emulator.
+They cover a failed private write, a late competing file, cleanup, and the
+command's early existing-file refusal.
 """
 
 import io

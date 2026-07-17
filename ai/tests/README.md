@@ -292,17 +292,16 @@ python3 -m unittest ai.tests.test_cmb_covariance_publication
   archive and a file created late by a second writer use visibly different
   values, so the test can tell which bytes survived.
 - **What the test does:** it completes one normal publication, then separately
-  stops the write, file synchronization, archive readback, and final-name step.
-  Another case creates a competing archive after readback. The command-line
+  stops the private write and final-name step. Another case creates a competing
+  archive just before the final name is claimed. The command-line
   case places an archive at the requested name while naming a missing YAML file.
 - **Pass means:** a normal run publishes the exact member names, shapes, data
   types, and values. Every stopped run removes its private temporary file. An
   archive that already owns the requested name remains byte-for-byte unchanged,
   and the command refuses it before trying to read YAML or start CAMB.
 - **A refusal it proves:** neither an ordinary rerun nor a file that appears
-  while the calculation is running may be replaced. A write, synchronization,
-  readback, or final-name failure may not leave a partial archive at the name
-  used by readers.
+  while the calculation is running may be replaced. A write or final-name
+  failure may not leave a partial archive at the name used by readers.
 - **Why it matters:** calculating a CMB covariance can be expensive. A rerun or
   interrupted save must not destroy the preceding usable scientific result.
 

@@ -2770,9 +2770,9 @@ BOARD = [
        home="data-generation-and-cuts",
        maps="tiny CPU-only NumPy archives prove that the CMB covariance "
             "command refuses an occupied output name before YAML or CAMB, "
-            "writes and synchronizes a private archive, reopens every member, "
-            "and publishes only the checked result. Injected write, sync, "
-            "readback, and final-name failures leave no partial public file; "
+            "writes a private archive, and publishes it with one "
+            "non-overwriting final-name operation. Injected write and "
+            "final-name failures leave no partial public file; "
             "an earlier archive or a late competing file remains unchanged",
        evidence=(Assertion(
                    "cmb-covariance-publication.transactional-output",
