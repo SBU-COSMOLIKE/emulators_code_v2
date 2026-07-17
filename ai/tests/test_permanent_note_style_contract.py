@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CALENDAR_RE = re.compile(
     r"(?:\b(?:19|20)\d{2}-\d{2}(?:-\d{2})?\b|"
-    r"(?<![~:])\b(?:19\d{2}|20[0-3]\d)\b|"
+    r"(?<![~:])\b(?:19\d{2}|20\d{2})\b|"
     r"\b(?:January|February|March|April|May|June|July|August|September|"
     r"October|November|December)\s+\d{1,2}\b)",
     re.IGNORECASE,
@@ -47,6 +47,10 @@ DIARY_PATTERNS = (
 )
 ANCHOR_RE = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 
+# Each entry is (permanent-note path, exact date-bearing text, lasting reason).
+# Keep the list narrow: the current permanent notes need no date exception.
+PERMANENT_NOTE_CALENDAR_ALLOWLIST = ()
+
 
 def read(relative):
     """Read one UTF-8 repository file."""
@@ -76,6 +80,7 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
 
     def test_memory_starts_the_permanent_note_change_contract(self):
         memory = read("ai/notes/MEMORY.md")
+        normalized = " ".join(memory.split())
         contract_at = memory.index(
             "## GO/NO-GO contract for changing a permanent note"
         )
@@ -90,6 +95,25 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         self.assertIn("creates or updates a local backlog ticket in the same turn",
                       memory)
         self.assertIn("anti-AI requirements", memory)
+        self.assertIn(
+            "The text contains no development date, policy-provenance "
+            "timestamp",
+            normalized,
+        )
+        self.assertIn(
+            "A date is allowed only when it is part of scientific, release, "
+            "citation, input, or public-interface subject matter",
+            normalized,
+        )
+        self.assertIn(
+            "the review records why removing it would make the statement "
+            "incomplete or false",
+            normalized,
+        )
+        self.assertIn(
+            "numbered review-run history used as a development diary",
+            normalized,
+        )
 
     def test_readme_contract_covers_repeated_reader_failures(self):
         contract = read("ai/notes/readme-go-no-go.md")
@@ -103,6 +127,101 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         for number in range(1, 7):
             self.assertIn("## Review " + str(number) + ":", contract)
             self.assertNotIn("## Gate " + str(number) + ":", contract)
+
+    def test_prose_contract_requires_one_current_account_not_policy_history(self):
+        """Keep the durable rule while discarding its development diary."""
+        contract = read("ai/notes/readme-go-no-go.md")
+        normalized = " ".join(contract.split())
+
+        self.assertIn("## Describe one coherent current system", contract)
+        self.assertIn(
+            "README files, permanent notes, commit explanations, and "
+            "explanatory Python prose describe how the library works now.",
+            normalized,
+        )
+        self.assertIn("rewrite the owning explanation in place", normalized)
+        self.assertIn("Do not append a dated correction", normalized)
+        for rejected in (
+                "`hard user rule`",
+                "ticket numbers",
+                "audit waves",
+                "review rounds",
+                "model names",
+                "chronological addendum",
+                "policy-patch paragraph"):
+            with self.subTest(rejected=rejected):
+                self.assertIn(rejected, contract)
+        self.assertIn(
+            "one consistent current explanation after the edit", normalized)
+
+        # Calendar and order words remain available when they describe the
+        # subject itself rather than the history of a policy decision.
+        for allowed in (
+                "scientific data release named by year",
+                "publication citation",
+                "user input that is a date",
+                "algorithm whose ordered phases are current behavior",
+                "`history` and `phase` also have valid technical meanings"):
+            with self.subTest(allowed=allowed):
+                self.assertIn(allowed, normalized)
+
+    def test_python_contract_replaces_policy_patches_with_current_explanation(self):
+        """Require the concrete comment example used to teach this boundary."""
+        contract = read("ai/notes/python-changes-go-no-go.md")
+        normalized = " ".join(contract.split())
+
+        self.assertIn(
+            "### Explain current code, not the policy patches that produced it",
+            contract,
+        )
+        self.assertIn("replace the old explanation in place", normalized)
+        for rejected in (
+                "dated correction",
+                "`hard user rule`",
+                "ticket number",
+                "audit wave",
+                "review round",
+                "model name",
+                "development chronology"):
+            with self.subTest(rejected=rejected):
+                self.assertIn(rejected, contract)
+
+        bad = (
+            "# Hard user rule from the latest review: now reject a dirty "
+            "worktree."
+        )
+        good = (
+            "# Refuse a dirty worktree so uncommitted user files cannot enter "
+            "the landing."
+        )
+        self.assertIn("NO-GO:\n\n```python\n" + bad, contract)
+        self.assertIn("GO:\n\n```python\n" + good, contract)
+        self.assertLess(contract.index(bad), contract.index(good))
+
+        for allowed in (
+                "program reads or calculates that date",
+                "scientific dataset or publication is identified by year",
+                "public compatibility interface contains the date",
+                "real runtime data or algorithmic order"):
+            with self.subTest(allowed=allowed):
+                self.assertIn(allowed, normalized)
+        self.assertIn(
+            "one compatible current explanation, not an old comment followed "
+            "by a later exception",
+            normalized,
+        )
+        self.assertIn(
+            "explanatory text is personal, development-dated, vague, "
+            "undefined, narrates policy or review history, or uses chronology "
+            "without a scientific, runtime, algorithmic, or compatibility "
+            "need;",
+            normalized,
+        )
+        self.assertNotIn(
+            "explanatory text is personal, dated, historical, vague, or "
+            "undefined",
+            normalized,
+        )
 
     def test_known_temporary_status_phrases_stay_out_of_permanent_notes(self):
         combined = "\n".join(read(relative) for relative in PERMANENT_NOTES)
@@ -153,10 +272,32 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         self.assertIn("registry construction alone is not a claim", models)
 
     def test_notes_have_no_calendar_or_person_specific_language(self):
+        self.assertIsNotNone(
+            CALENDAR_RE.search("Hard user rule, 2040: add another patch."))
+        allowed_by_path = {}
+        seen_path_literals = set()
+        for path, literal, reason in PERMANENT_NOTE_CALENDAR_ALLOWLIST:
+            key = (path, literal)
+            with self.subTest(note=path, literal=literal, kind="allowlist"):
+                self.assertIn(path, PERMANENT_NOTES)
+                self.assertTrue(literal.strip())
+                self.assertEqual(len(list(CALENDAR_RE.finditer(literal))), 1)
+                self.assertTrue(reason.strip())
+                self.assertGreaterEqual(len(reason.split()), 4)
+                self.assertNotIn(key, seen_path_literals)
+            seen_path_literals.add(key)
+            allowed_by_path.setdefault(path, []).append(literal)
+
         for relative in PERMANENT_NOTES:
             text = read(relative)
+            calendar_text = text
+            for literal in allowed_by_path.get(relative, []):
+                with self.subTest(note=relative, literal=literal,
+                                  kind="allowlist-occurrence"):
+                    self.assertEqual(calendar_text.count(literal), 1)
+                calendar_text = calendar_text.replace(literal, "", 1)
             with self.subTest(note=relative, kind="calendar"):
-                self.assertIsNone(CALENDAR_RE.search(text))
+                self.assertIsNone(CALENDAR_RE.search(calendar_text))
             with self.subTest(note=relative, kind="personal"):
                 self.assertIsNone(PERSONAL_RE.search(text))
 
