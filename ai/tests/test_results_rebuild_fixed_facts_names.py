@@ -7,6 +7,7 @@ rebuild compares that geometry against the record before loading model weights,
 and that an untampered matching record still reaches the model-loading stage.
 """
 
+import hashlib
 import os
 import tempfile
 import unittest
@@ -34,7 +35,7 @@ class _GeometryFixture:
     return cls(names=state["names"])
 
 
-class _ModelLoadReached(Exception):
+class _ModelLoadReached(BaseException):
   """Sentinel proving rebuild advanced past all artifact validation."""
 
 
@@ -56,11 +57,19 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
   def _write_artifact(self, path_root, rewritten_names=None):
     """Write a schema-v3 artifact and optionally rewrite both record copies."""
     string_dtype = h5py.string_dtype(encoding="utf-8")
+    artifact_id = "1" * 32
+    emul_path = path_root + ".emul"
+    torch.save({"weight": torch.ones(1)}, emul_path)
+    results._stamp_checkpoint_artifact_id(emul_path, artifact_id)
+    with open(emul_path, "rb") as checkpoint:
+      checkpoint_sha256 = hashlib.sha256(checkpoint.read()).hexdigest()
     h5_path = path_root + ".h5"
     with h5py.File(h5_path, "w") as artifact:
       artifact.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
       artifact.attrs["composition_mode"] = "plain"
       artifact.attrs["transfer_refined"] = False
+      artifact.attrs["artifact_id"] = artifact_id
+      artifact.attrs["checkpoint_sha256"] = checkpoint_sha256
       artifact.create_dataset(
         "model_recipe",
         data="{}",

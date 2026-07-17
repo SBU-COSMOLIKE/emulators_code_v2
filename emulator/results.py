@@ -27,10 +27,15 @@ region it was sampled over. A sidecar is a small companion file written next
 to a data file and sharing its name stem.
 """
 
+import contextlib
 import hashlib
 import os
+import stat
 import subprocess
+import tempfile
 import time
+import uuid
+import zipfile
 
 import numpy as np
 import torch
@@ -47,6 +52,357 @@ _COMPOSITION_MODES = ("plain", "npce", "transfer")
 _PCE_FORMS = ("residual", "ratio")
 _TRANSFER_FORMS = ("gain", "sum")
 _TRANSFER_SPACES = ("physical", "whitened")
+_ARTIFACT_ID_ATTR = "artifact_id"
+_CHECKPOINT_SHA256_ATTR = "checkpoint_sha256"
+_CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
+_PAIR_PENDING_SUFFIX = ".pair-pending"
+
+
+def _require_lower_hex(value, *, length, where):
+  """Return one native lowercase hexadecimal declaration or refuse it.
+
+  HDF5 attributes can contain bytes, numbers, or strings.  Converting all of
+  them with ``str`` would make malformed metadata look valid, so pair identity
+  uses one narrow representation: a native string of the exact expected
+  length containing only lowercase hexadecimal digits.
+  """
+  if type(value) is not str:
+    raise ValueError(
+      where + " must be native text, not " + type(value).__name__)
+  if len(value) != length or any(ch not in "0123456789abcdef" for ch in value):
+    raise ValueError(
+      where + " must be exactly " + str(length)
+      + " lowercase hexadecimal characters, got " + repr(value))
+  return value
+
+
+def _read_native_hex_attr(attrs, key, *, length, where):
+  """Read one variable-length native HDF5 text declaration."""
+  value = _require_lower_hex(
+    attrs[key], length=length, where=where + " " + key)
+  # h5py exposes get_id; plain mappings used by narrow helper tests do not.
+  # When storage information is available, bytes or fixed-width strings may
+  # not impersonate the writer's native variable-length UTF-8 declaration.
+  get_id = getattr(attrs, "get_id", None)
+  if get_id is not None:
+    dtype = get_id(key).dtype
+    storage = (dtype.metadata or {}).get("vlen")
+    if storage is not str:
+      raise ValueError(
+        where + " " + key
+        + " must be stored as native variable-length HDF5 text")
+  return value
+
+
+def _checkpoint_artifact_id(checkpoint, where):
+  """Read the pair identifier from a PyTorch ZIP comment.
+
+  ``torch.save`` writes a ZIP archive and ``torch.load`` ignores the standard
+  ZIP comment.  Keeping the identifier there preserves the public checkpoint
+  value: loading ``<root>.emul`` still returns the plain tensor state dict.
+  The reader can nevertheless compare the identifier with the HDF5 member
+  before asking PyTorch to deserialize anything.
+  """
+  checkpoint.seek(0)
+  try:
+    with zipfile.ZipFile(checkpoint, "r") as archive:
+      comment = archive.comment
+  except (OSError, zipfile.BadZipFile) as exc:
+    raise ValueError(
+      where + " is not a readable PyTorch ZIP checkpoint with an artifact "
+      "identifier; re-save the emulator with the current save_emulator") \
+      from exc
+  finally:
+    checkpoint.seek(0)
+  if not comment.startswith(_CHECKPOINT_COMMENT_PREFIX):
+    raise ValueError(
+      where + " has no current artifact identifier; re-save the emulator "
+      "with the current save_emulator")
+  raw = comment[len(_CHECKPOINT_COMMENT_PREFIX):]
+  try:
+    value = raw.decode("ascii")
+  except UnicodeDecodeError as exc:
+    raise ValueError(where + " has a non-ASCII artifact identifier") from exc
+  return _require_lower_hex(
+    value, length=32, where=where + " artifact identifier")
+
+
+def _stamp_checkpoint_artifact_id(path, artifact_id):
+  """Put one checked pair identifier in a newly staged checkpoint."""
+  artifact_id = _require_lower_hex(
+    artifact_id, length=32, where=path + " artifact identifier")
+  try:
+    with zipfile.ZipFile(path, "a") as archive:
+      if archive.comment:
+        raise ValueError(
+          path + " unexpectedly has a ZIP comment before its artifact "
+          "identifier is written")
+      archive.comment = _CHECKPOINT_COMMENT_PREFIX + artifact_id.encode("ascii")
+  except zipfile.BadZipFile as exc:
+    raise ValueError(
+      path + " was not written as the expected PyTorch ZIP checkpoint") \
+      from exc
+
+
+def _sha256_stream(stream):
+  """Hash the exact bytes in an open file and rewind it for the next reader."""
+  stream.seek(0)
+  digest = hashlib.sha256()
+  while True:
+    block = stream.read(1024 * 1024)
+    if not block:
+      break
+    digest.update(block)
+  stream.seek(0)
+  return digest.hexdigest()
+
+
+def _validate_artifact_binding(attrs, checkpoint, *, h5_where, emul_where):
+  """Prove that one open checkpoint is the member named by one HDF5 file."""
+  missing = [key for key in (_ARTIFACT_ID_ATTR, _CHECKPOINT_SHA256_ATTR)
+             if key not in attrs]
+  if missing:
+    raise ValueError(
+      h5_where + " is missing artifact-pair declaration(s) " + repr(missing)
+      + "; re-save the emulator with the current save_emulator")
+  h5_artifact_id = _read_native_hex_attr(
+    attrs, _ARTIFACT_ID_ATTR, length=32, where=h5_where)
+  declared_digest = _read_native_hex_attr(
+    attrs, _CHECKPOINT_SHA256_ATTR, length=64, where=h5_where)
+  checkpoint_artifact_id = _checkpoint_artifact_id(checkpoint, emul_where)
+  actual_digest = _sha256_stream(checkpoint)
+  if checkpoint_artifact_id != h5_artifact_id:
+    raise ValueError(
+      h5_where + " names artifact " + h5_artifact_id + " but " + emul_where
+      + " names artifact " + checkpoint_artifact_id
+      + "; the two files are not one saved emulator")
+  if actual_digest != declared_digest:
+    raise ValueError(
+      h5_where + " declares checkpoint SHA-256 " + declared_digest + " but "
+      + emul_where + " has " + actual_digest
+      + "; the weights and scientific record are not one saved emulator")
+  return h5_artifact_id, actual_digest
+
+
+def _load_tensor_state_dict(checkpoint, *, device, where):
+  """Load only a plain name-to-tensor state dict from an open checkpoint."""
+  checkpoint.seek(0)
+  try:
+    state = torch.load(
+      checkpoint, map_location=device, weights_only=True)
+  except Exception as exc:
+    raise ValueError(
+      where + " cannot be read as a tensor-only PyTorch state dict") from exc
+  finally:
+    checkpoint.seek(0)
+  if type(state) is not dict or not state:
+    raise ValueError(
+      where + " must contain one nonempty plain state-dict mapping")
+  bad_keys = [key for key in state if type(key) is not str or not key]
+  if bad_keys:
+    raise ValueError(
+      where + " state-dict keys must be nonempty native strings; got "
+      + repr(bad_keys[:3]))
+  bad_values = [key for key, value in state.items()
+                if not torch.is_tensor(value)]
+  if bad_values:
+    raise ValueError(
+      where + " state-dict values must all be tensors; non-tensor value(s) "
+      "appear at " + repr(bad_values[:3]))
+  return state
+
+
+def _output_directory(path):
+  """Return the directory containing a final artifact path."""
+  return os.path.dirname(os.path.abspath(path))
+
+
+def _fsync_file(path):
+  """Ask the operating system to finish writing one staged regular file."""
+  with open(path, "rb") as stream:
+    os.fsync(stream.fileno())
+
+
+def _fsync_directory(directory):
+  """Ask the operating system to finish same-directory rename operations."""
+  descriptor = os.open(directory, os.O_RDONLY)
+  try:
+    os.fsync(descriptor)
+  finally:
+    os.close(descriptor)
+
+
+def _unlink_if_present(path):
+  """Remove one transaction-owned path when it still exists."""
+  try:
+    os.unlink(path)
+  except FileNotFoundError:
+    pass
+
+
+def _discard_if_present(path):
+  """Best-effort cleanup after a transaction has already committed."""
+  try:
+    _unlink_if_present(path)
+  except OSError:
+    # A transaction recovery link is not part of the published pair. Once the
+    # marker has disappeared and the new pair is live, failure to remove this
+    # extra recovery copy cannot turn a successful save into a failure.
+    pass
+
+
+def _new_staging_path(final_path, artifact_id, member):
+  """Reserve a unique temporary pathname beside the final artifact."""
+  directory = _output_directory(final_path)
+  descriptor, path = tempfile.mkstemp(
+    prefix="." + os.path.basename(final_path) + "." + artifact_id + ".",
+    suffix="." + member + ".tmp",
+    dir=directory)
+  os.close(descriptor)
+  return path
+
+
+@contextlib.contextmanager
+def _staged_h5_file(h5py, h5_path, cleanup_paths):
+  """Open a staged HDF5 file and clean both stages if its write fails."""
+  try:
+    with h5py.File(h5_path, "w") as handle:
+      yield handle
+  except BaseException:
+    for path in cleanup_paths:
+      _unlink_if_present(path)
+    raise
+
+
+def _open_regular_checkpoint(path):
+  """Open one checkpoint once, without following a final-component symlink."""
+  flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+  try:
+    descriptor = os.open(path, flags)
+  except OSError as exc:
+    raise ValueError(path + " cannot be opened as a saved checkpoint") from exc
+  try:
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+      raise ValueError(path + " is not a regular checkpoint file")
+    return os.fdopen(descriptor, "rb")
+  except BaseException:
+    os.close(descriptor)
+    raise
+
+
+def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
+                           artifact_id):
+  """Publish two checked stages while readers are blocked by one marker.
+
+  Ordinary exceptions restore the preceding pair.  A process kill or another
+  ``BaseException`` may interrupt the two final renames; the marker is left in
+  place, so rebuild refuses that root rather than accepting a hybrid pair.
+  """
+  artifact_id = _require_lower_hex(
+    artifact_id, length=32, where="publication artifact identifier")
+  directory = _output_directory(emul_path)
+  if directory != _output_directory(h5_path):
+    raise ValueError("artifact pair members must share one output directory")
+  marker = os.path.splitext(emul_path)[0] + _PAIR_PENDING_SUFFIX
+  if os.path.lexists(marker):
+    raise ValueError(
+      marker + " already exists, so an earlier publication may have stopped; "
+      "inspect or recover that root before saving it again")
+
+  def create_marker():
+    marker_fd = None
+    marker_created = False
+    try:
+      marker_fd = os.open(
+        marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+      marker_created = True
+      os.write(marker_fd, (artifact_id + "\n").encode("ascii"))
+      os.fsync(marker_fd)
+    except Exception:
+      if marker_created:
+        _unlink_if_present(marker)
+      raise
+    finally:
+      if marker_fd is not None:
+        os.close(marker_fd)
+    try:
+      _fsync_directory(directory)
+    except Exception:
+      _unlink_if_present(marker)
+      raise
+
+  create_marker()
+
+  # The preceding-pair snapshot belongs inside the marker lock. A writer that
+  # inspected an empty root before taking the marker could otherwise erase a
+  # complete pair published by the writer that acquired the marker first.
+  try:
+    old_emul = os.path.lexists(emul_path)
+    old_h5 = os.path.lexists(h5_path)
+    if old_emul != old_h5:
+      raise ValueError(
+        os.path.splitext(emul_path)[0]
+        + " already has only one artifact member; rebuild refuses incomplete "
+        "roots, so recover or remove that root before saving it again")
+  except Exception:
+    try:
+      os.unlink(marker)
+      _fsync_directory(directory)
+    except Exception as cleanup_error:
+      raise RuntimeError(
+        "artifact publication could not inspect the preceding pair and "
+        "could not remove its refusal marker " + marker) from cleanup_error
+    raise
+
+  rollback_emul = emul_path + "." + artifact_id + ".rollback"
+  rollback_h5 = h5_path + "." + artifact_id + ".rollback"
+  entries = ((emul_path, rollback_emul, old_emul),
+             (h5_path, rollback_h5, old_h5))
+
+  def restore_preceding_pair():
+    for final_path, rollback_path, existed in entries:
+      if existed and os.path.lexists(rollback_path):
+        os.replace(rollback_path, final_path)
+      elif not existed and os.path.lexists(final_path):
+        os.unlink(final_path)
+    _fsync_directory(directory)
+
+  try:
+    if old_emul:
+      os.link(emul_path, rollback_emul)
+      os.link(h5_path, rollback_h5)
+    os.replace(staged_emul, emul_path)
+    os.replace(staged_h5, h5_path)
+    _fsync_directory(directory)
+    # This unlink is the logical commit: readers refuse while the marker is
+    # present and may open the fully synchronized new pair after it disappears.
+    os.unlink(marker)
+    try:
+      _fsync_directory(directory)
+    except OSError:
+      # The synchronized new pair became live when the marker disappeared.
+      # A directory-sync failure after that point must not roll back over a
+      # later writer that may already own a new marker.  A crash could make
+      # this old marker reappear, but that outcome is a safe refusal of a valid
+      # pair rather than acceptance of a hybrid pair.
+      pass
+  except Exception:
+    try:
+      restore_preceding_pair()
+      _unlink_if_present(marker)
+      _fsync_directory(directory)
+    except Exception as rollback_error:
+      raise RuntimeError(
+        "artifact publication failed and automatic rollback also failed; "
+        + marker + " remains the refusal marker") from rollback_error
+    else:
+      _unlink_if_present(rollback_emul)
+      _unlink_if_present(rollback_h5)
+    raise
+
+  # Cleanup happens after the commit and cannot make the new pair invalid.
+  _discard_if_present(rollback_emul)
+  _discard_if_present(rollback_h5)
 
 
 def _grid2d_const_mask_digest(const_mask):
@@ -437,7 +793,9 @@ def save_emulator(path_root,
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
-  The .emul holds only the model weights. Before ``torch.save``,
+  The .emul holds only the model weights. Its ZIP metadata carries the same
+  artifact identifier as the .h5 root, and the .h5 root records the exact
+  .emul SHA-256. Before ``torch.save``,
   ``save_emulator`` detaches every state_dict tensor and moves it to
   the CPU. Loading therefore does not require the accelerator used
   during training. ``rebuild_emulator`` passes ``map_location=device``
@@ -504,10 +862,11 @@ def save_emulator(path_root,
     train_args_yaml  the collapsed train_args actually used (search
                      ranges resolved to their defaults), as YAML.
   plus one root attribute per entry of `attrs` (run identity: model name,
-  activation, rescale, N_train, best epoch, ...), a "created" timestamp, the
-  torch version, and the schema version with the git commit beside it. Those
-  last two are written exactly when the run resolved both recipes: version 3
-  when it also carried the scientific record, version 2 when it did not.
+  activation, rescale, N_train, best epoch, ...), the writer-owned pair
+  identifier and checkpoint SHA-256, a "created" timestamp, the torch version,
+  and the schema version with the git commit beside it. Those last two are
+  written exactly when the run resolved both recipes: version 3 when it also
+  carried the scientific record, version 2 when it did not.
 
   Reversible map (write here -> read in rebuild_emulator):
     This table pairs everything this function writes with the exact
@@ -523,9 +882,9 @@ def save_emulator(path_root,
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
-      <root>.emul (state_dict,      | torch.load(<root>.emul), loaded
-        cpu, compile-prefix         |   strict into the main model by
-        stripped)                   |   _rebuild_model
+      <root>.emul (state_dict,      | identifier + exact SHA-256 checked,
+        cpu, compile-prefix         |   then weights-only torch.load and
+        stripped)                   |   strict _rebuild_model
       param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
         its "cls" attr              |   -> <cls>.from_state; "cls" is
                                     |   required (missing = loud re-save)
@@ -608,7 +967,8 @@ def save_emulator(path_root,
                      (search ranges resolved), or None to omit.
     attrs          = optional mapping of scalar run metadata, each
                      written as one h5 root attribute. It may not replace the
-                     writer-owned Grid2D mask or composition declarations.
+                     writer-owned Grid2D mask, composition declarations,
+                     artifact identifier, or checkpoint SHA-256.
     pce            = fitted PCEEmulator base for an NPCE run, else None.
     pce_form       = NPCE recombination form, required with pce, else None.
     resolved_train = materialized training recipe consumed by the run.
@@ -633,6 +993,14 @@ def save_emulator(path_root,
   Returns:
     (emul_path, h5_path), the two files written.
 
+  Publication first completes and checks both files under unique temporary
+  names beside the destination. A short ``<root>.pair-pending`` marker blocks
+  rebuild while the two final names change. An ordinary publication error
+  restores the preceding pair. A process kill between the two final renames
+  can leave an incomplete root, but the marker makes that root refuse rather
+  than load as a hybrid. This is a checked two-file protocol, not a claim that
+  two filesystem renames are one atomic operation.
+
   Raises:
     KeyError when attrs tries to replace a writer-owned declaration.
     ValueError when the composition facts, payload, and consumed records
@@ -640,8 +1008,8 @@ def save_emulator(path_root,
     would say which cosmology it was trained under but not how to rebuild the
     network), when the sidecar breaks any law in fixed_facts.validate, or when
     the whitening geometry and the sidecar disagree on the sampled parameters.
-    All three are checked before either file is written, so a refused save
-    leaves no half-written pair on disk.
+    Semantic checks run before either final file is changed. Staging or
+    ordinary publication failures leave a preceding valid pair unchanged.
   """
   # h5py lives only here: the training machines (cocoa) ship it, the
   # plotting/train paths never need it.
@@ -699,6 +1067,8 @@ def save_emulator(path_root,
     _GRID2D_MASK_DECLARATION,
     _COMPOSITION_MODE_ATTR,
     _TRANSFER_REFINED_ATTR,
+    _ARTIFACT_ID_ATTR,
+    _CHECKPOINT_SHA256_ATTR,
   }
   if attrs is not None and reserved_attrs.intersection(attrs):
     forged = sorted(reserved_attrs.intersection(attrs))
@@ -707,17 +1077,33 @@ def save_emulator(path_root,
       + ". Remove them; save_emulator derives these declarations from the "
       "executed run.")
 
-  # --- <root>.emul: the weights, cpu, unprefixed ---
+  # --- stage <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
   for k, v in model.state_dict().items():
     # a torch.compile wrapper (OptimizedModule) stores the real
     # model as ._orig_mod, so its keys arrive prefixed; strip it.
     sd[k.removeprefix("_orig_mod.")] = v.detach().cpu()
+  artifact_id = uuid.uuid4().hex
   emul_path = path_root + ".emul"
-  torch.save(sd, emul_path)
-
-  # --- <root>.h5: geometries + histories + config + identity ---
   h5_path = path_root + ".h5"
+  staged_emul = None
+  staged_h5 = None
+  try:
+    staged_emul = _new_staging_path(emul_path, artifact_id, "emul")
+    staged_h5 = _new_staging_path(h5_path, artifact_id, "h5")
+    torch.save(sd, staged_emul)
+    _stamp_checkpoint_artifact_id(staged_emul, artifact_id)
+    _fsync_file(staged_emul)
+    with _open_regular_checkpoint(staged_emul) as checkpoint:
+      checkpoint_sha256 = _sha256_stream(checkpoint)
+  except BaseException:
+    if staged_emul is not None:
+      _unlink_if_present(staged_emul)
+    if staged_h5 is not None:
+      _unlink_if_present(staged_h5)
+    raise
+
+  # --- stage <root>.h5: geometries + histories + config + identity ---
   str_dt  = h5py.string_dtype(encoding="utf-8")
 
   def write_state(group, state):
@@ -741,7 +1127,8 @@ def save_emulator(path_root,
       else:
         group.attrs[k] = str(v)   # torch.dtype and friends
 
-  with h5py.File(h5_path, "w") as f:
+  with _staged_h5_file(
+      h5py, staged_h5, cleanup_paths=(staged_emul, staged_h5)) as f:
     # the scientific record, when the dataset published one: the producer's own
     # sidecar text, stored verbatim, and the two blocks that text parses to.
     # write_h5 (fixed_facts.py) does both, and it writes the parse of the text
@@ -904,6 +1291,8 @@ def save_emulator(path_root,
         f.attrs[k] = str(v) if isinstance(v, str) else v
     f.attrs[_COMPOSITION_MODE_ATTR] = composition_mode
     f.attrs[_TRANSFER_REFINED_ATTR] = transfer_refined
+    f.attrs[_ARTIFACT_ID_ATTR] = artifact_id
+    f.attrs[_CHECKPOINT_SHA256_ATTR] = checkpoint_sha256
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
     # the version decided at the top of this function, written once, here. It
@@ -919,6 +1308,33 @@ def save_emulator(path_root,
           stderr=subprocess.DEVNULL).decode().strip()
       except Exception:
         f.attrs["git_commit"] = "unknown"
+
+  try:
+    _fsync_file(staged_h5)
+    # Reopen both stages. The binding check exercises the same declarations as
+    # rebuild, and the safe load proves that publication will not expose a
+    # malformed or non-tensor checkpoint written by a changed serializer.
+    with _open_regular_checkpoint(staged_emul) as checkpoint:
+      with h5py.File(staged_h5, "r") as staged_record:
+        _validate_artifact_binding(
+          staged_record.attrs, checkpoint,
+          h5_where=staged_h5, emul_where=staged_emul)
+      staged_state = _load_tensor_state_dict(
+        checkpoint, device=torch.device("cpu"), where=staged_emul)
+    if tuple(staged_state) != tuple(sd) or any(
+        not torch.equal(staged_state[key], sd[key]) for key in sd):
+      raise ValueError(
+        staged_emul + " did not reproduce the exact state dict that "
+        "save_emulator staged")
+    _publish_artifact_pair(
+      staged_emul=staged_emul,
+      staged_h5=staged_h5,
+      emul_path=emul_path,
+      h5_path=h5_path,
+      artifact_id=artifact_id)
+  finally:
+    _unlink_if_present(staged_emul)
+    _unlink_if_present(staged_h5)
 
   return emul_path, h5_path
 
@@ -1383,16 +1799,23 @@ def rebuild_emulator(path_root, device, compile_model=True):
       "pce_base"     = the reconstructed frozen PCEEmulator when the run used
                        an NPCE base (h5 pce group), else None;
       "pce_form"     = the NPCE recombination form (residual / ratio) stored
-                       on the pce group, else None.
+                       on the pce group, else None;
+      "model_recipe", "config_resolved", and "rescale" = warm-start metadata
+                       copied from this same authenticated HDF5 handle, so a
+                       caller never has to reopen the pathname and risk mixing
+                       two publications.
 
   Raises:
-    ValueError from read_artifact_schema when the .h5 announces no schema
-    version, announces one this code does not know, or breaks any law of the
-    scientific record; ValueError when the rebuilt input geometry disagrees
-    with that record's sampled-parameter order or a Grid2D mask differs from
-    its declaration; KeyError naming a missing current schema-v3 Grid2D mask
-    declaration or any missing recipe / geometry / pce key (never a
-    code-default fallback).
+    ValueError when a pending marker exists; when either file lacks its native
+    artifact identifier or the identifiers disagree; when the exact checkpoint
+    SHA-256 differs; or when the checkpoint is not a plain tensor-only state
+    dict. These refusals occur before model construction. ValueError from
+    read_artifact_schema when the .h5 announces no schema version, announces
+    one this code does not know, or breaks any law of the scientific record;
+    ValueError when the rebuilt input geometry disagrees with that record's
+    sampled-parameter order or a Grid2D mask differs from its declaration;
+    KeyError naming a missing current schema-v3 Grid2D mask declaration or any
+    missing recipe / geometry / pce key (never a code-default fallback).
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -1452,7 +1875,26 @@ def rebuild_emulator(path_root, device, compile_model=True):
     mod, _, qual = cls_path.rpartition(".")
     return getattr(importlib.import_module(mod), qual).from_state(device, st)
 
-  with h5py.File(path_root + ".h5", "r") as f:
+  marker_path = path_root + _PAIR_PENDING_SUFFIX
+  if os.path.lexists(marker_path):
+    raise ValueError(
+      marker_path + " exists, so publication of this emulator did not finish; "
+      "rebuild refuses the root until the interrupted publication is recovered")
+
+  with contextlib.ExitStack() as pair_stack:
+    checkpoint = pair_stack.enter_context(
+      _open_regular_checkpoint(path_root + ".emul"))
+    f = pair_stack.enter_context(h5py.File(path_root + ".h5", "r"))
+    if os.path.lexists(marker_path):
+      raise ValueError(
+        marker_path + " appeared while the artifact pair was being opened; "
+        "rebuild refuses a pair while publication is in progress")
+    # This is the first metadata read.  It proves that the already-open
+    # checkpoint is exactly the member named by the HDF5 record before recipe
+    # parsing, geometry construction, model construction, or torch.load.
+    _validate_artifact_binding(
+      f.attrs, checkpoint,
+      h5_where=path_root + ".h5", emul_where=path_root + ".emul")
     # the schema version and the scientific record, through the one shared
     # reader. It refuses a version this code does not know, and a file that
     # announces none, before any other value is read. The blocks it returns are
@@ -1468,6 +1910,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
     if "model_recipe" not in f:
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
+    resolved_config = yaml.safe_load(f["config_resolved_yaml"][()])
+    saved_rescale = f.attrs.get("rescale")
     pgeom = _rebuild_geometry(f["param_geometry"], "param_geometry group")
     # The HDF5 blocks and their copied sidecar text prove that the scientific
     # record is internally consistent, but both copies can be rewritten
@@ -1520,6 +1964,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
       # membership is never a second mode-selection algorithm.
       if transfer_refined:
         tb_state = _read_group(tb["drifted_state"])
+
+    # Composition and geometry validation deliberately precede deserialization,
+    # preserving their more useful refusal messages.  The checkpoint handle is
+    # still the same one hashed above, so no pathname swap can occur between the
+    # digest check and this explicit tensor-only load.
+    sd = _load_tensor_state_dict(
+      checkpoint, device=device, where=path_root + ".emul")
 
   def _rebuild_model(rc, geom_for_needs, state, want_compile):
     # Reconstruct one module from its recipe + state dict (h5-only, a missing
@@ -1579,7 +2030,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
 
   # the main model: the correction net (transfer run) or the plain emulator.
   # the .emul holds its plain state dict; re-compile per the recipe on CUDA.
-  sd    = torch.load(path_root + ".emul", map_location=device)
   model = _rebuild_model(rc=recipe, geom_for_needs=geom, state=sd,
                          want_compile=compile_model)
 
@@ -1608,6 +2058,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
     "transfer_base":  transfer_base,
     "transfer_form":  tb_form,
     "transfer_space": tb_space,
+    # Warm-start needs these three values from the SAME already authenticated
+    # HDF5 member. Returning them prevents a second pathname open from mixing a
+    # rebuilt model from artifact A with metadata from a concurrently published
+    # artifact B.
+    "model_recipe":   recipe,
+    "config_resolved": resolved_config,
+    "rescale":        saved_rescale,
     # scalar (derived-parameter) emulator: the output geometry rebuilt as
     # a ScalarGeometry, so the predictor takes the scalar branch.
     # Dispatched on the rebuilt class, not a stored attr, so an

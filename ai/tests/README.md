@@ -619,16 +619,47 @@ that begin from an earlier saved emulator rather than random weights.
 
 ### Saved emulator files and reconstruction
 
-An emulator result is stored in an HDF5 file. HDF5 divides one file into named
-sections, similar to named folders inside the file. Rebuilding means opening
-that saved result and constructing the model needed for new predictions.
+A saved emulator has two files. The `.emul` file contains its learned tensors.
+The `.h5` file contains the scientific record and the instructions needed to
+interpret those tensors. HDF5 divides that second file into named sections,
+similar to named folders inside a file. Rebuilding means checking that the two
+files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
+| `test_results_artifact_pair.py` | Do the learned weights and scientific record identify each other, survive an ordinary failed save, and refuse a swapped or unsafe checkpoint? |
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
+
+#### Learned weights matched to their scientific record
+
+`test_results_artifact_pair.py` checks the two files that together make one
+saved emulator. The `.emul` file contains learned tensors. The `.h5` file
+contains the scientific facts, model instructions, and a SHA-256 fingerprint
+of those exact tensor-file bytes.
+
+- **Example used:** two tiny models have the same architecture and tensor
+  shapes but different learned values. Each is saved with its own record.
+- **What the test does:** it rebuilds an unchanged pair, then copies the second
+  model's tensor file beside the first model's record. It also interrupts a
+  save between the two final filename changes and injects ordinary HDF5 and
+  rename failures.
+- **Pass means:** the unchanged pair rebuilds. Ordinary failures leave the
+  earlier pair byte-for-byte unchanged. A hard interruption leaves a visible
+  marker that makes the incomplete root refuse. Warm-start receives its model
+  instructions and data settings from that same authenticated HDF5 open rather
+  than reopening a pathname that another save could replace.
+- **A refusal it proves:** swapped tensors stop before PyTorch or model
+  construction begins. Missing or malformed identifiers stop. A checkpoint
+  containing a text value or an unsafe pickle operation is opened with
+  `weights_only=True`, performs no side effect, and is refused before a model
+  is constructed.
+- **Why it matters:** matching tensor names and shapes cannot prove that
+  weights were trained under the scientific assumptions in the neighboring
+  record. Loading unrestricted pickle data can also run code instead of merely
+  reading model tensors.
 
 #### Fixed coordinates in a Grid2D surface
 

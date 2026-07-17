@@ -48,7 +48,7 @@ import numpy as np
 import torch
 
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
-from .results import rebuild_emulator, read_artifact_schema
+from .results import rebuild_emulator
 from .training import make_model, _report_nonfinite
 from .activations import make_activation
 from .designs.blocks import make_norm
@@ -81,13 +81,11 @@ class FinetuneSource:
 
   ``load_source`` constructs one ``FinetuneSource`` object per experiment.
   Later geometry and training steps reuse that object. A successful
-  construction performs two separate reads of ``<root>.h5``. The first read
-  occurs inside ``rebuild_emulator`` and reconstructs the network and both
-  geometries. That function also loads the weights from ``<root>.emul``. The
-  second HDF5 read occurs inside ``load_source`` and retrieves run metadata
-  that ``rebuild_emulator`` does not return, including the saved model recipe
-  and resolved data configuration. Thus one in-memory source object comes
-  from two HDF5 file opens and one weight-file load.
+  construction performs one authenticated read of ``<root>.h5`` inside
+  ``rebuild_emulator`` and one matching weight-file load. That read returns
+  the rebuilt network and geometries together with the saved model recipe and
+  resolved data configuration, so ``load_source`` never reopens a pathname
+  that another publication could replace between reads.
 
   Attributes:
     root       = resolved absolute source path root (<root>.h5 + <root>.emul).
@@ -332,14 +330,13 @@ def load_source(
     allow_factored=False):
   """Build one validated source object from a saved emulator pair.
 
-  The first HDF5 read is owned by ``rebuild_emulator``. It reconstructs the
+  The HDF5 read is owned by ``rebuild_emulator``. It reconstructs the
   eager source network and both source geometries, then loads the weights from
   ``<root>.emul``. Eager means that ``torch.compile`` has not wrapped the
-  network, so state-dict keys carry no compile prefix. A second HDF5 read in
-  this function runs the shared schema reader again and retrieves the recipe,
-  the saved rescale value and the resolved cosmolike data block. These metadata
-  values are needed by the warm-start validator and are not part of
-  ``rebuild_emulator``'s return value.
+  network, so state-dict keys carry no compile prefix. The same authenticated
+  read returns the recipe, saved rescale value, and resolved data block needed
+  below. This function does not reopen the HDF5 pathname: doing so could mix a
+  model from one publication with metadata from a replacement publication.
 
   The function then enforces the source-artifact constraints: a plain
   ParamGeometry input geometry, no PCE base, no embedded transfer base and a
@@ -370,12 +367,7 @@ def load_source(
   Raises:
     ValueError / KeyError naming any constraint the source artifact breaks.
   """
-  # h5py lives only here (the training machines ship it); import lazily so the
-  # config paths stay importable without it.
-  import h5py
-  import yaml
-
-  # First HDF5 open: rebuild the source network and both geometries from the
+  # Rebuild the source network and both geometries from the authenticated
   # saved recipe and geometry records. rebuild_emulator also loads the weight
   # file once. compile_model=False keeps the module eager, so its state_dict
   # keys carry no "_orig_mod." compile prefix.
@@ -404,27 +396,18 @@ def load_source(
       "source carries an NPCE base; V1 warm start / transfer does not compose "
       "with PCE")
 
-  # Second HDF5 open: read metadata that rebuild_emulator consumes internally
-  # or does not return. The warm-start path needs these values for validation
-  # and for the new run's resolved record. The already validated authoritative
-  # composition mode, not transfer_base presence, marks a transfer output,
-  # which this version cannot chain.
-  with h5py.File(root + ".h5", "r") as f:
-    # the schema version and both blocks of the scientific record, through the
-    # one shared reader (results.read_artifact_schema), the same reader
-    # rebuild_emulator used on the first open. Every read of a saved emulator
-    # goes through it, so a file cannot be refused on one path and defaulted
-    # away on the other. It is called here for its refusals; the blocks it
-    # returns are already enforced and nothing below needs them.
-    read_artifact_schema(f=f, where=root + ".h5")
-    recipe   = yaml.safe_load(f["model_recipe"][()])
-    src_resc = f.attrs.get("rescale")
-    resolved = yaml.safe_load(f["config_resolved_yaml"][()])
-    if info["composition_mode"] == "transfer":
-      raise ValueError(
-        "source " + root + ".h5 is itself a transfer artifact (it embeds a "
-        "transfer_base group); chaining a transfer over a transfer is out of "
-        "scope (no chaining)")
+  # These values came from the same HDF5 handle whose identifier and digest
+  # were checked against the checkpoint. The authoritative composition mode,
+  # not transfer_base presence, marks a transfer output, which this version
+  # cannot chain.
+  recipe = info["model_recipe"]
+  src_resc = info["rescale"]
+  resolved = info["config_resolved"]
+  if info["composition_mode"] == "transfer":
+    raise ValueError(
+      "source " + root + ".h5 is itself a transfer artifact (it embeds a "
+      "transfer_base group); chaining a transfer over a transfer is out of "
+      "scope (no chaining)")
   if src_resc is None:
     # a missing attr is not the same failure as a wrong value: the training
     # drivers stamp rescale in the run-identity attrs, but an artifact saved

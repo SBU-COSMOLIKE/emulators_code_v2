@@ -361,8 +361,8 @@ class WarmstartPerturbedFiniteTests(unittest.TestCase):
       if field_name == "self":
         continue
       self.assertIn(field_name, doc)
-    self.assertIn("two HDF5 file opens", doc)
-    self.assertIn("one weight-file load", doc)
+    self.assertIn("one authenticated read", doc)
+    self.assertIn("one matching weight-file load", doc)
     self.assertIn("``nla``", doc)
     self.assertIn("``tatt``", doc)
     self.assertIn("``None``", doc)
