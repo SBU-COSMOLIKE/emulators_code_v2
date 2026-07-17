@@ -5,6 +5,7 @@ import unittest
 import h5py
 import numpy as np
 
+from emulator import fixed_facts
 from emulator.results import (
     _GRID2D_CLASS,
     _GRID2D_MASK_DECLARATION,
@@ -12,6 +13,13 @@ from emulator.results import (
     _validate_grid2d_const_mask_declaration,
     save_emulator,
 )
+
+
+class _NamedGeometry:
+    """Small input-geometry stand-in for a pre-serialization refusal."""
+
+    def state(self):
+        return {"names": ["p0"]}
 
 
 class Grid2DConstMaskDeclarationTests(unittest.TestCase):
@@ -22,10 +30,17 @@ class Grid2DConstMaskDeclarationTests(unittest.TestCase):
                 save_emulator(
                     path_root=root,
                     model=None,
-                    param_geometry=None,
+                    param_geometry=_NamedGeometry(),
                     geometry=None,
                     config={},
                     histories={},
+                    resolved_train={},
+                    resolved_model={},
+                    facts_yaml=fixed_facts.synthetic_sidecar(
+                        names=["p0"],
+                        label="reserved-attribute-refusal",
+                        support=None,
+                    ),
                     attrs={_GRID2D_MASK_DECLARATION: "forged"},
                     composition_mode="plain",
                     transfer_refined=False,

@@ -771,6 +771,90 @@ def _validate_executed_composition(
   return composition_mode, transfer_refined
 
 
+def _validate_model_recipe_for_save(recipe, where):
+  """Check the fields the current reader must have before writing weights.
+
+  This is the small shared boundary between the writer and `_rebuild_model`.
+  It proves that the saved YAML has the keys and native container types the
+  reader immediately consumes. It does not import the named class or attempt
+  to prove that every constructor argument is complete; those deeper checks
+  belong to model construction and the separate recipe-totality contract.
+  """
+  required = (
+    "cls", "kwargs", "needs_geom", "input_dim", "output_dim",
+    "compile_mode", "ia",
+  )
+  missing = [key for key in required if key not in recipe]
+  if missing:
+    raise ValueError(
+      where + ": resolved_model is missing reader-required key(s) "
+      + repr(missing)
+      + ". Pass the complete model recipe produced by the current run.")
+
+  if type(recipe["cls"]) is not str or not recipe["cls"]:
+    raise TypeError(where + ": resolved_model.cls must be a non-empty string")
+  if type(recipe["kwargs"]) is not dict:
+    raise TypeError(where + ": resolved_model.kwargs must be a plain mapping")
+  if type(recipe["needs_geom"]) is not bool:
+    raise TypeError(where + ": resolved_model.needs_geom must be a native bool")
+  for key in ("input_dim", "output_dim"):
+    value = recipe[key]
+    if type(value) is not int or value < 1:
+      raise TypeError(
+        where + ": resolved_model." + key
+        + " must be a positive native integer")
+  if recipe["compile_mode"] is not None \
+      and type(recipe["compile_mode"]) is not str:
+    raise TypeError(
+      where + ": resolved_model.compile_mode must be text or null")
+  if recipe["ia"] is not None and type(recipe["ia"]) is not str:
+    raise TypeError(where + ": resolved_model.ia must be text or null")
+
+  kwargs = recipe["kwargs"]
+  if "block_opts" in kwargs:
+    block_opts = kwargs["block_opts"]
+    if type(block_opts) is not dict:
+      raise TypeError(
+        where + ": resolved_model.kwargs.block_opts must be a plain mapping")
+    missing_block = [key for key in ("act", "norm")
+                     if key not in block_opts]
+    if missing_block:
+      raise ValueError(
+        where + ": resolved_model.kwargs.block_opts is missing "
+        + repr(missing_block))
+    act = block_opts["act"]
+    if type(act) is not dict or type(act.get("type")) is not str:
+      raise TypeError(
+        where + ": resolved_model.kwargs.block_opts.act must be a mapping "
+        "with a text 'type'")
+    if type(block_opts["norm"]) is not str:
+      raise TypeError(
+        where + ": resolved_model.kwargs.block_opts.norm must be text")
+    if "n_gates" not in act:
+      raise ValueError(
+        where + ": resolved_model.kwargs.block_opts.act is missing "
+        "reader-required key 'n_gates'")
+    if type(act["n_gates"]) is not int or act["n_gates"] < 1:
+      raise TypeError(
+        where + ": resolved_model.kwargs.block_opts.act.n_gates must be a "
+        "positive native integer")
+
+  head_act = kwargs.get("head_act")
+  if head_act is not None:
+    if type(head_act) is not dict or type(head_act.get("type")) is not str:
+      raise TypeError(
+        where + ": resolved_model.kwargs.head_act must be a mapping with a "
+        "text 'type'")
+    if "n_gates" not in head_act:
+      raise ValueError(
+        where + ": resolved_model.kwargs.head_act is missing reader-required "
+        "key 'n_gates'")
+    if type(head_act["n_gates"]) is not int or head_act["n_gates"] < 1:
+      raise TypeError(
+        where + ": resolved_model.kwargs.head_act.n_gates must be a positive "
+        "native integer")
+
+
 def save_emulator(path_root,
                   model,
                   param_geometry,
@@ -845,14 +929,14 @@ def save_emulator(path_root,
                      dims, every constructor kwarg, the act / norm / head
                      factories by name), read by rebuild_emulator (h5-only,
                      a missing key loud, never a code default).
-    fixed_facts/     (facts_yaml runs only) the cosmology the dataset was
+    fixed_facts/     the cosmology the dataset was
                      generated under: what was held fixed and at what value,
                      the neutrino convention, the dark-energy law, the units
                      the spectra are measured in.
-    input_domain/    (facts_yaml runs only) the parameters the generator
+    input_domain/    the parameters the generator
                      sampled, in the canonical order it declared, with the
                      interval each was drawn from.
-    facts_sidecar_yaml  (facts_yaml runs only) the producer's sidecar text
+    facts_sidecar_yaml  the producer's sidecar text
                      itself, stored verbatim beside those two groups, so the
                      record can be checked against the words it was copied
                      from. fixed_facts.write_h5 writes all three: it parses
@@ -864,9 +948,9 @@ def save_emulator(path_root,
   plus one root attribute per entry of `attrs` (run identity: model name,
   activation, rescale, N_train, best epoch, ...), the writer-owned pair
   identifier and checkpoint SHA-256, a "created" timestamp, the torch version,
-  and the schema version with the git commit beside it. Those last two are
-  written exactly when the run resolved both recipes: version 3 when it also
-  carried the scientific record, version 2 when it did not.
+  the git commit, and the schema version. Every successful save carries both
+  resolved recipes and the scientific record, and it always writes schema 3.
+  save_emulator has no option for writing an older format.
 
   Reversible map (write here -> read in rebuild_emulator):
     This table pairs everything this function writes with the exact
@@ -924,7 +1008,7 @@ def save_emulator(path_root,
                                     |   is an absent one
       fixed_facts/ + input_domain/  | the same call hands both groups to
         groups + facts_sidecar_yaml |   fixed_facts.read_h5, which re-parses
-        (facts_yaml runs only)      |   the stored text and checks it against
+                                    |   the stored text and checks it against
                                     |   the stored blocks in both directions;
                                     |   the two blocks reach the caller as
                                     |   info["fixed_facts"] and
@@ -974,15 +1058,15 @@ def save_emulator(path_root,
     resolved_train = materialized training recipe consumed by the run.
     resolved_model = materialized model-construction recipe.
     transfer_base  = embedded transfer payload mapping, else None.
-    facts_yaml     = the producer sidecar's text, the generator's own
+    facts_yaml     = the required producer sidecar's text, the generator's own
                      <paramsf>.facts.yaml, carried here verbatim by the
-                     training loader (data_staging.read_facts_sidecar). Given,
-                     the file records the science it was born under and
-                     announces schema version 3; None (a dataset generated
-                     before the record existed), it stays a version 2 file and
-                     records no science at all. It is never re-derived here:
+                     training loader (data_staging.read_facts_sidecar). The
+                     file records the science it was born under and announces
+                     the current schema version. It is never re-derived here:
                      two authors of one scientific fact is how the two copies
-                     of that fact drift apart.
+                     of that fact drift apart. None is refused; migration of an
+                     older dataset is explicit regeneration, never a new
+                     older-format emulator.
     composition_mode = required writer-derived native string: plain, npce, or
                      transfer. It must match pce / transfer_base exactly.
     transfer_refined = required native bool; true exactly when transfer_base
@@ -1003,14 +1087,76 @@ def save_emulator(path_root,
 
   Raises:
     KeyError when attrs tries to replace a writer-owned declaration.
+    TypeError when facts_yaml is not text or a resolved recipe is not a plain
+    mapping.
     ValueError when the composition facts, payload, and consumed records
-    disagree; when facts_yaml arrives without the resolved recipes (the file
-    would say which cosmology it was trained under but not how to rebuild the
-    network), when the sidecar breaks any law in fixed_facts.validate, or when
-    the whitening geometry and the sidecar disagree on the sampled parameters.
-    Semantic checks run before either final file is changed. Staging or
-    ordinary publication failures leave a preceding valid pair unchanged.
+    disagree; when facts_yaml or either resolved recipe is missing; when the
+    sidecar breaks a law in fixed_facts.validate; or when the whitening
+    geometry and the sidecar disagree on the sampled parameters.
+    These required-input checks run before model.state_dict and before any
+    temporary, marker, or final output is created. Staging or ordinary
+    publication failures leave a preceding valid pair unchanged.
   """
+  # Writer-owned declarations are checked first because this is a pure mapping
+  # check: it touches neither the model nor the filesystem. A forged caller
+  # value therefore keeps its precise diagnostic even when another required
+  # input is also absent.
+  reserved_attrs = {
+    _GRID2D_MASK_DECLARATION,
+    _COMPOSITION_MODE_ATTR,
+    _TRANSFER_REFINED_ATTR,
+    _ARTIFACT_ID_ATTR,
+    _CHECKPOINT_SHA256_ATTR,
+  }
+  if attrs is not None and reserved_attrs.intersection(attrs):
+    forged = sorted(reserved_attrs.intersection(attrs))
+    raise KeyError(
+      "save_emulator: attrs cannot set reserved key(s) " + repr(forged)
+      + ". Remove them; save_emulator derives these declarations from the "
+      "executed run.")
+
+  # A public reader accepts only the current schema, so a new training run must
+  # never emit a schema-less or older saved emulator. Refuse missing facts or
+  # model-building instructions before importing the serializer, inspecting
+  # model.state_dict, or reserving either temporary output. This ordering keeps
+  # a failed long-run save from leaving a marker or a misleading partial file.
+  if facts_yaml is None:
+    raise ValueError(
+      path_root + ": save_emulator requires the producer's "
+      + fixed_facts.SIDECAR_SUFFIX + " scientific record. "
+      + fixed_facts.MIGRATION)
+  if type(facts_yaml) is not str:
+    raise TypeError(
+      path_root + ": facts_yaml must be the producer sidecar text, not "
+      + type(facts_yaml).__name__
+      + ". Read the " + fixed_facts.SIDECAR_SUFFIX
+      + " file as UTF-8 text; do not pass parsed data or raw bytes.")
+  missing_recipes = []
+  if resolved_train is None:
+    missing_recipes.append("resolved_train")
+  if resolved_model is None:
+    missing_recipes.append("resolved_model")
+  if missing_recipes:
+    raise ValueError(
+      path_root + ": save_emulator requires "
+      + " and ".join(missing_recipes)
+      + " before it can write a schema-3 emulator that can be reopened. "
+      "Run training through the current configuration reader and pass the "
+      "exact training settings and model-building instructions it used; do "
+      "not create an older-format emulator.")
+  for recipe_name, recipe in (
+      ("resolved_train", resolved_train),
+      ("resolved_model", resolved_model),
+  ):
+    if type(recipe) is not dict:
+      raise TypeError(
+        path_root + ": " + recipe_name
+        + " must be a plain mapping of the settings the run used, not "
+        + type(recipe).__name__
+        + ". Pass the resolved configuration mapping without converting it "
+        "to a list, tuple, or YAML string.")
+  _validate_model_recipe_for_save(resolved_model, where=path_root)
+
   # h5py lives only here: the training machines (cocoa) ship it, the
   # plotting/train paths never need it.
   import h5py
@@ -1025,27 +1171,9 @@ def save_emulator(path_root,
     resolved_transfer=resolved_transfer,
     where=path_root)
 
-  # --- the version this file will announce: one decision, before any write ---
-  # The version is a statement about the payload, so it is decided once, from
-  # the payload, and every version-dependent write below reads this one value.
-  # A run that resolved both recipes rebuilds from the file alone (version 2).
-  # A run that also carries the producer's scientific record additionally says
-  # which cosmology it was trained under and which region it may be asked about
-  # (version 3). Deciding the number in two places is how a file ends up
-  # announcing a payload it does not carry.
-  have_recipe = resolved_train is not None and resolved_model is not None
-  if facts_yaml is not None and not have_recipe:
-    raise ValueError(
-      path_root + ": the scientific record reached save_emulator without the "
-      "resolved training and model recipes, so the file would say which "
-      "cosmology it was trained under but not how to rebuild the network from "
-      "it. Pass resolved_train and resolved_model as well, or pass no record.")
-  if not have_recipe:
-    schema_version = None
-  elif facts_yaml is None:
-    schema_version = 2
-  else:
-    schema_version = fixed_facts.SCHEMA_VERSION
+  # New artifacts have one schema.  Legacy files remain a reader/migration
+  # concern; there is deliberately no writer flag that can create another.
+  schema_version = fixed_facts.SCHEMA_VERSION
 
   # The parameters the generator declared it sampled must be the parameters the
   # whitening geometry holds, in the same order, and the check runs before
@@ -1054,28 +1182,13 @@ def save_emulator(path_root,
   # so that a record cannot be refused on one path and accepted on another.
   # This function is a caller of those laws, never a second author of them.
   # check_names_match / parse_sidecar (fixed_facts.py): the record's own laws.
-  if facts_yaml is not None:
-    record = fixed_facts.parse_sidecar(
-      text=facts_yaml,
-      where="the producer sidecar being saved into " + path_root + ".h5")
-    fixed_facts.check_names_match(
-      geometry_names=param_geometry.state()["names"],
-      blocks=record,
-      where=path_root + ".h5")
-
-  reserved_attrs = {
-    _GRID2D_MASK_DECLARATION,
-    _COMPOSITION_MODE_ATTR,
-    _TRANSFER_REFINED_ATTR,
-    _ARTIFACT_ID_ATTR,
-    _CHECKPOINT_SHA256_ATTR,
-  }
-  if attrs is not None and reserved_attrs.intersection(attrs):
-    forged = sorted(reserved_attrs.intersection(attrs))
-    raise KeyError(
-      "save_emulator: attrs cannot set reserved key(s) " + repr(forged)
-      + ". Remove them; save_emulator derives these declarations from the "
-      "executed run.")
+  record = fixed_facts.parse_sidecar(
+    text=facts_yaml,
+    where="the producer sidecar being saved into " + path_root + ".h5")
+  fixed_facts.check_names_match(
+    geometry_names=param_geometry.state()["names"],
+    blocks=record,
+    where=path_root + ".h5")
 
   # --- stage <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -1137,8 +1250,7 @@ def save_emulator(path_root,
     # writes one. The groups appear exactly when the version decided above
     # promises them, so the number the file announces and the groups the file
     # carries are one decision, not two.
-    if schema_version == fixed_facts.SCHEMA_VERSION:
-      fixed_facts.write_h5(f=f, sidecar_text=facts_yaml)
+    fixed_facts.write_h5(f=f, sidecar_text=facts_yaml)
 
     # input whitening. param_geometry.state() (geometries.parameter.py):
     # the input-whitening tensors keyed exactly as from_state expects. The
@@ -1256,7 +1368,7 @@ def save_emulator(path_root,
                                            sort_keys=False),
                        dtype=str_dt)
 
-    # schema v2: the CONSUMED view, defaults materialized, so a saved run
+    # The CONSUMED view, defaults materialized, so a saved run
     # reconstructs even if code defaults drift (the standing rule). The raw
     # config_yaml / train_args_yaml above stay as the provenance of what was
     # WRITTEN; these record what the run RESOLVED.
@@ -1299,15 +1411,14 @@ def save_emulator(path_root,
     # marks a file that carries the resolved recipe, and at version 3 the
     # scientific record too; rebuild_emulator refuses any file without it. The
     # code commit is best-effort provenance (rev-parse, else "unknown").
-    if schema_version is not None:
-      f.attrs["schema_version"] = schema_version
-      try:
-        f.attrs["git_commit"] = subprocess.check_output(
-          ["git", "rev-parse", "HEAD"],
-          cwd=os.path.dirname(os.path.abspath(__file__)),
-          stderr=subprocess.DEVNULL).decode().strip()
-      except Exception:
-        f.attrs["git_commit"] = "unknown"
+    f.attrs["schema_version"] = schema_version
+    try:
+      f.attrs["git_commit"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+      f.attrs["git_commit"] = "unknown"
 
   try:
     _fsync_file(staged_h5)

@@ -43,6 +43,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 from scipy import integrate, interpolate
 
 from emulator import background as background_math
@@ -85,6 +86,27 @@ ADAPTER_PAIR_LABEL = "bsn-identity/adapter-background-pair"
 GRID_SUPPORT = {"omegam": (0.26, 0.36),
                 "H0":     (57.0, 77.0),
                 "w":      (-1.25, -0.75)}
+
+
+def supported_test_record(names, label, family, support):
+    """Write this gate's fixed support bounds as literal decimal strings.
+
+    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+    float32 representation includes ``np.float32(...)``. That text is not a
+    decimal number. Keeping this conversion inside the synthetic gate avoids
+    changing production formatting or the scientific-record digest.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the background-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 # A point that box does NOT contain, for the arm proving predict refuses
 # outside it. It leaves the box on ONE coordinate: a point outside on every
@@ -642,11 +664,16 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=(fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
                       family="grid",
-                      support=support),
+                      support=None)
+                    if support is None else supported_test_record(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="grid",
+                      support=support)),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -819,7 +846,7 @@ def check_npce(tmp, device):
                                 "loo_max": 0.9,
                                 "max_terms": 8},
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="bsn-identity/npce-hubble",
                       family="grid",
@@ -1107,13 +1134,34 @@ def check_finetune(tmp, device):
     except ValueError as e:
         report("grid warm start reproduces the source at epoch 0",
                False, str(e)[:80])
+    # Give the configuration check real parameter tables and the scientific
+    # records that belong to them. The checks below should stop on the source
+    # artifact's metadata, not on an unrelated missing-file error.
+    train_params = os.path.join(tmp, "bsn_ft_train.1.txt")
+    val_params = os.path.join(tmp, "bsn_ft_val.1.txt")
+    rows = np.asarray([[1.0, 0.0, 0.30, 66.0, -1.02],
+                       [1.0, 0.0, 0.32, 68.0, -0.98]])
+    for role, params_path in (("train", train_params),
+                              ("validation", val_params)):
+        np.savetxt(params_path, rows)
+        stem = os.path.splitext(params_path)[0]
+        with open(stem + ".paramnames", "w") as handle:
+            for name in IN_NAMES:
+                handle.write(name + " " + name + "\n")
+        with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
+            handle.write(fixed_facts.synthetic_sidecar(
+                names=IN_NAMES,
+                label="bsn-identity/finetune-" + role,
+                family="grid",
+                support=None))
+
     # from_config legs: wrong-kind + metadata mismatch (before staging).
     def ft_cfg(grid_block, from_root):
         return {"data": {"grid": grid_block,
                          "train_dv": "t.npy",
                          "val_dv": "v.npy",
-                         "train_params": "t.1.txt",
-                         "val_params": "v.1.txt",
+                         "train_params": train_params,
+                         "val_params": val_params,
                          "train_covmat": covmat,
                          "n_train": 10,
                          "n_val": 5,

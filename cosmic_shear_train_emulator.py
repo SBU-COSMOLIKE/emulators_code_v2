@@ -125,7 +125,7 @@ is never loaded whole.
 #  record: the input/output whitening states (keys match the geometries'
 #  state()/from_state, so inference rebuilds them with no covmat and no
 #  cosmolike), the per-epoch histories, and the run identity (activation,
-#  rescale, N_train, best epoch, files, device). As of schema v2 the h5
+#  rescale, N_train, best epoch, files, device). The current schema-3 h5
 #  also stores both the config as the user wrote it and the fully-resolved
 #  consumed config plus the model recipe (every training knob and every
 #  constructor argument, each default materialized at save time), so
@@ -468,7 +468,7 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
     # rebuilds base + refiner off the h5); None for a plain run.
     pce=pce,
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
-    # schema v2: the resolved recipes (consumed view), so the saved run
+    # The resolved recipes (consumed view), so the saved run
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
@@ -480,12 +480,11 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
                   if exp.pce_opts is not None else None),
     resolved_transfer=(exp.resolved_train.get("transfer")
                        if transfer_base is not None else None),
-    # the generator's scientific record, carried here verbatim from the staged
-    # training source (data_staging.read_facts_sidecar put it there): the
-    # cosmology the dataset was generated under and the parameter region it was
-    # sampled over. None when the dataset published none, and the saved file
-    # then records no science rather than a science this driver invented.
-    facts_yaml=exp.train_set.get("facts_yaml"),
+    # The generator's required scientific record, carried here verbatim from
+    # the staged training source. Indexing is intentional: staging cannot
+    # produce a train set without this record, and a missing key is a broken
+    # production error rather than permission to save an older format.
+    facts_yaml=exp.train_set["facts_yaml"],
     attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")

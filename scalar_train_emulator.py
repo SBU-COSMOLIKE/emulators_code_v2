@@ -55,7 +55,7 @@ runs do not overwrite each other.
 #  <save>_<model>_ntrain<N>.emul (weights) + .h5 (the input ParamGeometry,
 #  the output ScalarGeometry, histories, resolved config). rebuild_emulator
 #  (emulator/results.py) reconstructs the inference-ready model from the h5
-#  alone (schema v2), and its info["scalar"] flag routes EmulatorPredictor
+#  alone (schema 3), and its info["scalar"] flag routes EmulatorPredictor
 #  to the scalar branch.
 #
 #- `--activation` (optional): the ResBlock activation family (H / power /
@@ -243,7 +243,7 @@ def main():
     # run still has no transfer base (a recorded ruling).
     pce=pce,
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
-    # schema v2: the resolved recipes (consumed view), so the saved run
+    # The resolved recipes (consumed view), so the saved run
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
@@ -253,12 +253,11 @@ def main():
     resolved_pce=(dict(exp.pce_opts)
                   if exp.pce_opts is not None else None),
     resolved_transfer=None,
-    # the generator's scientific record, carried here verbatim from the staged
-    # training source (data_staging.read_facts_sidecar put it there): the
-    # cosmology the dataset was generated under and the parameter region it was
-    # sampled over. None when the dataset published none, and the saved file
-    # then records no science rather than a science this driver invented.
-    facts_yaml=exp.train_set.get("facts_yaml"),
+    # The generator's required scientific record, carried here verbatim from
+    # the staged training source. Indexing is intentional: staging cannot
+    # produce a train set without this record, and a missing key is a broken
+    # production error rather than permission to save an older format.
+    facts_yaml=exp.train_set["facts_yaml"],
     attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")

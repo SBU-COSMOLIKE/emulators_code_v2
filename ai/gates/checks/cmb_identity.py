@@ -87,6 +87,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -130,6 +131,27 @@ ADAPTER_PAIR_LABEL = "cmb-identity/adapter-spectra-pair"
 CMB_SUPPORT = {"As":     (1.6e-9, 2.6e-9),
                "tau":    (0.02, 0.12),
                "omegam": (0.24, 0.40)}
+
+
+def supported_test_record(names, label, family, support):
+    """Write this gate's fixed support bounds as literal decimal strings.
+
+    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+    float32 representation includes ``np.float32(...)``. That text is not a
+    decimal number. Keeping this conversion inside the synthetic gate avoids
+    changing production formatting or the scientific-record digest.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the CMB-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 # the fixture fiducial reference pair the order-one law measures against
 #: the recommended values are the covariance's own fiducial, so
@@ -234,7 +256,7 @@ def make_pgeom(tmp, device, seed=0):
 
 
 def cmb_recipe(n_ell):
-    """The model_recipe a schema-v2 save stores for the CMB ResMLP."""
+    """The model_recipe a schema-3 save stores for the CMB ResMLP."""
     return {
         "cls": "emulator.designs.plain.ResMLP",
         "name": "resmlp",
@@ -334,11 +356,16 @@ def save_synthetic_cmb(root, device, tmp, label, spectrum="tt",
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=(fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
                       family="cmb",
-                      support=support),
+                      support=None)
+                    if support is None else supported_test_record(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="cmb",
+                      support=support)),
                   attrs={"rescale": "none", "spectrum": spectrum})
     return pgeom, geom, model, chi2fn
 
@@ -903,7 +930,7 @@ def check_roughness(device):
 
 
 def cmb_head_recipe(n_ell):
-    """The model_recipe a schema-v2 save stores for the CMB ResTRF leg:
+    """The model_recipe a schema-3 save stores for the CMB ResTRF leg:
     needs_geom True (rebuild re-injects the geometry after
     attach_head_coords), every constructor default materialized, the
     n_tokens segmentation recorded."""
@@ -1035,7 +1062,7 @@ def check_head(tmp, device):
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="cmb-identity/correction-head",
                       family="cmb",
@@ -1208,7 +1235,7 @@ def check_npce(tmp, device):
                                 "loo_max": 0.9,
                                 "max_terms": 8},
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="cmb-identity/npce-spectrum",
                       family="cmb",

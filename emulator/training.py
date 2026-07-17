@@ -2174,7 +2174,7 @@ def training_loop_batched(nepochs,
   eval_bs = derive_eval_bs(n_val=len(data["val"]["idx"]),
                            target=_EVAL_BS_TARGET,
                            load=load)
-  # stash the derived eval batch so resolved_train (save schema v2) records
+  # stash the derived eval batch so the schema-3 resolved_train record includes
   # the real value, not a re-derivation (data is run_emulator's loaders dict).
   data["eval_bs"] = eval_bs
   model.eval()
@@ -3318,7 +3318,7 @@ def run_emulator(train_set,
     means        += mn
     fracs        += fr
 
-  # resolved_train (save schema v2): the consumed training config, defaults
+  # resolved_train (schema-3 save): the consumed training config, defaults
   # materialized, for config_resolved_yaml. Assembled from the values this
   # run actually used (never a re-derivation): the resolved *_opts, the
   # computed lr, the derived eval batch (off the loaders), the per-phase

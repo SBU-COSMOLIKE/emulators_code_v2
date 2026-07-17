@@ -632,6 +632,23 @@ files belong together and constructing the model needed for new predictions.
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
+| `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
+
+#### Scientific records required before training and saving
+
+`test_schema3_production.py` uses tiny train and validation records whose one
+sampled input is named `p0`.
+
+- **Example used:** both records declare `p0`, and a small saved emulator also
+  carries the model instructions needed to rebuild it.
+- **Pass means:** the records are checked before a device or earlier model is
+  opened. Their exact original text reaches staging. The saved file states
+  schema 3 and rebuilds on the CPU.
+- **A refusal it proves:** a missing record, malformed YAML, a different input
+  name, raw bytes instead of decoded text, or a missing model instruction
+  stops before model weights or output files are created.
+- **Why it matters:** a long training run must not finish with files that the
+  library's own reader immediately rejects.
 
 #### Learned weights matched to their scientific record
 

@@ -211,20 +211,13 @@ def tiny_config(data_dir, *, ia=None, pce=False, head=False):
   return cfg
 
 
-def train_save(cfg, device, save_root, label, persist_root=None):
+def train_save(cfg, device, save_root, persist_root=None):
   """Train one tiny emulator, save it, return (exp, probe, live_out).
 
   Arguments:
     cfg          = the variant config dict.
     device       = the torch device.
     save_root    = the path root to save under (the tmp round-trip root).
-    label        = what this variant's emulator is, for the scientific record
-                   the saved file carries. This check trains on the real dumps
-                   but the record they were published with is not in reach
-                   here, so the file declares itself a test double rather than
-                   carrying no record at all. The two saves below are the one
-                   emulator written to two paths, so they share the one label
-                   and come out with the one identity.
     persist_root = an optional second, persistent root to save the same
                    bytes under (survives the tmp cleanup); the plain case
                    passes it so the board-owned cobaya-adapter evaluate
@@ -270,10 +263,10 @@ def train_save(cfg, device, save_root, label, persist_root=None):
     transfer_refined=False,
     resolved_pce=resolved_pce,
     resolved_transfer=None,
-    facts_yaml=fixed_facts.synthetic_sidecar(
-      names=exp.pgeom.state()["names"],
-      label=label,
-      family="cosmolike"),
+    # from_config approved this generator-authored record before the run chose
+    # its device. Save the exact retained text; this is real training data, not
+    # a synthetic test-double dataset.
+    facts_yaml=exp.train_set["facts_yaml"],
     # rescale is the resolved run value (never a literal): a fine-tune run
     # warm-starting from this artifact reads the attr and refuses a source
     # that does not record it (emulator/warmstart.py load_source).
@@ -356,7 +349,6 @@ def run_variant(name, cfg, device, tmp, persist_root=None, aid=None):
   n0 = len(FAILURES)
   exp, probe, live_out = train_save(cfg=cfg, device=device,
                                     save_root=save_root,
-                                    label="save-rebuild-drift/" + name,
                                     persist_root=persist_root)
   reb_out = rebuilt_out(save_root=save_root, device=device, probe=probe)
   report(name + ": rebuilt output bitwise-equal to the live model",

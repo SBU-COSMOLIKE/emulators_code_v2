@@ -231,7 +231,7 @@ def check_artifacts_pair_up(predictors):
 
 class EmulatorPredictor:
   """
-  Physical-observable predictor for a saved schema-v2 emulator.
+  Physical-observable predictor for a saved schema-3 emulator.
 
   ``rebuild_emulator(path_root, device)`` reads both ``path_root.emul`` and
   ``path_root.h5``. It returns the model, the two saved geometries, and the
@@ -318,7 +318,7 @@ class EmulatorPredictor:
                       (the geometry's stored probe), never re-declared here.
 
     Raises:
-      ValueError on a non-schema-v2 file (rebuild_emulator refuses it), an
+      ValueError on a non-schema-3 file (rebuild_emulator refuses it), an
       unrecognized NPCE form, or a dv_return outside {'section', '3x2pt'};
       the exclusivity guard fires if a file somehow carries both a
       factored-IA design and an NPCE base.
@@ -1109,13 +1109,13 @@ class EmulatorPredictor:
       (section_size,) the probe's block(s), concatenated in probe order.
 
     Raises:
-      ValueError when the geometry predates section_sizes / probe (an older
-      schema-v2 file), naming the two ways out.
+      ValueError when the saved geometry does not carry section_sizes / probe,
+      naming the two ways out.
     """
     if self.section_sizes is None or self.probe is None:
       raise ValueError(
         "dv_return='section' needs the geometry's section_sizes + probe, "
-        "which this saved emulator predates (an older schema-v2 file). Two "
+        "which this saved emulator does not carry. Two "
         "ways out: re-save with the current code (from_cosmolike records "
         "them), or build the predictor with dv_return='3x2pt' for the full "
         "scattered vector.")

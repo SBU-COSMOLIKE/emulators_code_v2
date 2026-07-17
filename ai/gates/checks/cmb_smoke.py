@@ -484,6 +484,7 @@ def check_train(paths, tmp, device):
                   resolved_model=exp.resolved_model, transfer_base=None,
                   composition_mode="plain", transfer_refined=False,
                   resolved_pce=None, resolved_transfer=None,
+                  facts_yaml=exp.train_set["facts_yaml"],
                   attrs={"rescale": "none", "spectrum": "tt"})
     return exp, model, root
 

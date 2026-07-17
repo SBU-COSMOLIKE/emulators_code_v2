@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
   sys.path.insert(0, str(ROOT))
 
-from emulator import data_staging
+from emulator import data_staging, fixed_facts
 from emulator import experiment
 from emulator.experiment import EmulatorExperiment
 from emulator.parameter_table import resolve_parameter_table
@@ -58,6 +58,17 @@ def _write_sidecar(path, tokens):
   with open(path, "w") as handle:
     for token in tokens:
       handle.write(token + " label-" + token.rstrip("*") + "\n")
+
+
+def _write_facts(params_path, names, label):
+  """Write the honest scientific record required by an accepted fixture."""
+  base = os.path.splitext(os.fspath(params_path))[0]
+  root, chain_ext = os.path.splitext(base)
+  if chain_ext[1:].isdigit():
+    base = root
+  with open(base + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
+    handle.write(fixed_facts.synthetic_sidecar(
+      names=names, label=label, support=None))
 
 
 def _array_exact(observed, expected):
@@ -801,6 +812,7 @@ def _ordinary_stage_contract(resolver=resolve_parameter_table):
         [1, 0, 20, 21],
       ])
       _write_sidecar(os.path.join(tmp, "zero.paramnames"), ["a", "b"])
+      _write_facts(zero_params, ["a", "b"], "parameter-table-zero")
       np.save(zero_dv, np.asarray([[1001, 1002], [2001, 2002]],
                                  dtype=np.float32))
       fixtures.append((
@@ -816,6 +828,8 @@ def _ordinary_stage_contract(resolver=resolve_parameter_table):
       ])
       _write_sidecar(os.path.join(tmp, "interleaved.paramnames"),
                      ["d0*", "a", "d1*", "b", "d2*"])
+      _write_facts(
+        inter_params, ["a", "b"], "parameter-table-interleaved")
       np.save(inter_dv, np.asarray([[3001], [4001]], dtype=np.float32))
       fixtures.append((
         inter_params, inter_dv,
@@ -873,6 +887,8 @@ def _stage_pool_contract(*, staging_resolver=resolve_parameter_table,
       _write_sidecar(os.path.join(tmp, "scalar.paramnames"),
                      ["decoy0*", "omegab", "decoy1*", "H0",
                       "target*", "decoy2*"])
+      _write_facts(
+        params, ["omegab", "H0"], "parameter-table-scalar-pool")
       cuts = {"omegabh2_hi": 0.02}
 
       instance = EmulatorExperiment.__new__(EmulatorExperiment)
@@ -938,6 +954,8 @@ def _optional_family_ceiling_contract():
       ])
       _write_sidecar(os.path.join(tmp, "families.paramnames"),
                      ["omegab", "H0", "target*"])
+      _write_facts(
+        params, ["omegab", "H0"], "parameter-table-families")
       np.save(dv_path, np.asarray([
         [1001, 1002],
         [2001, 2002],

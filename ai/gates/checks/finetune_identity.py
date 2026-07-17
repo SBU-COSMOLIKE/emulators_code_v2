@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from emulator import warmstart
+from emulator import fixed_facts, warmstart
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
@@ -150,7 +150,7 @@ def build_source_geoms(device):
 
 
 def source_recipe():
-  """The model_recipe dict a schema-v2 save stores for the source ResMLP.
+  """The model_recipe dict a current save stores for the source ResMLP.
 
   Mirrors the recipe EmulatorExperiment.build_specs assembles: the class
   qualname, the dims, the constructor kwargs with the activation / norm
@@ -177,7 +177,7 @@ def source_recipe():
 def save_synthetic_source(root, device):
   """Build, then save, a synthetic source emulator under `root`.
 
-  Writes <root>.h5 + <root>.emul with a schema-v2 recipe, a rescale-none
+  Writes <root>.h5 + <root>.emul with a schema-3 recipe, a rescale-none
   root attr, and a data block naming a cosmolike dataset (the values
   pin_output_geometry later checks the new run against). No training runs:
   the model is a freshly initialized ResMLP, which is all the identity path
@@ -222,6 +222,10 @@ def save_synthetic_source(root, device):
                 transfer_refined=False,
                 resolved_pce=None,
                 resolved_transfer=None,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pgeom.state()["names"],
+                  label="finetune-identity-source",
+                  support=None),
                 attrs={"rescale": "none"})
   return pgeom, geom
 

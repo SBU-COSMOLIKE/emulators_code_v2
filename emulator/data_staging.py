@@ -558,9 +558,27 @@ def _find_sidecar(params_path, suffix):
   return None
 
 
+def _read_facts_sidecar_with_path(params_path):
+  """Resolve and read one required sidecar without a second path lookup."""
+  sidecar = _find_sidecar(params_path=params_path,
+                          suffix=fixed_facts.SIDECAR_SUFFIX)
+  if sidecar is None:
+    candidates = _sidecar_candidates(
+      params_path=params_path, suffix=fixed_facts.SIDECAR_SUFFIX)
+    rendered = "\n".join("  " + repr(path) for path in candidates)
+    raise ValueError(
+      "the parameter table has no " + fixed_facts.SIDECAR_SUFFIX
+      + " scientific-record sidecar; tried:\n" + rendered + "\n"
+      + fixed_facts.MIGRATION)
+  # newline="" disables universal-newline rewriting. The exact producer text
+  # is what the saved emulator carries, including its original line endings.
+  with open(sidecar, encoding="utf-8", newline="") as fh:
+    return sidecar, fh.read()
+
+
 def read_facts_sidecar(params_path):
   """
-  Read the generator's scientific-record sidecar verbatim, or report none.
+  Read the generator's required scientific-record sidecar verbatim.
 
   The generator publishes one small companion file beside the chain it dumps:
   <paramsf>.facts.yaml, the record of the cosmology the dataset was generated
@@ -591,18 +609,46 @@ def read_facts_sidecar(params_path):
                   a generator dump, or params.1.txt from a cobaya chain.
 
   Returns:
-    the sidecar's text, exactly as it sits on disk, or None when neither
-    candidate file exists. None is the honest report of a dataset generated
-    before the record existed. The caller carries it through as an explicit
-    "there is none", so the saved emulator records no science rather than a
-    science that training invented for it.
+    the sidecar's text, exactly as it sits on disk. Parsing and the ordered-name
+    comparison remain the loader's next steps, after the parameter table has
+    established which names it actually contains.
+
+  Raises:
+    ValueError when neither candidate exists. Training does not create a new
+    older-format emulator from a dataset whose scientific facts were never
+    recorded; the refusal names every path tried and explains how to regenerate
+    the dataset.
   """
-  sidecar = _find_sidecar(params_path=params_path,
-                          suffix=fixed_facts.SIDECAR_SUFFIX)
-  if sidecar is not None:
-    with open(sidecar) as fh:
-      return fh.read()
-  return None
+  _, facts_yaml = _read_facts_sidecar_with_path(params_path=params_path)
+  return facts_yaml
+
+
+def validated_facts_sidecar(params_path, names, facts_yaml=None):
+  """Read or reuse a producer record and compare its ordered names.
+
+  ``from_config`` calls this before device or warm-start work and keeps the
+  returned text. Staging passes that same text back, so changing the file later
+  cannot replace the record already checked. A direct loader leaves
+  ``facts_yaml`` at None and reads the required sidecar after its .paramnames
+  file has been checked.
+  """
+  if facts_yaml is None:
+    sidecar, facts_yaml = _read_facts_sidecar_with_path(
+      params_path=params_path)
+    where = repr(sidecar)
+  elif type(facts_yaml) is not str:
+    raise TypeError(
+      "the saved scientific-record sidecar text must be text, got "
+      + type(facts_yaml).__name__)
+  else:
+    where = ("the scientific record read during the early configuration check "
+             "for " + repr(os.fspath(params_path)))
+  blocks = fixed_facts.parse_sidecar(text=facts_yaml, where=where)
+  fixed_facts.check_names_match(
+    geometry_names=names,
+    blocks=blocks,
+    where=where)
+  return facts_yaml
 
 
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
@@ -612,7 +658,8 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 omegabh2_lo=None,
                 omegam2h2_lo=None, omegam2h2_hi=None,
                 omegamh2_lo=None, omegamh2_hi=None,
-                omegamh2ns_lo=None, omegamh2ns_hi=None):
+                omegamh2ns_lo=None, omegamh2ns_hi=None,
+                facts_yaml=None):
   """
   Load, physically cut, and stage one dv/param source.
 
@@ -681,26 +728,27 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
     parameters, "dv" the staged data vectors, "idx" the loader index,
     "dump_rows" the disk rows the staged rows came from (see the comment at
     the return), "source_n_rows" the exact row count shared by the original
-    parameter and data-vector dumps, "facts_yaml" the generator's scientific
-    record as text (None when the dataset published none), plus "C_mean" /
-    "dv_mean" when with_means.
+    parameter and data-vector dumps, "facts_yaml" the generator's required
+    scientific record as its exact original text, plus "C_mean" / "dv_mean"
+    when with_means.
   """
   # require a generator (n_keep is a required positional arg, so a
   # missing size is a plain TypeError at the call site).
   if gen is None:
     raise ValueError("load_source needs a torch.Generator (gen=)")
   # Resolve the parameter table before opening the data-vector dump.  The
-  # required .paramnames sidecar is the sole column authority: a missing,
-  # ambiguous, reordered, or width-inconsistent declaration therefore fails
-  # before a potentially enormous dv memmap is touched.
+  # Check the required .paramnames file first. If it is missing, reordered, or
+  # inconsistent with the numeric table, report that specific problem before
+  # opening a potentially enormous data-vector file.
   table = resolve_parameter_table(params_path=params_path,
                                   input_names=names)
-  # the scientific record the generator published beside this chain, carried
-  # into the staged source as text and copied from there into the saved
-  # emulator, never re-derived on the way. None when the dataset predates the
-  # record: an explicit "there is none", not a silent omission, so the driver
-  # passes the absence through and the saved file records no science at all.
-  facts_yaml = read_facts_sidecar(params_path=params_path)
+  # Check the producer's scientific record only after .paramnames succeeds. A
+  # broken .paramnames file therefore keeps its direct explanation, while a
+  # missing, malformed, or differently ordered facts record still stops before
+  # the large data-vector file is opened. The parser checks the text; the exact
+  # text is kept for the saved emulator instead of being rewritten here.
+  facts_yaml = validated_facts_sidecar(
+    params_path=params_path, names=names, facts_yaml=facts_yaml)
   dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
   C = table.inputs
   if C.shape[0] != dv.shape[0]:
@@ -815,7 +863,8 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
                        omegabh2_lo=None,
                        omegam2h2_lo=None, omegam2h2_hi=None,
                        omegamh2_lo=None, omegamh2_hi=None,
-                       omegamh2ns_lo=None, omegamh2ns_hi=None):
+                       omegamh2ns_lo=None, omegamh2ns_hi=None,
+                       facts_yaml=None):
   """
   Load, optionally cut, and stage one scalar (derived-parameter) source.
 
@@ -856,8 +905,8 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   Returns:
     a source dict ready for build_loaders / run_emulator: "C" the staged input
     parameters, "dv" the staged output targets, "idx" the loader index,
-    "facts_yaml" the generator's scientific record as text (None when the
-    dataset published none), plus "C_mean" / "dv_mean" when with_means.
+    "facts_yaml" the generator's required scientific record as its exact
+    original text, plus "C_mean" / "dv_mean" when with_means.
   """
   if gen is None:
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
@@ -865,11 +914,12 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
                                   input_names=in_names,
                                   output_names=out_names)
 
-  # the scientific record the generator published beside this chain
-  # (read_facts_sidecar): copied as text, never re-derived here, and None when
-  # the dataset predates the record. The driver passes it straight through to
-  # save_emulator, which stores the producer's own words in the emulator file.
-  facts_yaml = read_facts_sidecar(params_path=params_path)
+  # As in load_source, check .paramnames first so a bad parameter declaration
+  # receives its own explanation. Then parse the facts record and compare its
+  # sampled-name order before copying any subset. Its original text, not a
+  # training-authored rewrite, is what travels to save_emulator.
+  facts_yaml = validated_facts_sidecar(
+    params_path=params_path, names=in_names, facts_yaml=facts_yaml)
 
   C = table.inputs          # input parameters, in in_names order
   Y = table.outputs         # output targets, in out_names order

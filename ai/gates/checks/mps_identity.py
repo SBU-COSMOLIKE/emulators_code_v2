@@ -82,6 +82,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import torch
+import yaml
 
 # Captured BEFORE any check stubs cobaya.log: the installed Cobaya base
 # getter signatures, so the protocol-guard leg pins emul_mps's public
@@ -124,6 +125,17 @@ def _write_paramnames(params_path, names=IN_NAMES):
         for name in names:
             handle.write(name + " " + name + "\n")
         handle.write("chi2* chi2\n")
+
+
+def _write_facts(params_path, label, names=IN_NAMES):
+    """Write the scientific record required by an accepted staging fixture."""
+    stem = os.path.splitext(os.fspath(params_path))[0]
+    root, chain = os.path.splitext(stem)
+    if chain[1:].isdigit():
+        stem = root
+    with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
+        handle.write(fixed_facts.synthetic_sidecar(
+            names=names, label=label, family="grid2d", support=None))
 
 
 class MaskDeclarationModelConstructionReached(Exception):
@@ -173,6 +185,27 @@ GRID2D_SUPPORT = {"As":    (1.6, 2.6),
 ADAPTER_SUPPORT = {"As":    (1.6e-9, 2.6e-9),
                    "H0":    (60.0, 76.0),
                    "omch2": (0.09, 0.15)}
+
+
+def supported_test_record(names, label, family, support):
+    """Write this gate's fixed support bounds as literal decimal strings.
+
+    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+    float32 representation includes ``np.float32(...)``. That text is not a
+    decimal number. Keeping this conversion inside the synthetic gate avoids
+    changing the production decimal policy for an unsupported environment.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the matter-power test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 
 def report(label, ok, detail):
@@ -396,6 +429,7 @@ def check_staging(tmp):
     st_params = os.path.join(tmp, "st_params.1.txt")
     np.savetxt(st_params, cols)
     _write_paramnames(st_params)
+    _write_facts(st_params, "mps-staging")
     gen = torch.Generator().manual_seed(3)
     src = load_source(dv_path=os.path.join(tmp, "st_dv.npy"),
                       params_path=os.path.join(tmp, "st_params.1.txt"),
@@ -704,6 +738,7 @@ def check_bounded_staging(tmp):
     bs2_params = os.path.join(tmp, "bs2_params.1.txt")
     np.savetxt(bs2_params, txt)
     _write_paramnames(bs2_params)
+    _write_facts(bs2_params, "mps-bounded-staging")
 
     def stage_and_transform(ram_frac):
         gen = torch.Generator().manual_seed(9)
@@ -1013,6 +1048,7 @@ def _lifecycle_files(tmp, law):
     lifecycle_params = os.path.join(tmp, tag + "_params.1.txt")
     np.savetxt(lifecycle_params, txt)
     _write_paramnames(lifecycle_params)
+    _write_facts(lifecycle_params, "mps-lifecycle-" + law)
     g2 = {"quantity": "pklin", "units": "Mpc3", "law": law,
           "z_file": os.path.join(tmp, tag + "_z.npy"),
           "k_file": os.path.join(tmp, tag + "_k.npy"), "k_stride": 1}
@@ -1269,11 +1305,16 @@ def save_synthetic_grid2d(
                   transfer_refined=transfer_refined,
                   resolved_pce=None,
                   resolved_transfer=resolved_transfer,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=(fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
                       family="grid2d",
-                      support=support),
+                      support=None)
+                    if support is None else supported_test_record(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="grid2d",
+                      support=support)),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -1729,7 +1770,7 @@ def check_head(tmp, device):
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="mps-identity/correction-head",
                       family="grid2d",
@@ -1846,7 +1887,7 @@ def check_npce(tmp, device):
                                 "loo_max": 0.9,
                                 "max_terms": 8},
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="mps-identity/npce-power",
                       family="grid2d",
@@ -2231,12 +2272,20 @@ def check_finetune(tmp, device):
     except ValueError as e:
         report("grid2d warm start reproduces the source at epoch 0",
                False, str(e)[:80])
+    ft_train = os.path.join(tmp, "ft_train.1.txt")
+    ft_val = os.path.join(tmp, "ft_val.1.txt")
+    for path, label in ((ft_train, "mps-finetune-train"),
+                        (ft_val, "mps-finetune-val")):
+        np.savetxt(path, [[1.0, 0.0, 2.1, 67.0, 0.12, 0.0]])
+        _write_paramnames(path)
+        _write_facts(path, label)
+
     def ft_cfg(g2, from_root):
         return {"data": {"grid2d": g2,
                          "train_dv": "t.npy",
                          "val_dv": "v.npy",
-                         "train_params": "t.1.txt",
-                         "val_params": "v.1.txt",
+                         "train_params": ft_train,
+                         "val_params": ft_val,
                          "train_covmat": covmat,
                          "n_train": 10,
                          "n_val": 5,

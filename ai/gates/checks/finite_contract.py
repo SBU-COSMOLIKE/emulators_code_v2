@@ -100,7 +100,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from emulator import warmstart
+from emulator import fixed_facts, warmstart
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
@@ -664,7 +664,7 @@ def _source_names():
 
 
 def _source_recipe():
-  """The model_recipe dict a schema-v2 save stores for the source ResMLP."""
+  """The model_recipe dict a current save stores for the source ResMLP."""
   return {
     "cls": "emulator.designs.plain.ResMLP",
     "name": "resmlp",
@@ -714,6 +714,10 @@ def _save_source(root):
                 resolved_model=_source_recipe(),
                 composition_mode="plain", transfer_refined=False,
                 resolved_pce=None, resolved_transfer=None,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pgeom.state()["names"],
+                  label="finite-contract-source",
+                  support=None),
                 attrs={"rescale": "none"})
 
 

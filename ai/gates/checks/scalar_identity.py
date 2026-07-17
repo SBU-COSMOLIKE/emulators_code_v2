@@ -33,6 +33,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -96,6 +97,27 @@ OUTSIDE_ROUND_TRIP_BOX = {"omegabh2":  12.0,
 NPCE_SUPPORT = {"omegabh2":  (0.0214, 0.0234),
                 "omegach2":  (0.110, 0.130),
                 "thetastar": (1.036, 1.046)}
+
+
+def supported_test_record(names, label, family, support):
+    """Write this gate's fixed support bounds as literal decimal strings.
+
+    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+    float32 representation includes ``np.float32(...)``. That text is not a
+    decimal number. Keeping this conversion inside the synthetic gate avoids
+    changing production formatting or the scientific-record digest.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the scalar-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 
 def report(label, ok, detail):
@@ -170,7 +192,7 @@ def write_covmat(path, names, seed):
 
 
 def scalar_recipe():
-    """The model_recipe a schema-v2 save stores for the scalar ResMLP.
+    """The model_recipe a schema-3 save stores for the scalar ResMLP.
 
     Mirrors EmulatorExperiment.build_specs on a scalar run: ia None,
     output_dim = the emulated-output count, needs_geom False.
@@ -267,11 +289,16 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=(fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
                       family="scalar",
-                      support=support),
+                      support=None)
+                    if support is None else supported_test_record(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="scalar",
+                      support=support)),
                   # rescale rides the run-identity attrs so the artifact is
                   # a valid finetune source (load_source refuses an
                   # ambiguous one — the never-trust-defaults rule).
@@ -805,13 +832,36 @@ def check_finetune(tmp, device):
     report("anchor mask zeros exactly the padded extra column",
            ok, "extras %s, %d masked key(s)" % (extra3, len(masks)))
 
-    # the combined from_config path: outputs-mismatch and wrong-kind are
-    # loud BEFORE any staging (dummy data file names suffice), and the
-    # finetune YAML carries no model: block (the fine-tune model-block
-    # lesson: the architecture always comes from the source recipe).
+    # Give the configuration check two real, self-contained chain tables.
+    # The checks below are meant to stop on the fine-tune source, not on a
+    # missing scientific record for the new training data.
+    run_names = ["omegabh2", "omegach2", "thetastar"]
+    train_params = os.path.join(tmp, "scalar_ft_train.1.txt")
+    val_params = os.path.join(tmp, "scalar_ft_val.1.txt")
+    rows = np.asarray([[1.0, 0.0, 0.022, 0.120, 1.041, 70.0, 0.30],
+                       [1.0, 0.0, 0.023, 0.121, 1.042, 69.0, 0.31]])
+    declarations = run_names + ["H0*", "omegam*"]
+    for role, params_path in (("train", train_params),
+                              ("validation", val_params)):
+        np.savetxt(params_path, rows)
+        stem = os.path.splitext(params_path)[0]
+        with open(stem + ".paramnames", "w") as handle:
+            for name in declarations:
+                handle.write(name + " " + name.rstrip("*") + "\n")
+        with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
+            handle.write(fixed_facts.synthetic_sidecar(
+                names=run_names,
+                label="scalar-identity/finetune-" + role,
+                family="scalar",
+                support=None))
+
+    # The combined from_config path must still report the outputs mismatch and
+    # the wrong artifact family before it tries to stage these tables. The
+    # fine-tune YAML carries no model block because the source recipe supplies
+    # the architecture.
     def ft_cfg(outputs, from_root):
-        return {"data": {"train_params": "t.1.txt",
-                         "val_params": "v.1.txt",
+        return {"data": {"train_params": train_params,
+                         "val_params": val_params,
                          "train_covmat": ext_cov,
                          "outputs": list(outputs),
                          "n_train": 10,
@@ -916,7 +966,7 @@ def check_npce(tmp, device):
                                 "loo_max": 0.9,
                                 "max_terms": 8},
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label="scalar-identity/npce-derived",
                       family="scalar",

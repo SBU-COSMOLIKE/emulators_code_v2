@@ -37,7 +37,7 @@ gives comparable numerical scales, while learning difficulty can still differ.
 encode = center then whiten a raw parameter vector; state_dict = PyTorch's
 name -> tensor mapping of registered parameters, including frozen parameters,
 and persistent registered buffers; recipe = the model_recipe record
-a schema-v2 .h5 stores, the class + constructor kwargs rebuild_emulator reads
+a schema-3 .h5 stores, the class + constructor kwargs rebuild_emulator reads
 to reconstruct the network; the extras = the parameters present in the new
 covmat but not the source's (the new physics being fine-tuned in).
 """

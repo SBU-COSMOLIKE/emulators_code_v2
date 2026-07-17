@@ -44,6 +44,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -90,6 +91,27 @@ SCALAR_LABEL     = "cs-adapter-identity/scalar-double"
 # which is the correct answer: a test double must never reach a likelihood.
 SAMPLED_MODEL = {"mnu": 0.06, "w": -1.0, "omk": 0.0, "TCMB": 2.7255,
                  "nnu": 3.044}
+
+
+def supported_test_record(names, label, family, support):
+    """Write this gate's fixed support bounds as literal decimal strings.
+
+    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+    float32 representation includes ``np.float32(...)``. That text is not a
+    decimal number. Keeping this conversion inside the synthetic gate avoids
+    changing production formatting or the scientific-record digest.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the cosmic-shear adapter test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 
 def report(label, ok, detail):
@@ -208,11 +230,16 @@ def save_synthetic_dv(root, device, label, support, seed=11):
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=(fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
                       family="cosmolike",
-                      support=support),
+                      support=None)
+                    if support is None else supported_test_record(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="cosmolike",
+                      support=support)),
                   attrs={"rescale": "none"})
 
 
@@ -265,7 +292,7 @@ def save_synthetic_scalar(root, device, label, seed=31):
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=fixed_facts.synthetic_sidecar(
+                  facts_yaml=supported_test_record(
                       names=pgeom.state()["names"],
                       label=label,
                       family="scalar",

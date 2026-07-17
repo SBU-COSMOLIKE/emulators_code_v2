@@ -98,9 +98,11 @@ _CS_TRAIN_CODE = ("cosmic_shear_train_emulator.py",
 # are its own gate_configs key(s) + these.
 _CS_DEPLOY_DATA = ("deploy_data.w0wa_takahashi_dv_train_cs16",
                    "deploy_data.w0wa_takahashi_params_train_cs16",
+                   "deploy_data.w0wa_takahashi_facts_train_cs16",
                    "deploy_data.w0wa_takahashi_covmat_cs16",
                    "deploy_data.w0wa_takahashi_dv_val_cs8",
                    "deploy_data.w0wa_takahashi_params_val_cs8",
+                   "deploy_data.w0wa_takahashi_facts_val_cs8",
                    "deploy_data.lsst_y1_ggl_dataset")
 
 

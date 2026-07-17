@@ -18,9 +18,16 @@ import tempfile
 from types import SimpleNamespace
 
 import h5py
+import numpy as np
 import torch
 import yaml
 
+from emulator import fixed_facts
+from emulator.activations import make_activation
+from emulator.designs.blocks import make_norm
+from emulator.designs.plain import ResMLP
+from emulator.geometries.parameter import ParamGeometry
+from emulator.geometries.scalar import ScalarGeometry
 from emulator.results import save_emulator
 from emulator.results import save_learning_curves
 from emulator.results import save_sweep_table
@@ -206,14 +213,6 @@ def _amp_assignment_locations():
   return locations
 
 
-class _EmptyGeometry:
-  """Small state owner accepted by the real artifact writer."""
-
-  def state(self):
-    """Return an empty geometry state for this persistence-only witness."""
-    return {}
-
-
 def check_amp_artifact():
   """Write and read one artifact using the production record schema."""
   keys = _resolved_train_keys()
@@ -242,6 +241,43 @@ def check_amp_artifact():
 
   with tempfile.TemporaryDirectory(prefix="unit41-policy-") as directory:
     root = os.path.join(directory, "artifact")
+    covmat = os.path.join(directory, "fixture.covmat")
+    with open(covmat, "w") as handle:
+      handle.write("# fixture0 fixture1\n1.0 0.0\n0.0 1.0\n")
+    device = torch.device("cpu")
+    pgeom = ParamGeometry.from_covmat(
+      device=device, center=np.asarray([0.0, 0.0]), covmat_path=covmat)
+    geometry = ScalarGeometry.from_targets(
+      device=device,
+      targets=np.asarray([[0.0], [1.0], [2.0]], dtype=np.float32),
+      names=["output"])
+    block_opts = {
+      "act": make_activation("H", n_gates=3),
+      "norm": make_norm("affine"),
+    }
+    model = ResMLP(
+      input_dim=2,
+      output_dim=1,
+      int_dim_res=4,
+      n_blocks=1,
+      block_opts=block_opts).to(device)
+    recipe = {
+      "cls": "emulator.designs.plain.ResMLP",
+      "name": "resmlp",
+      "ia": None,
+      "input_dim": 2,
+      "output_dim": 1,
+      "compile_mode": None,
+      "needs_geom": False,
+      "kwargs": {
+        "int_dim_res": 4,
+        "n_blocks": 1,
+        "block_opts": {
+          "act": {"type": "H", "n_gates": 3},
+          "norm": "affine",
+        },
+      },
+    }
     histories = {
       "train_losses": [0.0],
       "val_medians": [0.0],
@@ -251,17 +287,21 @@ def check_amp_artifact():
     }
     save_emulator(
       path_root=root,
-      model=torch.nn.Linear(1, 1),
-      param_geometry=_EmptyGeometry(),
-      geometry=_EmptyGeometry(),
+      model=model,
+      param_geometry=pgeom,
+      geometry=geometry,
       config={"data": {}, "train_args": {}},
       histories=histories,
       resolved_train=resolved,
-      resolved_model={"class": "red-team-fixture"},
+      resolved_model=recipe,
       composition_mode="plain",
       transfer_refined=False,
       resolved_pce=None,
-      resolved_transfer=None)
+      resolved_transfer=None,
+      facts_yaml=fixed_facts.synthetic_sidecar(
+        names=["fixture0", "fixture1"],
+        label="amp-policy-persistence",
+        support=None))
     with h5py.File(root + ".h5", "r") as artifact:
       payload = artifact["config_resolved_yaml"][()]
     if isinstance(payload, bytes):

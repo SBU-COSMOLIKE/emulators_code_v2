@@ -26,7 +26,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
+from emulator import fixed_facts
 from emulator.experiment import EmulatorExperiment
 from emulator.data_staging import load_source
 from emulator.training import ordinary_median
@@ -39,6 +41,7 @@ OUT_NAME = "omegamh2"
 TRAIN_GENERATOR_SEED = 1234
 VAL_GENERATOR_SEED = 5678
 SPLIT_SEED = 0
+FIXTURE_SUPPORT = {"H0": (50.0, 90.0), "omegam": (0.15, 0.45)}
 
 # The bars are calibrated on the exact disjoint fixture above, with the model,
 # epoch count, and training settings below left unchanged.  The collapse bar
@@ -76,6 +79,21 @@ def omegamh2(h0, omegam):
     return omegam * (h0 / 100.0) ** 2
 
 
+def supported_test_record(names, label, family, support):
+    """Write a prediction fixture's fixed bounds as literal decimals."""
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the scalar-smoke test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
+
+
 def write_fixture(stem, n_rows, seed):
     """Write <stem>.1.txt + <stem>.paramnames for a scalar training chain.
 
@@ -102,6 +120,14 @@ def write_fixture(stem, n_rows, seed):
         scale=np.asarray([3.0, 0.02]),
         size=(n_rows, 2),
     )
+    # The original Gaussian draws all lie well inside these bounds for the
+    # fixed seeds. Clipping makes the generator's support finite and explicit
+    # without changing any calibrated row in this fixture.
+    physical_rows = np.clip(
+        physical_rows,
+        [FIXTURE_SUPPORT["H0"][0], FIXTURE_SUPPORT["omegam"][0]],
+        [FIXTURE_SUPPORT["H0"][1], FIXTURE_SUPPORT["omegam"][1]],
+    )
     h0 = physical_rows[:, 0]
     om = physical_rows[:, 1]
     target = omegamh2(h0, om)
@@ -114,6 +140,12 @@ def write_fixture(stem, n_rows, seed):
         f.write("omegam\t \\Omega_m\n")
         f.write("omegamh2*\t \\Omega_m h^2\n")
         f.write("minusloglike*\t -\\log L\n")
+    with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as f:
+        f.write(supported_test_record(
+            names=IN_NAMES,
+            label="scalar-smoke-" + os.path.basename(stem),
+            family="scalar",
+            support=FIXTURE_SUPPORT))
     return n_rows
 
 
@@ -464,6 +496,15 @@ def check_parameter_window_banner(tmp):
         for name in ("H0", "omegab", "omegam", "ns"):
             handle.write(name + " " + name + "\n")
         handle.write("chi2* chi2\n")
+    with open(
+        os.path.join(tmp, "window_params" + fixed_facts.SIDECAR_SUFFIX),
+        "w",
+    ) as handle:
+        handle.write(fixed_facts.synthetic_sidecar(
+            names=["H0", "omegab", "omegam", "ns"],
+            label="scalar-smoke-parameter-window",
+            family="scalar",
+            support=None))
     np.save(
         dv_path,
         np.arange(raw_count, dtype=np.float32).reshape(raw_count, 1),
@@ -707,6 +748,7 @@ def check_train_and_predict(tmp, device):
                   resolved_model=exp.resolved_model, transfer_base=None,
                   composition_mode="plain", transfer_refined=False,
                   resolved_pce=None, resolved_transfer=None,
+                  facts_yaml=exp.train_set["facts_yaml"],
                   attrs={"outputs": OUT_NAME})
 
     # Rebuild and predict at a test point.  The emulated omegamh2 must track the

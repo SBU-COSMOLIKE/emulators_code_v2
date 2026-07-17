@@ -3,10 +3,11 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
-from emulator import data_staging
+from emulator import data_staging, fixed_facts
 from emulator.experiment import EmulatorExperiment
 from emulator.parameter_table import resolve_parameter_table
 
@@ -27,6 +28,24 @@ class ParamnamesResolutionTest(unittest.TestCase):
     with open(path, "w") as handle:
       for name in names:
         handle.write(name + " " + name.rstrip("*") + "\n")
+
+  @staticmethod
+  def _write_facts(params_path, names, *, text=None):
+    """Write the producer record paired with a plain or numbered chain."""
+    base = os.path.splitext(params_path)[0]
+    root, chain_ext = os.path.splitext(base)
+    if chain_ext[1:].isdigit():
+      base = root
+    sidecar = base + fixed_facts.SIDECAR_SUFFIX
+    if text is None:
+      text = fixed_facts.synthetic_sidecar(
+        names=names,
+        label="parameter-table-" + os.path.basename(base),
+        family="scalar",
+        support=None)
+    with open(sidecar, "w", encoding="utf-8", newline="") as handle:
+      handle.write(text)
+    return sidecar, text
 
   def test_numeric_chain_uses_shared_root_sidecar(self):
     """X.1.txt resolves X.paramnames and returns a stable 2-D table."""
@@ -119,6 +138,125 @@ class ParamnamesResolutionTest(unittest.TestCase):
           n_keep=1,
           gen=data_staging.torch.Generator())
 
+  def test_missing_facts_refuses_before_opening_data_vector(self):
+    """A valid parameter schema cannot make a record-less dump trainable."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "chain.1.txt")
+      sidecar = os.path.join(tmp, "chain.paramnames")
+      self._write_table(params)
+      self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+
+      with mock.patch.object(
+          data_staging.np, "load",
+          side_effect=AssertionError("the DV must not be opened")) as open_dv:
+        with self.assertRaisesRegex(
+            ValueError, r"(?s)\.facts\.yaml.*[Rr]e-generate"):
+          data_staging.load_source(
+            dv_path=os.path.join(tmp, "must-not-open.npy"),
+            params_path=params,
+            names=["omegab", "H0"],
+            omegabh2_hi=None,
+            n_keep=1,
+            gen=data_staging.torch.Generator())
+
+      open_dv.assert_not_called()
+
+  def test_malformed_facts_refuses_before_opening_data_vector(self):
+    """Malformed producer YAML is diagnosed before a large DV is mapped."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "chain.1.txt")
+      sidecar = os.path.join(tmp, "chain.paramnames")
+      self._write_table(params)
+      self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+      self._write_facts(params, ["omegab", "H0"], text="fixed_facts: [\n")
+
+      with mock.patch.object(
+          data_staging.np, "load",
+          side_effect=AssertionError("the DV must not be opened")) as open_dv:
+        with self.assertRaisesRegex(
+            ValueError, r"(?s)does not parse as YAML.*Re-generate"):
+          data_staging.load_source(
+            dv_path=os.path.join(tmp, "must-not-open.npy"),
+            params_path=params,
+            names=["omegab", "H0"],
+            omegabh2_hi=None,
+            n_keep=1,
+            gen=data_staging.torch.Generator())
+
+      open_dv.assert_not_called()
+
+  def test_facts_name_order_refuses_before_opening_data_vector(self):
+    """Producer names cannot silently reverse the table's sampled columns."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "chain.1.txt")
+      sidecar = os.path.join(tmp, "chain.paramnames")
+      self._write_table(params)
+      self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+      self._write_facts(params, ["H0", "omegab"])
+
+      with mock.patch.object(
+          data_staging.np, "load",
+          side_effect=AssertionError("the DV must not be opened")) as open_dv:
+        with self.assertRaisesRegex(
+            ValueError, r"record disagree.*sampled parameters"):
+          data_staging.load_source(
+            dv_path=os.path.join(tmp, "must-not-open.npy"),
+            params_path=params,
+            names=["omegab", "H0"],
+            omegabh2_hi=None,
+            n_keep=1,
+            gen=data_staging.torch.Generator())
+
+      open_dv.assert_not_called()
+
+  def test_valid_facts_text_is_preserved_byte_for_byte_as_text(self):
+    """Validation never rewrites the producer's line endings or wording."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "chain.1.txt")
+      sidecar = os.path.join(tmp, "chain.paramnames")
+      dv = os.path.join(tmp, "chain.npy")
+      self._write_table(params)
+      self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+      np.save(dv, np.ones((2, 2), dtype=np.float32))
+      text = fixed_facts.synthetic_sidecar(
+        names=["omegab", "H0"],
+        label="exact-sidecar-text",
+        family="cmb",
+        support=None).replace("\n", "\r\n")
+      self._write_facts(params, ["omegab", "H0"], text=text)
+
+      staged = data_staging.load_source(
+        dv_path=dv,
+        params_path=params,
+        names=["omegab", "H0"],
+        omegabh2_hi=None,
+        n_keep=1,
+        gen=data_staging.torch.Generator().manual_seed(4),
+        verbose=False)
+
+      self.assertEqual(staged["facts_yaml"], text)
+
+  def test_scalar_missing_facts_refuses_before_staging(self):
+    """The scalar loader has the same required-record boundary."""
+    with tempfile.TemporaryDirectory() as tmp:
+      params = os.path.join(tmp, "scalar.1.txt")
+      sidecar = os.path.join(tmp, "scalar.paramnames")
+      self._write_table(params)
+      self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+
+      with mock.patch.object(
+          data_staging, "stage_source",
+          side_effect=AssertionError("staging must not run")) as stage:
+        with self.assertRaisesRegex(ValueError, r"\.facts\.yaml"):
+          data_staging.load_scalar_source(
+            params_path=params,
+            in_names=["omegab", "H0"],
+            out_names=["chi2"],
+            n_keep=1,
+            gen=data_staging.torch.Generator())
+
+      stage.assert_not_called()
+
   def test_scalar_pool_size_and_staging_share_the_resolver(self):
     """Pool sizing and scalar staging accept and count the same table."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -126,6 +264,7 @@ class ParamnamesResolutionTest(unittest.TestCase):
       sidecar = os.path.join(tmp, "scalar.paramnames")
       self._write_table(params)
       self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
+      self._write_facts(params, ["omegab", "H0"])
       cuts = {"omegabh2_hi": 0.03}
 
       exp = EmulatorExperiment.__new__(EmulatorExperiment)
@@ -161,6 +300,7 @@ class ParamnamesResolutionTest(unittest.TestCase):
         [1, 0, 0.060, 90, 404],
       ])
       self._write_sidecar(sidecar, ["omegab", "H0", "target*"])
+      self._write_facts(params, ["omegab", "H0"])
       np.save(dv, np.asarray([
         [1001, 1002],
         [2001, 2002],

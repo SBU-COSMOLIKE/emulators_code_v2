@@ -139,7 +139,8 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from .data_staging import (
-  read_param_names, load_source, load_scalar_source, phys_cut_idx)
+  read_param_names, load_source, load_scalar_source, phys_cut_idx,
+  validated_facts_sidecar)
 from .parameter_table import resolve_parameter_table
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from .losses.core import make_chi2
@@ -1510,7 +1511,8 @@ def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
   return resolved, notice
 
 
-def _load_diag_transfer(cfg, train_args, kwargs, geom_cls_name):
+def _load_diag_transfer(cfg, train_args, kwargs, geom_cls_name,
+                        before_load=None):
   """Validate + load a diagonal-family transfer base (a from_config helper).
 
   Shared by the cmb / grid / grid2d from_config branches (the 2026-07-12
@@ -1531,6 +1533,10 @@ def _load_diag_transfer(cfg, train_args, kwargs, geom_cls_name):
     geom_cls_name = the family's output-geometry class name
                     ("CmbDiagonalGeometry" / "GridGeometry" /
                     "Grid2DGeometry"), for the wrong-kind check.
+    before_load  = callback for the remaining CPU-only model, recipe, and
+                   dataset-record checks. It runs after the transfer settings
+                   have been checked but before a device is chosen or a saved
+                   emulator is opened.
 
   Returns:
     (resolved, notice, base, base_root), or (None, None, None, None)
@@ -1545,6 +1551,8 @@ def _load_diag_transfer(cfg, train_args, kwargs, geom_cls_name):
   resolved, notice = validate_transfer(
     cfg=cfg, train_args=train_args,
     rescale=kwargs.get("rescale", "none"), diagonal=True)
+  if before_load is not None:
+    before_load()
   device = kwargs.get("device")
   if device is None:
     device = pick_device()
@@ -1751,7 +1759,9 @@ class EmulatorExperiment:
                activation="H",
                device=None,
                quiet=False,
-               raw_train_args=None):
+               raw_train_args=None,
+               train_facts_yaml=None,
+               val_facts_yaml=None):
     """
     Store the config + fixed choices; build the cheap derived state.
 
@@ -1927,6 +1937,15 @@ class EmulatorExperiment:
       raw_train_args = un-collapsed train_args (search ranges intact), for
                    a search driver that resolves them per trial; defaults
                    to train_args (from_config supplies the raw block).
+      train_facts_yaml / val_facts_yaml = exact producer-record text already
+                   checked by from_config. Production drivers must enter
+                   through from_yaml / from_config so this check happens
+                   before device selection, model construction, or opening a
+                   warm-start file. Calling this constructor directly is a
+                   low-level assembly path for tests and internal tools; it may
+                   leave both values at None, in which case staging reads and
+                   checks the required sidecars. save_emulator still refuses
+                   every artifact that lacks a valid record.
     """
     self.data       = data
     self.train_args = train_args
@@ -1960,6 +1979,11 @@ class EmulatorExperiment:
     # driver; defaults to the resolved train_args when no raw block given.
     self.raw_train_args = (train_args if raw_train_args is None
                            else raw_train_args)
+    # Keep the exact text checked before device or warm-start work. Staging
+    # revalidates these bytes against the resolved parameter schema but does
+    # not reopen a path that could now contain a different record.
+    self._train_facts_yaml = train_facts_yaml
+    self._val_facts_yaml = val_facts_yaml
 
     # TF32 tensor-core float32 matmuls (Ampere+); no-op on CPU / MPS. A
     # one-time global switch.
@@ -1984,7 +2008,7 @@ class EmulatorExperiment:
     # the validated top-level pce: block (None = NPCE off), set by
     # from_config; every wiring point guards on it (absent = byte-identical).
     self.pce_opts = None
-    # the consumed-view save recipes (save schema v2): resolved_model is
+    # the consumed-view save recipes (schema-3 save): resolved_model is
     # assembled in build_specs, resolved_train is returned by run_emulator
     # and stored by train(). None until those run.
     self.resolved_model = None
@@ -2104,6 +2128,32 @@ class EmulatorExperiment:
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
 
+    facts_are_ready = False
+
+    def require_facts():
+      """Check both dataset records once, then retain their exact text.
+
+      Each family first reports mistakes that can be found from the YAML
+      alone. Before the run chooses an accelerator, opens a saved emulator,
+      or constructs the experiment, this CPU-only check reads the covmat
+      header and the two small facts files. Training and validation may name
+      different generated datasets or support boxes, so each record is
+      compared only with the shared ordered parameter names.
+      """
+      nonlocal facts_are_ready
+      if facts_are_ready:
+        return
+      facts_names = read_param_names(cfg["data"]["train_covmat"])
+      train_facts_yaml = validated_facts_sidecar(
+        params_path=cfg["data"]["train_params"],
+        names=facts_names)
+      val_facts_yaml = validated_facts_sidecar(
+        params_path=cfg["data"]["val_params"],
+        names=facts_names)
+      kwargs["train_facts_yaml"] = train_facts_yaml
+      kwargs["val_facts_yaml"] = val_facts_yaml
+      facts_are_ready = True
+
     # scalar (derived-parameter) run (data.outputs present): inputs and
     # outputs are named columns of one parameter .txt, no cosmolike.
     # validate_scalar enforces the exclusivity + forbidden features and
@@ -2122,6 +2172,7 @@ class EmulatorExperiment:
           train_args=ta,
           rescale=kwargs.get("rescale", "none"),
           activation_flag=kwargs.get("activation"))
+        require_facts()
         device = kwargs.get("device")
         if device is None:
           device = pick_device()
@@ -2194,6 +2245,8 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
+      require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
@@ -2202,7 +2255,7 @@ class EmulatorExperiment:
       # form is a dense-covariance concept). rescale / ia were already
       # rejected by validate_scalar, so the exclusivity args are their
       # known-clean values.
-      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
+      exp.pce_opts   = pce_opts
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2224,13 +2277,26 @@ class EmulatorExperiment:
     if is_cmb:
       cmb = validate_cmb(cfg, train_args=ta,
                          rescale=kwargs.get("rescale", "none"))
+
+      def cmb_checks_before_transfer_load():
+        """Finish CPU-only CMB checks before opening a transfer base."""
+        transfer_name = str(ta["model"].get("name", "resmlp")).lower()
+        if (transfer_name, None) not in models:
+          raise ValueError(
+            "no plain model for architecture " + repr(transfer_name)
+            + " (a CMB run uses the plain designs, ia=None; pick a name "
+            "that has one)")
+        validate_pce(cfg.get("pce"), diagonal=True)
+        require_facts()
+
       # transfer learning (the 2026-07-12 symmetry ruling): validate +
       # load the frozen base before the model construction below; the
       # correction net keeps its own model: block, and the
       # exp._transfer_* stash lands after the construction.
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
-        geom_cls_name="CmbDiagonalGeometry")
+        geom_cls_name="CmbDiagonalGeometry",
+        before_load=cmb_checks_before_transfer_load)
       # fine-tune warm start on the CMB path: the architecture,
       # activation, and loss form are inherited from a saved CMB source
       # emulator, exactly the cosmolike finetune flow; the CMB-specific
@@ -2242,6 +2308,7 @@ class EmulatorExperiment:
           train_args=ta,
           rescale=kwargs.get("rescale", "none"),
           activation_flag=kwargs.get("activation"))
+        require_facts()
         device = kwargs.get("device")
         if device is None:
           device = pick_device()
@@ -2299,13 +2366,15 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
+      require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
       # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
       # only (diagonal=True); validate_cmb already rejected the block
       # beside an amplitude_law other than "none".
-      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
+      exp.pce_opts   = pce_opts
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2340,11 +2409,24 @@ class EmulatorExperiment:
     if is_grid:
       grid = validate_grid(cfg, train_args=ta,
                            rescale=kwargs.get("rescale", "none"))
+
+      def grid_checks_before_transfer_load():
+        """Finish CPU-only grid checks before opening a transfer base."""
+        transfer_name = str(ta["model"].get("name", "resmlp")).lower()
+        if (transfer_name, None) not in models:
+          raise ValueError(
+            "no plain model for architecture " + repr(transfer_name)
+            + " (a grid run uses the plain designs, ia=None; pick a name "
+            "that has one)")
+        validate_pce(cfg.get("pce"), diagonal=True)
+        require_facts()
+
       # transfer learning (the 2026-07-12 symmetry ruling): validate +
       # load the frozen base before the model construction below.
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
-        geom_cls_name="GridGeometry")
+        geom_cls_name="GridGeometry",
+        before_load=grid_checks_before_transfer_load)
       # fine-tune warm start on the grid path: architecture,
       # activation, and loss form inherited from a saved GRID source of
       # the SAME quantity/units/law/offset; the z-grid check (needs the
@@ -2355,6 +2437,7 @@ class EmulatorExperiment:
           train_args=ta,
           rescale=kwargs.get("rescale", "none"),
           activation_flag=kwargs.get("activation"))
+        require_facts()
         device = kwargs.get("device")
         if device is None:
           device = pick_device()
@@ -2424,12 +2507,14 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
+      require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
       # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
       # only (diagonal=True); the base fits the law-space whitened rows.
-      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
+      exp.pce_opts   = pce_opts
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2463,11 +2548,24 @@ class EmulatorExperiment:
     if is_grid2d:
       grid2d = validate_grid2d(cfg, train_args=ta,
                                rescale=kwargs.get("rescale", "none"))
+
+      def grid2d_checks_before_transfer_load():
+        """Finish CPU-only grid2d checks before opening a transfer base."""
+        transfer_name = str(ta["model"].get("name", "resmlp")).lower()
+        if (transfer_name, None) not in models:
+          raise ValueError(
+            "no plain model for architecture " + repr(transfer_name)
+            + " (a grid2d run uses the plain designs, ia=None; pick a name "
+            "that has one)")
+        validate_pce(cfg.get("pce"), diagonal=True)
+        require_facts()
+
       # transfer learning (the 2026-07-12 symmetry ruling): validate +
       # load the frozen base before the model construction below.
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
-        geom_cls_name="Grid2DGeometry")
+        geom_cls_name="Grid2DGeometry",
+        before_load=grid2d_checks_before_transfer_load)
       # fine-tune warm start on the grid2d path: architecture,
       # activation, and loss form inherited from a saved grid2d source
       # of the SAME quantity/units/law; the (z, k) axes check and the
@@ -2479,6 +2577,7 @@ class EmulatorExperiment:
           train_args=ta,
           rescale=kwargs.get("rescale", "none"),
           activation_flag=kwargs.get("activation"))
+        require_facts()
         device = kwargs.get("device")
         if device is None:
           device = pick_device()
@@ -2546,13 +2645,15 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
+      require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
       # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
       # only (diagonal=True); the base fits the staged law-space rows
       # (arXiv 2404.12344 runs exactly this — an NPCE on the boost).
-      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
+      exp.pce_opts   = pce_opts
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2591,6 +2692,7 @@ class EmulatorExperiment:
         train_args=ta,
         rescale=kwargs.get("rescale", "none"),
         activation_flag=kwargs.get("activation"))
+      require_facts()
       # resolve the device now (load_source rebuilds the source on it); pass
       # it through so __init__ does not pick a different one.
       device = kwargs.get("device")
@@ -2629,6 +2731,14 @@ class EmulatorExperiment:
     if cfg.get("transfer") is not None:
       resolved_tr, space_notice = validate_transfer(
         cfg=cfg, train_args=ta, rescale=kwargs.get("rescale", "none"))
+      correction_name = str(
+        ta["model"].get("name", "resmlp")).lower()
+      if not any(model_name == correction_name for model_name, _ in models):
+        raise ValueError(
+          "no correction model for architecture " + repr(correction_name)
+          + "; pick a model.name available in this run before loading the "
+          "transfer base")
+      require_facts()
       device = kwargs.get("device")
       if device is None:
         device = pick_device()
@@ -2638,7 +2748,7 @@ class EmulatorExperiment:
         root=base_root, device=device, allow_factored=True)
       # the correction architecture is the YAML model.name; the ia family is
       # forced from the base.
-      name      = str(ta["model"].get("name", "resmlp")).lower()
+      name      = correction_name
       ia_forced = base.ia
       if (name, ia_forced) not in models:
         raise ValueError(
@@ -2722,6 +2832,7 @@ class EmulatorExperiment:
         kwargs["activation"] = str(act_blk)
       else:
         kwargs["activation"] = "H"
+    require_facts()
     exp = cls(data=cfg["data"], train_args=ta,
               model_cls=models[(name, ia)],
               raw_train_args=cfg["train_args"], **kwargs)
@@ -3350,7 +3461,8 @@ class EmulatorExperiment:
         omegamh2_lo=pc.get("omegamh2_lo"),
         omegamh2_hi=pc.get("omegamh2_hi"),
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
-        omegamh2ns_hi=pc.get("omegamh2ns_hi"))
+        omegamh2ns_hi=pc.get("omegamh2ns_hi"),
+        facts_yaml=getattr(self, "_train_facts_yaml", None))
       return self.train_set
     # cmb / grid run: the physical windows are opt-in (the scalar-path
     # pattern) — an absent block means no cuts; the cosmolike
@@ -3383,7 +3495,8 @@ class EmulatorExperiment:
       ram_frac=d.get("ram_frac", 0.7),
       with_means=True,
       stage_dv=not self._grid2d,
-      verbose=not self.quiet)
+      verbose=not self.quiet,
+      facts_yaml=getattr(self, "_train_facts_yaml", None))
     # grid2d run: form the law-space rows now — the training loop
     # consumes train_set["dv"] directly, so the syren-law transform and
     # the optional k-stride thinning happen at staging, once, on the CPU
@@ -3443,7 +3556,8 @@ class EmulatorExperiment:
         omegamh2_lo=pc.get("omegamh2_lo"),
         omegamh2_hi=pc.get("omegamh2_hi"),
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
-        omegamh2ns_hi=pc.get("omegamh2ns_hi"))
+        omegamh2ns_hi=pc.get("omegamh2ns_hi"),
+        facts_yaml=getattr(self, "_val_facts_yaml", None))
       return self.val_set
     # cmb / grid run: the physical windows are opt-in (the scalar-path
     # pattern) — an absent block means no cuts; the cosmolike
@@ -3473,7 +3587,8 @@ class EmulatorExperiment:
       ram_frac=d.get("ram_frac", 0.7),
       with_means=False,
       stage_dv=not self._grid2d,
-      verbose=not self.quiet)
+      verbose=not self.quiet,
+      facts_yaml=getattr(self, "_val_facts_yaml", None))
     # grid2d run: the same bounded law transform on the val rows (the
     # val file's own base sidecar). with_means False — val borrows the
     # training centers, so no geometry moments are streamed here.
@@ -4927,7 +5042,7 @@ class EmulatorExperiment:
       device=self.device,
       **specs)
 
-    # run_emulator now returns resolved_train (save schema v2); store it on
+    # run_emulator returns resolved_train for the schema-3 save; store it on
     # the instance for save_emulator, and return the original 5-tuple so the
     # drivers' interface is unchanged (the added return is contained here).
     (self.model, self.train_losses, self.medians,

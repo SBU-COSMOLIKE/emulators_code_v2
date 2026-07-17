@@ -32,7 +32,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import h5py
+import yaml
 
+from emulator import fixed_facts
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
@@ -80,6 +82,27 @@ def write_covmat(path, names, seed):
             f.write(" ".join(repr(float(x)) for x in row) + "\n")
 
 
+def supported_test_record(names, label, family, support):
+    """Give a prediction fixture a literal, finite support box.
+
+    CoCoA uses NumPy 1. The validation environment may contain NumPy 2, whose
+    float32 ``repr`` is Python code rather than a bare decimal. This gate keeps
+    production's decimal policy untouched and writes its few fixed test bounds
+    as literal decimal strings instead.
+    """
+    blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+        names=names, label=label, family=family, support=None))
+    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+    domain["constraint"] = "box"
+    for key in ("requested", "resolved"):
+        domain[key] = {
+            name: [str(support[name][0]), str(support[name][1])]
+            for name in names
+        }
+    fixed_facts.validate(blocks, where="the geometry-path test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
+
+
 def save_fixture(root, device, tmp):
     """A tiny scalar artifact (the smallest full save/rebuild cycle)."""
     covmat = os.path.join(tmp, "geo.covmat")
@@ -124,6 +147,12 @@ def save_fixture(root, device, tmp):
                   resolved_train={"nepochs": 1}, resolved_model=recipe,
                   composition_mode="plain", transfer_refined=False,
                   resolved_pce=None, resolved_transfer=None,
+                  facts_yaml=supported_test_record(
+                      names=pgeom.state()["names"],
+                      label="geometry-paths-fixture",
+                      family="scalar",
+                      support={"omegabh2": (0.01, 0.04),
+                               "omegach2": (0.05, 0.20)}),
                   attrs={"rescale": "none",
                          "outputs": " ".join(OUT_NAMES)})
 

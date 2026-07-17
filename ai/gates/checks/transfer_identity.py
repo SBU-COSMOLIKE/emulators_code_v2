@@ -47,6 +47,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 from emulator import fixed_facts
 from emulator import warmstart
@@ -112,6 +113,27 @@ AMP     = "LSST_A1_1"
 TRANSFER_SUPPORT = {"p0": (-4.0, 4.0),
                     "p1": (-4.0, 4.0),
                     "p2": (-4.0, 4.0)}
+
+
+def supported_test_record(names, label, family, support):
+  """Write this gate's fixed support bounds as literal decimal strings.
+
+  CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
+  float32 representation includes ``np.float32(...)``. That text is not a
+  decimal number. Keeping this conversion inside the synthetic gate avoids
+  changing the production decimal policy for an unsupported environment.
+  """
+  blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
+    names=names, label=label, family=family, support=None))
+  domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+  domain["constraint"] = "box"
+  for key in ("requested", "resolved"):
+    domain[key] = {
+      name: [str(support[name][0]), str(support[name][1])]
+      for name in names
+    }
+  fixed_facts.validate(blocks, where="the transfer-identity test record")
+  return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
 
 def report(label, ok, detail):
@@ -278,6 +300,25 @@ def write_covmat(path, names, seed):
     f.write("# " + " ".join(names) + "\n")
     for row in cov:
       f.write(" ".join(repr(float(x)) for x in row) + "\n")
+
+
+def write_config_chain(path, names, label):
+  """Write the tiny parameter chain and records a from_config probe needs."""
+  sampled = np.zeros((1, len(names)), dtype=np.float32)
+  table = np.column_stack((np.ones(1), np.zeros(1), sampled, np.zeros(1)))
+  np.savetxt(path, table)
+  stem = str(path)
+  if stem.endswith(".1.txt"):
+    stem = stem[:-len(".1.txt")]
+  else:
+    stem = str(Path(stem).with_suffix(""))
+  with open(stem + ".paramnames", "w") as handle:
+    for name in names:
+      handle.write(name + " " + name + "\n")
+    handle.write("chi2* chi2\n")
+  with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
+    handle.write(fixed_facts.synthetic_sidecar(
+      names=names, label=label, family="grid2d", support=None))
 
 
 def make_transfer(base, geom, form, space):
@@ -565,7 +606,7 @@ def check_lifecycle(device, tmp):
                 composition_mode="transfer", transfer_refined=False,
                 resolved_pce=None,
                 resolved_transfer={"form": "gain", "space": "physical"},
-                facts_yaml=fixed_facts.synthetic_sidecar(
+                facts_yaml=supported_test_record(
                   names=new_pgeom.state()["names"],
                   label="transfer-identity/lifecycle-transfer-run",
                   family="cosmolike",
@@ -741,7 +782,7 @@ def check_refined_lifecycle(device, tmp):
 
 
 def grid_base_recipe(names, nz):
-  """The model_recipe a schema-v2 save stores for a grid-family ResMLP."""
+  """The model_recipe a schema-3 save stores for a grid-family ResMLP."""
   return {"cls": "emulator.designs.plain.ResMLP",
           "name": "resmlp",
           "ia": None,
@@ -938,7 +979,7 @@ def check_diagonal(device, tmp):
                 composition_mode="transfer", transfer_refined=False,
                 resolved_pce=None,
                 resolved_transfer={"form": "sum", "space": "whitened"},
-                facts_yaml=fixed_facts.synthetic_sidecar(
+                facts_yaml=supported_test_record(
                   names=pg.state()["names"],
                   label="transfer-identity/diagonal-transfer-run",
                   family="grid",
@@ -993,6 +1034,12 @@ def check_diagonal(device, tmp):
                   label="transfer-identity/cross-family-base",
                   family="grid"),
                 attrs={"rescale": "none", "quantity": "Hubble"})
+  g2_covmat = Path(tmp) / "cross_family_run.covmat"
+  g2_train = Path(tmp) / "cross_family_train.1.txt"
+  g2_val = Path(tmp) / "cross_family_val.1.txt"
+  write_covmat(g2_covmat, names, seed=93)
+  write_config_chain(g2_train, names, "transfer-cross-family-train")
+  write_config_chain(g2_val, names, "transfer-cross-family-val")
   g2_cfg = {"data": {"grid2d": {"quantity": "pklin",
                                 "units": "Mpc3",
                                 "law": "syren_linear",
@@ -1002,13 +1049,14 @@ def check_diagonal(device, tmp):
                                 "val_base": "vb.npy"},
                      "train_dv": "t.npy",
                      "val_dv": "v.npy",
-                     "train_params": "t.1.txt",
-                     "val_params": "v.1.txt",
-                     "train_covmat": "c.covmat",
+                     "train_params": str(g2_train),
+                     "val_params": str(g2_val),
+                     "train_covmat": str(g2_covmat),
                      "n_train": 2,
                      "n_val": 1},
             "transfer": {"from": str(plain_root), "form": "sum"},
-            "train_args": {"nepochs": 1, "bs": 8}}
+            "train_args": {"nepochs": 1, "bs": 8,
+                           "model": {"name": "resmlp"}}}
   try:
     EmulatorExperiment.from_config(g2_cfg, device=torch.device("cpu"))
     report("cross-family transfer base raises", False, "no raise")
