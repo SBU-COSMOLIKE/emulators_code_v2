@@ -2664,6 +2664,15 @@ a convolutional bias, cross-bin mixing or feature-wise modulation can make a
 padded cell nonzero.  The mask must be applied wherever the architecture can
 repopulate invalid cells and again before gathering the correction.
 
+The map stores each survivor's original angular slot, not its rank among the
+survivors in that bin.  For example, two bins may each keep two values while
+one keeps angular slots zero and two and the other keeps slots one and two.
+Their counts are equal, but their physical layouts are not.  A completely
+masked bin remains an empty rectangle row so that every later bin keeps its
+original channel number.  The artifact records this map and the aligned
+Boolean mask, and rebuilding compares both with fixed buffers in the saved
+model state.
+
 \subsection{The transformer correction head}
 
 The transformer head uses the same physical rectangle but a different mixing
@@ -2705,6 +2714,13 @@ therefore cannot hide every ragged angular feature.  The implementation needs
 the same per-block coordinate-validity mask used by the scatter.  The mask's
 shape and meaning are persisted with the artifact because reconstructing it
 from counts can assign the right number of cells to the wrong coordinates.
+Layer normalization computes its mean and variance from physical features
+only.  Query, key and value projections are masked again after their linear
+maps.  A query-key pair is excluded when that attention head has no shared
+physical coordinate, and an entirely masked token returns an exact zero
+instead of a row of nonfinite softmax values.  The mask is applied again after
+every attention projection, residual addition, MLP layer, activation and FiLM
+shift because each of those operations can repopulate a storage-only cell.
 
 \subsection{FiLM: conditioning a head on the cosmology}
 
@@ -6434,6 +6450,29 @@ a materially negative production-width score as perfect.  Finite-only
 validation lets NaN comparisons evade threshold counts.  On a supported
 compile lane, an exception produces failure.  A green skip is forbidden.
 
+\subsubsection{\code{padded-head-identity}: storage cells cannot become data}
+
+\textbf{Claim and path.}  Structured CNN and Transformer heads preserve the
+original physical coordinate of every kept output and keep artificial
+rectangle cells inert through every operation that could make them nonzero.
+The saved geometry and model checkpoint must describe the same map and mask.
+The writer verifies that agreement before staging either output file, and the
+reader verifies it independently before loading learned tensors.
+
+\textbf{Fixture and verdict.}  Small CPU fixtures use equal-count bins with
+different angular masks, a fully masked middle bin, nonzero-preserving
+activations, FiLM shifts, live convolutions and live attention.  A second leg
+saves a model with a nonzero CNN correction, reopens it through the public
+reader and requires exact predictions and buffers.  Authenticated checkpoints
+with a missing or disagreeing fixed layout buffer must be refused.  A live
+model paired with a different geometry must also be refused before staging,
+without changing a preceding valid artifact pair.
+
+\textbf{Catch power.}  Reconstructing positions from counts, masking only the
+initial scatter, applying only a token-level attention mask or trusting the
+checkpoint over the HDF5 geometry makes a focused witness fail while ordinary
+array shapes remain valid.
+
 \subsubsection{\code{board-selftest}: the runner reports what actually ran}
 
 \textbf{Claim and path.}  The board's own selection, dependency, resume,
@@ -6448,9 +6487,10 @@ targets must return nonzero with a suggestion.  Mutating a gate body,
 referenced YAML, input config, evidence anchor or cited log must invalidate
 the corresponding record.  For the currently migrated structured-evidence
 entries, every declared anchor must resolve to a real note location and every
-identifier must be globally unique.  The board has forty registered gates,
-which measures registry size only.  Most gates still lack individual leg
-declarations in the structured evidence map.
+identifier must be globally unique.  The live \code{--list} command reports
+the current registry size; a number copied into this guide would become stale.
+Most gates still lack individual leg declarations in the structured evidence
+map.
 
 \textbf{Catch power.}  A status-only resume rule, warning-only selector, log
 overwrite or board row whose note anchor does not exist makes one of the
@@ -7045,6 +7085,15 @@ Use the failed part label to distinguish producer, boundary, accumulation,
 tolerance, parity and compile arms.  Print the offending row count and
 minimum.  Do not weaken the predicate until the valid ill-conditioned control
 and the production-width negative mutation have been evaluated together.
+
+\paragraph{\code{padded-head-identity}.}
+Read the failed leg first.  A layout failure points to scatter coordinates,
+per-operation masking or a fully masked row.  An artifact failure points to
+geometry persistence or fixed model buffers.  If saving fails, compare the live
+model with the resolved recipe before looking for a file error.  If rebuilding
+fails, inspect the independent comparison before strict state loading.  Do not
+replace the physical map with bin counts merely because the counts make the
+rectangle shape agree.
 
 \paragraph{\code{board-selftest}.}
 Classify the failure as selection, dependency, resume digest, interruption,

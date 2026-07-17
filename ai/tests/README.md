@@ -617,6 +617,7 @@ quantity calculated from the sampled parameters.
 | `test_batching_sizing.py` | Does the batch planner count the actual memory used by every stored target value before training starts? |
 | `test_d5_training_behavior_witnesses.py` | Do small numerical examples support the learning-rate, moving-average, activation, and frozen-layer results required by the longer training gate? |
 | `test_finetune_post_step_and_provenance.py` | Does fine-tuning update one weight in the required order and save which earlier emulator supplied the starting weights? |
+| `test_padded_head_identity.py` | Do CNN and Transformer heads keep storage-only rectangle cells from changing physical outputs, even after biases, activations, FiLM shifts, attention, or several head blocks? |
 | `test_trf_token_width.py` | Does a Transformer refuse a one-number token that cannot respond to its input while continuing to accept supported two-number tokens? |
 | `test_warmstart_perturbed_finite.py` | Does a warm start report the exact input or output that first becomes `NaN` or infinite? |
 
@@ -649,6 +650,31 @@ behavior the library needs.
   opposite switch, omit a requested correction, or build a head that cannot
   begin learning. The run could otherwise finish with legal array shapes but
   the wrong model behavior.
+
+#### Physical coordinates inside padded CNN and Transformer heads
+
+`test_padded_head_identity.py` checks the rectangular workspace used when
+physical output groups have different lengths. Extra cells make the rows the
+same width, but those cells do not represent measurements.
+
+- **Example used:** one row keeps angular positions zero and two, while a
+  second row keeps positions one and two. Another example masks an entire
+  middle row. Equal survivor counts therefore cannot stand in for the actual
+  coordinate map.
+- **What the test does:** it routes values through real one- and two-block CNN
+  heads, real Transformer attention and MLP layers, an activation that maps
+  zero to one, and a FiLM shift. It also changes only an artificial value to a
+  large positive or negative sentinel and compares every physical result.
+- **Pass means:** original angular positions remain distinct; a fully masked
+  row stays finite and exactly zero without shifting the following row; and a
+  complete rectangular head keeps the former live convolution calculation
+  exactly.
+- **A refusal it proves:** an older geometry containing only per-row counts is
+  rejected because those counts cannot recover which angular positions were
+  kept.
+- **Why it matters:** an artificial cell can otherwise carry a value through a
+  later block and change a valid scientific output while all tensor shapes
+  still look correct.
 
 #### Memory needed for one training batch
 
@@ -776,6 +802,7 @@ files belong together and constructing the model needed for new predictions.
 | File | Question answered |
 | --- | --- |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
+| `test_padded_head_artifact.py` | Does a structured head refuse a model/geometry layout disagreement before saving, reopen a valid pair with the exact physical map and mask, and refuse a checkpoint that omits or replaces either fixed record? |
 | `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
 | `test_results_artifact_pair.py` | Do the learned weights and scientific record identify each other, survive an ordinary failed save, and refuse a swapped or unsafe checkpoint? |
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
@@ -873,6 +900,34 @@ of those exact tensor-file bytes.
   weights were trained under the scientific assumptions in the neighboring
   record. Loading unrestricted pickle data can also run code instead of merely
   reading model tensors.
+
+#### Padded-head coordinates preserved across save and rebuild
+
+`test_padded_head_artifact.py` saves a small CNN whose four physical outputs
+occupy four named positions in a two-by-three rectangle. The other two cells
+exist only so both rows have the same stored width.
+
+- **Example used:** the coordinate map is `[0, 2, 4, 5]`, and the aligned mask
+  is `[[true, false, true], [false, true, true]]`. The final convolution has
+  deterministic nonzero weights, so the head changes the trunk prediction.
+- **What the test does:** it saves through `save_emulator`, rebuilds through
+  `rebuild_emulator`, and compares the live and reopened predictions, geometry
+  records, and fixed model buffers exactly. It then asks the writer to combine
+  a model with a different geometry and proves that no staging begins and a
+  preceding valid pair remains unchanged. Separate saved copies remove a mask
+  or replace both checkpoint buffers with another internally consistent
+  layout.
+- **Pass means:** the live correction survives exactly, and both saved files
+  independently agree on which rectangle cells are physical. The writer also
+  prevents a disagreement instead of publishing a pair that its own reader
+  would reject.
+- **Refusals it proves:** a live model without `pad_valid`, or one paired with
+  the wrong geometry, stops before file staging. A saved checkpoint without
+  `pad_valid`, or one whose map disagrees with the HDF5 geometry, stops before
+  ordinary state loading.
+- **Why it matters:** a valid checksum proves which two files belong together;
+  it does not prove that both files assign the same scientific meaning to each
+  tensor position.
 
 #### Fixed coordinates in a Grid2D surface
 

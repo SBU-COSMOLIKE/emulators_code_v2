@@ -855,6 +855,92 @@ def _validate_model_recipe_for_save(recipe, where):
         "native integer")
 
 
+def _saved_head_layout(geometry, recipe, where):
+  """Derive the fixed structured-head buffers promised by one recipe.
+
+  Most heads use the geometry's physical rectangle directly. Template heads
+  repeat its validity mask once per template. ``ResTRF.n_tokens`` is the one
+  supported transformation: it divides a complete one-dimensional grid into
+  contiguous, near-equal tokens. Keeping that transformation here prevents a
+  valid segmented Transformer from being mistaken for a geometry mismatch at
+  save time.
+  """
+  from .designs.blocks import resolve_padded_head_layout
+
+  if hasattr(geometry, "attach_head_coords"):
+    geometry.attach_head_coords()
+  output_dim = recipe["output_dim"]
+  _, pad_idx, pad_valid = resolve_padded_head_layout(
+    geom=geometry, output_dim=output_dim, where=where)
+  cls_path = recipe["cls"]
+  kwargs = recipe["kwargs"]
+
+  if cls_path == "emulator.designs.plain.ResTRF" \
+      and kwargs.get("n_tokens") is not None:
+    n_tokens = kwargs["n_tokens"]
+    if type(n_tokens) is not int or n_tokens < 2 or n_tokens > output_dim:
+      raise ValueError(
+        where + ": resolved ResTRF.n_tokens must be in 2.."
+        + str(output_dim) + "; got " + repr(n_tokens))
+    identity = torch.arange(
+      output_dim, dtype=torch.long, device=pad_idx.device)
+    if pad_valid.shape[1] != 1 or not bool(torch.all(pad_valid).item()) \
+        or not torch.equal(pad_idx, identity):
+      raise ValueError(
+        where + ": resolved ResTRF.n_tokens can re-segment only one complete "
+        "one-dimensional geometry")
+    quotient, remainder = divmod(output_dim, n_tokens)
+    sizes = []
+    for token_index in range(n_tokens):
+      sizes.append(quotient + 1 if token_index < remainder else quotient)
+    width = max(sizes)
+    positions = []
+    for token_index, size in enumerate(sizes):
+      for coordinate_index in range(size):
+        positions.append(token_index * width + coordinate_index)
+    pad_idx = torch.tensor(
+      positions, dtype=torch.long, device=pad_idx.device)
+    pad_valid = torch.zeros(
+      (1, n_tokens, width), dtype=torch.bool, device=pad_valid.device)
+    pad_valid.reshape(-1)[pad_idx] = True
+
+  template_classes = (
+    "emulator.designs.ia.TemplateResCNN",
+    "emulator.designs.ia.TemplateResTRF",
+  )
+  if cls_path in template_classes:
+    n_templates = kwargs.get("n_templates")
+    if type(n_templates) is not int or n_templates < 1:
+      raise ValueError(
+        where + ": resolved template head needs a positive native "
+        "n_templates value")
+    pad_valid = pad_valid.repeat(1, n_templates, 1)
+  return pad_idx.detach().cpu(), pad_valid.detach().cpu()
+
+
+def _validate_saved_head_layout(model_state, geometry, recipe, where):
+  """Refuse a model/geometry pair that could not reopen after publication."""
+  if not recipe["needs_geom"]:
+    return
+  expected_idx, expected_valid = _saved_head_layout(
+    geometry=geometry, recipe=recipe, where=where)
+  expected = {"pad_idx": expected_idx, "pad_valid": expected_valid}
+  for name in ("pad_idx", "pad_valid"):
+    if name not in model_state:
+      raise KeyError(
+        where + ": structured-head model state has no " + name
+        + " buffer, so save_emulator would publish an artifact that cannot "
+        "be reopened")
+    recorded = model_state[name]
+    if recorded.dtype != expected[name].dtype \
+        or recorded.shape != expected[name].shape \
+        or not torch.equal(recorded, expected[name]):
+      raise ValueError(
+        where + ": structured-head " + name
+        + " disagrees between the model state and output geometry; "
+        "save_emulator refuses the pair before changing any files")
+
+
 def save_emulator(path_root,
                   model,
                   param_geometry,
@@ -1094,8 +1180,9 @@ def save_emulator(path_root,
     mapping.
     ValueError when the composition facts, payload, and consumed records
     disagree; when facts_yaml or either resolved recipe is missing; when the
-    sidecar breaks a law in fixed_facts.validate; or when the whitening
-    geometry and the sidecar disagree on the sampled parameters.
+    sidecar breaks a law in fixed_facts.validate; when the whitening geometry
+    and the sidecar disagree on the sampled parameters; or when a structured
+    model's fixed padding layout disagrees with its output geometry.
     These required-input checks run before model.state_dict and before any
     temporary, marker, or final output is created. Staging or ordinary
     publication failures leave a preceding valid pair unchanged.
@@ -1199,6 +1286,11 @@ def save_emulator(path_root,
     # a torch.compile wrapper (OptimizedModule) stores the real
     # model as ._orig_mod, so its keys arrive prefixed; strip it.
     sd[k.removeprefix("_orig_mod.")] = v.detach().cpu()
+  _validate_saved_head_layout(
+    model_state=sd,
+    geometry=geometry,
+    recipe=resolved_model,
+    where=path_root)
   artifact_id = uuid.uuid4().hex
   emul_path = path_root + ".emul"
   h5_path = path_root + ".h5"
@@ -2149,31 +2241,46 @@ def rebuild_emulator(path_root, device, compile_model=True):
       kwargs["head_act"] = make_activation(
         _need(ha, "type", "head_act"),
         n_gates=_need(ha, "n_gates", "head_act"))
-    if _need(rc, "needs_geom", "model_recipe"):
-      # conv/TRF heads read geom.bin_sizes at construction. A diagonal
-      # family geometry (cmb / grid / grid2d) derives the split
-      # from its own saved grid — attach it here so a head artifact
-      # rebuilds from the files alone. The cosmolike DataVectorGeometry
-      # instead PERSISTS the split (bin_sizes / pm_kept in its state,
-      # attached at training by build_shear_angle_map, which needs the
-      # dataset ini — files rebuild must never require); from_state has
-      # already restored it, so only its absence is checked: an older
-      # head artifact that predates the persistence is refused loudly,
-      # never guessed at.
+    needs_geom = _need(rc, "needs_geom", "model_recipe")
+    if needs_geom:
+      # Structured heads need bin counts plus the exact physical slot map and
+      # validity mask. A diagonal family (cmb / grid / grid2d) derives its
+      # complete rectangular layout from the axes already saved in the
+      # geometry. A cosmic-shear geometry instead persists all three facts,
+      # because recreating its angular mask would require external dataset
+      # files. An older artifact without the complete layout is refused; bin
+      # counts are never used to guess survivor coordinates.
       if hasattr(geom_for_needs, "attach_head_coords"):
         geom_for_needs.attach_head_coords()
-      elif not hasattr(geom_for_needs, "bin_sizes"):
+      layout_complete = True
+      for name in ("bin_sizes", "head_pad_idx", "head_valid_mask"):
+        if not hasattr(geom_for_needs, name):
+          layout_complete = False
+      if not layout_complete:
         raise KeyError(
-          f"{path_root}.h5 dv_geometry has no bin_sizes, but the model "
-          "recipe needs the geometry (a conv/TRF head): this artifact "
-          "predates the bin-split persistence (the split was attached "
-          "only at training time and never saved). Retrain, or re-run "
-          "save_emulator on a live run, to write it. rebuild_emulator "
-          "never re-derives it (that would need ROOTDIR data files).")
+          f"{path_root}.h5 dv_geometry lacks the complete physical padded-"
+          "head layout (bin_sizes, head_pad_idx, and head_valid_mask). "
+          "Bin counts cannot recover masked angular coordinates. Retrain "
+          "the structured-head model with the current geometry writer")
+      for name in ("pad_idx", "pad_valid"):
+        if name not in state:
+          raise KeyError(
+            f"{path_root}.emul has no {name} buffer. This structured-head "
+            "artifact predates physical padding-map persistence; retrain it")
       kwargs["geom"] = geom_for_needs
     m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
             output_dim=_need(rc, "output_dim", "model_recipe"),
             **kwargs).to(device)
+    if needs_geom:
+      for name in ("pad_idx", "pad_valid"):
+        expected = getattr(m, name).detach().cpu()
+        recorded = state[name].detach().cpu()
+        if expected.dtype != recorded.dtype \
+            or expected.shape != recorded.shape \
+            or not torch.equal(expected, recorded):
+          raise ValueError(
+            f"{path_root} structured-head {name} disagrees between the "
+            "saved physical geometry and model checkpoint")
     m.load_state_dict(state, strict=True)
     m.eval()
     cm = _need(rc, "compile_mode", "model_recipe")

@@ -630,23 +630,49 @@ def validate_active_model_values(
         + head_block + " layout can be checked")
     sizes = require_positive_int_list(
       geom.bin_sizes, "output geometry bin_sizes")
+    physical_sizes = list(sizes)
+    physical_width = max(sizes)
+    has_physical_map = (
+      hasattr(geom, "head_pad_idx") and hasattr(geom, "head_valid_mask"))
+    if has_physical_map:
+      valid = torch.as_tensor(geom.head_valid_mask)
+      if valid.ndim != 2 or valid.dtype not in (torch.bool, torch.uint8):
+        raise ValueError(
+          "output geometry head_valid_mask must be a two-dimensional "
+          "Boolean layout")
+      physical_sizes = []
+      for row in valid:
+        physical_sizes.append(int(row.to(dtype=torch.bool).sum().item()))
+      physical_width = int(valid.shape[1])
+      nonempty_sizes = []
+      for size in physical_sizes:
+        if size > 0:
+          nonempty_sizes.append(size)
+      if nonempty_sizes != sizes:
+        raise ValueError(
+          "output geometry bin_sizes disagrees with head_valid_mask")
 
     if head_block == "trf":
       n_tokens = head_values.get("n_tokens")
       if n_tokens is not None:
-        if len(sizes) != 1:
+        if len(physical_sizes) != 1:
           raise ValueError(
             "model.trf.n_tokens may divide one physical output bin into "
-            "windows, but this output already has " + str(len(sizes))
+            "windows, but this output already has "
+            + str(len(physical_sizes))
             + " physical bins; omit n_tokens")
-        output_length = sizes[0]
+        output_length = physical_sizes[0]
+        if has_physical_map and not bool(torch.all(valid).item()):
+          raise ValueError(
+            "model.trf.n_tokens requires a complete one-dimensional grid "
+            "without masked physical coordinates")
         if n_tokens > output_length:
           raise ValueError(
             "model.trf.n_tokens must be in 2.." + str(output_length)
             + "; got " + repr(n_tokens))
         token_width = (output_length + n_tokens - 1) // n_tokens
       else:
-        token_width = max(sizes)
+        token_width = physical_width
       if token_width < 2:
         raise ValueError(
           "the maximum padded transformer token width must be at least 2; "
@@ -668,22 +694,39 @@ def validate_active_model_values(
             "group layout can be checked")
         branch_groups = 2 * IA_DESIGNS[ia]["n_templates"]
       if groups == branch_groups:
-        if not hasattr(geom, "pm_kept") or len(sizes) % 2 != 0:
+        if not hasattr(geom, "pm_kept") \
+            or len(physical_sizes) % 2 != 0:
           raise ValueError(
             "model.cnn.groups=" + str(groups)
             + " needs an even xi-plus/xi-minus bin layout with pm_kept")
-        pm_values = []
-        start = 0
-        for size in sizes:
-          pm_values.append(int(geom.pm_kept[start]))
-          start += size
-        half = len(pm_values) // 2
-        if pm_values[:half] != [0] * half \
-            or pm_values[half:] != [1] * half:
+        pm_kept = torch.as_tensor(geom.pm_kept).reshape(-1)
+        split_ok = True
+        half = len(physical_sizes) // 2
+        if has_physical_map:
+          pad_idx = torch.as_tensor(geom.head_pad_idx).reshape(-1)
+          if int(pad_idx.numel()) != int(pm_kept.numel()):
+            split_ok = False
+          else:
+            for element_index in range(int(pad_idx.numel())):
+              physical_bin = int(
+                (pad_idx[element_index] // physical_width).item())
+              expected_pm = 0 if physical_bin < half else 1
+              if int(pm_kept[element_index].item()) != expected_pm:
+                split_ok = False
+        else:
+          pm_values = []
+          start = 0
+          for size in sizes:
+            pm_values.append(int(pm_kept[start].item()))
+            start += size
+          if pm_values[:half] != [0] * half \
+              or pm_values[half:] != [1] * half:
+            split_ok = False
+        if not split_ok:
           raise ValueError(
             "model.cnn.groups=" + str(groups)
             + " needs the first half of bins to be xi+ and the second "
-            "half xi-; got " + repr(pm_values))
+            "half xi- according to the physical coordinate map")
 
   return {
     "trunk_activation": trunk_activation,

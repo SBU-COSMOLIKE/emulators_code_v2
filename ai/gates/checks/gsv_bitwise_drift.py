@@ -375,7 +375,7 @@ def main():
   the persisted bin split reconstructs the ResCNN with no dataset ini. Then
   patch ``make_activation``'s ``n_gates`` default, rebuild the plain pair, and
   require identical output. Last, two old schema versions and a
-  head save with its persisted bin split deleted (a pre-persistence artifact)
+  head save with its physical coordinate map deleted (a pre-map artifact)
   must raise loudly. Any failed step prints a FAIL
   line; main returns 1 if any failed, else 0.
   """
@@ -397,11 +397,9 @@ def main():
               aid="save-rebuild-drift.factored-rebuild-matches-live")
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp,
               aid="save-rebuild-drift.npce-rebuild-matches-live")
-  # the conv-head variant: training attaches the bin split
-  # (build_shear_angle_map), the save persists it (bin_sizes / pm_kept
-  # in the dv-geometry state), and the rebuild reconstructs the ResCNN
-  # from the files alone — before the persistence this died in the
-  # constructor's bin_sizes assert.
+  # The conv-head variant persists both its physical angular-coordinate map
+  # and its validity mask. Rebuild must recover the same ResCNN layout from
+  # the artifact alone, without reopening the dataset description.
   head_root, _ = run_variant(
     "head", tiny_config(data_dir, head=True), device, tmp,
     aid="save-rebuild-drift.head-rebuild-matches-live")
@@ -466,26 +464,25 @@ def main():
     f.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
 
   n_head = len(FAILURES)
-  # pre-persistence head-artifact refusal: delete the persisted bin
-  # split from the head save (simulating an artifact written before
-  # 2026-07-11); rebuild must raise the loud KeyError naming the
-  # persistence, never re-derive the split or crash in the
-  # constructor's assert.
+  # Pre-map head-artifact refusal: keep the old bin counts but delete the
+  # coordinate map and validity mask. Counts alone cannot recover which
+  # angular coordinates survived, so rebuild must name both missing facts
+  # and direct the user to retrain.
   with h5py.File(str(head_root) + ".h5", "r+") as f:
-    del f["dv_geometry"]["bin_sizes"]
-    if "pm_kept" in f["dv_geometry"]:
-      del f["dv_geometry"]["pm_kept"]
+    del f["dv_geometry"]["head_pad_idx"]
+    del f["dv_geometry"]["head_valid_mask"]
   refused_head = False
   named = False
   try:
     rebuild_emulator(path_root=str(head_root), device=device)
   except KeyError as e:
     refused_head = True
-    named = "bin-split persistence" in str(e)
-  report("old head artifact refusal: rebuild raises naming the "
-         "persistence",
+    message = str(e)
+    named = "head_pad_idx" in message \
+      and "head_valid_mask" in message and "Retrain" in message
+  report("old head artifact refusal: rebuild names the missing physical map",
          refused_head and named,
-         "a head file without bin_sizes must be refused, not guessed")
+         "a head file without map and mask must be refused, not guessed")
   emit_aid("save-rebuild-drift.old-head-artifact-refusal", n_head)
 
   print("")

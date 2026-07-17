@@ -369,7 +369,12 @@ class CmbDiagonalGeometry:
     W_df maps stay None. Idempotent; no files, no torch build — safe
     at training (build_geometry) and at rebuild (rebuild_emulator).
     """
-    self.bin_sizes = [int(self.ell.numel())]
+    width = int(self.ell.numel())
+    self.bin_sizes = [width]
+    self.head_pad_idx = torch.arange(
+      width, dtype=torch.long, device=self.ell.device)
+    self.head_valid_mask = torch.ones(
+      (1, width), dtype=torch.bool, device=self.ell.device)
 
   # --- low-level transforms (all multipoles kept, so squeeze /
   #     unsqueeze are the identity gather / scatter) ---

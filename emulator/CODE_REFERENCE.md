@@ -238,7 +238,7 @@ class flags the config layer reads:
 `head_block` (which correction head, None = trunk-only), `factored` (IA
 amplitudes appended raw), `needs_bins` (wants the shear-angle map).
 
-- `designs/blocks.py` — `Affine`, `FeatureAffine`, `make_norm`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, `rescale_kernel_size`.
+- `designs/blocks.py` — `Affine`, `FeatureAffine`, `make_norm`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, `rescale_kernel_size`, and the shared padded-head layout and masking helpers. The helpers preserve original physical slots, exclude storage-only coordinates after every head operation, and give CNN and transformer designs one validation rule.
 - `designs/plain.py` — `ResMLP` (input projection → residual blocks → output projection → Affine), `ResCNN` (gated bins-as-channels 1D CNN correction in theta order), `ResTRF` (bin-token transformer correction). The head knobs live under YAML `model.cnn` / `model.trf`; see each class docstring for the full knob table and the shape-flow diagrams.
 - `designs/ia.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (cosmology-only templates; the amplitudes never enter the network).
 - `designs/pce.py` — `PCEEmulator` (the closed-form sparse-Legendre base; loss-owned, not an SGD architecture) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
@@ -324,8 +324,8 @@ routes through).
 #### `emulator/results.py` <a name="apx-results"></a>
 
 - `save_learning_curves` / `save_sweep_table` — plain-text tables.
-- `save_emulator(...)` — writes a CPU-normalized PyTorch `state_dict` to `.emul` and geometry states, histories, resolved config, model recipe, and optional PCE or transfer-base records to `.h5`.
-- `rebuild_emulator(path_root, device)` — reconstructs `(model, param_geometry, geometry, info)` from the pair. `map_location=device` selects the destination, so loading does not require the accelerator used during saving. `info` carries the family flags and family-specific artifact facts.
+- `save_emulator(...)` — writes a CPU-normalized PyTorch `state_dict` to `.emul` and geometry states, histories, resolved config, model recipe, and optional PCE or transfer-base records to `.h5`. For a structured head, it first derives the recipe's expected slot map and validity mask and refuses a model/geometry disagreement before staging either file.
+- `rebuild_emulator(path_root, device)` — reconstructs `(model, param_geometry, geometry, info)` from the pair. `map_location=device` selects the destination, so loading does not require the accelerator used during saving. It checks a structured head's fixed map and mask before strict state loading. `info` carries the family flags and family-specific artifact facts.
 
 #### `emulator/inference.py` <a name="apx-inference"></a>
 

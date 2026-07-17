@@ -1214,12 +1214,17 @@ MLP operations must not use invalid positions as keys, values, or latent
 channels. Because angular positions form the feature dimension in this layout,
 a conventional sequence-token attention mask alone is insufficient. Plain and
 template CNN and transformer heads share the representation. The final partial
-token created by ragged `n_tokens` segmentation is masked. Equal-length input
+token created by ragged `n_tokens` segmentation is masked. A completely masked
+physical bin remains an empty row instead of shifting every later bin to a new
+coordinate. Masked LayerNorm uses only physical features; attention excludes a
+query-key pair when its head has no shared physical feature. Equal-length input
 without padding remains bitwise unchanged, as do rectangular CMB and grid
-families. Save/rebuild preserves the coordinate map and validity mask exactly.
-A structured-head artifact without those persisted fields is refused rather
-than reconstructed from counts. Every explanation of zero padding or matched
-angular scales must state the executed invariant.
+families. Before staging output files, save compares the model buffers with
+the layout derived from the geometry and resolved recipe. A disagreement
+cannot replace an existing valid pair. Rebuild performs the independent
+comparison again. A structured-head artifact without the persisted fields is
+refused rather than reconstructed from counts. Every explanation of zero
+padding or matched angular scales must state the executed invariant.
 
 **Code ownership.** Current scatter and gather behavior lives in the
 constructors and `forward` methods of `ResCNN` and `ResTRF` in
@@ -1231,12 +1236,28 @@ CMB and grid families continue to define their layouts through each
 geometry's `attach_head_coords` method. A new mask operation shared by the
 four structured models must have one owner rather than four drifting copies.
 
-**Acceptance evidence.** Registered Torch legs on a GPU-capable environment
-require equal-count bins with different masks to produce different persisted
-maps. A one-block known-answer CNN mixes only intended angular neighbors. A
-two-block routing witness must return exactly zero when a value can travel only
-through an invalid slot, for both ResCNN and TemplateResCNN. Multi-block ResTRF
-and TemplateResTRF keep invalid positions exactly zero, and valid outputs are
-invariant to an injected invalid-slot sentinel. Additional legs cover final
-partial-token inertness, bitwise-equal rectangular controls with exact identity
-at initialization, save/rebuild round-trip, and refusal of a pre-map artifact.
+<a id="padded-head-identity-layout"></a>
+
+**Layout acceptance evidence.** The registered Torch-only
+`padded-head-identity` gate requires equal-count bins with different masks to
+produce different persisted maps. A one-block known-answer CNN mixes only
+intended angular neighbors. A two-block routing witness returns exactly zero
+when a value can travel only through an invalid slot, for both ResCNN and
+TemplateResCNN. Multi-block ResTRF and TemplateResTRF keep invalid positions
+exactly zero, and valid outputs are invariant to an injected invalid-slot
+sentinel. Non-zero-preserving activations and FiLM shifts are exercised so a
+test cannot pass merely because its chosen operation happens to preserve zero.
+Additional witnesses cover a fully masked middle physical row, final
+partial-token inertness, and an unchanged live rectangular CNN path.
+
+<a id="padded-head-identity-artifact"></a>
+
+**Artifact acceptance evidence.** The same gate uses the public save and
+rebuild functions with a nonzero live CNN correction. It requires the reopened
+prediction, geometry map, geometry mask, and model buffers to match exactly.
+Saving a model with a missing mask or a geometry disagreement is refused
+before any staging path is reserved, while a preceding valid pair remains
+unchanged. Authenticated checkpoints that omit the fixed mask or disagree with
+the HDF5 geometry are refused before state loading. The workstation
+`save-rebuild-drift` gate retains its real cosmic-shear structured-head round
+trip and its refusal of an artifact written before map-and-mask persistence.

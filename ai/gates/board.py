@@ -2242,6 +2242,27 @@ def gate_diagnostics_domain(ctx):
              + " (ai/gates/checks/diagnostics_domain.py)")
 
 
+def gate_padded_head_identity(ctx):
+  """padded-head-identity: artificial head positions stay artificial.
+
+  A Torch-only child runs the focused coordinate and artifact modules. Its
+  layout leg uses real CNN and Transformer blocks to prove that masked angular
+  positions, including a fully empty physical row, remain finite and exactly
+  zero without shifting later values. Its artifact leg saves and rebuilds the
+  same coordinate map and mask. It also proves that a live model/geometry
+  disagreement is refused before staging and that missing or disagreeing
+  saved buffers are refused rather than guessed.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("ai/gates/checks/padded_head_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="padded-head-identity child completed",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (ai/gates/checks/padded_head_identity.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -2415,6 +2436,34 @@ BOARD = [
        run=gate_finite_contract,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
+       needs=("torch",)),
+  Gate(id="padded-head-identity",
+       spec_code="PHI-A",
+       title="Padded-head physical coordinate identity",
+       tier=TIER_BACKLOG,
+       home="models-and-designs",
+       maps="CPU witnesses prove that every structured CNN and Transformer "
+            "head follows the geometry's exact physical coordinate map, keeps "
+            "artificial slots finite and zero through live blocks, and leaves "
+            "the complete rectangular path unchanged; a public save/rebuild "
+            "round trip preserves the same map and mask, while live or saved "
+            "layout disagreements are refused before publication or loading",
+       evidence=(Assertion(
+                   "padded-head-identity.layout",
+                   "models-and-designs.md#padded-head-identity-layout"),
+                 Assertion(
+                   "padded-head-identity.artifact",
+                   "models-and-designs.md#padded-head-identity-artifact")),
+       run=gate_padded_head_identity,
+       manifest=Manifest(
+         code=("emulator/designs",
+               "emulator/losses",
+               "emulator/geometries/output.py",
+               "emulator/geometries/parameter.py",
+               "emulator/results.py",
+               "ai/tests/test_padded_head_identity.py",
+               "ai/tests/test_padded_head_artifact.py"),
+         inputs=()),
        needs=("torch",)),
   Gate(id="board-selftest",
        spec_code="BRD-A",

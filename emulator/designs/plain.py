@@ -69,10 +69,10 @@ import torch.nn as nn
 
 from ..activations import activation_fcn, require_live_head_activation
 from ..validation import (
-  require_exact_bool, require_exact_int, require_nonzero_float32,
-  require_positive_int_list)
+  require_exact_bool, require_exact_int, require_nonzero_float32)
 from .blocks import (
-  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
+  Affine, ResBlock, TRFBlock, FiLMGenerator, keep_valid_head_positions,
+  rescale_kernel_size, resolve_padded_head_layout,
   validate_trf_token_width)
 
 
@@ -218,7 +218,7 @@ class ResCNN(DesignSpec, nn.Module):
        │  @ W_fd                f -> d: theta order, /sigma
        ▼
     h  (B, n_keep)
-       │  pad_idx scatter       pad slots stay zero
+       │  pad_idx scatter       original physical slots + validity mask
        ▼
     c  (B, n_bins, max_bin)     tomographic bins = conv channels
        │  n_blocks_cnn x [Conv1d + act]
@@ -232,8 +232,9 @@ class ResCNN(DesignSpec, nn.Module):
 
   (legend: B = batch rows; n_keep = kept data-vector length, the
   unmasked entries the model emulates = output_dim; n_bins = number
-  of tomographic (xi+/-, source-pair) bins; max_bin = the longest
-  bin's kept theta count = the padded bin width; f / d = the
+  of physical tomographic (xi+/-, source-pair) bins, including an
+  entirely masked row; max_bin = the full physical angular width of
+  the padded rectangle; f / d = the
   full-whitened / diagonal-theta bases, see the W_fd buffers below.)
 
   The CNN is an additive correction in the diagonal view (theta
@@ -272,9 +273,9 @@ class ResCNN(DesignSpec, nn.Module):
   (legend: P = n_bins/2 source pairs per xi branch; per-block conv
   parameters = n_bins * (n_bins/groups) * kernel_size + n_bins, so
   the cut also halves the head's conv weights. The boundary is
-  validated against geom.pm_kept at build: bin_sizes drops
-  fully-masked bins, so a wholly-masked bin on one branch would
-  silently shift the cut, that fails loudly instead.)
+  validated against geom.pm_kept and the physical coordinate map.
+  A wholly masked row remains in that map, so it cannot silently
+  shift a later bin across the xi+ / xi- cut.)
 
   separable factors the remaining sum's two jobs, smoothing
   along theta and mixing channels, into two cheaper layers per
@@ -303,13 +304,13 @@ class ResCNN(DesignSpec, nn.Module):
   (legend: C = n_bins, the channels; k = the per-block kernel
   width after any rescale; B = batch rows.)
 
-  Bins differ in kept length, so each is padded to max_bin (the
-  longest bin's kept theta count) inside a fixed index buffer
-  (pad_idx scatters the n_keep theta-order entries into the padded
-  (n_bins, max_bin) layout and gathers the corrections back; pad
-  slots stay zero). The bin split comes from geom.bin_sizes
-  (attached by build_shear_angle_map; the needs_bins flag makes
-  EmulatorExperiment run it).
+  Bins differ in kept length, so each occupies one row of a
+  physical-width rectangle. pad_idx scatters each survivor into its
+  original angular slot, while pad_valid marks the storage-only
+  cells. The mask is restored after every operation that can make an
+  artificial cell nonzero, and pad_idx gathers only physical
+  corrections. build_shear_angle_map attaches this layout before
+  model construction.
 
   The head starts as an exact identity: the last conv is
   zero-initialized, so corr = 0 and the model equals its trunk at
@@ -344,10 +345,11 @@ class ResCNN(DesignSpec, nn.Module):
     input_dim    = number of cosmological parameters.
     output_dim   = data-vector length to emulate (= n_keep).
     int_dim_res  = internal width of the residual trunk.
-    geom         = the output geometry carrying bin_sizes (attached
-                   by build_shear_angle_map on the cosmolike
-                   geometry, by attach_head_coords() on a diagonal
-                   family geometry). With an eigenbasis (evecs /
+    geom         = the output geometry carrying bin_sizes, the
+                   physical padded-head map, and its validity mask
+                   (attached by build_shear_angle_map on the
+                   cosmolike geometry, by attach_head_coords() on a
+                   diagonal family geometry). With an eigenbasis (evecs /
                    sqrt_ev) it also defines the basis buffers;
                    without one the head works in the geometry's own
                    physical order (see the class docstring).
@@ -438,12 +440,8 @@ class ResCNN(DesignSpec, nn.Module):
     require_nonzero_float32(gate_init, "ResCNN.gate_init")
     if block_opts is not None and not isinstance(block_opts, dict):
       raise TypeError("ResCNN.block_opts must be a mapping or None")
-    if not hasattr(geom, "bin_sizes"):
-      raise ValueError(
-        "ResCNN needs geom.bin_sizes: prepare the output layout before "
-        "building the model")
-    sizes = require_positive_int_list(
-      geom.bin_sizes, "ResCNN.geom.bin_sizes")
+    sizes, pad_idx, pad_valid = resolve_padded_head_layout(
+      geom=geom, output_dim=output_dim, where="ResCNN")
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -460,17 +458,14 @@ class ResCNN(DesignSpec, nn.Module):
     mlp.append(Affine())
     self.mlp = nn.Sequential(*mlp)
 
-    # the bin split: per-bin kept counts, contiguous in theta order,
-    # and the fixed scatter/gather index into the padded layout (bin
-    # g's j-th entry at g*max_bin + j; see the class docstring).
-    self.n_bins  = len(sizes)
-    self.max_bin = max(sizes)
-    pos = []
-    for g in range(self.n_bins):
-      for j in range(sizes[g]):
-        pos.append(g * self.max_bin + j)
-    self.register_buffer(
-      "pad_idx", torch.tensor(pos, dtype=torch.long))
+    # The geometry owns the physical rectangle. pad_idx maps each kept
+    # output to its original angular slot, and pad_valid marks every slot
+    # that is a measurement rather than storage padding.
+    self.n_bins = len(sizes)
+    self.max_bin = int(pad_valid.shape[-1])
+    self.register_buffer("pad_idx", pad_idx)
+    self.register_buffer("pad_valid", pad_valid)
+    self.has_padding = not bool(torch.all(pad_valid).item())
 
     # the head: n_blocks_cnn x (one bins-as-channels conv + one
     # activation). head_act (the model.cnn.activation pin) wins when set;
@@ -487,45 +482,33 @@ class ResCNN(DesignSpec, nn.Module):
                                         n_blocks_cnn=n_blocks_cnn)
     # the resolved per-block width, inspectable after a rescale.
     self.kernel_size = int(kernel_size)
+    self.separable = separable
 
-    # groups: only the xi-branch cut is a physical channel
-    # boundary here (see the docstring). Validate the layout
-    # against the geometry rather than assume it: each bin is a
-    # contiguous run of kept elements sharing one pm (0 = xi+,
-    # 1 = xi-), so the run starts give the per-bin branch; the
-    # first half of the bins must all be xi+ and the second half
-    # xi- (a fully-masked bin on one branch would silently shift
-    # the boundary, fail loudly instead).
+    # groups: only the xi-branch cut is a physical channel boundary here
+    # (see the docstring). For each kept output, pad_idx identifies its
+    # physical rectangle row. Check that rows before the midpoint are xi+
+    # and rows after it are xi-. A fully masked row remains in the rectangle,
+    # so it cannot shift the boundary while escaping this check.
     if groups == 2:
       if not hasattr(geom, "pm_kept") or self.n_bins % 2 != 0:
         raise ValueError(
           "ResCNN.groups=2 needs geom.pm_kept and an even bin count")
-      # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
-      # from its first kept element geom.pm_kept[start]. This
-      # assumes each bin is pm-homogeneous (its kept angular bins
-      # all share one branch), which holds for the xi geometry; a
-      # mixed-pm bin would be represented by its first element only
-      # and could pass the split check silently.
-      pm_bins = []
-      start = 0
-      for s in sizes:
-        pm_bins.append(int(geom.pm_kept[start]))
-        start += s
       half = self.n_bins // 2
-      # construction-time check (not hot, so a plain loop, not a
-      # comprehension): the first half of the bins must be xi+
-      # (pm 0) and the second half xi- (pm 1).
+      pm_values = torch.as_tensor(geom.pm_kept).reshape(-1).cpu()
+      if int(pm_values.numel()) != output_dim:
+        raise ValueError(
+          "ResCNN.groups=2 needs one geom.pm_kept value per output")
       split_ok = True
-      for pm in pm_bins[:half]:
-        if pm != 0:
-          split_ok = False
-      for pm in pm_bins[half:]:
-        if pm != 1:
+      for element_index in range(output_dim):
+        physical_bin = int(
+          (self.pad_idx[element_index] // self.max_bin).item())
+        expected_pm = 0 if physical_bin < half else 1
+        if int(pm_values[element_index].item()) != expected_pm:
           split_ok = False
       if not split_ok:
         raise ValueError(
           "ResCNN.groups=2 needs the first half of the bins to be xi+ "
-          "and the second half xi-; per-bin branches: " + repr(pm_bins))
+          "and the second half xi- according to the physical coordinate map")
 
     pad = (kernel_size - 1) // 2
     convs, acts = [], []
@@ -682,9 +665,16 @@ class ResCNN(DesignSpec, nn.Module):
     padded = h.new_zeros(h.shape[0], self.n_bins * self.max_bin)
     padded[:, self.pad_idx] = h
     c = padded.view(-1, self.n_bins, self.max_bin)
+    valid_mask = self.pad_valid if self.has_padding else None
     n = len(self.convs)
     for i in range(n):
-      c = self.convs[i](c)                 # cross-bin, theta-local
+      if self.separable:
+        c = self.convs[i][0](c)
+        c = keep_valid_head_positions(c, valid_mask)
+        c = self.convs[i][1](c)
+      else:
+        c = self.convs[i](c)               # cross-bin, theta-local
+      c = keep_valid_head_positions(c, valid_mask)
       if self.film_gens is not None:
         # FiLM re-injection: a per-bin affine whose coefficients
         # depend on the parameters (identity at init). unsqueeze
@@ -692,7 +682,9 @@ class ResCNN(DesignSpec, nn.Module):
         # modulation is per channel, never per position.
         gamma, beta = self.film_gens[i](x)
         c = gamma.unsqueeze(-1) * c + beta.unsqueeze(-1)
+        c = keep_valid_head_positions(c, valid_mask)
       c = self.acts[i](c)
+      c = keep_valid_head_positions(c, valid_mask)
     # gather the real entries back out of the padding, return to the
     # full-whitened basis when one exists (reminder: @ W_df goes
     # d -> f; None = identity), add through the gate.
@@ -717,7 +709,7 @@ class ResTRF(DesignSpec, nn.Module):
     y  (B, n_keep)              full-whitened dv (also the skip)
        │  @ W_fd                f -> d: theta order, /sigma
        ▼
-       │  pad_idx scatter       pad slots stay zero
+       │  pad_idx scatter       original physical slots + validity mask
        ▼
     t0 (B, n_bins, max_bin)     one token per bin, width max_bin
        │  n_blocks_trf x TRFBlock
@@ -731,8 +723,9 @@ class ResTRF(DesignSpec, nn.Module):
 
   (legend: B = batch rows; n_keep = kept data-vector length, the
   unmasked entries the model emulates = output_dim; n_bins = number
-  of tomographic (xi+/-, source-pair) bins; max_bin = the longest
-  bin's kept theta count = the padded token width; f / d = the
+  of physical tomographic (xi+/-, source-pair) bins, including an
+  entirely masked row; max_bin = the full physical angular width of
+  the padded token rectangle; f / d = the
   full-whitened / diagonal-theta bases, see the W_fd buffers below.)
 
   Attention shares information across bins, then each bin's own MLP
@@ -742,14 +735,12 @@ class ResTRF(DesignSpec, nn.Module):
   never across them; attention is the head for cross-bin structure
   in the trunk's residuals.
 
-  The bin split comes from geom.bin_sizes (attached by
-  build_shear_angle_map; EmulatorExperiment runs it when the
-  needs_bins flag is set). Bins differ in length, so each is padded
-  to max_bin (the longest bin's kept theta count) inside a fixed
-  index buffer (pad_idx scatters the n_keep theta-order entries
-  into the padded (n_bins, max_bin) layout and gathers the
-  corrections back; the pad positions stay zero and drop at the
-  gather).
+  build_shear_angle_map supplies the physical coordinate map and
+  validity mask. Bins with different survivor counts still occupy
+  the full physical angular width. pad_idx scatters each value into
+  its original slot and gathers it back; pad_valid is reapplied
+  after normalization, attention, MLP, activation and FiLM steps so
+  storage-only positions cannot become latent data.
 
   The tokens live at their natural width: max_bin, the padded bin
   length. There is deliberately no embedding layer in and no output
@@ -788,10 +779,11 @@ class ResTRF(DesignSpec, nn.Module):
     input_dim    = number of cosmological parameters.
     output_dim   = data-vector length to emulate (= n_keep).
     int_dim_res  = internal width of the residual trunk.
-    geom         = the output geometry carrying bin_sizes (attached
-                   by build_shear_angle_map on the cosmolike
-                   geometry, by attach_head_coords() on a diagonal
-                   family geometry). With an eigenbasis (evecs /
+    geom         = the output geometry carrying bin_sizes, the
+                   physical padded-head map, and its validity mask
+                   (attached by build_shear_angle_map on the
+                   cosmolike geometry, by attach_head_coords() on a
+                   diagonal family geometry). With an eigenbasis (evecs /
                    sqrt_ev) it also defines the basis buffers;
                    without one the head works in the geometry's own
                    physical order (see the class docstring).
@@ -864,12 +856,8 @@ class ResTRF(DesignSpec, nn.Module):
     require_nonzero_float32(gate_init, "ResTRF.gate_init")
     if block_opts is not None and not isinstance(block_opts, dict):
       raise TypeError("ResTRF.block_opts must be a mapping or None")
-    if not hasattr(geom, "bin_sizes"):
-      raise ValueError(
-        "ResTRF needs geom.bin_sizes: prepare the output layout before "
-        "building the model")
-    sizes = require_positive_int_list(
-      geom.bin_sizes, "ResTRF.geom.bin_sizes")
+    sizes, pad_idx, pad_valid = resolve_padded_head_layout(
+      geom=geom, output_dim=output_dim, where="ResTRF")
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -894,6 +882,13 @@ class ResTRF(DesignSpec, nn.Module):
           "(cmb / grid), but this geometry defines "
           + str(len(sizes)) + " physical bins (tomographic bins / "
           "z slices) — those ARE the tokens; drop n_tokens")
+      expected_identity = torch.arange(
+        output_dim, dtype=torch.long, device=pad_idx.device)
+      if not bool(torch.all(pad_valid).item()) \
+          or not torch.equal(pad_idx, expected_identity):
+        raise ValueError(
+          "model.trf.n_tokens can re-segment only a complete one-dimensional "
+          "grid with no masked physical coordinates")
       output_length = sizes[0]
       resolved_tokens = n_tokens
       if resolved_tokens < 2 or resolved_tokens > output_length:
@@ -907,8 +902,19 @@ class ResTRF(DesignSpec, nn.Module):
           sizes.append(quotient + 1)
         else:
           sizes.append(quotient)
+      max_bin = max(sizes)
+      positions = []
+      for token_index, size in enumerate(sizes):
+        for coordinate_index in range(size):
+          positions.append(token_index * max_bin + coordinate_index)
+      pad_idx = torch.tensor(
+        positions, dtype=torch.long, device=pad_idx.device)
+      pad_valid = torch.zeros(
+        (1, len(sizes), max_bin), dtype=torch.bool,
+        device=pad_valid.device)
+      pad_valid.reshape(-1)[pad_idx] = True
     self.n_bins = len(sizes)
-    self.max_bin = max(sizes)
+    self.max_bin = int(pad_valid.shape[-1])
     validate_trf_token_width(
       output_length=output_dim,
       n_tokens=self.n_bins,
@@ -928,17 +934,12 @@ class ResTRF(DesignSpec, nn.Module):
     mlp.append(Affine())
     self.mlp = nn.Sequential(*mlp)
 
-    # pad_idx maps each kept theta-order position to its slot in the
-    # padded (n_bins, max_bin) layout: bin g's j-th entry sits at
-    # g*max_bin + j, the tail slots of short bins stay zero. One
-    # fixed buffer serves both directions, scatter to pad, gather
-    # to unpad.
-    pos = []
-    for g in range(self.n_bins):
-      for j in range(sizes[g]):
-        pos.append(g * self.max_bin + j)
-    self.register_buffer(
-      "pad_idx", torch.tensor(pos, dtype=torch.long))
+    # The geometry supplies physical angular slots. Ragged n_tokens
+    # segmentation above constructs the equivalent map for its contiguous
+    # windows. Both buffers persist in the model state.
+    self.register_buffer("pad_idx", pad_idx)
+    self.register_buffer("pad_valid", pad_valid)
+    self.has_padding = not bool(torch.all(pad_valid).item())
 
     # the head: n_blocks_trf transformer blocks straight on the
     # padded bin tokens (width = max_bin; no embedding, no output
@@ -1066,10 +1067,12 @@ class ResTRF(DesignSpec, nn.Module):
     # (B, n_bins*max_bin) -> (B, n_bins, max_bin): each bin one token row, at
     # its natural width, the blocks run directly on these.
     t0 = padded.view(-1, self.n_bins, self.max_bin)
+    valid_mask = self.pad_valid if self.has_padding else None
     t = t0
     n = len(self.trf)
     for i in range(n):
-      t = self.trf[i](t)              # cross-bin attention + MLPs
+      t = self.trf[i](t, valid_mask)  # cross-bin attention + MLPs
+      t = keep_valid_head_positions(t, valid_mask)
       if self.film_gens is not None:
         # FiLM re-injection: a per-token affine whose coefficients
         # depend on the parameters (identity at init). unsqueeze
@@ -1077,6 +1080,7 @@ class ResTRF(DesignSpec, nn.Module):
         # never per position.
         gamma, beta = self.film_gens[i](x)
         t = gamma.unsqueeze(-1) * t + beta.unsqueeze(-1)
+        t = keep_valid_head_positions(t, valid_mask)
     # the correction is what the blocks added: every block is the
     # identity at init, so t - t0 = 0 exactly at epoch 1 (the
     # identity start, with no output projection needed to host it).

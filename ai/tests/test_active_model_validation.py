@@ -55,10 +55,27 @@ def _train_args(name, *, activation="H", head_values=None,
 
 def _cnn_geometry():
   """Return two length-two bins with a valid xi-plus/xi-minus split."""
-  return types.SimpleNamespace(
-    bin_sizes=[2, 2],
-    pm_kept=[0, 0, 1, 1],
-  )
+  return _head_geometry([2, 2], pm_kept=[0, 0, 1, 1])
+
+
+def _head_geometry(bin_sizes, *, pm_kept=None):
+  """Return a complete rectangular structured-head geometry for a test."""
+  sizes = list(bin_sizes)
+  width = max(sizes)
+  positions = []
+  valid = torch.zeros((len(sizes), width), dtype=torch.bool)
+  for bin_index, size in enumerate(sizes):
+    for coordinate_index in range(size):
+      positions.append(bin_index * width + coordinate_index)
+      valid[bin_index, coordinate_index] = True
+  values = {
+    "bin_sizes": sizes,
+    "head_pad_idx": torch.tensor(positions, dtype=torch.long),
+    "head_valid_mask": valid,
+  }
+  if pm_kept is not None:
+    values["pm_kept"] = list(pm_kept)
+  return types.SimpleNamespace(**values)
 
 
 def _public_grid_config():
@@ -97,7 +114,7 @@ def _public_grid_config():
 
 def _trf_geometry():
   """Return two physical tokens, each with width four."""
-  return types.SimpleNamespace(bin_sizes=[4, 4])
+  return _head_geometry([4, 4])
 
 
 def _assert_head_step_moves(test_case, model, watched_parameters, inputs):
@@ -693,11 +710,25 @@ class ActiveModelConstructionTests(unittest.TestCase):
     script = textwrap.dedent(
       """
       import types
+      import torch
       from emulator.designs.plain import ResCNN, ResTRF
 
-      cnn_geom = types.SimpleNamespace(
-          bin_sizes=[2, 2], pm_kept=[0, 0, 1, 1])
-      trf_geom = types.SimpleNamespace(bin_sizes=[4, 4])
+      def geometry(sizes, pm_kept=None):
+          width = max(sizes)
+          positions = []
+          valid = torch.zeros((len(sizes), width), dtype=torch.bool)
+          for bin_index, size in enumerate(sizes):
+              for coordinate_index in range(size):
+                  positions.append(bin_index * width + coordinate_index)
+                  valid[bin_index, coordinate_index] = True
+          return types.SimpleNamespace(
+              bin_sizes=sizes,
+              pm_kept=pm_kept,
+              head_pad_idx=torch.tensor(positions, dtype=torch.long),
+              head_valid_mask=valid)
+
+      cnn_geom = geometry([2, 2], pm_kept=[0, 0, 1, 1])
+      trf_geom = geometry([4, 4])
       cases = (
           ("kernel", lambda: ResCNN(
               input_dim=3, output_dim=4, int_dim_res=5,

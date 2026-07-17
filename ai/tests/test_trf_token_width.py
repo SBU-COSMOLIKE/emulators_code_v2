@@ -11,6 +11,28 @@ from emulator.designs.ia import TemplateResTRF
 from emulator.designs.plain import ResTRF
 
 
+def _geometry(bin_sizes, *, template=False):
+  """Return one complete rectangular layout for a constructor witness."""
+  sizes = list(bin_sizes)
+  width = max(sizes)
+  positions = []
+  valid = torch.zeros((len(sizes), width), dtype=torch.bool)
+  for bin_index, size in enumerate(sizes):
+    for coordinate_index in range(size):
+      positions.append(bin_index * width + coordinate_index)
+      valid[bin_index, coordinate_index] = True
+  values = {
+    "bin_sizes": sizes,
+    "head_pad_idx": torch.tensor(positions, dtype=torch.long),
+    "head_valid_mask": valid,
+  }
+  if template:
+    output_size = sum(sizes)
+    values["evecs"] = torch.eye(output_size)
+    values["sqrt_ev"] = torch.ones(output_size)
+  return types.SimpleNamespace(**values)
+
+
 def _fill_with_deterministic_nonzero_values(module):
   """Give every parameter a reproducible nonzero value."""
   with torch.no_grad():
@@ -28,7 +50,7 @@ class TransformerTokenWidthTest(unittest.TestCase):
   """A width-one token is refused before either model allocates layers."""
 
   def test_plain_width_one_refuses_before_layer_construction(self):
-    geometry = types.SimpleNamespace(bin_sizes=[4])
+    geometry = _geometry([4])
 
     with mock.patch(
         "emulator.designs.plain.nn.Linear",
@@ -49,10 +71,7 @@ class TransformerTokenWidthTest(unittest.TestCase):
           film=False)
 
   def test_factored_width_one_refuses_before_layer_construction(self):
-    geometry = types.SimpleNamespace(
-      bin_sizes=[1, 1, 1, 1],
-      evecs=torch.eye(4),
-      sqrt_ev=torch.ones(4))
+    geometry = _geometry([1, 1, 1, 1], template=True)
 
     with mock.patch(
         "emulator.designs.ia.nn.Linear",
@@ -75,10 +94,7 @@ class TransformerTokenWidthTest(unittest.TestCase):
 
   def test_block_guard_alone_fires_after_factored_trunk_allocation(self):
     """Show why TemplateResTRF also needs its own early validation call."""
-    geometry = types.SimpleNamespace(
-      bin_sizes=[1, 1, 1, 1],
-      evecs=torch.eye(4),
-      sqrt_ev=torch.ones(4))
+    geometry = _geometry([1, 1, 1, 1], template=True)
     original_linear = torch.nn.Linear
     constructed_layers = []
 
@@ -152,7 +168,7 @@ class TransformerTokenWidthTest(unittest.TestCase):
 
   def test_adjacent_width_two_models_remain_valid(self):
     """The closest plain, factored and direct-block controls still build."""
-    plain_geometry = types.SimpleNamespace(bin_sizes=[4])
+    plain_geometry = _geometry([4])
     plain_model = ResTRF(
       input_dim=3,
       output_dim=4,
@@ -166,10 +182,7 @@ class TransformerTokenWidthTest(unittest.TestCase):
       film=False)
     self.assertEqual(plain_model.max_bin, 2)
 
-    factored_geometry = types.SimpleNamespace(
-      bin_sizes=[2, 2],
-      evecs=torch.eye(4),
-      sqrt_ev=torch.ones(4))
+    factored_geometry = _geometry([2, 2], template=True)
     factored_model = TemplateResTRF(
       input_dim=3,
       output_dim=4,

@@ -37,7 +37,8 @@ import torch.nn as nn
 # activation_fcn (activations.py): the learned gated activation H(x) =
 # gate(x)*x, the default act factory for ResBlock and the conv/TRF heads.
 from ..activations import activation_fcn, require_live_head_activation
-from ..validation import require_exact_bool, require_exact_int
+from ..validation import (
+  require_exact_bool, require_exact_int, require_positive_int_list)
 
 
 class Affine(nn.Module):
@@ -533,6 +534,162 @@ def validate_trf_token_width(
         "itself, so the transformer correction cannot depend on its input.")
 
 
+def resolve_padded_head_layout(*, geom, output_dim, where):
+  """Validate and copy one geometry's physical padded-head layout.
+
+  A structured head stores unequal physical bins in one rectangular tensor.
+  ``head_pad_idx`` maps each value in the model's output order to its exact
+  rectangular slot. ``head_valid_mask`` marks the slots that contain physical
+  values. Bin counts alone are insufficient because two bins can keep the same
+  number of values at different angular coordinates.
+
+  Arguments:
+    geom       = geometry carrying ``bin_sizes``, ``head_pad_idx``, and
+                 ``head_valid_mask``.
+    output_dim = number of physical values produced by the model.
+    where      = model name used in refusal messages.
+
+  Returns:
+    ``(bin_sizes, pad_idx, valid_mask)``. ``pad_idx`` is one-dimensional.
+    ``valid_mask`` has shape ``(1, number of bins, physical width)`` so it
+    broadcasts over a model batch.
+  """
+  if not hasattr(geom, "bin_sizes"):
+    raise ValueError(
+      where + " needs geom.bin_sizes: prepare the output layout before "
+      "building the model")
+  sizes = require_positive_int_list(
+    geom.bin_sizes, where + ".geom.bin_sizes")
+
+  missing = []
+  for name in ("head_pad_idx", "head_valid_mask"):
+    if not hasattr(geom, name):
+      missing.append(name)
+  if missing:
+    raise ValueError(
+      where + " needs the geometry's persisted physical padded-head layout "
+      "(" + ", ".join(missing) + "). Bin counts cannot recover angular "
+      "positions. Rebuild the geometry from current data, or retrain an old "
+      "structured-head artifact")
+
+  raw_idx = torch.as_tensor(getattr(geom, "head_pad_idx"))
+  if raw_idx.ndim != 1 or raw_idx.dtype == torch.bool \
+      or raw_idx.dtype.is_floating_point or raw_idx.dtype.is_complex:
+    raise ValueError(
+      where + ".geom.head_pad_idx must be a one-dimensional integer map")
+  pad_idx = raw_idx.to(dtype=torch.long).detach().clone()
+
+  raw_valid = torch.as_tensor(getattr(geom, "head_valid_mask"))
+  if raw_valid.ndim != 2:
+    raise ValueError(
+      where + ".geom.head_valid_mask must have shape "
+      "(number of bins, physical width)")
+  if raw_valid.dtype == torch.bool:
+    valid = raw_valid.detach().clone()
+  elif raw_valid.dtype == torch.uint8:
+    binary = torch.logical_or(raw_valid == 0, raw_valid == 1)
+    if not bool(torch.all(binary).item()):
+      raise ValueError(
+        where + ".geom.head_valid_mask uint8 values must be 0 or 1")
+    valid = raw_valid.to(dtype=torch.bool).detach().clone()
+  else:
+    raise ValueError(
+      where + ".geom.head_valid_mask must contain booleans or persisted "
+      "uint8 zeros and ones")
+
+  n_bins = int(valid.shape[0])
+  if n_bins < 1:
+    raise ValueError(
+      where + ".geom.head_valid_mask must contain at least one physical bin")
+  physical_width = int(valid.shape[1])
+  if physical_width < 1:
+    raise ValueError(
+      where + ".geom.head_valid_mask must contain at least one coordinate")
+
+  valid_cpu = valid.detach().cpu()
+  row_sizes = []
+  nonempty_sizes = []
+  for bin_index in range(n_bins):
+    size = int(valid_cpu[bin_index].sum().item())
+    row_sizes.append(size)
+    if size > 0:
+      nonempty_sizes.append(size)
+  if nonempty_sizes != sizes:
+    raise ValueError(
+      where + ".geom.bin_sizes must equal the nonempty rows of "
+      "head_valid_mask in physical order")
+
+  expected_values = sum(row_sizes)
+  if output_dim != expected_values:
+    raise ValueError(
+      where + ".output_dim is " + str(output_dim)
+      + ", but geom.bin_sizes contains " + str(expected_values)
+      + " physical values")
+  if int(pad_idx.numel()) != output_dim:
+    raise ValueError(
+      where + ".geom.head_pad_idx has " + str(int(pad_idx.numel()))
+      + " entries, but output_dim is " + str(output_dim))
+
+  idx_cpu = pad_idx.detach().cpu()
+  rectangle_size = n_bins * physical_width
+  if bool(torch.any(idx_cpu < 0).item()) \
+      or bool(torch.any(idx_cpu >= rectangle_size).item()):
+    raise ValueError(
+      where + ".geom.head_pad_idx contains a slot outside the validity mask")
+  if int(torch.unique(idx_cpu).numel()) != output_dim:
+    raise ValueError(
+      where + ".geom.head_pad_idx must map every physical value to a "
+      "different slot")
+
+  flat_valid = valid_cpu.reshape(-1)
+  if not bool(torch.all(flat_valid[idx_cpu]).item()):
+    raise ValueError(
+      where + ".geom.head_pad_idx points to a slot marked artificial")
+  if int(flat_valid.sum().item()) != output_dim:
+    raise ValueError(
+      where + ".geom.head_valid_mask must mark exactly output_dim physical "
+      "slots")
+  mask_positions = torch.nonzero(flat_valid, as_tuple=False).reshape(-1)
+  if not torch.equal(torch.sort(idx_cpu).values, mask_positions):
+    raise ValueError(
+      where + ".geom.head_pad_idx and head_valid_mask describe different "
+      "physical slots")
+  return row_sizes, pad_idx, valid.unsqueeze(0)
+
+
+def keep_valid_head_positions(values, valid_mask):
+  """Set artificial padded-head positions to exact zero.
+
+  ``valid_mask`` is Boolean and broadcasts over the batch. Passing ``None``
+  keeps the original rectangular code path bit-for-bit unchanged.
+  """
+  if valid_mask is None:
+    return values
+  return values.masked_fill(torch.logical_not(valid_mask), 0)
+
+
+def _masked_layer_norm(values, valid_mask, layer):
+  """Apply LayerNorm using only physical feature coordinates."""
+  if valid_mask is None:
+    return layer(values)
+
+  mask = valid_mask.to(dtype=values.dtype)
+  count = mask.sum(dim=-1, keepdim=True)
+  safe_count = torch.clamp(count, min=1.0)
+  mean = (values * mask).sum(dim=-1, keepdim=True) / safe_count
+  centered = values - mean
+  variance = ((centered.square() * mask).sum(dim=-1, keepdim=True)
+              / safe_count)
+  normalized_many = centered * torch.rsqrt(variance + layer.eps)
+  # One physical coordinate has no meaningful variance. Keeping that
+  # coordinate unnormalized retains its input dependence; subtracting its
+  # own mean would silently turn the Transformer branch into a constant.
+  normalized = torch.where(count == 1, values, normalized_many)
+  if layer.elementwise_affine:
+    normalized = normalized * layer.weight + layer.bias
+  return keep_valid_head_positions(normalized, valid_mask)
+
+
 class TRFBlock(nn.Module):
   """
   One transformer block over tokens at their natural width: no
@@ -704,26 +861,53 @@ class TRFBlock(nn.Module):
     nn.init.zeros_(self.mlp_lins[-1].weight)
     nn.init.zeros_(self.mlp_lins[-1].bias)
 
-  def forward(self, x):
+  def forward(self, x, valid_mask=None):
     # x: (B, G, dim), i.e. G tokens of width dim.
+    # A ragged physical layout passes a Boolean feature mask. Invalid
+    # coordinates are removed before normalization, all attention
+    # projections, every MLP operation, and both residual returns. A
+    # rectangular layout passes None and keeps the original operations
+    # byte-for-byte.
+    x = keep_valid_head_positions(x, valid_mask)
     B, G, _ = x.shape
 
     # --- attention branch (pre-LN residual) ---
-    h = self.ln_att(x)
+    h = _masked_layer_norm(x, valid_mask, self.ln_att)
     # split the feature axis into heads: (B, G, dim) -> (B, G, H,
     # d_head); view is free (the Linear output is contiguous).
-    q = self.wq(h).view(B, G, self.n_heads, self.d_head)
-    k = self.wk(h).view(B, G, self.n_heads, self.d_head)
-    v = self.wv(h).view(B, G, self.n_heads, self.d_head)
+    q = keep_valid_head_positions(self.wq(h), valid_mask)
+    k = keep_valid_head_positions(self.wk(h), valid_mask)
+    v = keep_valid_head_positions(self.wv(h), valid_mask)
+    q = q.view(B, G, self.n_heads, self.d_head)
+    k = k.view(B, G, self.n_heads, self.d_head)
+    v = v.view(B, G, self.n_heads, self.d_head)
     # attention scores, einsum("bghd,bkhd->bhgk"): d is contracted
     # (the query-key dot product), b and h are batch axes, and the
     # kept g (query bin) x k (key bin) pair is the GxG attention
     # matrix per head. Divided by sqrt(d_head) so the dot products
     # stay O(1) and the softmax does not saturate at init.
     att = torch.einsum("bghd,bkhd->bhgk", q, k) / self.d_head ** 0.5
+    overlap = None
+    if valid_mask is not None:
+      # Padding occupies the feature axis, not the token axis. Build one
+      # query/key permission matrix per attention head from the physical
+      # feature overlap. An all-padding token is never a key or value, and a
+      # head with no common physical coordinate receives no attention update.
+      feature_valid = valid_mask.reshape(
+        1, G, self.n_heads, self.d_head)
+      query_valid = feature_valid.permute(0, 2, 1, 3).unsqueeze(3)
+      key_valid = feature_valid.permute(0, 2, 1, 3).unsqueeze(2)
+      overlap = torch.logical_and(query_valid, key_valid).any(dim=-1)
+      att = att.masked_fill(torch.logical_not(overlap), -torch.inf)
     # softmax over the key axis: each query bin's weights over all
     # bins sum to 1.
-    att = torch.softmax(att, dim=-1)
+    if overlap is None:
+      att = torch.softmax(att, dim=-1)
+    else:
+      has_key = overlap.any(dim=-1, keepdim=True)
+      safe_scores = torch.where(has_key, att, torch.zeros_like(att))
+      att = torch.softmax(safe_scores, dim=-1)
+      att = torch.where(has_key, att, torch.zeros_like(att))
     # weighted sum of the value tokens, einsum("bhgk,bkhd->bghd"):
     # k is contracted against each query's attention row; the
     # result is one mixed d_head vector per (query bin, head).
@@ -731,11 +915,14 @@ class TRFBlock(nn.Module):
     # merge the heads back: (B, G, H, d_head) -> (B, G, dim).
     # reshape (not view): the einsum output need not be contiguous.
     out = out.reshape(B, G, self.n_heads * self.d_head)
-    x = x + self.wo(out)
+    out = keep_valid_head_positions(out, valid_mask)
+    attention_update = keep_valid_head_positions(self.wo(out), valid_mask)
+    x = keep_valid_head_positions(x + attention_update, valid_mask)
 
     # --- per-bin MLP branch (pre-LN residual) ---
-    h = self.ln_mlp(x)
+    h = _masked_layer_norm(x, valid_mask, self.ln_mlp)
     n = len(self.mlp_lins)
     for i in range(n):
-      h = self.mlp_acts[i](self.mlp_lins[i](h))
-    return x + h
+      h = keep_valid_head_positions(self.mlp_lins[i](h), valid_mask)
+      h = keep_valid_head_positions(self.mlp_acts[i](h), valid_mask)
+    return keep_valid_head_positions(x + h, valid_mask)

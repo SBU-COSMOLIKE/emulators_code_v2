@@ -228,6 +228,16 @@ For cosmic shear, tomographic bins become channels of the convolution. For
 CMB and background outputs, the ordered coordinate is multipole or redshift.
 For matter power, each redshift slice contains an ordered wavenumber axis.
 
+Some cosmic-shear bins keep different angular positions after masking. The
+head records the original slot of every kept value; it does not infer a slot
+from how many values survived. A Boolean mask marks the extra rectangle cells
+that exist only for storage. The CNN reapplies that mask after each
+convolution, activation, and parameter-dependent FiLM shift, so an artificial
+cell cannot carry a value into a physical output. Both the slot map and mask
+are stored with a trained model. Saving refuses a model and geometry that
+describe different layouts, before it changes either output file. Reopening
+checks the two saved files against each other again.
+
 Named scalar outputs have no physical neighbor order. The scalar family
 therefore refuses `ResCNN` and uses `ResMLP`.
 
@@ -246,6 +256,13 @@ stored coordinate group for CMB, background, and matter-power outputs.
 The attention calculation lets one token use information from another token.
 The head then adds its correction to the trunk prediction. Named scalar
 outputs have no defined token order, so the scalar family refuses `ResTRF`.
+
+The transformer uses the same saved slot map and Boolean mask as the CNN. Its
+normalization ignores storage-only coordinates, attention excludes keys and
+values with no shared physical coordinate, and a completely masked token
+stays exactly zero. This matters for unequal cosmic-shear bins and for the
+short final token created when `n_tokens` does not divide an ordered axis
+evenly.
 
 The transformer blocks live in `designs/blocks.py`; the complete model lives
 in `designs/plain.py`.

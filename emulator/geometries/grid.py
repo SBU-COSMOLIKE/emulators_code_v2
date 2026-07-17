@@ -388,7 +388,12 @@ class GridGeometry:
     stay None. Idempotent; no files, no torch build — safe at
     training (build_geometry) and at rebuild (rebuild_emulator).
     """
-    self.bin_sizes = [int(self.z.numel())]
+    width = int(self.z.numel())
+    self.bin_sizes = [width]
+    self.head_pad_idx = torch.arange(
+      width, dtype=torch.long, device=self.z.device)
+    self.head_valid_mask = torch.ones(
+      (1, width), dtype=torch.bool, device=self.z.device)
 
   def encode(self, y):
     """Raw quantity rows -> standardized law-space target.

@@ -352,6 +352,12 @@ class Grid2DGeometry:
     for _ in range(int(self.z.numel())):
       sizes.append(int(self.k.numel()))
     self.bin_sizes = sizes
+    n_bins = len(sizes)
+    width = int(self.k.numel())
+    self.head_pad_idx = torch.arange(
+      n_bins * width, dtype=torch.long, device=self.k.device)
+    self.head_valid_mask = torch.ones(
+      (n_bins, width), dtype=torch.bool, device=self.k.device)
 
   def encode(self, y):
     """Law-space rows -> standardized target.

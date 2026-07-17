@@ -27,11 +27,11 @@ import torch.nn as nn
 
 from ..activations import activation_fcn, require_live_head_activation
 from ..validation import (
-  require_exact_bool, require_exact_int, require_nonzero_float32,
-  require_positive_int_list)
+  require_exact_bool, require_exact_int, require_nonzero_float32)
 from .plain import DesignSpec
 from .blocks import (
-  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
+  Affine, ResBlock, TRFBlock, FiLMGenerator, keep_valid_head_positions,
+  rescale_kernel_size, resolve_padded_head_layout,
   validate_trf_token_width)
 
 
@@ -165,7 +165,7 @@ class TemplateResCNN(DesignSpec, nn.Module):
        │                         phase "trunk" returns y here)
        │  @ W_fd                 f -> d: theta order, /sigma
        ▼
-       │  pad_idx scatter        pad slots stay zero
+       │  pad_idx scatter        original physical slots + validity mask
        ▼
     c  (B, T*n_bins, max_bin)    (template, bin) pairs = channels
        │  n_blocks_cnn x [Conv1d + act]
@@ -180,8 +180,9 @@ class TemplateResCNN(DesignSpec, nn.Module):
 
   (legend: B = batch rows; T = n_templates (3 nla / 10 tatt);
   n_keep = kept dv length = output_dim, one template's width;
-  n_bins = tomographic (xi+/-, source-pair) bins; max_bin = the
-  longest bin's kept theta count = the padded width; f / d = the
+  n_bins = physical tomographic (xi+/-, source-pair) bins, including
+  an entirely masked row; max_bin = the full physical angular width
+  of the padded rectangle; f / d = the
   full-whitened / diagonal-theta bases, see the W_fd buffer
   comments; phases = set_train_phase, see its docstring.)
 
@@ -229,9 +230,9 @@ class TemplateResCNN(DesignSpec, nn.Module):
   GI / II residuals share structure, they come from the same
   underlying power-spectrum integrals, and groups=T / 2*T are
   its ablations. The xi boundary is validated against geom.pm_kept
-  at build: bin_sizes drops fully-masked bins, so a wholly-masked
-  bin on one branch would silently shift the cut, that fails
-  loudly instead.)
+  and the physical coordinate map. A wholly masked row stays in the
+  map, so it cannot silently shift a later bin into the wrong
+  branch.)
 
   separable factors each block's remaining sum, smoothing along
   theta and mixing channels, into a depthwise per-channel k-tap
@@ -306,7 +307,8 @@ class TemplateResCNN(DesignSpec, nn.Module):
       n_templates  = templates to emit (3 NLA, 10 TATT); must match
                      the coeff_fn's length.
       int_dim_res  = internal residual width of the trunk.
-      geom         = full-whitening DataVectorGeometry carrying
+      geom         = full-whitening DataVectorGeometry carrying the
+                     physical padded-head map, validity mask, and
                      bin_sizes; its evecs / sqrt_ev define the
                      basis-change buffers.
       kernel_size  = conv kernel width (odd, same-padded), tuned
@@ -395,12 +397,8 @@ class TemplateResCNN(DesignSpec, nn.Module):
         "input")
     if block_opts is not None and not isinstance(block_opts, dict):
       raise TypeError("TemplateResCNN.block_opts must be a mapping or None")
-    if not hasattr(geom, "bin_sizes"):
-      raise ValueError(
-        "TemplateResCNN needs geom.bin_sizes: prepare the output layout "
-        "before building the model")
-    sizes = require_positive_int_list(
-      geom.bin_sizes, "TemplateResCNN.geom.bin_sizes")
+    sizes, pad_idx, base_valid = resolve_padded_head_layout(
+      geom=geom, output_dim=output_dim, where="TemplateResCNN")
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -423,17 +421,15 @@ class TemplateResCNN(DesignSpec, nn.Module):
     layers.append(Affine())
     self.model = nn.Sequential(*layers)
 
-    # the bin split: per-bin kept counts, contiguous in theta order,
-    # and the fixed scatter/gather index into the padded layout (bin
-    # g's j-th entry at g*max_bin + j), applied per template.
-    self.n_bins  = len(sizes)
-    self.max_bin = max(sizes)
-    pos = []
-    for g in range(self.n_bins):
-      for j in range(sizes[g]):
-        pos.append(g * self.max_bin + j)
-    self.register_buffer(
-      "pad_idx", torch.tensor(pos, dtype=torch.long))
+    # The geometry owns one physical rectangle. pad_idx maps each kept
+    # output to its original angular slot. pad_valid repeats the aligned
+    # measurement-versus-padding mask once for each template.
+    self.n_bins = len(sizes)
+    self.max_bin = int(base_valid.shape[-1])
+    self.register_buffer("pad_idx", pad_idx)
+    pad_valid = base_valid.repeat(1, n_templates, 1)
+    self.register_buffer("pad_valid", pad_valid)
+    self.has_padding = not bool(torch.all(pad_valid).item())
 
     # the head: n_blocks_cnn x (one conv + one activation), with the
     # (template, bin) pairs as the channels, a single kernel over
@@ -450,48 +446,39 @@ class TemplateResCNN(DesignSpec, nn.Module):
                                         n_blocks_cnn=n_blocks_cnn)
     # the resolved per-block width, inspectable after a rescale.
     self.kernel_size = int(kernel_size)
+    self.separable = separable
 
     # groups: the channels are template-major (template, bin)
     # pairs, so only the template cut (groups = n_templates) and
     # the template+branch cut (groups = 2*n_templates) land on
-    # physical boundaries (see the docstring). For the branch cut,
-    # validate the bin layout against the geometry rather than
-    # assume it: each bin is a contiguous run of kept elements
-    # sharing one pm (0 = xi+, 1 = xi-); every template block
-    # repeats the same bin order, so checking the bin list once
-    # covers all templates.
+    # physical boundaries (see the docstring). For each kept output,
+    # pad_idx identifies its physical rectangle row. Check that rows before
+    # the midpoint are xi+ and rows after it are xi-. Every template repeats
+    # this same row order, and a fully masked row remains present instead of
+    # shifting the branch boundary.
     if groups == 2 * n_templates:
       if not hasattr(geom, "pm_kept") or self.n_bins % 2 != 0:
         raise ValueError(
           "TemplateResCNN branch groups need geom.pm_kept and an even "
           "bin count")
-      # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
-      # from its first kept element geom.pm_kept[start]. This
-      # assumes each bin is pm-homogeneous (its kept angular bins
-      # all share one branch), which holds for the xi geometry; a
-      # mixed-pm bin would be represented by its first element only
-      # and could pass the split check silently.
-      pm_bins = []
-      start = 0
-      for s in sizes:
-        pm_bins.append(int(geom.pm_kept[start]))
-        start += s
       half = self.n_bins // 2
-      # construction-time check (not hot, so a plain loop, not a
-      # comprehension): the first half of each template's bins must
-      # be xi+ (pm 0) and the second half xi- (pm 1).
+      pm_values = torch.as_tensor(geom.pm_kept).reshape(-1).cpu()
+      if int(pm_values.numel()) != output_dim:
+        raise ValueError(
+          "TemplateResCNN branch groups need one geom.pm_kept value per "
+          "output")
       split_ok = True
-      for pm in pm_bins[:half]:
-        if pm != 0:
-          split_ok = False
-      for pm in pm_bins[half:]:
-        if pm != 1:
+      for element_index in range(output_dim):
+        physical_bin = int(
+          (self.pad_idx[element_index] // self.max_bin).item())
+        expected_pm = 0 if physical_bin < half else 1
+        if int(pm_values[element_index].item()) != expected_pm:
           split_ok = False
       if not split_ok:
         raise ValueError(
           "TemplateResCNN branch groups need the first half of bins to "
-          "be xi+ and the second half xi-; per-bin branches: "
-          + repr(pm_bins))
+          "be xi+ and the second half xi- according to the physical "
+          "coordinate map")
 
     pad = (kernel_size - 1) // 2
     n_ch = n_templates * self.n_bins
@@ -659,9 +646,16 @@ class TemplateResCNN(DesignSpec, nn.Module):
     padded[..., self.pad_idx] = h
     c = padded.view(B, self.n_templates * self.n_bins,
                     self.max_bin)
+    valid_mask = self.pad_valid if self.has_padding else None
     n = len(self.convs)
     for i in range(n):
-      c = self.convs[i](c)                    # cross-bin+template
+      if self.separable:
+        c = self.convs[i][0](c)
+        c = keep_valid_head_positions(c, valid_mask)
+        c = self.convs[i][1](c)
+      else:
+        c = self.convs[i](c)                  # cross-bin+template
+      c = keep_valid_head_positions(c, valid_mask)
       if self.film_gens is not None:
         # FiLM re-injection: a per-(template, bin) affine whose
         # coefficients depend on the non-amplitude parameters
@@ -670,7 +664,9 @@ class TemplateResCNN(DesignSpec, nn.Module):
         # unsqueeze broadcasts (B, T*n_bins) over the theta axis.
         gamma, beta = self.film_gens[i](x[:, :self.n_in])
         c = gamma.unsqueeze(-1) * c + beta.unsqueeze(-1)
+        c = keep_valid_head_positions(c, valid_mask)
       c = self.acts[i](c)
+      c = keep_valid_head_positions(c, valid_mask)
     # gather the real entries back out of the padding (per
     # template), return to the full-whitened basis (reminder:
     # @ W_df goes d -> f), add through the per-template gate.
@@ -699,8 +695,9 @@ class TemplateResTRF(DesignSpec, nn.Module):
   stack (BinLinear; the deviation from the textbook shared FFN,
   which also replaces the positional encoding) specializes its
   correction. Bins differ in length, so each is padded to max_bin
-  inside a fixed pad_idx buffer (scatter to pad, gather to unpad;
-  pad slots stay zero).
+  inside a fixed physical-coordinate map. An aligned validity mask is
+  reapplied after every operation that can repopulate an artificial
+  slot; the map then gathers only physical values.
 
     x  (B, input_dim)            encoded params; the last n_amps
        │                         columns = raw amplitudes, loss-only
@@ -711,7 +708,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
        │                         phase "trunk" returns y here)
        │  @ W_fd                 f -> d: theta order, /sigma
        ▼
-       │  pad_idx scatter        pad slots stay zero
+       │  pad_idx scatter        original physical slots + validity mask
        ▼
     t0 (B, T*n_bins, max_bin)    one token per (template, bin) pair
        │  n_blocks_trf x TRFBlock
@@ -726,8 +723,9 @@ class TemplateResTRF(DesignSpec, nn.Module):
 
   (legend: B = batch rows; T = n_templates (3 nla / 10 tatt);
   n_keep = kept dv length = output_dim, one template's width;
-  n_bins = tomographic (xi+/-, source-pair) bins; max_bin = the
-  longest bin's kept theta count = the padded token width; f / d =
+  n_bins = physical tomographic (xi+/-, source-pair) bins, including
+  an entirely masked row; max_bin = the full physical angular width
+  of the padded token rectangle; f / d =
   the full-whitened / diagonal-theta bases, see the W_fd buffer
   comments; phases = set_train_phase, see TemplateResCNN's.)
 
@@ -769,7 +767,8 @@ class TemplateResTRF(DesignSpec, nn.Module):
       n_templates  = templates to emit (3 NLA, 10 TATT); must match
                      the coeff_fn's length.
       int_dim_res  = internal residual width of the trunk.
-      geom         = full-whitening DataVectorGeometry carrying
+      geom         = full-whitening DataVectorGeometry carrying the
+                     physical padded-head map, validity mask, and
                      bin_sizes; its evecs / sqrt_ev define the
                      basis buffers.
       n_heads      = attention heads per TRFBlock; must divide the
@@ -832,12 +831,8 @@ class TemplateResTRF(DesignSpec, nn.Module):
         "input")
     if block_opts is not None and not isinstance(block_opts, dict):
       raise TypeError("TemplateResTRF.block_opts must be a mapping or None")
-    if not hasattr(geom, "bin_sizes"):
-      raise ValueError(
-        "TemplateResTRF needs geom.bin_sizes: prepare the output layout "
-        "before building the model")
-    sizes = require_positive_int_list(
-      geom.bin_sizes, "TemplateResTRF.geom.bin_sizes")
+    sizes, pad_idx, base_valid = resolve_padded_head_layout(
+      geom=geom, output_dim=output_dim, where="TemplateResTRF")
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -853,7 +848,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
     # Resolve the token layout before allocating the template trunk. A
     # width-one refusal therefore leaves no partially constructed network.
     self.n_bins = len(sizes)
-    self.max_bin = max(sizes)
+    self.max_bin = int(base_valid.shape[-1])
     validate_trf_token_width(
       output_length=n_templates * output_dim,
       n_tokens=n_templates * self.n_bins,
@@ -874,16 +869,10 @@ class TemplateResTRF(DesignSpec, nn.Module):
     layers.append(Affine())
     self.model = nn.Sequential(*layers)
 
-    # pad_idx maps each kept theta-order position to its slot in the
-    # padded (n_bins, max_bin) layout (bin g's j-th entry at
-    # g*max_bin + j); one fixed buffer scatters to pad and gathers
-    # to unpad, per template.
-    pos = []
-    for g in range(self.n_bins):
-      for j in range(sizes[g]):
-        pos.append(g * self.max_bin + j)
-    self.register_buffer(
-      "pad_idx", torch.tensor(pos, dtype=torch.long))
+    self.register_buffer("pad_idx", pad_idx)
+    pad_valid = base_valid.repeat(1, n_templates, 1)
+    self.register_buffer("pad_valid", pad_valid)
+    self.has_padding = not bool(torch.all(pad_valid).item())
 
     # the head: n_blocks_trf transformer blocks straight on the
     # (template, bin) tokens at their natural width max_bin, no
@@ -1011,10 +1000,12 @@ class TemplateResTRF(DesignSpec, nn.Module):
     # (padded is contiguous).
     t0 = padded.view(B, self.n_templates * self.n_bins,
                      self.max_bin)
+    valid_mask = self.pad_valid if self.has_padding else None
     t = t0
     n = len(self.trf)
     for i in range(n):
-      t = self.trf[i](t)            # cross-bin + cross-template
+      t = self.trf[i](t, valid_mask)  # cross-bin + cross-template
+      t = keep_valid_head_positions(t, valid_mask)
       if self.film_gens is not None:
         # FiLM re-injection: a per-(template, bin)-token affine
         # whose coefficients depend on the non-amplitude
@@ -1023,6 +1014,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
         # the token width.
         gamma, beta = self.film_gens[i](x[:, :self.n_in])
         t = gamma.unsqueeze(-1) * t + beta.unsqueeze(-1)
+        t = keep_valid_head_positions(t, valid_mask)
     # the correction is what the blocks added (t - t0 = 0 at init:
     # every block starts as the identity). Unpack the tokens back to
     # (B, T, n_bins*max_bin), gather the real entries out of the padding,

@@ -117,7 +117,9 @@ class DataVectorGeometry:
                section_sizes = None,
                probe = None,
                bin_sizes = None,
-               pm_kept = None):
+               pm_kept = None,
+               head_pad_idx = None,
+               head_valid_mask = None):
     """Place the geometry tensors on the device.
 
     Plain constructor: stores fields only; the two
@@ -172,6 +174,14 @@ class DataVectorGeometry:
                    bin_sizes under the same unset-when-None
                    rule. Normalized to a numpy int array (the
                    form build_shear_angle_map attaches).
+      head_pad_idx = one integer rectangular slot for every kept physical
+                   value. The map preserves the original angular coordinate
+                   instead of replacing it with survivor rank.
+      head_valid_mask = two-dimensional Boolean array aligned with the
+                   structured head's (bin, angular-coordinate) rectangle.
+                   True marks physical values and False marks storage-only
+                   padding. Both layout fields are absent together on a
+                   trunk-only or older artifact.
     """
     self.dtype = dtype
     self.total_size = int(total_size)
@@ -234,6 +244,64 @@ class DataVectorGeometry:
       if isinstance(pm_kept, torch.Tensor):
         pm_kept = pm_kept.detach().cpu().numpy()
       self.pm_kept = np.asarray(pm_kept, dtype="int64")
+    if (head_pad_idx is None) != (head_valid_mask is None):
+      raise ValueError(
+        "DataVectorGeometry requires head_pad_idx and head_valid_mask "
+        "together")
+    if head_pad_idx is not None:
+      raw_idx = torch.as_tensor(head_pad_idx)
+      if raw_idx.ndim != 1 or raw_idx.dtype == torch.bool \
+          or raw_idx.dtype.is_floating_point \
+          or raw_idx.dtype.is_complex:
+        raise ValueError(
+          "DataVectorGeometry head_pad_idx must be a one-dimensional "
+          "integer map")
+      self.head_pad_idx = raw_idx.to(dtype=torch.long, device=device)
+      valid = torch.as_tensor(head_valid_mask, device=device)
+      if valid.ndim != 2:
+        raise ValueError(
+          "DataVectorGeometry head_valid_mask must have shape "
+          "(physical bins, angular coordinates)")
+      if valid.dtype == torch.uint8:
+        binary = torch.logical_or(valid == 0, valid == 1)
+        if not bool(torch.all(binary).item()):
+          raise ValueError(
+            "DataVectorGeometry head_valid_mask uint8 values must be 0 or 1")
+        valid = valid.to(dtype=torch.bool)
+      elif valid.dtype != torch.bool:
+        raise ValueError(
+          "DataVectorGeometry head_valid_mask must contain booleans or "
+          "persisted uint8 zeros and ones")
+      self.head_valid_mask = valid
+      flat_valid = valid.reshape(-1)
+      if int(self.head_pad_idx.numel()) != int(self.dest_idx.numel()):
+        raise ValueError(
+          "DataVectorGeometry head_pad_idx must contain one slot per kept "
+          "output value")
+      if int(flat_valid.sum().item()) != int(self.dest_idx.numel()):
+        raise ValueError(
+          "DataVectorGeometry head_valid_mask must mark one slot per kept "
+          "output value")
+      if bool(torch.any(self.head_pad_idx < 0).item()) \
+          or bool(torch.any(self.head_pad_idx >= flat_valid.numel()).item()) \
+          or not bool(torch.all(flat_valid[self.head_pad_idx]).item()):
+        raise ValueError(
+          "DataVectorGeometry head_pad_idx must point to the physical slots "
+          "in head_valid_mask")
+      marked = torch.nonzero(flat_valid, as_tuple=False).reshape(-1)
+      if not torch.equal(torch.sort(self.head_pad_idx).values, marked):
+        raise ValueError(
+          "DataVectorGeometry head_pad_idx and head_valid_mask disagree")
+      if self.probe == "xi":
+        if not torch.equal(self.head_pad_idx, self.dest_idx):
+          raise ValueError(
+            "DataVectorGeometry xi head_pad_idx must equal dest_idx: the "
+            "full xi layout is the independent physical coordinate map")
+        if self.section_sizes is not None \
+            and int(flat_valid.numel()) != int(self.section_sizes[0]):
+          raise ValueError(
+            "DataVectorGeometry xi head_valid_mask must cover the complete "
+            "cosmic-shear section")
 
   @classmethod
   def from_state(cls, device, state):
@@ -419,6 +487,9 @@ class DataVectorGeometry:
     if hasattr(self, "pm_kept"):
       st["pm_kept"] = torch.tensor(np.asarray(self.pm_kept),
                                    dtype=torch.long)
+    if hasattr(self, "head_pad_idx"):
+      st["head_pad_idx"] = self.head_pad_idx.cpu()
+      st["head_valid_mask"] = self.head_valid_mask.cpu().to(torch.uint8)
     return st
 
   # --- low-level transforms ---
@@ -764,7 +835,9 @@ def build_shear_angle_map(geom,
     geom, with new attributes: theta_kept [arcmin], zsrc_i,
     zsrc_j, pm_kept (each (n_keep,)); theta_centers [arcmin]
     (ntheta,), z_src (ntomo,), ntheta, source_ntomo, xi_size,
-    bin_sizes (list, len = #non-empty bins, sum = n_keep).
+    bin_sizes (list, len = #non-empty bins, sum = n_keep),
+    head_pad_idx (the original flattened xi slot of each survivor),
+    and head_valid_mask (the complete physical-bin by theta rectangle).
   """
   # Locate and parse the dataset ini (binning + n(z) file).
   # deferred (25M-37): getdist is imported here, not at module level (this
@@ -861,4 +934,12 @@ def build_shear_angle_map(geom,
   # len(bin_sizes) = number of non-empty bins (a fully-masked
   # bin never appears); sum(bin_sizes) = n_keep.
   geom.bin_sizes = bin_sizes
+  # The structured-head rectangle retains every physical bin, including an
+  # all-masked bin. In the full xi layout each kept global index is already
+  # its exact flattened (pm, source pair, theta) slot. Compacting nonempty
+  # bins would shift every later physical channel after an empty row.
+  geom.head_pad_idx = torch.as_tensor(keep, dtype=torch.long)
+  valid = torch.zeros((2 * npair, ntheta), dtype=torch.bool)
+  valid.reshape(-1)[geom.head_pad_idx] = True
+  geom.head_valid_mask = valid
   return geom
