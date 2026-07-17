@@ -475,12 +475,16 @@ It never starts or completes a ticket cycle.
    solve the problem. Passing tests alone is insufficient.
 
    A repair within the warning threshold is a valid victory when it removes
-   the High- or Medium-severity failure and evidence shows that only an
-   improbable Low edge case remains. Accept that bounded repair, close the
-   urgent ticket, and create a linked `LOW — EDGE CASE` bug ticket that states
-   the exact remainder. Never claim full coverage or use this route to
-   downgrade a probable failure, wrong primary science, data loss, or broken
-   core operation.
+   the ticket's demonstrated failure and evidence shows that only an
+   harmless exceptional edge case remains. Accept that bounded repair, close the
+   actionable ticket, and create a linked, parked `LOW — EDGE CASE` bug ticket
+   that states
+   the exact remainder. This class is below Low: it has no `- OPEN` line, is
+   never dispatched automatically, and is not a `--severity` choice. Activate
+   it only after the user explicitly asks the Architect to solve that ticket
+   by name. Prefer this bounded result when complete coverage would require
+   disproportionate complexity. Never claim full coverage or park a probable
+   failure, wrong primary science, data loss, or broken core operation.
 
 2b. **Plan bounded Implementer subagents (hard user rule).** Every
    implementation directive must use its `Parallel work plan` to split the
@@ -1327,9 +1331,10 @@ turn that touches a ticket are:
   order: `# Execution backlog`; the exact local-only notice; `## Contents`;
   `## How to read this backlog`; `# Open tickets`; `## Open ticket index`;
   the four `### Critical`, `### High`, `### Medium`, and `### Low` groups in
-  that order; matching detailed sections; then `# Closed tickets`. Keep each
-  empty group visible with the exact `No open PRIORITY tickets.` sentence,
-  and use `No closed tickets.` when appropriate. Copy the paste-ready skeleton
+  that order; matching detailed sections; `# Parked edge cases`; then
+  `# Closed tickets`. Keep each empty group visible with the exact
+  `No open PRIORITY tickets.` sentence, and use `No parked edge cases.` and
+  `No closed tickets.` when appropriate. Copy the paste-ready skeleton
   in `ai/notes/conventions-and-workflow.md`; do not invent a different private
   format.
 - **Use one exact index grammar.** Every open ticket has exactly one line of
@@ -1339,6 +1344,12 @@ turn that touches a ticket are:
   or `NEW FUNCTIONALITY`. A Critical feature, a missing type, an unlinked
   line, or a second `- OPEN` marker in the detailed record is malformed and
   blocks new discovery. Closed tickets have no `- OPEN` line.
+- **Park residual edge cases below Low.** A bounded repair may create one line
+  under `# Parked edge cases`:
+  `- PARKED **LOW — EDGE CASE** **BUG FIX** — [Plain human title](#unique-anchor)`.
+  It is not open work, does not enter any count, and cannot be selected by
+  `--severity`. Only an explicit user request naming that title authorizes you
+  to move it into the Low group as an ordinary `- OPEN **LOW**` bug ticket.
 - **Use one exact detailed-ticket order.** After the anchor and plain title,
   write `### High-level summary`, `### Current status`, `### What is already
   fixed`, `### What is missing`, and a collapsed `Technical record for
@@ -1346,9 +1357,9 @@ turn that touches a ticket are:
   ordinary-language sentences: what should happen, what happens
   instead, one concrete example when an abstraction needs it, and why a user
   or scientific result is affected. Current status records ticket type,
-  exactly `OPEN` or `CLOSED`, priority with evidence, the exact nonnegative
-  `Red Team reopen count`, exactly one `Red Team reopening` status, and every
-  blocker or prerequisite. A ticket starts with
+  exactly `OPEN`, `CLOSED`, or `PARKED`, priority with evidence, the exact
+  nonnegative `Red Team reopen count`, exactly one `Red Team reopening`
+  status, and every blocker or prerequisite. A ticket starts with
   `**Red Team reopening: allowed.**`; the only other valid value is
   `**Red Team reopening: barred by Architect NO-GO.**`. The last three
   parts separate completed work, all

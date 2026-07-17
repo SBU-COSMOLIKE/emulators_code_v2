@@ -61,6 +61,20 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("- `repo/path::test-name`:", self.architect)
         self.assertIn("--max RUNTIME_N", self.architect)
 
+    def test_architect_prefers_simple_bounded_repairs_over_bloat(self):
+        """A harmless remainder may be parked instead of bloating source."""
+        for name, source in (
+                ("Architect role", self.architect),
+                ("Python contract", self.python_contract)):
+            with self.subTest(source=name):
+                normalized = " ".join(source.split())
+                self.assertIn("harmless exceptional", normalized)
+                self.assertIn("disproportionate complexity", normalized)
+                for forbidden_remainder in (
+                        "probable failure", "wrong primary",
+                        "data loss", "broken core operation"):
+                    self.assertIn(forbidden_remainder, normalized)
+
     def test_public_admission_has_three_exact_architect_outcomes(self):
         """The real Architect is taught every daemon-accepted outcome."""
         token = "0001-to-fable.md@" + "a" * 64
@@ -899,10 +913,9 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.conventions)
         self.assertIn("normal purpose and one concrete example",
                       self.conventions)
-        self.assertIn("exactly one linked line for each unfinished",
+        self.assertIn("exactly one linked `- OPEN` line for each actionable",
                       self.conventions)
-        self.assertIn("every index link resolves to exactly one detailed open",
-                      self.conventions)
+        self.assertIn("Each index link resolves once", normalized)
         self.assertIn("A workstation-only check stays open",
                       self.conventions)
         self.assertIn("Uses only `unit 8`", self.conventions)
@@ -937,6 +950,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
             "ticket changes.\n\n"
             "## Contents\n\n"
             "- [Open tickets](#open-tickets)\n"
+            "- [Parked edge cases](#parked-edge-cases)\n"
             "- [Closed tickets](#closed-tickets)\n\n"
             "## How to read this backlog\n")
         self.assertIn(exact_skeleton, contract)
@@ -955,6 +969,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
             with self.subTest(empty_priority=priority):
                 self.assertIn("No open " + priority + " tickets.", contract)
         self.assertIn("No closed tickets.", contract)
+        self.assertIn("No parked edge cases.", contract)
         self.assertIn(
             "empty sentence and a ticket line never appear together", contract)
         for earlier, later in (
@@ -963,13 +978,20 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 ("### Critical", "### High"),
                 ("### High", "### Medium"),
                 ("### Medium", "### Low"),
-                ("### Low", "# Closed tickets")):
+                ("### Low", "# Parked edge cases"),
+                ("# Parked edge cases", "# Closed tickets")):
             with self.subTest(earlier=earlier, later=later):
                 self.assertLess(contract.index(earlier), contract.index(later))
 
         self.assertIn(
             "- OPEN **PRIORITY** **TYPE** — "
             "[Plain human title](#unique-anchor)", contract)
+        self.assertIn(
+            "- PARKED **LOW — EDGE CASE** **BUG FIX** — "
+            "[Plain human title](#unique-anchor)", contract)
+        self.assertIn("never selected automatically", self.conventions)
+        self.assertIn("explicit user request naming that exact parked ticket",
+                      self.conventions)
         self.assertIn(
             "`PRIORITY` is exactly `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`",
             contract)

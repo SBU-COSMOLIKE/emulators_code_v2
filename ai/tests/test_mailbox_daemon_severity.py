@@ -385,6 +385,12 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 self.assertIn(
                     "discovery severity default: " + value, output)
 
+        with scratch_daemon() as (daemon, _, _, _):
+            rc, _, error = run_main(
+                daemon, ["--once", "--severity", "low-edge-case"])
+            self.assertNotEqual(rc, 0)
+            self.assertIn("invalid choice", error)
+
     def test_fix_only_and_disabled_redteam_are_stronger_than_low(self):
         for value in ("high", "medium", "low"):
             with self.subTest(fix_only=value), scratch_daemon() as (
@@ -450,11 +456,45 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertEqual(daemon.backlog_ledger_count(), 15)
             self.assertEqual(daemon.discovery_admission_count(), 10)
             with backlog.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    "- PARKED **LOW — EDGE CASE** **BUG FIX** — "
+                    "[Named remainder](#named-remainder)\n")
+            self.assertEqual(daemon.backlog_severity_counts(), counts)
+            self.assertEqual(daemon.backlog_ledger_count(), 15)
+            with backlog.open("a", encoding="utf-8") as stream:
                 stream.write("- OPEN malformed ticket\n")
                 stream.write(
                     "- OPEN **CRITICAL** **NEW FUNCTIONALITY** — invalid\n")
             self.assertEqual(
                 daemon.backlog_severity_counts()["unclassified"], 2)
+
+    def test_parked_edge_case_needs_architect_conversion_to_low(self):
+        parked = (
+            "# Parked edge cases\n\n"
+            "- PARKED **LOW — EDGE CASE** **BUG FIX** — "
+            "[Named remainder](#named-remainder)\n\n"
+            '<a id="named-remainder"></a>\n'
+            "## Named remainder\n\n"
+            "**Red Team reopen count: 0.**\n\n"
+            "**Red Team reopening: allowed.**\n\n"
+            "**PARKED. Severity: LOW — EDGE CASE.**\n")
+        with scratch_daemon() as (daemon, _, _, backlog):
+            backlog.write_text(parked, encoding="utf-8")
+            self.assertEqual(daemon.backlog_ledger_count(), 0)
+            self.assertEqual(daemon.strict_cycle_ledger_count(), (0, None))
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError, "indexed Open"):
+                daemon.require_open_backlog_ticket("named-remainder")
+
+            active = parked.replace(
+                "- PARKED **LOW — EDGE CASE** **BUG FIX**",
+                "- OPEN **LOW** **BUG FIX**").replace(
+                    "**PARKED. Severity: LOW — EDGE CASE.**",
+                    "**OPEN.**\n\n**Severity: LOW.**")
+            backlog.write_text(active, encoding="utf-8")
+            self.assertEqual(daemon.backlog_ledger_count(), 1)
+            self.assertEqual(daemon.strict_cycle_ledger_count(), (1, None))
+            daemon.require_open_backlog_ticket("named-remainder")
 
     def test_reopen_count_five_keeps_severity_but_six_forces_low(self):
         classifications = (
@@ -782,6 +822,8 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             "  - OPEN **HIGH** **BUG FIX** — [Indented](#indented)\n",
             "- open **HIGH** **BUG FIX** — [Lowercase](#lowercase)\n",
             "- OPEN **HIGH** **BUG FIX** — [Missing detail](#missing)\n",
+            "- OPEN **LOW — EDGE CASE** **BUG FIX** — "
+            "[Not active](#not-active)\n",
         )
         with scratch_daemon(create_mailbox=False) as (
                 daemon, root, mailbox, backlog):
