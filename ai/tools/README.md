@@ -239,6 +239,33 @@ files and tests, number its work steps, provide a shell-command block, and
 include acceptance checkboxes. The tool does not judge whether the scientific
 plan is correct.
 
+<details><summary>Show the exact work-location and locator fields</summary>
+
+An Architect directive names:
+
+- the exact Implementer work folder, which Git calls a worktree;
+- its assigned Git branch, which must not be `main`; and
+- the full 40-character label for the saved project version where work starts.
+
+Every source edit and regression test appears in a visible row that begins
+with a repository path and a real function, class, section, or test name. A
+diagram, link, hidden field, or copied mailbox message cannot replace these
+rows.
+
+```markdown
+- `ai/tools/mailbox_daemon.py::agent_preamble`: Keep `agent="user"` invalid.
+  Require a `ValueError` containing `unknown mailbox agent`, without changing
+  the accepted `fable`, `opus`, or `sol` cases.
+- `ai/tests/test_role_directive_contract.py::RoleDirectiveContractTests`:
+  Test the invalid `user` input, the error text, and the unchanged valid roles.
+```
+
+The real ticket note uses the exact symbols and tests affected by that ticket;
+it does not copy this example when the work concerns another part of the
+repository.
+
+</details>
+
 For an Architect note, the check also requires a concrete subagent plan. One
 block can tell a read-only helper to reproduce a parser failure and return the
 exact command and output; another can give an editing helper one exact

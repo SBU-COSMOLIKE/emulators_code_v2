@@ -552,11 +552,14 @@ expensive model. It should not have to invent the design while spending tokens
 on code. The Architect decides the implementation before coding. Red Team
 must give the same level of detail when it proposes a repair.
 
+A **helper** is a short-lived AI session that handles one small job named in
+the plan.
+
 ```mermaid
 flowchart TD
-    A["Architect finishes the design"] --> H["Plan names each helper's files"]
+    A["Architect finishes the design"] --> H["Plan assigns each helper a job and files"]
     H --> S["Implementer starts every helper"]
-    S --> I["Implementer checks helper reports and edits"]
+    S --> I["Implementer uses reports and edits assigned files"]
     I --> V["Implementer runs the final tests"]
 ```
 
@@ -571,35 +574,33 @@ starts.
 
 | Question | What the Architect must write |
 | --- | --- |
-| Where does the work happen? | The exact AI work folder, which Git calls a worktree; its branch, Git's name for one line of saved project versions, which must not be `main`; and the starting commit, which is the saved project version before the ticket begins. |
-| What changes? | Every file path and function or class name, followed by numbered edits in the order they must happen. |
-| What behavior is required? | The accepted inputs, returned values and array dimensions, calculation, named fixed values, and result for invalid input. |
-| How is the result proved? | The sample input or test file, command to run, and exact successful output or expected error. |
-| What must remain untouched? | Files and behavior that must not change, conditions that require the Implementer to stop, and the files each helper may read or edit. |
+| Where does the work happen? | The Implementer's work folder and the saved project version where the ticket starts. |
+| What changes? | Each file and function involved, followed by the edits in their required order. |
+| What behavior is required? | The valid inputs, returned result, and what happens when an input is invalid. |
+| How is the result proved? | The test to run, its command, and the result that means success. |
+| What must remain untouched? | Unrelated files and behavior, plus any condition that requires the Implementer to stop. |
 
-A file instruction begins with a repository path and function, class, or test
-name. This current source-and-test pair shows the required detail:
+The purpose is simple: the Implementer should not have to guess. For example,
+“fix invalid mailbox roles” is too vague. A finished plan can say:
 
-```markdown
-- `ai/tools/mailbox_daemon.py::agent_preamble`: Keep `agent="user"` invalid.
-  Raise `ValueError` with text containing `unknown mailbox agent`. Do not
-  change the accepted `fable`, `opus`, or `sol` cases.
-- `ai/tests/test_role_directive_contract.py::RoleDirectiveContractTests`:
-  Call `agent_preamble(agent="user")` and require the same `ValueError` text.
-```
+- In `ai/tools/mailbox_daemon.py`, keep the mailbox role `user` invalid and
+  require the message `unknown mailbox agent`.
+- Keep the accepted roles `fable`, `opus`, and `sol` unchanged.
+- Check this rule in `ai/tests/test_role_directive_contract.py`.
 
-Run this read-only test from the repository's top folder. The command and
-visible successful result are also part of the plan:
+From the repository's top folder, run:
 
 ```bash
-python3 -m unittest \
-  ai.tests.test_role_directive_contract.RoleDirectiveContractTests.test_daemon_names_each_role_file_and_repeats_the_stop_boundary
+python3 -m unittest ai.tests.test_role_directive_contract
 ```
 
-Expected result: one test runs and the final line is `OK`.
+This command does not edit project files saved by Git. Success means 34 tests
+run and the final line is `OK`.
 
-The exact edit or test follows the locator. A diagram, link, hidden field, or
-copied mailbox message cannot replace that visible instruction.
+The same ticket note also names the exact function or class, test, and command.
+The user does not write that internal format. The
+[handoff checker guide](tools/README.md#check-a-handoff-directive) explains
+the exact internal fields and commands when they are needed.
 
 #### Helpers follow the Architect's division of work
 
