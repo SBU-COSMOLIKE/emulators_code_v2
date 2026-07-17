@@ -95,6 +95,66 @@ def matching_lines(text, pattern):
   return kept
 
 
+def finite_sweep_points(text, *, expected_sizes, expected_threshold):
+  """Validate the result rows printed by one training-size sweep.
+
+  A worker may report a failed training point as ``nan`` while the parent
+  process continues.  Counting result-shaped lines would then mistake two
+  failures for a completed sweep.  This parser requires exactly one finite
+  fraction in the physical interval [0, 1] for every requested training size.
+
+  Arguments:
+    text               = the complete captured sweep output.
+    expected_sizes     = the distinct integer training sizes requested.
+    expected_threshold = the finite threshold named inside ``f(>...)``.
+
+  Returns:
+    ``(ok, detail)``.  The detail names the parsed rows on success and the
+    first malformed, duplicate, missing, unexpected, or nonfinite value on
+    failure.
+  """
+  sizes = tuple(int(value) for value in expected_sizes)
+  if len(sizes) == 0 or len(set(sizes)) != len(sizes):
+    return (False, "expected training sizes must be nonempty and distinct")
+  if not math.isfinite(expected_threshold):
+    return (False, "expected threshold must be finite")
+  pattern = re.compile(
+    r"^\s*N_train\s+([0-9]+)\s+f\(>([^)]+)\)\s+([^\s]+)(?:\s|$)")
+  observed = {}
+  for line in text.splitlines():
+    match = pattern.match(line)
+    if match is None:
+      if re.search(r"N_train\s+[0-9]+\s+failed:", line) is not None:
+        return (False, "worker reported a failed sweep point: " + line.strip())
+      if "N_train" in line and "f(>" in line:
+        return (False, "malformed sweep result row: " + line.strip())
+      continue
+    size = int(match.group(1))
+    try:
+      threshold = float(match.group(2))
+      fraction = float(match.group(3))
+    except ValueError:
+      return (False, "malformed numeric sweep row: " + line.strip())
+    if size not in sizes:
+      return (False, "unexpected training size " + str(size))
+    if size in observed:
+      return (False, "duplicate result for training size " + str(size))
+    if not math.isfinite(threshold) or threshold != expected_threshold:
+      return (False, "training size " + str(size)
+              + " used threshold " + repr(threshold)
+              + ", expected " + repr(expected_threshold))
+    if not math.isfinite(fraction) or not 0.0 <= fraction <= 1.0:
+      return (False, "training size " + str(size)
+              + " produced invalid fraction " + repr(fraction))
+    observed[size] = fraction
+  missing = [size for size in sizes if size not in observed]
+  if missing:
+    return (False, "missing result for training size(s) " + repr(missing))
+  detail = ", ".join(
+    str(size) + " -> " + repr(observed[size]) for size in sizes)
+  return (True, detail)
+
+
 def byte_identity(text_a, text_b, pattern, strip=None):
   """Compare two runs' selected lines for character-exact equality.
 

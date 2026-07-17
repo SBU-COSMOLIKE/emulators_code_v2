@@ -745,6 +745,7 @@ files belong together and constructing the model needed for new predictions.
 | File | Question answered |
 | --- | --- |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
+| `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
 | `test_results_artifact_pair.py` | Do the learned weights and scientific record identify each other, survive an ordinary failed save, and refuse a swapped or unsafe checkpoint? |
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
@@ -752,6 +753,51 @@ files belong together and constructing the model needed for new predictions.
 | `test_mps_sigma8_contract.py` | Does the matter-power adapter calculate conventional sigma-eight with the correct physical radius, exact redshift, and enough wavenumber coverage? |
 | `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
 | `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
+
+#### Polynomial-base accuracy before saving
+
+`test_pce_strict_selection.py` checks the polynomial-chaos base used by an
+NPCE emulator. NPCE combines this fixed polynomial prediction with a neural
+correction. The polynomial part must pass its own accuracy limit before the
+neural model is trained or a result is saved.
+
+A leave-one-out check asks the fitted polynomial to predict one training row
+as though that row had been excluded from fitting. Repeating this for every
+row estimates how the polynomial performs on values it did not use to choose
+its coefficients.
+
+- **Example used:** one example contains a straight line and a quadratic curve
+  that a degree-two polynomial can reproduce. A second contains the quadratic
+  curve `x²`, but permits only a constant and a straight line. Its best
+  leave-one-out error is about `1.19008`, which is easy to compare with the
+  requested limit `0.000001`.
+- **What the test does:** it fits the passing example, saves a real `.emul` and
+  `.h5` pair, rebuilds that pair, and compares every saved polynomial array and
+  prediction exactly. It then attempts the failing example inside an empty
+  temporary folder. Separate cases exhaust one- and two-column polynomial
+  bases, inject invalid term-selection results, and place the accuracy limit
+  between the score before and after the coefficient is rounded for saving. A
+  large-coefficient example also proves that cancellation hidden by a 64-bit
+  multiplication remains visible in the stored 32-bit multiplication. A
+  two-output example checks both columns in the same matrix multiplication,
+  because computing each column alone can round differently. If one column
+  then misses the limit, the fit removes that output pattern, repeats the
+  joint check, and keeps a different pattern that still passes.
+- **Pass means:** every retained output pattern has a finite error strictly
+  below `loo_max` with the saved bounds, coefficients, and multiplication in
+  `float32`, the stored 32-bit number format. A passing model rebuilds with
+  identical saved polynomial arrays and predictions. The training-size sweep
+  gate also recognizes exactly one finite fraction for each requested size.
+- **A refusal it proves:** if every output pattern misses the limit, fitting
+  stops and the temporary folder remains empty. `NaN`, positive or negative
+  infinity, duplicate polynomial terms, a fit that would use all rows as
+  coefficients and leave no independent row to check, a rounded coefficient
+  that crosses the limit, or a sweep result equal to `NaN`, the marker for a
+  calculation that did not produce a number, must not look successful.
+- **Why it matters:** a finite prediction is not evidence that the polynomial
+  approximation met the accuracy requested in the YAML. Saving a rejected
+  base would give the neural correction and later scientific analysis a
+  starting calculation that the run had already shown was too inaccurate.
 
 #### Scientific records required before training and saving
 

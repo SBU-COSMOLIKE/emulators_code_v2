@@ -207,7 +207,10 @@ def tiny_config(data_dir, *, ia=None, pce=False, head=False):
                           "kappa": 0.15}}
   cfg = {"data": data, "train_args": train_args}
   if pce:
-    cfg["pce"] = {"form": "residual"}
+    # This variant tests serialization, not a scientific accuracy choice.
+    # With 200 rows, 1.1 admits the finite constant-only control whose PRESS
+    # ratio is about (200 / 199)^2, while NaN and infinity still fail.
+    cfg["pce"] = {"form": "residual", "loo_max": 1.1}
   return cfg
 
 

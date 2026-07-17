@@ -1269,8 +1269,8 @@ def validate_pce(pce, rescale="none", ia=None, diagonal=False):
     TypeError if pce is not a mapping.
     ValueError on: an unknown key; a missing / non-{residual, ratio} form;
     form "ratio" on a diagonal family; a non-positive-int p_max / r_max /
-    k_max / max_terms / max_fail; q outside (0, 1]; loo_max <= 0; or pce
-    set together with rescale != "none" or a model.ia design.
+    k_max / max_terms / max_fail; q outside (0, 1]; nonfinite or nonpositive
+    loo_max; or pce set together with rescale != "none" or a model.ia design.
   """
   if pce is None:
     return None
@@ -1311,10 +1311,10 @@ def validate_pce(pce, rescale="none", ia=None, diagonal=False):
     raise ValueError(
       f"pce.q must be in (0, 1] (the hyperbolic sparsity exponent), got {q!r}")
   lm = out["loo_max"]
-  if isinstance(lm, bool) or not isinstance(lm, (int, float)) or lm <= 0:
+  if not _is_finite_real(lm) or lm <= 0:
     raise ValueError(
-      f"pce.loo_max must be > 0 (the relative leave-one-out cutoff), "
-      f"got {lm!r}")
+      "pce.loo_max must be finite and > 0 (the relative leave-one-out "
+      f"cutoff), got {lm!r}")
   # exclusivity: pce and rescale / ia each replace the chi2fn.
   if rescale != "none":
     raise ValueError(

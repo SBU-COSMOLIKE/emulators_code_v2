@@ -1017,11 +1017,11 @@ def gate_gpc_c(ctx):
   residual-pce-text-present, ratio-config-exit-zero /
   ratio-pce-text-present); pce+ia (YAML) and pce+--rescale (flag) both
   exit nonzero with the exclusivity error (pce-ia-refusal /
-  pce-rescale-refusal); a 2-point n_train sweep exits zero, prints both
-  result lines, and names its staging banner (sweep-result-lines-and-pce-
-  banner). The golden selected-text equality is UNAVAILABLE with no
-  configured base, and the save/rebuild/base(theta) round-trip
-  (rebuild-vs-base) is UNAVAILABLE and owed to the check-script set: this
+  pce-rescale-refusal); a 2-point n_train sweep exits zero, prints one finite
+  fraction in [0, 1] for each requested size, and names its staging banner
+  (sweep-result-lines-and-pce-banner). The golden selected-text equality is
+  UNAVAILABLE when no base is configured. The save/rebuild/base(theta)
+  round-trip (rebuild-vs-base) is UNAVAILABLE and owed to the check-script set: this
   wrapper logs that it belongs there but runs no comparison. No assertion
   compares loss values, so loss descent is logged-only, not asserted
   evidence (spec: models-and-designs.md#npce-training-evidence).
@@ -1054,7 +1054,8 @@ def gate_gpc_c(ctx):
   rc_s, out_s = ctx.run_driver(
     yaml_path=sweep_yaml,
     driver=SWEEP_NTRAIN_DRIVER,
-    extra=("--n-min=1000", "--n-max=2000", "--n-points=2"),
+    extra=("--n-min=1000", "--n-max=2000", "--n-points=2",
+           "--threshold=0.2"),
     allow_fail=True)
   if ctx.dry:
     return
@@ -1072,18 +1073,18 @@ def gate_gpc_c(ctx):
            "message (rc " + str(rc_rs) + ")")
   # run 3 proved the sweep parent's stream carries ZERO "PCE fit:" reports
   # (the GPU workers own the per-point fit output); the parent's own
-  # evidence is its staging banner ("pce: form ...") plus one
-  # "N_train N f(>0.2)" result line per sweep point. The per-point refit
+  # evidence is its staging banner ("pce: form ...") plus one finite
+  # "N_train N f(>0.2)" result for each requested size. The per-point refit
   # is structural to the top-level pce design (one base per point).
-  parent = logscan.matching_lines(text=out_s,
-                                  pattern=r"N_train\s+\d+\s+f\(>0\.2\)")
+  sweep_ok, sweep_detail = logscan.finite_sweep_points(
+    out_s, expected_sizes=(1000, 2000), expected_threshold=0.2)
   staged = logscan.search(text=out_s, pattern=r"^pce: form")
   ctx.expect(
     aid="npce-training.sweep-result-lines-and-pce-banner",
     label="npce-training 2-point sweep_ntrain ran both points",
-    ok=(rc_s == 0 and len(parent) >= 2 and staged),
-    detail="rc " + str(rc_s) + "; parent N_train f(>0.2) lines "
-           + str(len(parent)) + " (need >=2); pce staging banner "
+    ok=(rc_s == 0 and sweep_ok and staged),
+    detail="rc " + str(rc_s) + "; finite sweep points: "
+           + sweep_detail + "; pce staging banner "
            + ("present" if staged else "ABSENT") + " (need present)")
   ctx.unavailable(
     aid="npce-training.rebuild-vs-base",

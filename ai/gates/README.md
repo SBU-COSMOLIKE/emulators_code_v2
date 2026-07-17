@@ -107,6 +107,7 @@ These examples show the board's range; they are not the full inventory.
 | `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |
 | `bsn-smoke` | Compares a background-distance emulator with values from CAMB, the reference cosmology program used by this check. |
 | `mps-smoke` | Generates and trains matter-power data, compares the Cobaya adapter with CAMB, and compares the adapter's sigma-eight integral with CAMB's independently derived value. |
+| `npce-training` | Trains residual and ratio neural-polynomial examples, refuses incompatible settings, and requires finite results for both requested training sizes in its sweep. |
 | `save-rebuild-drift` | Confirms that saved emulator variants rebuild with the same output after code defaults change. |
 
 ## Check the workstation before a long run

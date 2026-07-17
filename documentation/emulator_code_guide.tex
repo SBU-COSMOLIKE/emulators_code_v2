@@ -3010,15 +3010,15 @@ error,
 \begin{equation*}
  \operatorname{LOO}_{\rm rel}
  =\frac{N^{-1}\sum_i[e_i/(1-h_{ii})]^2}
-        {\operatorname{Var}(z_j)+10^{-30}},
+        {\operatorname{Var}(z_j)},
 \end{equation*}
 where $\operatorname{Var}(z_j)$ is the population variance of the target mode
 amplitudes over training rows.  For the four final-column values above, the
 mean squared omitted-row residual is approximately $0.002866$.  If the mode
 variance is $0.04$, the relative LOO is $0.002866/0.04\simeq0.0716$.  A
-threshold of $0.05$ rejects that mode.  The small denominator floor prevents
-division by exact zero but does not turn a constant target into evidence of
-generalization.
+threshold of $0.05$ rejects that mode.  Zero target variance is refused because
+a relative error is undefined there.  A leverage value outside $[0,1)$ is also
+refused; it is not clipped to manufacture a finite denominator.
 
 Only modes whose relative leave-one-out error is below \code{loo\_max} enter
 the base.  Rejected modes are left for the neural refiner.  Reconstruction is
@@ -3029,18 +3029,32 @@ the base.  Rejected modes are left for the neural refiner.  Reconstruction is
 This mode-first design directs polynomial capacity toward the dominant smooth
 directions of the covariance-whitened target.
 
-\paragraph{Safe use when every PCE mode fails selection.}
-If every attempted mode misses \code{loo\_max}, the current fit force-keeps
-mode zero.  The selected base can therefore violate the threshold that the
-artifact reports.  Inspect every per-mode leave-one-out score before accepting
-an NPCE fit.  Use the artifact only when each retained mode satisfies the
-declared threshold.  An all-rejected fit must be treated as failed rather than
-as a usable mode-zero base.
+\paragraph{What happens when every PCE mode fails selection.}
+If every attempted mode misses \code{loo\_max}, construction raises an error
+that names the limit, the best attempted score and mode, and the complete set
+of attempted scores.  No fallback mode is constructed.  Because geometry
+construction precedes neural training and artifact publication, this refusal
+writes no new emulator artifact.
 
-Selection maintains a set of distinct active indices.  When every term is
-active, no candidate remains and the loop terminates.  Filling unavailable
-scores with a sentinel and applying unconditional \code{argmax} can otherwise
-return column zero and append an already active term.
+The input bounds and coefficient matrix are stored as 32-bit floating-point
+values.  The training design is built with those stored bounds, and acceptance
+recomputes PRESS after each selected coefficient is rounded and the dense
+design--coefficient product is evaluated in the saved precision.  After the
+retained columns are assembled, it repeats the product with the complete
+coefficient matrix because floating-point reduction can differ with matrix
+shape.  A mode that crosses \code{loo\_max} during the joint check is removed,
+the narrower matrix is built, and the joint check repeats.  Construction fails
+only if no mode remains.  Thus a rejected mode is left for the neural refiner
+even when its 64-bit precursor or one-column product was just below the limit.
+
+Selection maintains a set of distinct active indices.  When every usable
+candidate term is active, no candidate remains and the loop terminates.
+Filling unavailable scores with a sentinel and applying unconditional
+\code{argmax} can otherwise return column zero and append an already active
+term.
+The active count is also capped at $N-1$ for $N$ training rows.  A saturated
+$N$-coefficient interpolation would leave too little independent information
+for a meaningful omitted-row check.
 
 The basis is refit independently for every training-size sweep point.  Reusing
 a fit from the largest point leaks rows into smaller points and invalidates

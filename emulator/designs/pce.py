@@ -28,9 +28,101 @@ centered training targets.
 """
 
 import itertools
+import numbers
 import numpy as np
 import torch
 import torch.nn as nn
+
+
+def _finite_real_array(value, *, name, ndim):
+  """Return one finite float64 array without hiding invalid input types."""
+  if isinstance(value, torch.Tensor):
+    value = value.detach().cpu().numpy()
+  raw = np.asarray(value)
+  if not np.isrealobj(raw) or raw.dtype.kind not in "fiu":
+    raise ValueError(
+      f"{name} must contain real numerical values, got dtype {raw.dtype}")
+  array = np.asarray(raw, dtype=np.float64)
+  if array.ndim != ndim:
+    raise ValueError(
+      f"{name} must be {ndim}-dimensional, got shape {array.shape}")
+  if not np.isfinite(array).all():
+    raise ValueError(f"{name} must contain only finite values")
+  return array
+
+
+def _positive_int(value, *, name):
+  """Return one positive integer fit limit without Boolean coercion."""
+  if (isinstance(value, (bool, np.bool_))
+      or not isinstance(value, (int, np.integer)) or int(value) < 1):
+    raise ValueError(f"{name} must be a positive integer, got {value!r}")
+  return int(value)
+
+
+def _positive_finite_real(value, *, name):
+  """Return one finite positive real fit limit without string conversion."""
+  if (isinstance(value, (bool, np.bool_))
+      or not isinstance(value, numbers.Real)
+      or not np.isfinite(float(value)) or float(value) <= 0.0):
+    raise ValueError(
+      f"{name} must be finite and strictly positive, got {value!r}")
+  return float(value)
+
+
+def _fixed_fit_loo(Psi, y, support, beta, *, saved_prediction=None):
+  """Evaluate PRESS/LOO using the saved coefficient number format."""
+  A = Psi[:, support]
+  with np.errstate(over="ignore", invalid="ignore"):
+    variance = np.var(y)
+    normal = A.T @ A + 1e-10 * np.eye(len(support))
+  if not np.isfinite(variance) or variance <= 0.0:
+    raise ValueError("PCE mode-target variance must remain finite and positive")
+  if not np.isfinite(normal).all():
+    raise ValueError("PCE active normal matrix became nonfinite")
+  try:
+    inverse = np.linalg.inv(normal)
+  except np.linalg.LinAlgError as error:
+    raise ValueError("PCE active normal matrix could not be inverted") from error
+  with np.errstate(over="ignore", invalid="ignore"):
+    leverage = np.einsum("ni,ij,nj->n", A, inverse, A)
+    Psi_saved = Psi.astype(np.float32)
+    beta_saved = np.asarray(beta, dtype=np.float32)
+    full_beta = np.zeros(Psi.shape[1], dtype=np.float32)
+    full_beta[support] = beta_saved
+  if (not np.isfinite(Psi_saved).all()
+      or not np.isfinite(full_beta).all()):
+    raise ValueError(
+      "PCE active fit became nonfinite in saved float32 arithmetic")
+  if saved_prediction is None:
+    # Forward multiplies the stored design and coefficients in float32. Do the
+    # same dense multiplication here, including zero coefficients outside the
+    # support. Promoting values back to float64 or shortening the matrix first
+    # can change cancellation and hide error that the saved base retains.
+    with torch.no_grad():
+      prediction = (
+        torch.from_numpy(Psi_saved) @ torch.from_numpy(full_beta)
+      ).to(torch.float64).numpy()
+  else:
+    prediction = _finite_real_array(
+      saved_prediction, name="PCE saved-format mode prediction", ndim=1)
+    if prediction.shape != y.shape:
+      raise ValueError(
+        "PCE saved-format mode prediction must match the target shape: "
+        f"got {prediction.shape} and {y.shape}")
+  residual = y - prediction
+  if (not np.isfinite(leverage).all() or (leverage < 0.0).any()
+      or (leverage >= 1.0).any()):
+    raise ValueError(
+      "PCE leave-one-out leverage must be finite and lie in [0, 1)")
+  if not np.isfinite(residual).all():
+    raise ValueError("PCE active fit produced nonfinite residuals")
+  with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+    loo = np.mean((residual / (1.0 - leverage)) ** 2) / variance
+  if not np.isfinite(loo) or loo < 0.0:
+    raise ValueError(
+      "PCE leave-one-out error must be finite and nonnegative, got "
+      f"{loo!r}")
+  return float(loo)
 
 
 def _pce_deg_tuples(m, pq, q):
@@ -153,7 +245,9 @@ def select_lars_loo(Psi, y, max_terms=150, patience=10):
     Psi       = (n_samples, n_terms) PCE design matrix, each column
                 one basis polynomial evaluated at the samples.
     y         = (n_samples,) target values to fit.
-    max_terms = cap on the number of selected basis terms.
+    max_terms = cap on the number of selected basis terms. The effective
+                cap is also bounded by the usable candidate count and by
+                n_samples - 1, leaving one row beyond the active count.
     patience  = stop after this many consecutive term additions
                 bring no leave-one-out improvement (the early stop
                 that keeps a wiggly high-degree term from poisoning
@@ -168,25 +262,68 @@ def select_lars_loo(Psi, y, max_terms=150, patience=10):
               mean; sqrt(loo) = typical error as a fraction of y's
               spread.
   """
-  cn = np.sqrt((Psi ** 2).sum(0)) + 1e-30    # column norms
-  vy = np.var(y) + 1e-30                      # target variance
+  Psi = _finite_real_array(Psi, name="PCE design matrix", ndim=2)
+  y = _finite_real_array(y, name="PCE mode target", ndim=1)
+  max_terms = _positive_int(max_terms, name="PCE max_terms")
+  patience = _positive_int(patience, name="PCE patience")
+  n_samples, n_candidates = Psi.shape
+  if n_samples < 2 or n_candidates < 1:
+    raise ValueError(
+      "PCE selection requires at least two training rows and one candidate "
+      f"column, got design shape {Psi.shape}")
+  if y.shape[0] != n_samples:
+    raise ValueError(
+      "PCE mode target row count must match the design matrix: "
+      f"got {y.shape[0]} and {n_samples}")
+
+  with np.errstate(over="ignore", invalid="ignore"):
+    squared_norms = np.sum(Psi * Psi, axis=0)
+    vy = np.var(y)
+  if not np.isfinite(squared_norms).all():
+    raise ValueError("PCE candidate column norms must remain finite")
+  usable = squared_norms > 0.0
+  if not usable[0]:
+    raise ValueError("PCE constant candidate column must have positive norm")
+  cn = np.ones_like(squared_norms)
+  cn[usable] = np.sqrt(squared_norms[usable])
+  if not np.isfinite(vy) or vy <= 0.0:
+    raise ValueError("PCE mode-target variance must remain finite and positive")
+
   active    = [0]                             # constant term
   best_loo  = np.inf
   best_supp = [0]
   best_beta = None
   since     = 0
 
-  for _ in range(max_terms):
+  # A model with one coefficient per row can interpolate its own data while
+  # leaving no independent information for a leave-one-out check.  Keep at
+  # least one row beyond the active term count.
+  available_count = int(np.count_nonzero(usable))
+  term_limit = min(max_terms, available_count, n_samples - 1)
+  for _ in range(term_limit):
     A    = Psi[:, active]
-    G    = A.T @ A + 1e-10 * np.eye(len(active))
-    Ginv = np.linalg.inv(G)
-    beta = Ginv @ (A.T @ y)
-    resid = y - A @ beta                      # in-sample resid
+    with np.errstate(over="ignore", invalid="ignore"):
+      G = A.T @ A + 1e-10 * np.eye(len(active))
+    if not np.isfinite(G).all():
+      raise ValueError("PCE active normal matrix became nonfinite")
+    try:
+      Ginv = np.linalg.inv(G)
+    except np.linalg.LinAlgError as error:
+      raise ValueError("PCE active normal matrix could not be inverted") from error
+    with np.errstate(over="ignore", invalid="ignore"):
+      beta = Ginv @ (A.T @ y)
+      resid = y - A @ beta                    # in-sample resid
+    if not np.isfinite(beta).all() or not np.isfinite(resid).all():
+      raise ValueError("PCE active fit produced nonfinite coefficients or residuals")
 
     # hat = leverage h_nn = diag of A (A^T A)^-1 A^T: how much
     # point n pulls its own fit; near 1 = high influence.
-    hat = np.einsum("ni,ij,nj->n", A, Ginv, A)
-    hat = np.minimum(hat, 1.0 - 1e-6)
+    with np.errstate(over="ignore", invalid="ignore"):
+      hat = np.einsum("ni,ij,nj->n", A, Ginv, A)
+    if (not np.isfinite(hat).all() or (hat < 0.0).any()
+        or (hat >= 1.0).any()):
+      raise ValueError(
+        "PCE leave-one-out leverage must be finite and lie in [0, 1)")
     # LOO (generalization) error without refitting:
     #   resid / (1 - hat) = point n's residual when n is dropped
     #     from the fit (the PRESS shortcut; 1/(1 - h_nn) inflates the
@@ -196,7 +333,12 @@ def select_lars_loo(Psi, y, max_terms=150, patience=10):
     #       loo = mean(LOO residual^2) / var(y) = 1 - R^2_LOO.
     #   The absolute chi2 a mode adds is loo * var(mode), so a
     #   high-variance mode must reach a very small loo to help.
-    loo = np.mean((resid / (1.0 - hat)) ** 2) / vy
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+      loo = np.mean((resid / (1.0 - hat)) ** 2) / vy
+    if not np.isfinite(loo) or loo < 0.0:
+      raise ValueError(
+        "PCE leave-one-out error must be finite and nonnegative, got "
+        f"{loo!r}")
     if loo < best_loo - 1e-6:
       best_loo  = loo
       best_supp = list(active)
@@ -204,16 +346,32 @@ def select_lars_loo(Psi, y, max_terms=150, patience=10):
       since = 0
     else:
       since += 1
-    if since >= patience or len(active) >= max_terms:
+    if (since >= patience or len(active) >= term_limit
+        or len(active) >= available_count):
       break
 
     # next term: candidate column most correlated with the residual
     # (scaled by its norm); never re-pick an active one.
-    score = np.abs(Psi.T @ resid) / cn
-    score[active] = -1.0
-    active.append(int(np.argmax(score)))
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+      score = np.abs(Psi.T @ resid) / cn
+    inactive = usable.copy()
+    inactive[active] = False
+    if not np.isfinite(score[inactive]).all():
+      raise ValueError("PCE inactive candidate scores became nonfinite")
+    remaining = np.flatnonzero(inactive)
+    next_index = int(remaining[np.argmax(score[remaining])])
+    active.append(next_index)
 
-  return np.array(best_supp, dtype=int), best_beta, best_loo
+  support = np.asarray(best_supp, dtype=int)
+  if (best_beta is None or support.ndim != 1 or support.size < 1
+      or np.unique(support).size != support.size
+      or (support < 0).any() or (support >= n_candidates).any()
+      or np.asarray(best_beta).shape != support.shape
+      or not np.isfinite(best_beta).all() or not np.isfinite(best_loo)):
+    raise ValueError(
+      "PCE selection did not produce one finite coefficient for each unique "
+      "candidate in its support")
+  return support, np.asarray(best_beta, dtype=np.float64), float(best_loo)
 
 
 class PCEEmulator(nn.Module):
@@ -363,7 +521,9 @@ class PCEEmulator(nn.Module):
       q        = sparsity exponent in (0,1] (q=1 = total degree;
                  smaller = sparser; example in pce_multi_index).
       k_max    = max leading SVD modes to try.
-      loo_max  = keep a mode only if its relative LOO < this.
+      loo_max  = finite positive limit; keep a mode only if relative LOO in
+                 the saved float32 bounds, coefficients, and multiplication
+                 is strictly below this value.
       max_terms = per-mode active-set cap.
       max_fail = stop after this many consecutive gate failures
                  (leading modes are the predictable ones, so a run
@@ -372,61 +532,214 @@ class PCEEmulator(nn.Module):
       silent   = suppress the fit report.
     Returns:
       a fitted PCEEmulator on `device`.
+
+    Raises:
+      ValueError when the training arrays or fit limits are invalid, the
+      numerical selection becomes nonfinite, or no attempted output mode has
+      leave-one-out error strictly below `loo_max`. A failed fit returns no
+      fallback model.
     """
-    Xn = np.asarray(X_white.detach().cpu(), dtype="float64")
-    Yn = np.asarray(Y_white.detach().cpu(), dtype="float64")
+    p_max = _positive_int(p_max, name="PCE p_max")
+    r_max = _positive_int(r_max, name="PCE r_max")
+    k_max = _positive_int(k_max, name="PCE k_max")
+    max_terms = _positive_int(max_terms, name="PCE max_terms")
+    max_fail = _positive_int(max_fail, name="PCE max_fail")
+    q = _positive_finite_real(q, name="PCE q")
+    if q > 1.0:
+      raise ValueError(
+        f"PCE q must be no larger than 1, got {q!r}")
+    loo_max = _positive_finite_real(loo_max, name="PCE loo_max")
+
+    Xn = _finite_real_array(
+      X_white, name="PCE whitened training inputs", ndim=2)
+    Yn = _finite_real_array(
+      Y_white, name="PCE whitened training targets", ndim=2)
+    if Xn.shape[0] != Yn.shape[0]:
+      raise ValueError(
+        "PCE training input and target row counts must match: got "
+        f"{Xn.shape[0]} and {Yn.shape[0]}")
+    if Xn.shape[0] < 2 or Xn.shape[1] < 1 or Yn.shape[1] < 1:
+      raise ValueError(
+        "PCE training requires at least two rows, one input column, and one "
+        f"target column; got input shape {Xn.shape} and target shape {Yn.shape}")
     N, n_dim = Xn.shape
 
-    mid  = 0.5 * (Xn.min(0) + Xn.max(0))
-    half = 0.5 * (Xn.max(0) - Xn.min(0)) * 1.05 + 1e-12
-    lo, hi = mid - half, mid + half
-    Xm = 2.0 * (Xn - lo) / (hi - lo) - 1.0
+    def float32_buffer(value, name):
+      """Cast one fitted array and refuse overflow in the saved precision."""
+      tensor = torch.as_tensor(value, dtype=torch.float32)
+      if not torch.isfinite(tensor).all():
+        raise ValueError(
+          f"PCE {name} became nonfinite when converted to float32")
+      return tensor
+
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+      low = Xn.min(0)
+      high = Xn.max(0)
+      mid = 0.5 * (low + high)
+      half = 0.5 * (high - low) * 1.05 + 1e-12
+      lo, hi = mid - half, mid + half
+    if (not np.isfinite(lo).all() or not np.isfinite(hi).all()
+        or not (hi > lo).all()):
+      raise ValueError(
+        "PCE input bounds must remain finite and distinct during box mapping")
+
+    # Prediction uses float32 bounds and inputs. Build the training design with
+    # that exact stored arithmetic so the acceptance score describes the
+    # polynomial that will actually run after saving and rebuilding.
+    lo_t = float32_buffer(lo, "lower input bounds")
+    hi_t = float32_buffer(hi, "upper input bounds")
+    if not torch.all(hi_t > lo_t):
+      raise ValueError(
+        "PCE input bounds must remain distinct after conversion to float32")
+    X_t = float32_buffer(Xn, "whitened training inputs")
+    Xm_t = 2.0 * (X_t - lo_t) / (hi_t - lo_t) - 1.0
+    Xm_t = Xm_t.clamp(-1.0, 1.0)
+    if not torch.isfinite(Xm_t).all():
+      raise ValueError(
+        "PCE input mapping became nonfinite in saved float32 arithmetic")
 
     mi   = pce_multi_index(n_dim=n_dim, p_max=p_max, r_max=r_max, q=q)
     mi_t = torch.as_tensor(mi, dtype=torch.long)
-    Psi  = pce_design(
-      Xm=torch.as_tensor(Xm, dtype=torch.float64),
-      multi_index=mi_t).numpy()
+    Psi = pce_design(Xm=Xm_t, multi_index=mi_t).to(torch.float64).numpy()
 
-    Ybar = Yn.mean(0)
-    Yc   = Yn - Ybar
-    U, S, Vt = np.linalg.svd(Yc, full_matrices=False)
-    var = S ** 2
+    with np.errstate(over="ignore", invalid="ignore"):
+      Ybar = Yn.mean(0)
+      Yc = Yn - Ybar
+    if not np.isfinite(Ybar).all() or not np.isfinite(Yc).all():
+      raise ValueError("PCE target centering produced nonfinite values")
+    try:
+      U, S, Vt = np.linalg.svd(Yc, full_matrices=False)
+    except np.linalg.LinAlgError as error:
+      raise ValueError("PCE target SVD did not converge") from error
+    if (not np.isfinite(U).all() or not np.isfinite(S).all()
+        or not np.isfinite(Vt).all()):
+      raise ValueError("PCE target SVD produced nonfinite values")
+    with np.errstate(over="ignore", invalid="ignore"):
+      var = S ** 2
+    if not np.isfinite(var).all():
+      raise ValueError("PCE target-mode variances became nonfinite")
 
     # fit leading modes; keep the well-predicted ones (loo <
     # loo_max). Stop after max_fail consecutive misses.
-    kfit = min(k_max, len(S))
-    cols, kept, loos, all_loo = [], [], [], []
+    kfit = min(k_max, int(np.count_nonzero(var > 0.0)))
+    if kfit < 1:
+      raise ValueError(
+        "PCE fit refused: training targets contain no varying output mode")
+    cols, kept, loos, all_loo, support_sizes = [], [], [], [], []
+    kept_supports, kept_targets, kept_betas = [], [], []
     fails = 0
     for k in range(kfit):
       zk = Yc @ Vt[k]
       supp, beta, loo = select_lars_loo(Psi=Psi, y=zk, max_terms=max_terms)
-      all_loo.append(loo)
-      if loo < loo_max:
+      supp = np.asarray(supp)
+      beta = np.asarray(beta, dtype=np.float64)
+      if (supp.ndim != 1 or supp.size < 1 or supp.dtype.kind not in "iu"
+          or np.unique(supp).size != supp.size
+          or (supp < 0).any() or (supp >= Psi.shape[1]).any()
+          or beta.shape != supp.shape or not np.isfinite(beta).all()
+          or isinstance(loo, (bool, np.bool_))
+          or not isinstance(loo, numbers.Real)
+          or not np.isfinite(float(loo)) or float(loo) < 0.0):
+        raise ValueError(
+          f"PCE mode {k} selection must return unique in-range support, "
+          "one finite coefficient per support index, and a finite "
+          "nonnegative leave-one-out error")
+      supp = supp.astype(int, copy=False)
+      # The design already uses the saved float32 bounds. Judge the float32
+      # coefficient and multiplication that will actually run, not a slightly
+      # different float64 precursor.
+      with np.errstate(over="ignore", invalid="ignore"):
+        saved_beta = beta.astype(np.float32).astype(np.float64)
+      if not np.isfinite(saved_beta).all():
+        raise ValueError(
+          f"PCE mode {k} coefficients became nonfinite in float32")
+      saved_loo = _fixed_fit_loo(Psi, zk, supp, saved_beta)
+      all_loo.append(saved_loo)
+      if saved_loo < loo_max:
         col = np.zeros(Psi.shape[1])
-        col[supp] = beta
+        col[supp] = saved_beta
         cols.append(col)
         kept.append(k)
-        loos.append(loo)
+        loos.append(saved_loo)
+        support_sizes.append(int(supp.size))
+        kept_supports.append(supp.copy())
+        kept_targets.append(zk.copy())
+        kept_betas.append(saved_beta.copy())
         fails = 0
       else:
         fails += 1
         if fails >= max_fail:
           break
-    if not cols:                       # always keep mode 0
-      zk = Yc @ Vt[0]
-      supp, beta, loo = select_lars_loo(Psi=Psi, y=zk, max_terms=max_terms)
-      col = np.zeros(Psi.shape[1])
-      col[supp] = beta
-      cols, kept, loos = [col], [0], [loo]
+    if not cols:
+      best_index = int(np.argmin(all_loo))
+      tried = ", ".join(
+        f"mode {index}: {value:.6g}"
+        for index, value in enumerate(all_loo))
+      raise ValueError(
+        "PCE fit refused: no mode passed the strict leave-one-out limit "
+        f"loo_max={loo_max!r}; best attempted LOO={all_loo[best_index]:.6g} "
+        f"at mode {best_index}; modes tried: [{tried}]")
 
-    C  = np.stack(cols, axis=1)
+    # Forward evaluates every retained mode in one dense matrix product. The
+    # float32 reduction can differ from evaluating each column separately.
+    # Remove the worst joint failure, rebuild the narrower matrix, and repeat;
+    # a rejected output mode belongs to the neural refiner, not the PCE base.
+    joint_rejections = []
+    while cols:
+      C = np.stack(cols, axis=1)
+      K = len(kept)
+      with torch.no_grad():
+        joint_prediction = (
+          torch.from_numpy(Psi.astype(np.float32))
+          @ torch.from_numpy(C.astype(np.float32))
+        ).to(torch.float64).numpy()
+      joint_loos = []
+      for column, (mode, target, support, beta) in enumerate(zip(
+          kept, kept_targets, kept_supports, kept_betas)):
+        joint_loo = _fixed_fit_loo(
+          Psi, target, support, beta,
+          saved_prediction=joint_prediction[:, column])
+        joint_loos.append(joint_loo)
+        all_loo[mode] = joint_loo
+      failing = [
+        column for column, value in enumerate(joint_loos)
+        if not value < loo_max
+      ]
+      if not failing:
+        loos = joint_loos
+        break
+      rejected = max(failing, key=lambda column: joint_loos[column])
+      joint_rejections.append(
+        f"mode {kept[rejected]}: {joint_loos[rejected]:.6g}")
+      for values in (
+          cols, kept, loos, support_sizes, kept_supports, kept_targets,
+          kept_betas):
+        del values[rejected]
+    if not cols:
+      best_index = int(np.argmin(all_loo))
+      tried = ", ".join(
+        f"mode {index}: {value:.6g}"
+        for index, value in enumerate(all_loo))
+      raise ValueError(
+        "PCE fit refused: no mode passed the final saved-format "
+        f"leave-one-out limit loo_max={loo_max!r}; best attempted "
+        f"LOO={all_loo[best_index]:.6g} at mode {best_index}; modes tried: "
+        f"[{tried}]; joint failures: ["
+        + ", ".join(joint_rejections) + "]")
+
     Vk = Vt[kept].T
-    K  = len(kept)
+    K = len(kept)
     drop_chi2 = float((var.sum() - var[kept].sum()) / N)
+    if (not np.isfinite(C).all() or not np.isfinite(Vk).all()
+        or not np.isfinite(Ybar).all() or not np.isfinite(drop_chi2)
+        or not all(np.isfinite(value) and value < loo_max
+                   for value in loos)):
+      raise ValueError(
+        "PCE retained modes must have finite coefficients and "
+        "leave-one-out errors strictly below loo_max")
 
     if not silent:
-      act   = (C != 0).sum(0)
+      act = np.asarray(support_sizes, dtype=int)
       tried_vals = []
       for l in all_loo[:8]:
         tried_vals.append(f"{l:.2e}")
@@ -439,13 +752,12 @@ class PCEEmulator(nn.Module):
             f"  max {int(act.max())}")
       print(f"  tried-mode LOO[:8]: [{tried}]")
 
-    f = torch.float32
-    return cls(lo=torch.tensor(lo, dtype=f, device=device),
-               hi=torch.tensor(hi, dtype=f, device=device),
+    return cls(lo=lo_t.to(device),
+               hi=hi_t.to(device),
                multi_index=mi_t.to(device),
-               C=torch.tensor(C, dtype=f, device=device),
-               Vk=torch.tensor(Vk, dtype=f, device=device),
-               Ybar=torch.tensor(Ybar, dtype=f, device=device))
+               C=float32_buffer(C, "coefficient matrix").to(device),
+               Vk=float32_buffer(Vk, "output modes").to(device),
+               Ybar=float32_buffer(Ybar, "target mean").to(device))
 
   def state(self):
     """The frozen buffers, keyed as from_state expects (h5 persistence).
@@ -502,8 +814,11 @@ class PCEEmulator(nn.Module):
     Returns:
       (B, out_dim) base prediction Ybar + (Psi @ C) @ Vk^T.
     """
-    # map each input to [-1, 1] (Legendre domain), then clamp so a
-    # test point just outside the training box stays in range.
+    # Use the stored number format for every call, matching the arithmetic
+    # used by the fit-acceptance check before this base was saved.
+    X = X.to(device=self.lo.device, dtype=self.lo.dtype)
+    # Map each input to [-1, 1] (Legendre domain), then clamp so a test point
+    # just outside the training box stays in range.
     Xm  = 2.0 * (X - self.lo) / (self.hi - self.lo) - 1.0
     Xm  = Xm.clamp(-1.0, 1.0)
     Psi = pce_design(Xm=Xm, multi_index=self.multi_index)

@@ -667,9 +667,23 @@ pce:
 | `r_max` | Largest number of input parameters multiplied together in one term |
 | `q` | Number in `(0, 1]` that suppresses terms mixing many parameters; a smaller value keeps fewer mixed terms |
 | `k_max` | Largest number of leading output patterns the fit will try |
-| `loo_max` | Largest accepted relative leave-one-out error; this error estimates a fit at each row as though that row had been omitted |
+| `loo_max` | Finite positive limit for relative leave-one-out error; this error estimates a fit at each row as though that row had been omitted |
 | `max_terms` | Largest number of active polynomial terms tried for one output pattern |
 | `max_fail` | Stop after this many consecutive output patterns fail the `loo_max` test |
+
+The comparison is strict: a measured error equal to `loo_max` does not pass.
+The program builds the fit with the saved input bounds and checks the
+coefficients after converting them to the number format that will be saved. It
+then checks all retained output patterns together, in the same matrix shape
+used by prediction. An output pattern that fails this joint check is removed,
+and the smaller matrix is checked again. The run stops before neural training
+and writes no new emulator only if no output pattern remains. Its message shows
+`loo_max`, the measured error, and the affected output pattern.
+
+Leave-one-out evidence needs at least one row that was not consumed by the
+active polynomial terms. Therefore `max_terms` is an upper limit, not a demand:
+the fit may stop earlier when every useful term has been tried or adding
+another term would leave too few rows for this check.
 
 The `pce` block cannot be combined with any of these choices:
 

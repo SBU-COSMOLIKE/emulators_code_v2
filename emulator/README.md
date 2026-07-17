@@ -241,6 +241,18 @@ Legendre polynomials to the converted training targets. The fitted polynomial
 is frozen. The neural model then learns the residual left by that base or,
 for an allowed CosmoLike setup, a ratio to the base.
 
+The fit checks each output pattern by leaving out one training row at a time.
+It keeps a pattern only when that estimated error is finite and strictly below
+`pce.loo_max`. If every pattern misses the limit, the run stops before neural
+training and before a new emulator file is written. The error message shows
+the limit, the best measured error, and the patterns that were tried.
+
+The saved input bounds and polynomial coefficients use `float32`, the number
+format used during emulator prediction. The fit builds its polynomial and
+repeats the error calculation with those stored values and all retained output
+patterns together. A fit therefore cannot pass in higher precision or in a
+one-pattern calculation and cross the limit when saved.
+
 A singular-value decomposition (SVD) rewrites a matrix as ordered numerical
 directions. The polynomial fit uses a dense matrix, which stores every
 element. A matter-power PCE run must fit the thinned target and the SVD matrix
