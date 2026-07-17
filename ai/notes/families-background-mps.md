@@ -640,12 +640,26 @@ radius rather than relabeling a literal-radius result.
 Sigma-eight is available only when the artifact supports the calculation. The
 stored redshift axis contains exact `z = 0`; a nearby row is never relabeled
 as zero. Axes, surface, finiteness, positivity, and shape are validated before
-integration. Integration is float64.
+integration. Integration is float64. Cobaya advertises sigma-eight as a
+derived result. `emul_mps.must_provide` requests `H0` when that result is
+assigned to this adapter. A saved emulator or a Syren formula may
+independently use `H0` as one of its own inputs.
 
-The wavenumber domain passes a documented omitted-tail or convergence
-criterion tied to the top-hat integrand. Grid length or guessed endpoints are
-not completeness. The generator and manifest persist the resolved facts used
-by that proof. Final radicand and result are finite and physically valid.
+Completeness is measured from the positive contribution per unit
+log-wavenumber,
+`k^3 P(k) W(kR)^2 / (2 pi^2)`. Two adjacent half-decade bands at each stored
+edge must show that this contribution decreases toward the missing tail. A
+geometric continuation of those measured bands may contribute at most
+`1e-5` of the integrated variance outside the stored range. Two interlaced
+integrals, each using every other stored point, must differ from the full
+integral by at most `1e-3`. No single trapezoid between adjacent points may
+carry more than `0.1` of the variance.
+
+The authenticated `k` and `z` sidecars and the axes saved with the emulator
+are the persisted facts used by these checks. A second Boolean completeness
+flag, a guessed endpoint list, or a minimum node count does not replace the
+measured contribution. Final variance and result are finite and strictly
+positive.
 
 #### Why
 
@@ -656,13 +670,21 @@ literal `R = 8` on a `1/Mpc` axis mixes the Mpc and Mpc/h conventions.
 #### Acceptance evidence
 
 - Exact-zero wide-grid control matches an independent float64 result.
+- For `P(k) = 512 pi^2/(9k)` and `h = 0.64`, the checked finite grid returns
+  `0.6399980037465730`; substituting a literal 8-Mpc radius returns a value
+  near one and fails.
 - A grid beginning at `0.009` or above refuses rather than relabels or reaches a
   SciPy bounds error.
 - Low-`k`, high-`k`, and `1..10` grids fail completeness.
-- Extending a passing wide grid changes the result only within the recorded
-  tail tolerance.
-- Nearest-row and `nk >= 8` mutations fail.
-- The real-provider value is compared at a known cosmology.
+- An eight-point wide grid fails its resolution evidence. Paired examples on
+  both sides of the `1e-5` tail, `1e-3` interlaced, and `0.1` panel limits
+  protect each threshold independently.
+- The public calculation passes the assembled linear spectrum, not the
+  nonlinear spectrum, and `h = H0/100` to the helper before any result is
+  published.
+- The real-provider value is compared with CAMB at a known cosmology. The
+  relative difference must be below `0.002`, and the comparison stays within
+  the wavenumber support requested from CAMB.
 
 <a id="mps-identity-evidence"></a>
 ## Matter-power identity evidence
@@ -758,7 +780,9 @@ own staged mean predictor.
 ### Cobaya versus CAMB
 
 The real lifecycle serves linear and nonlinear power within maximum relative
-error `0.05` of CAMB. Range refusals use the public exception contract.
+error `0.05` of CAMB. The adapter integral of CAMB linear power also agrees
+with CAMB's independently derived sigma-eight within relative error `0.002`.
+Range refusals use the public exception contract.
 
 <a id="mps-smoke-diagnostics-output"></a>
 ### Diagnostics output
