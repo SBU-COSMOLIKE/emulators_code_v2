@@ -2,18 +2,12 @@
 
 ## Why split the work into three roles?
 
-If you can use Fable or Sol for every step without worrying about usage
-limits, you may not need this system. One of those models can plan, write,
-test, and review a change by itself.
+This system is useful when one powerful AI model is too expensive to use for
+every part of development. Planning and review can be short. Reading files,
+writing code, running tests, and repairing failures often use much more of an
+account's allowance.
 
-This guide is written for students who may have a basic account or limited
-paid access. AI models process text in **tokens**, small pieces of text that
-they read or write. An account may limit this use through tokens, messages, or
-cost. Implementation is the token-heavy part of this workflow: the model
-repeatedly reads files, writes code, runs tests, studies failures, and tries
-repairs.
-
-The roles let you assign the longest work to a model that costs less to use:
+The work is therefore divided by responsibility:
 
 - The **Architect** decides the design and writes complete instructions.
 - The **Implementer** follows those instructions and performs the longer
@@ -21,24 +15,22 @@ The roles let you assign the longest work to a model that costs less to use:
 - The optional **Red Team** checks one named change for mistakes and, if it
   finds a defect, sends a detailed repair proposal back to the Architect.
 
+You describe one small change to the Architect. The Architect plans it, the
+Implementer makes and checks the change, and the Architect decides whether
+the result is ready. Red Team may inspect the accepted change afterward.
+
 The Architect and Red Team do the independent reasoning. Their instructions
-must be detailed enough that the Implementer does not need to invent the
-design. The Implementer can therefore be a much simpler model.
+must be detailed enough that a simpler or less expensive Implementer does not
+have to invent the design.
 
-For example, if the account provides them and Fable use is unavailable, Opus
-can be the Architect while Sonnet or Haiku is the Implementer. Sol can be
-reserved for reviews of specific changes. The model choices belong to each
-run; use `--architect-model` and `--implementer-model` to change them. If the
-budget does not allow a Red Team review, a watch with `--skip-redteam` runs
-only the Architect and Implementer.
-
-This directory contains the tools that let several AI roles work on one
-scientific codebase without treating chat as the project record.
+If one model can plan, write, test, and review every change without exceeding
+the available allowance, this division is optional. It is mainly for students
+and developers who need to reserve costly model use for the decisions that
+matter most.
 
 The emulator library itself is documented in the top-level
-[`README.md`](../README.md). The repository's scientific contracts,
-architecture, public interface, tests, and Python readability rules constrain
-every agent change.
+[`README.md`](../README.md). Its science rules, tests, and Python writing
+rules still apply when an AI role makes a change.
 
 ## Contents
 
@@ -62,10 +54,13 @@ every agent change.
 - [FAQ A2. What if the watcher cannot tell whether a message finished safely?](#faq-a2-unverified-outcome)
 - [FAQ C1. Why can some AI jobs run together while others must wait?](#appendix-c--how-do-queues-and-lanes-work)
 - [FAQ C2. Where does Sol work?](#faq-c2-sol-worktree)
+- [FAQ C3. What are the internal role names in saved files?](#faq-c3-internal-role-names)
 - [FAQ D1. Why can the tool refuse a new Red Team search?](#appendix-d--what-is-the-demand-guard)
 - [FAQ D2. Can Sol change the code?](#faq-d2-can-sol-change-code)
 - [FAQ F1. Which folder does each role use?](#appendix-f--what-is-the-worktree-topology)
 - [FAQ F2. Can I create another work folder for myself?](#faq-f2-other-worktrees)
+- [FAQ G1. What do candidate C and landing L mean?](#faq-g1-candidate-and-landing)
+- [FAQ H1. How does the Architect update a permanent note?](#faq-h1-permanent-note-update)
 
 **[Tool commands, stopping, setup, recovery, and transfers](tools/README.md#common-questions-raised-by-developers)**
 
@@ -78,9 +73,9 @@ every agent change.
 
 ## Start here
 
-You do not need prior AI-agent or Git-worktree experience. You need Git,
-Python 3, and the Claude command-line program. The Codex command-line program
-is needed only when the Sol role is enabled. See the
+You do not need prior experience with AI roles or Git's extra work folders.
+You need Git, Python 3, and the Claude command-line program. The Codex
+command-line program is needed only when the Sol role is enabled. See the
 [setup guide](tools/README.md#appendix-g--how-do-i-install-this-on-another-machine)
 before continuing on a new computer.
 
@@ -93,6 +88,14 @@ flowchart TD
   I --> C["Architect checks the result"]
 ```
 
+That is the whole mental model needed to begin. The next section walks through
+one small change. It introduces each tool word only when that word becomes
+useful.
+
+This guide calls one requested change a **ticket**. A ticket can be a bug fix,
+a small feature, or a documentation repair. It should be small enough for one
+clear plan and one final decision.
+
 ### Talk only to the Architect
 
 Give every ticket request, clarification, policy choice, and scope change to
@@ -103,159 +106,8 @@ you want a Red Team review, tell the Architect, for example:
 Please instruct the Red Team to do a widespread search for ...
 ```
 
-The Architect writes the decisions in the ticket's **source note**, the
-Markdown file that records the problem, allowed work, and required checks.
-**Discovery severity** says how serious a newly found problem must be before
-it may become another ticket.
-
-In a manual run, each role has a separate web conversation. The **relay
-tool**, `handoff_router.py`, checks the source note and puts an approved
-instruction block on the clipboard. A **clipboard block** is the exact text
-to paste into the next conversation.
-
-The tool may add file paths and saved-record locations. It cannot replace the
-Architect's decisions. Copy each block unchanged; you are carrying the
-approved instructions, not writing a message to the Implementer or Red Team.
-
-If the check finds a problem, the Architect writes repair instructions and
-the Implementer tries again. The optional Red Team adds another review; its
-place in the loop is explained later.
-
-The tool keeps this sequence organized with three objects:
-
-A **mailbox** is a folder of request files. A **directive** is the Architect's
-ordered plan. A Git **branch** is a named line of saved changes, and a Git
-**commit** is one saved project version. A **gate** is a named validation job
-whose required result is written before it starts.
-
-| Object | Plain-language meaning |
-| --- | --- |
-| **Source note** | The written problem, scope, and acceptance checks. It is the source of truth. |
-| **Watcher** | A long-running command that notices mailbox files and launches the correct role. |
-| **Worktree** | Another project folder that Git manages for the same repository. It keeps agent work out of your main folder. |
-
-A **ticket** is one requested change described by a source note.
-
-A worktree is not a copy made by hand. Git registers it and gives it a branch.
-The mailbox tool creates or reuses three agent worktrees:
-
-- `mailbox-primary` is the Architect's coordination folder for plans,
-  decisions, and shared records;
-- `mailbox-implementer` is where the Implementer changes source code; and
-- `mailbox-sol` is the optional Red Team's saved role folder.
-
-When the Architect or Red Team must inspect source code, the watcher also
-creates a temporary, read-only view of the exact commit under review. This
-prevents either role from accidentally reading newer unfinished work from a
-saved worktree.
-
-### How does an accepted change reach `main`?
-
-Suppose the Implementer fixes a bug and saves that change as a Git commit.
-During review, this proposed commit is called **candidate C**. The letter C is
-only a short label for “candidate.” Saving C does not change `main`.
-
-`GO` means the Architect accepts candidate C. `NO-GO` means C needs more work,
-so repair instructions return to the Implementer.
-
-After a `GO` and after the Architect process exits, the watcher creates
-a second commit called **landing L**. The letter L is short for “landing.” The
-watcher builds L directly after the current saved version on local `main`. L
-therefore contains the accepted ticket change from C as well as any other
-saved work already on `main`.
-
-The user's main folder is the project folder where Git has selected the branch
-named `main`. Creating L does not change this folder. The watcher checks that
-the folder still has `main` selected, contains no unfinished changes, and
-still has the same saved version that the watcher used to build L. Only
-then does it make L the newest saved version on `main`. If that check fails,
-the watcher preserves C, the `GO`, and L, and leaves the user's folder alone.
-
-```mermaid
-flowchart TD
-  I["Implementer fixes the bug and saves a commit"] --> C["Candidate C: proposed commit for Architect review"]
-  C --> A{"Architect decision"}
-  A -->|"NO-GO"| I
-  A -->|"GO"| G["Architect sends a decision that names candidate C"]
-  G --> L["Watcher builds landing L after the current saved main version"]
-  L --> S{"Can the user's main folder be updated safely?"}
-  S -->|"Yes"| F["Make L the newest saved version on main"]
-  S -->|"No"| P["Preserve C, GO, and L; leave the user's folder untouched"]
-  F --> R["When enabled, Red Team reviews exact landing L"]
-```
-
-If the folder only contains unfinished changes, the user can make it clean
-and restart the watcher. If another saved version became the newest version
-on `main` after L was created, C needs a new Architect audit.
-
-The repository's focused
-[candidate-and-landing check](tests/tools_mailbox_daemon_primary_worktree_repro.py)
-builds this example inside a temporary Git repository. It does not touch the
-live mailbox or project files. The current check exits with code `0` and
-prints:
-
-```text
-candidate C and squash landing L are distinct=True
-```
-
-In this output, **squash** means that the complete ticket change is saved as
-one new landing commit.
-
-<details><summary>Run this focused developer check</summary>
-
-From the repository's top folder:
-
-```bash
-python3 -c \
-  'from ai.tests.tools_mailbox_daemon_primary_worktree_repro import arm_architect_receipt_binds_candidate_to_squash_landing as check; raise SystemExit(0 if check() else 1)'
-```
-
-The command changes only temporary files. Success means exit code `0` and the
-`distinct=True` line shown above.
-
-</details>
-
-Git gives each saved project version a full 40-character text label, called a
-commit identifier. The Architect's internal `GO` record repeats the ticket,
-C's full identifier, whether Red Team is enabled, and the `GO` result. This
-prevents an approval for one proposed version from being used for another.
-The record cannot name L because L does not exist until after the Architect
-process exits.
-
-For an ordinary ticket, only the Implementer edits source code, tests, or
-documentation files that Git saves. The Architect writes plans, decisions,
-and backlog records. It has a separate route for the eleven protected
-Markdown files in `ai/notes/` that preserve long-term project rules. Red Team
-may write a local review record that is not part of the saved project history,
-but it never edits source files that Git saves.
-
-Before later role work starts, the watcher updates a role folder only when no
-job is using it, the folder has no unfinished changes, and Git can safely
-update it to the required saved version. Otherwise, the watcher leaves that
-folder untouched.
-
-The watcher may be launched from any project folder that Git recognizes.
-Mailbox commands that write files find the saved worktrees, then continue
-from the Architect's coordination folder. This prevents two terminals from
-silently using different mailboxes or placing an agent in your main folder.
-
-### Where things live
-
-| Path | Purpose |
-| --- | --- |
-| `ai/README.md` | This operating guide |
-| `ai/notes/` | Durable knowledge and local ticket records |
-| [`ai/tests/`](tests/README.md) | Small repeatable checks, scripts that rebuild earlier failures, and the command for each group |
-| [`ai/gates/`](gates/README.md) | Checks that need named scientific data or hardware, plus their setup and saved logs |
-| [`ai/tools/README.md`](tools/README.md) | Which tool to run, what it changes, command options, setup, and recovery |
-
-### The one rule to remember
-
-The mailbox message is only a pointer. The cited note carries the substance.
-
-If a chat message, mailbox message, and source note disagree, the source note
-wins. A later developer should be able to resume from repository records
-without reconstructing the chat.
+The tools carry the Architect's instructions to the other roles. The user does
+not have to learn the internal addresses or rewrite those instructions.
 
 ## Complete one small ticket
 
@@ -264,30 +116,31 @@ first; it makes each moving part visible.
 
 ### 1. Preview without changing anything
 
-From any project folder that Git recognizes:
+From the project folder that contains both `README.md` and `ai/`:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --dry-run
 ```
 
 Expected result on an empty installation: the command prints the three AI work
-folders that a command which writes files would create, reports `mailbox
-empty`, and changes nothing. If messages are waiting, it also prints the role
+folders that a command which writes files would create, reports that no
+request is waiting—the literal output says `mailbox empty`—and changes
+nothing. If requests are waiting, it also prints the role
 command and working folder that a command which writes files would use. No
-branch, worktree, or mailbox file is created.
+AI work folder or request file is created.
 
 ### 2. Create the agent work folders
 
 On a newly installed copy with no local edits, run this one-time setup before
-writing a ticket note that Git has not saved:
+writing a request that Git has not saved:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --once
 ```
 
 Expected result: on a clean installation, the tool creates and saves three Git
-*worktrees*. A worktree is simply another folder for the same repository,
-with its own branch and working files.
+*worktrees*. A worktree is simply another project folder that Git creates and
+remembers. Each role receives its own working files.
 
 - The Architect uses `mailbox-primary` for plans, audits, and records.
 - The Implementer changes source code in `mailbox-implementer`.
@@ -296,22 +149,26 @@ with its own branch and working files.
   there.
 
 The command reports the saved paths, checks for waiting requests, and exits.
-An empty first run prints that the mailbox is empty.
+An empty first run prints that no request is waiting.
 
 Open the saved Architect coordination folder reported by `--once` for the
 next step.
 A newly created worktree starts from the latest saved Git version, so it cannot
-see a ticket note that Git has not saved in another project folder.
+see a source note that Git has not saved in another project folder.
 
-If the command finds old mailbox files or a watcher in another project folder,
+If the command finds old saved request files or a watcher in another project folder,
 it refuses instead of guessing which mailbox is correct. Preserve every path
 it names and follow the
 [tool recovery guide](tools/README.md#appendix-e--how-do-i-troubleshoot-a-run).
 
 ### 3. Write the source note
 
-In the saved Architect coordination folder, create a temporary ticket note such as
-`ai/notes/version-flag.md`:
+A **source note** is the Markdown file that records the requested behavior,
+the limits on the change, and the checks that must pass. It remains the
+authoritative instruction if a later message is shorter or unclear.
+
+In the saved Architect coordination folder, create a temporary source note
+such as `ai/notes/version-flag.md`:
 
 ```markdown
 # Version flag
@@ -344,47 +201,37 @@ python3 ai/tools/mailbox_daemon.py --watch \
   --implementer-model sonnet
 ```
 
-Keep this terminal open. The watcher checks the mailbox every 20 seconds and
-prints progress while an AI job is running.
+Keep this terminal open. The **mailbox** is the set of folders that holds
+saved requests. The **watcher** checks those folders every 20 seconds, starts
+the correct role, and prints progress while an AI job is running.
 
 The models are command-line choices. The roles are stable: the Architect still
-finishes the design, writes the ordered directive, and checks the ticket. The
-Implementer follows that directive and makes the requested change.
+finishes the design, writes the complete ordered plan, and checks the ticket.
+The Implementer follows that plan and makes the requested change.
 
-The default watch also makes the independent Sol Red Team role available. It
-does not create Sol work by itself; Sol runs only when a `to-sol` message is
-waiting. For an Architect-and-Implementer run only:
+The default watch makes the optional Sol Red Team available. For an
+Architect-and-Implementer run only:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --watch --skip-redteam
 ```
 
-`--no-red-team` is another name for the same option. Existing `to-sol` files
-remain waiting for a later three-role watch.
-
-The discovery severity defaults to `medium`. Add, for example,
-`--severity high` to the watch command when discoveries created during that
-run should use the stricter setting. Each discovery request saves its own
-setting, so restarting the watcher does not change a request that is already
-waiting.
+`--no-red-team` is another name for the same option. Existing Red Team
+requests remain waiting for a later three-role watch.
 
 ### 5. Send the ticket to the Architect
 
-In another terminal, from any project folder that Git recognizes:
+A **ticket** is one requested change described by one source note. In another
+terminal, send this ticket to the Architect:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --send architect \
   --unit "Please coordinate the version-flag ticket in ai/notes/version-flag.md."
 ```
 
-Expected result: one numbered `to-fable` file is saved in the mailbox.
-`to-fable` is the internal Architect address; users select the plain
-`architect` target and do not address internal roles. The file also saves the
-ticket's discovery threshold and review scope. A normal request saves the
-bounded scope, which means one named change. Omitting `--severity` saves
-`medium`; an explicit `--severity high` or `--severity low` travels to the
-Architect with the request. A request that begins with the explicit “do a
-widespread search” command saves the widespread scope and Low severity.
+Expected result: the tool saves one numbered request for the Architect. The
+user selects the plain `architect` target; the tools handle the internal
+address.
 
 ### 6. Follow GO or NO-GO
 
@@ -396,47 +243,81 @@ python3 ai/tools/handoff_router.py --status
 
 The Architect records exactly one decision for the named ticket:
 
-- **GO**: the cited evidence satisfies the gates. The Architect writes only
-  the [five-line internal decision record](../.claude/FABLE_ROLE.md#ticket-cycle-protocol).
-  It names the exact
-  [candidate C](#how-does-an-accepted-change-reach-main) that the Implementer saved.
-  After the Architect job exits, the watcher creates landing L and, when the
-  user's `main` folder is safe to update, makes L its newest saved version.
+- **GO**: the checks support accepting the change. After the Architect job
+  exits, the watcher safely saves that accepted change on local `main`, the
+  repository's accepted local version.
 - **NO-GO**: the ticket is held, and the Architect names the smallest repair
   needed for another review.
-
-The saved records are split by purpose:
-
-| Location | What it tells you |
-| --- | --- |
-| `ai/notes/mailbox/done/` | Which mailbox request was completed |
-| `ai/notes/relay/` | What the AI role printed |
-| Source or review note | What was claimed, tested, and decided |
 
 Stop the watcher only at a printed safe interval, or use `--cycle` for an
 automatic exit. The [safe-stop and cycle guide](tools/README.md#appendix-b--when-is-it-safe-to-stop-the-watcher)
 explains both.
 
+### How does an accepted change reach `main`?
+
+After the Implementer finishes, the Architect checks the exact saved change.
+`GO` accepts it. `NO-GO` sends it back with focused repair instructions.
+
+After `GO`, the watcher saves the accepted change on local `main` only when
+the user's main folder is clean and unchanged. If that safety check fails, it
+preserves the accepted work, leaves the user's folder alone, and reports what
+must be fixed before another attempt.
+
+The optional Red Team reviews the exact saved result afterward. The
+[Git appendix](#faq-g1-candidate-and-landing) explains the internal names
+**candidate C** and **landing L**, and shows the focused check that proves they
+are distinct.
+
+### Where things live
+
+| Path | Purpose |
+| --- | --- |
+| `ai/README.md` | This operating guide |
+| `ai/notes/` | Long-term project rules and local ticket records |
+| [`ai/tests/`](tests/README.md) | Small checks and scripts that rebuild earlier failures |
+| [`ai/gates/`](gates/README.md) | Larger checks that may need scientific data or hardware |
+| [`ai/tools/README.md`](tools/README.md) | Commands, setup, stopping, and recovery |
+
+The tools save three kinds of working record:
+
+| Location | What it tells you |
+| --- | --- |
+| `ai/notes/mailbox/done/` | Which request finished |
+| `ai/notes/relay/` | What the AI role printed |
+| Source or review note | What was requested, checked, and decided |
+
+### The one rule to remember
+
+The mailbox request is only a pointer. The cited source note carries the
+substance.
+
+If a chat message, mailbox request, and source note disagree, the source note
+wins. A later developer should be able to resume from repository records
+without reconstructing the chat.
+
 ## Roles, models, and decisions
 
 Models can change from run to run. Authority does not.
 
-| Role | Responsibility | Mailbox address |
-| --- | --- | --- |
-| **Architect / Auditor** | Thinks through the design, writes the complete implementation directive, checks the original evidence, and decides `GO` or `NO-GO` | `to-fable` |
-| **Implementer** | Follows the ordered directive, changes only the named ticket, and produces validation evidence | `to-opus` |
-| **Independent Red Team** | After the watcher records a ticket's accepted landing, reads that exact commit adversarially and returns a detailed advisory result; it never approves or blocks the landing | `to-sol` |
+| Role | Responsibility |
+| --- | --- |
+| **Architect / Auditor** | Thinks through the design, writes the complete plan, checks the evidence, and decides `GO` or `NO-GO` |
+| **Implementer** | Follows the ordered plan, changes only the named ticket, and reports the test results |
+| **Independent Red Team** | Reviews one accepted change for a remaining bug and returns detailed advice; it never approves or blocks the accepted change |
 
-The role instructions live in `.claude/FABLE_ROLE.md`,
-`.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
-not name the model or give a role authority. These addresses are for internal
-handoffs. The user's command target is always `architect`.
+The user still sends every request to `architect`. Saved files use older
+internal role names; [FAQ C3](#faq-c3-internal-role-names) explains them only
+for readers who need to inspect those files.
 
 ### How the three bots work now
 
 The user sends every ticket to the Architect. The **watcher** is the Python
 program that carries the saved requests between roles. It is not a fourth bot
 and does not make design decisions.
+
+The diagram calls the Implementer's exact saved proposal the **candidate**.
+It calls the watcher's accepted commit on `main` **landing L**. These names
+are explained in more detail in [FAQ G1](#faq-g1-candidate-and-landing).
 
 The diagram shows one ticket. Read it from top to bottom.
 
@@ -693,10 +574,13 @@ Only the Architect decides whether the evidence is sufficient.
 
 The Architect owns any accepted edit to the permanent notes and may commit
 those eleven notes separately in the Architect coordination branch. The
-Implementer and Red Team do not inherit that authority. For an ordinary
-ticket, the Architect only audits C and sends the decision; the watcher
-alone creates L and, when the safety checks pass, makes L the newest saved
-version on `main` after that Architect process exits.
+Implementer and Red Team do not inherit that authority.
+
+For an ordinary ticket, the Architect checks the Implementer's proposed saved
+change and sends the decision. After the Architect exits, the watcher alone
+records the accepted version on local `main` when its safety checks pass.
+[FAQ G1](#faq-g1-candidate-and-landing) gives the internal Git names for those
+two versions.
 
 ### How a permanent-note update reaches `main`
 
@@ -704,88 +588,40 @@ The eleven permanent notes explain durable project rules to future users and
 AI roles. Only the Architect may edit them. The Implementer and Red Team may
 report a problem with a note, but they never change or commit one.
 
-This protected update is deliberately separate from ticket work. It waits
-until no ordinary ticket is reserved, running, awaiting landing recovery, or
-awaiting its closure review. Completed history and an older push failure do
-not count as active ticket work.
+This update waits until ordinary ticket work is idle. The Architect saves a
+note-only change in the Architect folder. After the Architect exits, the
+watcher checks that the change contains only permanent notes and that the
+user's `main` folder is still safe to update. It then records that exact
+change on local `main` and prepares the three AI folders for later work.
 
-The process uses two saved project versions:
-
-- B is the exact local `main` version before the Architect starts.
-- P is the Architect's clean saved update. P has one parent—B—and changes
-  one or more of the eleven permanent notes and nothing else.
-
-Git calls B the **parent** of P because P is saved directly after B. P is not
-combined with another branch or unrelated change.
-
-The watcher marks this special Architect turn with
-`MAILBOX-ADMIN: permanent-notes` and supplies B through
-`MAILBOX_NOTES_BASE`. These are internal safety labels; a normal user does not
-write them. When an audit discovers a durable update, the bound Architect
-queues the separate note turn with:
-
-```bash
-python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
-  --architect-notes-admin "PLAIN-LANGUAGE SUMMARY"
-```
-
-This is not a command for a normal user terminal, the Implementer, or the Red
-Team. It works only inside the saved Architect process and waits for ticket
-work to become idle. A changed turn ends with one exact four-line request and no
-Implementer message:
-
-```text
-MAILBOX-RETURN: architect-notes-go
-MAILBOX-BASE: FULL-B-FROM-MAILBOX_NOTES_BASE
-MAILBOX-NOTES-COMMIT: FULL-P
-MAILBOX-DECISION: GO
-```
-
-If the Architect decides that no note needs to change, it leaves the saved
-version at B and sends neither a daemon request nor an Implementer request.
-
-```mermaid
-flowchart TD
-  B["B: unchanged local main"] --> A["Architect edits only permanent notes"]
-  A --> P["P: one clean note-only commit whose parent is B"]
-  P --> D["Watcher checks B, P, and the changed paths"]
-  D --> M["Watcher makes P the newest saved version on clean unchanged main"]
-  M --> S["Watcher safely prepares a clean idle lane for the next ticket"]
-```
-
-The Architect does not change the user's main folder and does not push P.
-After the Architect process exits, the watcher that started it—the **parent
-watcher**—checks the exact B/P pair and makes P the newest saved version on a
-clean, selected, unchanged `main`. This operation does not use or complete a
-ticket cycle and does not ask Sol for a review.
-
-Before updating `main`, the watcher proves that the clean idle Architect,
-Implementer, and Red Team work folders can all be updated safely. After P
-lands, it updates all three saved role folders to P. A later Implementer
-request waits until this is complete, so the next ticket begins from
-`ticket@P` and uses the current tools and role instructions.
-
-The watcher then tries one bounded non-force push. If the result is failed or
-uncertain, it saves push debt naming that exact P instead of repeating the
-edit. It never resets a role folder that is dirty, has different saved work,
-or is still active; it preserves that work and explains why P cannot land or
-the next ticket cannot start.
+This note update is not a ticket, does not use a cycle, and does not ask Red
+Team for a closure review. A normal user never has to write its internal
+control fields. [FAQ H1](#faq-h1-permanent-note-update) explains those fields
+for a maintainer who must diagnose this special path.
 
 ### When does the Red Team run?
 
-In the default three-role setup, the Red Team role is available for the later
-review of closed tickets and for an explicitly admitted discovery task.
-Enabling the role does not start a review. Sol runs only after the Architect
-saves an internal `to-sol` message. That review covers the named saved Git
-version or change and the behavior directly affected by it.
+The default three-role setup makes Red Team available. Starting the watcher
+does not immediately start Red Team.
 
-After the watcher records a ticket's landing, it queues a bounded Red Team
-review for that ticket and exact landing. This advisory review does not delay
-the Architect's GO or the local landing. Another ticket may start only when the chosen cycle limit
-has an unused slot. The review return completes the counted cycle, so a
-watcher with a positive `--cycle` limit remains alive until the matching
-result arrives. A remaining bug produces `REOPEN`; a clean review produces
-`NO CHANGE`, not an approval.
+Red Team work begins in two ways:
+
+1. After the watcher records an accepted ticket on local `main`, it
+   automatically asks Red Team to review that exact saved version.
+2. The user may ask the Architect to arrange a separate search for a new bug.
+
+The first review stays focused on the accepted ticket and the behavior it
+directly affects. It is advisory: it does not delay or undo the Architect's
+`GO` or the accepted local change.
+
+The Red Team result does finish that ticket's counted cycle. A watcher with a
+positive `--cycle` limit therefore stays open until the matching result
+returns. Another ticket starts only when that limit still permits it.
+[The cycle examples](tools/README.md#faq-b2-cycle-count) show `--cycle 1`,
+`--cycle 3`, and `--cycle 0`.
+
+A remaining bug produces `REOPEN`. A review that finds no remaining bug
+produces `NO CHANGE`, not an approval.
 
 It does **not** turn a ticket review into a broad attack on the library. A
 widespread search happens only when the user begins the request with the
@@ -796,13 +632,13 @@ Please instruct the Red Team to do a widespread search for ...
 ```
 
 Send those words only to the Architect. The Architect records them in the
-source note and decides whether to write a Red Team handoff. A user message
-never starts Red Team work directly.
+source note and decides whether the search may start. A user message never
+starts Red Team work directly.
 
-A Red Team finding is input to the Architect. Its detailed repair plan is a
-candidate, never a self-executing ruling and never a direct instruction to the
-Implementer. In plain terms, the finding cannot change code by itself; the
-Architect must decide whether to use it.
+A Red Team finding is advice to the Architect. Even a detailed repair proposal
+cannot change code by itself and is not an instruction to the Implementer.
+The Architect decides whether the evidence justifies another ticket or
+repair.
 
 `--skip-redteam` removes that optional role for one watch. It does not weaken
 the Architect's evidence review, and it does not invent a Red Team result.
@@ -1132,15 +968,25 @@ command-line option.
 
 ### FAQ A1. How does a mailbox message move? <a id="appendix-a--how-does-a-mailbox-message-move"></a>
 
-The mailbox is a set of folders, and each request is a small Markdown file, a
-text file ending in `.md`. Sending a request means saving that file in the
-mailbox's waiting area. The watcher is the program that looks for waiting
-files and starts the appropriate AI role.
+The watcher carries each saved request through three simple states: waiting,
+being handled, and finished. The user normally sends a request and lets the
+watcher move it.
 
-Just before starting a role, the watcher moves the exact request file into
-`inflight/`, which means **work in progress**. Moving it first prevents a
-second watcher from starting the same request. When the role finishes, the
-watcher tries to move that same file to `done/` or `failed/`.
+#### Check what happened
+
+A finished request appears in `ai/notes/mailbox/done/`. A request under
+`inflight/` is still being handled or needs the recovery check in
+[FAQ A2](#faq-a2-unverified-outcome). Do not move either file by hand.
+
+#### Why the watcher moves the file first
+
+The mailbox is a set of folders. Each request is a small Markdown file, which
+is a text file ending in `.md`. Just before starting a role, the watcher moves
+that exact file into `inflight/`, the folder for work in progress. Moving it
+first prevents another watcher from starting the same request.
+
+When the role finishes, the watcher tries to move that same file to `done/`
+or `failed/`.
 
 ```mermaid
 flowchart TD
@@ -1160,113 +1006,178 @@ Architect instead of starting a separate user conversation.
 
 ### FAQ A2. What if the watcher cannot tell whether a message finished safely? <a id="faq-a2-unverified-outcome"></a>
 
-If a request remains in `inflight/`, the role started but the watcher could
-not confirm the final result. Later requests that use the same AI work folder
-must wait. Otherwise, they could edit the same files while the first request
-is still running or while its result is uncertain.
+Leave the uncertain request where it is. Read the original request, the log
+named by the watcher, and any matching file in `done/` or `failed/` before
+deciding what happened. Do not requeue or move the file by hand.
 
-`--dispatch-timeout MINUTES` sets the longest allowed running time and
-defaults to 60 minutes. At that limit, the watcher stops the AI program, saves
-a small timeout record under `ai/notes/mailbox/.dispatch-history/`, and tries
-to move the request to `failed/`.
+#### If the request remains in progress
 
-If the watcher cannot confirm the timeout record or the move of the exact
-request file, it leaves the file in `inflight/`. Even an AI program that exits
-without an error is not marked finished until the watcher confirms that the
-same request file reached `done/`.
+A request left in `inflight/` means that the role started but the watcher
+could not confirm the final result. Later work that needs the same AI folder
+waits so that two jobs never edit uncertain files at the same time.
 
-Do not requeue or move an uncertain file. First compare the original request,
-its named log, and any copies in `done/` or `failed/` so you know which result,
-if any, was saved.
+`--dispatch-timeout MINUTES` sets the longest running time and defaults to 60
+minutes. At the limit, the watcher stops the AI program, saves a timeout record
+under `ai/notes/mailbox/.dispatch-history/`, and tries to move the request to
+`failed/`.
 
-A ticket can also stop after the Implementer saves the candidate but before
-the watcher records the landing on `main`. On restart, the watcher uses the
-saved record for that exact ticket. It does not compare the separate Architect
-folder with `main` or use a **changed-line count**, the number of added or
-removed lines, to invent another ticket.
+If it cannot confirm both the record and the move, it keeps the request in
+`inflight/`. A program that exits without an error is not marked finished
+until the watcher confirms that the same request reached `done/`.
 
-After recording a landing, the watcher tries one non-force push. If the push
+#### If an accepted change has not reached `main`
+
+A run can stop after the Implementer saves a proposed change but before the
+watcher records the accepted version on local `main`. Restart the watcher; it
+uses the saved record for that exact ticket. [FAQ G1](#faq-g1-candidate-and-landing)
+explains the Git names for those two saved versions.
+
+The watcher does not compare the separate Architect folder with `main` or use
+a **changed-line count**, the number of added or removed lines, to invent
+another ticket.
+
+#### If the push fails
+
+After recording the accepted version locally, the watcher tries once to send
+it to the repository on GitHub. Git calls this action a **push**. If the push
 fails or cannot be confirmed, the accepted local change remains on `main`.
-The watcher saves **push debt**, a local record containing the exact commit and
-push command still owed; it does not reopen or land the ticket a second time.
+
+The watcher saves **push debt**, its name for a local record containing the
+exact saved version and push command still owed. It does not reopen or accept
+the ticket a second time.
+
+#### If the command was a preview
 
 `--dry-run` only prints what would happen. It starts no role and moves no
 mailbox file.
 
 ### FAQ C1. Why can some AI jobs run together while others must wait? <a id="appendix-c--how-do-queues-and-lanes-work"></a>
 
-Two jobs must not change or commit through the same Git folder at the same
-time. The watcher therefore gives each role its own folder. Jobs in separate
-folders may run together.
+Different roles may work at the same time because they use different folders.
+Two jobs that need the same folder wait for each other; otherwise, they could
+overwrite or commit each other's unfinished work.
 
-The documentation calls each one-at-a-time sequence a **lane**. A **turn** is
-one role handling one message. A **dispatch** is the moment when the watcher
-starts that turn. These names appear in logs, but the folder rule is the
-important idea.
+#### Let the watcher schedule the jobs
+
+The user does not assign folders or start overlapping work by hand. Send each
+ticket to the Architect and let the watcher decide which saved folder is
+available. If `--cycle` limits the number of tickets, another ticket starts
+only while that number has not been reached. [FAQ B2](tools/README.md#faq-b2-cycle-count)
+gives concrete examples.
+
+For example, the Implementer may change ticket B while the Architect audits
+ticket A and Red Team reviews an earlier accepted change:
 
 | Role folder | One job that can be running there |
 | --- | --- |
-| Architect | Write the next plan or audit a candidate C |
-| Implementer | Change the named files and save candidate C |
-| Red Team | Review an earlier watcher-recorded landing L |
+| Architect | Write the next plan or audit a proposed saved change |
+| Implementer | Change the named files and save the proposed change |
+| Red Team | Review an earlier accepted saved change |
 
-Only the Architect issues `GO`. The Implementer supplies candidate C for that
-decision. The [earlier diagram](#how-does-an-accepted-change-reach-main)
-shows how the watcher turns an accepted C into L.
+Only the Architect issues `GO`. The Implementer supplies the exact saved
+version for that decision. [FAQ G1](#faq-g1-candidate-and-landing) explains
+the internal names candidate C and landing L.
 
-The number at the beginning of each message filename determines its order
-inside the same lane.
+The ticket's Markdown instruction file and the names of its saved Git versions
+connect the roles. They do not need to share unfinished source edits.
 
-The source note and saved commit identifiers connect the lanes. The roles do
-not need to share unfinished source edits. For example, the Implementer may
-work on ticket B while the Architect audits ticket A and the Red Team reviews
-an earlier watcher-recorded landing. A positive `--cycle` limit must still have
-a free ticket slot before ticket B starts.
+#### Words that appear in the logs
+
+These three real status lines use the tool's internal words:
+
+```text
+1 turn in flight; not safe to stop.
+dispatch preparation admitted; not safe to stop.
+newer messages queued in this working-directory lane: 2
+```
+
+- A **turn** is one role handling one request. The first line says one role is
+  still working.
+- A **dispatch** is the watcher starting that work. The second line says the
+  watcher is preparing to start a role.
+- A **lane** is the one-at-a-time sequence for one shared work folder. The
+  third line says two later requests need that same folder and must wait.
+
+The number at the beginning of a request filename gives its order inside the
+same lane.
 
 ### FAQ C2. Where does Sol work? <a id="faq-c2-sol-worktree"></a>
 
-A Git **worktree** is an extra working copy of the same project. It has its
-own files and its own named line of work, called a branch, while sharing the
-project's saved Git history.
+Sol works outside the user's main folder and never edits source code. For a
+review, it reads a temporary, read-only folder that shows exactly the saved
+version named in the request.
 
-Sol never edits source code. On the first live run, the watcher creates a
-separate Sol worktree and remembers its location. Later runs reuse it as
-Sol's role folder. For each closure review, the watcher creates a temporary
-detached snapshot of the exact watcher-recorded landing named in the closure
-request. Sol reads the source from that snapshot, so later Implementer work
-cannot change what Sol is reviewing.
+#### What the user needs to do
 
-Sol can also read the Architect coordination worktree's `ai/notes/` folder so
-all roles use the same source notes and mailbox records. A Red Team result may
+Nothing needs to be copied into Sol's folder. Start the normal watcher when a
+Red Team review is wanted. Use `--skip-redteam` or `--no-red-team` for a
+two-role run; existing Sol messages remain waiting for a later normal watch.
+
+#### How the folders keep the review stable
+
+On the first live run, the watcher creates a separate Sol worktree and
+remembers it. A Git **worktree** is another project folder that Git creates
+and remembers. Later runs reuse it as Sol's role folder.
+
+For each review, the watcher also creates a temporary read-only view of the
+exact accepted saved version. Later Implementer work therefore cannot change
+what Sol is reading.
+
+Sol can read the Architect coordination worktree's `ai/notes/` folder so all
+roles use the same source notes and mailbox records. A Red Team result may
 write its review note there, but it does not change the library source.
 
 No AI role enters the user's main folder to land a ticket. After Architect
 `GO`, the watcher alone performs the checked update described in
 [How does an accepted change reach `main`?](#how-does-an-accepted-change-reach-main).
 
-A two-role watch created with `--skip-redteam` or `--no-red-team` does not run
-Sol. Existing Sol messages remain untouched for a later normal watch.
+### FAQ C3. What are the internal role names in saved files? <a id="faq-c3-internal-role-names"></a>
+
+Most users do not need these names. Send every request to `architect` and let
+the watcher choose the saved-file address.
+
+When diagnosing a saved request, use this translation:
+
+| Saved-file address | Role |
+| --- | --- |
+| `to-fable` | Architect |
+| `to-opus` | Implementer |
+| `to-sol` | Red Team |
+
+The role instructions live in `.claude/FABLE_ROLE.md`,
+`.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. A saved-file address or
+filename does not select a model or change a role's authority. Model choice
+comes from the watcher command.
 
 ### FAQ D1. Why can the tool refuse a new Red Team search? <a id="appendix-d--what-is-the-demand-guard"></a>
 
-The tool reads the classified open-ticket index in `ai/notes/backlog.md`:
+The tool pauses optional searches when important known work already needs
+attention. Fixing accepted problems takes priority over asking Red Team to
+look for more.
+
+#### What to do after a refusal
+
+Continue work on the recorded Critical, High, and Medium tickets. When fewer
+than ten remain, the Architect may send another ordinary search. A widespread
+search waits until none of those three groups remains open.
+
+#### How the tool makes the decision
+
+The tool counts the open tickets in `ai/notes/backlog.md`:
 
 ```text
 Critical tickets + High tickets + Medium tickets
 ```
 
 If this count is ten or more, the tool refuses a request for Sol to search for
-a new problem. Low tickets do not count. Waiting mailbox files are reported as
-queue depth, but they do not change this decision. This prevents optional new
-work from growing while important accepted work remains unfinished.
+a new problem. Low tickets and waiting mailbox requests do not change this
+count.
 
 An unclassified `- OPEN` line also refuses discovery until the Architect adds
 its priority and type. This prevents a spelling or formatting mistake from
 hiding work from the limit.
 
-The refused proposal remains a local deferred candidate without a countable
-`- OPEN` marker. After the count drops below ten, the Architect may send the
-search and classify any supported finding in the proper priority group. Work
+The refused proposal remains local and is not added as an Open ticket. Work
 that closes a known item may continue.
 
 A widespread search is stricter. It is automatically Low and starts only when
@@ -1284,40 +1195,51 @@ flowchart TD
 
 ### FAQ D2. Can Sol change the code? <a id="faq-d2-can-sol-change-code"></a>
 
-No. Sol has one optional job: Red Team review. It reads one named commit and
-sends advice to the Architect. It does not implement a ticket, edit source
-files, approve a commit, or merge a branch.
+No. Sol has one optional job: Red Team review. It reads one named saved
+project version and sends advice to the Architect. It does not implement a
+ticket, edit source files, approve a change, or combine Git work.
+
+#### Choose whether Sol runs
 
 Use `--skip-redteam` when a run should use only Architect and Implementer.
 This option leaves Sol idle; it does not turn Sol into another Implementer.
+
+#### Send every request through the Architect
 
 The user still talks only to the Architect. A request for a Red Team review or
 widespread search goes to the Architect, who writes the internal Sol handoff.
 
 ### FAQ F1. Which folder does each role use? <a id="appendix-f--what-is-the-worktree-topology"></a>
 
-A **worktree** is a separate project folder that Git creates and remembers.
+The user keeps the repository's main folder. Each AI role uses a separate
+folder that the watcher creates and remembers.
 
-- You use the repository's main folder.
-- Architect uses `mailbox-primary` for plans, decisions, and records.
-- Implementer changes source code in `mailbox-implementer`.
-- Sol uses `mailbox-sol` as the optional Red Team's saved role folder.
+| Who | Folder used |
+| --- | --- |
+| User | The repository's main folder |
+| Architect | `mailbox-primary` for plans, decisions, and records |
+| Implementer | `mailbox-implementer` for source-code changes |
+| Sol | `mailbox-sol` for optional Red Team records |
 
-The Architect does not inspect a candidate through unfinished files in
-`mailbox-primary`, and Sol does not inspect an accepted change through
-unfinished files in `mailbox-sol`. For each source review, the watcher creates
-a temporary detached snapshot of the exact commit that role must inspect.
+#### What the user should do
 
-The first mailbox command that can start or send work creates the AI folders
-and remembers them. A dry run does not.
+Run, explore, and make personal changes in the main folder. Do not copy ticket
+work into an AI role folder. The first mailbox command that can start or send
+work creates the AI folders; a dry run only previews them.
+
+#### How reviews avoid unfinished files
+
+For a source review, the watcher creates a temporary read-only folder showing
+the exact saved version under review. The Architect and Sol therefore do not
+inspect a proposed change through newer unfinished files in their saved role
+folders.
 
 Only the Implementer edits source files. The Architect and Red Team read saved
-commits and write plans, decisions, or review notes. They can therefore work
+versions and write plans, decisions, or review notes. They can therefore work
 at the same time without editing through the Implementer's Git folder. After
-the Architect records `GO` and exits, the watcher may perform the checked Git
-landing that combines the exact approved candidate with
-`main`. The Architect never edits, commits, or pushes through the user's main
-folder for an ordinary ticket.
+the Architect records `GO` and exits, the watcher may save the exact approved
+change on `main`. The Architect never edits, commits, or pushes through the
+user's main folder for an ordinary ticket.
 
 ### FAQ F2. Can I create another work folder for myself? <a id="faq-f2-other-worktrees"></a>
 
@@ -1325,3 +1247,168 @@ Yes. A worktree is a separate project folder that Git creates and remembers.
 You may create another one for a manual experiment or other development work.
 That extra folder does not change the saved Architect, Implementer, or Sol
 folder used by the watcher.
+
+### FAQ G1. What do candidate C and landing L mean? <a id="faq-g1-candidate-and-landing"></a>
+
+They are two different saved versions of one accepted ticket. **Candidate C**
+is the Implementer's proposed change. After Architect `GO`, the watcher builds
+**landing L**, the version that can become the newest local `main`.
+
+#### If the watcher leaves the main folder unchanged
+
+Read the recovery message before changing anything. If the main folder only
+contains unfinished edits, make it clean and restart the watcher. If another
+saved version became the newest version on `main` after L was created,
+candidate C needs a new Architect audit.
+
+#### How the two saved versions are made
+
+The Implementer fixes the bug and saves candidate C as a Git commit. The
+letter C is only a short label for “candidate.” Saving C does not change
+`main`.
+
+After `GO` and after the Architect process exits, the watcher creates landing
+L. The letter L is short for “landing.” The watcher builds L directly after
+the current saved version on local `main`. L therefore contains the accepted
+ticket change from C as well as any other saved work already on `main`.
+
+The user's main folder is the project folder where Git has selected the branch
+named `main`. Creating L does not change this folder. The watcher checks that
+the folder still has `main` selected, contains no unfinished changes, and
+still has the same saved version that the watcher used to build L. Only then
+does it make L the newest saved version on `main`. If that check fails, the
+watcher preserves C, the `GO`, and L, and leaves the user's folder alone.
+
+```mermaid
+flowchart TD
+  I["Implementer fixes the bug and saves a commit"] --> C["Candidate C: proposed commit for Architect review"]
+  C --> A{"Architect decision"}
+  A -->|"NO-GO"| I
+  A -->|"GO"| G["Architect sends a decision that names candidate C"]
+  G --> L["Watcher builds landing L after the current saved main version"]
+  L --> S{"Can the user's main folder be updated safely?"}
+  S -->|"Yes"| F["Make L the newest saved version on main"]
+  S -->|"No"| P["Preserve C, GO, and L; leave the user's folder untouched"]
+  F --> R["When enabled, Red Team reviews exact landing L"]
+```
+
+#### Run the focused developer check
+
+The repository's
+[candidate-and-landing check](tests/tools_mailbox_daemon_primary_worktree_repro.py)
+builds this example inside a temporary Git repository. It does not touch the
+live mailbox or project files. From the repository's top folder, run:
+
+```bash
+python3 -c \
+  'from ai.tests.tools_mailbox_daemon_primary_worktree_repro import arm_architect_receipt_binds_candidate_to_squash_landing as check; raise SystemExit(0 if check() else 1)'
+```
+
+The current check exits with code `0` and prints:
+
+```text
+candidate C and squash landing L are distinct=True
+```
+
+Here, **squash** means that the complete ticket change is saved as one landing
+commit. Success means exit code `0` and the `distinct=True` line shown above.
+
+#### How the approval stays attached to one candidate
+
+Git gives each saved project version a full 40-character commit identifier.
+The Architect's internal `GO` record repeats the ticket, C's full identifier,
+whether Red Team is enabled, and the `GO` result. This prevents approval for
+one proposed version from being used for another. The record cannot name L
+because L does not exist until after the Architect process exits.
+
+For an ordinary ticket, only the Implementer edits source code, tests, or
+documentation files that Git saves. The Architect writes plans, decisions,
+and backlog records through a separate Architect route. Red Team may write a
+local review record that is not part of the saved project history, but it
+never edits source files that Git saves.
+
+Before later role work starts, the watcher updates a role folder only when no
+job is using it, the folder has no unfinished changes, and Git can safely
+update it to the required saved version. Otherwise, the watcher leaves that
+folder untouched.
+
+The watcher may be launched from any project folder that Git recognizes.
+Commands that write files find the saved worktrees, then continue from the
+Architect's coordination folder. This prevents two terminals from silently
+using different mailboxes or placing an agent in the user's main folder.
+
+### FAQ H1. How does the Architect update a permanent note? <a id="faq-h1-permanent-note-update"></a>
+
+Only the Architect may edit the eleven permanent notes. The Implementer and
+Red Team may point out a missing or incorrect rule, but they do not change or
+commit these files.
+
+The user does not run a special note-update command. The Architect waits for
+ordinary ticket work to become idle, saves a note-only change, and exits. The
+watcher then checks and records that exact change on a clean, unchanged local
+`main`.
+
+```mermaid
+flowchart TD
+  R["A durable project rule needs correction"] --> A["Architect edits only permanent notes"]
+  A --> S["Architect saves one note-only version"]
+  S --> W["Watcher checks the changed files and main folder"]
+  W --> M["Watcher records the note update on local main"]
+  M --> N["Later tickets start with the updated rules"]
+```
+
+This special update is not a ticket. It consumes no cycle and receives no Red
+Team closure review. If the Architect decides that no permanent note needs to
+change, it sends no update.
+
+#### Internal record used for recovery
+
+The rest of this answer is for a maintainer diagnosing a refused or
+interrupted permanent-note update. A normal run writes these values
+automatically.
+
+The process uses two saved project versions:
+
+- B is the exact local `main` version before the Architect starts.
+- P is the Architect's clean saved update. P follows directly after B and
+  changes one or more permanent notes and nothing else.
+
+P has one parent: B. In Git, this means P was saved directly after B rather
+than combined with another line of work.
+
+The watcher marks the Architect job with `MAILBOX-ADMIN: permanent-notes` and
+supplies B through `MAILBOX_NOTES_BASE`. Inside that already running Architect
+process, the Architect may queue the separate note update with:
+
+```bash
+python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
+  --architect-notes-admin "PLAIN-LANGUAGE SUMMARY"
+```
+
+This command is not for a normal user terminal, the Implementer, or the Red
+Team. A changed Architect job ends with this exact four-line record and no
+Implementer request:
+
+```text
+MAILBOX-RETURN: architect-notes-go
+MAILBOX-BASE: FULL-B-FROM-MAILBOX_NOTES_BASE
+MAILBOX-NOTES-COMMIT: FULL-P
+MAILBOX-DECISION: GO
+```
+
+If no permanent note needs to change, the Architect leaves the saved version
+at B and sends neither a daemon request nor an Implementer request.
+
+After the Architect exits, the watcher that started that job—the **parent
+watcher**—checks the exact B/P pair. It confirms that the role folders are
+idle and safe to update before it makes P the newest saved version on local
+`main`. A later Implementer request then starts from saved version P.
+
+This special update does not use or complete a ticket cycle and does not ask
+Sol for a review.
+
+The watcher tries one non-force push, meaning one attempt to send P without
+overwriting newer remote work. If that attempt fails or is uncertain, it
+saves a local **push-debt record** containing exact P and the command still
+owed. It does not repeat the edit. The watcher never resets a role folder that
+has unfinished or different saved work.
