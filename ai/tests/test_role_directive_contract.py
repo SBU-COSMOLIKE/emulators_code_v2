@@ -1,6 +1,7 @@
 """Pin the thinking-role and execution-role responsibility boundary."""
 
 from pathlib import Path
+import tempfile
 import unittest
 
 from ai.tools import mailbox_daemon
@@ -340,6 +341,98 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("push debt", architect.lower())
         self.assertIn("push debt", ai_readme.lower())
         self.assertIn("push debt", tools_readme.lower())
+
+    def test_architect_never_rewrites_protected_history(self):
+        """History safety outranks landing, recovery, and push convenience."""
+        architect = " ".join(self.architect.split())
+        architect_command = " ".join(self.architect_command.split())
+
+        self.assertIn("## Protected Git history: HARD RULE", self.architect)
+        self.assertIn("Protecting the Git history of the target branch is a "
+                      "paramount goal", architect)
+        self.assertIn("current daemon supports only `main`", architect)
+        self.assertIn("`main` is the protected target today", architect)
+        self.assertIn("future user-selected target-branch option may ship only",
+                      architect)
+        self.assertIn("exact selected branch the protected target", architect)
+        self.assertIn("do not guess an alternate target or invent an option "
+                      "spelling", architect)
+        self.assertIn("Choosing a target branch or granting landing or push "
+                      "authority never grants authority to force-push or "
+                      "replace that branch's history", architect)
+        self.assertIn("Force pushes are never allowed", architect)
+        for forbidden_form in ("git push --force", "git push -f",
+                               "git push --force-with-lease",
+                               "leading `+` in a push refspec",
+                               "deleting and recreating the protected branch"):
+            with self.subTest(forbidden_form=forbidden_form):
+                self.assertIn(forbidden_form, architect)
+        self.assertIn("Never move the protected ref backward", architect)
+        self.assertIn("Never rebase, amend, filter, or otherwise rewrite",
+                      architect)
+        self.assertIn("must be a fast-forward from its exact current tip",
+                      architect)
+        self.assertIn("If local and remote history diverge, refuse", architect)
+        self.assertIn("Preserve the refs, commits, logs, and other evidence",
+                      architect)
+        self.assertIn("Never trade protected history for ticket closure, "
+                      "recovery, cleanup, a deadline, or clearing push debt",
+                      architect)
+        self.assertIn("Any plan, candidate, recovery step, or tool change "
+                      "that violates this rule is `NO-GO`", architect)
+        self.assertIn("Force pushes are never allowed", architect_command)
+        self.assertIn("If local and remote history diverge, stop without "
+                      "rewriting the protected history", architect_command)
+
+    def test_rejected_push_never_retries_with_force(self):
+        """A non-fast-forward rejection leaves one exact ordinary push debt."""
+        landing = "a" * 40
+        calls = []
+        original_run = mailbox_daemon.subprocess.run
+        original_relay = mailbox_daemon.RELAY_DIR
+
+        with tempfile.TemporaryDirectory(prefix="push-rejection-") as relay:
+            def reject_non_fast_forward(command, *args, **kwargs):
+                calls.append(list(command))
+                return mailbox_daemon.subprocess.CompletedProcess(
+                    command, 1, stdout=b"",
+                    stderr=b"! [rejected] non-fast-forward\n")
+
+            try:
+                mailbox_daemon.RELAY_DIR = relay
+                mailbox_daemon.subprocess.run = reject_non_fast_forward
+                pushed, detail = (
+                    mailbox_daemon.push_exact_landing_or_record_debt(
+                        landing=landing))
+            finally:
+                mailbox_daemon.subprocess.run = original_run
+                mailbox_daemon.RELAY_DIR = original_relay
+
+            expected = [
+                "git", "-C", mailbox_daemon.AGENT_CWD["fable"], "push",
+                "--porcelain", "origin", landing + ":refs/heads/main"]
+            self.assertFalse(pushed)
+            self.assertIn("non-fast-forward", detail)
+            self.assertEqual(calls, [expected])
+
+            argv = calls[0]
+            for force_option in ("--force", "-f", "--force-with-lease",
+                                 "--force-if-includes"):
+                with self.subTest(force_option=force_option):
+                    self.assertNotIn(force_option, argv)
+            refspec = argv[-1]
+            self.assertEqual(refspec, landing + ":refs/heads/main")
+            self.assertFalse(refspec.startswith("+"))
+            self.assertFalse(refspec.startswith(":"))
+
+            debt_path = Path(relay) / (
+                "pending-main-push-" + landing + ".txt")
+            debt = debt_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "Push is still required: git push origin " + landing
+                + ":refs/heads/main\n", debt)
+            self.assertIn("Last push result: ! [rejected] non-fast-forward",
+                          debt)
 
     def test_user_contacts_only_architect_and_courier_cannot_reauthor(self):
         self.assertIn("## Sole user contact", self.architect)

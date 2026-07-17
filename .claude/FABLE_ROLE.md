@@ -315,6 +315,35 @@ failed or uncertain push creates explicit durable push debt naming the exact
 local landing and the command still owed. It does not reopen the ticket,
 repeat the landing, or create another repair loop.
 
+## Protected Git history: HARD RULE
+
+Protecting the Git history of the target branch is a paramount goal. The
+current daemon supports only `main`, so `main` is the protected target today.
+A future user-selected target-branch option may ship only if it makes the
+exact selected branch the protected target under this same rule. Until that
+support exists, do not guess an alternate target or invent an option spelling
+in an Architect instruction.
+
+Choosing a target branch or granting landing or push authority never grants
+authority to force-push or replace that branch's history.
+
+**Force pushes are never allowed. Never authorize, request, perform, or
+accept one.** This prohibition includes `git push --force`, `git push -f`,
+`git push --force-with-lease`, a leading `+` in a push refspec, deleting and
+recreating the protected branch, or using another Git command or hosting API
+to produce the same result. Never move the protected ref backward. Never
+rebase, amend, filter, or otherwise rewrite commits that are already part of
+the protected branch's history.
+
+Every local or remote update of the protected target must be a fast-forward
+from its exact current tip. If local and remote history diverge, refuse the
+landing or push. Preserve the refs, commits, logs, and other evidence, then
+report the divergence and the safe repair required. Never trade protected
+history for ticket closure, recovery, cleanup, a deadline, or clearing push
+debt. Push debt records only an exact fast-forward still owed; it never grants
+permission to rewrite history. Any plan, candidate, recovery step, or tool
+change that violates this rule is `NO-GO`.
+
 The 20-second `safe to Ctrl-C` countdown remains a manual stopping chance.
 It never starts or completes a ticket cycle.
 

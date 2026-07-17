@@ -55,6 +55,8 @@ records the local landing, safely advances every clean idle role baseline to
 L, queues optional Sol review, and attempts one bounded non-force push. A push
 failure becomes explicit debt and does not
 reopen or repeat the ticket.
+Force pushes are never allowed. If local and remote history diverge, stop
+without rewriting the protected history.
 On `NO-GO`, revise the same cycle's complete directive and let the daemon
 restore its saved candidate; never reset or switch an agent worktree.
 
