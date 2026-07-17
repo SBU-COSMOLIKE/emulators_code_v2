@@ -779,6 +779,14 @@ candidate's ticket change into one distinct commit after the Architect exits;
 Git calls this a **squash**. Intermediate attempts do not get their own main
 commit. The Architect does not run that merge or push.
 
+GitHub shows a commit's first line as its subject and the remaining Markdown
+as its body. The watcher copies the Architect-approved candidate subject and
+body into the landing commit without rewriting them. It adds only the two
+machine lines needed to recover the exact ticket and candidate after a crash.
+Those two labels are reserved, so a candidate message that already uses them
+is refused instead of creating an ambiguous landing message. Changing their
+letter case or adding space before the colon does not bypass that refusal.
+
 Local status updates stay out of `main`. A workflow-rule change that is not
 part of the scientific or code fix stays out of that fix commit. When the rule
 is durable repository knowledge, the Architect reviews and commits it later

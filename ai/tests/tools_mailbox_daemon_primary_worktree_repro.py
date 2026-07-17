@@ -81,6 +81,14 @@ def git(root, *arguments, **kwargs):
     return run(["git"] + list(arguments), cwd=root, **kwargs)
 
 
+def git_bytes(root, *arguments, input_bytes=None, check=True, timeout=20):
+    """Run scratch Git without decoding its input or output bytes."""
+    return subprocess.run(
+        ["git"] + list(arguments), cwd=str(root), check=check,
+        timeout=timeout, input=input_bytes, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+
+
 def write_exact(path, data):
     """Write exact bytes, creating only parents inside a scratch repository."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2968,11 +2976,41 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
         candidate_file.write_text(
             "candidate change\n", encoding="utf-8", newline="")
         git(implementer, "add", candidate_file.name)
-        git(implementer, "commit", "-m", "scratch candidate")
+        candidate_tree = git(
+            implementer, "write-tree").stdout.strip()
+        candidate_message_input = (
+            "Add the accepted candidate file\n\n"
+            "The landing reproduction needs one visible file change.\r\n"
+            "The UTF-8 word café must remain unchanged.\r\n"
+            "\r\n"
+            "Evidence:\n\n"
+            "- The reproduction checks the exact tree and raw message.\n\n\n"
+        ).encode("utf-8")
+        candidate = git_bytes(
+            implementer, "commit-tree", candidate_tree, "-p", base,
+            "-F", "-", input_bytes=candidate_message_input
+        ).stdout.decode("ascii").strip()
+        git(implementer, "update-ref", "HEAD", candidate, base)
         candidate = daemon.record_implementer_candidate(
             cycle_id=cycle_id, starting_head=starting)
         if candidate is None:
             return False
+        candidate_object = git_bytes(
+            implementer, "cat-file", "commit", candidate).stdout
+        candidate_message_raw = candidate_object.partition(b"\n\n")[2]
+        reserved_message = (
+            b"Copy a prior landing message\n\n"
+            b"mailbox-cycle : accidental-copy\n")
+        reserved_candidate = git_bytes(
+            implementer, "commit-tree", candidate_tree, "-p", base,
+            "-F", "-", input_bytes=reserved_message
+        ).stdout.decode("ascii").strip()
+        reserved_message_refused = False
+        try:
+            daemon._landing_commit_message(
+                cycle_id=cycle_id, candidate_commit=reserved_candidate)
+        except daemon.TicketCycleStateError:
+            reserved_message_refused = True
         architect_snapshot = Path(daemon.create_audit_snapshot(
             cycle_id=cycle_id, commit=candidate, agent="fable"))
 
@@ -2998,10 +3036,14 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             "not candidate content\n", encoding="utf-8", newline="")
         git(root, "add", wrong_file.name)
         wrong_tree = git(root, "write-tree").stdout.strip()
-        wrong_landing = git(
-            root, "commit-tree", wrong_tree, "-p", landing_parent, "-m",
-            daemon._landing_commit_message(
-                cycle_id=cycle_id, candidate_commit=candidate)).stdout.strip()
+        expected_landing_message = (
+            candidate_message_raw
+            + b"Mailbox-Cycle: " + cycle_id.encode("utf-8") + b"\n"
+            + b"Mailbox-Candidate: " + candidate.encode("ascii") + b"\n")
+        wrong_landing = git_bytes(
+            root, "commit-tree", wrong_tree, "-p", landing_parent,
+            "-F", "-", input_bytes=expected_landing_message
+        ).stdout.decode("ascii").strip()
         git(root, "reset", "--hard", landing_parent)
         wrong_tree_refused = False
         try:
@@ -3010,6 +3052,29 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
                 landing_commit=wrong_landing)
         except daemon.TicketCycleStateError:
             wrong_tree_refused = True
+        wrong_human_message = (
+            b"Replace the reviewed explanation\n\n"
+            b"This body was not present in candidate C.\n\n")
+        wrong_message_landing = git_bytes(
+            root, "commit-tree", expected_tree, "-p", landing_parent,
+            "-F", "-", input_bytes=(
+                wrong_human_message
+                + b"Mailbox-Cycle: " + cycle_id.encode("utf-8") + b"\n"
+                + b"Mailbox-Candidate: " + candidate.encode("ascii")
+                + b"\n")
+        ).stdout.decode("ascii").strip()
+        wrong_message_refused = False
+        try:
+            landing_ref = daemon.cycle_landing_ref(cycle_id=cycle_id)
+            git(root, "update-ref", landing_ref, wrong_message_landing)
+            daemon.prepare_exact_squash_landing(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal")
+        except daemon.TicketCycleStateError:
+            wrong_message_refused = True
+        finally:
+            git(root, "update-ref", "-d", landing_ref,
+                wrong_message_landing, check=False)
         mailbox = Path(daemon.MAILBOX)
         mailbox.mkdir(parents=True, exist_ok=True)
         go_path = mailbox / "0003-to-daemon.md"
@@ -3020,6 +3085,9 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             encoding="utf-8", newline="")
         consumed = daemon.consume_daemon_message(path=str(go_path))
         landing = git(root, "rev-parse", "HEAD").stdout.strip()
+        landing_object = git_bytes(
+            root, "cat-file", "commit", landing).stdout
+        landing_message_raw = landing_object.partition(b"\n\n")[2]
         sol_snapshot = Path(daemon.create_audit_snapshot(
             cycle_id=cycle_id, commit=landing, agent="sol"))
         ticket_state = daemon.read_ticket_cycle_state()
@@ -3060,6 +3128,10 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             "go-consumed": consumed,
             "candidate-is-not-landing": candidate_as_landing_refused,
             "wrong-tree-is-not-landing": wrong_tree_refused,
+            "wrong-message-is-not-landing": wrong_message_refused,
+            "reserved-message-is-refused": reserved_message_refused,
+            "candidate-message-is-raw-input": (
+                candidate_message_raw == candidate_message_input),
             "candidate-audited": git(
                 architect_snapshot, "rev-parse", "HEAD").stdout.strip()
             == candidate,
@@ -3076,6 +3148,8 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             "exact-squash-tree": git(
                 root, "rev-parse", landing + "^{tree}").stdout.strip()
             == expected_tree,
+            "candidate-message-preserved": (
+                landing_message_raw == expected_landing_message),
             "intervening-preserved": (
                 root / intervening_file.name).read_bytes()
             == b"main advanced independently\n",

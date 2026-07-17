@@ -438,12 +438,13 @@ def _managed_primary_root(repository_root, create=False):
     return managed_root
 
 
-def _run_git(repository_root, arguments, check=True):
+def _run_git(repository_root, arguments, check=True, input_bytes=None):
     """Run one argv-only Git command and return its completed process."""
     command = ["git", "-C", os.path.abspath(repository_root)] + list(arguments)
     try:
         result = subprocess.run(command, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, check=False)
+                                stderr=subprocess.PIPE, check=False,
+                                input=input_bytes)
     except OSError as exc:
         raise PrimaryWorktreeError("cannot run git: " + str(exc))
     if check and result.returncode != 0:
@@ -8242,12 +8243,58 @@ def cycle_landing_ref(cycle_id):
         + "/landing"
 
 
+def _candidate_commit_message(candidate_commit):
+    """Return the exact human message that the Architect approved in C.
+
+    Architect GO names the full candidate commit, so the commit message is
+    already part of the immutable object under review. The daemon reads that
+    message instead of inventing an internal-only subject for the squash
+    landing.
+    """
+    if FULL_COMMIT_RE.fullmatch(candidate_commit) is None:
+        raise TicketCycleStateError(
+            "candidate message requires one full commit hash")
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["cat-file", "commit", candidate_commit],
+        check=False)
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            "cannot read the approved candidate commit message")
+    _headers, separator, message_bytes = result.stdout.partition(b"\n\n")
+    if not separator:
+        raise TicketCycleStateError(
+            "approved candidate commit has no message separator")
+    try:
+        message = message_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "approved candidate commit message is not UTF-8") from exc
+    if not message.strip() or "\0" in message:
+        raise TicketCycleStateError(
+            "approved candidate commit has no usable human message")
+    reserved = re.compile(
+        r"^mailbox-(?:cycle|candidate)[ \t]*:", re.IGNORECASE)
+    if any(reserved.match(line) for line in message.splitlines()):
+        raise TicketCycleStateError(
+            "approved candidate commit message uses a reserved mailbox "
+            "recovery label")
+    return message
+
+
 def _landing_commit_message(cycle_id, candidate_commit):
-    """Return the bounded deterministic message for daemon-created L."""
+    """Copy C's approved message and append exact recovery facts for L."""
+    candidate_message = _candidate_commit_message(candidate_commit)
+    if candidate_message.endswith("\n\n"):
+        separator = ""
+    elif candidate_message.endswith("\n"):
+        separator = "\n"
+    else:
+        separator = "\n\n"
     return (
-        "mailbox: land " + cycle_ticket_anchor(cycle_id) + "\n\n"
-        "Mailbox-Cycle: " + cycle_id + "\n"
-        "Mailbox-Candidate: " + candidate_commit + "\n")
+        candidate_message + separator
+        + "Mailbox-Cycle: " + cycle_id + "\n"
+        + "Mailbox-Candidate: " + candidate_commit + "\n")
 
 
 def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit):
@@ -8329,11 +8376,12 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
                 "the audited candidate produces an empty squash landing")
         result = _run_git(
             repository_root=AGENT_CWD["fable"],
-            arguments=["commit-tree", tree, "-p", current_main, "-m",
-                       _landing_commit_message(
-                           cycle_id=cycle_id,
-                           candidate_commit=candidate_commit)],
-            check=False)
+            arguments=["commit-tree", tree, "-p", current_main,
+                       "-F", "-"],
+            check=False,
+            input_bytes=_landing_commit_message(
+                cycle_id=cycle_id,
+                candidate_commit=candidate_commit).encode("utf-8"))
         if result.returncode != 0:
             detail = result.stderr.decode(
                 "utf-8", errors="replace").strip()[:500]
