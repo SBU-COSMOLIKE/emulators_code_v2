@@ -2336,6 +2336,11 @@ class EmulatorExperiment:
     # and stored by train(). None until those run.
     self.resolved_model = None
     self.resolved_train = None
+    # Semantic implementation records are materialized only after training
+    # has produced the complete model recipe.  The filename identity and the
+    # artifact writer then consume the same records.
+    self._compatibility_manifest = None
+    self._transfer_compatibility_manifest = None
     # scalar (derived-parameter) emulator: the emulated output names
     # and the run-mode flag, set by from_config. None / False on a data-vector
     # run, which every scalar branch below guards on (absent = byte-identical).
@@ -5313,9 +5318,10 @@ class EmulatorExperiment:
     # it into the ResBlock options (setdefault keeps config-set block_opts).
     # n_gates (YAML model.activation.n_gates, default 3) sizes the
     # multi-gate families.
-    specs["model_opts"].setdefault(
-      "block_opts", {})["act"] = make_activation(self.activation,
-                                                 n_gates=n_gates)
+    live_block_opts = specs["model_opts"].setdefault("block_opts", {})
+    live_block_opts.setdefault("n_layers", 2)
+    live_block_opts["act"] = make_activation(
+      self.activation, n_gates=n_gates)
 
     # make_norm (designs/blocks.py): map model.norm to
     # the ResBlock norm factory norm(size) -> module (affine = the
@@ -5377,6 +5383,7 @@ class EmulatorExperiment:
         continue
       if k == "block_opts":
         recipe["kwargs"]["block_opts"] = {
+          "n_layers": int(v["n_layers"]),
           "act": {"type": self.activation, "n_gates": int(n_gates)},
           "norm": norm_name,
         }
@@ -5598,6 +5605,11 @@ class EmulatorExperiment:
         "source_checkpoint_sha256": self._finetune.checkpoint_sha256,
         "compile_mode":             compile_mode,
         "extra_names":              " ".join(self._finetune_extra_names),
+        # The anchor changes the optimization objective.  Saving only the
+        # source pair would leave a later reader unable to distinguish a
+        # plain warm start from the same warm start with an L2-SP pull.
+        "anchor": (None if ft.get("anchor") is None
+                   else float(ft["anchor"])),
       }
     # NPCE: retain the resolved block separately from the generic training
     # recipe so save_emulator can bind the authoritative composition fact to
@@ -5609,6 +5621,12 @@ class EmulatorExperiment:
     # space) and the exact authenticated base pair, so the saved run states
     # what it composed even if the path is reused later.
     if self._transfer_base is not None:
+      from .output_identity import digest_tensor_state
+
+      pretrained_state = (
+        self._transfer_pretrained_base
+        if self._transfer_pretrained_base is not None
+        else self._transfer_base.model.state_dict())
       self.resolved_train["transfer"] = {
         "from":                     self._transfer_base.root,
         "source_artifact_id":       self._transfer_base.artifact_id,
@@ -5616,10 +5634,42 @@ class EmulatorExperiment:
         "form":                     self._transfer_form,
         "space":                    self._transfer_space,
         "extra_names":              " ".join(self._transfer_extra_names),
+        "embedded_state_sha256": digest_tensor_state(
+          dict(pretrained_state), where="transfer pretrained base state"),
       }
       # the resolved refine block (materialized), present only on a refined run.
       if self._transfer_refine is not None:
         self.resolved_train["transfer"]["refine"] = dict(self._transfer_refine)
+        self.resolved_train["transfer"][
+          "embedded_drifted_state_sha256"] = digest_tensor_state(
+            dict(self._transfer_base.model.state_dict()),
+            where="transfer refined base state")
+
+    # Bind the selected implementation semantics into the same identity that
+    # names diagnostics and the saved pair.  save_emulator independently
+    # rebuilds both manifests from the live objects before accepting them.
+    from .output_identity import build_live_compatibility_manifest
+
+    if self.pce_opts is not None:
+      composition_mode = "npce"
+    elif self._transfer_base is not None:
+      composition_mode = "transfer"
+    else:
+      composition_mode = "plain"
+    self._compatibility_manifest = build_live_compatibility_manifest(
+      self.resolved_model,
+      parameter_geometry=self.pgeom,
+      output_geometry=self.geom,
+      composition_mode=composition_mode,
+      where="completed experiment")
+    self._transfer_compatibility_manifest = None
+    if self._transfer_base is not None:
+      self._transfer_compatibility_manifest = build_live_compatibility_manifest(
+        self._transfer_base.recipe,
+        parameter_geometry=self._transfer_base.pgeom,
+        output_geometry=self._transfer_base.geom,
+        composition_mode="plain",
+        where="completed experiment transfer base")
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)
 

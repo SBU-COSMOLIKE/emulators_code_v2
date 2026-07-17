@@ -10,8 +10,12 @@ import h5py
 import numpy as np
 import torch
 
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+
 from ai.gates.checks.compile_recipe import save_fixture
 from emulator import data_staging, experiment, fixed_facts, results
+from emulator.geometries.parameter import ParamGeometry
+from emulator.geometries.scalar import ScalarGeometry
 
 
 class _StateDictMustNotRun:
@@ -21,27 +25,21 @@ class _StateDictMustNotRun:
     raise AssertionError("model.state_dict must not run after early refusal")
 
 
-class _NamedGeometry:
-  """Input-geometry stand-in used only by pre-serialization checks."""
-
-  def __init__(self, names):
-    self.names = list(names)
-
-  def state(self):
-    return {"names": list(self.names)}
-
-
 def _reader_shape_recipe():
-  """Return the smallest recipe carrying every field the reader consumes."""
+  """Return one complete current ResMLP constructor recipe."""
   return {
     "cls": "emulator.designs.plain.ResMLP",
+    "name": "resmlp",
     "ia": None,
     "input_dim": 1,
     "output_dim": 1,
     "compile_mode": None,
     "needs_geom": False,
     "kwargs": {
+      "int_dim_res": 4,
+      "n_blocks": 1,
       "block_opts": {
+        "n_layers": 2,
         "act": {"type": "H", "n_gates": 3},
         "norm": "affine",
       },
@@ -49,23 +47,60 @@ def _reader_shape_recipe():
   }
 
 
+def _reader_shape_cnn_recipe():
+  """Return a complete ResCNN recipe for nested head-activation checks."""
+  recipe = _reader_shape_recipe()
+  recipe.update({
+    "cls": "emulator.designs.plain.ResCNN",
+    "name": "rescnn",
+    "needs_geom": True,
+  })
+  recipe["kwargs"].update({
+    "kernel_size": 3,
+    "rescale_kernel": False,
+    "groups": 1,
+    "separable": False,
+    "film": False,
+    "n_blocks_cnn": 1,
+    "gate_init": 0.1,
+    "head_act": None,
+  })
+  return recipe
+
+
 def _save_attempt(root, *, facts_yaml, resolved_train, resolved_model,
                   names=("p0",)):
   """Call save_emulator with sentinels that must remain untouched."""
+  device = torch.device("cpu")
+  param_geometry = ParamGeometry(
+    device=device,
+    names=list(names),
+    center=[0.0] * len(names),
+    evecs=np.eye(len(names)).tolist(),
+    sqrt_ev=[1.0] * len(names))
+  geometry = ScalarGeometry(
+    device=device, names=["derived"], center=[0.0], scale=[1.0])
   return results.save_emulator(
     path_root=str(root),
     model=_StateDictMustNotRun(),
-    param_geometry=_NamedGeometry(names),
-    geometry=None,
-    config={},
-    histories={},
+    param_geometry=param_geometry,
+    geometry=geometry,
+    config={"data": {}, "train_args": {"nepochs": 1}},
+    histories={
+      "train_losses": [0.1],
+      "val_medians": [0.1],
+      "val_means": [0.1],
+      "val_fracs": [torch.tensor([0.5])],
+      "thresholds": torch.tensor([1.0]),
+    },
     resolved_train=resolved_train,
     resolved_model=resolved_model,
     facts_yaml=facts_yaml,
     composition_mode="plain",
     transfer_refined=False,
     resolved_pce=None,
-    resolved_transfer=None)
+    resolved_transfer=None,
+    attrs={"rescale": "none"})
 
 
 def _facts_path(params_path):
@@ -132,7 +167,7 @@ class Schema3ProductionTests(unittest.TestCase):
           _save_attempt(
             root,
             facts_yaml=None,
-            resolved_train={"nepochs": 1},
+            resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
             resolved_model=_reader_shape_recipe())
 
       reserve.assert_not_called()
@@ -148,7 +183,7 @@ class Schema3ProductionTests(unittest.TestCase):
             _save_attempt(
               root,
               facts_yaml=value,
-              resolved_train={"nepochs": 1},
+              resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
               resolved_model=_reader_shape_recipe())
       self._assert_no_artifacts(tmp)
 
@@ -158,7 +193,8 @@ class Schema3ProductionTests(unittest.TestCase):
       names=["p0"], label="missing-recipe", support=None)
     cases = (
       (None, _reader_shape_recipe(), "resolved_train"),
-      ({"nepochs": 1}, None, "resolved_model"),
+      (one_pass_training_recipe(thresholds=(1.0,)), None,
+       "resolved_model"),
       (None, None, "resolved_train and resolved_model"),
     )
     with tempfile.TemporaryDirectory(prefix="schema3-missing-recipe-") as tmp:
@@ -179,7 +215,8 @@ class Schema3ProductionTests(unittest.TestCase):
       names=["p0"], label="nonmapping-recipe", support=None)
     cases = (
       ([], _reader_shape_recipe(), "resolved_train"),
-      ({"nepochs": 1}, ["fixture"], "resolved_model"),
+      (one_pass_training_recipe(thresholds=(1.0,)), ["fixture"],
+       "resolved_model"),
       ("nepochs: 1", _reader_shape_recipe(), "resolved_train"),
     )
     with tempfile.TemporaryDirectory(prefix="schema3-recipe-type-") as tmp:
@@ -212,7 +249,7 @@ class Schema3ProductionTests(unittest.TestCase):
             _save_attempt(
               root,
               facts_yaml=facts,
-              resolved_train={"nepochs": 1},
+              resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
               resolved_model=_reader_shape_recipe())
       self._assert_no_artifacts(tmp)
 
@@ -228,16 +265,16 @@ class Schema3ProductionTests(unittest.TestCase):
     null_block["kwargs"]["block_opts"] = None
     missing_block_gate = _reader_shape_recipe()
     missing_block_gate["kwargs"]["block_opts"]["act"].pop("n_gates")
-    missing_head_gate = _reader_shape_recipe()
+    missing_head_gate = _reader_shape_cnn_recipe()
     missing_head_gate["kwargs"]["head_act"] = {"type": "H"}
     cases = (
-      ({}, ValueError, r"missing reader-required key"),
-      (missing_cls, ValueError, r"missing reader-required key.*cls"),
-      (bad_block, ValueError, r"block_opts is missing.*norm"),
+      ({}, ValueError, r"has missing.*cls"),
+      (missing_cls, ValueError, r"has missing.*cls"),
+      (bad_block, ValueError, r"block_opts has missing.*norm"),
       (null_block, TypeError, r"block_opts must be a plain mapping"),
       (missing_block_gate, ValueError,
-       r"block_opts\.act is missing.*n_gates"),
-      (missing_head_gate, ValueError, r"head_act is missing.*n_gates"),
+       r"block_opts\.act has missing.*n_gates"),
+      (missing_head_gate, ValueError, r"head_act has missing.*n_gates"),
     )
     with tempfile.TemporaryDirectory(prefix="schema3-recipe-shape-") as tmp:
       for index, (model_recipe, error_type, diagnostic) in enumerate(cases):
@@ -247,7 +284,7 @@ class Schema3ProductionTests(unittest.TestCase):
             _save_attempt(
               root,
               facts_yaml=facts,
-              resolved_train={"nepochs": 1},
+              resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
               resolved_model=model_recipe)
       self._assert_no_artifacts(tmp)
 
@@ -389,7 +426,7 @@ class Schema3ProductionTests(unittest.TestCase):
         _save_attempt(
           root,
           facts_yaml=None,
-          resolved_train={"nepochs": 1},
+          resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
           resolved_model=_reader_shape_recipe())
 
       after = ((Path(str(root) + ".emul").read_bytes()),

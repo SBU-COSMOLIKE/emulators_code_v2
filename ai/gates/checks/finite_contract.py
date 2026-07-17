@@ -98,6 +98,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import torch.nn as nn
 
 from emulator import fixed_facts, warmstart
@@ -676,7 +678,8 @@ def _source_recipe():
     "kwargs": {
       "int_dim_res": 32,
       "n_blocks": 2,
-      "block_opts": {"act": {"type": "H", "n_gates": 3},
+      "block_opts": {"n_layers": 2,
+                     "act": {"type": "H", "n_gates": 3},
                      "norm": "affine"},
     },
   }
@@ -710,7 +713,8 @@ def _save_source(root):
   save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                 geometry=geom, config=config, histories=histories,
                 train_args=config["train_args"],
-                resolved_train={"nepochs": 1},
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
                 resolved_model=_source_recipe(),
                 composition_mode="plain", transfer_refined=False,
                 resolved_pce=None, resolved_transfer=None,

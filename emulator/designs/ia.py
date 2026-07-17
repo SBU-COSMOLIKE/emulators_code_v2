@@ -25,14 +25,25 @@ smaller vector the network actually emulates.
 import torch
 import torch.nn as nn
 
-from ..activations import activation_fcn, require_live_head_activation
+from ..activations import (
+  activation_factory_recipe, activation_fcn, require_live_head_activation)
+from ..artifact_recipe import build_runtime_model_recipe
 from ..validation import (
   require_exact_bool, require_exact_int, require_nonzero_float32)
 from .plain import DesignSpec
 from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, keep_valid_head_positions,
-  rescale_kernel_size, resolve_padded_head_layout,
+  materialized_block_recipe, rescale_kernel_size, resolve_padded_head_layout,
   validate_trf_token_width)
+
+
+def _template_ia_name(n_amps, n_templates):
+  """Name a registered IA template shape, keeping custom test shapes inert."""
+  if (n_amps, n_templates) == (1, 3):
+    return "nla"
+  if (n_amps, n_templates) == (3, 10):
+    return "tatt"
+  return "unregistered:" + str(n_amps) + "x" + str(n_templates)
 
 
 class TemplateMLP(DesignSpec, nn.Module):
@@ -110,6 +121,17 @@ class TemplateMLP(DesignSpec, nn.Module):
     super().__init__()
     if block_opts is None:
       block_opts = {}
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="resmlp", ia=_template_ia_name(n_amps, n_templates),
+      input_dim=input_dim, output_dim=output_dim, needs_geom=False,
+      kwargs={
+        "n_amps": int(n_amps),
+        "n_templates": int(n_templates),
+        "int_dim_res": int(int_dim_res),
+        "n_blocks": int(n_blocks),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
     self.n_keep      = output_dim
     self.n_templates = n_templates
     # n_in = real input width: drop the n_amps amplitude columns.
@@ -406,6 +428,26 @@ class TemplateResCNN(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(
       cnn_act, "TemplateResCNN head activation")
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="rescnn", ia=_template_ia_name(n_amps, n_templates),
+      input_dim=input_dim, output_dim=output_dim, needs_geom=True,
+      kwargs={
+        "n_amps": int(n_amps),
+        "n_templates": int(n_templates),
+        "int_dim_res": int(int_dim_res),
+        "kernel_size": int(kernel_size),
+        "rescale_kernel": bool(rescale_kernel),
+        "groups": int(groups),
+        "separable": bool(separable),
+        "film": bool(film),
+        "n_blocks": int(n_blocks),
+        "n_blocks_cnn": int(n_blocks_cnn),
+        "gate_init": float(gate_init),
+        "head_act": (None if head_act is None
+                     else activation_factory_recipe(head_act)),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
     self.n_keep      = output_dim
     self.n_templates = n_templates
     # n_in = real input width: drop the n_amps amplitude columns.
@@ -840,6 +882,25 @@ class TemplateResTRF(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(
       trf_act, "TemplateResTRF head activation")
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="restrf", ia=_template_ia_name(n_amps, n_templates),
+      input_dim=input_dim, output_dim=output_dim, needs_geom=True,
+      kwargs={
+        "n_amps": int(n_amps),
+        "n_templates": int(n_templates),
+        "int_dim_res": int(int_dim_res),
+        "n_heads": int(n_heads),
+        "n_blocks": int(n_blocks),
+        "n_blocks_trf": int(n_blocks_trf),
+        "n_mlp_blocks": int(n_mlp_blocks),
+        "gate_init": float(gate_init),
+        "shared_mlp": bool(shared_mlp),
+        "film": bool(film),
+        "head_act": (None if head_act is None
+                     else activation_factory_recipe(head_act)),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
     self.n_keep      = output_dim
     self.n_templates = n_templates
     # n_in = real input width: drop the n_amps amplitude columns.

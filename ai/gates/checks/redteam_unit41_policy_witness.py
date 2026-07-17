@@ -20,6 +20,8 @@ from types import SimpleNamespace
 import h5py
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 from emulator import fixed_facts
@@ -235,9 +237,11 @@ def check_amp_artifact():
     "amp_dtype": expected_policy["amp_dtype"],
     "scaler_policy": expected_policy["scaler_policy"],
   }
-  resolved = {}
+  resolved = one_pass_training_recipe(thresholds=(0.2,))
   for key in keys:
-    resolved[key] = fixture_values.get(key)
+    if key not in resolved:
+      resolved[key] = fixture_values.get(key)
+  resolved.update(fixture_values)
 
   with tempfile.TemporaryDirectory(prefix="unit41-policy-") as directory:
     root = os.path.join(directory, "artifact")
@@ -273,6 +277,7 @@ def check_amp_artifact():
         "int_dim_res": 4,
         "n_blocks": 1,
         "block_opts": {
+          "n_layers": 2,
           "act": {"type": "H", "n_gates": 3},
           "norm": "affine",
         },

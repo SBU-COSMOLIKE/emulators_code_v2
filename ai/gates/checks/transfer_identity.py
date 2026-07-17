@@ -47,6 +47,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+from ai.gates.checks.artifact_fixtures import transfer_refined_training_recipe
 import yaml
 
 from emulator import fixed_facts
@@ -203,11 +206,12 @@ def base_config():
           "train_args": {"nepochs": 1}}
 
 
-def histories():
-  return {"train_losses": [0.1],
-          "val_medians": [0.1],
-          "val_means": [0.1],
-          "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+def histories(epochs=1):
+  """Return one finite row per recorded fixture-training epoch."""
+  return {"train_losses": [0.1] * epochs,
+          "val_medians": [0.1] * epochs,
+          "val_means": [0.1] * epochs,
+          "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])] * epochs,
           "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
 
 
@@ -233,12 +237,15 @@ def save_plain_base(root, device, label):
             "needs_geom": False,
             "kwargs": {"int_dim_res": 32,
                        "n_blocks": 2,
-                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                       "block_opts": {"n_layers": 2,
+                                      "act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
   save_emulator(path_root=str(root), model=model, param_geometry=pg,
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
-                resolved_train={"nepochs": 1}, resolved_model=recipe,
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
+                resolved_model=recipe,
                 composition_mode="plain", transfer_refined=False,
                 resolved_pce=None, resolved_transfer=None,
                 facts_yaml=fixed_facts.synthetic_sidecar(
@@ -278,12 +285,15 @@ def save_factored_base(root, device, label):
                        "n_templates": 3,
                        "int_dim_res": 32,
                        "n_blocks": 2,
-                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                       "block_opts": {"n_layers": 2,
+                                      "act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
   save_emulator(path_root=str(root), model=model, param_geometry=pg,
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
-                resolved_train={"nepochs": 1}, resolved_model=recipe,
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
+                resolved_model=recipe,
                 composition_mode="plain", transfer_refined=False,
                 resolved_pce=None, resolved_transfer=None,
                 facts_yaml=fixed_facts.synthetic_sidecar(
@@ -587,9 +597,11 @@ def check_lifecycle(device, tmp):
                  "needs_geom": False,
                  "kwargs": {"int_dim_res": 16,
                             "n_blocks": 1,
-                            "block_opts": {"act": {"type": "H", "n_gates": 3},
+                            "block_opts": {"n_layers": 2,
+                                           "act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
   transfer_base = {"recipe": base.recipe,
+                   "model": base.model,
                    "state": base.model.state_dict(),
                    "param_geometry": base.pgeom,
                    "dv_geometry": base.geom,
@@ -601,11 +613,18 @@ def check_lifecycle(device, tmp):
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
-                resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
+                resolved_model=corr_recipe,
                 transfer_base=transfer_base,
                 composition_mode="transfer", transfer_refined=False,
                 resolved_pce=None,
-                resolved_transfer={"form": "gain", "space": "physical"},
+                resolved_transfer={
+                  "from": str(base_root),
+                  "source_artifact_id": base.artifact_id,
+                  "source_checkpoint_sha256": base.checkpoint_sha256,
+                  "form": "gain",
+                  "space": "physical"},
                 facts_yaml=supported_test_record(
                   names=new_pgeom.state()["names"],
                   label="transfer-identity/lifecycle-transfer-run",
@@ -726,9 +745,11 @@ def check_refined_lifecycle(device, tmp):
                  "needs_geom": False,
                  "kwargs": {"int_dim_res": 16,
                             "n_blocks": 1,
-                            "block_opts": {"act": {"type": "H", "n_gates": 3},
+                            "block_opts": {"n_layers": 2,
+                                           "act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
   transfer_base = {"recipe": base.recipe,
+                   "model": base.model,
                    "state": pretrained,
                    "drifted_state": drifted,
                    "param_geometry": base.pgeom,
@@ -737,13 +758,18 @@ def check_refined_lifecycle(device, tmp):
                    "space": "physical"}
   saved = Path(tmp) / "ref_transfer"
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
-                geometry=geom, config=base_config(), histories=histories(),
+                geometry=geom, config=base_config(), histories=histories(2),
                 train_args=base_config()["train_args"],
-                resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
+                resolved_train=transfer_refined_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
+                resolved_model=corr_recipe,
                 transfer_base=transfer_base,
                 composition_mode="transfer", transfer_refined=True,
                 resolved_pce=None,
                 resolved_transfer={
+                  "from": str(base_root),
+                  "source_artifact_id": base.artifact_id,
+                  "source_checkpoint_sha256": base.checkpoint_sha256,
                   "form": "gain",
                   "space": "physical",
                   "refine": {"fixture": "synthetic-drift"}},
@@ -792,7 +818,8 @@ def grid_base_recipe(names, nz):
           "needs_geom": False,
           "kwargs": {"int_dim_res": 16,
                      "n_blocks": 2,
-                     "block_opts": {"act": {"type": "H", "n_gates": 3},
+                     "block_opts": {"n_layers": 2,
+                                    "act": {"type": "H", "n_gates": 3},
                                     "norm": "affine"}}}
 
 
@@ -964,21 +991,49 @@ def check_diagonal(device, tmp):
                      "train_covmat": "c.covmat"},
             "transfer": {"from": "grid_base", "form": "sum"},
             "train_args": {"nepochs": 1}}
+  # Save and authenticate the source before embedding it.  The transfer
+  # artifact is self-contained, but its path-free output identity still names
+  # the exact artifact pair whose frozen state was copied into the file.
+  source_root = Path(tmp) / "diag_source"
+  source_config = dict(config)
+  source_config["transfer"] = None
+  save_emulator(
+    path_root=str(source_root), model=base, param_geometry=pg,
+    geometry=geom, config=source_config, histories=histories(),
+    train_args=source_config["train_args"],
+    resolved_train=one_pass_training_recipe(
+      thresholds=(0.2, 1.0, 10.0, 100.0)),
+    resolved_model=grid_base_recipe(names, int(z.size)),
+    composition_mode="plain", transfer_refined=False,
+    resolved_pce=None, resolved_transfer=None,
+    facts_yaml=fixed_facts.synthetic_sidecar(
+      names=pg.state()["names"],
+      label="transfer-identity/diagonal-source",
+      family="grid"),
+    attrs={"rescale": "none", "quantity": "Hubble"})
+  source = warmstart.load_source(
+    root=str(source_root), device=device, allow_factored=True)
   save_emulator(path_root=str(root), model=corr, param_geometry=pg,
                 geometry=geom, config=config, histories=histories(),
                 train_args=config["train_args"],
-                resolved_train={"nepochs": 1},
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
                 resolved_model=corr_recipe,
-                transfer_base={"recipe": grid_base_recipe(names,
-                                                          int(z.size)),
-                               "state": base.state_dict(),
-                               "param_geometry": pg,
-                               "dv_geometry": geom,
+                transfer_base={"recipe": source.recipe,
+                               "model": source.model,
+                               "state": source.model.state_dict(),
+                               "param_geometry": source.pgeom,
+                               "dv_geometry": source.geom,
                                "form": "sum",
                                "space": "whitened"},
                 composition_mode="transfer", transfer_refined=False,
                 resolved_pce=None,
-                resolved_transfer={"form": "sum", "space": "whitened"},
+                resolved_transfer={
+                  "from": str(source_root),
+                  "source_artifact_id": source.artifact_id,
+                  "source_checkpoint_sha256": source.checkpoint_sha256,
+                  "form": "sum",
+                  "space": "whitened"},
                 facts_yaml=supported_test_record(
                   names=pg.state()["names"],
                   label="transfer-identity/diagonal-transfer-run",
@@ -1025,7 +1080,8 @@ def check_diagonal(device, tmp):
   save_emulator(path_root=str(plain_root), model=base, param_geometry=pg,
                 geometry=geom, config=plain_cfg, histories=histories(),
                 train_args=plain_cfg["train_args"],
-                resolved_train={"nepochs": 1},
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
                 resolved_model=grid_base_recipe(names, int(z.size)),
                 composition_mode="plain", transfer_refined=False,
                 resolved_pce=None, resolved_transfer=None,
@@ -1056,7 +1112,9 @@ def check_diagonal(device, tmp):
                      "n_val": 1},
             "transfer": {"from": str(plain_root), "form": "sum"},
             "train_args": {"nepochs": 1, "bs": 8,
-                           "model": {"name": "resmlp"}}}
+                           "model": {"name": "resmlp",
+                                     "mlp": {"width": 16,
+                                             "n_blocks": 2}}}}
   try:
     EmulatorExperiment.from_config(g2_cfg, device=torch.device("cpu"))
     report("cross-family transfer base raises", False, "no raise")

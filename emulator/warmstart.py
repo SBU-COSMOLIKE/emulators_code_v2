@@ -507,6 +507,7 @@ def recipe_to_model_opts(recipe, geom=None, compile_mode="__inherit__"):
     bo  = kwargs["block_opts"]
     act = bo["act"]
     kwargs["block_opts"] = {
+      "n_layers": bo["n_layers"],
       "act":  make_activation(act["type"], n_gates=act["n_gates"]),
       "norm": make_norm(bo["norm"]),
     }

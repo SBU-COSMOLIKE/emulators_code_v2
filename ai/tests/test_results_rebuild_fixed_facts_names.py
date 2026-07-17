@@ -7,32 +7,20 @@ rebuild compares that geometry against the record before loading model weights,
 and that an untampered matching record still reaches the model-loading stage.
 """
 
-import hashlib
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
 import h5py
-import numpy as np
 import torch
-import yaml
 
+from ai.gates.checks.compile_recipe import save_fixture
 from emulator import fixed_facts
 from emulator import results
-
-
-class _GeometryFixture:
-  """Minimal importable geometry for exercising the artifact reader."""
-
-  def __init__(self, names):
-    self.names = list(names)
-
-  @classmethod
-  def from_state(cls, device, state):
-    """Rebuild the persisted names through results._rebuild_geometry."""
-    del device
-    return cls(names=state["names"])
+from emulator.geometries.parameter import ParamGeometry
+from emulator.geometries.scalar import ScalarGeometry
 
 
 class _ModelLoadReached(BaseException):
@@ -42,68 +30,19 @@ class _ModelLoadReached(BaseException):
 class RebuildFixedFactsNamesTest(unittest.TestCase):
   """Exercise the independent geometry-to-record comparison on schema v3."""
 
-  geometry_names = ["alpha", "beta"]
-
-  def _write_geometry(self, parent, group_name, names):
-    """Write the minimal state consumed by results._rebuild_geometry."""
-    string_dtype = h5py.string_dtype(encoding="utf-8")
-    group = parent.create_group(group_name)
-    group.attrs["cls"] = __name__ + "._GeometryFixture"
-    group.create_dataset(
-      "names",
-      data=np.asarray(names, dtype=object),
-      dtype=string_dtype)
+  geometry_names = ["p0", "p1"]
 
   def _write_artifact(self, path_root, rewritten_names=None, rescale="none"):
     """Write a schema-v3 artifact with a caller-selected rescale fact."""
-    string_dtype = h5py.string_dtype(encoding="utf-8")
-    artifact_id = "1" * 32
-    emul_path = path_root + ".emul"
-    torch.save({"weight": torch.ones(1)}, emul_path)
-    results._stamp_checkpoint_artifact_id(emul_path, artifact_id)
-    with open(emul_path, "rb") as checkpoint:
-      checkpoint_sha256 = hashlib.sha256(checkpoint.read()).hexdigest()
+    save_fixture(
+      path_root=Path(path_root), compile_mode="default",
+      case_label="rebuild-fixed-facts-names")
     h5_path = path_root + ".h5"
-    with h5py.File(h5_path, "w") as artifact:
-      artifact.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
-      artifact.attrs["composition_mode"] = "plain"
-      artifact.attrs["transfer_refined"] = False
-      if rescale is not None:
+    with h5py.File(h5_path, "r+") as artifact:
+      if rescale is None:
+        del artifact.attrs["rescale"]
+      else:
         artifact.attrs["rescale"] = rescale
-      artifact.attrs["artifact_id"] = artifact_id
-      artifact.attrs["checkpoint_sha256"] = checkpoint_sha256
-      artifact.create_dataset(
-        "model_recipe",
-        data="{}",
-        dtype=string_dtype)
-      artifact.create_dataset(
-        "config_yaml",
-        data=yaml.safe_dump({"data": {}, "train_args": {},
-                             "pce": None, "transfer": None},
-                            sort_keys=False),
-        dtype=string_dtype)
-      artifact.create_dataset(
-        "config_resolved_yaml",
-        data=yaml.safe_dump({"data": {}, "train_args": {},
-                             "composition_mode": "plain",
-                             "transfer_refined": False,
-                             "pce": None,
-                             "transfer": None},
-                            sort_keys=False),
-        dtype=string_dtype)
-      self._write_geometry(
-        parent=artifact,
-        group_name="param_geometry",
-        names=self.geometry_names)
-      self._write_geometry(
-        parent=artifact,
-        group_name="dv_geometry",
-        names=["observable"])
-
-      original = fixed_facts.synthetic_sidecar(
-        names=self.geometry_names,
-        label="rebuild-name-witness-original")
-      fixed_facts.write_h5(f=artifact, sidecar_text=original)
 
       if rewritten_names is not None:
         # Coordinate the rewrite: the structured blocks and the producer text
@@ -168,10 +107,14 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
           path_root = os.path.join(temp_dir, label)
           self._write_artifact(path_root=path_root, rescale=value)
           with mock.patch.object(
-              _GeometryFixture,
+              ParamGeometry,
               "from_state",
               side_effect=AssertionError("geometry construction reached")) \
-              as construct_geometry, mock.patch.object(
+              as construct_parameter_geometry, mock.patch.object(
+                ScalarGeometry,
+                "from_state",
+                side_effect=AssertionError("geometry construction reached")) \
+              as construct_output_geometry, mock.patch.object(
                 results.torch,
                 "load",
                 side_effect=AssertionError("model load reached")) \
@@ -182,11 +125,12 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
                 path_root=path_root,
                 device=torch.device("cpu"),
                 compile_model=False)
-            construct_geometry.assert_not_called()
+            construct_parameter_geometry.assert_not_called()
+            construct_output_geometry.assert_not_called()
             load_weights.assert_not_called()
 
-  def test_bypassing_rescale_reader_reaches_the_model_load(self):
-    """Negative control: the public call is what blocks transformed files."""
+  def test_bypassing_rescale_reader_still_fails_output_identity(self):
+    """A forged rescale cannot bypass the independent output identity."""
     with tempfile.TemporaryDirectory() as temp_dir:
       path_root = os.path.join(temp_dir, "bypassed-rescale")
       self._write_artifact(path_root=path_root, rescale="rescaled")
@@ -196,13 +140,14 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
           return_value="rescaled"), mock.patch.object(
             results.torch,
             "load",
-            side_effect=_ModelLoadReached("rescale guard was bypassed")):
+            side_effect=AssertionError("model load reached")) as load_weights:
         with self.assertRaisesRegex(
-            _ModelLoadReached, "rescale guard was bypassed"):
+            ValueError, "output identity disagrees"):
           results.rebuild_emulator(
             path_root=path_root,
             device=torch.device("cpu"),
             compile_model=False)
+        load_weights.assert_not_called()
 
 
 if __name__ == "__main__":

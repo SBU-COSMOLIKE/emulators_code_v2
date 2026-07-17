@@ -20,6 +20,8 @@ import zipfile
 import h5py
 import torch
 
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+
 from emulator import fixed_facts, results
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -99,6 +101,7 @@ def _model_recipe():
       "gate_init": 0.25,
       "head_act": None,
       "block_opts": {
+        "n_layers": 2,
         "act": {"type": "H", "n_gates": 3},
         "norm": "affine",
       },
@@ -161,7 +164,7 @@ def _save_fixture(root, *, saved_geometry=None):
     config=config,
     histories=histories,
     train_args=config["train_args"],
-    resolved_train={"nepochs": 1},
+    resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
     resolved_model=_model_recipe(),
     composition_mode="plain",
     transfer_refined=False,

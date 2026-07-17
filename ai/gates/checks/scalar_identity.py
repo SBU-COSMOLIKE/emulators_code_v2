@@ -33,6 +33,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 from emulator.activations import make_activation
@@ -208,7 +210,8 @@ def scalar_recipe():
         "kwargs": {
             "int_dim_res": 16,
             "n_blocks": 2,
-            "block_opts": {"act": {"type": "H", "n_gates": 3},
+            "block_opts": {"n_layers": 2,
+                           "act": {"type": "H", "n_gates": 3},
                            "norm": "affine"},
         },
     }
@@ -283,7 +286,8 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
                   config=config,
                   histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=recipe,
                   composition_mode="plain",
                   transfer_refined=False,
@@ -739,7 +743,8 @@ def _save_tiny_dv(root, device):
               "needs_geom": False,
               "kwargs": {"int_dim_res": 16,
                          "n_blocks": 2,
-                         "block_opts": {"act": {"type": "H", "n_gates": 3},
+                         "block_opts": {"n_layers": 2,
+                                        "act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
     # the record a test double declares: no generator produced this one, so it
     # says so rather than carrying no record at all.
@@ -753,9 +758,11 @@ def _save_tiny_dv(root, device):
                   histories={"train_losses": [0.1],
                              "val_medians": [0.1],
                              "val_means": [0.1],
-                             "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                             "val_fracs": [torch.tensor([0.5, 0.4, 0.3])],
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
-                  train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
+                  train_args={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0)),
                   resolved_model=recipe,
                   composition_mode="plain",
                   transfer_refined=False,
@@ -953,7 +960,8 @@ def check_npce(tmp, device):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=recipe,
                   pce=pce, pce_form="residual",
                   composition_mode="npce",

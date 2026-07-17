@@ -44,6 +44,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 from emulator.activations import make_activation
@@ -210,7 +212,8 @@ def save_synthetic_dv(root, device, label, support, seed=11):
               "needs_geom": False,
               "kwargs": {"int_dim_res": 16,
                          "n_blocks": 2,
-                         "block_opts": {"act": {"type": "H", "n_gates": 3},
+                         "block_opts": {"n_layers": 2,
+                                        "act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom,
@@ -222,9 +225,11 @@ def save_synthetic_dv(root, device, label, support, seed=11):
                   histories={"train_losses": [0.1],
                              "val_medians": [0.1],
                              "val_means": [0.1],
-                             "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                             "val_fracs": [torch.tensor([0.5, 0.4, 0.3])],
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
-                  train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
+                  train_args={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0)),
                   resolved_model=recipe,
                   composition_mode="plain",
                   transfer_refined=False,
@@ -275,7 +280,8 @@ def save_synthetic_scalar(root, device, label, seed=31):
               "needs_geom": False,
               "kwargs": {"int_dim_res": 16,
                          "n_blocks": 2,
-                         "block_opts": {"act": {"type": "H", "n_gates": 3},
+                         "block_opts": {"n_layers": 2,
+                                        "act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom,
@@ -286,7 +292,9 @@ def save_synthetic_scalar(root, device, label, seed=31):
                              "val_means": [0.1],
                              "val_fracs": [torch.tensor([0.5, 0.4])],
                              "thresholds": torch.tensor([0.2, 1.0])},
-                  train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
+                  train_args={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0)),
                   resolved_model=recipe,
                   composition_mode="plain",
                   transfer_refined=False,

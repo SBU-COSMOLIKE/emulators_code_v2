@@ -1,0 +1,358 @@
+"""Check that a saved training recipe describes every executed pass.
+
+The training loop can run once, split into trunk and head work, or append a
+transfer-refinement pass.  These CPU tests replace the numerical loop with a
+small deterministic stand-in and inspect the resolved recipe returned by the
+real orchestration code.
+"""
+
+import unittest
+from unittest import mock
+
+import numpy as np
+import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+from ai.gates.checks.artifact_fixtures import transfer_refined_training_recipe
+from ai.gates.checks.compile_recipe import model_recipe
+from emulator import results
+from emulator import training
+
+
+class _Model(torch.nn.Module):
+  """Small module exposing the phase and compile facts run_emulator reads."""
+
+  def __init__(self, compile_mode="default"):
+    super().__init__()
+    self.weight = torch.nn.Parameter(torch.tensor([1.0]))
+    self.emul_compile_mode = compile_mode
+    self.phases = []
+
+  def forward(self, value):
+    return value * self.weight
+
+  def set_train_phase(self, phase):
+    self.phases.append(phase)
+
+
+class _Loss:
+  """Only the destination width and optional transfer base are needed."""
+
+  def __init__(self, base_net=None):
+    self.dest_idx = torch.tensor([0])
+    self.base_net = base_net
+    self.live = False
+
+  def set_live(self, value):
+    self.live = bool(value)
+
+
+def _sources():
+  """Return tiny arrays whose row count exercises chunk-step accounting."""
+  return ({"C": np.zeros((10, 1)), "dv": np.zeros((10, 1)),
+           "idx": np.arange(10)},
+          {"C": np.zeros((4, 1)), "dv": np.zeros((4, 1)),
+           "idx": np.arange(4)})
+
+
+def _loaders():
+  """The inert loader record used by the mocked numerical loop."""
+  def load(rows):
+    return torch.zeros((len(rows), 1))
+
+  return {
+    "train": {"load_C": load, "load_dv": load,
+              "idx": np.arange(10), "load": 8},
+    "val": {"load_C": load, "load_dv": load,
+            "idx": np.arange(4), "load": 4},
+    "eval_bs": 4,
+  }
+
+
+def _loop_result(**kwargs):
+  """Return one finite history row for each requested epoch."""
+  count = int(kwargs["nepochs"])
+  return ([1.0] * count,
+          [2.0] * count,
+          [3.0] * count,
+          [torch.tensor([0.1, 0.2])] * count)
+
+
+def _common_specs():
+  """Explicit construction specs keep the test independent of defaults."""
+  return {
+    "model_opts": {"cls": _Model, "compile_mode": "default"},
+    "opt_opts": {"cls": torch.optim.AdamW, "weight_decay": 0.01},
+    "lr_opts": {"lr_base": 0.004, "bs_base": 4.0,
+                "warmup_epochs": 2},
+    "sched_opts": {"cls": torch.optim.lr_scheduler.ReduceLROnPlateau,
+                   "mode": "min", "patience": 3, "factor": 0.75},
+    "trim_opts": {"shape": "const", "start": 0.0},
+    "focus_opts": {"shape": "const", "start": -1.0},
+  }
+
+
+class TrainingPassRecipeTests(unittest.TestCase):
+  """Exercise pass resolution without allocating a real model or dataset."""
+
+  def _run(self, *, loss, nepochs, anchor=None, refine=None, device=None,
+           spec_overrides=None, loop_effect=None, **phase):
+    train_set, val_set = _sources()
+    model = _Model(compile_mode="default")
+    specs = _common_specs()
+    if spec_overrides:
+      specs.update(spec_overrides)
+    if device is None:
+      device = torch.device("cpu")
+    if loop_effect is None:
+      loop_effect = _loop_result
+    with mock.patch.object(training, "make_model", return_value=model), \
+         mock.patch.object(training, "build_loaders", return_value=_loaders()), \
+         mock.patch.object(torch.cuda, "mem_get_info",
+                           return_value=(8 * 1024**3, 8 * 1024**3)), \
+         mock.patch.object(training, "build_anchor", return_value=object()), \
+         mock.patch.object(training, "training_loop_batched",
+                           side_effect=loop_effect):
+      return training.run_emulator(
+        train_set=train_set,
+        val_set=val_set,
+        chi2fn=_Loss(base_net=_Model(compile_mode=None)),
+        param_geometry=object(),
+        device=device,
+        bs=4,
+        nepochs=nepochs,
+        loss=loss,
+        thresholds=torch.tensor([0.2, 1.0]),
+        use_amp=False,
+        silent=True,
+        seed=7,
+        anchor=anchor,
+        refine=refine,
+        **phase,
+        **specs)
+
+  def test_two_phase_recipe_materializes_overrides_and_boundaries(self):
+    anchor = {
+      "reference": {"weight": torch.tensor([1.0])},
+      "masks": {"weight": torch.tensor([True])},
+      "lam": 0.3,
+    }
+    result = self._run(
+      loss=None,
+      nepochs=5,
+      anchor=anchor,
+      trunk_epochs=2,
+      freeze_trunk=False,
+      ema={"horizon_epochs": 2},
+      trunk_opts={
+        "lr": {"lr_base": 0.008, "warmup_epochs": 1},
+        "clip": 1.25,
+      },
+      head_opts={
+        "loss": {"mode": "chi2"},
+        "scheduler": {"mode": "min", "patience": 2, "factor": 0.5},
+        "rewind": True,
+        "ema": None,
+      })
+    recipe = result[-1]
+
+    self.assertEqual(recipe["recipe_schema"], 1)
+    self.assertEqual(recipe["total_epochs"], 5)
+    self.assertEqual(recipe["loss"], {
+      "mode": "sqrt", "berhu": None, "roughness": None})
+    self.assertEqual(
+      recipe["execution"],
+      {"configured_compile_mode": "default",
+       "applied_compile_mode": "default"})
+
+    trunk, head = recipe["passes"]
+    self.assertEqual(
+      (trunk["role"], trunk["model_phase"], trunk["epochs"],
+       trunk["history_start"], trunk["history_stop"]),
+      ("trunk", "trunk", 2, 0, 2))
+    self.assertEqual(trunk["learning_rate"], 0.008)
+    self.assertEqual(trunk["warmup_epochs"], 1)
+    self.assertEqual(trunk["clip"], 1.25)
+    self.assertEqual(trunk["loss"]["mode"], "sqrt")
+    self.assertEqual(trunk["ema"]["horizon_epochs"], 2)
+    self.assertEqual(
+      trunk["anchor"],
+      {"kind": "finetune_l2sp", "lambda": 0.3, "masked": True})
+
+    self.assertEqual(
+      (head["role"], head["model_phase"], head["epochs"],
+       head["history_start"], head["history_stop"]),
+      ("head", "joint", 3, 2, 5))
+    self.assertEqual(head["learning_rate"], 0.004)
+    self.assertEqual(head["loss"]["mode"], "chi2")
+    self.assertTrue(head["rewind"])
+    self.assertIsNone(head["ema"])
+    self.assertEqual(head["scheduler"]["kwargs"]["patience"], 2)
+    for executed_pass in recipe["passes"]:
+      self.assertEqual(executed_pass["train_chunk_rows"], 8)
+      self.assertEqual(executed_pass["steps_per_epoch"], 2)
+      self.assertEqual(executed_pass["step_compile_mode"], "default")
+      self.assertEqual(
+        executed_pass["optimizer"]["constructor"]["betas"], [0.9, 0.999])
+      self.assertEqual(
+        executed_pass["optimizer"]["constructor"]["eps"], 1.0e-8)
+      self.assertTrue(executed_pass["optimizer"]["groups"])
+      self.assertEqual(
+        executed_pass["scheduler"]["kwargs"]["threshold_mode"], "rel")
+      self.assertEqual(executed_pass["trim"], {
+        "shape": "const", "start": 0.0, "end": 0.0,
+        "hold_epochs": 0, "anneal_epochs": 1})
+      self.assertEqual(executed_pass["focus"], {
+        "shape": "const", "start": -1.0, "end": -1.0,
+        "hold_epochs": 0, "anneal_epochs": 1, "kappa": 1.0})
+
+  def test_transfer_refine_is_a_third_kind_of_materialized_pass(self):
+    result = self._run(
+      loss={"mode": "sqrt"},
+      nepochs=2,
+      refine={"epochs": 1, "base_lr_scale": 0.1, "anchor": 0.4})
+    recipe = result[-1]
+
+    self.assertEqual(recipe["total_epochs"], 3)
+    self.assertEqual(len(recipe["passes"]), 2)
+    ordinary, refine = recipe["passes"]
+    self.assertEqual(
+      (ordinary["role"], ordinary["model_phase"], ordinary["history_start"],
+       ordinary["history_stop"]),
+      ("single", "single", 0, 2))
+    self.assertEqual(
+      (refine["role"], refine["model_phase"], refine["history_start"],
+       refine["history_stop"]),
+      ("transfer_refine", "joint", 2, 3))
+    self.assertIsNone(refine["step_compile_mode"])
+    self.assertEqual(
+      refine["anchor"],
+      {"kind": "transfer_base_l2sp", "lambda": 0.4, "masked": False,
+       "base_lr_scale": 0.1, "base_learning_rate": 0.0004})
+
+  def test_fractional_warmup_is_refused_before_model_construction(self):
+    specs = _common_specs()
+    specs["lr_opts"] = dict(specs["lr_opts"], warmup_epochs=2.5)
+    train_set, val_set = _sources()
+    with mock.patch.object(
+        training, "make_model",
+        side_effect=AssertionError("model construction must not begin")) as make:
+      with self.assertRaisesRegex(ValueError, "warmup_epochs.*native integer"):
+        training.run_emulator(
+          train_set=train_set, val_set=val_set, chi2fn=_Loss(),
+          param_geometry=object(), device=torch.device("cpu"), bs=4,
+          nepochs=2, loss=None, thresholds=torch.tensor([0.2, 1.0]),
+          use_amp=False, silent=True, seed=7, **specs)
+    make.assert_not_called()
+
+  def test_cuda_recipe_records_the_forced_fused_optimizer(self):
+    result = self._run(
+      loss=None, nepochs=1, device=torch.device("cuda"),
+      spec_overrides={
+        "opt_opts": {
+          "cls": torch.optim.AdamW, "weight_decay": 0.01, "fused": False}})
+    recipe = result[-1]
+    self.assertIs(recipe["optimizer"]["extras"]["fused"], True)
+    self.assertIs(recipe["optimizer"]["constructor"]["fused"], True)
+    self.assertIs(
+      recipe["passes"][0]["optimizer"]["constructor"]["fused"], True)
+
+  def test_produced_recipe_passes_the_strict_validator_without_defaults(self):
+    output = self._run(loss=None, nepochs=2)
+    recipe = output[-1]
+    histories = {
+      "train_losses": np.asarray(output[1]),
+      "val_medians": np.asarray(output[2]),
+      "val_means": np.asarray(output[3]),
+      "val_fracs": np.stack([row.numpy() for row in output[4]]),
+      "thresholds": np.asarray(recipe["thresholds"]),
+    }
+    results.validate_training_recipe_and_histories(
+      recipe, histories, composition_mode="plain", transfer_refined=False,
+      model_recipe={"compile_mode": "default"}, where="produced recipe")
+
+  def test_pass_records_initial_group_rates_before_scheduler_mutation(self):
+    def decayed_loop(**kwargs):
+      for group in kwargs["optimizer"].param_groups:
+        group["lr"] *= 0.5
+      return _loop_result(**kwargs)
+
+    recipe = self._run(
+      loss=None, nepochs=1, loop_effect=decayed_loop)[-1]
+    group_rates = {
+      group["learning_rate"]
+      for group in recipe["passes"][0]["optimizer"]["groups"]}
+    self.assertEqual(group_rates, {0.004})
+
+
+class TrainingRecipeValidationTests(unittest.TestCase):
+  """Reject incomplete or contradictory recipes before executable loading."""
+
+  @staticmethod
+  def _histories(epochs):
+    return {
+      "train_losses": np.zeros(epochs),
+      "val_medians": np.zeros(epochs),
+      "val_means": np.zeros(epochs),
+      "val_fracs": np.zeros((epochs, 1)),
+      "thresholds": np.array([1.0]),
+    }
+
+  def _validate(self, recipe, *, transfer=False):
+    compile_mode = recipe["execution"]["configured_compile_mode"]
+    return results.validate_training_recipe_and_histories(
+      recipe, self._histories(recipe["total_epochs"]),
+      composition_mode="transfer" if transfer else "plain",
+      transfer_refined=transfer, model_recipe=model_recipe(compile_mode),
+      where="test recipe")
+
+  def test_complete_fixture_passes_the_closed_recipe_census(self):
+    recipe = one_pass_training_recipe()
+    self._validate(recipe)
+
+  def test_missing_and_unknown_top_level_fields_are_rejected(self):
+    for mutation, message in (
+        (lambda recipe: recipe.pop("bs"), "missing.*bs"),
+        (lambda recipe: recipe.update({"future_default": 1}),
+         "unknown.*future_default")):
+      with self.subTest(message=message):
+        recipe = one_pass_training_recipe()
+        mutation(recipe)
+        with self.assertRaisesRegex(ValueError, message):
+          self._validate(recipe)
+
+  def test_pass_semantics_reject_values_that_cannot_describe_execution(self):
+    cases = (
+      (lambda item: item.update({"learning_rate": -1.0}),
+       "learning_rate must be positive"),
+      (lambda item: item.update({"warmup_epochs": 0.5}),
+       "warmup_epochs.*nonnegative native integer"),
+      (lambda item: item.update({"steps_per_epoch": 0}),
+       "steps_per_epoch.*positive native integer"),
+      (lambda item: item.update({"loss": {}}), "loss.*missing"),
+      (lambda item: item.update({"anchor": {}}), "anchor.*missing"),
+      (lambda item: item.update({"trim": {}}), "trim.*missing"),
+    )
+    for mutation, message in cases:
+      with self.subTest(message=message):
+        recipe = one_pass_training_recipe()
+        mutation(recipe["passes"][0])
+        with self.assertRaisesRegex((TypeError, ValueError), message):
+          self._validate(recipe)
+
+  def test_transfer_refine_outer_step_is_always_eager(self):
+    recipe = transfer_refined_training_recipe(compile_mode="default")
+    recipe["passes"][-1]["step_compile_mode"] = "default"
+    with self.assertRaisesRegex(ValueError, "step_compile_mode must be null"):
+      self._validate(recipe, transfer=True)
+
+  def test_optimizer_effective_extra_must_match_each_pass(self):
+    recipe = one_pass_training_recipe()
+    recipe["optimizer"]["extras"] = {"fused": True}
+    recipe["optimizer"]["constructor"]["fused"] = True
+    with self.assertRaisesRegex(ValueError, "effective.*fused"):
+      self._validate(recipe)
+
+
+if __name__ == "__main__":
+  unittest.main()

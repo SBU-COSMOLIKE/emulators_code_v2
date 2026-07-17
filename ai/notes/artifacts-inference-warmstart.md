@@ -138,13 +138,15 @@ saved model remains in use.
 - The HDF5 record contains the raw `config_yaml` and `train_args_yaml` as
   provenance; `config_resolved_yaml`, which includes the resolved training and
   data blocks; the staged-selection identity for both training and validation;
-  and a `model_recipe/` group. The model recipe records the fully
-  qualified class name, every constructor argument actually passed, callables
-  serialized by name, and constructor defaults materialized with
-  `inspect.signature`. The file also stores parameter and data-vector geometry
-  state; polynomial-chaos-expansion (`pce`) or transfer-base state when
-  applicable; training histories; and root attributes for `schema_version=3`,
-  the Git commit, the Torch version, `rescale`, and family-specific facts.
+  and the `model_recipe` and `compatibility_manifest` datasets. The model
+  recipe names one supported class and records every constructor value used by
+  that class. The compatibility manifest records versioned meanings for the
+  selected model, activations, normalization, geometries, composition, IA
+  coefficients, and analytic target law. The file also stores parameter and
+  data-vector geometry state; polynomial-chaos-expansion (`pce`) or
+  transfer-base state when applicable; training histories; and root attributes
+  for `schema_version=3`, the Git commit, the Torch version, `rescale`, and
+  family-specific facts.
 - **Production checks before expensive work.** `from_yaml` and `from_config`
   first report errors that can be found in the configuration itself. They then
   read the training and validation scientific-record sidecars and compare each
@@ -163,11 +165,29 @@ saved model remains in use.
   flag that writes schema 1, schema 2, or a file without a schema.
 - **Legacy data are regenerated explicitly.** A missing `.facts.yaml` record
   is not permission for training to invent scientific metadata. The run stops
-  with the generator's regeneration instruction. Importing the saved class and
-  proving that every arbitrary constructor keyword is complete remain the
-  deeper recipe-totality check; the writer check here guarantees the smaller
-  but essential rule that the public reader does not immediately reject the
-  structure just written.
+  with the generator's regeneration instruction.
+- **A complete recipe is checked before imports.**
+  `emulator/artifact_recipe.py` contains a closed description of all six
+  supported model classes and their exact constructor fields. Its validator
+  uses plain, non-executing Python values and imports no model, geometry, activation,
+  normalization, or Torch implementation. A missing field, an unknown field,
+  or an incomplete activation description therefore refuses before saved text
+  can select a Python class. The same validator covers an embedded transfer
+  base. Explicit `head_act: null` means “inherit the trunk activation”; a
+  missing `head_act` has no such meaning and refuses.
+- **The saved recipe must describe the live object.** Each supported model
+  constructor attaches the canonical recipe for the object it actually made.
+  Before publication, `save_emulator` compares that live recipe with the
+  claimed root recipe and, for transfer, with the claimed embedded-base
+  recipe. A caller cannot save ordinary `ReLU` behavior under a registered
+  gated-activation name, change the number of residual layers, or substitute a
+  different class while retaining a plausible dictionary.
+- **Saved geometry facts must fit both the recipe and one another.** The
+  import-free check validates the class-specific fields and dimensions for
+  parameter, log-parameter, amplitude-factor, data-vector, scalar, CMB, grid,
+  and grid2d geometries. It checks such facts as ordered names, square bases,
+  masks, kept indices, amplitude indices, and physical coordinate lengths.
+  A self-consistent model recipe cannot make an inconsistent geometry safe.
 - Every geometry group carries a `"cls"` attribute with the full module path.
   Rebuild resolves the stored string through `importlib` and calls that
   class's `from_state` method. A missing marker raises a `KeyError` that names
@@ -196,11 +216,14 @@ saved model remains in use.
 - Acceptance evidence: save -> rebuild -> bitwise-equal prediction,
   plus a drift test that monkeypatches a sharp code default
   (`make_activation` `n_gates` 3 -> 7) and requires the rebuilt prediction to
-  remain unchanged. A recipe-totality check compares every `run_emulator`
-  setting and model constructor argument with the persisted recipes. Adding a
-  setting without adding its persisted representation must fail that check.
-  Hard-coded duplicates such as `compile_mode`, and read-side keys such as
-  `eval_bs` that no writer persists, are forbidden drift channels.
+  remain unchanged. `ai/tests/test_artifact_recipe_totality.py` removes each
+  required recipe field in turn, distinguishes explicit null from absence,
+  compares the registry with all six live constructor signatures, and proves
+  that the production validator imports only the standard-library `math`
+  module. Adding a model constructor field without adding its saved
+  representation must fail that census. Hard-coded duplicates such as
+  `compile_mode`, and read-side keys such as `eval_bs` that no writer persists,
+  are forbidden drift channels.
 - Geometry classes live in
   `emulator/geometries/{parameter,output,scalar,cmb,grid,grid2d}.py`.
   Retired flat module paths remain absent. Loading a retired flat path raises
@@ -743,6 +766,15 @@ anchor strength, including `0.0`. A refined artifact keeps pretrained
 reference weights `W_0` in `transfer_base` and prediction weights in
 `drifted_state`. The states must permit exact drift recomputation.
 
+The embedded tensor maps also bind the source used by the live run. A frozen
+transfer must embed exactly the live frozen base state. A refined transfer
+must embed the exact pretrained reference state and the exact live drifted
+prediction state. Empty states, missing or extra tensor names, changed shapes
+or dtypes, and altered tensor values refuse before a file is staged. The
+resolved transfer record names the authenticated source artifact identifier
+and source-checkpoint SHA-256 digest; moving the source path does not change
+the run identity, but choosing different source bytes does.
+
 The four supported training modes are from-scratch training, anchored warm
 start, frozen-base transfer, and anchored joint refinement. The decoupled
 L2-SP anchor strength spans the refinement range from frozen to free.
@@ -773,6 +805,11 @@ GPU-capable environment must rerun both identity gates after a fixture change.
 
 - Save/rebuild and schema ownership: `emulator/results.py` and
   `emulator/fixed_facts.py`.
+- Model-recipe and semantic-implementation registry ownership:
+  `emulator/artifact_recipe.py`.
+- Ordered training-pass construction and history reconciliation:
+  `emulator/training.py::run_emulator` and
+  `emulator/results.py::validate_training_recipe_and_histories`.
 - Public prediction ownership: `emulator/inference.py`.
 - Fine-tune and transfer-source ownership: `emulator/warmstart.py`.
 - Transfer composition ownership: `emulator/losses/transfer.py`.
@@ -794,27 +831,35 @@ uncontrolled package upgrade but does not identify the formula version used
 to generate the targets.
 
 **Rule.** Persist a compatibility manifest for every implementation that gives
-the weights meaning: model design, activation, normalization, parameter and
-output geometry, decoder and loss composition, and any analytic base such as
-Syren. Each entry uses an explicit semantic identifier or content hash backed
-by a versioned registry. A Git commit remains provenance rather than the
-compatibility mechanism.
+the weights meaning. A **semantic identifier** is a versioned label for the
+behavior of one registered implementation. The exact manifest records the
+model design, trunk and head activations, normalization, parameter and output
+geometries, composition decoder, IA coefficient design, and analytic target
+law. The allowed composition values are `plain`, `npce`, and `transfer`; the
+allowed IA values are `none`, `nla`, and `tatt`. Analytic-law values are also
+closed and include `none`, CMB's `as_exp2tau_ref`, Grid's `log_offset`, and the
+two Grid2D Syren laws.
 
-Rebuild compares every required identifier before importing or serving the
-implementation. A mismatch selects a retained versioned implementation or
-refuses with the artifact value, runtime value, and migration or retraining
-action. An MPS artifact binds the exact Syren base variant that generated its
-transformed targets. `emulator/results.py` describes `git_commit` as
-unvalidated provenance unless the program enforces a stronger claim. Pair
-identity and implementation identity are separate required parts of the
-artifact-integrity contract.
+For example, a Grid2D model trained against `syren_linear` records that law and
+its semantic identifier. Loading the same weights as `syren_halofit`, or under
+a changed identifier, refuses even when every tensor shape still matches.
+`none` is stored as an explicit value; an absent law is not interpreted as
+`none`.
 
-**Acceptance evidence.** An artifact saved under semantic identifier `A`
-rebuilds under `A`. Changing only the Syren base identifier or only a model or
-geometry identifier refuses before prediction. An unrelated repository commit
-with unchanged semantic identifiers still rebuilds. A registered migration
-selects the declared retained implementation and reproduces a stored
-known-answer prediction. Removing a required manifest key causes refusal.
+`emulator/artifact_recipe.py` owns the closed registries and builds and checks
+the plain, non-executing manifest. `emulator/results.py` writes the root manifest and, for a
+transfer artifact, a second manifest for the embedded plain base. Rebuild
+checks every required identifier before importing the model or loading its
+weights. `git_commit` remains unvalidated provenance; changing an unrelated
+repository file does not change implementation compatibility.
+
+**Acceptance evidence.** `ai/tests/test_artifact_recipe_totality.py` exercises
+every registered composition, IA design, and analytic law; refuses missing,
+unknown, and inconsistent values; and changes each semantic identifier to
+prove that validation catches the mismatch.
+`ai/tests/test_artifact_recipe_preflight.py` requires the same manifest in the
+HDF5 record and in an embedded transfer base. Removing a manifest key or
+changing only a registered identifier must refuse before prediction.
 
 ## Artifact composition is declared, not inferred
 
@@ -919,16 +964,27 @@ dataset's row count. Keep the raw YAML separately as provenance. Loading and
 reporting read the resolved pass record and never rerun inheritance logic.
 
 **Implementation boundary.** The shared training configuration resolver owns
-the complete pass records. The artifact writer persists those records and
-`total_epochs`. Artifact readers validate the records before reporting or
-rebuilding training state.
+the complete pass records in `emulator/training.py::run_emulator`. The artifact
+writer persists those records and `total_epochs`.
+`emulator/results.py::validate_training_recipe_and_histories` checks their
+order, composition role, history slices, and arrays before publication and
+before reconstruction.
 
-**Acceptance evidence.** A short PyTorch training-and-artifact check proves
+A two-phase run with two trunk epochs and three head epochs records contiguous
+history slices `[0, 2)` and `[2, 5)`, followed by `total_epochs: 5`. Four saved
+loss rows cannot describe that run and must refuse. A transfer-refinement pass
+appears after the ordinary or trunk/head passes and extends the same contiguous
+history instead of starting an unrelated counter.
+
+**Acceptance evidence.** `ai/tests/test_training_pass_recipe.py` proves
 that an absent loss block records the consumed square-root mode rather than
 null; omitted BerHu knots appear as consumed numeric values; trunk and head
 overrides produce two complete pass records; a null EMA setting records that
 EMA is disabled for that phase; refinement becomes a third complete record;
-and a history length inconsistent with `total_epochs` fails before publication.
+and each pass names its exact history slice.
+`ai/tests/test_artifact_recipe_preflight.py` forges a gap, a reordered role, a
+wrong `total_epochs`, and histories with the wrong row count; each case must
+fail before publication or model construction.
 
 ### Transfer-refine drift measures trainable parameters only
 
@@ -1477,7 +1533,18 @@ artifact corruption.
    constructor default cannot reopen a fallback. The same rule governs
    `block_opts` and every optional lookup on the rebuild path.
 5. Embedded transfer-base recipes validate under the same schema.
-6. Complete artifacts stay byte-identical in prediction.
+6. The live root model and live transfer base each expose their canonical
+   runtime recipe. Publication requires exact equality between those recipes
+   and the corresponding claimed recipes.
+7. Recipe dimensions agree with class-specific geometry facts before any
+   model, geometry, activation, normalization, or Torch implementation is
+   imported.
+8. Complete artifacts stay byte-identical in prediction.
+
+**Implementation boundary.** `emulator/artifact_recipe.py` owns the closed
+six-class schema and performs the import-free check. `emulator/results.py`
+calls that validator for the root recipe and each embedded transfer-base
+recipe before construction or weight loading.
 
 **Acceptance evidence.** Removing `head_act`, `block_opts.act`,
 `block_opts.norm`, `n_blocks`, or another scalar constructor field one at a
@@ -1521,8 +1588,15 @@ the plain decoder for an artifact that needs a parameter-dependent inverse
 transformation. The result can be finite and correctly shaped yet wrong; the
 recorded numerical example has a maximum absolute error of `28.236`.
 
-**Rule.** `rebuild_emulator` reads `rescale` as a required native string before
-model execution. Public inference supports only `"none"`. Missing,
+**Rule.** A schema 3 writer publishes only an explicit native
+`rescale: "none"` fact. If a caller also supplies a resolved value, that value
+must be exactly the same; a missing, mistyped, transformed, or contradictory
+fact refuses before temporary-file creation. The output identity includes the
+validated value, so changing it changes the identity rather than merely
+changing display metadata.
+
+`rebuild_emulator` reads `rescale` as a required native string before model
+execution. Public inference supports only `"none"`. Missing,
 non-string, unknown, `"rescaled"`, and `"residual"` values are refused with an
 explanation that the artifact does not contain enough information to rebuild
 their inverse transformation. `EmulatorPredictor` and all five Cobaya adapters
@@ -1531,14 +1605,14 @@ that stores every decoder input, including `cosmo_mid`, `include_amp`,
 `u_star`, and the theta and effective-redshift mapping, and then calls the
 same training-loss decoder. The `"none"` path remains bitwise unchanged.
 
-**Acceptance evidence.** Invalid types and values are refused before model
-execution through the predictor and every adapter. The `"none"` control is
-unchanged. A negative control that removes the check reproduces the finite
-error of `28.236` and must fail. Any future support for transformed inference
-requires separate parameter-dependent checks for `"rescaled"` and
-`"residual"`. Each check must use inputs for which the corresponding inverse
-transformation changes the numerical result; one combined fixture is not
-enough.
+**Acceptance evidence.** Invalid types and values are refused before staging
+on the write side and before model execution through the predictor and every
+adapter on the read side. The `"none"` control is unchanged. A negative
+control that removes the check reproduces the finite error of `28.236` and
+must fail. Any future support for transformed inference requires separate
+parameter-dependent checks for `"rescaled"` and `"residual"`. Each check must
+use inputs for which the corresponding inverse transformation changes the
+numerical result; one combined fixture is not enough.
 
 ## Artifacts record and enforce the physical parameter domain
 

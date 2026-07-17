@@ -7,9 +7,14 @@ import unittest
 import h5py
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 from emulator import data_staging, fixed_facts, results
+from emulator.activations import make_activation
+from emulator.designs.blocks import make_norm
+from emulator.designs.plain import ResMLP
 from emulator.experiment import EmulatorExperiment
 from emulator.geometries.parameter import ParamGeometry
 from emulator.geometries.scalar import ScalarGeometry
@@ -314,7 +319,15 @@ class FailedRowStagingTests(unittest.TestCase):
       experiment.data["_dataset_sources"]["train"]["selection"])
 
     device = torch.device("cpu")
-    model = torch.nn.Linear(1, 1)
+    model = ResMLP(
+      input_dim=1,
+      output_dim=1,
+      int_dim_res=4,
+      n_blocks=1,
+      block_opts={
+        "act": make_activation("H", n_gates=3),
+        "norm": make_norm("affine"),
+      })
     parameter_geometry = ParamGeometry(
       device=device,
       names=["p0"],
@@ -334,13 +347,22 @@ class FailedRowStagingTests(unittest.TestCase):
       "thresholds": torch.tensor([1.0]),
     }
     recipe = {
-      "cls": "torch.nn.Linear",
+      "cls": "emulator.designs.plain.ResMLP",
+      "name": "resmlp",
       "ia": None,
       "input_dim": 1,
       "output_dim": 1,
       "compile_mode": None,
       "needs_geom": False,
-      "kwargs": {},
+      "kwargs": {
+        "int_dim_res": 4,
+        "n_blocks": 1,
+        "block_opts": {
+          "n_layers": 2,
+          "act": {"type": "H", "n_gates": 3},
+          "norm": "affine",
+        },
+      },
     }
     config = {"data": experiment.data, "train_args": {"nepochs": 1}}
     facts = fixed_facts.synthetic_sidecar(
@@ -356,13 +378,14 @@ class FailedRowStagingTests(unittest.TestCase):
         config=config,
         histories=histories,
         train_args=config["train_args"],
-        resolved_train={"nepochs": 1},
+        resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
         resolved_model=recipe,
         facts_yaml=facts,
         composition_mode="plain",
         transfer_refined=False,
         resolved_pce=None,
-        resolved_transfer=None)
+        resolved_transfer=None,
+        attrs={"rescale": "none"})
       with h5py.File(h5_path, "r") as artifact:
         for dataset in ("config_yaml", "config_resolved_yaml"):
           saved = yaml.safe_load(artifact[dataset][()].decode("utf-8"))

@@ -31,6 +31,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import h5py
 import yaml
 
@@ -128,7 +130,8 @@ def save_fixture(root, device, tmp):
               "needs_geom": False,
               "kwargs": {"int_dim_res": 16,
                          "n_blocks": 2,
-                         "block_opts": {"act": {"type": "H",
+                         "block_opts": {"n_layers": 2,
+                                        "act": {"type": "H",
                                                 "n_gates": 3},
                                         "norm": "affine"}}}
     config = {"data": {"train_params": "t.1.txt",
@@ -144,7 +147,9 @@ def save_fixture(root, device, tmp):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1}, resolved_model=recipe,
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
+                  resolved_model=recipe,
                   composition_mode="plain", transfer_refined=False,
                   resolved_pce=None, resolved_transfer=None,
                   facts_yaml=supported_test_record(

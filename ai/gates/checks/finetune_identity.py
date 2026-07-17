@@ -44,6 +44,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+
 from emulator import fixed_facts, warmstart
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -168,7 +170,8 @@ def source_recipe():
     "kwargs": {
       "int_dim_res": 32,
       "n_blocks": 2,
-      "block_opts": {"act": {"type": "H", "n_gates": 3},
+      "block_opts": {"n_layers": 2,
+                     "act": {"type": "H", "n_gates": 3},
                      "norm": "affine"},
     },
   }
@@ -216,7 +219,8 @@ def save_synthetic_source(root, device):
                 config=config,
                 histories=histories,
                 train_args=config["train_args"],
-                resolved_train={"nepochs": 1},
+                resolved_train=one_pass_training_recipe(
+                  thresholds=(0.2, 1.0, 10.0, 100.0)),
                 resolved_model=source_recipe(),
                 composition_mode="plain",
                 transfer_refined=False,

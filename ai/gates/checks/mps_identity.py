@@ -85,6 +85,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 # Captured BEFORE any check stubs cobaya.log: the installed Cobaya base
@@ -1206,7 +1208,8 @@ def grid2d_recipe(width):
             "needs_geom": False,
             "kwargs": {"int_dim_res": 16,
                        "n_blocks": 2,
-                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                       "block_opts": {"n_layers": 2,
+                                      "act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
 
 
@@ -1319,7 +1322,8 @@ def save_synthetic_grid2d(
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=grid2d_recipe(z.size * k.size),
                   transfer_base=transfer_base,
                   composition_mode=composition_mode,
@@ -1516,6 +1520,7 @@ def check_const_mask_artifact(tmp, device):
         source_checkpoint_sha256 = source_artifact.attrs["checkpoint_sha256"]
     embedded_base = {
         "recipe": grid2d_recipe(Z4.size * K6.size),
+        "model": base_model,
         "state": base_model.state_dict(),
         "param_geometry": base_pgeom,
         "dv_geometry": base_geom,
@@ -1684,7 +1689,8 @@ def grid2d_head_recipe(width):
                        "n_blocks_cnn": 1,
                        "gate_init": 0.1,
                        "head_act": None,
-                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                       "block_opts": {"n_layers": 2,
+                                      "act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
 
 
@@ -1790,7 +1796,8 @@ def check_head(tmp, device):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=grid2d_head_recipe(width),
                   composition_mode="plain",
                   transfer_refined=False,
@@ -1900,7 +1907,8 @@ def check_npce(tmp, device):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=grid2d_recipe(width),
                   pce=pce, pce_form="residual",
                   composition_mode="npce",

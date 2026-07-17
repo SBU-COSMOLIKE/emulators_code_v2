@@ -26,6 +26,7 @@ training file. Readers changing the Python package can open the separate
 - **Appendix A — Package and scientific outputs**
   - [Where is each part of the package?](#2-layout)
   - [Which physical quantities can one emulator predict?](#3-the-five-emulator-families)
+  - [How does a saved emulator rebuild without guessing?](#faq-package-a3-saved-rebuild)
 - **Appendix B — Model design**
   - [What does the residual trunk calculate?](#faq-model-a1-residual-trunk)
   - [What do activation and normalization change?](#faq-model-a2-activations-and-normalization)
@@ -38,6 +39,7 @@ training file. Readers changing the Python package can open the separate
   - [Which parameters change at each optimizer step?](#faq-training-a2-parameter-updates)
   - [Which settings change during training?](#faq-training-a3-schedules)
   - [How does two-phase training separate the trunk and head?](#faq-training-a4-two-phase-training)
+  - [How does the saved record describe several training passes?](#faq-training-a5-pass-record)
 - **Appendix D — Code changes**
   - [Which file should a code reader open first?](#code-reader-start)
   - [Open the full Python code reference](CODE_REFERENCE.md)
@@ -133,6 +135,7 @@ The supporting files have narrower jobs:
 | `experiment.py` | check the YAML choices and assemble one run |
 | `cocoa.py` | resolve project, YAML, and output paths |
 | `warmstart.py` | prepare fine-tuning and transfer from a saved model |
+| `artifact_recipe.py` | check complete model-building instructions before importing a model class |
 | `results.py`, `inference.py` | save, reload, and evaluate an emulator |
 | `plotting.py`, `diagnostics.py` | calculate checks and make their figures |
 | `scheduling.py`, `family_drivers.py`, `studies/` | divide multi-run searches among devices and record each search |
@@ -162,6 +165,38 @@ per cosmology, so they can share the same training loop.
 [The example-YAML guide](../example_yamls/README.md#faq-b1-family-blocks)
 shows which data block belongs to each family. The remaining appendices here
 explain how the common model and training code uses those blocks.
+
+### Appendix A3. How does a saved emulator rebuild without guessing? <a id="faq-package-a3-saved-rebuild"></a>
+
+The `.h5` file stores two different kinds of rebuilding information:
+
+- The **model recipe** records the exact model class and every constructor
+  value used to build it. A constructor is the set of values supplied when a
+  Python model object is created.
+- The **compatibility manifest** records versioned meanings for the selected
+  model, activations, normalization, input and output conversions, composition
+  mode, intrinsic-alignment (IA) design, and analytic target law. Composition
+  says whether the neural output stands alone or corrects a saved base. The
+  analytic law names any formula applied to targets outside the network.
+
+The recipe is checked as ordinary data before Python imports the named model
+class. Missing and explicit-null values are different. For example,
+`head_act: null` says to inherit the trunk activation, while a missing
+`head_act` gives no rebuilding instruction and is refused.
+
+The manifest catches a different problem. A class may keep the same name and
+tensor shapes while its calculation changes. Each registered calculation has
+a semantic identifier, which is a short versioned label for its meaning. A
+saved identifier that differs from the current registered identifier is
+refused before weights are loaded.
+
+`artifact_recipe.py` owns the lists of allowed choices, and `results.py` writes
+and checks them. The test file
+`ai/tests/test_artifact_recipe_totality.py` removes required fields, changes
+semantic identifiers, and covers all six supported model classes.
+`ai/tests/test_artifact_recipe_preflight.py` checks those records in real
+saved files before model loading. A valid save-and-rebuild check must still
+reproduce the original prediction.
 
 ---
 
@@ -432,6 +467,39 @@ rewind, and EMA settings.
 contains a complete settings block. `training.py` owns the two training
 passes; the model's `set_train_phase` method selects which parameters are
 trainable.
+
+### C5. How does the saved record describe several training passes? <a id="faq-training-a5-pass-record"></a>
+
+A **training pass** here is one configured part of a run, not one epoch. A
+simple model has one pass. A two-phase model has a trunk pass followed by a
+head pass. Transfer refinement adds one final pass in which the saved base and
+its correction are adjusted together.
+
+Each saved pass records its epoch count and the settings actually used,
+including learning rate, scheduler, loss, trimming, focus, clipping, rewind,
+and exponential moving average. It also records which rows of the saved
+training curves belong to that pass.
+
+For example, two trunk epochs followed by three head epochs produce:
+
+```text
+trunk history rows  [0, 2)
+head history rows   [2, 5)
+total_epochs        5
+```
+
+The brackets mean that row 0 is included and row 2 begins the next pass. The
+rows must be contiguous, and every per-epoch training curve must contain five
+rows. A four-row curve or a head pass placed before its trunk is refused
+before the model is rebuilt.
+
+`training.py` creates the ordered pass records. `results.py` compares them
+with the saved curves before the files receive their final saved names and
+again when reopening an artifact. `ai/tests/test_training_pass_recipe.py`
+checks ordinary, two-phase,
+and transfer-refinement examples.
+`ai/tests/test_artifact_recipe_preflight.py` deliberately damages the order
+and row counts and requires refusal before model loading.
 
 ---
 

@@ -36,6 +36,8 @@ def activation_factory_name(factory):
     return "H"
   if factory is PowerGatedActivation:
     return "power"
+  if factory is GatedActivation:
+    return "multigate"
   if factory is GatedPowerActivation:
     return "gated_power"
   if factory is nn.ReLU:
@@ -43,6 +45,33 @@ def activation_factory_name(factory):
   if factory is nn.Tanh:
     return "tanh"
   return getattr(factory, "_emulator_activation_name", None)
+
+
+def activation_factory_recipe(factory):
+  """Describe one registered activation factory as inert recipe data.
+
+  ``make_activation`` tags every factory with both values.  Direct gated
+  classes execute their constructor default of one gate, so their recipe says
+  one rather than borrowing the public factory's three-gate default.  Direct
+  ``nn.ReLU`` is deliberately not serialized as ``make_activation("relu")``:
+  ResBlock calls a factory with ``dim``, and ``nn.ReLU(dim)`` interprets that
+  number as ``inplace=True`` instead of constructing the out-of-place module
+  selected by the registered closure.  Direct parameter-free classes must be
+  wrapped by ``make_activation`` before an artifact can be saved.
+  """
+  if factory in (nn.ReLU, nn.Tanh):
+    label = getattr(factory, "__qualname__", type(factory).__qualname__)
+    return {"type": "unregistered:" + label, "n_gates": 3}
+  name = activation_factory_name(factory)
+  if name is None:
+    label = getattr(factory, "__qualname__", type(factory).__qualname__)
+    return {"type": "unregistered:" + label, "n_gates": 3}
+  if factory in (GatedActivation, GatedPowerActivation):
+    n_gates = 1
+  else:
+    n_gates = getattr(factory, "_emulator_activation_n_gates", 3)
+  require_exact_int(n_gates, "activation factory n_gates", minimum=1)
+  return {"type": name, "n_gates": int(n_gates)}
 
 
 def require_live_head_activation(factory, source):
@@ -293,33 +322,35 @@ def make_activation(name, n_gates=3):
   """
   require_exact_int(n_gates, "activation.n_gates", minimum=1)
   if name == "H":
-    return activation_fcn
+    def h_factory(dim):
+      return activation_fcn(dim)
+    factory = h_factory
   if name == "power":
     def power_factory(dim):
       return PowerGatedActivation(dim)
-    power_factory._emulator_activation_name = name
-    return power_factory
+    factory = power_factory
   if name == "multigate":
     def multigate_factory(dim):
       return GatedActivation(dim, n_gates=n_gates)
-    multigate_factory._emulator_activation_name = name
-    return multigate_factory
+    factory = multigate_factory
   if name == "gated_power":
     def gated_power_factory(dim):
       return GatedPowerActivation(dim, n_gates=n_gates)
-    gated_power_factory._emulator_activation_name = name
-    return gated_power_factory
+    factory = gated_power_factory
   # parameter-free families: the factory ignores dim (ReLU / Tanh take
   # no shape argument), still honoring the act(dim) -> module contract.
   if name == "relu":
     def relu_factory(dim):
       return nn.ReLU()
-    relu_factory._emulator_activation_name = name
-    return relu_factory
+    factory = relu_factory
   if name == "tanh":
     def tanh_factory(dim):
       return nn.Tanh()
-    tanh_factory._emulator_activation_name = name
-    return tanh_factory
-  raise ValueError(
-    f"unknown activation {name!r}; one of: " + " / ".join(ACTIVATION_NAMES))
+    factory = tanh_factory
+  if name not in ACTIVATION_NAMES:
+    raise ValueError(
+      f"unknown activation {name!r}; one of: "
+      + " / ".join(ACTIVATION_NAMES))
+  factory._emulator_activation_name = name
+  factory._emulator_activation_n_gates = int(n_gates)
+  return factory

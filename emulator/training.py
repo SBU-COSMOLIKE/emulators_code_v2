@@ -39,6 +39,7 @@ loaded whole.
 
 import copy
 import hashlib
+import inspect
 import math
 import time
 
@@ -48,6 +49,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 
+from .artifact_recipe import set_runtime_compile_mode
 from .batching import build_loaders
 from .designs.plain import ResMLP
 from .designs.blocks import Affine, BinLinear
@@ -153,6 +155,11 @@ def make_model(model_opts, input_dim, output_dim, device,
       extra[k] = v
   model = cls(input_dim=input_dim,
               output_dim=output_dim, **extra).to(device)
+  # The constructor records every materialized architecture value.  Bind the
+  # separately consumed compile choice before a save can compare that live
+  # record with the experiment recipe (CPU/MPS remain eager, but the requested
+  # mode is still an artifact fact).
+  set_runtime_compile_mode(model, compile_mode)
   # fine-tune warm start: load the transferred weights into the eager
   # module before torch.compile, so the state dict carries the plain
   # architecture's keys (a compiled OptimizedModule prefixes them).
@@ -228,6 +235,22 @@ def _validate_optimizer_opts(opt_opts, lr):
           "[0, 1) (not a bool or string); got " + repr(beta))
 
 
+def _effective_optimizer_extras(opt_opts, device):
+  """Return the extra kwargs the optimizer constructor actually receives.
+
+  CUDA deliberately forces the fused implementation.  Construction and the
+  saved recipe must read the same resolved mapping; otherwise a configured
+  ``fused: false`` runs as ``True`` but is later reported as ``False``.
+  """
+  extra = {}
+  for key, value in opt_opts.items():
+    if key not in ("cls", "weight_decay"):
+      extra[key] = value
+  if device.type == "cuda":
+    extra["fused"] = True
+  return extra
+
+
 def make_optimizer(model, opt_opts, lr, device):
   """
   Build the optimizer from a spec dict.
@@ -289,18 +312,13 @@ def make_optimizer(model, opt_opts, lr, device):
   _validate_optimizer_opts(opt_opts, lr)
   wd    = opt_opts.get("weight_decay", 0.0)
   cls   = opt_opts["cls"]
-  # forward every key except cls / weight_decay to the constructor.
-  extra = {}
-  for k, v in opt_opts.items():
-    if k not in ("cls", "weight_decay"):
-      extra[k] = v
+  # Resolve every forwarded kwarg once.  In particular, this is the same
+  # CUDA fused override the artifact recipe records.
+  extra = _effective_optimizer_extras(opt_opts, device)
   groups = [
     {"params": decay,    "weight_decay": wd},
     {"params": no_decay, "weight_decay": 0.0},
   ]
-  # fused is a CUDA-only Adam/SGD-family speedup.
-  if device.type == "cuda":
-    extra["fused"] = True
   return cls(groups, lr=lr, **extra)
 
 
@@ -465,12 +483,7 @@ def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
   _validate_optimizer_opts(opt_opts, lr)
   wd  = opt_opts.get("weight_decay", 0.0)
   cls = opt_opts["cls"]
-  extra = {}
-  for k, v in opt_opts.items():
-    if k not in ("cls", "weight_decay"):
-      extra[k] = v
-  if device.type == "cuda":
-    extra["fused"] = True
+  extra = _effective_optimizer_extras(opt_opts, device)
   base_lr = lr * float(base_lr_scale)
   groups  = []
   for module, mlr in ((base, base_lr), (correction, lr)):
@@ -516,6 +529,69 @@ def make_scheduler(optimizer, sched_opts):
     if k != "cls":
       extra[k] = v
   return cls(optimizer, **extra)
+
+
+def _plain_recipe_value(value, where):
+  """Convert one constructor setting to finite, YAML-safe plain data."""
+  if value is None or type(value) in (bool, int, str):
+    return value
+  if type(value) is float:
+    if not math.isfinite(value):
+      raise ValueError(where + " must be finite")
+    return value
+  if isinstance(value, (list, tuple)):
+    return [_plain_recipe_value(item, where + "[]") for item in value]
+  if type(value) is dict:
+    out = {}
+    for key, item in value.items():
+      if type(key) is not str:
+        raise TypeError(where + " keys must be native text")
+      out[key] = _plain_recipe_value(item, where + "." + key)
+    return out
+  raise TypeError(
+    where + " must contain only plain YAML values, got "
+    + type(value).__name__)
+
+
+def _materialized_constructor_kwargs(cls, supplied, injected, where):
+  """Fill inspectable constructor defaults beside the executed call.
+
+  The standard AdamW and ReduceLROnPlateau constructors expose complete
+  signatures.  A custom callable without an inspectable signature keeps its
+  supplied kwargs; construction remains the authority and still fails in the
+  ordinary way if a required value is absent.
+  """
+  try:
+    parameters = inspect.signature(cls.__init__).parameters.values()
+  except (TypeError, ValueError, AttributeError):
+    return _plain_recipe_value(dict(supplied), where)
+
+  resolved = {}
+  accepts_extra = False
+  named = set()
+  for parameter in parameters:
+    if parameter.name == "self" or parameter.name in injected:
+      continue
+    if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+      accepts_extra = True
+      continue
+    if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+      continue
+    named.add(parameter.name)
+    if parameter.name in supplied:
+      value = supplied[parameter.name]
+    elif parameter.default is not inspect.Parameter.empty:
+      value = parameter.default
+    else:
+      # The real constructor will report a missing required setting.  Do not
+      # invent one merely to complete an artifact record.
+      continue
+    resolved[parameter.name] = _plain_recipe_value(
+      value, where + "." + parameter.name)
+  for key, value in supplied.items():
+    if key not in named and (accepts_extra or key not in resolved):
+      resolved[key] = _plain_recipe_value(value, where + "." + key)
+  return resolved
 
 
 def _training_trunk(model):
@@ -740,6 +816,14 @@ def validate_phase_block(block, which):
       raise ValueError(
         f"unknown train_args.{which}.lr key(s): {sorted(lr_unknown)}; a "
         f"phase lr overlays only lr_base / warmup_epochs")
+    if "lr_base" in lr and (
+        not _is_finite_real(lr["lr_base"]) or lr["lr_base"] <= 0.0):
+      raise ValueError(
+        f"train_args.{which}.lr.lr_base must be a finite positive real")
+    if "warmup_epochs" in lr:
+      _native_nonnegative_epochs(
+        lr["warmup_epochs"],
+        f"train_args.{which}.lr.warmup_epochs")
   # scheduler is a full replacement of the kwargs; the class stays the run's.
   sched = block.get("scheduler")
   if sched is not None:
@@ -760,6 +844,18 @@ def validate_phase_block(block, which):
   # the opt-out (disable an inherited top-level ema for that pass).
   validate_loss(block.get("loss"), which)
   validate_ema(block.get("ema"), which)
+  if "trim" in block:
+    _materialize_training_schedule(
+      block["trim"], f"train_args.{which}.trim", focus=False)
+  if "focus" in block:
+    _materialize_training_schedule(
+      block["focus"], f"train_args.{which}.focus", focus=True)
+  if "clip" in block and (
+      not _is_finite_real(block["clip"]) or block["clip"] < 0.0):
+    raise ValueError(
+      f"train_args.{which}.clip must be a finite nonnegative real")
+  if "rewind" in block and type(block["rewind"]) is not bool:
+    raise TypeError(f"train_args.{which}.rewind must be a native boolean")
   return block
 
 
@@ -1019,6 +1115,84 @@ _ANNEAL_KEYS   = ("hold_epochs", "anneal_epochs", "shape")
 _ANNEAL_SHAPES = ("const", "linear", "cosine", "step")
 
 
+def _native_nonnegative_epochs(value, where):
+  """Return one exact epoch count; never truncate a fractional schedule."""
+  if type(value) is not int or value < 0:
+    raise ValueError(where + " must be a nonnegative native integer, got "
+                     + repr(value))
+  return value
+
+
+def _materialize_training_schedule(opts, which, *, focus):
+  """Validate and complete one trim or focal-weight schedule.
+
+  ``anneal_value`` reads five schedule fields for a changing schedule and
+  only ``shape``/``start`` for a constant one.  The artifact nevertheless
+  stores all five values explicitly so a later implementation never has to
+  rediscover which fields the old code ignored.  Focus adds the positive
+  chi-square scale ``kappa``.
+  """
+  if type(opts) is not dict:
+    raise TypeError(which + " must be a plain mapping")
+  allowed = {"shape", "start", "end", "hold_epochs", "anneal_epochs"}
+  if focus:
+    allowed.add("kappa")
+  unknown = sorted(set(opts) - allowed)
+  if unknown:
+    raise ValueError(which + " has unknown key(s) " + repr(unknown))
+  for key in ("shape", "start"):
+    if key not in opts:
+      raise ValueError(which + " is missing required " + repr(key))
+  shape = opts["shape"]
+  if type(shape) is not str or shape not in _ANNEAL_SHAPES:
+    raise ValueError(which + ".shape must be one of "
+                     + repr(_ANNEAL_SHAPES))
+  start = opts["start"]
+  if not _is_finite_real(start):
+    raise ValueError(which + ".start must be a finite real")
+
+  if shape == "const":
+    # These values are ignored by the executed constant branch.  Store their
+    # effective, canonical meaning instead of preserving inert user text.
+    end = start
+    hold = 0
+    span = 1
+  else:
+    for key in ("end", "hold_epochs", "anneal_epochs"):
+      if key not in opts:
+        raise ValueError(which + " is missing required " + repr(key))
+    end = opts["end"]
+    if not _is_finite_real(end):
+      raise ValueError(which + ".end must be a finite real")
+    hold = _native_nonnegative_epochs(
+      opts["hold_epochs"], which + ".hold_epochs")
+    span = opts["anneal_epochs"]
+    if type(span) is not int or span < 1:
+      raise ValueError(
+        which + ".anneal_epochs must be a positive native integer, got "
+        + repr(span))
+
+  if not focus:
+    for key, value in (("start", start), ("end", end)):
+      if not 0.0 <= float(value) < 1.0:
+        raise ValueError(
+          which + "." + key + " must be in [0, 1), got " + repr(value))
+  kappa = opts.get("kappa", 1.0)
+  if focus and (not _is_finite_real(kappa) or float(kappa) <= 0.0):
+    raise ValueError(which + ".kappa must be a finite positive real")
+
+  resolved = {
+    "shape": shape,
+    "start": float(start),
+    "end": float(end),
+    "hold_epochs": int(hold),
+    "anneal_epochs": int(span),
+  }
+  if focus:
+    resolved["kappa"] = float(kappa)
+  return resolved
+
+
 def _validate_anneal_block(anneal, which):
   """
   Validate an optional anneal: sub-block (the trim-style 0 -> 1 schedule).
@@ -1134,10 +1308,10 @@ def validate_berhu(berhu, loss_mode, which):
       raise ValueError(
         f"train_args.{which}.berhu.{key} must be a positive number, got "
         f"{val!r}")
-    if val <= 0:
+    if not math.isfinite(float(val)) or val <= 0:
       raise ValueError(
-        f"train_args.{which}.berhu.{key} must be > 0, got {val}")
-    out[key] = val
+        f"train_args.{which}.berhu.{key} must be finite and > 0, got {val}")
+    out[key] = float(val)
   if out["knot"] >= out["cap"]:
     raise ValueError(
       f"train_args.{which}.berhu needs knot < cap, got knot "
@@ -1283,13 +1457,15 @@ def validate_loss(loss, which):
       if isinstance(val, bool) or not isinstance(val, (int, float)):
         raise ValueError(
           f"{qual}.roughness.{key} must be a number, got {val!r}")
-    if float(rough["lam"]) <= 0.0:
+    if not math.isfinite(float(rough["lam"])) \
+        or float(rough["lam"]) <= 0.0:
       raise ValueError(
-        f"{qual}.roughness.lam must be > 0; an absent roughness block "
+        f"{qual}.roughness.lam must be finite and > 0; an absent block "
         "states OFF (never lam 0, which would be a silent no-op block)")
-    if float(rough["period_cut"]) < 5.0:
+    if not math.isfinite(float(rough["period_cut"])) \
+        or float(rough["period_cut"]) < 5.0:
       raise ValueError(
-        f"{qual}.roughness.period_cut must be >= 5 multipoles, got "
+        f"{qual}.roughness.period_cut must be finite and >= 5 multipoles, got "
         f"{rough['period_cut']!r}")
     rough = {"lam": float(rough["lam"]),
              "period_cut": float(rough["period_cut"])}
@@ -1437,9 +1613,9 @@ def validate_ema(ema, which="train_args"):
     raise ValueError(
       f"{qual}.horizon_epochs must be a positive number of epochs, got "
       f"{h!r}")
-  if h <= 0:
+  if not math.isfinite(float(h)) or h <= 0:
     raise ValueError(
-      f"{qual}.horizon_epochs must be > 0, got {h}")
+      f"{qual}.horizon_epochs must be finite and > 0, got {h}")
   # the optional anneal: sub-block (presence = on; the horizon ramp). The
   # shared validator names it train_args.{path}.anneal, so pass the ema path.
   which_anneal = "ema" if which == "train_args" else f"{which}.ema"
@@ -2796,8 +2972,21 @@ def run_emulator(train_set,
     means        = per-epoch val mean chi2 (list).
     fracs        = per-epoch list of frac-over-threshold tensors.
   """
+  # Discrete run counts must remain discrete in both execution and the saved
+  # recipe.  Refuse bools and fractional values instead of accepting them in
+  # the loop and later normalizing them to a different integer statement.
+  for name, value, minimum in (("bs", bs, 1), ("nepochs", nepochs, 1),
+                               ("trunk_epochs", trunk_epochs, 0)):
+    if type(value) is not int or value < minimum:
+      raise ValueError(
+        "train_args." + name + " must be a native integer >= "
+        + str(minimum) + ", got " + repr(value))
+  if type(seed) is not int:
+    raise TypeError("train_args.seed must be a native integer")
+  if type(use_amp) is not bool:
+    raise TypeError("train_args.use_amp must be a native boolean")
+
   # a bad two-phase config should fail before any setup work.
-  trunk_epochs = int(trunk_epochs)
   if trunk_epochs > 0 and trunk_epochs >= nepochs:
     raise ValueError(
       f"trunk_epochs ({trunk_epochs}) must be < nepochs "
@@ -2883,6 +3072,18 @@ def run_emulator(train_set,
     # emulator goal and the best-model selection metric (frac >
     # thresholds[0]); the rest are diagnostic bands up the cascade.
     thresholds = torch.tensor([0.2, 1.0, 10.0, 100.0])
+  if not hasattr(thresholds, "__len__") or len(thresholds) < 1:
+    raise ValueError("train_args.thresholds must contain at least one value")
+  for index, threshold in enumerate(thresholds):
+    if torch.is_tensor(threshold):
+      if threshold.numel() != 1:
+        raise ValueError(
+          "train_args.thresholds[" + str(index) + "] must be one number")
+      threshold = threshold.item()
+    if not _is_finite_real(threshold) or float(threshold) < 0.0:
+      raise ValueError(
+        "train_args.thresholds[" + str(index)
+        + "] must be a finite nonnegative real")
   if trim_opts is None:
     # hold a 5% trim, then cosine-anneal it to 0 over the run:
     # drop the worst points while they are junk, re-admit once the
@@ -2899,6 +3100,27 @@ def run_emulator(train_set,
     # match no-focus unless a real focus_opts is passed.
     focus_opts = {"shape": "const",
                   "start": -1.0}
+
+  # Epoch counts are discrete.  A fractional warmup used to execute with its
+  # fractional denominator and then be truncated in the artifact recipe,
+  # making the saved plan describe different learning rates.  Reject it
+  # before model construction or loader work can begin.
+  _native_nonnegative_epochs(
+    lr_opts["warmup_epochs"], "train_args.lr.warmup_epochs")
+  if not _is_finite_real(lr_opts["lr_base"]) \
+      or lr_opts["lr_base"] <= 0.0:
+    raise ValueError("train_args.lr.lr_base must be a finite positive real")
+  if not _is_finite_real(lr_opts["bs_base"]) \
+      or lr_opts["bs_base"] <= 0.0:
+    raise ValueError("train_args.lr.bs_base must be a finite positive real")
+  if not _is_finite_real(clip) or clip < 0.0:
+    raise ValueError("train_args.clip must be a finite nonnegative real")
+  if type(rewind) is not bool:
+    raise TypeError("train_args.rewind must be a native boolean")
+  trim_opts = _materialize_training_schedule(
+    trim_opts, "train_args.trim", focus=False)
+  focus_opts = _materialize_training_schedule(
+    focus_opts, "train_args.focus", focus=True)
 
   out_dim = chi2fn.dest_idx.numel()
 
@@ -3016,6 +3238,15 @@ def run_emulator(train_set,
                         bs=bs,
                         budget=budget)
 
+  # The model recipe records the compile mode requested for construction.
+  # Training also needs the mode that actually ran: make_model compiles only
+  # on CUDA, and a later transfer-refine pass wraps the correction in an eager
+  # composite.  Keep both facts instead of asking a future reader to infer an
+  # execution mode from the saved device name.
+  configured_compile_mode = model_opts.get(
+    "compile_mode", DEFAULT_COMPILE_MODE)
+  applied_compile_mode = getattr(model, "emul_compile_mode", None)
+
   # device audit: a stray off-device tensor inside the compiled
   # forward+loss disables CUDA-graph replay silently (inductor's
   # "skipping cudagraphs due to cpu device (primals_N)" names a
@@ -3051,6 +3282,109 @@ def run_emulator(train_set,
     plan = [(nepochs, None)]
 
   train_losses, medians, means, fracs = [], [], [], []
+  resolved_passes = []
+
+  def _qual(c):
+    """The stable import path stored for one executed class."""
+    return c.__module__ + "." + c.__qualname__
+
+  def _scheduler_record(spec):
+    """Return the class and exact kwargs used to build one scheduler."""
+    supplied = {key: value for key, value in spec.items() if key != "cls"}
+    kwargs = _materialized_constructor_kwargs(
+      spec["cls"], supplied, {"optimizer"},
+      "resolved_train scheduler constructor")
+    return {"cls": _qual(spec["cls"]), "kwargs": kwargs}
+
+  def _optimizer_record(spec, optimizer, learning_rate_value):
+    """Record constructor defaults and every parameter group's real policy."""
+    supplied = {"lr": float(learning_rate_value),
+                **_effective_optimizer_extras(spec, device)}
+    constructor = _materialized_constructor_kwargs(
+      spec["cls"], supplied, {"params"},
+      "resolved_train optimizer constructor")
+    groups = []
+    for index, group in enumerate(optimizer.param_groups):
+      parameters = group.get("params", ())
+      parameter_count = 0
+      for parameter in parameters:
+        if not torch.is_tensor(parameter):
+          raise TypeError(
+            "optimizer parameter group " + str(index)
+            + " contains a non-tensor parameter")
+        parameter_count += int(parameter.numel())
+      group_lr = group.get("lr")
+      group_decay = group.get("weight_decay", 0.0)
+      if not _is_finite_real(group_lr) or float(group_lr) <= 0.0:
+        raise ValueError(
+          "optimizer parameter group " + str(index)
+          + " has a non-positive or non-finite learning rate")
+      if not _is_finite_real(group_decay) or float(group_decay) < 0.0:
+        raise ValueError(
+          "optimizer parameter group " + str(index)
+          + " has a negative or non-finite weight decay")
+      groups.append({
+        "learning_rate": float(group_lr),
+        "weight_decay": float(group_decay),
+        "parameter_count": parameter_count,
+      })
+    if not groups:
+      raise ValueError("the executed optimizer has no parameter groups")
+    return {
+      "cls": _qual(spec["cls"]),
+      "constructor": constructor,
+      "groups": groups,
+    }
+
+  def _steps_per_epoch_record():
+    """Repeat the loop's exact full-batch count without changing its state."""
+    n_rows = len(data["train"]["idx"])
+    chunk_rows = int(data["train"]["load"])
+    steps = 0
+    for chunk_start in range(0, n_rows, chunk_rows):
+      chunk = min(chunk_rows, n_rows - chunk_start)
+      steps += chunk // bs
+    return steps
+
+  def _anchor_record(spec, kind):
+    """Save an inert description of an L2-SP pull, never its tensors."""
+    if spec is None:
+      return None
+    return {
+      "kind": kind,
+      "lambda": float(spec["lam"]),
+      "masked": spec.get("masks") is not None,
+    }
+
+  def _pass_record(*, role, model_phase, epochs, history_start,
+                   history_stop, learning_rate_value, warmup_epochs,
+                   optimizer_value, scheduler, loss_value, trim, focus,
+                   clip_value,
+                   rewind_value, ema_value, step_compile_mode,
+                   anchor_value):
+    """Materialize one pass exactly where its effective settings exist."""
+    return {
+      "role": role,
+      "model_phase": model_phase,
+      "epochs": int(epochs),
+      "history_start": int(history_start),
+      "history_stop": int(history_stop),
+      "learning_rate": float(learning_rate_value),
+      "warmup_epochs": int(warmup_epochs),
+      "optimizer": copy.deepcopy(optimizer_value),
+      "scheduler": _scheduler_record(scheduler),
+      "loss": copy.deepcopy(loss_value),
+      "trim": copy.deepcopy(trim),
+      "focus": copy.deepcopy(focus),
+      "clip": float(clip_value),
+      "rewind": bool(rewind_value),
+      "ema": copy.deepcopy(ema_value),
+      "train_chunk_rows": int(data["train"]["load"]),
+      "steps_per_epoch": int(_steps_per_epoch_record()),
+      "step_compile_mode": step_compile_mode,
+      "anchor": copy.deepcopy(anchor_value),
+    }
+
   for n_pass, phase in plan:
     # phase 2 runs "joint" (trunk + head together) when freeze_trunk is
     # false; the set_train_phase name is then "joint", but the pass role
@@ -3099,6 +3433,8 @@ def run_emulator(train_set,
     focus_pass  = focus_opts
     clip_pass   = clip
     rewind_pass = rewind
+    trim_overridden = False
+    focus_overridden = False
     if phase_opts:
       # lr: overlay lr_base and/or warmup_epochs; bs_base stays run-global.
       phase_lr = phase_opts.get("lr")
@@ -3110,10 +3446,18 @@ def run_emulator(train_set,
       # scheduler: full replacement of the kwargs, keeping the run's class.
       if "scheduler" in phase_opts:
         sched_pass = {"cls": sched_opts["cls"], **phase_opts["scheduler"]}
+      trim_overridden = "trim" in phase_opts
+      focus_overridden = "focus" in phase_opts
       trim_pass   = phase_opts.get("trim", trim_opts)
       focus_pass  = phase_opts.get("focus", focus_opts)
       clip_pass   = phase_opts.get("clip", clip)
       rewind_pass = phase_opts.get("rewind", rewind)
+    schedule_where = ("train_args" if phase is None
+                      else "train_args." + phase)
+    trim_pass = _materialize_training_schedule(
+      trim_pass, schedule_where + ".trim", focus=False)
+    focus_pass = _materialize_training_schedule(
+      focus_pass, schedule_where + ".focus", focus=True)
     # resolve the effective loss block for this pass: a phase loss:
     # full-replaces the top-level one (the scheduler/trim/focus full
     # replacement), then validate_loss resolves {mode, berhu}. The berhu
@@ -3153,9 +3497,9 @@ def run_emulator(train_set,
         noted.append(f"warmup {wmupe_pass}")
       if sched_pass is not sched_opts:
         noted.append("scheduler")
-      if trim_pass is not trim_opts:
+      if trim_overridden:
         noted.append("trim")
-      if focus_pass is not focus_opts:
+      if focus_overridden:
         noted.append("focus")
       if clip_pass != clip:
         noted.append(f"clip {clip_pass:g}")
@@ -3193,6 +3537,7 @@ def run_emulator(train_set,
                            opt_opts=opt_opts,
                            lr=lr_pass,
                            device=device)
+    optimizer_pass = _optimizer_record(opt_opts, opt, lr_pass)
     sched = make_scheduler(optimizer=opt, sched_opts=sched_pass)
 
     # decoupled L2-SP anchor (finetune.anchor): pull the trained weights back
@@ -3209,6 +3554,7 @@ def run_emulator(train_set,
                                 lam=anchor["lam"],
                                 masks=anchor.get("masks"))
 
+    history_start = len(train_losses)
     (tl, md, mn,
      fr) = training_loop_batched(nepochs=n_pass,
                                  optimizer=opt,
@@ -3231,6 +3577,34 @@ def run_emulator(train_set,
                                  ema=ema_pass,
                                  berhu=berhu_pass,
                                  anchor=anchor_obj)
+    history_stop = history_start + len(tl)
+    pass_loss = copy.deepcopy(loss_pass)
+    # Roughness is configured once on the shared loss object, so inherited
+    # phase blocks prune it before validate_loss.  It nevertheless remains an
+    # effective part of every pass and belongs in each materialized record.
+    if loss_top["roughness"] is not None:
+      pass_loss["roughness"] = copy.deepcopy(loss_top["roughness"])
+    resolved_passes.append(_pass_record(
+      role=("single" if phase is None else phase),
+      # A single-pass model never receives set_train_phase("joint").  Record
+      # that literal execution fact instead of borrowing the name used by a
+      # two-phase head pass whose trunk remains trainable.
+      model_phase=("single" if model_phase is None else model_phase),
+      epochs=n_pass,
+      history_start=history_start,
+      history_stop=history_stop,
+      learning_rate_value=lr_pass,
+      warmup_epochs=wmupe_pass,
+      optimizer_value=optimizer_pass,
+      scheduler=sched_pass,
+      loss_value=pass_loss,
+      trim=trim_pass,
+      focus=focus_pass,
+      clip_value=clip_pass,
+      rewind_value=rewind_pass,
+      ema_value=ema_pass,
+      step_compile_mode=getattr(model, "emul_compile_mode", None),
+      anchor_value=_anchor_record(anchor, "finetune_l2sp")))
     if phase2_trunk is not None:
       digest_after, parameter_count_after = _parameter_digest(phase2_trunk)
       if parameter_count_after != phase2_parameter_count:
@@ -3284,6 +3658,7 @@ def run_emulator(train_set,
                                     lr=learning_rate,
                                     base_lr_scale=refine["base_lr_scale"],
                                     device=device)
+    optimizer_refine = _optimizer_record(opt_opts, opt_r, learning_rate)
     sched_r = make_scheduler(optimizer=opt_r, sched_opts=sched_pass)
     # the anchor pulls only the base group back toward its pretrained weights
     # (build_anchor keys by the base's parameter names, all in opt_r's groups).
@@ -3291,6 +3666,7 @@ def run_emulator(train_set,
                             optimizer=opt_r,
                             reference_state=pretrained,
                             lam=refine["anchor"])
+    history_start = len(train_losses)
     (tl, md, mn,
      fr) = training_loop_batched(nepochs=refine["epochs"],
                                  optimizer=opt_r,
@@ -3313,6 +3689,39 @@ def run_emulator(train_set,
                                  ema=ema_pass,
                                  berhu=berhu_pass,
                                  anchor=anchor_r)
+    history_stop = history_start + len(tl)
+    refine_anchor = {
+      "kind": "transfer_base_l2sp",
+      "lambda": float(refine["anchor"]),
+      "masked": False,
+      "base_lr_scale": float(refine["base_lr_scale"]),
+      "base_learning_rate": float(
+        learning_rate * refine["base_lr_scale"]),
+    }
+    pass_loss = copy.deepcopy(loss_pass)
+    if loss_top["roughness"] is not None:
+      pass_loss["roughness"] = copy.deepcopy(loss_top["roughness"])
+    resolved_passes.append(_pass_record(
+      role="transfer_refine",
+      model_phase="joint",
+      epochs=refine["epochs"],
+      history_start=history_start,
+      history_stop=history_stop,
+      learning_rate_value=learning_rate,
+      warmup_epochs=wmupe_pass,
+      optimizer_value=optimizer_refine,
+      scheduler=sched_pass,
+      loss_value=pass_loss,
+      trim=trim_pass,
+      focus=focus_pass,
+      clip_value=clip_pass,
+      rewind_value=rewind_pass,
+      ema_value=ema_pass,
+      # TransferComposite deliberately has no emul_compile_mode: its combined
+      # forward-and-loss wrapper runs eagerly even when the correction module
+      # inside it was compiled.
+      step_compile_mode=None,
+      anchor_value=refine_anchor))
     train_losses += tl
     medians      += md
     means        += mn
@@ -3325,19 +3734,17 @@ def run_emulator(train_set,
   # override blocks as validated. Class objects serialize by qualname (the
   # recipe, not the object). Provenance only: the model reconstructs from
   # resolved_model + the geometry states, not from this.
-  def _qual(c):
-    return c.__module__ + "." + c.__qualname__
-  # the optimizer/scheduler *_opts minus their bookkeeping keys: what is
-  # left is exactly the constructor extras the run passed through.
-  opt_extras = {}
-  for opt_key, opt_val in opt_opts.items():
-    if opt_key not in ("cls", "weight_decay"):
-      opt_extras[opt_key] = opt_val
-  sched_kwargs = {}
-  for sched_key, sched_val in sched_opts.items():
-    if sched_key != "cls":
-      sched_kwargs[sched_key] = sched_val
+  # Store both the explicitly selected values and defaults that the inspected
+  # constructors supplied.  The per-pass records above remain authoritative
+  # for phase-specific learning rates and parameter groups.
+  opt_extras = _plain_recipe_value(
+    _effective_optimizer_extras(opt_opts, device),
+    "resolved_train.optimizer.extras")
+  opt_constructor = _materialized_constructor_kwargs(
+    opt_opts["cls"], {"lr": float(learning_rate), **opt_extras}, {"params"},
+    "resolved_train.optimizer.constructor")
   resolved_train = {
+    "recipe_schema": 1,
     "bs": bs,
     "nepochs": nepochs,
     "seed": seed,
@@ -3349,7 +3756,7 @@ def run_emulator(train_set,
     "rewind": bool(rewind),
     "trunk_epochs": trunk_epochs,
     "freeze_trunk": (freeze_trunk is not False),
-    "loss": loss,
+    "loss": loss_top,
     "ema": ema,
     "lr": {"lr_base": lr_opts["lr_base"],
            "bs_base": lr_opts["bs_base"],
@@ -3357,13 +3764,19 @@ def run_emulator(train_set,
            "lr": learning_rate},
     "optimizer": {"cls": _qual(opt_opts["cls"]),
                   "weight_decay": opt_opts.get("weight_decay", 0.0),
-                  "extras": opt_extras},
-    "scheduler": {"cls": _qual(sched_opts["cls"]),
-                  "kwargs": sched_kwargs},
+                  "extras": opt_extras,
+                  "constructor": opt_constructor},
+    "scheduler": _scheduler_record(sched_opts),
     "trim": trim_opts,
     "focus": focus_opts,
     "trunk": trunk_opts,
     "head": head_opts,
+    "passes": resolved_passes,
+    "total_epochs": sum(item["epochs"] for item in resolved_passes),
+    "execution": {
+      "configured_compile_mode": configured_compile_mode,
+      "applied_compile_mode": applied_compile_mode,
+    },
     "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),
     "device": str(device),
   }

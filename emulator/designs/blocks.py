@@ -36,7 +36,8 @@ import torch.nn as nn
 
 # activation_fcn (activations.py): the learned gated activation H(x) =
 # gate(x)*x, the default act factory for ResBlock and the conv/TRF heads.
-from ..activations import activation_fcn, require_live_head_activation
+from ..activations import (
+  activation_factory_recipe, activation_fcn, require_live_head_activation)
 from ..validation import (
   require_exact_bool, require_exact_int, require_positive_int_list)
 
@@ -182,6 +183,35 @@ def make_norm(name):
     f"per-layer g x + b) / per_feature / none")
 
 
+def normalization_factory_name(factory):
+  """Return the inert name of one registered residual-block norm factory."""
+  if factory is affine_norm:
+    return "affine"
+  if factory is FeatureAffine:
+    return "per_feature"
+  if factory is identity_norm:
+    return "none"
+  label = getattr(factory, "__qualname__", type(factory).__qualname__)
+  return "unregistered:" + label
+
+
+def materialized_block_recipe(block_opts):
+  """Record every ResBlock option after applying its constructor defaults."""
+  opts = {} if block_opts is None else dict(block_opts)
+  unknown = sorted(set(opts) - {"n_layers", "norm", "act"})
+  if unknown:
+    raise ValueError("ResBlock options contain unknown key(s) " + repr(unknown))
+  n_layers = opts.get("n_layers", 2)
+  require_exact_int(n_layers, "ResBlock.n_layers", minimum=1)
+  norm = opts.get("norm", affine_norm)
+  act = opts.get("act", activation_fcn)
+  return {
+    "n_layers": int(n_layers),
+    "act": activation_factory_recipe(act),
+    "norm": normalization_factory_name(norm),
+  }
+
+
 class ResBlock(nn.Module):
   """
   Width-preserving residual block: n_layers dense layers between
@@ -226,6 +256,8 @@ class ResBlock(nn.Module):
     require_exact_int(size, "ResBlock.size", minimum=1)
     require_exact_int(n_layers, "ResBlock.n_layers", minimum=1)
     super().__init__()
+    self.emul_block_recipe = materialized_block_recipe({
+      "n_layers": n_layers, "norm": norm, "act": act})
     self.skip = nn.Identity()
 
     # Sublayers go in nn.ModuleList, not a plain list or numbered

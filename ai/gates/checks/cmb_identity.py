@@ -87,6 +87,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 
 from emulator.activations import make_activation
@@ -268,7 +270,8 @@ def cmb_recipe(n_ell):
         "kwargs": {
             "int_dim_res": 16,
             "n_blocks": 2,
-            "block_opts": {"act": {"type": "H", "n_gates": 3},
+            "block_opts": {"n_layers": 2,
+                           "act": {"type": "H", "n_gates": 3},
                            "norm": "affine"},
         },
     }
@@ -350,7 +353,8 @@ def save_synthetic_cmb(root, device, tmp, label, spectrum="tt",
                   config=config,
                   histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=cmb_recipe(n_ell),
                   composition_mode="plain",
                   transfer_refined=False,
@@ -953,7 +957,8 @@ def cmb_head_recipe(n_ell):
             "shared_mlp": False,
             "film": False,
             "head_act": None,
-            "block_opts": {"act": {"type": "H", "n_gates": 3},
+            "block_opts": {"n_layers": 2,
+                           "act": {"type": "H", "n_gates": 3},
                            "norm": "affine"},
         },
     }
@@ -1056,7 +1061,8 @@ def check_head(tmp, device):
                   config=config,
                   histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=cmb_head_recipe(n_ell),
                   composition_mode="plain",
                   transfer_refined=False,
@@ -1222,7 +1228,8 @@ def check_npce(tmp, device):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=cmb_recipe(n_ell),
                   pce=pce, pce_form="residual",
                   composition_mode="npce",

@@ -42,7 +42,13 @@ import torch
 import yaml
 
 from . import fixed_facts
+from .artifact_recipe import build_compatibility_manifest
+from .artifact_recipe import require_runtime_model_recipe
+from .artifact_recipe import set_runtime_compile_mode
+from .artifact_recipe import validate_compatibility_manifest
+from .artifact_recipe import validate_model_recipe
 from .output_identity import build_output_identity
+from .output_identity import digest_tensor_state
 from .output_identity import require_same_output_identity
 from .output_identity import validate_saved_output_identity
 
@@ -61,6 +67,251 @@ _OUTPUT_IDENTITY_SHA256_ATTR = "output_identity_sha256"
 _OUTPUT_IDENTITY_DATASET = "output_identity_json"
 _CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
 _PAIR_PENDING_SUFFIX = ".pair-pending"
+_COMPATIBILITY_MANIFEST_DATASET = "compatibility_manifest"
+_TRANSFER_STATE_SHA256_ATTR = "state_sha256"
+_TRANSFER_DRIFTED_STATE_SHA256_ATTR = "drifted_state_sha256"
+
+
+def _class_path(value):
+  """Return the fully qualified class name recorded for one live object."""
+  return type(value).__module__ + "." + type(value).__qualname__
+
+
+def _analytic_law_for_geometry(value, class_path, where):
+  """Read the explicit analytic target law from families that define one."""
+  law_families = {
+    "emulator.geometries.cmb.CmbDiagonalGeometry",
+    "emulator.geometries.grid.GridGeometry",
+    "emulator.geometries.grid2d.Grid2DGeometry",
+  }
+  if class_path not in law_families:
+    return "none"
+  if not hasattr(value, "law"):
+    raise ValueError(
+      where + " has no resolved analytic law; save refuses to infer a default")
+  law = value.law
+  if type(law) is not str or not law:
+    raise TypeError(where + ".law must be nonempty native text")
+  return law
+
+
+def _validate_live_recipe_geometry_widths(
+    recipe, param_geometry, output_geometry, where):
+  """Bind a live recipe's two network widths to its live geometries."""
+  if hasattr(param_geometry, "encoded_dim"):
+    input_width = int(param_geometry.encoded_dim)
+  elif hasattr(param_geometry, "names"):
+    input_width = len(param_geometry.names)
+  else:
+    raise ValueError(where + " parameter geometry exposes no encoded width")
+  if not hasattr(output_geometry, "dest_idx"):
+    raise ValueError(where + " output geometry exposes no destination width")
+  output_width = int(output_geometry.dest_idx.numel())
+  if recipe["input_dim"] != input_width:
+    raise ValueError(
+      where + " model_recipe.input_dim=" + str(recipe["input_dim"])
+      + " disagrees with the parameter geometry encoded width "
+      + str(input_width))
+  if recipe["output_dim"] != output_width:
+    raise ValueError(
+      where + " model_recipe.output_dim=" + str(recipe["output_dim"])
+      + " disagrees with the output geometry destination width "
+      + str(output_width))
+
+
+def _validate_saved_recipe_geometry_widths(
+    recipe, param_group, output_group, where):
+  """Check saved geometry widths while both HDF5 groups remain inert data.
+
+  Neither side has one universal persisted width field.  A factored input
+  geometry derives its encoded width from a nested whitening basis plus its
+  amplitude indices.  An output geometry may derive its width from names,
+  kept positions, or grid axes.
+
+  Scalar geometries derive it from ``names``; masked data-vector geometries
+  derive it from ``dest_idx``; the grid families derive it from their axes.
+  Check those class-specific facts and every same-width transform array before
+  importing a geometry class.  Using ``center`` alone would miss corruption
+  such as two scalar names beside one center, or three kept data-vector
+  positions beside a four-output model.
+  """
+  def saved_shape(group, name, label):
+    if name not in group:
+      raise KeyError(where + " " + label + " is missing " + repr(name))
+    item = group[name]
+    if not hasattr(item, "shape"):
+      raise TypeError(
+        where + " " + label + " " + repr(name) + " must be a dataset")
+    return tuple(int(size) for size in item.shape)
+
+  def require_parameter_vector(group, name, width, label):
+    observed = saved_shape(group, name, label)
+    expected = (width,)
+    if observed != expected:
+      raise ValueError(
+        where + " " + label + " " + repr(name) + " must have shape "
+        + repr(expected) + ", got " + repr(observed)
+        + "; it must agree with model_recipe.input_dim="
+        + str(recipe["input_dim"]))
+
+  def require_parameter_matrix(group, name, width, label):
+    observed = saved_shape(group, name, label)
+    expected = (width, width)
+    if observed != expected:
+      raise ValueError(
+        where + " " + label + " " + repr(name) + " must have shape "
+        + repr(expected) + ", got " + repr(observed)
+        + "; it must be a square whitening basis of width " + str(width))
+
+  parameter_class = _saved_geometry_class(
+    param_group, where + " parameter geometry")
+  input_width = recipe["input_dim"]
+  ordinary_parameters = {
+    "emulator.geometries.parameter.ParamGeometry",
+    "emulator.geometries.parameter.LogParamGeometry",
+  }
+  amplitude_parameters = (
+    "emulator.geometries.parameter.AmplitudeFactorGeometry")
+  if parameter_class in ordinary_parameters:
+    for name in ("names", "center", "sqrt_ev"):
+      require_parameter_vector(
+        param_group, name, input_width, "parameter geometry")
+    require_parameter_matrix(
+      param_group, "evecs", input_width, "parameter geometry")
+    if parameter_class.endswith(".LogParamGeometry"):
+      require_parameter_vector(
+        param_group, "log_mask", input_width, "parameter geometry")
+  elif parameter_class == amplitude_parameters:
+    if "n_param" not in param_group.attrs:
+      raise KeyError(
+        where + " parameter geometry is missing required 'n_param'")
+    n_param_value = param_group.attrs["n_param"]
+    if isinstance(n_param_value, (bool, np.bool_)) \
+        or not isinstance(n_param_value, (int, np.integer)) \
+        or int(n_param_value) < 1:
+      raise TypeError(
+        where + " parameter geometry 'n_param' must be a positive integer")
+    n_param = int(n_param_value)
+    require_parameter_vector(
+      param_group, "names", n_param, "parameter geometry")
+    amp_shape = saved_shape(param_group, "amp_idx", "parameter geometry")
+    if len(amp_shape) != 1:
+      raise ValueError(
+        where + " parameter geometry 'amp_idx' must be one-dimensional; got "
+        + repr(amp_shape))
+    amp_values = np.asarray(param_group["amp_idx"][()])
+    if amp_values.dtype.kind not in "iu":
+      raise TypeError(
+        where + " parameter geometry 'amp_idx' must contain integers")
+    amp_indices = [int(value) for value in amp_values.tolist()]
+    declared_amps = recipe["kwargs"].get("n_amps")
+    if declared_amps is None:
+      raise ValueError(
+        where + " AmplitudeFactorGeometry requires a factored model recipe "
+        "with explicit n_amps")
+    if len(amp_indices) != declared_amps:
+      raise ValueError(
+        where + " parameter geometry 'amp_idx' has "
+        + str(len(amp_indices)) + " column(s), but model_recipe declares "
+        + "n_amps=" + str(declared_amps))
+    if len(set(amp_indices)) != len(amp_indices):
+      raise ValueError(
+        where + " parameter geometry 'amp_idx' contains duplicate columns")
+    if any(index < 0 or index >= n_param for index in amp_indices):
+      raise ValueError(
+        where + " parameter geometry 'amp_idx' contains an index outside "
+        "0.." + str(n_param - 1))
+    if "pg_keep" not in param_group \
+        or not hasattr(param_group["pg_keep"], "keys"):
+      raise TypeError(
+        where + " parameter geometry 'pg_keep' must be a saved group")
+    kept = param_group["pg_keep"]
+    kept_width = n_param - len(amp_indices)
+    for name in ("names", "center", "sqrt_ev"):
+      require_parameter_vector(
+        kept, name, kept_width, "parameter geometry pg_keep")
+    require_parameter_matrix(
+      kept, "evecs", kept_width, "parameter geometry pg_keep")
+    encoded_width = kept_width + len(amp_indices)
+    if input_width != n_param or input_width != encoded_width:
+      raise ValueError(
+        where + " model_recipe.input_dim=" + str(input_width)
+        + " disagrees with AmplitudeFactorGeometry encoded width "
+        + str(encoded_width) + " and n_param=" + str(n_param))
+  else:
+    raise ValueError(
+      where + " parameter geometry class " + repr(parameter_class)
+      + " has no inert width contract")
+
+  def dataset_shape(name):
+    return saved_shape(output_group, name, "output geometry")
+
+  def require_vector(name, width):
+    observed = dataset_shape(name)
+    expected = (width,)
+    if observed != expected:
+      raise ValueError(
+        where + " output geometry " + repr(name) + " must have shape "
+        + repr(expected) + ", got " + repr(observed)
+        + "; it must agree with model_recipe.output_dim="
+        + str(recipe["output_dim"]))
+
+  def require_matrix(name, width):
+    observed = dataset_shape(name)
+    expected = (width, width)
+    if observed != expected:
+      raise ValueError(
+        where + " output geometry " + repr(name) + " must have shape "
+        + repr(expected) + ", got " + repr(observed)
+        + "; it must agree with model_recipe.output_dim="
+        + str(recipe["output_dim"]))
+
+  class_path = _saved_geometry_class(
+    output_group, where + " output geometry")
+  output_width = recipe["output_dim"]
+  scalar = "emulator.geometries.scalar.ScalarGeometry"
+  data_vectors = {
+    "emulator.geometries.output.DataVectorGeometry",
+    "emulator.geometries.output.DiagonalGeometry",
+    "emulator.geometries.output.BlockDiagonalGeometry",
+  }
+  cmb = "emulator.geometries.cmb.CmbDiagonalGeometry"
+  grid = "emulator.geometries.grid.GridGeometry"
+  grid2d = "emulator.geometries.grid2d.Grid2DGeometry"
+
+  if class_path == scalar:
+    for name in ("names", "center", "scale"):
+      require_vector(name, output_width)
+  elif class_path in data_vectors:
+    for name in ("dest_idx", "center", "sqrt_ev"):
+      require_vector(name, output_width)
+    require_matrix("evecs", output_width)
+  elif class_path == cmb:
+    for name in ("ell", "center", "sigma", "fiducial_cl"):
+      require_vector(name, output_width)
+  elif class_path == grid:
+    for name in ("z", "center", "scale"):
+      require_vector(name, output_width)
+  elif class_path == grid2d:
+    z_shape = dataset_shape("z")
+    k_shape = dataset_shape("k")
+    if len(z_shape) != 1 or len(k_shape) != 1:
+      raise ValueError(
+        where + " Grid2DGeometry axes 'z' and 'k' must be one-dimensional; "
+        "got " + repr(z_shape) + " and " + repr(k_shape))
+    axis_width = z_shape[0] * k_shape[0]
+    if axis_width != output_width:
+      raise ValueError(
+        where + " model_recipe.output_dim=" + str(output_width)
+        + " disagrees with the saved Grid2DGeometry z*k width "
+        + str(z_shape[0]) + "*" + str(k_shape[0]) + "="
+        + str(axis_width))
+    for name in ("center", "scale", "const_mask"):
+      require_vector(name, output_width)
+  else:
+    raise ValueError(
+      where + " output geometry class " + repr(class_path)
+      + " has no inert width contract")
 
 
 def _require_lower_hex(value, *, length, where):
@@ -190,7 +441,7 @@ def _validate_artifact_binding(attrs, checkpoint, *, h5_where, emul_where):
 
 
 def _read_output_identity(artifact, *, where):
-  """Read one new identity record while allowing earlier schema-3 artifacts."""
+  """Read the required canonical output-identity pair."""
   has_digest = _OUTPUT_IDENTITY_SHA256_ATTR in artifact.attrs
   has_record = _OUTPUT_IDENTITY_DATASET in artifact
   if has_digest != has_record:
@@ -198,10 +449,9 @@ def _read_output_identity(artifact, *, where):
       where + " has only one output-identity member; restore the intact pair "
       "or re-save it with the current writer")
   if not has_digest:
-    # Schema 3 existed before filename identity.  Those artifacts remain
-    # readable, but a new production run cannot use their absent declaration
-    # as evidence for a filename or source binding.
-    return None, None
+    raise ValueError(
+      where + " is missing the required output-identity pair; re-save the "
+      "emulator with the current writer")
   digest = _read_native_hex_attr(
     artifact.attrs,
     _OUTPUT_IDENTITY_SHA256_ATTR,
@@ -215,6 +465,211 @@ def _read_output_identity(artifact, *, where):
       raise ValueError(where + " output identity is not ASCII JSON") from exc
   subject = validate_saved_output_identity(value, digest)
   return digest, subject
+
+
+def _bind_transfer_state_digests(
+    resolved_train, resolved_transfer, transfer_base, *, transfer_refined,
+    where):
+  """Bind the exact embedded base tensors to both resolved transfer records."""
+  state_structure = _tensor_state_structure(
+    transfer_base["state"], where=where + " transfer_base.state")
+  state_sha256 = digest_tensor_state(
+    dict(transfer_base["state"]), where=where + " transfer_base.state")
+  drifted = transfer_base.get("drifted_state")
+  drifted_sha256 = None
+  if transfer_refined:
+    drifted_structure = _tensor_state_structure(
+      drifted, where=where + " transfer_base.drifted_state")
+    _require_matching_state_structure(
+      state_structure, drifted_structure,
+      reference_where=where + " transfer_base.state",
+      candidate_where=where + " transfer_base.drifted_state")
+    drifted_sha256 = digest_tensor_state(
+      dict(drifted), where=where + " transfer_base.drifted_state")
+
+  bound_transfer = dict(resolved_transfer)
+  declarations = ((_TRANSFER_STATE_SHA256_ATTR, state_sha256),)
+  if transfer_refined:
+    declarations += (
+      (_TRANSFER_DRIFTED_STATE_SHA256_ATTR, drifted_sha256),)
+  for key, observed in declarations:
+    public_key = "embedded_" + key
+    if public_key in bound_transfer:
+      declared = _require_lower_hex(
+        bound_transfer[public_key], length=64,
+        where=where + " resolved_transfer." + public_key)
+      if declared != observed:
+        raise ValueError(
+          where + ": resolved_transfer." + public_key
+          + " disagrees with the embedded tensor state")
+    bound_transfer[public_key] = observed
+  if not transfer_refined and "embedded_drifted_state_sha256" in \
+      bound_transfer:
+    raise ValueError(
+      where + ": frozen transfer forbids embedded_drifted_state_sha256")
+
+  bound_train = dict(resolved_train)
+  nested = bound_train.get("transfer")
+  if nested is not None:
+    if type(nested) is not dict:
+      raise TypeError(where + ": resolved_train.transfer must be a mapping")
+    nested = dict(nested)
+    for key in ("embedded_state_sha256",
+                "embedded_drifted_state_sha256"):
+      if key not in bound_transfer:
+        if key in nested:
+          raise ValueError(where + ": frozen transfer forbids " + key)
+        continue
+      if key in nested and nested[key] != bound_transfer[key]:
+        raise ValueError(
+          where + ": resolved_train.transfer." + key
+          + " disagrees with resolved_transfer")
+      nested[key] = bound_transfer[key]
+    bound_train["transfer"] = nested
+  return bound_train, bound_transfer, state_sha256, drifted_sha256
+
+
+def _tensor_state_structure(state, *, where):
+  """Describe one nonempty live tensor mapping without copying its values."""
+  if not isinstance(state, dict):
+    raise TypeError(where + " must be a name-to-tensor mapping")
+  if not state:
+    raise ValueError(where + " must be a nonempty tensor-state mapping")
+  structure = {}
+  for name, value in state.items():
+    if type(name) is not str or not name:
+      raise TypeError(where + " keys must be nonempty native strings")
+    if not torch.is_tensor(value):
+      raise TypeError(where + "." + name + " must be a PyTorch tensor")
+    structure[name] = (tuple(value.shape), value.dtype)
+  return structure
+
+
+def _require_matching_state_structure(
+    reference, candidate, *, reference_where, candidate_where):
+  """Require two state descriptions to name tensors of the same kind."""
+  reference_names = set(reference)
+  candidate_names = set(candidate)
+  if reference_names != candidate_names:
+    missing = sorted(reference_names - candidate_names)
+    unexpected = sorted(candidate_names - reference_names)
+    raise ValueError(
+      candidate_where + " has different tensor names from " + reference_where
+      + "; missing=" + repr(missing) + ", unexpected=" + repr(unexpected))
+  for name in sorted(reference):
+    if reference[name] != candidate[name]:
+      raise ValueError(
+        candidate_where + "." + name + " has shape/dtype "
+        + repr(candidate[name]) + " but " + reference_where + "." + name
+        + " has " + repr(reference[name]))
+
+
+def _validate_live_transfer_state(
+    transfer_base, *, transfer_refined, state_sha256, drifted_sha256, where):
+  """Bind embedded transfer tensors to the live base used by this save."""
+  pretrained_where = where + " transfer_base.state"
+  live_where = where + " live transfer base state"
+  pretrained = transfer_base["state"]
+  pretrained_structure = _tensor_state_structure(
+    pretrained, where=pretrained_where)
+  live = dict(transfer_base["model"].state_dict())
+  live_structure = _tensor_state_structure(live, where=live_where)
+
+  if transfer_refined:
+    drifted_where = where + " transfer_base.drifted_state"
+    drifted = transfer_base["drifted_state"]
+    drifted_structure = _tensor_state_structure(
+      drifted, where=drifted_where)
+    _require_matching_state_structure(
+      pretrained_structure, drifted_structure,
+      reference_where=pretrained_where, candidate_where=drifted_where)
+    _require_matching_state_structure(
+      drifted_structure, live_structure,
+      reference_where=drifted_where, candidate_where=live_where)
+    live_sha256 = digest_tensor_state(live, where=live_where)
+    if live_sha256 != drifted_sha256:
+      raise ValueError(
+        where + ": transfer_base.drifted_state does not equal the live "
+        "refined transfer model state")
+  else:
+    _require_matching_state_structure(
+      pretrained_structure, live_structure,
+      reference_where=pretrained_where, candidate_where=live_where)
+    live_sha256 = digest_tensor_state(live, where=live_where)
+    if live_sha256 != state_sha256:
+      raise ValueError(
+        where + ": transfer_base.state does not equal the live frozen "
+        "transfer model state")
+
+
+def _h5_state_structure(group, *, where):
+  """Describe one nonempty HDF5 tensor group without importing model code."""
+  if not hasattr(group, "items"):
+    raise TypeError(where + " must be an HDF5 group")
+  members = tuple(group.items())
+  if not members:
+    raise ValueError(where + " must contain at least one tensor dataset")
+  structure = {}
+  for name, value in members:
+    if not hasattr(value, "shape") or hasattr(value, "keys"):
+      raise TypeError(where + "." + name + " must be an HDF5 dataset")
+    structure[name] = (tuple(value.shape), np.dtype(value.dtype).str)
+  return structure
+
+
+def _h5_state_digest(group, *, where):
+  """Hash one HDF5 state subgroup without importing executable code."""
+  _h5_state_structure(group, where=where)
+  state = {}
+  for name, value in group.items():
+    state[name] = value[()]
+  return digest_tensor_state(state, where=where)
+
+
+def _validate_embedded_transfer_state(
+    transfer_group, resolved_transfer, *, transfer_refined, where):
+  """Verify saved base tensors against metadata before any model import."""
+  state_structure = _h5_state_structure(
+    transfer_group["state"], where=where + ".state")
+  state_sha256 = _h5_state_digest(
+    transfer_group["state"], where=where + ".state")
+  declared_state = _require_lower_hex(
+    resolved_transfer.get("embedded_state_sha256"), length=64,
+    where=where + " resolved_transfer.embedded_state_sha256")
+  saved_state = _read_native_hex_attr(
+    transfer_group.attrs, _TRANSFER_STATE_SHA256_ATTR,
+    length=64, where=where)
+  if state_sha256 != declared_state or state_sha256 != saved_state:
+    raise ValueError(
+      where + " embedded state digest disagrees with its tensor datasets")
+
+  drifted_sha256 = None
+  has_drifted_attr = _TRANSFER_DRIFTED_STATE_SHA256_ATTR in transfer_group.attrs
+  if transfer_refined:
+    drifted_structure = _h5_state_structure(
+      transfer_group["drifted_state"], where=where + ".drifted_state")
+    _require_matching_state_structure(
+      state_structure, drifted_structure,
+      reference_where=where + ".state",
+      candidate_where=where + ".drifted_state")
+    drifted_sha256 = _h5_state_digest(
+      transfer_group["drifted_state"], where=where + ".drifted_state")
+    declared_drifted = _require_lower_hex(
+      resolved_transfer.get("embedded_drifted_state_sha256"), length=64,
+      where=where + " resolved_transfer.embedded_drifted_state_sha256")
+    if not has_drifted_attr:
+      raise ValueError(where + " is missing drifted_state_sha256")
+    saved_drifted = _read_native_hex_attr(
+      transfer_group.attrs, _TRANSFER_DRIFTED_STATE_SHA256_ATTR,
+      length=64, where=where)
+    if drifted_sha256 != declared_drifted \
+        or drifted_sha256 != saved_drifted:
+      raise ValueError(
+        where + " drifted state digest disagrees with its tensor datasets")
+  elif has_drifted_attr or "embedded_drifted_state_sha256" in \
+      resolved_transfer:
+    raise ValueError(where + " frozen transfer has a drifted-state digest")
+  return state_sha256, drifted_sha256
 
 
 def _load_tensor_state_dict(checkpoint, *, device, where):
@@ -800,87 +1255,691 @@ def _validate_executed_composition(
 
 
 def _validate_model_recipe_for_save(recipe, where):
-  """Check the fields the current reader must have before writing weights.
+  """Apply the closed, import-free model recipe contract before saving."""
+  return validate_model_recipe(
+    recipe, where=where + ": resolved_model")
 
-  This is the small shared boundary between the writer and `_rebuild_model`.
-  It proves that the saved YAML has the keys and native container types the
-  reader immediately consumes. It does not import the named class or attempt
-  to prove that every constructor argument is complete; those deeper checks
-  belong to model construction and the separate recipe-totality contract.
-  """
-  required = (
-    "cls", "kwargs", "needs_geom", "input_dim", "output_dim",
-    "compile_mode", "ia",
-  )
-  missing = [key for key in required if key not in recipe]
-  if missing:
+
+_TRAINING_PASS_KEYS = (
+  "role", "model_phase", "epochs", "history_start", "history_stop",
+  "learning_rate", "warmup_epochs", "optimizer", "scheduler", "loss",
+  "trim", "focus", "clip", "rewind", "ema", "train_chunk_rows",
+  "steps_per_epoch", "step_compile_mode", "anchor",
+)
+_TRAINING_RECIPE_KEYS = (
+  "recipe_schema", "bs", "nepochs", "seed", "thresholds", "use_amp",
+  "amp_dtype", "scaler_policy", "clip", "rewind", "trunk_epochs",
+  "freeze_trunk", "loss", "ema", "lr", "optimizer", "scheduler",
+  "trim", "focus", "trunk", "head", "passes", "total_epochs",
+  "execution", "eval_bs", "device",
+)
+_TRAINING_RECIPE_OPTIONAL_KEYS = ("finetune", "pce", "transfer")
+_TRAINING_HISTORY_KEYS = (
+  "train_losses", "val_medians", "val_means", "val_fracs", "thresholds",
+)
+_TRAINING_COMPILE_MODES = (None, "default", "reduce-overhead")
+_TRAINING_SCHEDULE_SHAPES = ("const", "linear", "cosine", "step")
+_TRAINING_LOSS_MODES = (
+  "chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
+
+
+def _plain_exact_mapping(value, expected, where):
+  """Require one native mapping with no missing or future-default fields."""
+  if type(value) is not dict:
+    raise TypeError(where + " must be a plain mapping")
+  missing = sorted(set(expected) - set(value))
+  unknown = sorted(set(value) - set(expected))
+  if missing or unknown:
+    details = []
+    if missing:
+      details.append("missing " + repr(missing))
+    if unknown:
+      details.append("unknown " + repr(unknown))
+    raise ValueError(where + " has " + " and ".join(details))
+  return value
+
+
+def _native_nonnegative_int(value, where):
+  if type(value) is not int or value < 0:
+    raise TypeError(where + " must be a nonnegative native integer")
+  return value
+
+
+def _finite_native_number(value, where):
+  if type(value) not in (int, float) or not np.isfinite(float(value)):
+    raise TypeError(where + " must be a finite native number")
+  return float(value)
+
+
+def _positive_native_int(value, where):
+  if type(value) is not int or value < 1:
+    raise TypeError(where + " must be a positive native integer")
+  return value
+
+
+def _plain_recipe_tree(value, where):
+  """Require finite YAML data without accepting executable Python objects."""
+  if value is None or type(value) in (bool, int, str):
+    return value
+  if type(value) is float:
+    if not np.isfinite(value):
+      raise ValueError(where + " must be finite")
+    return value
+  if type(value) is list:
+    return [_plain_recipe_tree(item, where + "[]") for item in value]
+  if type(value) is dict:
+    out = {}
+    for key, item in value.items():
+      if type(key) is not str:
+        raise TypeError(where + " keys must be native text")
+      out[key] = _plain_recipe_tree(item, where + "." + key)
+    return out
+  raise TypeError(
+    where + " must contain only plain YAML values, got "
+    + type(value).__name__)
+
+
+def _validate_anneal_recipe(value, where):
+  """Validate the exact three fields used by a loss or EMA ramp."""
+  value = _plain_exact_mapping(
+    value, ("hold_epochs", "anneal_epochs", "shape"), where)
+  _native_nonnegative_int(value["hold_epochs"], where + ".hold_epochs")
+  _positive_native_int(value["anneal_epochs"], where + ".anneal_epochs")
+  if type(value["shape"]) is not str \
+      or value["shape"] not in _TRAINING_SCHEDULE_SHAPES:
     raise ValueError(
-      where + ": resolved_model is missing reader-required key(s) "
-      + repr(missing)
-      + ". Pass the complete model recipe produced by the current run.")
+      where + ".shape must be one of " + repr(_TRAINING_SCHEDULE_SHAPES))
+  return value
 
-  if type(recipe["cls"]) is not str or not recipe["cls"]:
-    raise TypeError(where + ": resolved_model.cls must be a non-empty string")
-  if type(recipe["kwargs"]) is not dict:
-    raise TypeError(where + ": resolved_model.kwargs must be a plain mapping")
-  if type(recipe["needs_geom"]) is not bool:
-    raise TypeError(where + ": resolved_model.needs_geom must be a native bool")
-  for key in ("input_dim", "output_dim"):
-    value = recipe[key]
-    if type(value) is not int or value < 1:
-      raise TypeError(
-        where + ": resolved_model." + key
-        + " must be a positive native integer")
-  if recipe["compile_mode"] is not None \
-      and type(recipe["compile_mode"]) is not str:
+
+def _validate_schedule_recipe(value, where, *, focus):
+  """Validate one complete trim or focal-weight schedule."""
+  expected = ("shape", "start", "end", "hold_epochs", "anneal_epochs")
+  if focus:
+    expected += ("kappa",)
+  value = _plain_exact_mapping(value, expected, where)
+  shape = value["shape"]
+  if type(shape) is not str or shape not in _TRAINING_SCHEDULE_SHAPES:
+    raise ValueError(
+      where + ".shape must be one of " + repr(_TRAINING_SCHEDULE_SHAPES))
+  start = _finite_native_number(value["start"], where + ".start")
+  end = _finite_native_number(value["end"], where + ".end")
+  hold = _native_nonnegative_int(
+    value["hold_epochs"], where + ".hold_epochs")
+  span = _positive_native_int(
+    value["anneal_epochs"], where + ".anneal_epochs")
+  if shape == "const" and (end != start or hold != 0 or span != 1):
+    raise ValueError(
+      where + " constant schedule must record end=start, hold_epochs=0, "
+      "and anneal_epochs=1")
+  if focus:
+    kappa = _finite_native_number(value["kappa"], where + ".kappa")
+    if kappa <= 0.0:
+      raise ValueError(where + ".kappa must be positive")
+  else:
+    if not 0.0 <= start < 1.0 or not 0.0 <= end < 1.0:
+      raise ValueError(where + ".start and .end must lie in [0, 1)")
+  return value
+
+
+def _validate_loss_recipe(value, where):
+  """Validate the exact resolved loss, including inactive null fields."""
+  value = _plain_exact_mapping(
+    value, ("mode", "berhu", "roughness"), where)
+  mode = value["mode"]
+  if type(mode) is not str or mode not in _TRAINING_LOSS_MODES:
+    raise ValueError(where + ".mode must be one of "
+                     + repr(_TRAINING_LOSS_MODES))
+  berhu = value["berhu"]
+  if mode in ("berhu", "berhu_capped"):
+    berhu = _plain_exact_mapping(
+      berhu, ("knot", "cap", "anneal"), where + ".berhu")
+    knot = _finite_native_number(berhu["knot"], where + ".berhu.knot")
+    cap = _finite_native_number(berhu["cap"], where + ".berhu.cap")
+    if knot <= 0.0 or cap <= 0.0 or knot >= cap:
+      raise ValueError(where + ".berhu requires 0 < knot < cap")
+    if berhu["anneal"] is not None:
+      _validate_anneal_recipe(berhu["anneal"], where + ".berhu.anneal")
+  elif berhu is not None:
+    raise ValueError(where + ".berhu must be null for a non-berhu loss")
+  roughness = value["roughness"]
+  if roughness is not None:
+    roughness = _plain_exact_mapping(
+      roughness, ("lam", "period_cut"), where + ".roughness")
+    lam = _finite_native_number(
+      roughness["lam"], where + ".roughness.lam")
+    period_cut = _finite_native_number(
+      roughness["period_cut"], where + ".roughness.period_cut")
+    if lam <= 0.0 or period_cut < 5.0:
+      raise ValueError(
+        where + ".roughness requires lam > 0 and period_cut >= 5")
+  return value
+
+
+def _validate_ema_recipe(value, where):
+  """Validate the exact optional moving-average policy."""
+  if value is None:
+    return None
+  value = _plain_exact_mapping(
+    value, ("horizon_epochs", "anneal"), where)
+  horizon = _finite_native_number(
+    value["horizon_epochs"], where + ".horizon_epochs")
+  if horizon <= 0.0:
+    raise ValueError(where + ".horizon_epochs must be positive")
+  if value["anneal"] is not None:
+    _validate_anneal_recipe(value["anneal"], where + ".anneal")
+  return value
+
+
+def _validate_optimizer_recipe(value, where, *, pass_record):
+  """Validate one optimizer declaration and its executed parameter groups."""
+  expected = (("cls", "constructor", "groups") if pass_record
+              else ("cls", "weight_decay", "extras", "constructor"))
+  value = _plain_exact_mapping(value, expected, where)
+  if type(value["cls"]) is not str or not value["cls"]:
+    raise TypeError(where + ".cls must be nonempty native text")
+  constructor = value["constructor"]
+  if type(constructor) is not dict or not constructor:
+    raise ValueError(where + ".constructor must be a nonempty plain mapping")
+  _plain_recipe_tree(constructor, where + ".constructor")
+  if "lr" not in constructor:
+    raise ValueError(where + ".constructor must state the injected lr")
+  constructor_lr = _finite_native_number(
+    constructor["lr"], where + ".constructor.lr")
+  if constructor_lr <= 0.0:
+    raise ValueError(where + ".constructor.lr must be positive")
+  if not pass_record:
+    decay = _finite_native_number(
+      value["weight_decay"], where + ".weight_decay")
+    if decay < 0.0:
+      raise ValueError(where + ".weight_decay must be nonnegative")
+    if type(value["extras"]) is not dict:
+      raise TypeError(where + ".extras must be a plain mapping")
+    _plain_recipe_tree(value["extras"], where + ".extras")
+    for key, extra in value["extras"].items():
+      if key not in constructor or constructor[key] != extra:
+        raise ValueError(
+          where + ".constructor disagrees with effective extra " + repr(key))
+    return value
+
+  groups = value["groups"]
+  if type(groups) is not list or not groups:
+    raise ValueError(where + ".groups must be a nonempty plain list")
+  parameter_count = 0
+  for index, group in enumerate(groups):
+    group_where = where + ".groups[" + str(index) + "]"
+    group = _plain_exact_mapping(
+      group, ("learning_rate", "weight_decay", "parameter_count"),
+      group_where)
+    learning_rate = _finite_native_number(
+      group["learning_rate"], group_where + ".learning_rate")
+    weight_decay = _finite_native_number(
+      group["weight_decay"], group_where + ".weight_decay")
+    count = _native_nonnegative_int(
+      group["parameter_count"], group_where + ".parameter_count")
+    if learning_rate <= 0.0 or weight_decay < 0.0:
+      raise ValueError(
+        group_where + " requires learning_rate > 0 and weight_decay >= 0")
+    parameter_count += count
+  if parameter_count < 1:
+    raise ValueError(where + ".groups must own at least one parameter")
+  return value
+
+
+def _validate_scheduler_recipe(value, where):
+  """Validate the exact scheduler class and its materialized kwargs."""
+  value = _plain_exact_mapping(value, ("cls", "kwargs"), where)
+  if type(value["cls"]) is not str or not value["cls"]:
+    raise TypeError(where + ".cls must be nonempty native text")
+  if type(value["kwargs"]) is not dict:
+    raise TypeError(where + ".kwargs must be a plain mapping")
+  _plain_recipe_tree(value["kwargs"], where + ".kwargs")
+  return value
+
+
+def _validate_anchor_recipe(value, where, role):
+  """Validate the only two post-step anchor records the loop can execute."""
+  if value is None:
+    if role == "transfer_refine":
+      raise ValueError(where + " is required for transfer_refine")
+    return None
+  if role == "transfer_refine":
+    expected = (
+      "kind", "lambda", "masked", "base_lr_scale", "base_learning_rate")
+    required_kind = "transfer_base_l2sp"
+  else:
+    expected = ("kind", "lambda", "masked")
+    required_kind = "finetune_l2sp"
+  value = _plain_exact_mapping(value, expected, where)
+  if value["kind"] != required_kind:
+    raise ValueError(where + ".kind must be " + repr(required_kind))
+  strength = _finite_native_number(value["lambda"], where + ".lambda")
+  if strength < 0.0:
+    raise ValueError(where + ".lambda must be nonnegative")
+  if type(value["masked"]) is not bool:
+    raise TypeError(where + ".masked must be a native boolean")
+  if role == "transfer_refine":
+    scale = _finite_native_number(
+      value["base_lr_scale"], where + ".base_lr_scale")
+    base_lr = _finite_native_number(
+      value["base_learning_rate"], where + ".base_learning_rate")
+    if scale <= 0.0 or base_lr <= 0.0 or value["masked"]:
+      raise ValueError(
+        where + " transfer anchor requires positive base rates and masked=false")
+  return value
+
+
+def _validate_phase_provenance(value, where):
+  """Validate the optional raw phase override retained beside pass facts."""
+  if value is None:
+    return None
+  if type(value) is not dict:
+    raise TypeError(where + " must be a plain mapping or null")
+  allowed = {
+    "lr", "scheduler", "loss", "trim", "focus", "clip", "rewind", "ema"}
+  unknown = sorted(set(value) - allowed)
+  if unknown:
+    raise ValueError(where + " has unknown " + repr(unknown))
+  _plain_recipe_tree(value, where)
+  return value
+
+
+def _runtime_history_arrays(histories, where):
+  """Convert the five runtime history fields without changing their meaning."""
+  histories = _plain_exact_mapping(
+    histories, _TRAINING_HISTORY_KEYS, where)
+
+  def _array(value):
+    if torch.is_tensor(value):
+      value = value.detach().cpu().numpy()
+    return np.asarray(value)
+
+  arrays = {}
+  for key in ("train_losses", "val_medians", "val_means", "thresholds"):
+    arrays[key] = _array(histories[key])
+  fractions = histories["val_fracs"]
+  if not isinstance(fractions, (list, tuple)) or not fractions:
+    raise ValueError(where + ".val_fracs must contain one row per epoch")
+  rows = [_array(row) for row in fractions]
+  try:
+    arrays["val_fracs"] = np.stack(rows)
+  except ValueError as exc:
+    raise ValueError(
+      where + ".val_fracs rows must have one common threshold width") from exc
+  return arrays
+
+
+def _saved_history_arrays(history_group, where):
+  """Read plain NumPy history values before tensor or model construction."""
+  if not hasattr(history_group, "keys"):
+    raise TypeError(where + " must be an HDF5 group")
+  observed = tuple(history_group.keys())
+  missing = sorted(set(_TRAINING_HISTORY_KEYS) - set(observed))
+  unknown = sorted(set(observed) - set(_TRAINING_HISTORY_KEYS))
+  if missing or unknown:
+    details = []
+    if missing:
+      details.append("missing " + repr(missing))
+    if unknown:
+      details.append("unknown " + repr(unknown))
+    raise ValueError(where + " has " + " and ".join(details))
+  return {key: np.asarray(history_group[key][()])
+          for key in _TRAINING_HISTORY_KEYS}
+
+
+def _read_yaml_mapping_dataset(container, name, where):
+  """Decode one scalar UTF-8 YAML mapping without importing saved code."""
+  if name not in container:
+    raise KeyError(where + " is missing required " + repr(name))
+  value = container[name][()]
+  if isinstance(value, bytes):
+    try:
+      value = value.decode("utf-8")
+    except UnicodeDecodeError as exc:
+      raise ValueError(where + " " + name + " is not valid UTF-8") from exc
+  if type(value) is not str:
+    raise TypeError(where + " " + name + " must be scalar native text")
+  try:
+    parsed = yaml.safe_load(value)
+  except yaml.YAMLError as exc:
+    raise ValueError(where + " " + name + " is invalid YAML") from exc
+  if type(parsed) is not dict:
+    raise TypeError(where + " " + name + " must decode to a plain mapping")
+  return parsed
+
+
+def _saved_geometry_class(group, where):
+  """Read a geometry class marker without importing or constructing it."""
+  if not hasattr(group, "attrs") or "cls" not in group.attrs:
+    raise KeyError(where + " is missing the required 'cls' class marker")
+  value = group.attrs["cls"]
+  if type(value) is not str or not value:
+    raise TypeError(where + " 'cls' must be nonempty native text")
+  return value
+
+
+def _saved_analytic_law(group, class_path, where):
+  """Read the stored target law before the geometry's from_state can run."""
+  law_families = {
+    "emulator.geometries.cmb.CmbDiagonalGeometry",
+    "emulator.geometries.grid.GridGeometry",
+    "emulator.geometries.grid2d.Grid2DGeometry",
+  }
+  if class_path not in law_families:
+    return "none"
+  if "law" not in group.attrs:
+    raise KeyError(
+      where + " is missing its analytic 'law'; no code default is used")
+  law = group.attrs["law"]
+  if type(law) is not str or not law:
+    raise TypeError(where + " analytic 'law' must be nonempty native text")
+  return law
+
+
+def validate_training_recipe_and_histories(
+    resolved_train, histories, *, composition_mode, transfer_refined,
+    model_recipe, where="training record"):
+  """Check that the saved pass plan and all epoch histories describe one run.
+
+  ``histories`` is an already inert mapping of five NumPy arrays.  The
+  function imports and constructs nothing.  It therefore runs before
+  ``model.state_dict`` on save and before geometry imports or ``torch.load``
+  on rebuild.
+  """
+  if type(resolved_train) is not dict:
+    raise TypeError(where + ".resolved_train must be a plain mapping")
+  required = set(_TRAINING_RECIPE_KEYS)
+  allowed = required | set(_TRAINING_RECIPE_OPTIONAL_KEYS)
+  missing = sorted(required - set(resolved_train))
+  unknown = sorted(set(resolved_train) - allowed)
+  if missing or unknown:
+    details = []
+    if missing:
+      details.append("missing " + repr(missing))
+    if unknown:
+      details.append("unknown " + repr(unknown))
+    raise ValueError(
+      where + ".resolved_train has " + " and ".join(details)
+      + "; re-run training to save the complete executed plan")
+  if type(resolved_train["recipe_schema"]) is not int \
+      or resolved_train["recipe_schema"] != 1:
+    raise ValueError(where + ".resolved_train.recipe_schema must be 1")
+
+  train_where = where + ".resolved_train"
+  bs = _positive_native_int(resolved_train["bs"], train_where + ".bs")
+  nepochs = _positive_native_int(
+    resolved_train["nepochs"], where + ".resolved_train.nepochs")
+  if type(resolved_train["seed"]) is not int:
+    raise TypeError(train_where + ".seed must be a native integer")
+  total_epochs = _positive_native_int(
+    resolved_train["total_epochs"],
+    where + ".resolved_train.total_epochs")
+  if type(resolved_train["use_amp"]) is not bool:
+    raise TypeError(train_where + ".use_amp must be a native boolean")
+  if resolved_train["amp_dtype"] not in (
+      "torch.float16", "torch.bfloat16"):
+    raise ValueError(
+      train_where + ".amp_dtype must be torch.float16 or torch.bfloat16")
+  if resolved_train["scaler_policy"] != "unscaled":
+    raise ValueError(train_where + ".scaler_policy must be 'unscaled'")
+  clip = _finite_native_number(
+    resolved_train["clip"], train_where + ".clip")
+  if clip < 0.0:
+    raise ValueError(train_where + ".clip must be nonnegative")
+  if type(resolved_train["rewind"]) is not bool:
+    raise TypeError(train_where + ".rewind must be a native boolean")
+  trunk_epochs = _native_nonnegative_int(
+    resolved_train["trunk_epochs"], train_where + ".trunk_epochs")
+  if trunk_epochs >= nepochs and trunk_epochs != 0:
+    raise ValueError(train_where + ".trunk_epochs must be 0 or below nepochs")
+  if type(resolved_train["freeze_trunk"]) is not bool:
+    raise TypeError(train_where + ".freeze_trunk must be a native boolean")
+
+  _validate_loss_recipe(resolved_train["loss"], train_where + ".loss")
+  _validate_ema_recipe(resolved_train["ema"], train_where + ".ema")
+  _validate_schedule_recipe(
+    resolved_train["trim"], train_where + ".trim", focus=False)
+  _validate_schedule_recipe(
+    resolved_train["focus"], train_where + ".focus", focus=True)
+  _validate_phase_provenance(
+    resolved_train["trunk"], train_where + ".trunk")
+  _validate_phase_provenance(
+    resolved_train["head"], train_where + ".head")
+
+  lr_record = _plain_exact_mapping(
+    resolved_train["lr"],
+    ("lr_base", "bs_base", "warmup_epochs", "lr"), train_where + ".lr")
+  lr_base = _finite_native_number(lr_record["lr_base"],
+                                  train_where + ".lr.lr_base")
+  bs_base = _finite_native_number(lr_record["bs_base"],
+                                  train_where + ".lr.bs_base")
+  _native_nonnegative_int(
+    lr_record["warmup_epochs"], train_where + ".lr.warmup_epochs")
+  resolved_lr = _finite_native_number(lr_record["lr"], train_where + ".lr.lr")
+  if lr_base <= 0.0 or bs_base <= 0.0 or resolved_lr <= 0.0:
+    raise ValueError(train_where + ".lr values must be positive")
+  expected_lr = lr_base * (bs / bs_base) ** 0.5
+  if not np.isclose(resolved_lr, expected_lr, rtol=1.0e-13, atol=0.0):
+    raise ValueError(train_where + ".lr.lr disagrees with the batch-size rule")
+
+  top_optimizer = _validate_optimizer_recipe(
+    resolved_train["optimizer"], train_where + ".optimizer",
+    pass_record=False)
+  if not np.isclose(
+      float(top_optimizer["constructor"]["lr"]), resolved_lr,
+      rtol=1.0e-13, atol=0.0):
+    raise ValueError(train_where + ".optimizer.constructor.lr disagrees with lr")
+  top_scheduler = _validate_scheduler_recipe(
+    resolved_train["scheduler"], train_where + ".scheduler")
+
+  eval_bs = _positive_native_int(
+    resolved_train["eval_bs"], train_where + ".eval_bs")
+  if eval_bs < 1:
+    raise ValueError(train_where + ".eval_bs must be positive")
+  if type(resolved_train["device"]) is not str \
+      or not resolved_train["device"]:
+    raise TypeError(train_where + ".device must be nonempty native text")
+  for optional in _TRAINING_RECIPE_OPTIONAL_KEYS:
+    if optional in resolved_train:
+      if type(resolved_train[optional]) is not dict:
+        raise TypeError(train_where + "." + optional + " must be a mapping")
+      _plain_recipe_tree(
+        resolved_train[optional], train_where + "." + optional)
+
+  thresholds = resolved_train["thresholds"]
+  if type(thresholds) is not list or not thresholds:
     raise TypeError(
-      where + ": resolved_model.compile_mode must be text or null")
-  if recipe["ia"] is not None and type(recipe["ia"]) is not str:
-    raise TypeError(where + ": resolved_model.ia must be text or null")
+      where + ".resolved_train.thresholds must be a nonempty plain list")
+  threshold_values = np.asarray([
+    _finite_native_number(value,
+                          where + ".resolved_train.thresholds["
+                          + str(index) + "]")
+    for index, value in enumerate(thresholds)
+  ])
+  if bool(np.any(threshold_values < 0.0)):
+    raise ValueError(train_where + ".thresholds must be nonnegative")
 
-  kwargs = recipe["kwargs"]
-  if "block_opts" in kwargs:
-    block_opts = kwargs["block_opts"]
-    if type(block_opts) is not dict:
-      raise TypeError(
-        where + ": resolved_model.kwargs.block_opts must be a plain mapping")
-    missing_block = [key for key in ("act", "norm")
-                     if key not in block_opts]
-    if missing_block:
+  execution = _plain_exact_mapping(
+    resolved_train["execution"],
+    ("configured_compile_mode", "applied_compile_mode"),
+    where + ".resolved_train.execution")
+  for key in ("configured_compile_mode", "applied_compile_mode"):
+    value = execution[key]
+    if value not in _TRAINING_COMPILE_MODES or (
+        value is not None and type(value) is not str):
       raise ValueError(
-        where + ": resolved_model.kwargs.block_opts is missing "
-        + repr(missing_block))
-    act = block_opts["act"]
-    if type(act) is not dict or type(act.get("type")) is not str:
-      raise TypeError(
-        where + ": resolved_model.kwargs.block_opts.act must be a mapping "
-        "with a text 'type'")
-    if type(block_opts["norm"]) is not str:
-      raise TypeError(
-        where + ": resolved_model.kwargs.block_opts.norm must be text")
-    if "n_gates" not in act:
-      raise ValueError(
-        where + ": resolved_model.kwargs.block_opts.act is missing "
-        "reader-required key 'n_gates'")
-    if type(act["n_gates"]) is not int or act["n_gates"] < 1:
-      raise TypeError(
-        where + ": resolved_model.kwargs.block_opts.act.n_gates must be a "
-        "positive native integer")
+        where + ".resolved_train.execution." + key + " must be one of "
+        + repr(_TRAINING_COMPILE_MODES))
+  if execution["configured_compile_mode"] != model_recipe["compile_mode"]:
+    raise ValueError(
+      where + ": configured compile mode disagrees with model_recipe")
 
-  head_act = kwargs.get("head_act")
-  if head_act is not None:
-    if type(head_act) is not dict or type(head_act.get("type")) is not str:
-      raise TypeError(
-        where + ": resolved_model.kwargs.head_act must be a mapping with a "
-        "text 'type'")
-    if "n_gates" not in head_act:
+  passes = resolved_train["passes"]
+  if type(passes) is not list or not passes:
+    raise TypeError(
+      where + ".resolved_train.passes must be a nonempty plain list")
+  expected_start = 0
+  main_epochs = 0
+  roles = []
+  allowed_phases = {
+    "single": ("single",),
+    "trunk": ("trunk",),
+    "head": ("head", "joint"),
+    "transfer_refine": ("joint",),
+  }
+  for index, pass_record in enumerate(passes):
+    pass_where = where + ".resolved_train.passes[" + str(index) + "]"
+    pass_record = _plain_exact_mapping(
+      pass_record, _TRAINING_PASS_KEYS, pass_where)
+    role = pass_record["role"]
+    phase = pass_record["model_phase"]
+    if type(role) is not str or role not in allowed_phases:
       raise ValueError(
-        where + ": resolved_model.kwargs.head_act is missing reader-required "
-        "key 'n_gates'")
-    if type(head_act["n_gates"]) is not int or head_act["n_gates"] < 1:
-      raise TypeError(
-        where + ": resolved_model.kwargs.head_act.n_gates must be a positive "
-        "native integer")
+        pass_where + ".role must be single, trunk, head, or transfer_refine")
+    if type(phase) is not str or phase not in allowed_phases[role]:
+      raise ValueError(
+        pass_where + ".model_phase is incompatible with role=" + repr(role))
+    epochs = _positive_native_int(
+      pass_record["epochs"], pass_where + ".epochs")
+    start = _native_nonnegative_int(
+      pass_record["history_start"], pass_where + ".history_start")
+    stop = _native_nonnegative_int(
+      pass_record["history_stop"], pass_where + ".history_stop")
+    if start != expected_start or stop != start + epochs:
+      raise ValueError(
+        pass_where + " must cover the next contiguous history slice ["
+        + str(expected_start) + ", " + str(expected_start + epochs) + ")")
+    expected_start = stop
+    roles.append(role)
+    if role != "transfer_refine":
+      main_epochs += epochs
+
+    pass_lr = _finite_native_number(
+      pass_record["learning_rate"], pass_where + ".learning_rate")
+    if pass_lr <= 0.0:
+      raise ValueError(pass_where + ".learning_rate must be positive")
+    _native_nonnegative_int(
+      pass_record["warmup_epochs"], pass_where + ".warmup_epochs")
+    _positive_native_int(
+      pass_record["train_chunk_rows"], pass_where + ".train_chunk_rows")
+    _positive_native_int(
+      pass_record["steps_per_epoch"], pass_where + ".steps_per_epoch")
+    pass_clip = _finite_native_number(
+      pass_record["clip"], pass_where + ".clip")
+    if pass_clip < 0.0:
+      raise ValueError(pass_where + ".clip must be nonnegative")
+    if type(pass_record["rewind"]) is not bool:
+      raise TypeError(pass_where + ".rewind must be a native boolean")
+    pass_optimizer = _validate_optimizer_recipe(
+      pass_record["optimizer"], pass_where + ".optimizer", pass_record=True)
+    if pass_optimizer["cls"] != top_optimizer["cls"]:
+      raise ValueError(pass_where + ".optimizer.cls disagrees with the run")
+    if not np.isclose(
+        float(pass_optimizer["constructor"]["lr"]), pass_lr,
+        rtol=1.0e-13, atol=0.0):
+      raise ValueError(
+        pass_where + ".optimizer.constructor.lr disagrees with pass lr")
+    for key, value in top_optimizer["extras"].items():
+      if pass_optimizer["constructor"].get(key) != value:
+        raise ValueError(
+          pass_where + ".optimizer.constructor disagrees with effective "
+          + repr(key))
+    if not any(np.isclose(
+        float(group["learning_rate"]), pass_lr,
+        rtol=1.0e-13, atol=0.0)
+        for group in pass_optimizer["groups"]):
+      raise ValueError(
+        pass_where + ".optimizer.groups has no full-rate parameter group")
+    scheduler = _validate_scheduler_recipe(
+      pass_record["scheduler"], pass_where + ".scheduler")
+    if scheduler["cls"] != top_scheduler["cls"]:
+      raise ValueError(pass_where + ".scheduler.cls disagrees with the run")
+    _validate_loss_recipe(pass_record["loss"], pass_where + ".loss")
+    _validate_schedule_recipe(
+      pass_record["trim"], pass_where + ".trim", focus=False)
+    _validate_schedule_recipe(
+      pass_record["focus"], pass_where + ".focus", focus=True)
+    _validate_ema_recipe(pass_record["ema"], pass_where + ".ema")
+    _validate_anchor_recipe(
+      pass_record["anchor"], pass_where + ".anchor", role)
+    step_mode = pass_record["step_compile_mode"]
+    if step_mode not in _TRAINING_COMPILE_MODES or (
+        step_mode is not None and type(step_mode) is not str):
+      raise ValueError(
+        pass_where + ".step_compile_mode must be one of "
+        + repr(_TRAINING_COMPILE_MODES))
+    if role == "transfer_refine" and step_mode is not None:
+      raise ValueError(pass_where + ".step_compile_mode must be null")
+    if role != "transfer_refine" \
+        and step_mode != execution["applied_compile_mode"]:
+      raise ValueError(
+        pass_where + ".step_compile_mode disagrees with execution")
+
+  if roles not in (["single"], ["trunk", "head"],
+                    ["single", "transfer_refine"],
+                    ["trunk", "head", "transfer_refine"]):
+    raise ValueError(where + ".resolved_train.passes has invalid order "
+                     + repr(roles))
+  if trunk_epochs == 0 and roles[0] != "single":
+    raise ValueError(train_where + ".trunk_epochs=0 requires a single pass")
+  if trunk_epochs > 0:
+    if roles[:2] != ["trunk", "head"] \
+        or passes[0]["epochs"] != trunk_epochs:
+      raise ValueError(
+        train_where + ".trunk_epochs disagrees with trunk/head passes")
+    expected_head_phase = (
+      "head" if resolved_train["freeze_trunk"] else "joint")
+    if passes[1]["model_phase"] != expected_head_phase:
+      raise ValueError(
+        train_where + ".freeze_trunk disagrees with the head pass")
+  have_refine = bool(roles and roles[-1] == "transfer_refine")
+  if have_refine != bool(transfer_refined) \
+      or have_refine != (composition_mode == "transfer" and transfer_refined):
+    raise ValueError(
+      where + ": transfer-refine pass disagrees with composition facts")
+  if main_epochs != nepochs:
+    raise ValueError(
+      where + ": non-refine pass epochs=" + str(main_epochs)
+      + " disagree with resolved_train.nepochs=" + str(nepochs))
+  if expected_start != total_epochs:
+    raise ValueError(
+      where + ": pass history stops at " + str(expected_start)
+      + " but total_epochs=" + str(total_epochs))
+
+  histories = _plain_exact_mapping(
+    histories, _TRAINING_HISTORY_KEYS, where + ".history")
+  for key in ("train_losses", "val_medians", "val_means"):
+    values = np.asarray(histories[key])
+    if values.ndim != 1 or values.shape[0] != total_epochs:
+      raise ValueError(
+        where + ".history." + key + " must have exactly "
+        + str(total_epochs) + " epoch values")
+    if not np.issubdtype(values.dtype, np.number) \
+        or not bool(np.all(np.isfinite(values))):
+      raise ValueError(where + ".history." + key + " must be finite numbers")
+  fractions = np.asarray(histories["val_fracs"])
+  expected_fraction_shape = (total_epochs, len(thresholds))
+  if fractions.shape != expected_fraction_shape:
+    raise ValueError(
+      where + ".history.val_fracs must have shape "
+      + repr(expected_fraction_shape) + ", got " + repr(fractions.shape))
+  if not np.issubdtype(fractions.dtype, np.number) \
+      or not bool(np.all(np.isfinite(fractions))):
+    raise ValueError(where + ".history.val_fracs must be finite numbers")
+  saved_thresholds = np.asarray(histories["thresholds"])
+  if saved_thresholds.ndim != 1 \
+      or saved_thresholds.shape != threshold_values.shape:
+    raise ValueError(
+      where + ".history.thresholds shape disagrees with resolved_train")
+  if not np.issubdtype(saved_thresholds.dtype, np.number) \
+      or not bool(np.all(np.isfinite(saved_thresholds))):
+    raise ValueError(where + ".history.thresholds must be finite numbers")
+  expected_thresholds = threshold_values.astype(
+    saved_thresholds.dtype, copy=False)
+  if not np.array_equal(saved_thresholds, expected_thresholds):
+    raise ValueError(
+      where + ".history.thresholds values disagree with resolved_train")
+  return histories
 
 
 def _saved_head_layout(geometry, recipe, where):
@@ -1075,10 +2134,10 @@ def save_emulator(path_root,
     reconstructs from the file alone, so the read side never falls
     back to a code default: every key it needs is fetched through the
     _need / _read_artifact_composition helpers, which raise a named error when
-    the key is absent instead of substituting a value. The rows marked
-    "not read (provenance)" are written on purpose as a paper trail
-    (plots, audits, git history); rebuild_emulator does not consume
-    them, and that is the intended asymmetry, not a dropped key.
+    the key is absent instead of substituting a value. The few rows marked
+    "not read (provenance)" are written on purpose as a paper trail. The
+    model recipe, semantic manifest, executed pass plan, histories, and output
+    identity are all checked before executable reconstruction begins.
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
@@ -1129,12 +2188,14 @@ def save_emulator(path_root,
                                     |   the two blocks reach the caller as
                                     |   info["fixed_facts"] and
                                     |   info["input_domain"]
-      history/ group (train_losses, | not read (provenance): per-epoch
-        val_medians, val_means,     |   training curves for plots and audit
-        val_fracs, thresholds)      |
+      history/ group (train_losses, | read as inert arrays; lengths,
+        val_medians, val_means,     |   threshold columns, and threshold
+        val_fracs, thresholds)      |   values must match the pass plan
       config_yaml,                  | composition declarations are checked;
-        config_resolved_yaml        |   the rest remains provenance / consumed
-                                    |   history for later recipe-totality work
+        config_resolved_yaml        |   resolved training passes are checked
+                                    |   against history, while data, model,
+                                    |   rescale, and composition facts must
+                                    |   reproduce the saved output identity
       train_args_yaml               | not read (provenance)
       root rescale attr             | _read_public_rescale requires native
                                     |   "none" before geometry/model rebuild;
@@ -1192,9 +2253,12 @@ def save_emulator(path_root,
                      carries drifted_state.
     resolved_pce   = consumed pce mapping for NPCE, else None.
     resolved_transfer = consumed transfer mapping for transfer, else None.
-    resolved_rescale = the executed analytic-rescaling mode: ``none``,
-                     ``rescaled``, or ``residual``. Production callers that
-                     supply an output identity must supply this fact too.
+    resolved_rescale = the executed analytic-rescaling mode. Schema 3 can
+                     publish only ``none`` because it stores no inverse for
+                     ``rescaled`` or ``residual`` targets. Production callers
+                     supply this fact explicitly. A low-level caller may omit
+                     it only when attrs explicitly records native ``none``;
+                     that saved fact is then used rather than a code default.
     output_identity = optional mapping returned by
                      ``build_output_identity``. Production drivers pass it so
                      the checked save root and diagnostic name use the exact
@@ -1292,6 +2356,8 @@ def save_emulator(path_root,
         + ". Pass the resolved configuration mapping without converting it "
         "to a list, tuple, or YAML string.")
   _validate_model_recipe_for_save(resolved_model, where=path_root)
+  _validate_live_recipe_geometry_widths(
+    resolved_model, param_geometry, geometry, path_root)
 
   # h5py lives only here: the training machines (cocoa) ship it, the
   # plotting/train paths never need it.
@@ -1307,16 +2373,86 @@ def save_emulator(path_root,
     resolved_transfer=resolved_transfer,
     where=path_root)
 
-  if output_identity is not None and resolved_rescale is None:
+  transfer_state_sha256 = None
+  transfer_drifted_state_sha256 = None
+  if composition_mode == "transfer":
+    (resolved_train, resolved_transfer, transfer_state_sha256,
+     transfer_drifted_state_sha256) = _bind_transfer_state_digests(
+       resolved_train, resolved_transfer, transfer_base,
+       transfer_refined=transfer_refined, where=path_root)
+
+  # Validate both model descriptions as inert data, then bind them to the
+  # exact implementations selected by this run.  These checks precede
+  # model.state_dict and temporary-file creation.  A transfer base is a plain
+  # embedded emulator; the outer transfer decoder belongs only to the main
+  # correction recipe.
+  parameter_geometry_cls = _class_path(param_geometry)
+  output_geometry_cls = _class_path(geometry)
+  analytic_law = _analytic_law_for_geometry(
+    geometry, output_geometry_cls, path_root + " output geometry")
+  compatibility_manifest = build_compatibility_manifest(
+    resolved_model,
+    parameter_geometry_cls=parameter_geometry_cls,
+    output_geometry_cls=output_geometry_cls,
+    composition_mode=composition_mode,
+    ia_design=("none" if resolved_model["ia"] is None
+               else resolved_model["ia"]),
+    analytic_law=analytic_law)
+
+  transfer_compatibility_manifest = None
+  if composition_mode == "transfer":
+    for key in ("recipe", "param_geometry", "dv_geometry"):
+      if key not in transfer_base:
+        raise KeyError(
+          path_root + ": transfer_base is missing " + repr(key)
+          + "; save refuses an embedded model that cannot be rebuilt")
+    transfer_recipe = transfer_base["recipe"]
+    validate_model_recipe(
+      transfer_recipe, where=path_root + ": transfer_base.model_recipe")
+    _validate_live_recipe_geometry_widths(
+      transfer_recipe, transfer_base["param_geometry"],
+      transfer_base["dv_geometry"], path_root + ": transfer_base")
+    transfer_parameter_cls = _class_path(transfer_base["param_geometry"])
+    transfer_output_cls = _class_path(transfer_base["dv_geometry"])
+    transfer_law = _analytic_law_for_geometry(
+      transfer_base["dv_geometry"], transfer_output_cls,
+      path_root + " transfer_base output geometry")
+    transfer_compatibility_manifest = build_compatibility_manifest(
+      transfer_recipe,
+      parameter_geometry_cls=transfer_parameter_cls,
+      output_geometry_cls=transfer_output_cls,
+      composition_mode="plain",
+      ia_design=("none" if transfer_recipe["ia"] is None
+                 else transfer_recipe["ia"]),
+      analytic_law=transfer_law)
+
+  history_arrays = _runtime_history_arrays(
+    histories, where=path_root + ": histories")
+  validate_training_recipe_and_histories(
+    resolved_train, history_arrays,
+    composition_mode=composition_mode,
+    transfer_refined=transfer_refined,
+    model_recipe=resolved_model,
+    where=path_root)
+
+  if type(attrs) is not dict or "rescale" not in attrs:
     raise ValueError(
-      path_root + ": save_emulator needs resolved_rescale when an output "
-      "identity is supplied; pass the exact mode used by the loss")
-  identity_rescale = "none" if resolved_rescale is None else resolved_rescale
-  if output_identity is not None and (
-      type(attrs) is not dict or attrs.get("rescale") != resolved_rescale):
+      path_root + ": schema 3 requires attrs to record the explicit native "
+      "string rescale='none'; missing metadata is not a default")
+  recorded_rescale = attrs["rescale"]
+  if type(recorded_rescale) is not str or recorded_rescale != "none":
     raise ValueError(
-      path_root + ": resolved_rescale disagrees with the rescale value saved "
-      "in attrs; pass the exact executed mode through both records")
+      path_root + ": schema 3 can publish only the explicit native string "
+      "rescale='none'; it stores no inverse for rescaled or residual targets")
+  if resolved_rescale is None:
+    identity_rescale = recorded_rescale
+  else:
+    if type(resolved_rescale) is not str \
+        or resolved_rescale != recorded_rescale:
+      raise ValueError(
+        path_root + ": resolved_rescale disagrees with attrs.rescale; both "
+        "must record the exact native string 'none'")
+    identity_rescale = resolved_rescale
 
   derived_output_identity = build_output_identity(
     data=config.get("data", {}),
@@ -1327,6 +2463,8 @@ def save_emulator(path_root,
     transfer_refined=transfer_refined,
     resolved_pce=resolved_pce,
     resolved_transfer=resolved_transfer,
+    compatibility_manifest=compatibility_manifest,
+    transfer_compatibility_manifest=transfer_compatibility_manifest,
     require_published_selection=False)
   if output_identity is not None:
     require_same_output_identity(output_identity, derived_output_identity)
@@ -1355,6 +2493,28 @@ def save_emulator(path_root,
     geometry_names=param_geometry.state()["names"],
     blocks=record,
     where=path_root + ".h5")
+
+  # The caller-built recipe is not evidence about the module it hands us.
+  # Compare the constructor-owned runtime record after all cheaper inert facts
+  # have received their own diagnostics, but before weight inspection or any
+  # staging-file allocation.  A transfer base carries its live source module
+  # for the same independent binding; the module itself is not serialized.
+  require_runtime_model_recipe(
+    model, resolved_model, where=path_root + ": live model")
+  if composition_mode == "transfer":
+    if "model" not in transfer_base:
+      raise KeyError(
+        path_root + ": transfer_base is missing 'model'; pass the live "
+        "authenticated source model so its runtime recipe can be checked")
+    require_runtime_model_recipe(
+      transfer_base["model"], transfer_recipe,
+      where=path_root + ": live transfer base")
+    _validate_live_transfer_state(
+      transfer_base,
+      transfer_refined=transfer_refined,
+      state_sha256=transfer_state_sha256,
+      drifted_sha256=transfer_drifted_state_sha256,
+      where=path_root)
 
   # --- stage <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -1474,6 +2634,11 @@ def save_emulator(path_root,
                         data=yaml.safe_dump(transfer_base["recipe"],
                                             sort_keys=False),
                         dtype=str_dt)
+      tb.create_dataset(
+        _COMPATIBILITY_MANIFEST_DATASET,
+        data=yaml.safe_dump(
+          transfer_compatibility_manifest, sort_keys=False),
+        dtype=str_dt)
       # the base weights as a name -> tensor subgroup (state dict keys carry
       # dots, not h5 "/" separators, so each is one dataset).
       state_grp = tb.create_group("state")
@@ -1501,6 +2666,7 @@ def save_emulator(path_root,
         where="transfer_base dv_geometry")
       tb.attrs["form"]  = transfer_base["form"]
       tb.attrs["space"] = transfer_base["space"]
+      tb.attrs[_TRANSFER_STATE_SHA256_ATTR] = transfer_state_sha256
       # a refined run (transfer.refine): the DRIFTED base weights, kept
       # separate from the pretrained state above (which stays the anchor
       # reference + provenance). The predictor
@@ -1508,6 +2674,8 @@ def save_emulator(path_root,
       # two-way consistent with the group (rebuild refuses either half alone).
       drifted = transfer_base.get("drifted_state")
       if drifted is not None:
+        tb.attrs[_TRANSFER_DRIFTED_STATE_SHA256_ATTR] = (
+          transfer_drifted_state_sha256)
         drift_grp = tb.create_group("drifted_state")
         for k, v in drifted.items():
           drift_grp.create_dataset(k, data=v.detach().cpu().numpy())
@@ -1515,19 +2683,13 @@ def save_emulator(path_root,
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).
     hg = f.create_group("history")
     hg.create_dataset("train_losses",
-                      data=np.asarray(histories["train_losses"]))
+                      data=history_arrays["train_losses"])
     hg.create_dataset("val_medians",
-                      data=np.asarray(histories["val_medians"]))
+                      data=history_arrays["val_medians"])
     hg.create_dataset("val_means",
-                      data=np.asarray(histories["val_means"]))
-    rows = []
-    for fr in histories["val_fracs"]:
-      rows.append(np.asarray(fr.cpu() if torch.is_tensor(fr) else fr))
-    hg.create_dataset("val_fracs", data=np.stack(rows))
-    thr = histories["thresholds"]
-    if torch.is_tensor(thr):
-      thr = thr.cpu().numpy()
-    hg.create_dataset("thresholds", data=np.asarray(thr))
+                      data=history_arrays["val_means"])
+    hg.create_dataset("val_fracs", data=history_arrays["val_fracs"])
+    hg.create_dataset("thresholds", data=history_arrays["thresholds"])
 
     # the full configs, verbatim, as YAML text.
     f.create_dataset("config_yaml",
@@ -1563,6 +2725,10 @@ def save_emulator(path_root,
       f.create_dataset(
         "model_recipe",
         data=yaml.safe_dump(resolved_model, sort_keys=False),
+        dtype=str_dt)
+      f.create_dataset(
+        _COMPATIBILITY_MANIFEST_DATASET,
+        data=yaml.safe_dump(compatibility_manifest, sort_keys=False),
         dtype=str_dt)
     # One path-independent record produced both the filename suffix and this
     # saved declaration.  Rebuild checks the full canonical record against its
@@ -2151,13 +3317,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
   # plotting/train paths never need it.
   import h5py
 
-  from .activations import make_activation
-  from .designs.blocks import make_norm
-  from .geometries.scalar import ScalarGeometry
-  from .geometries.cmb import CmbDiagonalGeometry
-  from .geometries.grid import GridGeometry
-  from .geometries.grid2d import Grid2DGeometry
-
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
     # datasets (names) -> str lists, attrs -> scalars (a "torch.<dtype>"
@@ -2224,14 +3383,14 @@ def rebuild_emulator(path_root, device, compile_model=True):
     artifact_id, checkpoint_sha256 = _validate_artifact_binding(
       f.attrs, checkpoint,
       h5_where=path_root + ".h5", emul_where=path_root + ".emul")
-    output_identity_sha256, output_identity = _read_output_identity(
-      f, where=path_root + ".h5")
     # the schema version and the scientific record, through the one shared
     # reader. It refuses a version this code does not know, and a file that
     # announces none, before any other value is read. The blocks it returns are
     # plain Python, so they survive this file being closed and travel out in
     # the info dict below.
     record = read_artifact_schema(f=f, where=path_root + ".h5")
+    output_identity_sha256, output_identity = _read_output_identity(
+      f, where=path_root + ".h5")
     # The authoritative composition facts are the next read.  This validates
     # the complete required/forbidden group matrix and its consumed record
     # before recipe parsing, geometry construction, model construction, or
@@ -2240,10 +3399,131 @@ def rebuild_emulator(path_root, device, compile_model=True):
       f=f, where=path_root + ".h5")
     saved_rescale = _read_public_rescale(
       f.attrs, where=path_root + ".h5")
-    if "model_recipe" not in f:
-      raise KeyError(f"{path_root}.h5 is missing the model_recipe")
-    recipe = yaml.safe_load(f["model_recipe"][()])
-    resolved_config = yaml.safe_load(f["config_resolved_yaml"][()])
+    # Everything below this line is still inert metadata.  Complete model
+    # recipes, implementation identities, and the executed pass/history
+    # record must agree before a geometry module, model module, from_state, or
+    # tensor checkpoint is allowed to run.
+    recipe = _read_yaml_mapping_dataset(
+      f, "model_recipe", path_root + ".h5")
+    validate_model_recipe(recipe, where=path_root + ".h5 model_recipe")
+    _validate_saved_recipe_geometry_widths(
+      recipe, f["param_geometry"], f["dv_geometry"], path_root + ".h5")
+    resolved_config = _read_yaml_mapping_dataset(
+      f, "config_resolved_yaml", path_root + ".h5")
+    if "train_args" not in resolved_config:
+      raise KeyError(
+        path_root + ".h5 config_resolved_yaml is missing 'train_args'")
+    history_arrays = _saved_history_arrays(
+      f["history"] if "history" in f else None,
+      where=path_root + ".h5 history")
+    validate_training_recipe_and_histories(
+      resolved_config["train_args"], history_arrays,
+      composition_mode=composition_mode,
+      transfer_refined=transfer_refined,
+      model_recipe=recipe,
+      where=path_root + ".h5")
+    parameter_geometry_cls = _saved_geometry_class(
+      f["param_geometry"], path_root + ".h5 param_geometry")
+    output_geometry_cls = _saved_geometry_class(
+      f["dv_geometry"], path_root + ".h5 dv_geometry")
+    analytic_law = _saved_analytic_law(
+      f["dv_geometry"], output_geometry_cls,
+      path_root + ".h5 dv_geometry")
+    compatibility_manifest = _read_yaml_mapping_dataset(
+      f, _COMPATIBILITY_MANIFEST_DATASET, path_root + ".h5")
+    validate_compatibility_manifest(
+      compatibility_manifest, recipe,
+      parameter_geometry_cls=parameter_geometry_cls,
+      output_geometry_cls=output_geometry_cls,
+      composition_mode=composition_mode,
+      ia_design=("none" if recipe["ia"] is None else recipe["ia"]),
+      analytic_law=analytic_law,
+      where=path_root + ".h5 compatibility_manifest")
+
+    tb = None
+    tb_recipe = None
+    tb_parameter_geometry_cls = None
+    tb_output_geometry_cls = None
+    tb_manifest = None
+    if composition_mode == "transfer":
+      tb = f["transfer_base"]
+      tb_recipe = _read_yaml_mapping_dataset(
+        tb, "model_recipe", path_root + ".h5 transfer_base")
+      validate_model_recipe(
+        tb_recipe, where=path_root + ".h5 transfer_base model_recipe")
+      _validate_saved_recipe_geometry_widths(
+        tb_recipe, tb["param_geometry"], tb["dv_geometry"],
+        path_root + ".h5 transfer_base")
+      tb_parameter_geometry_cls = _saved_geometry_class(
+        tb["param_geometry"],
+        path_root + ".h5 transfer_base param_geometry")
+      tb_output_geometry_cls = _saved_geometry_class(
+        tb["dv_geometry"], path_root + ".h5 transfer_base dv_geometry")
+      tb_analytic_law = _saved_analytic_law(
+        tb["dv_geometry"], tb_output_geometry_cls,
+        path_root + ".h5 transfer_base dv_geometry")
+      tb_manifest = _read_yaml_mapping_dataset(
+        tb, _COMPATIBILITY_MANIFEST_DATASET,
+        path_root + ".h5 transfer_base")
+      validate_compatibility_manifest(
+        tb_manifest, tb_recipe,
+        parameter_geometry_cls=tb_parameter_geometry_cls,
+        output_geometry_cls=tb_output_geometry_cls,
+        composition_mode="plain",
+        ia_design=("none" if tb_recipe["ia"] is None else tb_recipe["ia"]),
+        analytic_law=tb_analytic_law,
+        where=path_root + ".h5 transfer_base compatibility_manifest")
+      resolved_transfer = resolved_config["transfer"]
+      _validate_embedded_transfer_state(
+        tb, resolved_transfer, transfer_refined=transfer_refined,
+        where=path_root + ".h5 transfer_base")
+      nested_transfer = resolved_config["train_args"].get("transfer")
+      if nested_transfer is not None:
+        if type(nested_transfer) is not dict:
+          raise TypeError(
+            path_root + ".h5 train_args.transfer must be a mapping")
+        for key in ("embedded_state_sha256",
+                    "embedded_drifted_state_sha256"):
+          if nested_transfer.get(key) != resolved_transfer.get(key):
+            raise ValueError(
+              path_root + ".h5 train_args.transfer." + key
+              + " disagrees with the resolved transfer record")
+
+    identity_data = resolved_config.get("data")
+    if type(identity_data) is not dict:
+      raise TypeError(
+        path_root + ".h5 config_resolved_yaml.data must be a plain mapping")
+    rebuilt_identity = build_output_identity(
+      data=identity_data,
+      resolved_train=resolved_config["train_args"],
+      resolved_model=recipe,
+      resolved_rescale=saved_rescale,
+      composition_mode=composition_mode,
+      transfer_refined=transfer_refined,
+      resolved_pce=resolved_config.get("pce"),
+      resolved_transfer=resolved_config.get("transfer"),
+      compatibility_manifest=compatibility_manifest,
+      transfer_compatibility_manifest=tb_manifest,
+      require_published_selection=False)
+    rebuilt_subject = validate_saved_output_identity(
+      rebuilt_identity["canonical_json"], rebuilt_identity["sha256"])
+    if rebuilt_identity["sha256"] != output_identity_sha256 \
+        or rebuilt_subject != output_identity:
+      raise ValueError(
+        path_root + ".h5 output identity disagrees with its saved data, "
+        "recipes, compatibility manifests, tensor-state declarations, "
+        "rescale, or composition record")
+
+    # The trusted local factories and registered geometry implementations are
+    # imported only after all saved strings above have passed their closed
+    # schemas.  Dynamic geometry/model paths cannot execute during preflight.
+    from .activations import make_activation
+    from .designs.blocks import make_norm
+    from .geometries.scalar import ScalarGeometry
+    from .geometries.cmb import CmbDiagonalGeometry
+    from .geometries.grid import GridGeometry
+    from .geometries.grid2d import Grid2DGeometry
+
     pgeom = _rebuild_geometry(f["param_geometry"], "param_geometry group")
     # The HDF5 blocks and their copied sidecar text prove that the scientific
     # record is internally consistent, but both copies can be rewritten
@@ -2271,15 +3551,12 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # recipe, weights, and both geometries; the model is reconstructed below,
     # after the main model, through the shared helper. form / space tell the
     # predictor how to compose base + correction.
-    tb_recipe = None
     tb_state  = None
     tb_pgeom  = None
     tb_geom   = None
     tb_form   = None
     tb_space  = None
     if composition_mode == "transfer":
-      tb        = f["transfer_base"]
-      tb_recipe = yaml.safe_load(tb["model_recipe"][()])
       tb_state  = _read_group(tb["state"])
       tb_pgeom  = _rebuild_geometry(tb["param_geometry"],
                                     "transfer_base param_geometry group")
@@ -2319,6 +3596,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
       bo  = kwargs["block_opts"]
       act = _need(bo, "act", "model_recipe.kwargs.block_opts")
       kwargs["block_opts"] = {
+        "n_layers": _need(
+          bo, "n_layers", "model_recipe.kwargs.block_opts"),
         "act": make_activation(_need(act, "type", "block_opts.act"),
                                n_gates=_need(act, "n_gates", "block_opts.act")),
         "norm": make_norm(_need(bo, "norm", "model_recipe.kwargs.block_opts")),
@@ -2358,6 +3637,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
     m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
             output_dim=_need(rc, "output_dim", "model_recipe"),
             **kwargs).to(device)
+    cm = _need(rc, "compile_mode", "model_recipe")
+    set_runtime_compile_mode(m, cm)
+    require_runtime_model_recipe(
+      m, rc, where=path_root + ": rebuilt live model")
     if needs_geom:
       for name in ("pad_idx", "pad_valid"):
         expected = getattr(m, name).detach().cpu()
@@ -2370,7 +3653,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
             "saved physical geometry and model checkpoint")
     m.load_state_dict(state, strict=True)
     m.eval()
-    cm = _need(rc, "compile_mode", "model_recipe")
     if want_compile and device.type == "cuda" and cm is not None:
       m = torch.compile(m, mode=cm)
     return m

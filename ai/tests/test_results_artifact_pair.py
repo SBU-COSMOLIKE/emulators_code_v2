@@ -23,9 +23,12 @@ import h5py
 import numpy as np
 import torch
 
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+
 from ai.gates.checks.compile_recipe import model_recipe, save_fixture
 from emulator import results
 from emulator import warmstart
+from emulator.artifact_recipe import build_compatibility_manifest
 from emulator.designs.plain import ResMLP
 from emulator.output_identity import (
   build_output_identity,
@@ -106,15 +109,23 @@ def _save(root, variant="default", output_identity=None):
 
 def _fixture_output_identity(variant="default"):
   """Build the identity that the shared compile-recipe fixture executes."""
+  manifest = build_compatibility_manifest(
+    model_recipe(variant),
+    parameter_geometry_cls="emulator.geometries.parameter.ParamGeometry",
+    output_geometry_cls="emulator.geometries.scalar.ScalarGeometry",
+    composition_mode="plain", ia_design="none", analytic_law="none")
   return build_output_identity(
     data={},
-    resolved_train={"nepochs": 1},
+    resolved_train=one_pass_training_recipe(
+      thresholds=(1.0,), compile_mode=variant),
     resolved_model=model_recipe(variant),
     resolved_rescale="none",
     composition_mode="plain",
     transfer_refined=False,
     resolved_pce=None,
     resolved_transfer=None,
+    compatibility_manifest=manifest,
+    transfer_compatibility_manifest=None,
     require_published_selection=False)
 
 

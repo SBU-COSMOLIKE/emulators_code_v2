@@ -185,6 +185,13 @@ class FinetunePostStepAndProvenanceTests(unittest.TestCase):
           record["source_checkpoint_sha256"],
           source_name + ".checkpoint_sha256")
 
+    # An anchored warm start optimizes a different objective from an
+    # unanchored warm start over the same source artifact.  The consumed
+    # record must therefore carry the resolved strength rather than asking a
+    # later reader to infer it from the raw YAML.
+    self.assertIn("anchor", finetune)
+    self.assertIn("ft.get(", finetune["anchor"])
+
   def test_both_training_drivers_call_shared_assembler(self):
     for relative_path in (
         "cosmic_shear_train_emulator.py",

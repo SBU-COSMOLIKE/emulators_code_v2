@@ -67,12 +67,14 @@ geometries.output).
 import torch
 import torch.nn as nn
 
-from ..activations import activation_fcn, require_live_head_activation
+from ..activations import (
+  activation_factory_recipe, activation_fcn, require_live_head_activation)
+from ..artifact_recipe import build_runtime_model_recipe
 from ..validation import (
   require_exact_bool, require_exact_int, require_nonzero_float32)
 from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, keep_valid_head_positions,
-  rescale_kernel_size, resolve_padded_head_layout,
+  materialized_block_recipe, rescale_kernel_size, resolve_padded_head_layout,
   validate_trf_token_width)
 
 
@@ -180,6 +182,15 @@ class ResMLP(DesignSpec, nn.Module):
     # created once and would leak between calls).
     if block_opts is None:
       block_opts = {}
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="resmlp", ia=None, input_dim=input_dim, output_dim=output_dim,
+      needs_geom=False,
+      kwargs={
+        "int_dim_res": int(int_dim_res),
+        "n_blocks": int(n_blocks),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
     layers = []
 
     # param dim -> internal width
@@ -448,6 +459,24 @@ class ResCNN(DesignSpec, nn.Module):
     cnn_act = (head_act if head_act is not None
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(cnn_act, "ResCNN head activation")
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="rescnn", ia=None, input_dim=input_dim, output_dim=output_dim,
+      needs_geom=True,
+      kwargs={
+        "int_dim_res": int(int_dim_res),
+        "kernel_size": int(kernel_size),
+        "rescale_kernel": bool(rescale_kernel),
+        "groups": int(groups),
+        "separable": bool(separable),
+        "film": bool(film),
+        "n_blocks": int(n_blocks),
+        "n_blocks_cnn": int(n_blocks_cnn),
+        "gate_init": float(gate_init),
+        "head_act": (None if head_act is None
+                     else activation_factory_recipe(head_act)),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
 
     # ResMLP main path: standalone ResMLP layer stack, output in the
     # full-whitened basis (well conditioned).
@@ -864,6 +893,24 @@ class ResTRF(DesignSpec, nn.Module):
     trf_act = (head_act if head_act is not None
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(trf_act, "ResTRF head activation")
+    self.emul_runtime_recipe = build_runtime_model_recipe(
+      class_path=type(self).__module__ + "." + type(self).__qualname__,
+      name="restrf", ia=None, input_dim=input_dim, output_dim=output_dim,
+      needs_geom=True,
+      kwargs={
+        "int_dim_res": int(int_dim_res),
+        "n_heads": int(n_heads),
+        "n_blocks": int(n_blocks),
+        "n_blocks_trf": int(n_blocks_trf),
+        "n_mlp_blocks": int(n_mlp_blocks),
+        "n_tokens": (None if n_tokens is None else int(n_tokens)),
+        "gate_init": float(gate_init),
+        "shared_mlp": bool(shared_mlp),
+        "film": bool(film),
+        "head_act": (None if head_act is None
+                     else activation_factory_recipe(head_act)),
+        "block_opts": materialized_block_recipe(block_opts),
+      })
 
     # Resolve the token layout before allocating a learnable layer. This
     # ordering makes an invalid width a configuration error and avoids

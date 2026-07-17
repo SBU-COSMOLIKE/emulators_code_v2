@@ -687,6 +687,7 @@ quantity calculated from the sampled parameters.
 | `test_d5_training_behavior_witnesses.py` | Do small numerical examples support the learning-rate, moving-average, activation, and frozen-layer results required by the longer training gate? |
 | `test_finetune_post_step_and_provenance.py` | Does fine-tuning update one weight in the required order and save which earlier emulator supplied the starting weights? |
 | `test_padded_head_identity.py` | Do CNN and Transformer heads keep storage-only rectangle cells from changing physical outputs, even after biases, activations, FiLM shifts, attention, or several head blocks? |
+| `test_training_pass_recipe.py` | Does the record prepared for saving describe every training pass that actually ran, including phase-specific settings and the exact section of the loss history produced by that pass? |
 | `test_trf_token_width.py` | Does a Transformer refuse a one-number token that cannot respond to its input while continuing to accept supported two-number tokens? |
 | `test_warmstart_perturbed_finite.py` | Does a warm start report the exact input or output that first becomes `NaN` or infinite? |
 
@@ -816,6 +817,44 @@ number so the required order can be calculated by hand.
   saved source facts let a later reader identify which emulator the run
   started from.
 
+#### Recording every training pass
+
+`test_training_pass_recipe.py` checks the training record that
+`run_emulator` prepares for the saved `.h5` file. A **pass** is one continuous
+part of training with one set of settings. A run may use one pass for the
+whole model, separate passes for the trunk and head, or an additional
+transfer-refinement pass.
+
+- **Example used:** ten artificial training rows are read eight at a time. A
+  five-epoch run first trains the trunk for two epochs and then trains the
+  joined model for three epochs. The trunk uses learning rate `0.008`, while
+  the later pass uses `0.004`. A second example runs two ordinary epochs and
+  one transfer-refinement epoch.
+- **What the test does:** it replaces the expensive numerical update with a
+  deterministic CPU stand-in, but runs the real pass-planning code. It then
+  inspects the record returned by that code. No emulator file is written and
+  no scientific data are loaded.
+- **Pass means:** each executed pass has its role, epoch count, learning rate,
+  loss, scheduler, warmup, clipping, moving average, rewind choice, anchor,
+  chunk size, steps per epoch, and applied compile mode. History intervals
+  are ordered without gaps: the example records trunk history `[0, 2)` and
+  later history `[2, 5)`. The transfer example records its extra epoch as a
+  separate pass `[2, 3)`, rather than hiding it inside the ordinary pass.
+- **A refusal it proves:** changing an override, omitting transfer refinement,
+  assigning two passes the same history rows, or reporting the configured
+  compile mode when a different mode was applied makes the test fail.
+- **Why it matters:** a loss plot alone shows only a sequence of numbers. The
+  pass record explains which training decision produced each part of that
+  sequence and lets a later reader reproduce the work.
+
+This test is different from `test_artifact_recipe_totality.py` below. The
+training-pass test answers **what optimization work ran**. For example, it
+records that the trunk used two epochs at learning rate `0.008`. The artifact
+recipe test answers **which model must be constructed to read the learned
+weights**. For example, it records whether those weights belong to a ResCNN
+with a three-wide kernel or to a different supported design. A complete saved
+emulator needs both answers.
+
 #### Transformer token width
 
 `test_trf_token_width.py` checks how many numbers a Transformer places in
@@ -870,7 +909,10 @@ files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
+| `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, training-pass record, history, or compatibility record before model weights, saved Python classes, or checkpoint tensors can be used? |
+| `test_artifact_recipe_totality.py` | Does a model recipe name every constructor and scientific-interpretation choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
+| `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
 | `test_padded_head_artifact.py` | Does a structured head refuse a model/geometry layout disagreement before saving, reopen a valid pair with the exact physical map and mask, and refuse a checkpoint that omits or replaces either fixed record? |
@@ -882,6 +924,103 @@ files belong together and constructing the model needed for new predictions.
 | `test_mps_sigma8_contract.py` | Does the matter-power adapter calculate conventional sigma-eight with the correct physical radius, exact redshift, and enough wavenumber coverage? |
 | `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
 | `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
+
+#### Complete instructions for rebuilding a model
+
+`test_artifact_recipe_totality.py` checks the model recipe and compatibility
+manifest used when learned weights are reopened. A model recipe contains the
+exact constructor choices. The compatibility manifest states what important
+pieces mean, including the output geometry, neural/base composition rule,
+intrinsic-alignment design, and analytic target law.
+
+- **Example used:** the test constructs complete recipes for ResMLP, ResCNN,
+  and ResTRF models and for their three intrinsic-alignment counterparts. A
+  ResCNN example explicitly states its kernel width, groups, block counts,
+  activation, normalization, optional head activation, and whether geometry
+  is required.
+- **What the test does:** it removes each required field in turn, adds unknown
+  fields, changes the claimed model identity, and tries incompatible
+  scientific facts. It also compares the registered constructor fields with
+  the real Python constructor signatures. The production validator is
+  inspected to confirm that it can check the recipe before importing model or
+  geometry modules.
+- **Pass means:** all six supported designs accept a complete recipe. An
+  explicit `null` head activation remains different from a missing field.
+  Each compatibility component receives the exact registered identity that
+  matches the model and scientific facts.
+- **A refusal it proves:** a missing kernel width, an extra future setting, a
+  Boolean where an integer gate count is required, an unknown model class, an
+  intrinsic-alignment shape that does not match its named design, or a forged
+  compatibility identity stops before reconstruction chooses a default.
+- **Why it matters:** software defaults can change after an emulator is
+  trained. If a saved recipe omits one constructor choice, the same weights
+  may later be placed in a model with a different meaning even though every
+  tensor still has an acceptable shape.
+
+Unlike `test_training_pass_recipe.py`, this test does not ask how many epochs
+ran or which learning rate was used. It asks whether the learned tensors can
+be placed back into the exact model that gave them meaning. Keeping these as
+separate focused tests makes a failure specific: one points to the history of
+training decisions, while the other points to reconstruction instructions.
+
+#### Checking saved instructions before executable work begins
+
+`test_artifact_recipe_preflight.py` checks the order used when an emulator is
+saved or reopened. Here, **preflight** means reading and checking the plain
+saved descriptions before the library may inspect model weights, import a
+saved Python class, construct a geometry, or load checkpoint tensors.
+
+- **Example used:** a complete one-epoch ResMLP artifact is saved, then one
+  copy loses a required model field, another receives a gap in its recorded
+  history interval, and another receives a forged compatibility identity.
+- **What the test does:** it places sentinels on weight access, dynamic Python
+  import, and checkpoint loading. Each damaged file must report its metadata
+  problem while every sentinel remains untouched.
+- **Pass means:** saving refuses incomplete main and transfer recipes before
+  staging a file or reading `model.state_dict`. Reopening first reconciles the
+  model recipe, semantic manifest, ordered training passes, epoch histories,
+  and saved output identity; only a consistent record reaches executable
+  reconstruction.
+- **A refusal it proves:** a missing constructor field, forged semantic
+  identity, changed valid recipe, history gap, invalid pass order, wrong epoch
+  total, or short history array cannot be hidden by a checkpoint that still
+  has plausible tensor shapes.
+- **Why it matters:** imported code and learned tensors can perform work. A
+  damaged plain record must be rejected before either surface can influence
+  how the file is interpreted.
+
+This integration test joins the two narrower checks above. The totality test
+defines which model fields are required. The training-pass test defines how
+the saved optimization record is formed. The preflight test proves that the
+real save and rebuild paths apply both rules early enough to prevent a damaged
+artifact from executing first.
+
+#### Binding transfer weights to the model that produced the prediction
+
+`test_artifact_transfer_state_contract.py` checks the base-model weights
+stored inside a transfer artifact. A frozen transfer run uses the pretrained
+base. A refined transfer run keeps that pretrained state for provenance but
+uses a second, drifted state after refinement.
+
+- **Example used:** a tiny ResMLP supplies a live state with several named
+  tensors. One case changes a single tensor value without changing its name,
+  shape, or data type. Other cases remove a tensor, change its data type, or
+  delete every tensor from the saved HDF5 group.
+- **What the test does:** it compares the complete live base-model state with
+  the state selected for prediction. It also checks the pretrained and
+  drifted states have identical names, shapes, and data types. Sentinels prove
+  that an invalid saved group stops before dynamic import or checkpoint load.
+- **Pass means:** frozen transfer stores the exact live pretrained state.
+  Refined transfer may preserve different pretrained values, but its drifted
+  state must exactly equal the live refined model. Every state is nonempty.
+- **A refusal it proves:** an empty mapping, one altered tensor, a missing
+  tensor name, or a shape/data-type mismatch stops before artifact staging.
+  Schema 3 also refuses a transformed target mode because public prediction
+  cannot invert it; an explicit `rescale: none` remains the valid control.
+- **Why it matters:** a correct recipe cannot identify which numerical weights
+  were actually used. Without this independent comparison, the result file
+  could faithfully rebuild a different base model from the one that produced
+  the transfer prediction.
 
 #### Scientific output names distinguish completed runs
 

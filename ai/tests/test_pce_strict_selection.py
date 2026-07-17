@@ -14,6 +14,8 @@ from unittest import mock
 import numpy as np
 import torch
 
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
+
 from emulator import fixed_facts
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -134,6 +136,7 @@ def _save_pce_artifact(path_root, pce, resolved_pce):
       "int_dim_res": 4,
       "n_blocks": 1,
       "block_opts": {
+        "n_layers": 2,
         "act": {"type": "H", "n_gates": 3},
         "norm": "affine",
       },
@@ -162,7 +165,7 @@ def _save_pce_artifact(path_root, pce, resolved_pce):
     attrs={"rescale": "none"},
     pce=pce,
     pce_form="residual",
-    resolved_train={"nepochs": 1},
+    resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
     resolved_model=model_recipe,
     composition_mode="npce",
     transfer_refined=False,

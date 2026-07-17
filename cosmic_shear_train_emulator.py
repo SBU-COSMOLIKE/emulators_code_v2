@@ -417,6 +417,7 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
     attrs["transfer_space"]       = exp._transfer_space
     attrs["transfer_extra_names"] = " ".join(exp._transfer_extra_names)
     transfer_base = {"recipe":         tb.recipe,
+                     "model":          tb.model,
                      "state":          tb.model.state_dict(),
                      "param_geometry": tb.pgeom,
                      "dv_geometry":    tb.geom,

@@ -30,11 +30,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from emulator import fixed_facts
 from emulator.activations import make_activation
+from emulator.artifact_recipe import set_runtime_compile_mode
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.geometries.parameter import ParamGeometry
 from emulator.geometries.scalar import ScalarGeometry
 from emulator.results import rebuild_emulator, save_emulator
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 
 
 COMPILE_MODES = ("default", "reduce-overhead")
@@ -154,6 +156,7 @@ def model_recipe(compile_mode):
       "int_dim_res": 4,
       "n_blocks": 1,
       "block_opts": {
+        "n_layers": 2,
         "act": {"type": "H", "n_gates": 3},
         "norm": "affine",
       },
@@ -187,6 +190,7 @@ def save_fixture(path_root, compile_mode, case_label, output_identity=None,
     int_dim_res=4,
     n_blocks=1,
     block_opts=block_opts).to(cpu)
+  set_runtime_compile_mode(model, compile_mode)
   config = {
     "data": {},
     "train_args": {"nepochs": 1},
@@ -206,7 +210,8 @@ def save_fixture(path_root, compile_mode, case_label, output_identity=None,
     config=config,
     histories=histories,
     train_args=config["train_args"],
-    resolved_train={"nepochs": 1},
+    resolved_train=one_pass_training_recipe(
+      thresholds=(1.0,), compile_mode=compile_mode),
     resolved_model=model_recipe(compile_mode),
     composition_mode="plain",
     transfer_refined=False,
@@ -341,9 +346,9 @@ def run_cpu_controls():
         path_root=str(roots[0]),
         device=torch.device("cpu"),
         compile_model=True)
-    except KeyError as exc:
+    except (KeyError, ValueError) as exc:
       text = str(exc)
-      refused = "compile_mode" in text and "never falls back" in text
+      refused = "compile_mode" in text and "missing" in text
       controls_ok &= report(
         "production refuses a missing persisted compile_mode",
         refused,

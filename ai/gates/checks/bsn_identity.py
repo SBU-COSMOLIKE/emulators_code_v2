@@ -43,6 +43,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
 import yaml
 from scipy import integrate, interpolate
 
@@ -595,7 +597,8 @@ def grid_recipe(nz):
             "needs_geom": False,
             "kwargs": {"int_dim_res": 16,
                        "n_blocks": 2,
-                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                       "block_opts": {"n_layers": 2,
+                                      "act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
 
 
@@ -658,7 +661,8 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=grid_recipe(len(z)),
                   composition_mode="plain",
                   transfer_refined=False,
@@ -833,7 +837,8 @@ def check_npce(tmp, device):
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
-                  resolved_train={"nepochs": 1},
+                  resolved_train=one_pass_training_recipe(
+                    thresholds=(0.2, 1.0, 10.0, 100.0)),
                   resolved_model=grid_recipe(z.size),
                   pce=pce, pce_form="residual",
                   composition_mode="npce",
