@@ -754,10 +754,10 @@ flowchart TD
 ```
 
 The Architect does not change the user's main folder and does not push P.
-After the Architect process exits, the watcher checks the exact B/P pair and
-makes P the newest saved version on a clean, selected, unchanged `main`. This
-operation does not use or complete a ticket cycle and does not ask Sol for a
-review.
+After the Architect process exits, the watcher that started it—the **parent
+watcher**—checks the exact B/P pair and makes P the newest saved version on a
+clean, selected, unchanged `main`. This operation does not use or complete a
+ticket cycle and does not ask Sol for a review.
 
 Before updating `main`, the watcher proves that the clean idle Architect,
 Implementer, and Red Team work folders can all be updated safely. After P
@@ -809,171 +809,101 @@ the Architect's evidence review, and it does not invent a Red Team result.
 
 ## Choose which discoveries may become tickets
 
-Here, a **discovery** is a request for the Red Team to inspect one named
-change for a new bug that could become a separate piece of work.
+A **discovery** asks the Red Team to look for a new bug that could become a
+separate ticket. `--severity` sets the minimum harm level for those new
+tickets. The default is `medium`.
 
-**Severity** means how much harm a bug can cause. For discovery work,
-`--severity` states the minimum severity the user wants considered for a new
-ticket. The default is `medium`.
+### Choose the minimum severity
 
-| Setting | A discovered bug may be proposed as a ticket when… |
+| Setting | A finding qualifies when… |
 | --- | --- |
-| `high` | It severely impacts core functionality, causes data loss, halts system operations, or makes the science wrong. The finding must show this consequence and explain why Medium is not enough. |
-| `medium` | It meets the high rule, or it can affect normal operation and the Red Team can show a probable way for it to occur. A merely theoretical or improbable edge case does not qualify. |
-| `low` | It is a concrete discovered bug, including an improbable edge case. The Red Team must still name the code path and evidence; an unsupported guess is not a discovered bug. |
+| `high` | Evidence shows severe damage to core operation, saved data, or a primary scientific result, and explains why Medium is insufficient. |
+| `medium` | It meets the High rule, or evidence shows a probable defect in normal operation. An improbable edge case does not qualify. |
+| `low` | Evidence shows a concrete bug, including an improbable edge case. An unsupported guess does not qualify. |
 
-Severity and likelihood answer different questions. Severity asks how much
-harm the bug causes. Likelihood asks whether a user can probably reach it
-during normal work. No numerical probability calculation is required. The Red
-Team names the input, action, or failure path that supports `probable` or
-`improbable`.
+Severity measures harm. Likelihood asks whether normal use can probably reach
+the bug. A wrong primary scientific result may be High; a wrong optional plot
+or report is normally Medium unless the same defect also changes a primary
+result or stops a core workflow.
 
-Every discovery result records five items:
+This setting applies only to new tickets. It does not excuse a defect in the
+change under review, widen the review, select a model or role, or change what
+a cycle means.
 
-1. the user's saved severity setting;
-2. the Red Team's `high`, `medium`, or `low` rating;
-3. whether the bug is probable or improbable;
-4. the evidence for that likelihood; and
-5. whether the result meets the user's setting.
+### Let the Architect classify the finding
 
-The Red Team does not open a backlog ticket. It sends this assessment and its
-evidence to the Architect. A finding that should become separate work begins
-with the prominent line `Backlog action: NEW TICKET`. The Architect
-immediately adds that ticket to the backlog so it cannot be lost, then studies
-the evidence and may accept, upgrade, or downgrade the proposed rating with a
-written reason. This keeps the Red Team's original assessment visible while
-leaving the final classification with the Architect.
+The Red Team reports its rating, likelihood, and evidence. It does not edit
+the backlog or instruct the Implementer. A proposed separate ticket begins
+with `Backlog action: NEW TICKET`.
 
-High must remain unusual. A long test, inconvenient cleanup, missing optional
-feature, difficult repair, or desire for another Implementer does not make a
-bug High. The Red Team must connect a concrete failure to the severe harm in
-the table. The Architect must record why the evidence exceeds Medium before
-placing the accepted ticket in High. Otherwise the ticket is Medium or Low.
-This restraint matters because severity controls the order in which work is
-done. It never selects a model, adds an Implementer, or changes what a cycle
-means.
+The Architect records the ticket so it is not lost. When the ticket reaches
+the correct priority, the Architect may keep, raise, or lower the proposed
+rating and writes the reason.
 
-“This can make the science wrong” is still not enough by itself. High means
-the defect damages a primary result: generated training data, a trained
-emulator, a value served to a scientific program, saved data, or a core run.
-A wrong plot, diagnostic ranking, or optional report is normally Medium even
-when it could mislead the reader. It becomes High only if evidence also shows
-that the same defect changes a primary result or stops a core workflow.
+Only the Architect may assign **Critical**. Critical is not a `--severity`
+choice and is reserved for broad failure of a central workflow or systematic
+damage to scientific results. Features are never Critical.
 
-The backlog has one additional bug classification: **Critical**. It is not a
-command-line choice and the Red Team never assigns it. Only the Architect may
-use Critical after evidence shows that a current bug broadly breaks a central
-library workflow or systematically invalidates the library's scientific
-results. High is not automatically Critical. The Architect must write why
-High is insufficient and name the evidence of broad breakage. Urgency,
-difficulty, or a desire for another Implementer is never enough.
+### Put bugs and features in priority order
 
-The backlog also distinguishes a **Bug fix** from **New functionality**. A
-feature may be High, Medium, or Low but never Critical. Critical bugs come
-first. A user-designated High feature comes before High bugs; High bugs come
-before a Medium feature. A Low feature waits for Critical, High, and Medium
-bug fixes. Saying “after the backlog is closed” makes the feature Low and
-makes every ticket already open at that moment a prerequisite.
+- Critical bugs come before every feature.
+- A user-designated High feature comes before High bugs.
+- High bugs come before a Medium feature.
+- A Low feature waits for Critical, High, and Medium bug fixes.
+- “After the backlog is closed” makes a feature Low and makes every ticket
+  already open at that time a prerequisite.
 
-The setting controls whether a newly found problem becomes separate work. It
-does not make an unsafe current change acceptable: a defect in the named
-change can still make that change `NO-GO`. It also does not widen the search.
-A library-wide search still needs the user's explicit “Please instruct the
-Red Team to do a widespread search for ...” request to the Architect.
-That request is automatically Low and waits until no Critical, High, or
-Medium ticket is open. A broad search for optional new problems should not
-delay known non-Low work.
+### Know when discovery waits or is off
 
-`--fix-only` is stronger than every severity value and permits no discovery.
-A two-role watch started with `--skip-redteam` or `--no-red-team` has no Red
-Team. A discovery is also refused when ten or more open Critical, High, and
-Medium tickets are recorded; Low tickets and waiting mailbox files do not
-count toward that limit. Close recorded work first. The [tool guide](tools/README.md#choose-the-minimum-discovery-severity)
-shows the exact commands and the saved ticket lines.
+- A widespread search is Low and waits until no Critical, High, or Medium
+  ticket is open.
+- `--fix-only` permits no discovery.
+- `--skip-redteam` and `--no-red-team` disable discovery with the Red Team.
+- Ten open Critical, High, or Medium tickets block another discovery. Low
+  tickets and waiting mailbox files do not count toward ten.
+
+The [tool guide](tools/README.md#choose-the-minimum-discovery-severity) gives
+the commands and the exact records saved for these decisions.
 
 ## Close or reopen a ticket
 
-The normal path does not wait for Red Team approval. The Architect sends the
-plan, the Implementer makes and tests the change, and the Architect checks the
-evidence. If the evidence earns `GO`, the Architect closes the backlog record
-and sends the exact five-line `architect-go` decision for candidate C. The
-Architect does not merge, commit, update `main`, or push that ticket.
+### Close an accepted ticket
 
-After the Architect process exits, the watcher creates distinct landing L,
-makes L the newest saved version on a clean unchanged user `main`, and records
-the result. The Red Team then reviews the same ticket and exact L. This is an
-advisory check after the Architect's decision. It cannot stop or undo the
-landing. If no bug remains, Red Team returns `NO CHANGE`. If a
-concrete bug remains, Red Team returns a formal `REOPEN` assessment with its
-evidence.
+An Architect `GO` closes the ticket for candidate C. The watcher then creates
+landing L. If Red Team is enabled, it reviews exact L after the landing; it
+cannot delay or undo that landing. The [earlier diagram](#how-does-an-accepted-change-reach-main)
+shows C and L.
 
-Every ticket also contains an integer named **Red Team reopen count**. It
-starts at `0` and never resets. Every formal `REOPEN` assessment adds one,
-while reopening is allowed, even if the Architect later decides that the Red
-Team's objection was mistaken or repeated old evidence.
+`NO CHANGE` means no remaining bug was found. `REOPEN` means the Red Team has
+concrete evidence that the same ticket still needs work.
 
-The number therefore records the Red Team's attempts, not just the attempts
-the Architect accepted.
+### Record a Red Team `REOPEN`
 
-The bookkeeping happens first so a concern cannot be missed. When the Red
-Team returns `REOPEN`, the Architect immediately moves the ticket back to the
-Open section, increases the integer, preserves the Red Team note link, and
-acknowledges receipt. This first step does not reproduce the bug or analyze
-the proposal. It is deliberately short so the watcher can continue.
+The **Red Team reopen count** starts at `0`, increases for every allowed
+formal `REOPEN`, and never resets. It counts requests even when the Architect
+later rejects the evidence.
 
-When the reopened ticket later becomes the next permitted item in the
-priority-ordered backlog, the Architect reads the detailed Red Team note,
-performs any targeted verification needed to judge it, and makes the final
-`GO` or `NO-GO` decision. A strong Red Team note saves the Architect from
-reconstructing the investigation and reserves Architect tokens for deciding
-the design and writing the Implementer directive.
+| Event | What happens next |
+| --- | --- |
+| Red Team returns `NO CHANGE` | The ticket stays closed. |
+| Red Team returns `REOPEN` | The Architect moves the ticket to Open, adds one to the count, and saves the evidence link without investigating it yet. |
+| Architect later gives `GO` to the reopening evidence | The ticket stays Open for repair. |
+| Architect later gives `NO-GO` to that evidence | The ticket closes with a reason, and another Red Team reopening of that ticket is permanently barred. |
 
-For this later assessment, `GO` means that the Architect accepts the Red
-Team's evidence: the ticket stays open for repair. `NO-GO` means that the
-evidence does not justify more work: the Architect closes the ticket again,
-records why, and permanently bars another Red Team reopening of that ticket.
-These labels judge the Red Team proposal; they are separate from the earlier
-Architect audit that approved the Implementer candidate and caused the parent
-watcher to land it. The Red Team proposes; the Architect decides.
+This quick first step keeps the report from being lost. The Architect studies
+it only when the ticket reaches the correct backlog priority.
 
-Every ticket says either `Red Team reopening: allowed` or `Red Team
-reopening: barred by Architect NO-GO`. Once barred, the status never changes
-back. Red Team must not send another `REOPEN` for that ticket, even with
-rephrased evidence. A genuinely different defect is a `NEW TICKET`. This
-final rule prevents an Architect rejection and another Red Team request from
-repeating forever.
+### Stop repeated reopen requests
 
-After the second `REOPEN`, the comparison must explicitly say what evidence
-is new. Each later attempt receives a stricter comparison so repeating the
-same objection cannot keep work moving in a circle. The Architect may lower
-the ticket's priority when the evidence no longer supports its earlier
-urgency. The sixth `REOPEN` changes the ticket to Low automatically, even if
-it was previously Critical or High.
+- A different defect uses `NEW TICKET`; it does not reopen the old ticket.
+- From count `2` onward, the Red Team must identify new evidence. The
+  Architect may lower the severity when the evidence no longer supports it.
+- Count `6` automatically makes the ticket Low.
+- After an Architect `NO-GO`, Red Team cannot reopen that ticket again.
 
-For example, suppose a checkpoint ticket has reopen count `0`. The Red Team
-returns `REOPEN` because one saved file lacks an axis label. The Architect
-moves the ticket to Open, changes the count to `1`, and records the Red Team
-note without checking the claim during that bookkeeping step.
-
-If a later closure review returns `REOPEN` for the same missing label, the
-count becomes `2`. When the ticket reaches the front of its permitted priority
-group, the Architect must compare the new file and command with the first
-report. A copied report with no new failing file can receive `NO-GO`; a newly
-demonstrated failure can receive `GO` and exact repair instructions.
-
-A **cycle** follows exactly one ticket. Architect and Implementer may exchange
-several repair messages, but those messages do not each count as a cycle. In
-the normal three-role setup, the cycle completes after the Architect accepts
-the immutable candidate, the watcher records its distinct landing, and the Red
-Team returns its advisory review of that exact landing. Another ticket may start during that review only when the
-selected cycle limit has another unused ticket slot. For example, `--cycle 1`
-never admits ticket B while ticket A is awaiting its review.
-
-The watcher's 20-second safe-stop countdown is only a chance to press Ctrl-C.
-It never starts or completes a cycle. In a two-role run, the cycle completes
-when the watcher records that ticket's local landing. The
-[cycle appendix](tools/README.md#faq-b2-cycle-count) gives examples for the
-normal three-role setup and the two-role setup.
+The [tool guide](tools/README.md#review-a-closed-ticket) explains the detailed
+record, and the [cycle appendix](tools/README.md#faq-b2-cycle-count) explains
+when a finite watch exits.
 
 ## Notes, tests, and gates
 
