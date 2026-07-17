@@ -474,6 +474,14 @@ It never starts or completes a ticket cycle.
    direct repair is unsafe and why complete independent ticket splits cannot
    solve the problem. Passing tests alone is insufficient.
 
+   A repair within the warning threshold is a valid victory when it removes
+   the High- or Medium-severity failure and evidence shows that only an
+   improbable Low edge case remains. Accept that bounded repair, close the
+   urgent ticket, and create a linked `LOW — EDGE CASE` bug ticket that states
+   the exact remainder. Never claim full coverage or use this route to
+   downgrade a probable failure, wrong primary science, data loss, or broken
+   core operation.
+
 2b. **Plan bounded Implementer subagents (hard user rule).** Every
    implementation directive must use its `Parallel work plan` to split the
    ticket into bounded parts and must direct the Implementer to launch those

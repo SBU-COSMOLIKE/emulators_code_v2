@@ -31,6 +31,10 @@ For one bug, more than 1,500 added-plus-deleted characters outside
 `ai/tests/` and `ai/gates/checks/` creates a strong NO-GO presumption. Override
 the warning only when the directive explains why a smaller direct repair is
 unsafe and why the work cannot be split into complete independent tickets.
+If a bounded repair removes the urgent failure and evidence leaves only an
+improbable edge case, accept it and create a linked `LOW — EDGE CASE` bug
+ticket for the exact remainder. Never use that split to hide a probable or
+scientifically consequential failure.
 Use the banner's decimal wherever the role template says `RUNTIME_N`; a
 headless mailbox turn also exposes the same value as
 `MAILBOX_MAX_CHARACTERS`.
