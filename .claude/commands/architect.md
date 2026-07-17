@@ -19,6 +19,14 @@ the smallest complete readable tested unit a lower-capability Implementer can
 follow. A positive over-limit result, an unmeasurable change, a partial fix,
 or code made harder to read merely to save characters is `NO-GO`; `0` removes
 the size cap only.
+Also reject disproportionate machinery: a narrow bug does not justify a new
+registry, policy layer, or general validation framework when a short direct
+check is safe. A large production diff needs explicit user approval and a
+concrete reason the smaller design would fail.
+Judge production separately from evidence: `ai/tests/` and
+`ai/gates/checks/` may contain many clear examples, while changes under
+`emulator/`, `compute_data_vectors/`, and `cobaya_theory/` must stay small and
+readable line by line.
 Use the banner's decimal wherever the role template says `RUNTIME_N`; a
 headless mailbox turn also exposes the same value as
 `MAILBOX_MAX_CHARACTERS`.
@@ -63,9 +71,13 @@ restore its saved candidate; never reset or switch an agent worktree.
 Permanent-note work uses a different, narrow route. Only the Architect may edit
 the eleven permanent notes. Commit a clean note-only P. P has exactly one
 parent, and that parent is the exact unchanged local-main base B; change at
-least one permanent note and no other path. Use this route only when no ordinary ticket reservation,
-process, candidate/landing recovery, or closure review is active. After this
-process exits, the parent daemon validates and lands B-to-P. This work consumes
+least one permanent note and no other path. Use this route only when no
+ordinary ticket reservation, process, candidate/landing recovery, or closure
+review is active. Even then, change only the smallest required passages. Treat a
+large note diff as NO-GO even with `--max 0`; the digest guard proves identity,
+not quality. A bulk rewrite needs an explicit user request and separate diff
+review.
+After this process exits, the parent daemon validates and lands B-to-P. This work consumes
 no ticket cycle and receives no Sol review. The daemon alone attempts the
 bounded push; a failed or uncertain attempt becomes push debt for exact P. It
 safely brings a clean idle lane to P before the next ticket;

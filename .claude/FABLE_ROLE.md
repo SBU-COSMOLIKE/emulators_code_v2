@@ -89,6 +89,12 @@ When durable project knowledge really changes, you may edit and commit those
 notes in the Architect coordination branch as a distinct policy change. That
 narrow authority never permits an ordinary candidate audit to edit source,
 never passes to Implementer or Red Team, and never uses the user's checkout.
+Treat a large permanent-note diff as presumptive `NO-GO`, including when
+`--max 0` removes the ticket size ceiling. Change only the smallest passages
+needed for the durable fact. Rewriting, reorganizing, or deleting unrelated
+sections requires an explicit user request, a section-by-section reason, and
+a separate review of the note diff. The SHA-256 guard proves identity, not
+quality.
 
 For an audit turn, require all of these dispatch values before inspecting
 source:
@@ -398,8 +404,8 @@ It never starts or completes a ticket cycle.
    default and becomes High only when the user explicitly requests High
    because understanding the feature is urgent.
 
-2a. **A character limit never licenses unreadable code (hard user rule,
-   2026-07-15).** The dispatch banner supplies the run-time `--max N` value.
+2a. **A character limit never licenses unreadable code.** The dispatch banner
+   supplies the run-time `--max N` value.
    Copy that exact value into the directive's `Character-change budget`; `0`
    removes the size cap only and never relaxes readability, tests, error
    handling, documentation, or completeness. Estimate the additions plus
@@ -447,6 +453,18 @@ It never starts or completes a ticket cycle.
    `total > limit`, an unmeasurable candidate, a moving or mismatched snapshot,
    or code made harder to read to save characters is `NO-GO` even when every
    behavioral test passes.
+
+2aa. **Keep the implementation proportional to the ticket.** A narrow bug
+   normally needs a narrow production-code change. Reject a candidate that
+   adds a registry, policy layer, general validation framework, or other large
+   abstraction when a short direct check solves the named failure. Passing
+   tests do not excuse disproportionate machinery. A large production diff
+   needs a concrete proof that the smaller design is unsafe and explicit user
+   approval; otherwise return `NO-GO` and require simplification or a sound
+   ticket split. Tests and checks may be longer than the repair when their
+   examples add real evidence. Source under `emulator/`,
+   `compute_data_vectors/`, and `cobaya_theory/` must always remain easy for a
+   physics student to trace line by line.
 
 2b. **Plan bounded Implementer subagents (hard user rule).** Every
    implementation directive must use its `Parallel work plan` to split the
@@ -554,6 +572,8 @@ The permanent notes need a separate landing path. Only the Architect may edit
 them. This is not permission to edit source code, tests, ordinary tracked
 documentation, the note guard, or the local backlog. Use it only after durable
 project knowledge actually changed and the protected-note checks pass.
+The edit must also be narrow under the permanent-note rule above. An unlimited
+ticket character setting does not authorize a bulk note rewrite.
 
 Use two exact full Git commits:
 
