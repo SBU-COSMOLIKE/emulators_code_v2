@@ -2023,6 +2023,25 @@ def gate_generator_run_control(ctx):
            + " (ai/gates/checks/generator_run_control.py)")
 
 
+def gate_generator_ingress(ctx):
+  """generator-ingress: bad settings refuse before output begins.
+
+  The CPU child checks the common generator settings and the background, CMB,
+  and matter-power family settings with small in-memory values.  It also reads
+  tiny covariance files, checks MCMC row selection, and proves that a missing
+  optional ``latex`` label falls back to the parameter name.  No sampler or
+  scientific dataset is needed.
+  """
+  rc, out = ctx.run_check("ai/gates/checks/generator_ingress.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="generator-ingress child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/generator_ingress.py)")
+
+
 def gate_generator_checkpoint_refusal(ctx):
   """generator-checkpoint-refusal: requested loads never become fresh runs.
 
@@ -2594,7 +2613,11 @@ BOARD = [
        evidence=(Assertion("generator-seed.owned-rng",
                            "data-generation-and-cuts.md#generator-seed-owned-rng"),),
        run=gate_generator_seed,
-       manifest=Manifest(code=(), inputs=()),
+       manifest=Manifest(
+         code=("compute_data_vectors/generator_core.py",
+               "compute_data_vectors/generator_ingress.py",
+               "ai/gates/checks/generator_seed.py"),
+         inputs=()),
        needs=()),
   Gate(id="generator-run-control",
        spec_code="GEN-B",
@@ -2634,6 +2657,32 @@ BOARD = [
        manifest=Manifest(
          code=("compute_data_vectors/generator_core.py",
                "compute_data_vectors/dataset_manifest.py"),
+         inputs=()),
+       needs=()),
+  Gate(id="generator-ingress",
+       spec_code="GEN-G",
+       title="Generator settings are checked before output begins",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="small CPU examples require exact parameter names, native scalar "
+            "types, finite family grids, a labeled finite symmetric "
+            "covariance, and finite fiducials before the generator creates an "
+            "output folder or draft. An MCMC run must provide the requested "
+            "number of unique rows before publication, while a missing "
+            "optional display label safely uses the parameter name",
+       evidence=(Assertion(
+                   "generator-ingress.valid-before-output",
+                   "data-generation-and-cuts.md#"
+                   "generator-ingress-valid-before-output"),),
+       run=gate_generator_ingress,
+       manifest=Manifest(
+         code=("ai/gates/checks/generator_ingress.py",
+               "ai/tests/test_generator_ingress.py",
+               "compute_data_vectors/generator_ingress.py",
+               "compute_data_vectors/generator_core.py",
+               "compute_data_vectors/dataset_generator_background.py",
+               "compute_data_vectors/dataset_generator_cmb.py",
+               "compute_data_vectors/dataset_generator_mps.py"),
          inputs=()),
        needs=()),
   Gate(id="parameter-table",

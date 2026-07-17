@@ -1066,35 +1066,65 @@ reversed bounds, one-row validation, identical paths, symlink and hardlink
 aliases, separately named duplicate payloads, partial overlap, and a valid
 disjoint pair.
 
+<a id="generator-ingress"></a>
+<a id="generator-ingress-valid-before-output"></a>
 ## Generator ingress
 
 ### Rule
 
-`train_args.ord` is one nonempty list of unique native strings. Cardinality,
+`train_args.ord` is one nonempty list of unique native strings. Each name is one
+visible token without whitespace or control characters. Cardinality,
 membership, and order are checked against Cobaya's sampled parameter set, with
-missing, extra, and duplicate names reported separately. Covariance headers are
-nonempty and unique; matrices are finite, two-dimensional, square, and aligned
-before subsetting. Fiducials are finite non-Boolean numbers.
+missing, extra, and duplicate names reported separately. The covariance
+filename is one direct child of the YAML folder. Covariance headers are
+nonempty and unique; matrices are finite, two-dimensional, square, positive on
+the diagonal, and aligned before subsetting. Opposite entries may differ only
+by floating-point roundoff and are then averaged to exact symmetry. A
+covariance header may be a superset of the requested parameters, but its
+complete ordered name list must match the complete matrix dimension before the
+requested submatrix is selected. `fiducial` is a mapping from sampled parameter
+names to finite non-Boolean numbers.
 
 Family grid counts and multipoles are native non-Boolean integers. Switches are
 native Booleans. Grid edges and extrapolation limits are finite. Unknown family
 keys refuse. `extrap_kmax >= max(k)` after validation. Priors, covariance,
 Cholesky factors, triangular matrices `L` satisfying `L @ L.T = covariance`,
 inverses, modeled columns, and metadata are finite. A
-Markov-chain Monte Carlo (MCMC) unique-row shortfall refuses rather than
-publishing a smaller dataset. Unknown command-line arguments refuse.
+Markov-chain Monte Carlo (MCMC) unique-row shortfall at the saved `float32`
+parameter precision refuses rather than publishing a smaller dataset. Unknown
+command-line arguments refuse.
 
-Optional `latex` is presentation metadata. When absent, the parameter name is
-the GetDist label. Its absence may not abort an otherwise valid run.
+Cobaya's raw confidence-one prior endpoints may be infinite when a prior is
+unbounded. Those raw endpoints are permitted only as inputs to interval
+resolution. Every resolved bound used for sampling or written to a published
+file is finite and increasing. A finite raw endpoint that overflows the
+generator's parameter dtype refuses rather than being mistaken for an open
+endpoint.
+
+Common and family-specific `train_args`, parameter order, covariance,
+fiducials, and resolved bounds are validated before output creation. MCMC row
+cardinality is validated after sampling but before output creation. Refusal
+for one of these input rules, including a unique-row shortfall, must not create
+`chains/`, an output draft, or a partial public dataset.
+
+Optional `latex` is presentation metadata. When absent, `None`, or blank, the
+parameter name is the GetDist label. Its absence may not abort an otherwise
+valid run. A label may contain ordinary spaces and LaTeX commands, but it may
+not contain a line break, tab, NUL byte, or another control character that can
+split a saved table.
 
 ### Acceptance evidence
 
-Unique reorder controls preserve index maps. Duplicate, missing, extra, wrong-
-nesting, non-string, header/matrix mismatch, nonfinite covariance or fiducial,
-lossy integer/Boolean coercion, unknown key, unique-row shortfall, and unknown
-flag cases all refuse before sampling or output mutation. A real-Cobaya
-parameter without `latex` completes sidecar and covariance publication and is
-read back by GetDist.
+Unique reorder controls preserve index maps. Duplicate, missing, extra,
+wrong-nesting, non-string, whitespace-bearing names, escaping covariance paths,
+header/matrix mismatch, nonfinite covariance or fiducial, unsafe display-label
+controls, lossy integer/Boolean coercion, unknown key, and unknown flag cases
+all refuse before sampling or output mutation. A unique-row shortfall refuses
+after MCMC selection and before output mutation. The CPU gate proves the label
+fallback and that the production writer uses the label prepared during setup.
+When a release changes the Cobaya or GetDist boundary, a separate workstation
+acceptance run should also publish a real Cobaya parameter with no `latex` and
+read the resulting sidecar through the installed GetDist.
 
 ## Nested data paths and axis identity
 

@@ -736,7 +736,8 @@ def load_active_generation(slot, *, expected_identity, expected_members):
 
 
 def begin_dataset_continuation(slot, *, expected_identity, expected_members,
-                               generation=None):
+                               generation=None,
+                               expected_active_sha256=None):
   """Copy one authenticated active generation into a private mutable draft.
 
   Arguments:
@@ -747,6 +748,9 @@ def begin_dataset_continuation(slot, *, expected_identity, expected_members,
       path inside the generation.
     generation: Optional name for the new draft. Omission makes a fresh random
       name.
+    expected_active_sha256: Optional digest of the exact active record a caller
+      already inspected. When supplied, a newer active record refuses before a
+      draft is created.
 
   The active generation is fully checked before a draft is created. Every
   source member then remains open until all copies and directory checks are
@@ -779,6 +783,13 @@ def begin_dataset_continuation(slot, *, expected_identity, expected_members,
     slot,
     expected_identity=expected_identity,
     expected_members=expected_members)
+  if expected_active_sha256 is not None:
+    _require_hex_digest(
+      expected_active_sha256, "expected active dataset record")
+    if source.active_sha256 != expected_active_sha256:
+      raise DatasetPublicationError(
+        "active dataset changed after the caller's read-only validation; "
+        "refuse to create a continuation draft")
   draft = None
   try:
     draft = begin_dataset_generation(slot, generation=generation)

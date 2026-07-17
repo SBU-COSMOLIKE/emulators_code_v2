@@ -225,6 +225,7 @@ redshift-by-wavenumber surface.
 | `test_cocoa_dataset_resolution.py` | Do the training and validation filenames in a user YAML resolve to two complete, internally consistent generated datasets? |
 | `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
 | `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
+| `test_generator_ingress.py` | Does a generator validate every requested parameter, covariance entry, fiducial value, family grid, and final sample count before it creates output? |
 | `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
 | `test_generator_mpi_message_binding.py` | Can an MPI worker result update only the parameter row that rank zero actually assigned to that worker? |
 | `test_generator_payload_success.py` | Is a generated row marked successful only after its scientific values survive validation, writing, and exact read-back? |
@@ -506,6 +507,44 @@ interrupted data-generation run.
   required member stops instead of silently starting again from row zero.
 - **Why it matters:** silently starting over could overwrite useful progress
   or combine old and newly generated rows under one filename.
+
+#### Generator settings checked before output creation
+
+`test_generator_ingress.py` checks the information a generator receives from
+its YAML, covariance file, command options, and sampled rows. It runs on the
+CPU with small temporary inputs. It does not call CAMB or CosmoLike and does
+not train an emulator. Run it from the repository root with:
+
+```bash
+python3 -m unittest ai.tests.test_generator_ingress
+```
+
+- **Example used:** a valid request writes `ord` as one outer list containing
+  `[H0, omegam]`. Its fiducial mapping supplies finite values for both names.
+  A covariance header adds one unused `nuisance` name and supplies the matching
+  three-by-three matrix, then requests the two sampled rows in `ord` order.
+- **What the test does:** it calls the small validation functions used by the
+  generator. These functions check the exact `train_args` fields, ordinary
+  YAML number and Boolean types, parameter-to-covariance alignment, fiducial
+  conversion, prior-bound conversion, supporting filenames, display labels,
+  and unique sampled rows at the saved parameter precision.
+  Production-source checks also prove that each shared command option still
+  calls its named strict validator. The row-count example passes four tiny
+  arrays directly to the selector; it does not run MCMC.
+- **Pass means:** valid native YAML integers, numbers, and Booleans keep their
+  meaning; the requested covariance is selected in `ord` order; the final row
+  count equals the requested count; and a parameter without usable `latex`
+  text uses its parameter name as the display label.
+- **A refusal it proves:** a duplicate or wrongly nested `ord`, a sampled name
+  containing whitespace, a covariance filename that leaves the YAML folder,
+  a repeated covariance header, a nonsquare or nonfinite matrix, meaningfully
+  different opposite covariance entries, a nonpositive variance, a Boolean
+  fiducial, a quoted point count, a control character in a display label, an
+  unknown `train_args` setting, or too few unique MCMC rows is rejected by the
+  validator that runs before output creation.
+- **Why it matters:** a malformed request can still contain plausible names
+  and numbers. Refusing it before file creation avoids leaving a smaller or
+  differently ordered dataset that looks complete.
 
 #### The filenames owned by each generator
 

@@ -4,6 +4,7 @@ import psutil
 from numpy.lib.format import open_memmap
 from generator_core import (GeneratorCore, capture_native_output,
                             run_generator)
+from generator_ingress import finite_number, native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -98,11 +99,18 @@ class dataset(GeneratorCore):
       if (not isinstance(spec, (list, tuple))) or len(spec) != 3:
         raise ValueError(f"train_args.{key} must be [zmin, zmax, nz], "
                          f"got {spec!r}")
-      zmin, zmax, nz = float(spec[0]), float(spec[1]), int(spec[2])
+      zmin = finite_number(spec[0], f"train_args.{key}[0]")
+      zmax = finite_number(spec[1], f"train_args.{key}[1]")
+      nz = native_integer(spec[2], f"train_args.{key}[2]", minimum=8)
       if not (0.0 < zmin < zmax) or nz < 8:
         raise ValueError(f"train_args.{key} needs 0 < zmin < zmax and "
                          f"nz >= 8, got [{zmin}, {zmax}, {nz}]")
-      grids[key] = np.linspace(zmin, zmax, nz)
+      with np.errstate(over="ignore", invalid="ignore"):
+        grid = np.linspace(zmin, zmax, nz)
+      if not np.isfinite(grid).all():
+        raise ValueError(
+          f"train_args.{key} did not resolve to a finite redshift grid")
+      grids[key] = grid
     if grids["z_sn"][-1] >= grids["z_rec"][0]:
       raise ValueError(
         f"train_args.z_sn must end below train_args.z_rec (the desert "
@@ -187,27 +195,31 @@ class dataset(GeneratorCore):
         expected=self._grid_of(q),
         label=q + " redshift")
 
-    RAMneed = self.samples.nbytes + self.failed.nbytes
-    for q in QUANTITIES:
-      arr = np.load(f"{self.dvsf}_{q}.npy",
-                    mmap_mode = "r",
-                    allow_pickle = False)
-      RAMneed += arr.nbytes
-      del arr
-    RAMavail = psutil.virtual_memory().available
-    if RAMneed < 0.75 * RAMavail:
-      self.dvs_is_memmap = False
-    else:
-      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-            f"We will read dvs from HD (slow)")
+    read_only = getattr(self, "_checkpoint_read_only", False)
+    if read_only:
       self.dvs_is_memmap = True
+    else:
+      RAMneed = self.samples.nbytes + self.failed.nbytes
+      for q in QUANTITIES:
+        arr = np.load(f"{self.dvsf}_{q}.npy",
+                      mmap_mode = "r",
+                      allow_pickle = False)
+        RAMneed += arr.nbytes
+        del arr
+      RAMavail = psutil.virtual_memory().available
+      if RAMneed < 0.75 * RAMavail:
+        self.dvs_is_memmap = False
+      else:
+        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+              f"We will read dvs from HD (slow)")
+        self.dvs_is_memmap = True
 
     self.datavectors = {}
     for q in QUANTITIES:
       if self.dvs_is_memmap:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
-                                      mmap_mode = "r+",
+                                      mmap_mode = "r" if read_only else "r+",
                                       allow_pickle = False)
       else:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",

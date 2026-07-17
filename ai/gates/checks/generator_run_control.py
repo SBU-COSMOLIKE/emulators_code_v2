@@ -46,6 +46,17 @@ class _FakeComm:
   def Get_rank():
     return 0
 
+  @staticmethod
+  def bcast(value, root=0):
+    """Return rank zero's value, as a one-process communicator would."""
+    if root != 0:
+      raise AssertionError("the constructor must broadcast from rank zero")
+    return value
+
+  @staticmethod
+  def Barrier():
+    """Represent the final one-process synchronization boundary."""
+
 
 class _FakeMPI:
   """Namespace matching the one MPI attribute read by the constructor."""
@@ -365,6 +376,8 @@ def _drive_constructor(loadchk, append, chain, validator=validate_run_control,
     setattr(constructor_class, "_GeneratorCore__setup_flags", setup)
     setattr(constructor_class, "_GeneratorCore__run_mcmc", run_mcmc)
     setattr(constructor_class, "_GeneratorCore__generate_datavectors", generate)
+    setattr(constructor_class, "_prepare_dataset_publication", lambda instance: None)
+    setattr(constructor_class, "_publish_dataset_generation", lambda instance: None)
 
     error = None
     try:

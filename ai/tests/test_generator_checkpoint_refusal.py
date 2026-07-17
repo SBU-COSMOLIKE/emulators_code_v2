@@ -685,6 +685,50 @@ class GeneratorCheckpointRefusalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
           instance._dv_load_chk()
 
+  def test_family_semantic_preflight_maps_large_payloads_read_only(self):
+    payloads = {
+      "background": {"dv_h.npy", "dv_dm.npy"},
+      "mps": {"dv_pklin.npy", "dv_boost.npy"},
+      "cmb": {"dv_tt.npy", "dv_te.npy", "dv_ee.npy", "dv_pp.npy"},
+    }
+    for name in ("background", "mps", "cmb"):
+      with self.subTest(family=name):
+        instance, numpy_boundary = _family_geometry_fixture(
+          name, corrupt=False)
+        instance._checkpoint_read_only = True
+        instance._dv_load_chk()
+
+        payload_loads = [
+          (path, kwargs) for path, kwargs in numpy_boundary.loads
+          if path in payloads[name]]
+        self.assertEqual(
+          {path for path, _ in payload_loads}, payloads[name])
+        self.assertEqual(len(payload_loads), len(payloads[name]))
+        self.assertTrue(all(
+          kwargs.get("mmap_mode") == "r" and
+          kwargs.get("allow_pickle") is False
+          for _, kwargs in payload_loads))
+        self.assertTrue(instance.dvs_is_memmap)
+
+  def test_single_semantic_preflight_maps_large_payload_read_only(self):
+    numpy_boundary = _FamilyNumpy({
+      "dv.npy": _FakeArray((1, 3)),
+    })
+    generator_class = _compile_generator(np_boundary=numpy_boundary)
+    instance = object.__new__(generator_class)
+    instance.dvsf = "dv"
+    instance.samples = _FakeSamples()
+    instance.failed = _FakeFailed()
+    instance._checkpoint_read_only = True
+
+    instance._dv_load_chk()
+
+    self.assertEqual(numpy_boundary.loads, [
+      ("dv.npy", {"mmap_mode": "r", "allow_pickle": False}),
+    ])
+    self.assertIs(instance.datavectors, numpy_boundary.files["dv.npy"])
+    self.assertTrue(instance.dvs_is_memmap)
+
 
 if __name__ == "__main__":
   unittest.main()

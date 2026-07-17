@@ -31,6 +31,7 @@ from compute_data_vectors.dataset_publication import (
   begin_dataset_continuation,
   begin_dataset_generation,
   canonical_json_bytes,
+  discard_dataset_draft,
   derive_dataset_slot,
   install_dataset_locator,
   load_active_generation,
@@ -46,6 +47,7 @@ BRIDGE_METHODS = {
   "_build_dataset_request_identity",
   "_bind_dataset_publication_request",
   "_prepare_dataset_publication",
+  "_preflight_active_checkpoint",
   "_close_dataset_memmaps",
   "_require_publishable_failure_mask",
   "_publish_dataset_generation",
@@ -96,6 +98,7 @@ def _compile_bridge():
     "install_dataset_locator": install_dataset_locator,
     "begin_dataset_generation": begin_dataset_generation,
     "begin_dataset_continuation": begin_dataset_continuation,
+    "discard_dataset_draft": discard_dataset_draft,
     "load_active_generation": load_active_generation,
     "publish_dataset_generation": publish_dataset_generation,
   }
@@ -169,6 +172,19 @@ def _new_bridge(core_class, chains, operation):
   configuration_sha256 = hashlib.sha256(
     canonical_json_bytes(_parsed_yaml())).hexdigest()
   instance._bind_dataset_publication_request(configuration_sha256)
+  instance.preflight_observations = []
+
+  def load_checkpoint_read_only():
+    instance.preflight_observations.append({
+      "paramsf": instance.paramsf,
+      "dvsf": instance.dvsf,
+      "failf": instance.failf,
+      "member_directory": instance.dataset_member_directory,
+      "read_only": getattr(instance, "_checkpoint_read_only", False),
+    })
+    return True
+
+  instance._BridgeCore__load_chk = load_checkpoint_read_only
   return instance
 
 
@@ -257,6 +273,15 @@ class GeneratorPublicationBridgeTests(unittest.TestCase):
 
       resumed = _new_bridge(self.core_class, chains, "resume")
       resumed._prepare_dataset_publication()
+      self.assertEqual(len(resumed.preflight_observations), 1)
+      preflight = resumed.preflight_observations[0]
+      self.assertTrue(preflight["read_only"])
+      self.assertEqual(
+        Path(preflight["paramsf"]).parent,
+        old.member("parameters.chain").path.parent)
+      self.assertNotEqual(
+        Path(preflight["paramsf"]).parent,
+        resumed.dataset_draft.files_path)
       self.assertEqual(resumed.dataset_expected_active_sha256,
                        old.active_sha256)
       chain = resumed.dataset_draft.member_path(
@@ -287,14 +312,59 @@ class GeneratorPublicationBridgeTests(unittest.TestCase):
         expected_members=dict(first.dataset_members))
 
       appended = _new_bridge(self.core_class, chains, "append")
+      locator_path = first.dataset_locator.path
+      locator_path.unlink()
+      work_before = sorted(
+        path.name for path in appended.dataset_slot.work_path.iterdir())
       with self.assertRaisesRegex(RuntimeError, "exact append is not available"):
         appended._prepare_dataset_publication()
+      self.assertEqual(len(appended.preflight_observations), 1)
+      self.assertTrue(appended.preflight_observations[0]["read_only"])
       after = load_active_generation(
         appended.dataset_slot,
         expected_identity=appended.dataset_identity,
         expected_members=dict(appended.dataset_members))
       self.assertEqual(after.active_sha256, before.active_sha256)
       self.assertIsNone(appended.dataset_draft)
+      self.assertIsNone(appended.dataset_locator)
+      self.assertFalse(locator_path.exists())
+      self.assertEqual(
+        sorted(path.name for path in appended.dataset_slot.work_path.iterdir()),
+        work_before)
+
+  def test_resume_semantic_refusal_precedes_locator_or_draft_creation(self):
+    with tempfile.TemporaryDirectory() as directory:
+      chains = Path(directory) / "chains"
+      chains.mkdir()
+      first = _new_bridge(self.core_class, chains, "fresh")
+      first._prepare_dataset_publication()
+      _write_all_members(first)
+      first._publish_dataset_generation()
+
+      resumed = _new_bridge(self.core_class, chains, "resume")
+      locator_path = first.dataset_locator.path
+      locator_path.unlink()
+      work_before = sorted(
+        path.name for path in resumed.dataset_slot.work_path.iterdir())
+
+      def refuse_semantic_checkpoint():
+        self.assertTrue(resumed._checkpoint_read_only)
+        raise ValueError("synthetic semantic checkpoint refusal")
+
+      resumed._BridgeCore__load_chk = refuse_semantic_checkpoint
+      with self.assertRaisesRegex(ValueError, "semantic checkpoint refusal"):
+        resumed._prepare_dataset_publication()
+
+      self.assertIsNone(resumed.dataset_draft)
+      self.assertIsNone(resumed.dataset_locator)
+      self.assertFalse(locator_path.exists())
+      self.assertEqual(resumed.paramsf, resumed.logical_paramsf)
+      self.assertEqual(resumed.dvsf, resumed.logical_dvsf)
+      self.assertEqual(resumed.failf, resumed.logical_failf)
+      self.assertFalse(resumed._checkpoint_read_only)
+      self.assertEqual(
+        sorted(path.name for path in resumed.dataset_slot.work_path.iterdir()),
+        work_before)
 
   def test_fresh_refuses_an_existing_authenticated_active_before_work(self):
     with tempfile.TemporaryDirectory() as directory:

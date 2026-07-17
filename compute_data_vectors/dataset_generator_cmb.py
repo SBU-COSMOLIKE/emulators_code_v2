@@ -4,6 +4,7 @@ import psutil
 from numpy.lib.format import open_memmap
 from generator_core import (GeneratorCore, capture_native_output,
                             run_generator)
+from generator_ingress import native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -108,10 +109,15 @@ class dataset(GeneratorCore):
     training YAML's likelihood block can be the dummy `one` — the script
     never depends on a likelihood having requested the spectra.
     """
-    lrange = np.array(train_args["lrange"], dtype=int)
-    if lrange.shape != (2,):
+    lrange_spec = train_args["lrange"]
+    if (not isinstance(lrange_spec, (list, tuple)) or
+        len(lrange_spec) != 2):
       raise ValueError(f"train_args.lrange must be [lmin, lmax], "
-                       f"got {train_args['lrange']!r}")
+                       f"got {lrange_spec!r}")
+    lmin = native_integer(
+      lrange_spec[0], "train_args.lrange[0]", minimum=2)
+    lmax = native_integer(lrange_spec[1], "train_args.lrange[1]")
+    lrange = np.array((lmin, lmax), dtype=np.int64)
     if lrange[0] < 2 or lrange[1] <= lrange[0]:
       raise ValueError(f"train_args.lrange must satisfy 2 <= lmin < lmax, "
                        f"got [{lrange[0]}, {lrange[1]}]")
@@ -216,27 +222,31 @@ class dataset(GeneratorCore):
     """Load all four per-spectrum stores (RAM-aware, one shared policy)."""
     self._load_multipole_axis()
 
-    RAMneed = self.samples.nbytes + self.failed.nbytes
-    for spec in SPECTRA:
-      arr = np.load(f"{self.dvsf}_{spec}.npy",
-                    mmap_mode = "r",
-                    allow_pickle = False)
-      RAMneed += arr.nbytes
-      del arr
-    RAMavail = psutil.virtual_memory().available
-    if RAMneed < 0.75 * RAMavail:
-      self.dvs_is_memmap = False
-    else:
-      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-            f"We will read dvs from HD (slow)")
+    read_only = getattr(self, "_checkpoint_read_only", False)
+    if read_only:
       self.dvs_is_memmap = True
+    else:
+      RAMneed = self.samples.nbytes + self.failed.nbytes
+      for spec in SPECTRA:
+        arr = np.load(f"{self.dvsf}_{spec}.npy",
+                      mmap_mode = "r",
+                      allow_pickle = False)
+        RAMneed += arr.nbytes
+        del arr
+      RAMavail = psutil.virtual_memory().available
+      if RAMneed < 0.75 * RAMavail:
+        self.dvs_is_memmap = False
+      else:
+        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+              f"We will read dvs from HD (slow)")
+        self.dvs_is_memmap = True
 
     self.datavectors = {}
     for spec in SPECTRA:
       if self.dvs_is_memmap:
         self.datavectors[spec] = np.load(f"{self.dvsf}_{spec}.npy",
-                                         mmap_mode = "r+",
+                                         mmap_mode = "r" if read_only else "r+",
                                          allow_pickle = False)
       else:
         self.datavectors[spec] = np.load(f"{self.dvsf}_{spec}.npy",

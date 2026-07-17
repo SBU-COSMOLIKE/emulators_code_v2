@@ -627,6 +627,26 @@ class DatasetPublicationTests(unittest.TestCase):
           sorted(path.name for path in slot.work_path.iterdir()),
           original_work)
 
+  def test_continuation_refuses_a_new_active_record_before_creating_draft(self):
+    slot = self._slot("continuation_expected_active")
+    active, identity, members = self._publish(
+      slot, "continuation-expected-active")
+    original_work = sorted(path.name for path in slot.work_path.iterdir())
+
+    with self.assertRaisesRegex(
+        DatasetPublicationError,
+        "changed after the caller's read-only validation"):
+      begin_dataset_continuation(
+        slot,
+        expected_identity=identity,
+        expected_members=members,
+        expected_active_sha256="0" * 64)
+
+    self.assertNotEqual(active.active_sha256, "0" * 64)
+    self.assertEqual(
+      sorted(path.name for path in slot.work_path.iterdir()),
+      original_work)
+
   def test_continuation_copy_failure_cleans_only_new_draft(self):
     slot = self._slot("continuation_copy_failure")
     active, identity, members = self._publish(

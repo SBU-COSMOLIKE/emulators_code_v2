@@ -90,10 +90,21 @@ from compute_data_vectors.dataset_publication import (
   begin_dataset_continuation,
   begin_dataset_generation,
   canonical_json_bytes,
+  discard_dataset_draft,
   derive_dataset_slot,
   install_dataset_locator,
   load_active_generation,
   publish_dataset_generation,
+)
+from compute_data_vectors.generator_ingress import (
+  convert_prior_bounds,
+  direct_child_filename,
+  load_parameter_covariance,
+  native_integer,
+  parameter_labels,
+  select_unique_rows,
+  validate_fiducial,
+  validate_train_args,
 )
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -490,7 +501,12 @@ class GeneratorCore:
     rank_zero_failure = None
     if rank == 0:
       try:
-        self._prepare_dataset_publication()
+        # Resume and append first authenticate the completed generation they
+        # name. A fresh run has no files to read, so it keeps the sampled rows
+        # in memory and creates its private draft only after their exact count
+        # and values have passed validation inside __run_mcmc.
+        if self.run_control.operation != "fresh":
+          self._prepare_dataset_publication()
         self.__run_mcmc()
       except Exception as error:
         # Other ranks have finished setup and are waiting to enter the MPI
@@ -525,16 +541,17 @@ class GeneratorCore:
     root = root_env.rstrip("/")
     root = f"{root}/{self.args.root.rstrip('/')}"
     fileroot = f"{root}/{self.args.fileroot.rstrip('/')}"
-    Path(f"{root}/chains").mkdir(parents=True, exist_ok=True)
 
     self.append = self.run_control.append
     self.bounds = None           # the support the sampler drew from (resolved)
     self.bounds_requested = None # the support the prior declared (requested)
-    self.bounds_adj = (
-      self.args.boundary
-      if self.args.boundary is not None and 0 < self.args.boundary < 1
-      else 1.0
-    )
+    boundary = 1.0 if self.args.boundary is None else self.args.boundary
+    if type(boundary) is not float or not math.isfinite(boundary) \
+        or not 0.0 < boundary <= 1.0:
+      raise ValueError(
+        "--boundary must be a finite native float in (0, 1]; got "
+        + repr(boundary))
+    self.bounds_adj = boundary
     self.covmat = None
     self.dtype = np.float32
     self.dvsf = None
@@ -544,8 +561,7 @@ class GeneratorCore:
     self.derived = True
     self.dvs_is_memmap = False
     self.freqchk = 5000 if self.args.freqchk is None else self.args.freqchk
-    if self.freqchk < 1000:
-      raise ValueError("--freqchk must be >= 1000") # avoid too much chk
+    native_integer(self.freqchk, "--freqchk", minimum=1000)
     self.failed = None        # track which models failed to compute dv
     self.failf = None
     self.fiducial = None
@@ -554,31 +570,30 @@ class GeneratorCore:
     self.loadedfromchk = False  # check if loaded from checkpoint sucessfully
     self.loadedsamples = False  # check loaded samples sucessfully
     self.maxcorr = 0.15 if self.args.maxcorr is None else self.args.maxcorr
-    if not (0.01 < self.maxcorr <= 1):
-      raise ValueError("--maxcorr must be between (0.01,1]")
+    if type(self.maxcorr) is not float or not math.isfinite(self.maxcorr) \
+        or not 0.01 < self.maxcorr <= 1.0:
+      raise ValueError(
+        "--maxcorr must be a finite native float in (0.01, 1]; got "
+        + repr(self.maxcorr))
     # the sampling seed: a required non-bool integer, no default. Every random
     # draw goes through this owned Generator instead of the process-global
     # np.random, so two runs with the same seed, YAML and code produce the same
     # parameter table (bool is refused: argparse int never yields one, but a
     # programmatic caller might pass True, which would silently mean seed 1).
-    if isinstance(self.args.seed, bool) or not isinstance(self.args.seed, int):
-      raise ValueError("--seed must be an integer (a non-bool int); got "
-                       + repr(self.args.seed))
-    self.seed = int(self.args.seed)
+    self.seed = native_integer(self.args.seed, "--seed", minimum=0)
     self.rng = np.random.default_rng(self.seed)
     self.names = None
     self.model = None
     self.nparams = 10000 if self.args.nparams is None else self.args.nparams
-    if self.nparams < 200:
-      raise ValueError("--nparams must be >= 200")
+    native_integer(self.nparams, "--nparams", minimum=200)
     self.paramsf = None
     self.probe = None
     self.sampled_params = None
     self.samples = None
     self.temp = 128 if self.args.temp is None else self.args.temp
-    if self.temp < 1:
-      raise ValueError("--temp must be => 1")
+    native_integer(self.temp, "--temp", minimum=1)
     self.unif = 0 if self.args.unif is None else self.args.unif
+    native_integer(self.unif, "--unif", allowed=(0, 1))
     self.yaml = f"{fileroot}/test.yaml" if self.args.yaml is None else f"{fileroot}/{self.args.yaml}"
     if not os.path.isfile(f"{self.yaml}"):
       raise FileNotFoundError(f"YAML file not found: {self.yaml}")
@@ -604,13 +619,10 @@ class GeneratorCore:
       raise KeyError(f"Cobaya YAML missing required blocks {missing}: {self.yaml}")
 
     train_args = info["train_args"]
-    required_keys = ['probe', 'ord'] + list(self.EXTRA_TRAIN_KEYS)
-    if not self.unif == 1:
-      required_keys += ['fiducial', 'params_covmat_file']
-
-    missing = [k for k in required_keys if k not in train_args]
-    if missing:
-      raise KeyError(f"Cobaya YAML missing required keys {missing}: {self.yaml}")
+    self.sampled_params = validate_train_args(
+      train_args,
+      extra_keys=self.EXTRA_TRAIN_KEYS,
+      uniform=(self.unif == 1))
 
     #---------------------------------------------------------------------------
     # Load Cobaya model (needed for computing likelihood), cov matrix...
@@ -621,54 +633,85 @@ class GeneratorCore:
       raise RuntimeError(f"get_model failed for {self.yaml}: {e}") from e
 
     self.probe = train_args["probe"]
+    if type(self.probe) is not str or not self.probe:
+      raise ValueError(
+        "train_args.probe must be a nonempty native string; got "
+        + repr(self.probe))
     if self.probe not in self.VALID_PROBES:
       raise ValueError(f"Invalid Probe: {self.probe}")
-
-    self.sampled_params = train_args['ord'][0]  # preferred ordering of params
 
     # driver-specific train_args (and model requirements, if any) --------------
     self._read_train_args(train_args)
 
     if not self.unif == 1:
-      fid = train_args["fiducial"] # load fiducial data vector
-
-      # load cov param matrix --------------------------------------------------
-      raw_covmat_file = train_args["params_covmat_file"]
-      with open(f"{fileroot}/{raw_covmat_file}") as f:
-        raw_covmat_params_names = np.array(f.readline().split()[1:])
-        raw_covmat = np.loadtxt(f)
-
-      #-------------------------------------------------------------------------
-      # Reorder fiducial, bounds and covmat to follow ['train_args']['ord']
-      #-------------------------------------------------------------------------
-      # Reorder fiducial -------------------------------------------------------
-      self.fiducial = np.array([fid[p] for p in self.sampled_params],
-                               copy=True, dtype=self.dtype)
-
-      # Reorder covmat ---------------------------------------------------------
-      pidx = {p : i for i, p in enumerate(raw_covmat_params_names)}
-      try:
-        idx = np.array([pidx[p] for p in self.sampled_params],
-                       copy=True,
-                       dtype=int)
-      except KeyError as e:
-        raise ValueError(f"{e.args[0]!r} not found in cov header") from None
-      covmat = raw_covmat[np.ix_(idx, idx)]
+      self.fiducial = validate_fiducial(
+        train_args["fiducial"], self.sampled_params, dtype=self.dtype)
+      raw_covmat_file = direct_child_filename(
+        train_args["params_covmat_file"],
+        "train_args.params_covmat_file")
+      covmat = load_parameter_covariance(
+        Path(self.yaml).parent / raw_covmat_file,
+        self.sampled_params)
+      covmat = np.array(covmat, copy=True, dtype=self.dtype)
+      if not np.isfinite(covmat).all():
+        raise ValueError(
+          "the selected parameter covariance is not finite after conversion "
+          "to the generator's float32 dtype")
 
     # Reorder bounds -----------------------------------------------------------
     self.names = list(self.model.parameterization.sampled_params().keys())
-    if set(self.sampled_params) != set(self.names):
-      raise ValueError(f"train_args.ord {set(self.sampled_params)}"
-                       f" != model sampled params {set(self.names)}")
+    invalid_model_names = [name for name in self.names
+                           if type(name) is not str or not name]
+    if invalid_model_names:
+      raise ValueError(
+        "Cobaya sampled parameter names must be nonempty native strings; got "
+        + repr(invalid_model_names))
+    repeated_model_names = sorted(
+      {name for name in self.names if self.names.count(name) > 1})
+    missing_names = [name for name in self.names
+                     if name not in self.sampled_params]
+    extra_names = [name for name in self.sampled_params
+                   if name not in self.names]
+    if repeated_model_names or missing_names or extra_names \
+        or len(self.sampled_params) != len(self.names):
+      raise ValueError(
+        "train_args.ord must be one unique permutation of Cobaya's sampled "
+        "parameters; duplicate Cobaya names=" + repr(repeated_model_names)
+        + ", missing from ord=" + repr(missing_names)
+        + ", extra in ord=" + repr(extra_names)
+        + ", ord count=" + str(len(self.sampled_params))
+        + ", Cobaya count=" + str(len(self.names)))
     idx = self.reorder_idx_from_yaml_to_ord()
 
-    # Here T (temp) stretch the hard bounds on parameters with Gaussian prior --
-    tmp = np.array(self.model.prior.bounds(confidence=1.0),
-                                           copy=True,
-                                           dtype=self.dtype)[idx,:]
-    self.bounds = np.array(self.model.prior.bounds(confidence=0.9999994),
-                           copy=True,
-                           dtype=self.dtype)[idx,:]
+    model_info = self.model.info()
+    if type(model_info) is not dict or type(model_info.get("params")) is not dict:
+      raise ValueError(
+        "Cobaya model information must contain a params mapping before output "
+        "labels can be prepared")
+    self.parameter_labels = parameter_labels(
+      model_info["params"], self.sampled_params)
+
+    # Cobaya may report infinite confidence=1 endpoints for a Gaussian prior.
+    # The finite confidence interval supplies the width used to resolve those
+    # endpoints. Both matrices must still have one ordered row per sampled
+    # parameter before the generator reorders or converts them.
+    hard_bounds = np.asarray(
+      self.model.prior.bounds(confidence=1.0), dtype=np.float64)
+    finite_bounds = np.asarray(
+      self.model.prior.bounds(confidence=0.9999994), dtype=np.float64)
+    expected_bounds_shape = (len(self.names), 2)
+    if hard_bounds.shape != expected_bounds_shape:
+      raise ValueError(
+        "Cobaya confidence=1 prior bounds must have shape "
+        + repr(expected_bounds_shape) + "; got " + repr(hard_bounds.shape))
+    if finite_bounds.shape != expected_bounds_shape:
+      raise ValueError(
+        "Cobaya finite prior bounds must have shape "
+        + repr(expected_bounds_shape) + "; got " + repr(finite_bounds.shape))
+    tmp, self.bounds = convert_prior_bounds(
+      hard_bounds[idx, :],
+      finite_bounds[idx, :],
+      dtype=self.dtype)
 
     # the support as the prior declared it, copied before the two mutations
     # below rewrite self.bounds in place: the infinite-endpoint stretch (a
@@ -695,26 +738,50 @@ class GeneratorCore:
       margin = (1-self.bounds_adj) * 0.5*(self.bounds[:, 1]-self.bounds[:, 0])
       self.bounds[:, 0] += margin
       self.bounds[:, 1] -= margin
+    if not np.isfinite(self.bounds).all() \
+        or not (self.bounds[:, 0] < self.bounds[:, 1]).all():
+      raise ValueError(
+        "the resolved sampling bounds must remain finite and increasing after "
+        "temperature stretching and the boundary margin")
 
     # adjust covmat- -----------------------------------------------------------
     if not self.unif == 1:
       #-------------------------------------------------------------------------
       # Reduce correlation on the covariance matrix to max = args.maxcorr
       #-------------------------------------------------------------------------
-      sig   = np.sqrt(np.diag(covmat))
+      if covmat.shape != (len(self.sampled_params), len(self.sampled_params)):
+        raise ValueError(
+          "the selected parameter covariance has the wrong shape: "
+          + repr(covmat.shape))
+      if not np.isfinite(covmat).all() \
+          or not np.allclose(covmat, covmat.T, rtol=0.0, atol=0.0):
+        raise ValueError(
+          "the selected parameter covariance must remain finite and symmetric")
+      diagonal = np.diag(covmat)
+      if not (diagonal > 0.0).all():
+        raise ValueError(
+          "the selected parameter covariance must have a positive diagonal")
+      sig   = np.sqrt(diagonal)
       n = len(sig)
       outer = np.outer(sig, sig)
       corr  = covmat / outer
+      if not np.isfinite(corr).all():
+        raise ValueError(
+          "the parameter correlation matrix contains a nonfinite value")
       m = np.abs(corr - np.eye(n)).max()
       if m > self.maxcorr:
         corr /= max(1.0, m / self.maxcorr) if m > 0 else 1.0
         np.fill_diagonal(corr, 1.0)
       covmat = corr * outer
+      if not np.isfinite(covmat).all() \
+          or not np.allclose(covmat, covmat.T, rtol=0.0, atol=0.0):
+        raise ValueError(
+          "the adjusted parameter covariance must remain finite and symmetric")
 
       #-------------------------------------------------------------------------
       # Compute covmat inverse
       #-------------------------------------------------------------------------
-      C = 0.5 * (covmat + covmat.T)  # enforce symmetry
+      C = np.array(covmat, copy=True, dtype=self.dtype)
       jitt = 0.0
       for _ in range(10):
         try:
@@ -728,6 +795,20 @@ class GeneratorCore:
       I = np.eye(C.shape[0])
       self.covmat = C + jitt*np.eye(C.shape[0])
       self.inv_covmat = np.linalg.solve(L.T, np.linalg.solve(L, I))
+      if not np.isfinite(L).all() or not np.isfinite(self.covmat).all() \
+          or not np.isfinite(self.inv_covmat).all():
+        raise ValueError(
+          "the covariance factor or inverse contains a nonfinite value")
+      if not np.allclose(
+          L @ L.T, self.covmat, rtol=2e-6, atol=2e-6):
+        raise ValueError(
+          "the covariance Cholesky factor does not reconstruct the stored "
+          "covariance")
+      if not np.allclose(
+          self.covmat @ self.inv_covmat, I, rtol=2e-5, atol=2e-5):
+        raise ValueError(
+          "the parameter covariance and its inverse do not reconstruct the "
+          "identity matrix")
 
     #---------------------------------------------------------------------------
     # Define output files
@@ -1011,29 +1092,30 @@ class GeneratorCore:
       corrupt, or belongs to another request. The active generation is never
       changed by a refusal.
     """
-    members = dict(self.dataset_members)
-    locator = install_dataset_locator(
-      self.dataset_slot,
-      identity=self.dataset_identity,
-      members=members)
-    self.dataset_locator = locator
-
     operation = self.run_control.operation
+    preflight_source = None
+    if operation in ("resume", "append"):
+      preflight_source = self._preflight_active_checkpoint()
     if operation == "append":
-      # Authentication comes first. A corrupt or mismatched active generation
-      # must never be mistaken for a merely unsupported continuation request.
-      load_active_generation(
-        locator.slot,
-        expected_identity=locator.identity,
-        expected_members=locator.members)
       raise RuntimeError(
-        "--append=1 authenticated the active dataset, but exact append is not "
-        "available yet. The generator does not persist the NumPy, emcee, "
-        "walker, and row-selection state needed to continue without repeating "
-        "or skipping samples. Use a fresh logical output; the active dataset "
-        "was not changed.")
+        "--append=1 authenticated and semantically validated the active "
+        "dataset, but exact append is not available yet. The generator does "
+        "not persist the NumPy, emcee, walker, and row-selection state needed "
+        "to continue without repeating or skipping samples. Use a fresh "
+        "logical output; no locator, draft, or active dataset was changed.")
 
     if operation == "fresh":
+      # Setup and in-memory sampling have already succeeded. This is the first
+      # permitted output mutation for a fresh run; malformed configuration and
+      # a unique-row shortfall therefore leave even the chains folder absent.
+      self.dataset_slot.chains_dir.mkdir(
+        mode=0o700, parents=True, exist_ok=True)
+    members = dict(self.dataset_members)
+    if operation == "fresh":
+      locator = install_dataset_locator(
+        self.dataset_slot,
+        identity=self.dataset_identity,
+        members=members)
       if os.path.lexists(locator.slot.active_path):
         load_active_generation(
           locator.slot,
@@ -1047,21 +1129,85 @@ class GeneratorCore:
       expected_active_sha256 = None
     elif operation == "resume":
       continuation = begin_dataset_continuation(
-        locator.slot,
-        expected_identity=locator.identity,
-        expected_members=locator.members)
+        self.dataset_slot,
+        expected_identity=self.dataset_identity,
+        expected_members=members,
+        expected_active_sha256=preflight_source.active_sha256)
       draft = continuation.draft
       expected_active_sha256 = continuation.source.active_sha256
+      try:
+        locator = install_dataset_locator(
+          self.dataset_slot,
+          identity=self.dataset_identity,
+          members=members)
+      except BaseException:
+        discard_dataset_draft(draft)
+        raise
     else:
       raise ValueError(
         "unknown normalized generator operation: " + repr(operation))
 
+    self.dataset_locator = locator
     self.dataset_draft = draft
     self.dataset_expected_active_sha256 = expected_active_sha256
     self.paramsf = str(draft.files_path / Path(self.logical_paramsf).name)
     self.dvsf = str(draft.files_path / Path(self.logical_dvsf).name)
     self.failf = str(draft.files_path / Path(self.logical_failf).name)
     self.dataset_member_directory = draft.files_path
+
+  def _preflight_active_checkpoint(self):
+    """Validate one active checkpoint without creating or opening writable state.
+
+    The immutable publication layer first authenticates every member. The
+    ordinary checkpoint loader then checks the producer sidecars, row counts,
+    axes, payload shapes, and successful payload rows while every large array
+    is mapped read-only. All temporary bindings are removed before this method
+    returns. A resume may create its private copy only after this succeeds;
+    append uses the same proof and then refuses because exact continuation state
+    is not yet persisted.
+    """
+    operation = self.run_control.operation
+    if operation not in ("resume", "append"):
+      raise ValueError(
+        "active checkpoint preflight requires resume or append; got "
+        + repr(operation))
+    if self.dataset_draft is not None or self.dataset_locator is not None:
+      raise RuntimeError(
+        "active checkpoint preflight must run before a locator or draft is "
+        "bound to this generator")
+
+    source = load_active_generation(
+      self.dataset_slot,
+      expected_identity=self.dataset_identity,
+      expected_members=dict(self.dataset_members))
+    source_directory = source.member("parameters.chain").path.parent
+    original = (self.paramsf, self.dvsf, self.failf,
+                self.dataset_member_directory)
+    self.paramsf = str(source_directory / Path(self.logical_paramsf).name)
+    self.dvsf = str(source_directory / Path(self.logical_dvsf).name)
+    self.failf = str(source_directory / Path(self.logical_failf).name)
+    self.dataset_member_directory = source_directory
+    self._checkpoint_read_only = True
+    try:
+      if self.__load_chk() is not True:
+        raise RuntimeError(
+          "an active resume or append checkpoint was not loaded during its "
+          "read-only semantic preflight")
+    finally:
+      try:
+        self._close_dataset_memmaps()
+      finally:
+        if hasattr(self, "datavectors"):
+          del self.datavectors
+        self.samples = None
+        self.failed = None
+        self.loadedsamples = False
+        self.loadedfromchk = False
+        self.dvs_is_memmap = False
+        self._checkpoint_read_only = False
+        (self.paramsf, self.dvsf, self.failf,
+         self.dataset_member_directory) = original
+    return source
 
   def _close_dataset_memmaps(self):
     """Flush and close every retained payload memmap before publication.
@@ -1086,7 +1232,8 @@ class GeneratorCore:
     for value in values:
       if not isinstance(value, np.memmap) or id(value) in closed:
         continue
-      value.flush()
+      if not getattr(self, "_checkpoint_read_only", False):
+        value.flush()
       memory_map = getattr(value, "_mmap", None)
       if memory_map is not None and not memory_map.closed:
         memory_map.close()
@@ -1508,22 +1655,26 @@ class GeneratorCore:
     arr = np.load(f"{self.dvsf}.npy",
                   mmap_mode = "r",
                   allow_pickle = False)
-    RAMneed = (arr.nbytes +
-               self.samples.nbytes +
-               self.failed.nbytes)
-    RAMavail = psutil.virtual_memory().available
-    if RAMneed < 0.75 * RAMavail:
-      self.datavectors = np.load(f"{self.dvsf}.npy", allow_pickle = False)
-      self.dvs_is_memmap = False
-    else:
-      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-            f"We will read dvs from HD (slow)")
-      self.datavectors = np.load(f"{self.dvsf}.npy",
-                                 mmap_mode = "r+",
-                                 allow_pickle = False)
+    if getattr(self, "_checkpoint_read_only", False):
+      self.datavectors = arr
       self.dvs_is_memmap = True
-    del arr
+    else:
+      RAMneed = (arr.nbytes +
+                 self.samples.nbytes +
+                 self.failed.nbytes)
+      RAMavail = psutil.virtual_memory().available
+      if RAMneed < 0.75 * RAMavail:
+        self.datavectors = np.load(f"{self.dvsf}.npy", allow_pickle = False)
+        self.dvs_is_memmap = False
+      else:
+        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+              f"We will read dvs from HD (slow)")
+        self.datavectors = np.load(f"{self.dvsf}.npy",
+                                   mmap_mode = "r+",
+                                   allow_pickle = False)
+        self.dvs_is_memmap = True
+      del arr
 
     if self.datavectors.ndim != 2:
       raise ValueError(f"datavectors must be 2D, got {self.datavectors.shape}")
@@ -1764,14 +1915,14 @@ class GeneratorCore:
   def __param_logpost(self,x):
     y = x - self.fiducial
     logprior = self.model.prior.logp(x[self.reorder_idx_from_ord_to_yaml()])
-    if math.isinf(logprior):
+    if not math.isfinite(logprior):
       return -np.inf
-    elif math.isinf(self.__param_logprior(x)):
+    elif not math.isfinite(self.__param_logprior(x)):
       # this is important when --boundary command line option is < 1
       return -np.inf
     else:
       logp = (-0.5*(y @ self.inv_covmat @ y) + logprior)/self.temp
-      return logp
+      return logp if math.isfinite(logp) else -np.inf
 
   #-----------------------------------------------------------------------------
   # the dataset's scientific record (schema: emulator/fixed_facts.py)
@@ -2020,23 +2171,25 @@ class GeneratorCore:
                                          self.rng.standard_normal(size=(nwalkers,ndim)),
                          nsteps=nsteps,
                          progress=False)
-        xf  = sampler.get_chain(flat=True, discard=burnin, thin=1)
-        xf, keep = np.unique(xf, axis=0, return_index=True)
-        lnp = sampler.get_log_prob(flat=True, discard=burnin, thin=1)[keep, None]
-        if len(xf) < self.nparams:
-          print(f"Warning: only {len(xf)} unique rows, requested {self.nparams}")
-        else:
-          indices = self.rng.choice(np.arange(len(xf)), size=self.nparams, replace=False)
-          xf  = xf[indices,:]
-          lnp = lnp[indices,:]
-        nparams = len(xf)
+        raw_samples = sampler.get_chain(flat=True, discard=burnin, thin=1)
+        raw_log_prob = sampler.get_log_prob(
+          flat=True, discard=burnin, thin=1)
+        xf, selected_log_prob = select_unique_rows(
+          raw_samples,
+          raw_log_prob,
+          requested=self.nparams,
+          ndim=ndim,
+          rng=self.rng)
+        lnp = selected_log_prob[:, None]
+        nparams = self.nparams
         # Double check that prior is not -infty --------------------------------
         idx = self.reorder_idx_from_ord_to_yaml()
         for i, x in enumerate(xf):
           logprior = self.model.prior.logp(x[idx])
-          if math.isinf(logprior):
-              raise ValueError(f"Sample {i} has -inf prior. (this should not happen)"
-                               f"Values: {dict(zip(self.sampled_params, x))}")
+          if not math.isfinite(logprior):
+              raise ValueError(
+                f"Sample {i} has a nonfinite prior. Values: "
+                f"{dict(zip(self.sampled_params, x))}")
       else:
         nparams  = self.nparams
         self.uniform_sampling_support = resolve_uniform_sampling_support(
@@ -2051,12 +2204,31 @@ class GeneratorCore:
         idx = self.reorder_idx_from_ord_to_yaml()
         for i, x in enumerate(xf):
           logprior = self.model.prior.logp(x[idx])
-          if math.isinf(logprior):
-              raise ValueError(f"Sample {i} has -inf prior. (this should not happen)"
-                               f"Values: {dict(zip(self.sampled_params, x))}")
+          if not math.isfinite(logprior):
+              raise ValueError(
+                f"Sample {i} has a nonfinite prior. Values: "
+                f"{dict(zip(self.sampled_params, x))}")
+      if xf.shape != (self.nparams, ndim):
+        raise ValueError(
+          "the prepared parameter table must contain exactly "
+          + str(self.nparams) + " rows and " + str(ndim)
+          + " columns; got " + repr(xf.shape))
+      if lnp.shape != (self.nparams, 1):
+        raise ValueError(
+          "the prepared log-probability column must have shape "
+          + repr((self.nparams, 1)) + "; got " + repr(lnp.shape))
+      if not np.isfinite(xf).all() or not np.isfinite(lnp).all():
+        raise ValueError(
+          "the prepared parameter or log-probability table contains a "
+          "nonfinite value")
       w = np.ones((nparams,1), dtype=self.dtype)
       chi2 = -2*lnp
+      modeled_columns = np.concatenate([w, lnp, xf, chi2], axis=1)
+      if not np.isfinite(modeled_columns).all():
+        raise ValueError(
+          "the prepared chain columns contain a nonfinite value")
       if self.run_control.operation == "fresh":
+        self._prepare_dataset_publication()
         # Output some debug messaging ------------------------------------------
         if not self.unif == 1:
           try:
@@ -2109,7 +2281,7 @@ class GeneratorCore:
         else:
           hd=f"Uniform Sampling {rng_tag}\n"
         np.savetxt(fname,
-                   np.concatenate([w, lnp, xf, chi2], axis=1),
+                   modeled_columns,
                    fmt="%.9e",
                    header=hd + ' '.join(["weights", "lnp"] + names + ["chi2*"]),
                    comments="# ")
@@ -2118,8 +2290,7 @@ class GeneratorCore:
         self.samples = np.array(xf, copy=True, dtype=self.dtype)
 
         # save paramname files -------------------------------------------------
-        param_info = self.model.info()['params']
-        latex  = [param_info[x]['latex'] for x in names]
+        latex = list(self.parameter_labels)
         paramnames = copy.deepcopy(names)
         paramnames.append("chi2*")
         latex.append("\\chi^2")
@@ -2129,14 +2300,26 @@ class GeneratorCore:
 
         # save a cov matrix ------------------------------------------------------
         with contextlib.redirect_stdout(io.StringIO()): # so getdist dont write in terminal
-          np.savetxt(f"{self.paramsf}.covmat",
-                     np.array(loadMCSamples(f"{self.paramsf}",
-                                            settings={'ignore_rows': u'0.'}).cov(pars=names),
-                              copy=True,
-                              dtype=self.dtype),
-                     fmt="%.9e",
-                     header=' '.join(names),
-                     comments="# ")
+          saved_covariance = np.array(
+            loadMCSamples(
+              f"{self.paramsf}",
+              settings={'ignore_rows': u'0.'}).cov(pars=names),
+            copy=True,
+            dtype=self.dtype)
+        expected_covariance_shape = (ndim, ndim)
+        if saved_covariance.shape != expected_covariance_shape \
+            or not np.isfinite(saved_covariance).all() \
+            or not np.allclose(
+              saved_covariance, saved_covariance.T, rtol=2e-6, atol=2e-6):
+          raise ValueError(
+            "GetDist returned an invalid saved parameter covariance: shape "
+            + repr(saved_covariance.shape) + ", expected "
+            + repr(expected_covariance_shape))
+        np.savetxt(f"{self.paramsf}.covmat",
+                   saved_covariance,
+                   fmt="%.9e",
+                   header=' '.join(names),
+                   comments="# ")
 
         # save the scientific record -------------------------------------------
         # the cosmology this run held fixed and the region it sampled, written
@@ -2150,6 +2333,7 @@ class GeneratorCore:
         del xf        # save RAM memory
         del lnp       # save RAM memory
         del chi2      # save RAM memory
+        del modeled_columns
         gc.collect()  # save RAM memory
       else:
         # ----------------------------------------------------------------------
@@ -2169,6 +2353,7 @@ class GeneratorCore:
         del xf        # save RAM memory
         del lnp       # save RAM memory
         del chi2      # save RAM memory
+        del modeled_columns
         gc.collect()  # save RAM memory
 
         self.samples = np.atleast_2d(np.loadtxt(fname, dtype=self.dtype))[:,2:-1]

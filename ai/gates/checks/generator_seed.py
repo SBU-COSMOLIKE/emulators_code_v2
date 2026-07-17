@@ -24,6 +24,8 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _GEN = os.path.join(_REPO, "compute_data_vectors", "generator_core.py")
+_INGRESS = os.path.join(
+    _REPO, "compute_data_vectors", "generator_ingress.py")
 
 FAILURES = []
 
@@ -37,6 +39,7 @@ def report(label, ok, detail=""):
 def check_no_global_random():
     """No sampling draw uses the process-global np.random.<dist>."""
     src = open(_GEN).read()
+    ingress = open(_INGRESS).read()
     # the global sampling calls the fix removed (default_rng / RandomState for
     # the owned generator remain legitimate).
     for bad in ("np.random.uniform(", "np.random.normal(", "np.random.choice(",
@@ -47,7 +50,9 @@ def check_no_global_random():
            "self.rng = np.random.default_rng(self.seed)" in src
            and "self.rng.uniform(" in src
            and "self.rng.standard_normal(" in src
-           and "self.rng.choice(" in src, "self.rng threaded")
+           and "rng=self.rng" in src
+           and 'getattr(rng, "choice", None)' in ingress,
+           "self.rng threaded through row selection")
     report("the emcee sampler gets a seeded random state",
            "sampler._random = np.random.RandomState(" in src, "seeded moves")
 
@@ -55,11 +60,12 @@ def check_no_global_random():
 def check_seed_required_and_recorded():
     """The seed is a required CLI arg, validated, and written to the header."""
     src = open(_GEN).read()
+    ingress = open(_INGRESS).read()
     report("--seed is a required CLI argument",
            '"--seed"' in src and "required=True" in src, "no default seed")
     report("a non-integer / bool seed is refused",
-           "isinstance(self.args.seed, bool)" in src
-           and "not isinstance(self.args.seed, int)" in src, "type-checked")
+           'native_integer(self.args.seed, "--seed", minimum=0)' in src
+           and "if type(value) is not int:" in ingress, "type-checked")
     report("the seed + RNG are recorded in the chain header",
            "seed={self.seed}" in src and "rng=numpy.default_rng" in src,
            "replayable from the recorded inputs")

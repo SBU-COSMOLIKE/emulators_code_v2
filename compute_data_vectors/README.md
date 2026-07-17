@@ -244,6 +244,12 @@ calculation, while `ord` gives the saved column order for the varied
 parameters. Each redshift entry is
 `[lowest redshift, highest redshift, number of points]`.
 
+Before creating `chains/` or any output file, the generator checks the full
+YAML request. It checks the parameter names, the family-specific grids, and
+the type and value of every setting in `train_args`. A malformed YAML
+therefore stops before it can leave an empty output folder or a partial
+dataset. [FAQ A1](#faq-a1-generator-yaml) gives the exact accepted forms.
+
 Use new output names for this run:
 
 ```bash
@@ -504,9 +510,80 @@ For the background, matter-power, and CMB families, that block selects and
 configures CAMB. A CosmoLike configuration may obtain its theory through its
 configured components instead.
 
-Every generator needs `train_args.probe` and `train_args.ord`. With
-`--unif 0`, it also needs `fiducial`, a list of reference parameter values,
-and `params_covmat_file`, the parameter covariance file beside the YAML.
+Every generator needs `train_args.probe` and `train_args.ord`. `ord` has one
+outer list containing one ordered list of varied parameter names:
+
+```yaml
+train_args:
+  probe: background
+  ord:
+    - [H0, ombh2, omch2]
+```
+
+The names must be nonempty, unique single tokens with no spaces, line breaks,
+or control characters, and identical to Cobaya's varied parameters. Their
+order becomes the order of the saved parameter columns.
+The extra outer list is required. For example, neither `ord: [H0, ombh2]`
+nor two inner lists are accepted.
+
+With `--unif 0`, `train_args` also needs `fiducial`, a mapping from every
+varied name to its reference value, and `params_covmat_file`, the parameter
+covariance file beside the YAML:
+
+```yaml
+train_args:
+  probe: background
+  ord:
+    - [H0, ombh2]
+  fiducial:
+    H0: 67.4
+    ombh2: 0.0224
+  params_covmat_file: parameter_covariance.txt
+```
+
+With `--unif 1`, omit `fiducial` and `params_covmat_file`. They belong only
+to the tempered MCMC request. Each sampling mode accepts its exact set of
+`train_args` fields so that a stale or misspelled setting cannot be ignored.
+
+The covariance text file begins with one header such as:
+
+```text
+# H0 ombh2 omch2
+```
+
+The filename must name one file directly beside the YAML; an absolute path,
+parent path such as `../cov.txt`, or nested path is refused. The remaining
+lines form one finite, square matrix. Opposite entries must agree up to tiny
+floating-point roundoff. The generator then averages those roundoff-level
+differences so the accepted matrix is exactly symmetric. A larger disagreement
+is refused.
+
+The number of header names must equal the number of matrix rows and columns.
+Every diagonal entry is a variance and must be positive. The file may contain
+parameters that are not varied in this run, but every name in `ord` must occur
+exactly once. The generator checks this full header-to-matrix alignment before
+selecting the smaller covariance used by the requested parameters. That
+selected matrix must also produce a finite covariance factor and finite
+inverse; a matrix that cannot support those calculations is refused.
+
+YAML types are checked without converting text or Booleans into numbers.
+Write a point count as `8`, not `8.0`, `"8"`, or `true`. Write a switch as
+`false`, not `0` or `"false"`. Grid limits, extrapolation limits, and
+fiducial values must be finite YAML numbers rather than quoted text.
+Misspelled or family-inappropriate `train_args` keys are rejected rather than
+ignored.
+
+These checks cover all common and family-specific `train_args` settings
+before the generator creates output. If tempered MCMC sampling later produces
+fewer unique rows than requested at the dataset's saved `float32` precision,
+the run also stops before publishing a smaller dataset.
+
+The optional `latex` entry under a Cobaya parameter only controls its display
+label. If `latex` is absent, `null`, or blank, the saved GetDist label is the
+parameter name. Missing display text does not invalidate a scientific
+parameter definition. A readable label may contain spaces and LaTeX commands,
+but line breaks, tabs, NUL bytes, and other control characters are refused
+before the sidecar is written.
 
 A trainer YAML describes the saved arrays, neural network, loss, optimizer,
 and training schedule. Its top-level `data` block points to the files created
@@ -548,6 +625,9 @@ train_args:
 `2 <= lowest multipole < highest multipole`. One CAMB call produces four
 arrays:
 
+Both multipoles must be ordinary YAML integers. Values such as `2.0`, `"2"`,
+or `true` are not accepted in place of `2`.
+
 ```text
 <data-name>_tt.npy
 <data-name>_te.npy
@@ -581,6 +661,8 @@ train_args:
 
 Each grid needs positive increasing limits and at least eight points. The
 low-redshift grid must end below the beginning of the recombination grid.
+The two limits are finite YAML numbers. The point count is an ordinary YAML
+integer, not a decimal, quoted value, or Boolean.
 
 The program writes:
 
@@ -614,6 +696,10 @@ Each redshift entry is
 combined grid must increase without repeated values and must contain at least
 four points. `k_log10` defines a logarithmic wavenumber grid with at least
 eight points. `extrap_kmax` must reach the highest requested $k$.
+
+Grid limits and `extrap_kmax` are finite YAML numbers. Point counts are
+ordinary YAML integers. The endpoint switch is the unquoted YAML Boolean
+`true` or `false`.
 
 Use the YAML booleans `true` or `false` without quotation marks for
 `write_syren_base`.
@@ -659,9 +745,9 @@ The worked training command therefore turns `params_train` into
 `params_train_background_unifs` before adding `.1.txt`, `.covmat`, and the
 other parameter-file extensions.
 
-A fresh run does not ask before replacing an existing file with the same
-resolved name. Use names that identify the scientific dataset and whether it
-is training or validation data.
+A fresh run refuses when a completed dataset already owns the same resolved
+name. Use names that identify the scientific dataset and whether it is
+training or validation data.
 
 ## FAQ A4. What is in the parameter and failure files? <a id="faq-a4-common-files"></a>
 
@@ -678,11 +764,11 @@ arrays:
 | failure `.txt` | one `0` or `1` for each physical row; `1` means the calculation failed |
 
 On a fresh run, the first comment line in `.1.txt` records the sampling seed
-and random-number generator. Append mode adds rows without adding its new seed
-to that header, so record every append seed in the project note described in
-the main guide. A uniform run stores `1` as a placeholder `lnp`; a tempered
-run stores emcee's log probability. The asterisk marks `chi2*` as a derived
-GetDist column rather than a sampled parameter.
+and random-number generator. Exact append is not available because the saved
+dataset does not yet contain all random and sampler state needed to continue
+without repeating or skipping rows. A uniform run stores `1` as a placeholder
+`lnp`; a tempered run stores emcee's log probability. The asterisk marks
+`chi2*` as a derived GetDist column rather than a sampled parameter.
 
 Physical arrays use 32-bit floating-point numbers. The parameter table is
 decimal text written from the sampled values. Keep the parameter files,
@@ -889,6 +975,13 @@ and upper bounds. The generator replaces infinite endpoints using `--temp`,
 applies `--boundary` when requested, and moves off the exact endpoints by one
 floating-point step.
 
+Cobaya's raw confidence-one prior can report an infinite endpoint for an
+unbounded parameter. That raw value is allowed only as an input to this
+interval calculation. The resolved bounds used for sampling and written to
+the parameter files must be finite and increasing. A finite raw endpoint that
+is too large for the generator's `float32` parameter storage is refused; it is
+not reinterpreted as an intentionally open endpoint.
+
 Uniform mode is the better first run because it does not start an emcee chain.
 The output name ends in `_unifs`.
 
@@ -905,13 +998,11 @@ A small requested row count does not make `--unif 0` a small trial. The code
 prepares at least five million emcee candidate rows before selecting the
 requested rows. Use uniform sampling for the first end-to-end calculation.
 
-`--boundary VALUE` contracts each allowed parameter interval only when
-`0 < VALUE < 1`. The value is the fraction that remains. For example, `0.9`
-keeps the central 90 percent.
-
-Omission keeps the entire interval. Values outside that open range also keep
-the entire interval rather than causing an error, so do not use `1.0` as a
-visible validation marker.
+`--boundary VALUE` accepts `0 < VALUE <= 1`. A value below one contracts each
+allowed parameter interval to the stated central fraction. For example,
+`0.9` keeps the central 90 percent. Omission or `1.0` keeps the entire
+interval. Zero, a negative value, a value above one, or a nonfinite value is
+refused rather than silently replaced.
 
 ## FAQ B2. What does each command-line option mean? <a id="faq-b2-command-options"></a>
 
@@ -934,7 +1025,7 @@ argument parser refuses to start without the option.
 | `--loadchk` | no | `1` to load the existing complete file set; default `0` |
 | `--freqchk` | no | rows between intermediate saves; default 5000 and minimum 1000 |
 | `--append` | no | `1` to add new rows after loading; default `0`; requires `--loadchk 1` |
-| `--boundary` | no | remaining fraction of each parameter interval when strictly between 0 and 1; otherwise keep the entire interval |
+| `--boundary` | no | remaining fraction of each parameter interval; finite value in `(0, 1]`; omission or `1.0` keeps the entire interval |
 | `--seed` | yes | non-negative integer used for random draws in a fresh or append invocation |
 
 Unknown or misspelled options are refused. The three legal run-control pairs
@@ -1071,29 +1162,16 @@ moments.
 
 ## FAQ C3. How do I add more rows? <a id="faq-c3-append"></a>
 
-Append mode uses:
+Exact append is not available yet. The command form is reserved:
 
 ```text
 --loadchk 1 --append 1
 ```
 
-`--nparams` is the requested number of added rows. A tempered run can add
-fewer if it cannot find enough unique samples. Reuse the same YAML, output
-names, `--unif`, `--temp`, `--maxcorr`, and `--boundary` choices, but record a
-new seed. Reusing the original seed can repeat parameter draws because each
-invocation starts its random-number generator from the supplied seed.
-
-Before appending:
-
-1. Copy every parameter, failure, physical, coordinate, and facts file.
-2. Check that the copy opens and has the same file count as the original.
-3. Record the new seed and requested row count.
-4. Run append mode.
-5. Check row counts, failure flags, and array shapes again.
-
-Append changes several files one after another. It is not one indivisible
-write. When storage permits, a fresh larger dataset under new names is easier
-to compare with the old one.
+When requested, the generator checks the existing dataset and then stops
+without creating a draft or changing a file. A seed alone cannot continue an
+earlier random stream exactly. Create a fresh larger dataset under new output
+names instead.
 
 ## FAQ C4. Which files in this folder are commands? <a id="faq-c4-program-files"></a>
 

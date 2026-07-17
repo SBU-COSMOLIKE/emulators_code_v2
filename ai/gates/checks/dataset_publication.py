@@ -166,10 +166,12 @@ ARMS = {
       "test_continuation_refuses_size_digest_lies_and_hardlink_copy",
       "test_continuation_rechecks_manifest_generation_census_and_modes",
       "test_continuation_keeps_pinned_token_across_concurrent_switch",
+      "test_continuation_refuses_a_new_active_record_before_creating_draft",
     )),
     (GeneratorPublicationBridgeTests, (
       "test_resume_copies_authenticated_active_and_publishes_with_cas",
       "test_append_authenticates_active_then_refuses_without_a_draft",
+      "test_resume_semantic_refusal_precedes_locator_or_draft_creation",
     )),
   ),
 }

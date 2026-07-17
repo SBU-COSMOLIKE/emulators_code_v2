@@ -4,6 +4,7 @@ import psutil
 from numpy.lib.format import open_memmap
 from generator_core import (GeneratorCore, capture_native_output,
                             run_generator)
+from generator_ingress import finite_number, native_boolean, native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -102,17 +103,29 @@ class dataset(GeneratorCore):
       raise ValueError("train_args.z_segments must be a non-empty list "
                        "of [zmin, zmax, n, endpoint] segments")
     pieces = []
-    for seg in segs:
+    for segment_index, seg in enumerate(segs):
       if (not isinstance(seg, (list, tuple))) or len(seg) != 4:
         raise ValueError(f"z_segments entry must be [zmin, zmax, n, "
                          f"endpoint], got {seg!r}")
-      zmin, zmax, n, endpoint = (float(seg[0]), float(seg[1]),
-                                 int(seg[2]), bool(seg[3]))
+      label = f"train_args.z_segments[{segment_index}]"
+      zmin = finite_number(seg[0], label + "[0]")
+      zmax = finite_number(seg[1], label + "[1]")
+      n = native_integer(
+        seg[2], label + "[2]", minimum=2)
+      endpoint = native_boolean(seg[3], label + "[3]")
       if not (zmin < zmax) or n < 2:
         raise ValueError(f"z_segments entry needs zmin < zmax and "
                          f"n >= 2, got {seg!r}")
-      pieces.append(np.linspace(zmin, zmax, n, endpoint=endpoint))
+      with np.errstate(over="ignore", invalid="ignore"):
+        piece = np.linspace(zmin, zmax, n, endpoint=endpoint)
+      if not np.isfinite(piece).all():
+        raise ValueError(
+          "train_args.z_segments did not resolve to a finite redshift grid")
+      pieces.append(piece)
     z = np.concatenate(pieces)
+    if not np.isfinite(z).all():
+      raise ValueError(
+        "train_args.z_segments did not resolve to a finite redshift grid")
     if not (np.diff(z) > 0).all():
       raise ValueError("z_segments must concatenate to a strictly "
                        "ascending grid (segments overlap or repeat an "
@@ -124,13 +137,22 @@ class dataset(GeneratorCore):
     if (not isinstance(kk, (list, tuple))) or len(kk) != 3:
       raise ValueError(f"train_args.k_log10 must be [log10 kmin, "
                        f"log10 kmax, nk], got {kk!r}")
-    lo, hi, nk = float(kk[0]), float(kk[1]), int(kk[2])
+    lo = finite_number(kk[0], "train_args.k_log10[0]")
+    hi = finite_number(kk[1], "train_args.k_log10[1]")
+    nk = native_integer(kk[2], "train_args.k_log10[2]", minimum=8)
     if not (lo < hi) or nk < 8:
       raise ValueError(f"k_log10 needs log10 kmin < log10 kmax and "
                        f"nk >= 8, got {kk!r}")
     self.z_mps = z
-    self.k_mps = np.logspace(lo, hi, nk)
-    self.extrap_kmax = float(train_args["extrap_kmax"])
+    with np.errstate(over="ignore", invalid="ignore"):
+      self.k_mps = np.logspace(lo, hi, nk)
+    if (not np.isfinite(self.k_mps).all() or
+        not (self.k_mps > 0.0).all()):
+      raise ValueError(
+        "train_args.k_log10 did not resolve to a finite positive "
+        "wavenumber grid")
+    self.extrap_kmax = finite_number(
+      train_args["extrap_kmax"], "train_args.extrap_kmax")
     if self.extrap_kmax < self.k_mps[-1]:
       raise ValueError(
         f"train_args.extrap_kmax ({self.extrap_kmax}) must reach the "
@@ -244,28 +266,32 @@ class dataset(GeneratorCore):
       expected=self.k_mps,
       label="mps wavenumber")
 
-    RAMneed = self.samples.nbytes + self.failed.nbytes
-    for q in self._quantities():
-      arr = np.load(f"{self.dvsf}_{q}.npy",
-                    mmap_mode = "r",
-                    allow_pickle = False)
-      RAMneed += arr.nbytes
-      del arr
-    RAMavail = psutil.virtual_memory().available
-    if RAMneed < 0.75 * RAMavail:
-      self.dvs_is_memmap = False
-    else:
-      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-            f"We will read dvs from HD (slow)")
+    read_only = getattr(self, "_checkpoint_read_only", False)
+    if read_only:
       self.dvs_is_memmap = True
+    else:
+      RAMneed = self.samples.nbytes + self.failed.nbytes
+      for q in self._quantities():
+        arr = np.load(f"{self.dvsf}_{q}.npy",
+                      mmap_mode = "r",
+                      allow_pickle = False)
+        RAMneed += arr.nbytes
+        del arr
+      RAMavail = psutil.virtual_memory().available
+      if RAMneed < 0.75 * RAMavail:
+        self.dvs_is_memmap = False
+      else:
+        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+              f"We will read dvs from HD (slow)")
+        self.dvs_is_memmap = True
 
     width = len(self.z_mps) * len(self.k_mps)
     self.datavectors = {}
     for q in self._quantities():
       if self.dvs_is_memmap:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
-                                      mmap_mode = "r+",
+                                      mmap_mode = "r" if read_only else "r+",
                                       allow_pickle = False)
       else:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
