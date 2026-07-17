@@ -557,6 +557,11 @@ class GeneratorPayloadSuccessTests(unittest.TestCase):
     function = _function_node(
       GENERATOR, "GeneratorCore", "__generate_datavectors")
     accept_calls = _attribute_calls(function, "_accept_payload_row")
+    consume_calls = _attribute_calls(
+      function, "_consume_worker_result_message")
+    consumer = _function_node(
+      GENERATOR, "GeneratorCore", "_consume_worker_result_message")
+    consumer_accept_calls = _attribute_calls(consumer, "_accept_payload_row")
     write_calls = _attribute_calls(function, "_dv_write")
     direct_success_assignments = []
     for node in ast.walk(function):
@@ -573,7 +578,9 @@ class GeneratorPayloadSuccessTests(unittest.TestCase):
             and target.value.attr == "failed"):
           direct_success_assignments.append(node)
 
-    self.assertEqual(len(accept_calls), 5)
+    self.assertEqual(len(accept_calls), 3)
+    self.assertEqual(len(consume_calls), 2)
+    self.assertEqual(len(consumer_accept_calls), 1)
     self.assertEqual(write_calls, [])
     self.assertEqual(direct_success_assignments, [])
 

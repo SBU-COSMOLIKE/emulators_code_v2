@@ -222,6 +222,7 @@ redshift-by-wavenumber surface.
 | `test_dataset_request_contract.py` | Does a saved request describe the exact scientific calculation and the exact files that calculation must produce? |
 | `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
 | `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
+| `test_generator_mpi_message_binding.py` | Can an MPI worker result update only the parameter row that rank zero actually assigned to that worker? |
 | `test_generator_payload_success.py` | Is a generated row marked successful only after its scientific values survive validation, writing, and exact read-back? |
 | `test_generator_run_control.py` | Do the three legal run choices select new work, resume, or append without allowing one output kind to overwrite another? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
@@ -381,6 +382,32 @@ each scientific generator.
   checks whether any path exists.
 - **Why it matters:** similar filenames must not let one generator read files
   that belong to another scientific calculation.
+
+#### Matching a parallel result to its assigned row
+
+`test_generator_mpi_message_binding.py` checks the messages returned by
+parallel data-generator workers. MPI is the tool that lets rank zero give
+different parameter rows to several worker processes at the same time.
+
+- **Example used:** rank zero assigns row 4 to worker 2 and row 17 to worker 3.
+  Worker 3 replies first, followed by worker 2. A stale, repeated, or damaged
+  reply may instead name row 5, arrive from a worker with no current
+  assignment, or claim that the wrong worker finished shutting down.
+- **What the test does:** it runs the real message validators without starting
+  MPI or a scientific calculation. It also reads the generator source to
+  confirm that both result-receiving loops and the shutdown loop validate a
+  message before removing the worker's assignment.
+- **Pass means:** a valid result keeps its payload and uses the row stored in
+  rank zero's assignment. A valid shutdown reply names the same worker that
+  sent it. The validator itself never edits the assignment table.
+- **A refusal it proves:** an unknown worker, a duplicate reply, a different
+  row number, a Boolean or negative row, an unknown result kind, a malformed
+  error report, or a false shutdown reply stops before a data-vector row is
+  changed.
+- **Why it matters:** without this binding, a perfectly finite scientific
+  vector calculated for one cosmology could be written beside another
+  cosmology's parameters. The saved arrays would have valid shapes and could
+  silently train the emulator on false row-to-target pairs.
 
 #### When a generated row becomes successful
 

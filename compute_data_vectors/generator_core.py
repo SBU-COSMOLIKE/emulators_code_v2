@@ -315,6 +315,109 @@ def capture_native_output():
     os.close(stdout_dup)             # release the bookmarks
     os.close(stderr_dup)
     tmp.close()
+
+
+def validate_worker_result_message(message, source, active):
+  """Bind one MPI result to the row assigned to its sending worker.
+
+  Rank zero records one ``worker -> (row, start time)`` assignment in
+  ``active`` before it receives that worker's result. A result is safe to use
+  only when it comes from a worker that still owns a task and reports that
+  exact row. This check runs before the master deletes the assignment or
+  changes a payload store, so a stale, duplicate, or malformed message cannot
+  write a result into another parameter row.
+
+  Arguments:
+    message = the exact three-item tuple received from the worker.
+    source = the positive integer rank reported by MPI for that message.
+    active = rank zero's current mapping from worker rank to assigned row and
+             task start time.
+
+  Returns:
+    ``(kind, row, payload)`` with ``row`` taken from the recorded active
+    assignment. ``kind`` is either ``"ok"`` or ``"err"``.
+
+  Raises:
+    RuntimeError when the message does not follow the worker protocol or does
+    not match the sender's live assignment.
+  """
+  if type(source) is not int or source < 1:
+    raise RuntimeError(
+      "MPI result source must be a positive worker rank; got "
+      + repr(source))
+  if source not in active:
+    raise RuntimeError(
+      "MPI result came from worker " + str(source)
+      + " without a live row assignment; refuse a stale or duplicate result")
+  assignment = active[source]
+  if type(assignment) is not tuple or len(assignment) != 2 \
+      or type(assignment[0]) is not int or assignment[0] < 0:
+    raise RuntimeError(
+      "MPI active assignment for worker " + str(source)
+      + " is malformed: " + repr(assignment))
+  if type(message) is not tuple or len(message) != 3:
+    raise RuntimeError(
+      "MPI worker result must be the tuple (kind, row, payload); got "
+      + repr(message))
+  kind, reported_row, payload = message
+  if type(kind) is not str or kind not in ("ok", "err"):
+    raise RuntimeError(
+      "MPI worker result kind must be 'ok' or 'err'; got " + repr(kind))
+  if type(reported_row) is not int or reported_row < 0:
+    raise RuntimeError(
+      "MPI worker result row must be a nonnegative native integer; got "
+      + repr(reported_row))
+  assigned_row = assignment[0]
+  if reported_row != assigned_row:
+    raise RuntimeError(
+      "MPI worker " + str(source) + " reported row " + str(reported_row)
+      + " but rank zero assigned row " + str(assigned_row)
+      + "; refuse to write a payload under the wrong parameter row")
+  if kind == "err" and type(payload) is not str:
+    raise RuntimeError(
+      "MPI worker error payload must be traceback text; got "
+      + type(payload).__name__)
+  return kind, assigned_row, payload
+
+
+def validate_worker_done_message(message, source, active):
+  """Validate one worker's acknowledgement of the MPI stop request.
+
+  The acknowledgement must come from a worker still awaiting shutdown and
+  must name the same rank.  Validation precedes removal from ``active`` so a
+  stray message cannot make rank zero believe another worker stopped.
+
+  Arguments:
+    message = the exact two-item tuple received from the worker.
+    source = the positive integer rank reported by MPI for that message.
+    active = rank zero's mapping of workers still awaiting shutdown.
+
+  Returns:
+    The validated source rank.
+
+  Raises:
+    RuntimeError when the message is malformed, comes from an unexpected
+    worker, or names a different worker.
+  """
+  if type(source) is not int or source < 1:
+    raise RuntimeError(
+      "MPI stop acknowledgement source must be a positive worker rank; got "
+      + repr(source))
+  if source not in active:
+    raise RuntimeError(
+      "MPI stop acknowledgement came from worker " + str(source)
+      + " that is not awaiting shutdown")
+  if type(message) is not tuple or len(message) != 2:
+    raise RuntimeError(
+      "MPI stop acknowledgement must be ('worker done', source rank); got "
+      + repr(message) + " from worker " + str(source))
+  label, reported_source = message
+  if type(label) is not str or label != "worker done" \
+      or type(reported_source) is not int or reported_source != source:
+    raise RuntimeError(
+      "MPI stop acknowledgement must be ('worker done', source rank); got "
+      + repr(message) + " from worker " + str(source))
+  return source
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # The dataset's scientific record (emulator/fixed_facts.py owns the schema)
@@ -963,6 +1066,57 @@ class GeneratorCore:
         index=index,
         payload=None,
         write_row=False)
+
+  def _consume_worker_result_message(self, message, source, active):
+    """Validate and apply one MPI worker result to its assigned row.
+
+    Protocol validation happens before this method changes the assignment
+    table, failure mask, or payload store. Both rank-zero result loops use this
+    one method, so a normal result and a result received while finishing the
+    last workers obey the same row-binding rule.
+
+    Arguments:
+      message = the exact worker-result tuple returned by MPI.
+      source = the positive integer worker rank reported by MPI.
+      active = rank zero's mutable worker-to-row assignment mapping.
+
+    Returns:
+      ``(row, outcome, detail)``. ``row`` is the row rank zero assigned.
+      ``outcome`` is ``"accepted"``, ``"worker-error"``, or
+      ``"invalid-payload"``. ``detail`` is ``None``, worker traceback text,
+      or the payload-validation exception, respectively.
+
+    Raises:
+      RuntimeError when the worker message does not match the live assignment.
+      A storage exception also propagates when a failed row cannot be cleared
+      safely.
+    """
+    kind, index, payload = validate_worker_result_message(
+      message=message,
+      source=source,
+      active=active)
+
+    if kind == "err":
+      self._dv_zero(index)
+      self.failed[index] = True
+      outcome = "worker-error"
+      detail = payload
+    else:
+      try:
+        self._accept_payload_row(
+          index=index,
+          payload=payload,
+          write_row=True)
+        outcome = "accepted"
+        detail = None
+      except Exception as error:
+        self._dv_zero(index)
+        self.failed[index] = True
+        outcome = "invalid-payload"
+        detail = error
+
+    del active[source]
+    return index, outcome, detail
 
   #-----------------------------------------------------------------------------
   # data-vector store (default: the single 2D array at {dvsf}.npy)
@@ -1838,35 +1992,27 @@ class GeneratorCore:
           #               message without actually receiving it
           # Why? protect the script against crashes (like CAMB/Class crash)
           if comm.Iprobe(source = MPI.ANY_SOURCE, tag = RTAG, status = status):
-            kind, idx, payload = comm.recv(source = MPI.ANY_SOURCE,
-                                       tag = RTAG,
-                                       status = status)
+            message = comm.recv(source = MPI.ANY_SOURCE,
+                                tag = RTAG,
+                                status = status)
             count += 1
             src = status.Get_source()
-            if src in active:
-              del active[src]
+            idx, outcome, detail = self._consume_worker_result_message(
+              message=message,
+              source=src,
+              active=active)
 
-            if kind == "err": # set datavector to zero and continue
-              self._dv_zero(idx)
-              self.failed[idx] = True
+            if outcome == "worker-error":
               sys.stderr.write(f"[Rank 0] Worker {src} failed at idx={idx}\n"
-                               f"[Rank 0] Traceback: {payload}\n")
+                               f"[Rank 0] Traceback: {detail}\n")
               sys.stderr.flush()
-            else:
-              try:
-                self._accept_payload_row(
-                  index=idx,
-                  payload=payload,
-                  write_row=True)
-              except Exception as error:
-                self._dv_zero(idx)
-                self.failed[idx] = True
-                sys.stderr.write(
-                  f"[Rank 0] Worker {src} returned an invalid data-vector "
-                  f"payload at idx={idx}\n"
-                  f"[Rank 0] Exception type: {type(error).__name__}\n"
-                  f"[Rank 0] Exception message: {error}\n")
-                sys.stderr.flush()
+            elif outcome == "invalid-payload":
+              sys.stderr.write(
+                f"[Rank 0] Worker {src} returned an invalid data-vector "
+                f"payload at idx={idx}\n"
+                f"[Rank 0] Exception type: {type(detail).__name__}\n"
+                f"[Rank 0] Exception message: {detail}\n")
+              sys.stderr.flush()
             completed[idx] = True
 
             if not self.loadedfromchk:
@@ -1912,34 +2058,26 @@ class GeneratorCore:
           #               message without actually receiving it
           # Why? protect the script against crashes (like CAMB/Class crash)
           if comm.Iprobe(source = MPI.ANY_SOURCE, tag = RTAG, status = status):
-            kind, idx, payload = comm.recv(source = MPI.ANY_SOURCE,
-                                           tag = RTAG,
-                                           status = status) # drain results
+            message = comm.recv(source = MPI.ANY_SOURCE,
+                                tag = RTAG,
+                                status = status) # drain results
             src = status.Get_source()
-            if kind == "err":
-              self._dv_zero(idx)
-              self.failed[idx] = True
+            idx, outcome, detail = self._consume_worker_result_message(
+              message=message,
+              source=src,
+              active=active)
+            if outcome == "worker-error":
               sys.stderr.write(f"[Rank 0] Worker {src} failed at idx={idx}\n"
-                               f"(MPI) Msg: {payload}\n")
+                               f"(MPI) Msg: {detail}\n")
               sys.stderr.flush()
-            else:
-              try:
-                self._accept_payload_row(
-                  index=idx,
-                  payload=payload,
-                  write_row=True)
-              except Exception as error:
-                self._dv_zero(idx)
-                self.failed[idx] = True
-                sys.stderr.write(
-                  f"[Rank 0] Worker {src} returned an invalid data-vector "
-                  f"payload at idx={idx}\n"
-                  f"[Rank 0] Exception type: {type(error).__name__}\n"
-                  f"[Rank 0] Exception message: {error}\n")
-                sys.stderr.flush()
+            elif outcome == "invalid-payload":
+              sys.stderr.write(
+                f"[Rank 0] Worker {src} returned an invalid data-vector "
+                f"payload at idx={idx}\n"
+                f"[Rank 0] Exception type: {type(detail).__name__}\n"
+                f"[Rank 0] Exception message: {detail}\n")
+              sys.stderr.flush()
             completed[idx] = True
-            if src in active: # Remove worker from active list
-              del active[src]
           else:
             doabort = False
             for w, (idx, t0) in list(active.items()):
@@ -1968,10 +2106,16 @@ class GeneratorCore:
           #               message without actually receiving it
           # Why? protect the script against crashes (like CAMB/Class crash)
           if comm.Iprobe(source=MPI.ANY_SOURCE, tag=DTAG, status=status):
-            _ = comm.recv(source=MPI.ANY_SOURCE, tag=DTAG, status=status)
+            message = comm.recv(
+              source=MPI.ANY_SOURCE,
+              tag=DTAG,
+              status=status)
             src = status.Get_source()
-            if src in active:
-              del active[src]
+            validate_worker_done_message(
+              message=message,
+              source=src,
+              active=active)
+            del active[src]
           else:
             for w, (_, t0) in list(active.items()):
               if (MPI.Wtime()-t0) > STOP_TIMEOUT: # no task runtime > TIMEOUT
