@@ -504,7 +504,8 @@ class AdapterPublicationTests(unittest.TestCase):
       output_params=("sigma8",))
     adapter._compute_sigma8 = lambda *args, **kwargs: float("nan")
     state = {}
-    self.assertFalse(adapter.calculate(state, want_derived=True))
+    self.assertFalse(adapter.calculate(
+      state, want_derived=True, H0=67.0))
     self.assertEqual(state, {})
 
   def test_mps_refuses_a_broadcastable_syren_base_shape(self):

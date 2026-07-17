@@ -681,9 +681,19 @@ equality. It does not check units or prove that `pklin` uses
 `boost` uses `syren_halofit`. A `none` formula is also allowed when the
 saved emulator learned the raw surface.
 
-The current `sigma8` helper integrates with an 8 Mpc radius, not the usual
-8 Mpc/$h$ radius used for the conventional $\sigma_8$ parameter. Obtain
-conventional $\sigma_8$ from another checked calculation.
+The adapter can also provide conventional $\sigma_8$. It converts `H0` to
+$h=H_0/100$ and uses the required radius $R=8/h$ Mpc because the saved
+wavenumber axis is in inverse Mpc. The stored surface must contain an exact
+$z=0$ row; a nearby redshift is not renamed as zero.
+
+Before returning the number, the adapter checks the positive contribution to
+the integral across the stored wavenumber grid. The contribution must decrease
+toward both missing ends, its estimated tails must be small, and two
+lower-resolution recalculations must agree with the full grid. A short or
+poorly sampled grid therefore stops with an explanation instead of returning
+a finite but incomplete value. A sigma-eight request adds `H0` only for this
+derived calculation. A saved emulator or a Syren formula may independently
+use `H0` as one of its own inputs.
 
 ## FAQ C6. What does the EMUL2 example replace? <a id="faq-c6"></a>
 
@@ -770,8 +780,9 @@ Move to an MCMC only after all of these are true:
 - the training and validation rows retained after `param_cuts` cover the
   planned priors closely enough to test that region;
 - units, parameter names, and fixed cosmology agree;
-- background-expansion runs are flat and matter-power runs account for the
-  `sigma8` definition;
+- background-expansion runs are flat; a matter-power run that requests
+  `sigma8` supplies `H0`, contains an exact `z = 0` row, and passes the
+  adapter's wavenumber-tail and resolution checks;
 - the MCMC uses a new output prefix.
 
 The conversion steps are in [FAQ B8](#faq-b8). The main README appendices

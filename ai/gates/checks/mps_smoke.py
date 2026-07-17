@@ -23,7 +23,9 @@ workstation).
   4  the real cobaya lifecycle through emul_mps: get_model +
      add_requirements(Pk_grid) + logposterior; the served P_lin and
      P_nl (grid + interpolator) within 5% of CAMB's OWN P(k, z) at an
-     off-center point, plus the interpolator's extrapolation range guard.
+     off-center point; the sigma8 integral on CAMB's linear spectrum
+     agrees with CAMB's own derived value; plus the interpolator's
+     extrapolation range guard.
 
 These four phases are the four board-declared evidence legs
 (generated-power-dumps, training-collapse, diagnostics-output,
@@ -338,7 +340,7 @@ def check_diagnostics(exp, model, tmp):
 
 
 def camb_truth(point, z_probe, k_probe):
-    """CAMB's own P(k, z) at the test point (the exact reference).
+    """CAMB's P(k,z) and sigma8 at the test point (the exact references).
 
     The CAMB path is resolved ABSOLUTELY from $ROOTDIR: cocoa's
     conventional "./external_modules/code/CAMB" only works when the
@@ -365,6 +367,7 @@ def camb_truth(point, z_probe, k_probe):
             "ns":    {"value": 0.965},
             "tau":   {"value": 0.055},
             "mnu":   {"value": 0.06},
+            "sigma8": {"derived": True},
         },
     }
     model = get_model(info)
@@ -388,12 +391,25 @@ def camb_truth(point, z_probe, k_probe):
                              "nonlinear": (True, False),
                              "vars_pairs": ([("delta_tot", "delta_tot")])},
          "Cl": {"tt": 0}})
-    model.logposterior({})
+    result = model.logposterior({})
     lin = model.provider.get_Pk_interpolator(
         ("delta_tot", "delta_tot"), nonlinear=False, extrap_kmax=200.0)
     nl = model.provider.get_Pk_interpolator(
         ("delta_tot", "delta_tot"), nonlinear=True, extrap_kmax=200.0)
-    return lin.P(z_probe, k_probe), nl.P(z_probe, k_probe)
+    # This uses CAMB's linear surface within its requested k support, but the
+    # adapter's top-hat helper.
+    # CAMB's separately calculated derived sigma8 is the independent answer.
+    # A dense wide grid isolates the radius and integration convention from
+    # the deliberately tiny trained-emulator grid used elsewhere in this gate.
+    from cobaya_theory.emul_mps import emul_mps
+    k_sigma = np.geomspace(1.0e-4, 2.0e1, 2001)
+    helper = emul_mps.__new__(emul_mps)
+    sigma_from_surface = helper._compute_sigma8(
+        lin.P(0.0, k_sigma)[None, :], k_sigma, np.array([0.0]),
+        h=point["H0"] / 100.0)
+    sigma_from_camb = float(result.derived[0])
+    return (lin.P(z_probe, k_probe), nl.P(z_probe, k_probe),
+            sigma_from_surface, sigma_from_camb)
 
 
 def check_cobaya(root_p, root_b, tmp):
@@ -443,12 +459,18 @@ def check_cobaya(root_p, root_b, tmp):
         report("cobaya lifecycle through emul_mps", False,
                type(e).__name__ + ": " + str(e)[:250])
         return
-    want_lin, want_nl = camb_truth(point, z_probe, k_probe)
+    want_lin, want_nl, got_sigma8, want_sigma8 = camb_truth(
+        point, z_probe, k_probe)
     rel_lin = np.abs(got_lin / want_lin - 1).max()
     rel_nl = np.abs(got_nl / want_nl - 1).max()
     report("P_lin / P_nl vs CAMB's own P(k, z) (5%)",
            max(rel_lin, rel_nl) < 0.05,
            "rel lin %.3g, nl %.3g" % (rel_lin, rel_nl))
+    sigma_rel = abs(got_sigma8 / want_sigma8 - 1.0)
+    report("sigma8 integral vs CAMB's own derived sigma8 (0.2%)",
+           sigma_rel < 0.002,
+           "adapter %.9g, CAMB %.9g, rel %.3g"
+           % (got_sigma8, want_sigma8, sigma_rel))
     # the interpolator's range guard: beyond the stored k without an
     # extrapolation request is loud.
     try:

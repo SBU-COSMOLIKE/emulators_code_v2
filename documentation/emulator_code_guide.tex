@@ -5104,13 +5104,20 @@ ${\rm Mpc}^{-1}$, the numerical radius entering $kR$ is therefore
 $8/h$ Mpc.  A radius of 8 Mpc computes a different observable.
 
 \paragraph{Safe use of the current matter-power adapter.}
-The derived \(\sigma_8\) helper combines \(k\) in Mpc\(^{-1}\) with a radius
-of 8 Mpc, so it calculates \(\sigma(8\,\mathrm{Mpc})\).  The conventional
-quantity needs \(R=8/h\) Mpc.  The adapter also advertises this product through
-the wrong Cobaya support hook and narrows the shared \(A_s\)/\(A_{s,9}\)
-amplitude rule.  Matter-power surface prediction is unaffected.  Do not
-request \(\sigma_8\) from this adapter.  Use another provider or a direct,
-verified integral with \(R=8/h\) Mpc and sufficient stored \(k\) support.
+The derived \(\sigma_8\) helper receives \(H_0\), forms \(h=H_0/100\), and
+combines the stored \(k\) in Mpc\(^{-1}\) with the conventional radius
+\(R=8/h\) Mpc.  It requires one exact stored \(z=0\) row.  Before taking the
+square root, it integrates in double precision and checks the positive
+contribution per unit \(\log k\).  Adjacent bands must show decay toward both
+missing tails, the estimated omitted variance must be small, interlaced
+lower-resolution integrals must agree, and no single integration panel may
+dominate the result.  A short or under-resolved grid therefore refuses rather
+than returning a smooth but incomplete number.
+
+Cobaya discovers matter-power grids and interpolators from their public getter
+methods.  It treats \(\sigma_8\) as a derived result.  Requesting that result
+adds the \(H_0\) dependency needed for the radius conversion; a saved emulator
+or a Syren formula may independently use \(H_0\) as one of its own inputs.
 
 The request boundary validates the full \(k\) and \(z\) sequences.  It requires
 a complete requested grid and rejects unsupported holes.  Every calculate

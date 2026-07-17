@@ -749,6 +749,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
+| `test_mps_sigma8_contract.py` | Does the matter-power adapter calculate conventional sigma-eight with the correct physical radius, exact redshift, and enough wavenumber coverage? |
 | `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
 | `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
 
@@ -905,6 +906,40 @@ adapters before those results become visible to the sampler.
   model coordinate, and NumPy can silently broadcast a row across a surface.
   Checking only the final array could therefore turn an invalid intermediate
   calculation into a finite-looking but scientifically wrong result.
+
+#### Conventional sigma-eight from matter power
+
+`test_mps_sigma8_contract.py` checks the derived matter-fluctuation number
+called sigma-eight. Its spherical averaging radius is 8 Mpc/$h$, where
+`h = H0/100`. Because this repository stores wavenumber in inverse Mpc, the
+number used for the radius must be `8/h` Mpc rather than the literal number 8.
+
+- **Example used:** the artificial spectrum
+  $P(k)=512\pi^2/(9k)$ has an analytic answer. With `H0 = 64`, `h = 0.64`,
+  and radius `8/h = 12.5` Mpc, the infinite-range answer is exactly 0.64.
+  On the finite checked grid the independent answer is
+  `0.6399980037465730`. The old 8-Mpc calculation returns approximately 1,
+  so it cannot pass by rounding to the same value.
+- **What the test does:** it calculates the result from both float64 and
+  float32 inputs, then runs a lightweight real Cobaya model. The live model
+  proves that a sigma-eight request supplies `H0` to the adapter, while an
+  ordinary linear or nonlinear matter-power request still works without an
+  unnecessary `H0` dependency. Three paired numerical examples also sit just
+  below and just above the missing-tail, lower-resolution, and largest-panel
+  limits. Each pair proves that its named check can refuse a bad grid without
+  hiding behind one of the other two checks.
+- **Pass means:** the adapter uses `8/h` Mpc, reads only an exact stored
+  `z = 0` row, accumulates the integral in float64, and publishes the derived
+  value only after all of those checks pass.
+- **A refusal it proves:** `z = 0.009` is not treated as zero. A grid covering
+  only low wavenumbers, only high wavenumbers, or `k = 1..10` stops because
+  the measured contribution has not decayed at both edges. A grid with only
+  eight widely separated values also stops because coarsening it changes the
+  integral too much.
+- **Why it matters:** all of these wrong calculations can return finite,
+  positive numbers. Array-shape and finiteness checks alone therefore cannot
+  protect a scientific analysis from a mislabeled smoothing scale or from a
+  grid that omitted most of the integral.
 
 ## AI workflow and policy test inventory
 

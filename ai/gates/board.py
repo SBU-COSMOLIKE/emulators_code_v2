@@ -1698,8 +1698,9 @@ def gate_mps_b(ctx):
       through the grid2d dispatch.
     - cobaya-vs-camb: the real Cobaya lifecycle through emul_mps serves
       P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
-      P(k, z) at an off-center point, and an out-of-range interpolator
-      query raises.
+      P(k, z) at an off-center point, the adapter's sigma8 integral agrees
+      with CAMB's independently derived value within 0.2%, and an
+      out-of-range interpolator query raises.
 
   torch + cobaya + a compiled CAMB under $ROOTDIR
   (spec: ai/notes/families-background-mps.md#mps-smoke-evidence).
@@ -1711,7 +1712,7 @@ def gate_mps_b(ctx):
     # child prints (folded into the executed set by run_check); this line only
     # asserts the child's aggregate exit status, so it carries no aid.
     ctx.expect(
-      label="mps-smoke generator + two trainings + cobaya-vs-CAMB",
+      label="mps-smoke generator + trainings + P(k,z)/sigma8 vs CAMB",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (ai/gates/checks/mps_smoke.py)")
@@ -3553,7 +3554,7 @@ BOARD = [
        home="families-background-mps",
        maps="the matter-power law-none smoke: generated linear-power and "
             "boost dumps, both trainings collapsing, the grid2d diagnostics "
-            "output, and the emul_mps lifecycle vs CAMB's own P(k, z)",
+            "output, and the emul_mps P(k,z) and sigma8 results vs CAMB",
        evidence=(Assertion("mps-smoke.generated-power-dumps",
                            "families-background-mps.md#mps-smoke-generated-power-dumps"),
                  Assertion("mps-smoke.training-collapse",

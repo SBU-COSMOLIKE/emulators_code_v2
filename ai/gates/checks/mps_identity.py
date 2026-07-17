@@ -59,7 +59,10 @@ Legs:
     assembly EXACT against the stubs (P_lin = exp(net) * base; the
     low-k blend pins boost -> 1 below k_t; P_nl = B * P_lin); the
     legacy state keys; get_Pk_grid / get_Pk_interpolator round-trip at
-    the grid nodes; a non-positive spectrum rejects the point (False);
+    the grid nodes; conventional sigma8 has an independent analytic
+    known answer, receives h=H0/100, requires exact z=0, and refuses
+    incomplete or under-resolved k grids; a non-positive spectrum rejects
+    the point (False);
   - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra bitwise under the diagonal metric,
     the base alive, the state round-trip, save -> rebuild -> predict
@@ -2030,6 +2033,81 @@ def check_adapter(tmp, device):
         # boost base received the EMULATED P_lin (the legacy flow).
         ok = ok and np.allclose(calls["boost_plin"], want_plin)
         report("calculate assembly exact vs base stubs + blend", ok, "")
+
+        # Sigma-eight has an analytic reference independent of the adapter.
+        # For P(k)=C/k with C=512*pi^2/9, sigma_R=8/R.  With h=.64 and
+        # R=8/h Mpc, the infinite-domain answer is therefore .64; the finite
+        # x=[1e-4,400] grid below has the exact value recorded here.
+        sigma_helper = t._compute_sigma8
+        h_sigma = 0.64
+        radius = 8.0 / h_sigma
+        k_sigma = np.geomspace(1.0e-4 / radius, 400.0 / radius, 4001)
+        c_sigma = 512.0 * np.pi ** 2 / 9.0
+        p_sigma = c_sigma / k_sigma
+        z_sigma = np.array([0.0, 0.009, 0.5, 1.0])
+        surface_sigma = np.stack(
+            (p_sigma, 4.0 * p_sigma, 0.5 * p_sigma, 0.25 * p_sigma))
+        got_sigma = sigma_helper(
+            surface_sigma, k_sigma, z_sigma, h=h_sigma)
+        report("sigma8 analytic known answer uses R=8/h Mpc",
+               abs(got_sigma - 0.6399980037465730) < 2.0e-8,
+               "got %.15g" % got_sigma)
+
+        # The public calculate path must send the assembled linear spectrum
+        # and H0 to sigma8.  A spy makes both facts observable without asking
+        # the tiny six-point assembly grid to pass the integration certificate.
+        seen_sigma = {}
+
+        def sigma_spy(power, k_axis, z_axis, *, h):
+            seen_sigma["power"] = np.array(power, copy=True)
+            seen_sigma["shape"] = power.shape
+            seen_sigma["h"] = h
+            return 0.8
+
+        t._compute_sigma8 = sigma_spy
+        t.output_params = ["sigma8"]
+        sigma_state = {}
+        sigma_ok = t.calculate(sigma_state, want_derived=True, **point)
+        report("calculate passes linear P(k,z) and h=H0/100 to sigma8",
+               sigma_ok and abs(seen_sigma.get("h", -1.0) - 0.67) < 1e-15
+               and np.array_equal(seen_sigma.get("power"), want_plin)
+               and sigma_state.get("derived") == {"sigma8": 0.8}, "")
+        t._compute_sigma8 = sigma_helper
+        t.output_params = []
+
+        try:
+            sigma_helper(surface_sigma, k_sigma,
+                         np.array([0.009, 0.1, 0.5, 1.0]), h=h_sigma)
+            report("sigma8 requires an exact stored z=0 row", False,
+                   "no raise")
+        except ValueError as e:
+            report("sigma8 requires an exact stored z=0 row",
+                   "exact z=0" in str(e), type(e).__name__)
+
+        try:
+            k_short = np.geomspace(1.0, 10.0, 4001)
+            p_short = c_sigma / k_short
+            sigma_helper(np.stack((p_short, p_short, p_short, p_short)),
+                         k_short, z_sigma, h=h_sigma)
+            report("sigma8 refuses a short positive k interval", False,
+                   "no raise")
+        except ValueError as e:
+            report("sigma8 refuses a short positive k interval",
+                   "incomplete" in str(e), type(e).__name__)
+
+        try:
+            k_sparse = np.geomspace(1.0e-4 / radius,
+                                    400.0 / radius, 8)
+            p_sparse = c_sigma / k_sparse
+            sigma_helper(
+                np.stack((p_sparse, p_sparse, p_sparse, p_sparse)),
+                k_sparse, z_sigma, h=h_sigma)
+            report("sigma8 refuses a wide but under-resolved k grid", False,
+                   "no raise")
+        except ValueError as e:
+            report("sigma8 refuses a wide but under-resolved k grid",
+                   ("too coarse" in str(e)
+                    or "under-resolved" in str(e)), type(e).__name__)
         # get_Pk_grid / interpolator at the nodes.
         t.current_state = state
         kk, zz, pk = t.get_Pk_grid(nonlinear=False)
