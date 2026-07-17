@@ -20,6 +20,7 @@
 # these files are compiler state that is regenerated during every clean build.
 documentation/*.aux
 documentation/*.log
+documentation/*.out
 documentation/*Notes.bib
 
 # agent relay transport (never committed)

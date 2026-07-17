@@ -62,6 +62,10 @@ rules still apply when an AI role makes a change.
 - [FAQ G1. What do candidate C and landing L mean?](#faq-g1-candidate-and-landing)
 - [FAQ H1. How does the Architect update a permanent note?](#faq-h1-permanent-note-update)
 
+**[Appendices about additional documentation](#appendices-about-additional-documentation)**
+
+- [FAQ I1. What if I need a longer explanation of one feature or script?](#faq-i1-feature-documentation)
+
 **[Tool commands, stopping, setup, recovery, and transfers](tools/README.md#common-questions-raised-by-developers)**
 
 - [When can I interrupt the watcher?](tools/README.md#appendix-b--when-is-it-safe-to-stop-the-watcher)
@@ -1262,6 +1266,10 @@ They are two different saved versions of one accepted ticket. **Candidate C**
 is the Implementer's proposed change. After Architect `GO`, the watcher builds
 **landing L**, the version that can become the newest local `main`.
 
+The [candidate-to-landing guide](../documentation/candidate_to_landing.pdf)
+explains the Git objects and watcher commands in depth. This FAQ keeps the
+short operating explanation.
+
 #### If the watcher leaves the main folder unchanged
 
 Read the recovery message before changing anything. If the main folder only
@@ -1420,3 +1428,50 @@ overwriting newer remote work. If that attempt fails or is uncertain, it
 saves a local **push-debt record** containing exact P and the command still
 owed. It does not repeat the edit. The watcher never resets a role folder that
 has unfinished or different saved work.
+
+## Appendices about additional documentation <a id="appendices-about-additional-documentation"></a>
+
+### FAQ I1. What if I need a longer explanation of one feature or script? <a id="faq-i1-feature-documentation"></a>
+
+Ask the Architect for documentation about that one topic. This kind of guide
+is useful when a feature or script is important to understand but its complete
+explanation would make a README too long. It is not a request for another
+manual about the whole library.
+
+The Architect searches existing guides and README sections first. Two guides
+that explain the same mechanism can slowly disagree, so a new file is created
+only when no current document owns the reader's question.
+
+```mermaid
+flowchart TD
+  U["User asks the Architect for documentation about one topic"] --> S["Architect searches existing guides and README sections"]
+  S --> E{"Does one guide already own the answer?"}
+  E -->|"Yes"| R["Update it or add a clearer link"]
+  E -->|"No"| N["Plan one bounded long-form guide"]
+  R --> C["Build, render, and check the final explanation"]
+  N --> C
+```
+
+The Architect checks [`documentation/README.md`](../documentation/README.md),
+opens likely existing sources, and compares the proposed explanation with the
+current code. The plan states one reader question, the included and excluded
+scope, the implementation sources, one worked example, important failure
+behavior, the README link, and the commands that build and render the final
+document.
+
+The Implementer writes the tracked source and compiled file. The Architect
+reviews every rendered page and decides `GO` or `NO-GO`. Red Team review is
+optional and advisory, as it is for other tickets.
+
+Use these two documents to see the difference in scope:
+
+- The [candidate-to-landing guide](../documentation/candidate_to_landing.pdf)
+  explains one Git mechanism in depth.
+- The [CoCoA SONIC emulator guide](../documentation/emulator_code_guide.pdf)
+  is a complete manual for the emulator library.
+
+A new feature-specific guide is a **Low-priority new-functionality ticket** by
+default. It becomes **High** only when the user explicitly asks for High
+priority because understanding the feature is urgent. Incorrect existing
+instructions that can damage normal use are classified as a documentation bug
+instead of using this default.

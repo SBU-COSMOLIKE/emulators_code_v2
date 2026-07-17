@@ -732,6 +732,119 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Only the Architect decides whether to use it",
                       self.ai_readme)
 
+    def test_ai_guide_explains_feature_specific_documentation_requests(self):
+        """Keep the public search-first documentation route discoverable."""
+        readme = self.ai_readme
+        normalized = " ".join(readme.split())
+        toc_link = (
+            "[FAQ I1. What if I need a longer explanation of one feature or "
+            "script?](#faq-i1-feature-documentation)"
+        )
+        heading = (
+            "### FAQ I1. What if I need a longer explanation of one feature "
+            "or script? <a id=\"faq-i1-feature-documentation\"></a>"
+        )
+
+        self.assertIn(
+            "[Appendices about additional documentation]"
+            "(#appendices-about-additional-documentation)",
+            readme,
+        )
+        self.assertIn(toc_link, readme)
+        self.assertIn(heading, readme)
+        self.assertIn(
+            "The Architect searches existing guides and README sections "
+            "first.",
+            normalized,
+        )
+        self.assertIn(
+            "a new file is created only when no current document owns the "
+            "reader's question",
+            normalized,
+        )
+        self.assertIn("../documentation/README.md", readme)
+        self.assertIn("../documentation/candidate_to_landing.pdf", readme)
+        self.assertIn("../documentation/emulator_code_guide.pdf", readme)
+        self.assertIn(
+            "The Implementer writes the tracked source and compiled file.",
+            normalized,
+        )
+        self.assertIn(
+            "The Architect reviews every rendered page and decides `GO` or "
+            "`NO-GO`.",
+            normalized,
+        )
+        self.assertIn("Red Team review is optional and advisory", normalized)
+        self.assertIn(
+            "A new feature-specific guide is a **Low-priority "
+            "new-functionality ticket** by default.",
+            normalized,
+        )
+        self.assertIn(
+            "It becomes **High** only when the user explicitly asks for High "
+            "priority because understanding the feature is urgent.",
+            normalized,
+        )
+
+    def test_roles_enforce_long_form_documentation_planning_and_execution(self):
+        """Assign planning, tracked edits, and review to their fixed roles."""
+        architect = " ".join(self.architect.split())
+        implementer = " ".join(self.implementer.split())
+        redteam = " ".join(self.redteam.split())
+        entry = " ".join(self.claude_entry.split())
+
+        self.assertIn(
+            "For a request to write documentation about one feature or "
+            "script",
+            architect,
+        )
+        self.assertIn(
+            "Search the documentation catalog, existing guides, relevant "
+            "READMEs, and source terms before authorizing a new file.",
+            architect,
+        )
+        self.assertIn(
+            "Record the census and update or link an existing owner when one "
+            "already answers the reader's question.",
+            architect,
+        )
+        self.assertIn(
+            "Such a new-functionality ticket is Low by default and becomes "
+            "High only when the user explicitly requests High because "
+            "understanding the feature is urgent.",
+            architect,
+        )
+        self.assertIn(
+            "tracked README, a long-form document under `documentation/`, or "
+            "explanatory Python prose",
+            architect,
+        )
+        self.assertIn(
+            "tracked README, a long-form document under `documentation/`, or "
+            "explanatory Python prose",
+            implementer,
+        )
+        self.assertIn(
+            "For a changed long-form PDF, require the named source build, "
+            "page renders, and page-by-page visual review.",
+            implementer,
+        )
+        self.assertIn(
+            "Only the Implementer lane edits source code, tests, or ordinary "
+            "tracked documentation for a ticket.",
+            implementer,
+        )
+        self.assertIn(
+            "Red Team never edits, commits, amends, merges, resets, or "
+            "switches tracked source, including documentation and tests.",
+            redteam,
+        )
+        self.assertIn(
+            "the Architect plans and audits them, the Implementer edits them "
+            "under a bounded directive, and the Red Team remains read-only",
+            entry,
+        )
+
     def test_readme_changes_require_the_architect_gate_twice(self):
         contract_path = "ai/notes/readme-go-no-go.md"
         self.assertIn(contract_path, self.architect_command)
@@ -1118,7 +1231,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 "Fix-only mode permits work that closes an existing ticket",
                 "Sol is never reassigned as an Implementer",
                 "The Red Team reviews an immutable snapshot of `L`",
-                "does not edit those artifacts",
+                "never edits tracked documentation",
                 "The configured CoCoA environment uses NumPy 1.x",
                 "### Tests, gates, and the validation board",
                 "shifts one saved multipole coordinate"):

@@ -378,8 +378,9 @@ It never starts or completes a ticket cycle.
    Implementer is `NO-GO` for dispatch.
 
    **README and Python-prose instruction-time check.** If the unit creates or
-   changes a tracked README or explanatory Python prose (comments, docstrings,
-   command help, user-facing diagnostics, or explanatory strings), read
+   changes a tracked README, a long-form document under `documentation/`, or
+   explanatory Python prose (comments, docstrings, command help, user-facing
+   diagnostics, or explanatory strings), read
    `ai/notes/readme-go-no-go.md` before writing the directive. Convert every
    applicable row into a binary condition inside the existing `Acceptance
    checklist`, with the exact evidence the Implementer must return. An omitted
@@ -387,6 +388,15 @@ It never starts or completes a ticket cycle.
    Implementer is `NO-GO` for dispatch.
    Read the same contract again before final `GO`; the planned prose and the
    final rendered prose are separate decisions.
+
+   For a request to write documentation about one feature or script, read
+   `ai/notes/conventions-and-workflow.md`, section **Feature-specific
+   long-form documentation**. Search the documentation catalog, existing
+   guides, relevant READMEs, and source terms before authorizing a new file.
+   Record the census and update or link an existing owner when one already
+   answers the reader's question. Such a new-functionality ticket is Low by
+   default and becomes High only when the user explicitly requests High
+   because understanding the feature is urgent.
 
 2a. **A character limit never licenses unreadable code (hard user rule,
    2026-07-15).** The dispatch banner supplies the run-time `--max N` value.
@@ -643,11 +653,12 @@ the lane and refuses the landing or new ticket with a concrete repair message.
    the queue-5 board run re-executes them).
 
    **README and Python-prose review-time check.** Before issuing `GO` on a
-   tracked README or covered Python-prose change, reopen
-   `ai/notes/readme-go-no-go.md` and evaluate the final rendered README section
-   or complete Python symbol against every applicable row using raw evidence.
-   The Implementer's checked boxes are evidence to inspect, never the verdict.
-   Any applicable row without evidence is `NO-GO`.
+   tracked README, long-form document, or covered Python-prose change, reopen
+   `ai/notes/readme-go-no-go.md` and evaluate the final rendered README
+   section, every rendered document page, or complete Python symbol against
+   every applicable row using raw evidence. The Implementer's checked boxes
+   are evidence to inspect, never the verdict. Any applicable row without
+   evidence is `NO-GO`.
 
    **Python-change review-time check.** Before issuing `GO` on any tracked
    Python change, reopen `ai/notes/python-changes-go-no-go.md`, read every
@@ -863,9 +874,9 @@ exact Worktree, exact Base, and --max N.]
   changes tracked Python, copy every applicable row from
   `ai/notes/python-changes-go-no-go.md`, including hot/cold classification,
   and name its evidence. If this unit
-  changes a tracked README or covered explanatory Python prose, copy every
-  applicable row from `ai/notes/readme-go-no-go.md`, name its evidence, and
-  explain every `not applicable` row. For a positive N, require the exact
+  changes a tracked README, long-form document, or covered explanatory Python
+  prose, copy every applicable row from `ai/notes/readme-go-no-go.md`, name its
+  evidence, and explain every `not applicable` row. For a positive N, require the exact
   candidate's ticket_change_guard.py result to be `within limit`.]
 
 ### Do not change
@@ -993,11 +1004,11 @@ The ticket may close only when the independent didactic-readability review is
 `GO` and either the positive limit is met or the limit is `0`. Zero means only
 that the numerical size comparison is unlimited.
 
-If the returned unit changed a tracked README or covered explanatory Python
-prose, run the complete `ai/notes/readme-go-no-go.md` review before recording
-the milestone. Store the prose decision record in the temporary ticket note.
-A `NO-GO` return names the failed rows, exact passages, required replacements,
-and evidence to rerun.
+If the returned unit changed a tracked README, long-form document, or covered
+explanatory Python prose, run the complete
+`ai/notes/readme-go-no-go.md` review before recording the milestone. Store the
+prose decision record in the temporary ticket note. A `NO-GO` return names the
+failed rows, exact passages, required replacements, and evidence to rerun.
 
 If the returned unit changed tracked Python, run the complete
 `ai/notes/python-changes-go-no-go.md` review before recording the milestone.

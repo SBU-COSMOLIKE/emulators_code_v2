@@ -135,8 +135,9 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
 
         self.assertIn("## Describe one coherent current system", contract)
         self.assertIn(
-            "README files, permanent notes, commit explanations, and "
-            "explanatory Python prose describe how the library works now.",
+            "README files, long-form documentation, permanent notes, commit "
+            "explanations, and explanatory Python prose describe how the "
+            "library works now.",
             normalized,
         )
         self.assertIn("rewrite the owning explanation in place", normalized)
@@ -220,6 +221,88 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         self.assertNotIn(
             "explanatory text is personal, dated, historical, vague, or "
             "undefined",
+            normalized,
+        )
+
+    def test_feature_documentation_searches_for_one_existing_owner_first(self):
+        """Keep deep guides bounded, discoverable, and nonduplicative."""
+        conventions = read("ai/notes/conventions-and-workflow.md")
+        readme_contract = read("ai/notes/readme-go-no-go.md")
+        memory = read("ai/notes/MEMORY.md")
+        normalized_conventions = " ".join(conventions.split())
+        normalized_contract = " ".join(readme_contract.split())
+
+        self.assertIn("### Feature-specific long-form documentation",
+                      conventions)
+        self.assertIn(
+            "Before planning a new file, the Architect searches "
+            "`documentation/README.md`, tracked files under "
+            "`documentation/`, relevant README headings, and likely source "
+            "names, symbols, commands, and synonyms.",
+            normalized_conventions,
+        )
+        self.assertIn(
+            "If one document already answers the same reader question, the "
+            "plan updates that owner or improves the link to it.",
+            normalized_conventions,
+        )
+        self.assertIn(
+            "A second guide for the same question is `NO-GO`.",
+            normalized_conventions,
+        )
+        self.assertIn(
+            "Before creating a long-form document, the Architect searches "
+            "`documentation/README.md`",
+            normalized_contract,
+        )
+        self.assertIn(
+            "Creating a second guide for the same question is `NO-GO`.",
+            normalized_contract,
+        )
+        self.assertIn("search-first planning for feature-specific long-form "
+                      "documentation", memory)
+
+        focused = "documentation/candidate_to_landing.tex"
+        whole_library = "documentation/emulator_code_guide.tex"
+        for source in (conventions, readme_contract):
+            with self.subTest(source=source[:40], document=focused):
+                self.assertIn(focused, source)
+            with self.subTest(source=source[:40], document=whole_library):
+                self.assertIn(whole_library, source)
+
+    def test_feature_documentation_has_fixed_priority_and_role_ownership(self):
+        """Pin the Low default and the single explicit urgent exception."""
+        conventions = read("ai/notes/conventions-and-workflow.md")
+        normalized = " ".join(conventions.split())
+
+        self.assertIn(
+            "Feature-specific documentation is a **Low new-functionality "
+            "ticket** by default.",
+            normalized,
+        )
+        self.assertIn(
+            "It becomes **High** only when the user explicitly requests High "
+            "priority because understanding that feature is urgent.",
+            normalized,
+        )
+        self.assertIn("Importance alone does not promote it.", normalized)
+        self.assertIn(
+            "Incorrect existing documentation that can damage normal use is "
+            "a bug",
+            normalized,
+        )
+        self.assertIn(
+            "The Architect owns scope, duplicate prevention, the complete "
+            "directive, factual review, and final `GO` or `NO-GO`.",
+            normalized,
+        )
+        self.assertIn(
+            "The Implementer writes the tracked source and compiled artifact.",
+            normalized,
+        )
+        self.assertIn(
+            "The Red Team may report a documentation defect and review the "
+            "rendered result, but it never edits tracked documentation.",
             normalized,
         )
 

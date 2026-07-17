@@ -84,9 +84,11 @@ delegation choice:
   listed in `ai/README.md`. Only the Architect decides whether an accepted
   change requires one of those notes to change, and only the Architect edits
   it. Implementer and Red Team evidence goes to a local temporary ticket note,
-  never a permanent note. The `documentation/` TeX sources are Red-Team-owned:
-  neither the Architect nor the Implementer edits them. A change that affects
-  taught behavior names the affected guide passage in the local ticket note.
+  never a permanent note. Long-form files under `documentation/` are ordinary
+  tracked documentation: the Architect plans and audits them, the Implementer
+  edits them under a bounded directive, and the Red Team remains read-only. A
+  change that affects taught behavior names the affected guide passage in the
+  local ticket note.
 
 ## Conventions (pointers, not copies)
 

@@ -134,12 +134,14 @@ restores ticket worktrees.
    when an applicable row or consequential choice is missing. Do not invent
    the missing Python design.
 
-   When the directive creates or changes a tracked README or explanatory
-   Python prose (comments, docstrings, command help, user-facing diagnostics,
-   or explanatory strings), read `ai/notes/readme-go-no-go.md` and confirm
-   that every applicable row appears in the directive's `Acceptance checklist`
-   with named evidence. If a row is missing or an exemption has no concrete
-   reason, return a blocker. Do not invent the missing prose decision.
+   When the directive creates or changes a tracked README, a long-form
+   document under `documentation/`, or explanatory Python prose (comments,
+   docstrings, command help, user-facing diagnostics, or explanatory strings),
+   read `ai/notes/readme-go-no-go.md` and confirm that every applicable row
+   appears in the directive's `Acceptance checklist` with named evidence. If a
+   row is missing or an exemption has no concrete reason, return a blocker. Do
+   not invent the missing prose decision. For a changed long-form PDF, require
+   the named source build, page renders, and page-by-page visual review.
 
    The eleven permanent notes and `ai/tools/permanent_note_guard.py` are
    off-limits in every Implementer unit, not only documentation units. If the
@@ -287,10 +289,11 @@ restores ticket worktrees.
    test fails, report the failure with its output; never round "mostly
    passing" up to "done".
 
-   For a README or covered Python-prose unit, return raw evidence for every
-   applicable row in `ai/notes/readme-go-no-go.md`, including the final
-   rendered README section or complete Python symbol and the full, untruncated
-   searches. Do not issue `GO`; that decision remains the Architect's.
+   For a README, long-form-document, or covered Python-prose unit, return raw
+   evidence for every applicable row in `ai/notes/readme-go-no-go.md`,
+   including the final rendered README section, every rendered document page,
+   or complete Python symbol and the full, untruncated searches. Do not issue
+   `GO`; that decision remains the Architect's.
 
 5. **You do not audit.** Running the validation commands is a self-check, not the
    audit — the audit is exclusively the Architect role's domain, regardless
