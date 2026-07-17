@@ -1511,7 +1511,10 @@ def check_data_read_census():
     report("25M-16 byte-edit any repo .py stales the whole-scope gate",
            base != edited, "a one-file sha change moves geo-paths' digest")
 
-    # the five reviewed data-readers each carry their cover in their members.
+    # Each reviewed data-reader carries its source-as-data cover in the gate's
+    # saved file list. The publication bridge parses GeneratorCore instead of
+    # importing its heavy workstation dependencies, so that source must still
+    # make the dataset-publication result stale when it changes.
     def members_of(gid):
         return set(m["path"] for m in run_board._gate_code_manifest(by_id[gid]))
     checks = [
@@ -1519,6 +1522,7 @@ def check_data_read_census():
         ("artifact-readback", "scalar_train_emulator.py"), # a driver read as data
         ("family-first", "cosmic_shear_sweep_ntrain_emulator.py"),  # an UNdeclared driver
         ("generator-seed", "compute_data_vectors/generator_core.py"),
+        ("dataset-publication", "compute_data_vectors/generator_core.py"),
     ]
     for gid, cover in checks:
         report("25M-16 " + gid + " hashes its data-read cover " + cover,
@@ -1549,21 +1553,30 @@ def check_data_read_census():
     finally:
         run_board._DATA_READ_COVERS = saved
 
-    # Removing the publication module's reviewed walk-waiver entry exposes its
-    # caller-owned dataset walks. This proves the named entry is load-bearing.
+    # The production publisher and two focused tests walk only their own
+    # temporary dataset trees. Removing any exact waiver exposes that walk as
+    # an unreviewed source scan, which proves the exception is load-bearing and
+    # is not a file-wide exemption.
     publication_gate = by_id["dataset-publication"]
     saved_walk_waivers = run_board._DATA_READ_WALK_WAIVERS
-    try:
-        table = dict(saved_walk_waivers)
-        table.pop("compute_data_vectors/dataset_publication.py")
-        run_board._DATA_READ_WALK_WAIVERS = table
-        ok, errs = run_board.validate_manifests(
-            [publication_gate], live_cfg)
-        report("dataset publication uses exact walk waivers",
-               (not ok) and any("unreviewed data-read" in e for e in errs),
-               "removing its reviewed entry exposes the dataset walks")
-    finally:
-        run_board._DATA_READ_WALK_WAIVERS = saved_walk_waivers
+    publication_walkers = (
+        "compute_data_vectors/dataset_publication.py",
+        "ai/tests/test_dataset_locator.py",
+        "ai/tests/test_cocoa_dataset_resolution.py",
+    )
+    for walker in publication_walkers:
+        try:
+            table = dict(saved_walk_waivers)
+            table.pop(walker)
+            run_board._DATA_READ_WALK_WAIVERS = table
+            ok, errs = run_board.validate_manifests(
+                [publication_gate], live_cfg)
+            report("dataset publication uses an exact walk waiver for " + walker,
+                   (not ok)
+                   and any("unreviewed data-read" in e for e in errs),
+                   "removing the named entry exposes its dataset walk")
+        finally:
+            run_board._DATA_READ_WALK_WAIVERS = saved_walk_waivers
 
     # Scope-sensitive control: one synthetic module contains two os.walk calls.
     # Only the call inside the named function is waived. A file-wide exemption

@@ -51,14 +51,18 @@ import shutil
 import stat
 import warnings
 
+from compute_data_vectors.dataset_manifest import build_dataset_member_map
+
 
 PUBLICATION_SCHEMA = 1
 ACTIVE_NAME = "active.json"
 MANIFEST_NAME = "manifest.json"
 FILES_NAME = "files"
 DATASETS_NAME = ".datasets"
+LOCATORS_NAME = "locators"
 
 _MAX_ACTIVE_BYTES = 64 * 1024
+_MAX_LOCATOR_BYTES = 8 * 1024 * 1024
 _MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 _MAX_JSON_INTEGER_DIGITS = 1024
 _MAX_JSON_INTEGER_BITS = 3402
@@ -102,6 +106,34 @@ class DatasetSlot:
   @property
   def generations_path(self):
     return self.path / "generations"
+
+
+@dataclass(frozen=True)
+class DatasetLocator:
+  """Stable request information for one logical parameter-chain filename.
+
+  A locator says which dataset slot and scientific request own a familiar
+  chain filename such as ``params.1.txt``.  It deliberately does not say which
+  immutable generation is active.  ``load_located_generation`` consults the
+  slot's active record at the moment a consumer starts and returns that one
+  verified generation.
+  """
+
+  slot: DatasetSlot
+  logical_parameter: str
+  path: Path
+  identity_json: bytes
+  members_json: bytes
+
+  @property
+  def identity(self):
+    """Return a fresh copy of the canonical scientific request."""
+    return json.loads(self.identity_json.decode("utf-8"))
+
+  @property
+  def members(self):
+    """Return a fresh copy of the canonical role-to-filename map."""
+    return json.loads(self.members_json.decode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -244,6 +276,92 @@ def derive_dataset_slot(chains_dir, *, params_stem, dvs_stem, fail_stem,
     descriptor_json=descriptor_json)
 
 
+def install_dataset_locator(slot, *, identity, members):
+  """Install the stable lookup record for one logical parameter chain.
+
+  The record is selected by the exact ``parameters.chain`` basename derived
+  from the request.  A retry with the same slot, identity, and member map is a
+  no-op.  A different request may not take over an existing logical filename.
+  The record contains no generation name or active-record digest; consumers
+  resolve the slot's current generation separately when they start.
+  """
+  _require_slot(slot)
+  identity_json, members_json, member_map = _validated_locator_request(
+    slot, identity, members)
+  logical_parameter = member_map["parameters.chain"]
+  locator_dir = _ensure_locator_root(slot.chains_dir)
+  path = locator_dir / _locator_filename(logical_parameter)
+  record = {
+    "identity": json.loads(identity_json.decode("ascii")),
+    "members": json.loads(members_json.decode("ascii")),
+    "schema": PUBLICATION_SCHEMA,
+    "slot": slot.descriptor,
+    "slot_id": slot.slot_id,
+  }
+  payload = canonical_json_bytes(record)
+  if len(payload) > _MAX_LOCATOR_BYTES:
+    raise DatasetPublicationError(
+      "dataset locator exceeds its " + str(_MAX_LOCATOR_BYTES)
+      + " byte limit")
+
+  lock_fd = _acquire_locator_lock(locator_dir, logical_parameter)
+  temporary = None
+  try:
+    if os.path.lexists(path):
+      located = _read_dataset_locator(
+        slot.chains_dir, logical_parameter, path)
+      _require_same_locator(located, slot, identity_json, members_json)
+      return located
+
+    temporary = locator_dir / (
+      ".locator-" + secrets.token_hex(16) + ".tmp")
+    _write_new_regular_file(temporary, payload, final_mode=0o444)
+    if os.path.lexists(path):
+      located = _read_dataset_locator(
+        slot.chains_dir, logical_parameter, path)
+      _require_same_locator(located, slot, identity_json, members_json)
+      _best_effort_remove_locator_temporary(temporary, locator_dir)
+      temporary = None
+      return located
+    try:
+      os.replace(temporary, path)
+    except OSError as exc:
+      raise DatasetPublicationError(
+        "could not install dataset locator " + str(path) + ": "
+        + str(exc)) from exc
+    temporary = None
+    _fsync_directory(locator_dir)
+    return _read_dataset_locator(slot.chains_dir, logical_parameter, path)
+  finally:
+    _best_effort_remove_locator_temporary(temporary, locator_dir)
+    _release_publish_lock(lock_fd)
+
+
+def load_dataset_locator(chains_dir, *, logical_parameter):
+  """Load one locator by a familiar parameter-chain path or basename.
+
+  ``logical_parameter`` may be a visible basename such as ``params.1.txt`` or
+  an absolute path directly below ``chains_dir``.  Parent traversal and paths
+  from another chains directory are refused rather than silently reduced to a
+  basename.
+  """
+  chains = _absolute_directory_path(chains_dir, "chains directory")
+  logical_name = _logical_parameter_name(chains, logical_parameter)
+  locator_dir = _require_locator_root(chains)
+  path = locator_dir / _locator_filename(logical_name)
+  return _read_dataset_locator(chains, logical_name, path)
+
+
+def load_located_generation(locator):
+  """Resolve and authenticate the active generation named by ``locator``."""
+  if type(locator) is not DatasetLocator:
+    raise DatasetPublicationError("expected a DatasetLocator")
+  return load_active_generation(
+    locator.slot,
+    expected_identity=locator.identity,
+    expected_members=locator.members)
+
+
 def begin_dataset_generation(slot, generation=None):
   """Create a private draft for a fresh, resumed, or appended generation."""
   _require_slot(slot)
@@ -327,6 +445,22 @@ def _best_effort_remove_temporary_active(path, slot):
         and status.st_nlink == 1:
       os.unlink(path)
       _fsync_directory(slot.path)
+  except Exception:
+    pass
+
+
+def _best_effort_remove_locator_temporary(path, locator_dir):
+  """Remove only the uninstalled locator temporary created by this call."""
+  if path is None or path.parent != locator_dir \
+      or not path.name.startswith(".locator-") \
+      or not path.name.endswith(".tmp") or not os.path.lexists(path):
+    return
+  try:
+    status = os.lstat(path)
+    if stat.S_ISREG(status.st_mode) and not stat.S_ISLNK(status.st_mode) \
+        and status.st_nlink == 1:
+      os.unlink(path)
+      _fsync_directory(locator_dir)
   except Exception:
     pass
 
@@ -658,6 +792,8 @@ def begin_dataset_continuation(slot, *, expected_identity, expected_members,
 
 _ACTIVE_KEYS = frozenset((
   "generation", "manifest_sha256", "schema", "slot_id"))
+_LOCATOR_KEYS = frozenset((
+  "identity", "members", "schema", "slot", "slot_id"))
 _MANIFEST_KEYS = frozenset((
   "generation", "identity", "members", "schema", "slot", "slot_id"))
 _MEMBER_KEYS = frozenset(("path", "sha256", "size"))
@@ -826,7 +962,7 @@ def _validate_member_map(members):
 def _require_slot(slot):
   if type(slot) is not DatasetSlot:
     raise DatasetPublicationError("expected a DatasetSlot")
-  if not _SLOT_RE.fullmatch(slot.slot_id):
+  if type(slot.slot_id) is not str or not _SLOT_RE.fullmatch(slot.slot_id):
     raise DatasetPublicationError("invalid dataset slot id " + repr(slot.slot_id))
   descriptor = _parse_canonical_record(
     slot.descriptor_json, "slot descriptor",
@@ -854,6 +990,114 @@ def _require_slot(slot):
       "on case-insensitive filesystems")
   if not isinstance(slot.chains_dir, Path) or not slot.chains_dir.is_absolute():
     raise DatasetPublicationError("slot chains directory must be absolute")
+
+
+def _absolute_directory_path(value, label):
+  try:
+    supplied = os.fspath(value)
+  except TypeError as exc:
+    raise DatasetPublicationError(
+      label + " must be a filesystem path") from exc
+  if type(supplied) is not str or not supplied:
+    raise DatasetPublicationError(
+      label + " must be a nonempty text filesystem path")
+  return Path(os.path.abspath(supplied))
+
+
+def _logical_parameter_name(chains, value):
+  try:
+    supplied = os.fspath(value)
+  except TypeError as exc:
+    raise DatasetPublicationError(
+      "logical parameter chain must be a filesystem path") from exc
+  if type(supplied) is not str or not supplied:
+    raise DatasetPublicationError(
+      "logical parameter chain must be a nonempty text filesystem path")
+  path = Path(supplied)
+  if path.is_absolute():
+    if path.parent != chains:
+      raise DatasetPublicationError(
+        "logical parameter chain must be a direct child of " + str(chains)
+        + "; got " + str(path))
+  elif path.parent != Path("."):
+    raise DatasetPublicationError(
+      "relative logical parameter chain must be one basename; got "
+      + repr(supplied))
+  return _portable_part(path.name, "logical parameter chain")
+
+
+def _locator_filename(logical_parameter):
+  _portable_part(logical_parameter, "logical parameter chain")
+  return logical_parameter + ".json"
+
+
+def _validated_locator_request(slot, identity, members):
+  if type(identity) is not dict:
+    raise DatasetPublicationError("dataset locator identity must be an object")
+  if type(members) is not dict:
+    raise DatasetPublicationError(
+      "dataset locator members must be a native role-to-path object")
+  identity_json = canonical_json_bytes(identity)
+  member_map = _validate_member_map(members)
+  descriptor = slot.descriptor
+  stems = descriptor["logical_stems"]
+  try:
+    expected = build_dataset_member_map(
+      identity,
+      params_stem=stems["params"],
+      dvs_stem=stems["dvs"],
+      fail_stem=stems["fail"])
+  except ValueError as exc:
+    raise DatasetPublicationError(
+      "dataset locator has an invalid scientific request: " + str(exc)) from exc
+  if identity["dataset_mode"] != descriptor["dataset_mode"] \
+      or identity["family"] != descriptor["family"]:
+    raise DatasetPublicationError(
+      "dataset locator request does not match its slot mode and family")
+  expected_map = _validate_member_map(expected)
+  members_json = canonical_json_bytes(member_map)
+  if members_json != canonical_json_bytes(expected_map):
+    raise DatasetPublicationError(
+      "dataset locator member map is not the exact map derived from its "
+      "request and slot stems")
+  return identity_json, members_json, member_map
+
+
+def _read_dataset_locator(chains, logical_parameter, path):
+  payload = _read_regular_bytes(
+    path, _MAX_LOCATOR_BYTES, "dataset locator", require_read_only=True)
+  record = _parse_canonical_record(
+    payload, "dataset locator", _LOCATOR_KEYS)
+  _require_schema_value(record["schema"], "dataset locator")
+  if record["schema"] != PUBLICATION_SCHEMA:
+    raise DatasetPublicationError("unsupported dataset locator schema")
+  descriptor_json = canonical_json_bytes(record["slot"])
+  slot = DatasetSlot(
+    chains_dir=chains,
+    slot_id=record["slot_id"],
+    descriptor_json=descriptor_json)
+  _require_slot(slot)
+  identity_json, members_json, member_map = _validated_locator_request(
+    slot, record["identity"], record["members"])
+  if member_map["parameters.chain"] != logical_parameter:
+    raise DatasetPublicationError(
+      "dataset locator file name does not match its logical parameter chain")
+  return DatasetLocator(
+    slot=slot,
+    logical_parameter=logical_parameter,
+    path=path,
+    identity_json=identity_json,
+    members_json=members_json)
+
+
+def _require_same_locator(locator, slot, identity_json, members_json):
+  if locator.slot.slot_id != slot.slot_id \
+      or locator.slot.descriptor_json != slot.descriptor_json \
+      or locator.identity_json != identity_json \
+      or locator.members_json != members_json:
+    raise DatasetPublicationError(
+      "logical parameter chain already has a different dataset locator: "
+      + locator.logical_parameter)
 
 
 def _require_draft(draft):
@@ -907,6 +1151,24 @@ def _ensure_slot_directories(slot):
   _ensure_private_directory(slot.path)
   _ensure_private_directory(slot.work_path)
   _ensure_private_directory(slot.generations_path)
+
+
+def _ensure_locator_root(chains):
+  _require_private_directory(chains, "chains directory")
+  datasets = chains / DATASETS_NAME
+  _ensure_private_directory(datasets)
+  locators = datasets / LOCATORS_NAME
+  _ensure_private_directory(locators)
+  return locators
+
+
+def _require_locator_root(chains):
+  _require_private_directory(chains, "chains directory")
+  datasets = chains / DATASETS_NAME
+  _require_private_directory(datasets, "dataset locator root")
+  locators = datasets / LOCATORS_NAME
+  _require_private_directory(locators, "dataset locator directory")
+  return locators
 
 
 def _require_existing_slot_layout(slot):
@@ -991,6 +1253,33 @@ def _acquire_publish_lock(slot):
     if hasattr(os, "getuid") and status.st_uid != os.getuid():
       raise DatasetPublicationError(
         "dataset publication lock is not owned by the current user")
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+  except Exception:
+    os.close(descriptor)
+    raise
+  return descriptor
+
+
+def _acquire_locator_lock(locator_dir, logical_parameter):
+  digest = hashlib.sha256(logical_parameter.encode("ascii")).hexdigest()
+  path = locator_dir / (".locator-" + digest + ".lock")
+  flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+  try:
+    descriptor = os.open(path, flags, 0o600)
+  except OSError as exc:
+    raise DatasetPublicationError(
+      "could not open dataset locator lock: " + str(exc)) from exc
+  try:
+    status = os.fstat(descriptor)
+    if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+      raise DatasetPublicationError(
+        "dataset locator lock is not one private regular file")
+    if status.st_mode & 0o077:
+      raise DatasetPublicationError(
+        "dataset locator lock is accessible to another user")
+    if hasattr(os, "getuid") and status.st_uid != os.getuid():
+      raise DatasetPublicationError(
+        "dataset locator lock is not owned by the current user")
     fcntl.flock(descriptor, fcntl.LOCK_EX)
   except Exception:
     os.close(descriptor)

@@ -430,12 +430,16 @@ def check_staging(tmp):
     np.savetxt(st_params, cols)
     _write_paramnames(st_params)
     _write_facts(st_params, "mps-staging")
+    st_failure = os.path.join(tmp, "st_fail.txt")
+    with open(st_failure, "w", encoding="ascii") as handle:
+        for _ in range(n):
+            handle.write("0\n")
     gen = torch.Generator().manual_seed(3)
     src = load_source(dv_path=os.path.join(tmp, "st_dv.npy"),
                       params_path=os.path.join(tmp, "st_params.1.txt"),
                       names=IN_NAMES, omegabh2_hi=None, n_keep=40,
                       gen=gen, ram_frac=0.7, with_means=True,
-                      verbose=False)
+                      verbose=False, failure_mask_path=st_failure)
     exp = EmulatorExperiment.__new__(EmulatorExperiment)
     exp.grid2d = {"quantity": "pklin",
                   "units": "Mpc3",
@@ -490,7 +494,7 @@ def check_staging(tmp):
                        params_path=os.path.join(tmp, "st_params.1.txt"),
                        names=IN_NAMES, omegabh2_hi=None, n_keep=40,
                        gen=gen, ram_frac=0.7, with_means=True,
-                       verbose=False)
+                       verbose=False, failure_mask_path=st_failure)
     try:
         exp._grid2d_law_rows(src=src2,
                              base_path=os.path.join(tmp, "st_base.npy"),
@@ -739,6 +743,10 @@ def check_bounded_staging(tmp):
     np.savetxt(bs2_params, txt)
     _write_paramnames(bs2_params)
     _write_facts(bs2_params, "mps-bounded-staging")
+    bs2_failure = os.path.join(tmp, "bs2_fail.txt")
+    with open(bs2_failure, "w", encoding="ascii") as handle:
+        for _ in range(n2):
+            handle.write("0\n")
 
     def stage_and_transform(ram_frac):
         gen = torch.Generator().manual_seed(9)
@@ -746,7 +754,8 @@ def check_bounded_staging(tmp):
                         params_path=os.path.join(tmp, "bs2_params.1.txt"),
                         names=IN_NAMES, omegabh2_hi=None, n_keep=40,
                         gen=gen, ram_frac=ram_frac, with_means=True,
-                        stage_dv=False, verbose=False)
+                        stage_dv=False, verbose=False,
+                        failure_mask_path=bs2_failure)
         raw_is_memmap = isinstance(s["dv"], np.memmap)
         e = EmulatorExperiment.__new__(EmulatorExperiment)
         e.grid2d = {"quantity": "pklin", "units": "Mpc3",
@@ -833,6 +842,7 @@ def check_bounded_staging(tmp):
             with_means=True,
             stage_dv=False,
             verbose=False,
+            failure_mask_path=bs2_failure,
         )
         probe_exp = EmulatorExperiment.__new__(EmulatorExperiment)
         probe_exp.grid2d = {"quantity": "pklin", "units": "Mpc3",

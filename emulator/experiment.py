@@ -128,6 +128,7 @@ adds a family row of its own.
 """
 
 import atexit
+import hashlib
 import os
 import tempfile
 
@@ -139,7 +140,8 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from .data_staging import (
-  read_param_names, load_source, load_scalar_source, phys_cut_idx,
+  _load_failure_mask, read_param_names, load_source, load_scalar_source,
+  phys_cut_idx,
   validated_facts_sidecar)
 from .parameter_table import resolve_parameter_table
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
@@ -493,6 +495,8 @@ DEFAULT_THRESHOLDS = torch.tensor([0.2, 0.5, 1.0, 10.0, 100.0])
 DATA_KEYS = {
   "train_dv", "train_params", "train_covmat",
   "val_dv", "val_params",
+  "train_failure_mask", "val_failure_mask",
+  "_dataset_sources",
   "cosmolike_data_dir", "cosmolike_dataset",
   "param_cuts",
   "n_train", "n_val",
@@ -3080,6 +3084,151 @@ class EmulatorExperiment:
              f"n_val {d.get('n_val')} (enforced after param_cuts)")
 
   # --- staging + geometry (the expensive, cached pieces) ---
+  def _record_staged_selection(self, split, source):
+    """Bind one ordered staged-row selection to its published source pin.
+
+    The dataset resolver records the exact immutable generation and every
+    member digest before staging starts. This method adds the exact order of
+    source rows chosen after the failure mask, physical cuts, and seeded
+    shuffle. The order is represented by a platform-independent SHA-256
+    fingerprint rather than a potentially million-entry YAML list.
+
+    Arguments:
+      split = ``"train"`` or ``"validation"``; selects the source pin to
+              extend.
+      source = staged source mapping returned by ``load_source`` or
+               ``load_scalar_source``. It must contain ``source_n_rows`` and
+               the one-dimensional integer ``selected_rows`` sequence.
+
+    Returns:
+      None. When the config did not come through the Cocoa dataset resolver,
+      no source pin exists and the method leaves the direct-library path
+      unchanged.
+
+    Raises:
+      ValueError when a resolver-owned pin or staged row identity is malformed.
+      The method changes only the in-memory config saved with the emulator; it
+      does not write a dataset file.
+    """
+    sources = self.data.get("_dataset_sources")
+    if sources is None:
+      return
+    if type(sources) is not dict or sources.get("schema") != 1:
+      raise ValueError(
+        "data._dataset_sources must be the schema-1 record created by "
+        "resolve_cocoa_config")
+    if split not in ("train", "validation"):
+      raise ValueError(
+        "staged selection split must be 'train' or 'validation'; got "
+        + repr(split))
+    pin = sources.get(split)
+    if type(pin) is not dict:
+      raise ValueError(
+        "data._dataset_sources is missing its " + split + " source pin")
+
+    source_n_rows = source.get("source_n_rows")
+    if type(source_n_rows) is not int or source_n_rows < 1:
+      raise ValueError(
+        split + " staged source_n_rows must be a native integer >= 1; got "
+        + repr(source_n_rows))
+    selected = np.asarray(source.get("selected_rows"))
+    if selected.ndim != 1 or not np.issubdtype(selected.dtype, np.integer):
+      raise ValueError(
+        split + " selected_rows must be a one-dimensional integer sequence")
+    selected = selected.astype(np.int64, copy=False)
+    if selected.size < 1:
+      raise ValueError(split + " selected_rows must contain at least one row")
+    if np.any(selected < 0) or np.any(selected >= source_n_rows):
+      raise ValueError(
+        split + " selected_rows must stay inside source row range [0, "
+        + str(source_n_rows) + ")")
+    if np.unique(selected).size != selected.size:
+      raise ValueError(split + " selected_rows must not repeat a disk row")
+
+    staged_index = np.asarray(source.get("idx"))
+    if (staged_index.ndim != 1
+        or not np.issubdtype(staged_index.dtype, np.integer)):
+      raise ValueError(
+        split + " staged idx must be a one-dimensional integer sequence")
+    if staged_index.size != selected.size:
+      raise ValueError(
+        split + " selected_rows records " + str(int(selected.size))
+        + " rows but staged idx supplies " + str(int(staged_index.size))
+        + "; the saved source identity must describe every staged sample")
+    staged_index = staged_index.astype(np.int64, copy=False)
+
+    dump_rows = np.asarray(source.get("dump_rows"))
+    if (dump_rows.ndim != 1
+        or not np.issubdtype(dump_rows.dtype, np.integer)):
+      raise ValueError(
+        split + " dump_rows must be a one-dimensional integer sequence")
+    dump_rows = dump_rows.astype(np.int64, copy=False)
+    if dump_rows.size != selected.size:
+      raise ValueError(
+        split + " dump_rows must name each selected disk row exactly once")
+    if np.any(dump_rows < 0) or np.any(dump_rows >= source_n_rows):
+      raise ValueError(
+        split + " dump_rows must stay inside source row range [0, "
+        + str(source_n_rows) + ")")
+    if (dump_rows.size > 1
+        and np.any(dump_rows[1:] <= dump_rows[:-1])):
+      raise ValueError(
+        split + " dump_rows must be strictly increasing and distinct")
+
+    parameter_shape = getattr(source.get("C"), "shape", ())
+    target_shape = getattr(source.get("dv"), "shape", ())
+    if len(parameter_shape) < 1 or len(target_shape) < 1:
+      raise ValueError(
+        split + " staged source must contain row-indexable C and dv arrays")
+    parameter_rows = int(parameter_shape[0])
+    target_rows = int(target_shape[0])
+    if parameter_rows != target_rows:
+      raise ValueError(
+        split + " staged C and dv arrays must contain the same row count")
+
+    # A compact resident source stores only dump_rows and idx uses local
+    # coordinates into that sorted copy. A disk-backed source retains every
+    # original row and idx uses global disk coordinates. When every source row
+    # was selected, both representations have the same size and dump_rows is
+    # necessarily [0, ..., N-1], so the local formula remains correct.
+    if parameter_rows == selected.size:
+      if np.any(staged_index < 0) or np.any(staged_index >= dump_rows.size):
+        raise ValueError(
+          split + " compact staged idx points outside dump_rows")
+      indexed_disk_rows = dump_rows[staged_index]
+    elif parameter_rows == source_n_rows:
+      if np.any(staged_index < 0) or np.any(staged_index >= source_n_rows):
+        raise ValueError(
+          split + " disk-backed staged idx points outside the source")
+      indexed_disk_rows = staged_index
+    else:
+      raise ValueError(
+        split + " staged arrays have " + str(parameter_rows)
+        + " rows; expected either the " + str(int(selected.size))
+        + " selected rows or all " + str(source_n_rows) + " source rows")
+    if not np.array_equal(indexed_disk_rows, selected):
+      raise ValueError(
+        split + " selected_rows does not match the disk-row order addressed "
+        "by staged idx")
+
+    # Big-endian uint64 makes the byte sequence independent of the machine
+    # that stages the rows. The count prefix distinguishes an empty or
+    # truncated stream before any later tool compares the fingerprint.
+    encoded_count = int(selected.size).to_bytes(8, "big", signed=False)
+    encoded_rows = selected.astype(">u8", copy=False).tobytes(order="C")
+    digest = hashlib.sha256(
+      b"cocoa-staged-row-order-v1\x00" + encoded_count + encoded_rows)
+    cuts = self.data.get("param_cuts", {})
+    pin["selection"] = {
+      "schema": 1,
+      "source_rows": source_n_rows,
+      "selected_rows": int(selected.size),
+      "row_order_encoding": "uint64-big-endian-v1",
+      "row_order_sha256": digest.hexdigest(),
+      "split_seed": int(self.data["split_seed"]),
+      "param_cuts": dict(cuts),
+    }
+
   def _grid2d_row_mapping(self, src):
     """Validate and resolve the Grid2D row coordinate systems.
 
@@ -3463,6 +3612,7 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"),
         facts_yaml=getattr(self, "_train_facts_yaml", None))
+      self._record_staged_selection("train", self.train_set)
       return self.train_set
     # cmb / grid run: the physical windows are opt-in (the scalar-path
     # pattern) — an absent block means no cuts; the cosmolike
@@ -3496,7 +3646,9 @@ class EmulatorExperiment:
       with_means=True,
       stage_dv=not self._grid2d,
       verbose=not self.quiet,
-      facts_yaml=getattr(self, "_train_facts_yaml", None))
+      facts_yaml=getattr(self, "_train_facts_yaml", None),
+      failure_mask_path=d.get("train_failure_mask"))
+    self._record_staged_selection("train", self.train_set)
     # grid2d run: form the law-space rows now — the training loop
     # consumes train_set["dv"] directly, so the syren-law transform and
     # the optional k-stride thinning happen at staging, once, on the CPU
@@ -3558,6 +3710,7 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"),
         facts_yaml=getattr(self, "_val_facts_yaml", None))
+      self._record_staged_selection("validation", self.val_set)
       return self.val_set
     # cmb / grid run: the physical windows are opt-in (the scalar-path
     # pattern) — an absent block means no cuts; the cosmolike
@@ -3588,7 +3741,9 @@ class EmulatorExperiment:
       with_means=False,
       stage_dv=not self._grid2d,
       verbose=not self.quiet,
-      facts_yaml=getattr(self, "_val_facts_yaml", None))
+      facts_yaml=getattr(self, "_val_facts_yaml", None),
+      failure_mask_path=d.get("val_failure_mask"))
+    self._record_staged_selection("validation", self.val_set)
     # grid2d run: the same bounded law transform on the val rows (the
     # val file's own base sidecar). with_means False — val borrows the
     # training centers, so no geometry moments are streamed here.
@@ -3638,8 +3793,9 @@ class EmulatorExperiment:
   def pool_size(self):
     """
     Number of stageable training rows available, the natural top of an
-    N_train sweep. With no active physical window this is the full table;
-    otherwise it is the shared staging cut's survivor count.
+    N_train sweep. Failed generator rows are removed first. With no active
+    physical window the result is the remaining successful rows; otherwise it
+    is the shared staging cut's survivor count.
 
     Resolves the training parameter file by its required .paramnames sidecar,
     keeps the modeled columns, applies
@@ -3671,6 +3827,11 @@ class EmulatorExperiment:
       output_names=(self.outputs if self._scalar else ()))
     C = table.inputs
     idx = np.arange(C.shape[0])
+    if not self._scalar:
+      failed = _load_failure_mask(
+        path=d.get("train_failure_mask"),
+        expected_rows=int(C.shape[0]))
+      idx = idx[~failed]
     # phys_cut_idx (data_staging.py): no bounds means the full table; active
     # bounds keep rows inside the same omega_b h^2 / omegam2h2 / omegamh2 /
     # omegamh2*ns windows as stage_train. The report is unused here; only the

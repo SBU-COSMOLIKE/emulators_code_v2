@@ -491,6 +491,7 @@ def check_parameter_window_banner(tmp):
     )
     params_path = os.path.join(tmp, "window_params.txt")
     dv_path = os.path.join(tmp, "window_dv.npy")
+    failure_path = os.path.join(tmp, "window_fail.txt")
     np.savetxt(params_path, parameter_table)
     with open(os.path.join(tmp, "window_params.paramnames"), "w") as handle:
         for name in ("H0", "omegab", "omegam", "ns"):
@@ -509,6 +510,9 @@ def check_parameter_window_banner(tmp):
         dv_path,
         np.arange(raw_count, dtype=np.float32).reshape(raw_count, 1),
     )
+    with open(failure_path, "w", encoding="ascii") as handle:
+        for _ in range(raw_count):
+            handle.write("0\n")
 
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
@@ -525,6 +529,7 @@ def check_parameter_window_banner(tmp):
             omegabh2_lo=0.020,
             omegamh2_lo=0.135,
             omegamh2_hi=0.155,
+            failure_mask_path=failure_path,
         )
     banner_text = captured.getvalue()
     for line in banner_text.splitlines():

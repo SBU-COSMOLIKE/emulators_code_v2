@@ -1179,6 +1179,9 @@ _DATA_READ_COVERS = {
                                    "cosmic_shear_sweep_ntrain_emulator.py",
                                    "cosmic_shear_tune_emulator.py"),
   "ai/gates/checks/generator_seed.py": ("compute_data_vectors/generator_core.py",),
+  "ai/tests/test_generator_publication_bridge.py": (
+    "compute_data_vectors/generator_core.py",
+  ),
   # diagnostics-domain reads emulator/diagnostics.py as data (ast-parses its
   # text); the scanner flags it, so it is reviewed here. (cli-strict also reads
   # its eight driver entry points as data, but it already DECLARES all eight as
@@ -1205,6 +1208,16 @@ _DATA_READ_WALK_WAIVERS = {
     ("DatasetPublicationTests._make_test_tree_writable",
      "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
      "attr='root')])"),
+  )),
+  "ai/tests/test_dataset_locator.py": frozenset((
+    ("DatasetLocatorTests._make_tree_writable",
+     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
+     "attr='root')])"),
+  )),
+  "ai/tests/test_cocoa_dataset_resolution.py": frozenset((
+    ("CocoaDatasetResolutionTests._make_tree_writable",
+     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
+     "attr='rootdir')])"),
   )),
 }
 

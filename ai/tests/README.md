@@ -218,12 +218,16 @@ redshift-by-wavenumber surface.
 | `test_background_grid_contract.py` | Do training setup and the Cobaya adapter accept the same background quantities and physical units? |
 | `test_cmb_checkpoint_axis.py` | Can each saved CMB spectrum column be matched to the correct multipole `ell` value before any spectrum is loaded? |
 | `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
+| `test_dataset_locator.py` | Can a familiar parameter-chain filename find the current complete dataset without changing that filename after every publication? |
 | `test_dataset_publication.py` | Can readers see only one complete, unchanged generated dataset while resume or append work uses separate writable copies? |
 | `test_dataset_request_contract.py` | Does a saved request describe the exact scientific calculation and the exact files that calculation must produce? |
+| `test_cocoa_dataset_resolution.py` | Do the training and validation filenames in a user YAML resolve to two complete, internally consistent generated datasets? |
+| `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
 | `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
 | `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
 | `test_generator_mpi_message_binding.py` | Can an MPI worker result update only the parameter row that rank zero actually assigned to that worker? |
 | `test_generator_payload_success.py` | Is a generated row marked successful only after its scientific values survive validation, writing, and exact read-back? |
+| `test_generator_publication_bridge.py` | Does the real generator keep new files private until every required file is ready, closed, and safe to publish together? |
 | `test_generator_run_control.py` | Do the three legal run choices select new work, resume, or append without allowing one output kind to overwrite another? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
 | `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
@@ -314,6 +318,33 @@ group. A small active-record file names the currently selected generation.
 - **Why it matters:** training must never combine some files from A with other
   files from B, nor use files that changed after they were accepted.
 
+#### Finding a dataset from the filename written in a YAML file
+
+`test_dataset_locator.py` checks the small read-only record that connects a
+familiar chain filename to the generated dataset that currently owns it. This
+record is called a **locator**. It does not contain a particular generation
+name, so the same locator can find a newer accepted generation later.
+
+- **Example used:** the logical filename is `params.1.txt`. The test publishes
+  a first generation and then a second one. The locator file stays unchanged,
+  while a new lookup finds the second generation and an earlier reader keeps
+  its valid view of the first.
+- **What the test does:** it installs the locator twice, loads it by basename
+  and by its full path inside `chains/`, and tries to change its scientific
+  request, file list, formatting, permissions, and destination.
+- **Pass means:** repeated installation leaves the same read-only bytes in
+  place. The locator accepts only the exact logical filename, request, output
+  list, and dataset folder that created it.
+- **A refusal it proves:** a different random seed cannot take over an existing
+  logical filename. A writable, reformatted, linked, missing, nested, or
+  parent-traversing locator also stops before any generated file is returned.
+- **If this module fails:** a YAML filename may find the wrong calculation, or
+  a later publication may become unreachable. Do not train from that filename
+  until the locator failure is understood.
+- **Why it matters:** users should not have to edit a training YAML every time
+  a complete replacement generation is accepted, but one stable name must
+  never silently change scientific meaning.
+
 #### The saved description of a requested dataset
 
 `test_dataset_request_contract.py` checks the record that says exactly which
@@ -339,6 +370,92 @@ scientific dataset a generator was asked to produce.
   science.
 - **Why it matters:** a resume must continue the same calculation, not a
   different calculation that happens to use similar filenames and shapes.
+
+#### Moving generator output from private work to an accepted generation
+
+`test_generator_publication_bridge.py` checks the production code that joins
+the numerical generator to immutable dataset publication. The test extracts
+only those real methods, so it does not start Cobaya, MPI, or a scientific
+calculation.
+
+- **Example used:** a new chain-only run writes all required files inside one
+  private folder. A resume copies an accepted generation into a different
+  writable folder. The examples also use one memory-mapped array and a family
+  represented by a dictionary of memory-mapped arrays.
+- **What the test does:** it checks the request fingerprint made from parsed
+  YAML and the final uniform-sampling bounds, publishes a fresh draft, resumes
+  from an unchanged accepted generation, and inspects the constructor order
+  used around MPI worker startup and shutdown.
+- **Pass means:** no familiar flat output file appears while work is in
+  progress. Memory-mapped files are flushed and closed, all MPI workers have
+  stopped, the failure mask contains only successful rows, and then the whole
+  generation becomes visible in one step.
+- **A refusal it proves:** a second fresh run cannot replace an existing
+  accepted generation. A crash before the first publication is not presented
+  as resumable work. Append stops after checking the existing generation
+  because the random-number and sampler state required for an exact append is
+  not yet saved. A failure-mask row containing `1` stops publication.
+- **If this module fails:** the generator may expose a partial file group,
+  replace newer work, publish a failed scientific row, or continue sampling
+  from incomplete state. Keep the preceding accepted generation in use.
+- **Why it matters:** the lower-level publication tests prove the file
+  mechanism. This module proves that the real generator calls that mechanism
+  at the correct points.
+
+#### Resolving training and validation files from a user YAML
+
+`test_cocoa_dataset_resolution.py` checks the step that reads the filenames in
+a training YAML and replaces them with files from complete accepted
+generations. Training and validation are looked up separately, so each one is
+fixed to one generation before data loading begins.
+
+- **Example used:** temporary datasets cover a CosmoLike vector, one CMB
+  spectrum with its multipole values, background quantities with redshift
+  values, and matter-power surfaces with redshift, wavenumber, and optional
+  Syren base files.
+- **What the test does:** it writes a small user YAML, resolves its logical
+  filenames, and compares every resulting path with the exact member of the
+  selected training or validation generation. It also records the generation,
+  member fingerprints, and scientific request in ordinary YAML-safe values.
+- **Pass means:** a payload, parameter table, covariance, failure mask,
+  coordinate array, and optional base all come from the correct selected
+  generation. Chain-only scalar data add no payload or failure-mask path.
+- **A refusal it proves:** loose older files are not accepted when no locator
+  exists. A user YAML cannot insert the resolver's private source record.
+  Different probes, parameter order, scientific facts, coordinate bytes, or a
+  payload borrowed from the other dataset stop before staging.
+- **If this module fails:** training may combine parameter rows from one
+  generation with vectors or coordinates from another. The resolved YAML must
+  not be used until every related path points to its proper generation.
+- **Why it matters:** individually valid files are not enough. The files used
+  for one training source must describe the same rows and the same science.
+
+#### Keeping failed generated rows out of training
+
+`test_failed_row_staging.py` checks how the saved failure mask controls row
+selection. In that mask, `0` means the generator completed the row and `1`
+means it did not produce a usable scientific vector.
+
+- **Example used:** four parameter rows have mask values `0, 1, 0, 1`. Only
+  original rows 0 and 2 may enter the pool from which a fixed random seed
+  chooses training rows.
+- **What the test does:** it loads aligned parameter and payload files, applies
+  the mask before seeded selection, reports the remaining pool size, and saves
+  a fingerprint of the exact original row order used for training.
+- **Pass means:** parameters and payloads stay aligned on rows 0 and 2, the
+  available pool is two rows, and reversing the selected order changes the
+  saved row-order fingerprint. Scalar chain-only loading still records its
+  original disk rows even though it has no data-vector failure mask.
+- **A refusal it proves:** requesting three usable rows stops because only two
+  succeeded. A missing mask for a full dataset, the token `true` instead of
+  literal `0` or `1`, a short mask, a saved selection that omits a loader row,
+  or an equal-length selection in the wrong row order also stops.
+- **If this module fails:** a zero placeholder written after a failed
+  scientific calculation may be treated as a real training target, or the
+  saved training record may describe a different row order from the one used.
+- **Why it matters:** a failed generator row can have a legal shape and finite
+  zeros. The separate mask is what distinguishes that placeholder from a
+  valid scientific result.
 
 #### Missing or damaged progress files
 

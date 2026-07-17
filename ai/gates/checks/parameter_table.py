@@ -841,6 +841,9 @@ def _ordinary_stage_contract(resolver=resolve_parameter_table):
       with mock.patch.object(data_staging, "resolve_parameter_table", resolver):
         for number, (params_path, dv_path, expected_c, expected_dv) in enumerate(
             fixtures):
+          failure_path = dv_path + ".fail.txt"
+          with open(failure_path, "w", encoding="ascii") as handle:
+            handle.write("0\n0\n")
           staged = data_staging.load_source(
             dv_path=dv_path,
             params_path=params_path,
@@ -849,7 +852,8 @@ def _ordinary_stage_contract(resolver=resolve_parameter_table):
             n_keep=2,
             gen=torch.Generator().manual_seed(100 + number),
             ram_frac=1.0,
-            verbose=False)
+            verbose=False,
+            failure_mask_path=failure_path)
           observed_c = np.asarray(staged["C"])[np.asarray(staged["idx"])]
           observed_dv = np.asarray(staged["dv"])[np.asarray(staged["idx"])]
           order = np.argsort(observed_c[:, 0], kind="stable")

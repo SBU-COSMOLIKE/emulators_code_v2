@@ -1986,8 +1986,9 @@ def gate_generator_run_control(ctx):
   append branch crosses one mode barrier before failure/data-vector I/O.
   Seventeen
   in-memory mutations bind those four AIDs to the production surfaces.
-  Dataset-manifest authentication, atomic publication, and RNG continuation
-  remain separate OPEN slices.
+  The separate dataset-publication gate owns the private-draft, atomic-save,
+  and training-reader path. Exact append RNG continuation remains separate
+  work.
   """
   rc, out = ctx.run_check("ai/gates/checks/generator_run_control.py")
   if ctx.dry:
@@ -2013,8 +2014,9 @@ def gate_generator_checkpoint_refusal(ctx):
 
   This gate proves fail-closed command intent only. The separate
   generator-run-control AID owns bounded chain-only/full location and census
-  isolation. Neither gate claims dataset-manifest authentication, atomic
-  multi-file publication, or append RNG continuation.
+  isolation. The separate dataset-publication gate owns manifest
+  authentication and the atomic multi-file save. This gate does not claim
+  exact append RNG continuation.
   """
   rc, out = ctx.run_check(
     "ai/gates/checks/generator_checkpoint_refusal.py")
@@ -2028,24 +2030,27 @@ def gate_generator_checkpoint_refusal(ctx):
 
 
 def gate_dataset_publication(ctx):
-  """dataset-publication: one active record selects one sealed generation.
+  """dataset-publication: generators and training share one saved generation.
 
-  The CPU child runs the complete focused publication suite and folds its 44
-  witnesses into six exact AID terminals. It proves stable slot identity,
-  canonical bounded records, exact role/path/file/directory censuses, one
-  complete set of held source-member files, sealed-copy isolation, a
-  whole-active-record change check,
-  old-or-new pointer visibility, read-only authentication, retry-safe sync
-  ordering, bounded cleanup, and an authenticated private writable copy for
-  later resume or append work. The continuation keeps the original saved
-  active-record SHA-256 value so a later publication refuses after another
-  writer selects a newer generation. The callback campaign is explicitly an
-  in-process fault witness rather than a power-loss recovery simulation.
+  The CPU child follows a generated dataset from private files to training.
+  It checks that a logical parameter filename finds the current complete saved
+  version; a fresh generator writes privately and makes the result visible only
+  after its parallel workers stop; resume starts from one verified saved
+  version and cannot overwrite a newer save; and append stops because its exact
+  random state is not yet recorded.
 
-  This is the transaction/resolver foundation only. GeneratorCore and training
-  consumers still use their existing flat paths; domain identity, family maps,
-  consumer pinning, GeneratorCore resume/append routing, RNG continuation, and
-  MPI binding remain later Unit-8 slices.
+  The same check gives Cocoa separate train and validation filenames. Cocoa
+  must resolve each filename once, keep the resulting generation in the saved
+  configuration, reject mixed files or mismatched scientific meaning, and
+  pass each saved row-status file to staging. Staging removes rows marked as
+  failed before its repeatable selection and records the selected disk-row
+  order.
+
+  The lower-level checks still cover exact member lists, read-only saved files,
+  atomic active-file replacement, synchronization order, and bounded cleanup.
+  Callback failures model errors inside one process; they are not a power-loss
+  simulation. A first interrupted fresh draft is deliberately not treated as
+  a resumable saved generation.
   """
   rc, out = ctx.run_check("ai/gates/checks/dataset_publication.py")
   if ctx.dry:
@@ -2067,9 +2072,9 @@ def gate_dataset_request_contract(ctx):
   semantic member map, and the generator's early binding to its actual driver
   filename and exact progress-file census.
 
-  The early generator census is not a complete request or a publication.
-  Authenticated continuation state, copy-on-write append, consumer pinning,
-  and MPI publication remain later Unit-8 work.
+  The dataset-publication gate separately checks generator publication,
+  consumer pinning, and failure-mask staging. Exact append RNG continuation
+  remains later work.
   """
   rc, out = ctx.run_check(
     "ai/gates/checks/dataset_request_contract.py")
@@ -2567,32 +2572,28 @@ BOARD = [
        needs=()),
   Gate(id="dataset-publication",
        spec_code="GEN-E",
-       title="One active record selects one immutable dataset generation",
+       title="Generated and training data use one complete saved generation",
        tier=TIER_BACKLOG,
        home="data-generation-and-cuts",
-       maps="the bounded Unit-8 immutable-generation publication foundation: "
-            "a relocation-stable descriptor separates stems, family, and "
-            "dataset mode under strict canonical JSON; the caller and manifest "
-            "share one exact semantic role-to-path and file/directory census; "
-            "all source members remain open and token-stable across the whole "
-            "sealed-copy window; one locked whole-active-record CAS switches "
-            "readers from complete A to complete B only after a read-only "
-            "generation is authenticated; and retry-safe file/directory sync "
-            "plus bounded pre/post-commit cleanup preserve truthful outcomes. "
-            "A continuation authenticates that source before creating a new "
-            "draft, holds every source member open through the complete copy, "
-            "and returns only separate mode-0600 files under mode-0700 "
-            "directories after exact source and destination rechecks. It "
-            "retains the original active-record SHA-256 value so a later "
-            "publication refuses rather than replacing a concurrently selected "
-            "generation. "
-            "This does not claim GeneratorCore/consumer integration, exact "
-            "scientific identity, GeneratorCore append/resume routing, append "
-            "RNG continuation, or power-recovery "
-            "behavior beyond the documented surviving-pointer contract: "
-            "before the slot-directory sync, recovery may expose A, B, or no "
-            "active pointer; any surviving authenticated pointer names one "
-            "complete generation",
+       maps="the complete CPU path from generator output to staged training "
+            "rows. A stable locator connects the logical parameter filename in "
+            "YAML to the current verified saved version. GeneratorCore writes "
+            "fresh and resumed work in private files, closes its NumPy files, "
+            "waits for all parallel workers, and then replaces the small file "
+            "that selects one complete read-only version. Resume copies one "
+            "verified version and refuses if another writer saves first. Append "
+            "reads and verifies the current version, then stops until complete "
+            "random-state continuation is available. Cocoa resolves train and "
+            "validation once each, rejects mixed members and incompatible "
+            "scientific meaning, and records both exact generations. Failure "
+            "row-status files remove bad rows before repeatable selection, and "
+            "the saved source record includes a SHA-256 fingerprint of the "
+            "chosen row order. Lower-level "
+            "witnesses also require exact member lists, canonical bounded "
+            "records, stable held files during copy, synchronized read-only "
+            "publication, and bounded cleanup. This gate does not claim that an "
+            "unfinished first draft is resumable, that append is implemented, "
+            "or that callback tests simulate sudden power loss",
        evidence=(Assertion(
                    "dataset-publication.slot-identity",
                    "data-generation-and-cuts.md#dataset-publication-slot-identity"),
@@ -2607,14 +2608,26 @@ BOARD = [
                    "data-generation-and-cuts.md#dataset-publication-atomic-switch"),
                  Assertion(
                    "dataset-publication.durability-and-recovery",
-                   "data-generation-and-cuts.md#dataset-publication-durability-and-recovery"),
+                   "data-generation-and-cuts.md#dataset-publication-"
+                   "durability-and-recovery"),
                  Assertion(
                    "dataset-publication.copy-on-write-continuation",
-                   "data-generation-and-cuts.md#dataset-publication-copy-on-write-continuation")),
+                   "data-generation-and-cuts.md#dataset-publication-"
+                   "copy-on-write-continuation")),
        run=gate_dataset_publication,
        manifest=Manifest(
          code=("compute_data_vectors/dataset_publication.py",
-               "ai/tests/test_dataset_publication.py"),
+               "compute_data_vectors/generator_core.py",
+               "emulator/cocoa.py",
+               "emulator/data_staging.py",
+               "emulator/experiment.py",
+               "emulator/designs",
+               "emulator/losses",
+               "ai/tests/test_dataset_publication.py",
+               "ai/tests/test_dataset_locator.py",
+               "ai/tests/test_generator_publication_bridge.py",
+               "ai/tests/test_cocoa_dataset_resolution.py",
+               "ai/tests/test_failed_row_staging.py"),
          inputs=()),
        needs=()),
   Gate(id="dataset-request-contract",

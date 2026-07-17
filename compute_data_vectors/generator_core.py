@@ -53,7 +53,7 @@ transformations are the module-global `args` becoming `self.args` and
 the data-vector store lines becoming the _dv_* hook calls above.
 """
 import numpy as np
-import emcee, argparse, os, sys, yaml, time, traceback
+import emcee, argparse, hashlib, os, sys, yaml, time, traceback
 import psutil, gc, math, copy, tempfile, inspect
 from cobaya.model import get_model
 from mpi4py import MPI
@@ -77,12 +77,23 @@ from emulator import fixed_facts
 from emulator.parameter_table import resolve_parameter_table
 from compute_data_vectors.dataset_manifest import (
   DATASET_PROBE_FAMILIES,
+  DATASET_SAMPLING_POLICIES,
   UNIFORM_BOUNDARY_INTERIOR_POLICY as DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY,
   build_dataset_member_census,
+  build_dataset_request_identity,
   load_checkpoint_or_refuse,
   require_checkpoint_members,
   scope_dataset_stem,
   validate_run_control,
+)
+from compute_data_vectors.dataset_publication import (
+  begin_dataset_continuation,
+  begin_dataset_generation,
+  canonical_json_bytes,
+  derive_dataset_slot,
+  install_dataset_locator,
+  load_active_generation,
+  publish_dataset_generation,
 )
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -475,10 +486,34 @@ class GeneratorCore:
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
+    rank_zero_error = None
+    rank_zero_failure = None
     if rank == 0:
-      self.__run_mcmc()
+      try:
+        self._prepare_dataset_publication()
+        self.__run_mcmc()
+      except Exception as error:
+        # Other ranks have finished setup and are waiting to enter the MPI
+        # data-vector farm. Tell them about a rank-zero refusal before this
+        # rank re-raises it, so an expected append or resume refusal cannot
+        # leave the workers waiting forever.
+        rank_zero_error = error
+        rank_zero_failure = type(error).__name__ + ": " + str(error)
+    rank_zero_failure = comm.bcast(rank_zero_failure, root=0)
+    if rank_zero_failure is not None:
+      if rank == 0:
+        raise rank_zero_error
+      raise RuntimeError(
+        "rank 0 stopped before MPI data-vector work: " + rank_zero_failure)
     if self.run_control.dataset_mode == "full":
       self.__generate_datavectors()
+    # Full-dataset workers reach this point only after rank 0 has received every
+    # explicit DTAG shutdown acknowledgement. Chain-only workers wait here while
+    # rank 0 finishes the chain. No generation can become visible until every
+    # rank has therefore stopped using the draft.
+    comm.Barrier()
+    if rank == 0:
+      self._publish_dataset_generation()
 
   def __setup_flags(self):
     #---------------------------------------------------------------------------
@@ -496,7 +531,9 @@ class GeneratorCore:
     self.bounds = None           # the support the sampler drew from (resolved)
     self.bounds_requested = None # the support the prior declared (requested)
     self.bounds_adj = (
-      self.args.boundary if self.args.boundary is not None and 0 < self.args.boundary < 1 else 1
+      self.args.boundary
+      if self.args.boundary is not None and 0 < self.args.boundary < 1
+      else 1.0
     )
     self.covmat = None
     self.dtype = np.float32
@@ -556,6 +593,11 @@ class GeneratorCore:
 
     if not isinstance(info, dict):
       raise ValueError(f"Cobaya YAML did not parse to a dict: {self.yaml}")
+    # Bind the user's parsed configuration before Cobaya or a driver receives
+    # the mapping. A downstream library is then free to normalize its private
+    # copy without changing the identity of the request the user supplied.
+    configuration_sha256 = hashlib.sha256(
+      canonical_json_bytes(info)).hexdigest()
 
     missing = [k for k in ['params', 'likelihood', 'train_args'] if k not in info]
     if missing:
@@ -708,6 +750,7 @@ class GeneratorCore:
     self.failf = scope_dataset_stem(
       self.failf, self.run_control.dataset_mode)
     self._bind_dataset_member_census()
+    self._bind_dataset_publication_request(configuration_sha256)
 
     #---------------------------------------------------------------------------
     # Validate fiducial is inside the sampling bounds (Gaussian sampling only)
@@ -813,6 +856,324 @@ class GeneratorCore:
     self.dataset_route = census.route
     self.dataset_members = census.members
     self.dataset_member_directory = member_directory
+
+  def _facts_sidecar_text(self, names, dataset_id, resolved_bounds=None):
+    """Build the scientific sidecar for one chain or provisional request.
+
+    ``dataset_id`` names committed chain bytes when the sidecar is written. A
+    provisional all-zero digest may instead be supplied while the immutable
+    request identity is being prepared: the scientific-contract projection
+    deliberately removes that generation-specific field before hashing.
+
+    Uniform sampling moves each endpoint one representable value inward just
+    before drawing. ``resolved_bounds`` lets request construction describe that
+    future support without mutating ``self.bounds`` before the sampling gate.
+
+    Arguments:
+      names = sampled parameter names in their canonical column order.
+      dataset_id = SHA-256 of committed chain bytes, or an all-zero provisional
+                   value used only while the invariant request is built.
+      resolved_bounds = optional final sampling bounds. None uses
+                        ``self.bounds``.
+
+    Returns:
+      The validated YAML text owned by ``emulator.fixed_facts``.
+
+    Raises:
+      ValueError when the resolved facts or parameter support cannot form a
+      valid scientific record. This method changes no generator state.
+    """
+    facts = self._resolve_fixed_facts()
+    resolved_source = self.bounds if resolved_bounds is None else resolved_bounds
+    requested = {}
+    resolved = {}
+    for index, name in enumerate(names):
+      requested[name] = (self.bounds_requested[index, 0],
+                         self.bounds_requested[index, 1])
+      resolved[name] = (resolved_source[index, 0],
+                        resolved_source[index, 1])
+    return fixed_facts.build_sidecar(
+      dataset_id=dataset_id,
+      generator=facts["generator"],
+      family=facts["family"],
+      cosmology_fixed=facts["cosmology_fixed"],
+      neutrino_convention=facts["neutrino_convention"],
+      flat_only=facts["flat_only"],
+      dark_energy_law=facts["dark_energy_law"],
+      dark_energy_inputs=facts["dark_energy_inputs"],
+      cl_units=facts["cl_units"],
+      base_identity=facts["base_identity"],
+      names=names,
+      requested=requested,
+      resolved=resolved)
+
+  def _build_dataset_request_identity(self, configuration_sha256):
+    """Build the exact request that a locator and generation authenticate.
+
+    Arguments:
+      configuration_sha256 = digest of the canonical parsed input YAML before
+                              Cobaya or a driver can normalize its own copy.
+
+    Returns:
+      A validated native mapping containing the output route, parameter order,
+      sampling controls, random-generator policy, and invariant science digest.
+
+    Raises:
+      ValueError when a route, sampling control, bound, or scientific fact is
+      invalid. The method predicts uniform endpoint movement without drawing a
+      random number or changing the stored bounds.
+    """
+    names = list(self.sampled_params)
+    sampling_mode = "uniform" if self.unif == 1 else "gaussian-mcmc"
+    policy = DATASET_SAMPLING_POLICIES[sampling_mode]
+
+    resolved_bounds = self.bounds
+    if sampling_mode == "uniform":
+      provisional_support = resolve_uniform_sampling_support(
+        names=names,
+        bounds=self.bounds)
+      resolved_bounds = provisional_support["bounds"]
+    provisional_text = self._facts_sidecar_text(
+      names=names,
+      dataset_id="0" * 64,
+      resolved_bounds=resolved_bounds)
+    provisional_blocks = fixed_facts.parse_sidecar(
+      text=provisional_text,
+      where="the provisional dataset scientific record")
+    scientific_digest = fixed_facts.scientific_contract_digest(
+      blocks=provisional_blocks,
+      where="the provisional dataset scientific record")
+    return build_dataset_request_identity(
+      dataset_mode=self.dataset_route["dataset_mode"],
+      family=self.dataset_route["family"],
+      family_variant=self.dataset_route["family_variant"],
+      generator=self.dataset_route["generator"],
+      probe=self.dataset_route["probe"],
+      sampling_mode=sampling_mode,
+      temperature=self.temp,
+      boundary_factor=self.bounds_adj,
+      max_correlation=(None if sampling_mode == "uniform"
+                       else self.maxcorr),
+      sampling_algorithm=policy["algorithm"],
+      seed=self.seed,
+      rng_bit_generator=policy["bit_generator"],
+      rng_emcee_random=policy["emcee_random"],
+      rng_policy=policy["policy"],
+      boundary_interior_policy=(
+        DATASET_UNIFORM_BOUNDARY_INTERIOR_POLICY
+        if sampling_mode == "uniform" else None),
+      ordered_names=names,
+      configuration_sha256=configuration_sha256,
+      scientific_contract_sha256=scientific_digest)
+
+  def _bind_dataset_publication_request(self, configuration_sha256):
+    """Preserve logical output names and bind one immutable request.
+
+    Arguments:
+      configuration_sha256 = canonical parsed-YAML digest passed to
+                              ``_build_dataset_request_identity``.
+
+    Returns:
+      None. The method records the logical stems, stable dataset slot, request
+      identity, and empty draft/publication state on this generator.
+
+    Raises:
+      ValueError when the output stems, route, or request identity is invalid.
+      No file is created here.
+    """
+    self.logical_paramsf = self.paramsf
+    self.logical_dvsf = self.dvsf
+    self.logical_failf = self.failf
+    self.dataset_slot = derive_dataset_slot(
+      self.dataset_member_directory,
+      params_stem=self.logical_paramsf,
+      dvs_stem=self.logical_dvsf,
+      fail_stem=self.logical_failf,
+      dataset_mode=self.dataset_route["dataset_mode"],
+      family=self.dataset_route["family"])
+    self.dataset_identity = self._build_dataset_request_identity(
+      configuration_sha256)
+    self.dataset_locator = None
+    self.dataset_draft = None
+    self.dataset_expected_active_sha256 = None
+
+  def _prepare_dataset_publication(self):
+    """Create rank zero's private draft without exposing a member file.
+
+    Returns:
+      None. A fresh run receives an empty draft. A resume receives a private
+      authenticated copy of the current completed generation. Output stems are
+      rebound to that draft only on rank zero.
+
+    Raises:
+      RuntimeError for unsupported append or an existing fresh output.
+      DatasetPublicationError when a locator or active generation is missing,
+      corrupt, or belongs to another request. The active generation is never
+      changed by a refusal.
+    """
+    members = dict(self.dataset_members)
+    locator = install_dataset_locator(
+      self.dataset_slot,
+      identity=self.dataset_identity,
+      members=members)
+    self.dataset_locator = locator
+
+    operation = self.run_control.operation
+    if operation == "append":
+      # Authentication comes first. A corrupt or mismatched active generation
+      # must never be mistaken for a merely unsupported continuation request.
+      load_active_generation(
+        locator.slot,
+        expected_identity=locator.identity,
+        expected_members=locator.members)
+      raise RuntimeError(
+        "--append=1 authenticated the active dataset, but exact append is not "
+        "available yet. The generator does not persist the NumPy, emcee, "
+        "walker, and row-selection state needed to continue without repeating "
+        "or skipping samples. Use a fresh logical output; the active dataset "
+        "was not changed.")
+
+    if operation == "fresh":
+      if os.path.lexists(locator.slot.active_path):
+        load_active_generation(
+          locator.slot,
+          expected_identity=locator.identity,
+          expected_members=locator.members)
+        raise RuntimeError(
+          "a complete active dataset already owns this logical output. "
+          "Fresh generation will not replace it; choose new output stems or "
+          "request an authenticated continuation.")
+      draft = begin_dataset_generation(locator.slot)
+      expected_active_sha256 = None
+    elif operation == "resume":
+      continuation = begin_dataset_continuation(
+        locator.slot,
+        expected_identity=locator.identity,
+        expected_members=locator.members)
+      draft = continuation.draft
+      expected_active_sha256 = continuation.source.active_sha256
+    else:
+      raise ValueError(
+        "unknown normalized generator operation: " + repr(operation))
+
+    self.dataset_draft = draft
+    self.dataset_expected_active_sha256 = expected_active_sha256
+    self.paramsf = str(draft.files_path / Path(self.logical_paramsf).name)
+    self.dvsf = str(draft.files_path / Path(self.logical_dvsf).name)
+    self.failf = str(draft.files_path / Path(self.logical_failf).name)
+    self.dataset_member_directory = draft.files_path
+
+  def _close_dataset_memmaps(self):
+    """Flush and close every retained payload memmap before publication.
+
+    Returns:
+      None. In-memory NumPy arrays are unchanged. A single memmap or every
+      memmap in a family mapping is flushed and its file mapping is closed.
+
+    Raises:
+      An operating-system or NumPy error when dirty bytes cannot be flushed.
+      Publication stops before the active generation can change.
+    """
+    stores = getattr(self, "datavectors", None)
+    if isinstance(stores, dict):
+      values = list(stores.values())
+    elif stores is None:
+      values = []
+    else:
+      values = [stores]
+
+    closed = set()
+    for value in values:
+      if not isinstance(value, np.memmap) or id(value) in closed:
+        continue
+      value.flush()
+      memory_map = getattr(value, "_mmap", None)
+      if memory_map is not None and not memory_map.closed:
+        memory_map.close()
+      closed.add(id(value))
+
+  def _require_publishable_failure_mask(self):
+    """Refuse a full draft whose persisted mask names a failed physics row.
+
+    Returns:
+      None. Chain-only datasets have no payload calculations and return
+      immediately. A full dataset returns only when every row token is ``0``
+      and the mask length equals the parameter-chain row count.
+
+    Raises:
+      RuntimeError when the member census and mode disagree, a token is not a
+      literal ``0`` or ``1``, the row count differs, or any row is marked
+      failed. The draft remains private and the previous active generation is
+      unchanged.
+    """
+    role = "rows.failure-mask"
+    members = self.dataset_locator.members
+    if role not in members:
+      if self.run_control.dataset_mode != "chain-only":
+        raise RuntimeError(
+          "a full dataset has no failure-mask member in its publication census")
+      return
+    if self.run_control.dataset_mode != "full":
+      raise RuntimeError(
+        "a chain-only dataset unexpectedly owns a failure-mask member")
+
+    path = self.dataset_draft.files_path / members[role]
+    row_count = 0
+    invalid = []
+    failed_count = 0
+    failed_preview = []
+    with open(path, "r", encoding="ascii") as handle:
+      for line_number, line in enumerate(handle, start=1):
+        row_count += 1
+        token = line[:-1] if line.endswith("\n") else line
+        if token not in ("0", "1"):
+          invalid.append((line_number, token))
+          continue
+        if token == "1":
+          failed_count += 1
+          if len(failed_preview) < 20:
+            failed_preview.append(line_number - 1)
+    if invalid:
+      raise RuntimeError(
+        "the draft failure mask contains invalid rows: " + repr(invalid))
+    expected_rows = len(self.samples)
+    if row_count != expected_rows:
+      raise RuntimeError(
+        "the draft failure mask has " + str(row_count) + " rows, but the "
+        "parameter chain has " + str(expected_rows))
+    if failed_count:
+      suffix = "" if failed_count <= len(failed_preview) else " ..."
+      raise RuntimeError(
+        "dataset publication refused because " + str(failed_count)
+        + " data-vector rows failed. Failed zero-based row indices begin "
+        + repr(failed_preview) + suffix
+        + ". The draft remains private; repair the "
+        "underlying calculation and run the request again. Any earlier active "
+        "generation remains unchanged.")
+
+  def _publish_dataset_generation(self):
+    """Close draft writers and atomically select the complete generation.
+
+    Returns:
+      None. Successful publication installs one immutable generation and then
+      replaces the small active record as the last visible state change.
+
+    Raises:
+      RuntimeError when rank zero has no prepared draft or a full draft has a
+      failed row. DatasetPublicationError reports a member, digest, mode,
+      ownership, race, or filesystem failure. A refusal before active-record
+      replacement leaves the previous generation selected. A later durability
+      error is reported as an uncertain publication and must be inspected.
+    """
+    if self.dataset_draft is None or self.dataset_locator is None:
+      raise RuntimeError("dataset publication was not prepared on rank 0")
+    self._close_dataset_memmaps()
+    self._require_publishable_failure_mask()
+    publish_dataset_generation(
+      self.dataset_draft,
+      identity=self.dataset_locator.identity,
+      members=self.dataset_locator.members,
+      expected_active_sha256=self.dataset_expected_active_sha256)
 
   def _compute_dvs_from_sample(self, sample):
     """
@@ -1618,31 +1979,10 @@ class GeneratorCore:
       build_sidecar validates before it returns any text, so a record that would
       be refused on the way back in is never written out.
     """
-    facts = self._resolve_fixed_facts()
-
-    requested = {}
-    resolved  = {}
-    for i in range(len(names)):
-      requested[names[i]] = (self.bounds_requested[i, 0],
-                             self.bounds_requested[i, 1])
-      resolved[names[i]]  = (self.bounds[i, 0],
-                             self.bounds[i, 1])
-
-    text = fixed_facts.build_sidecar(
-             dataset_id          = fixed_facts.chain_digest(
-                                     chain_path=f"{self.paramsf}.1.txt"),
-             generator           = facts["generator"],
-             family              = facts["family"],
-             cosmology_fixed     = facts["cosmology_fixed"],
-             neutrino_convention = facts["neutrino_convention"],
-             flat_only           = facts["flat_only"],
-             dark_energy_law     = facts["dark_energy_law"],
-             dark_energy_inputs  = facts["dark_energy_inputs"],
-             cl_units            = facts["cl_units"],
-             base_identity       = facts["base_identity"],
-             names               = names,
-             requested           = requested,
-             resolved            = resolved)
+    text = self._facts_sidecar_text(
+      names=names,
+      dataset_id=fixed_facts.chain_digest(
+        chain_path=f"{self.paramsf}.1.txt"))
     with open(f"{self.paramsf}{fixed_facts.SIDECAR_SUFFIX}", "w") as f:
       f.write(text)
 

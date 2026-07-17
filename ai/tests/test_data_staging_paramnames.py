@@ -47,6 +47,13 @@ class ParamnamesResolutionTest(unittest.TestCase):
       handle.write(text)
     return sidecar, text
 
+  @staticmethod
+  def _write_failure_mask(path, rows):
+    """Write an explicit all-success mask for a synthetic payload source."""
+    with open(path, "w", encoding="ascii") as handle:
+      for _ in range(rows):
+        handle.write("0\n")
+
   def test_numeric_chain_uses_shared_root_sidecar(self):
     """X.1.txt resolves X.paramnames and returns a stable 2-D table."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -215,9 +222,11 @@ class ParamnamesResolutionTest(unittest.TestCase):
       params = os.path.join(tmp, "chain.1.txt")
       sidecar = os.path.join(tmp, "chain.paramnames")
       dv = os.path.join(tmp, "chain.npy")
+      failure_mask = os.path.join(tmp, "chain_fail.txt")
       self._write_table(params)
       self._write_sidecar(sidecar, ["omegab", "H0", "chi2*"])
       np.save(dv, np.ones((2, 2), dtype=np.float32))
+      self._write_failure_mask(failure_mask, 2)
       text = fixed_facts.synthetic_sidecar(
         names=["omegab", "H0"],
         label="exact-sidecar-text",
@@ -232,7 +241,8 @@ class ParamnamesResolutionTest(unittest.TestCase):
         omegabh2_hi=None,
         n_keep=1,
         gen=data_staging.torch.Generator().manual_seed(4),
-        verbose=False)
+        verbose=False,
+        failure_mask_path=failure_mask)
 
       self.assertEqual(staged["facts_yaml"], text)
 
@@ -293,6 +303,7 @@ class ParamnamesResolutionTest(unittest.TestCase):
       params = os.path.join(tmp, "families.1.txt")
       sidecar = os.path.join(tmp, "families.paramnames")
       dv = os.path.join(tmp, "families.npy")
+      failure_mask = os.path.join(tmp, "families_fail.txt")
       self._write_table(params, rows=[
         [1, 0, 0.040, 50, 101],
         [1, 0, 0.050, 80, 202],
@@ -307,6 +318,7 @@ class ParamnamesResolutionTest(unittest.TestCase):
         [3001, 3002],
         [4001, 4002],
       ], dtype=np.float32))
+      self._write_failure_mask(failure_mask, 4)
 
       # omega_b h^2 is .010, .032, .0108, .0486 respectively, so the
       # active window retains exactly rows 0 and 2.  None means the
@@ -325,6 +337,7 @@ class ParamnamesResolutionTest(unittest.TestCase):
             }
             if family != "scalar":
               exp.data["train_dv"] = dv
+              exp.data["train_failure_mask"] = failure_mask
             if cuts is not None:
               exp.data["param_cuts"] = cuts
             exp.names = ["omegab", "H0"]

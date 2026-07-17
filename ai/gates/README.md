@@ -55,9 +55,11 @@ with `Ran 1 test` followed by `OK` when the refusal works.
 
 A **gate** is one named final check registered in `ai/gates/board.py`. A gate
 may combine many tests, run a check program, start a real training job, or do
-all three. For example, the `dataset-publication` gate combines 44 focused
-tests into six required results. On the configured workstation, this command
-runs that gate:
+all three. For example, the `dataset-publication` gate groups focused CPU
+tests into six required results. Those tests follow generated files from the
+generator's private work folder to the exact saved train and validation data
+that Cocoa gives to training. On the configured workstation, this command runs
+that gate:
 
 ```bash
 python3 ai/gates/run_board.py --gate dataset-publication
@@ -100,7 +102,7 @@ These examples show the board's range; they are not the full inventory.
 
 | Gate ID | Concrete job |
 | --- | --- |
-| `dataset-publication` | Checks that `active.json`, the small file selecting a saved generation, names one complete, read-only set of dataset files. |
+| `dataset-publication` | Creates temporary generated datasets. It checks that the generator saves one complete read-only version, Cocoa selects one saved train dataset and one saved validation dataset, and rows marked as failed do not reach training. |
 | `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |
 | `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |
 | `bsn-smoke` | Compares a background-distance emulator with values from CAMB, the reference cosmology program used by this check. |

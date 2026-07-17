@@ -651,6 +651,59 @@ def validated_facts_sidecar(params_path, names, facts_yaml=None):
   return facts_yaml
 
 
+def _load_failure_mask(path, expected_rows):
+  """Read the generator's row-failure file without accepting coercions.
+
+  Each physical line is one producer-owned flag. ``0`` means that the row's
+  data vector was calculated successfully, and ``1`` means that calculation
+  failed. Training must not treat a failed row's zero-filled payload as
+  scientific data.
+
+  Arguments:
+    path = authenticated failure-mask path for a data-vector source. Chain-only
+           scalar sources use ``load_scalar_source`` and never call this
+           function.
+    expected_rows = number of rows in the parameter and data-vector files.
+
+  Returns:
+    A one-dimensional Boolean NumPy array with ``True`` for failed rows.
+
+  Raises:
+    ValueError when the path is missing, expected_rows is invalid, a line is
+    not exactly ``0`` or ``1``, or the mask has a different number of rows.
+  """
+  if type(expected_rows) is not int or expected_rows < 0:
+    raise ValueError(
+      "expected_rows must be a nonnegative native integer, got "
+      + repr(expected_rows))
+  if path is None:
+    raise ValueError(
+      "a data-vector source requires an authenticated generator failure mask; "
+      "resolve the published dataset before staging it")
+
+  tokens = []
+  with open(path, "r", encoding="ascii") as failure_file:
+    for line in failure_file:
+      token = line[:-1] if line.endswith("\n") else line
+      tokens.append(token)
+
+  invalid = []
+  for line_number, token in enumerate(tokens, start=1):
+    if token not in ("0", "1"):
+      invalid.append((line_number, token))
+  if invalid:
+    raise ValueError(
+      "the generator failure mask must contain one literal '0' or '1' on "
+      "each line; invalid lines are " + repr(invalid) + " in "
+      + repr(os.fspath(path)))
+  if len(tokens) != expected_rows:
+    raise ValueError(
+      "the generator failure mask has " + str(len(tokens)) + " rows, but "
+      "the parameter and data-vector files have " + str(expected_rows)
+      + " rows: " + repr(os.fspath(path)))
+  return np.asarray([token == "1" for token in tokens], dtype=bool)
+
+
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
                 stage_dv=True,
@@ -659,7 +712,8 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 omegam2h2_lo=None, omegam2h2_hi=None,
                 omegamh2_lo=None, omegamh2_hi=None,
                 omegamh2ns_lo=None, omegamh2ns_hi=None,
-                facts_yaml=None):
+                facts_yaml=None,
+                failure_mask_path=None):
   """
   Load, physically cut, and stage one dv/param source.
 
@@ -709,6 +763,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   compacts both after the transform.
     verbose     = if True (default), print a one-line summary
                   (shapes, rows, in-RAM).
+    failure_mask_path = authenticated generator failure-mask file. Rows marked
+                  ``1`` are removed before the physical cuts and shuffle
+                  selection. A missing path is refused; chain-only data use
+                  ``load_scalar_source`` instead.
     omegabh2_lo  = optional lower bound on omega_b h^2 (None = no
                    lower cut; omegabh2_hi stays the upper bound).
     omegam2h2_lo = optional lower bound on omegam^2 h^2 (the
@@ -728,9 +786,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
     parameters, "dv" the staged data vectors, "idx" the loader index,
     "dump_rows" the disk rows the staged rows came from (see the comment at
     the return), "source_n_rows" the exact row count shared by the original
-    parameter and data-vector dumps, "facts_yaml" the generator's required
-    scientific record as its exact original text, plus "C_mean" / "dv_mean"
-    when with_means.
+    parameter and data-vector dumps, and "selected_rows" the exact disk-row
+    sequence chosen after the seeded shuffle, cuts, and failed-row removal.
+    "facts_yaml" is the generator's required scientific record as its exact
+    original text. "C_mean" and "dv_mean" are also present when with_means.
   """
   # require a generator (n_keep is a required positional arg, so a
   # missing size is a plain TypeError at the call site).
@@ -756,8 +815,12 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
       f"incompatible files: {params_path} has {C.shape[0]} rows, "
       f"{dv_path} has {dv.shape[0]}")
 
-  n     = C.shape[0]
+  n = C.shape[0]
+  failed = _load_failure_mask(
+    path=failure_mask_path,
+    expected_rows=n)
   order = torch.randperm(n, generator=gen).numpy()
+  order = order[~failed[order]]
   # physical-window cuts are opt-in on the CMB path exactly as on the
   # scalar path: a CMB chain need not carry the
   # omegab / H0 / omegam / ns columns the windows read, so
@@ -800,6 +863,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
       f"({os.path.basename(dv_path)}); loosen the windows or enlarge "
       f"the dump")
   idx = phys[:keep]
+  selected_rows = np.asarray(idx, dtype=np.int64).copy()
 
   # stage the cut rows in RAM if they fit, else keep the memmap. The
   # grid2d MPS path (stage_dv False) skips this: it keeps the raw dump
@@ -827,6 +891,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
          "idx": idx_src,
          "dump_rows": np.sort(np.unique(np.asarray(idx))),
          "source_n_rows": int(n),
+         "selected_rows": selected_rows,
          "facts_yaml": facts_yaml}
   if with_means:
     # param_stats returns (offset, scale); the "_" discards the sample
@@ -848,6 +913,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
 
   if verbose:
     in_ram = not isinstance(dv_src, np.memmap)
+    failed_count = int(np.count_nonzero(failed))
+    if failed_count:
+      print("  ignored " + str(failed_count)
+            + " rows whose generator calculations failed")
     # "used K of P cut rows": the staged count out of the post-cut pool,
     # so the absolute-count enforcement is visible on every run, not only
     # when the pool is too small.
@@ -905,8 +974,12 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   Returns:
     a source dict ready for build_loaders / run_emulator: "C" the staged input
     parameters, "dv" the staged output targets, "idx" the loader index,
-    "facts_yaml" the generator's required scientific record as its exact
-    original text, plus "C_mean" / "dv_mean" when with_means.
+    "dump_rows" the sorted disk rows represented by compact storage,
+    "source_n_rows" the number of rows in the original table, and
+    "selected_rows" the exact disk-row sequence chosen by the seeded shuffle
+    and optional cuts. "facts_yaml" is the generator's required scientific
+    record as its exact original text. "C_mean" and "dv_mean" are also present
+    when with_means.
   """
   if gen is None:
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
@@ -953,6 +1026,7 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
       f"(of {n}{' after cuts' if omegabh2_hi is not None else ''}), "
       f"requested n_keep = {keep} ({os.path.basename(params_path)})")
   idx = phys[:keep]
+  selected_rows = np.asarray(idx, dtype=np.int64).copy()
 
   # stage the used rows in RAM (the .txt is already in memory, so this
   # just compacts to the subset). dv = the output targets Y.
@@ -961,6 +1035,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   src = {"C": C_src,
          "dv": Y_src,
          "idx": idx_src,
+         "dump_rows": np.sort(np.unique(np.asarray(idx))),
+         "source_n_rows": int(n),
+         "selected_rows": selected_rows,
          "facts_yaml": facts_yaml}
   if with_means:
     # param_stats returns (offset, scale); the "_" discards the sample scale
