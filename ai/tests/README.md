@@ -802,6 +802,7 @@ files belong together and constructing the model needed for new predictions.
 | File | Question answered |
 | --- | --- |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
+| `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
 | `test_padded_head_artifact.py` | Does a structured head refuse a model/geometry layout disagreement before saving, reopen a valid pair with the exact physical map and mask, and refuse a checkpoint that omits or replaces either fixed record? |
 | `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
@@ -1076,6 +1077,39 @@ adapters before those results become visible to the sampler.
   model coordinate, and NumPy can silently broadcast a row across a surface.
   Checking only the final array could therefore turn an invalid intermediate
   calculation into a finite-looking but scientifically wrong result.
+
+#### Cobaya adapter settings, assembly, and returned results
+
+`test_cobaya_adapter_contracts.py` checks the boundary between saved
+emulators and the Cobaya components that use them. It does not train a model.
+Most cases use small predictors with fixed facts so that a failure identifies
+the adapter rule rather than model fitting or HDF5 input.
+
+- **Examples used:** one setting supplies the text `"false"` where a Boolean
+  is required. Two path spellings point to the same saved root. Two
+  cosmic-shear sections are listed in reverse order but represent distinct
+  physical blocks. A first likelihood changes an array returned by the
+  adapter before a second likelihood asks for the same result.
+- **What the test does:** it runs the shared setting checks through all five
+  public adapter initializers. It builds valid and invalid cosmic-shear
+  section plans, requests an exact CMB multipole range, publishes one scalar
+  result, and reads background and matter-power results twice. When the real
+  Cobaya package is installed, one additional case asks a small likelihood
+  for `rdrag` and follows that value through Cobaya's normal derived-result
+  path.
+- **Pass means:** settings keep their documented types, saved roots are
+  unique, disjoint shear sections follow physical block order, scalar output
+  appears under `derived`, and every second reader sees the original arrays
+  and metadata. A matter-power pair that already requires `As_1e9` does not
+  gain a redundant `As` input.
+- **A refusal it proves:** quoted Booleans, invented devices, malformed or
+  repeated roots, overlapping shear blocks, incompatible layouts, two full
+  shear vectors, a wrong section width, and a non-integer CMB maximum all
+  stop before they can become a scientific likelihood result.
+- **Why it matters:** these mistakes can preserve valid array shapes while
+  reordering or repeating physical measurements. Returning an internal array
+  directly also lets one consumer silently change the value served to the
+  next consumer.
 
 #### Conventional sigma-eight from matter power
 

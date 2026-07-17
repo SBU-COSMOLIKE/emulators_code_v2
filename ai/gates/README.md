@@ -103,6 +103,7 @@ These examples show the board's range; they are not the full inventory.
 | Gate ID | Concrete job |
 | --- | --- |
 | `artifact-output-identity` | Builds small identities for CMB, background, matter-power, CosmoLike, and scalar products. It checks that scientific changes receive different names, moving unchanged inputs does not rename them, and an existing output root is refused without changing its files. |
+| `adapter-contracts` | Most checks use small stand-ins, and one check uses the installed Cobaya lifecycle; none trains a model. The gate refuses a quoted `"false"` where a Boolean is required, checks that cosmic-shear sections are assembled in physical order, checks that scalar and CMB results use the shapes Cobaya requested, and confirms that changing a returned array cannot corrupt the next result. |
 | `dataset-publication` | Creates temporary generated datasets. It checks that the generator saves one complete read-only version, Cocoa selects one saved train dataset and one saved validation dataset, and rows marked as failed do not reach training. |
 | `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |
 | `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |

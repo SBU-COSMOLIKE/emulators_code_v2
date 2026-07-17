@@ -352,25 +352,23 @@ emulator” describes the two-door
 
 ### Cobaya dependency and returned-value contracts
 
-The artifact-only adapter tests are not a substitute for a real Cobaya
-dependency-resolution test. Two dependency contracts require live Cobaya
-coverage:
+Artifact-only adapter tests are not a substitute for a real Cobaya
+dependency-resolution test. Two dependency contracts therefore have live
+Cobaya coverage:
 
-- `emul_mps.get_can_support_params()` returns `Pk_grid`,
-  `Pk_interpolator`, and `sigma8`, the root-mean-square matter-density
-  fluctuation within spheres of radius 8 megaparsecs divided by `h`. In Cobaya
-  3.6 this hook declares
-  input parameters a component is willing to own; it does not declare
-  products or derived outputs. The two P(k) products already advertise
-  themselves through their `get_...` methods, while `sigma8` must be
-  returned by `get_can_provide_params()`. A gate that replaces Cobaya's
-  `Theory` class with a small test substitute and manually assigns
-  `output_params = []` cannot establish real dependency routing.
-- `emul_scalars.calculate()` writes `state["derived"]` only if that key
-  already exists. Cobaya's calculate contract makes the component create
-  the derived mapping when `want_derived` is true. Name-union inspection
-  without a call to `calculate` does not establish that the component state
-  receives the derived result.
+- `emul_mps.get_can_support_params()` returns an empty list because that hook
+  names sampled inputs a component can own; it does not advertise calculated
+  products. The `get_Pk_grid` and `get_Pk_interpolator` methods advertise the
+  two power-spectrum products, while `get_can_provide_params()` advertises
+  `sigma8`, the root-mean-square matter-density fluctuation within spheres of
+  radius 8 megaparsecs divided by `h`. A gate that replaces Cobaya's `Theory`
+  class with a small test substitute and manually assigns `output_params = []`
+  cannot establish this routing.
+- When `want_derived` is true, `emul_scalars.calculate()` creates a new
+  `state["derived"]` mapping when a direct caller did not supply one, retains
+  any existing derived values, and publishes only the selected artifact
+  outputs there. A real Cobaya construction asks a likelihood for one scalar
+  and requires that value to travel through the same derived-result route.
 
 The shared Syren reader accepts either `As_1e9`, which represents
 `10^9 A_s`, or `As`, which represents the dimensionless primordial scalar
@@ -381,7 +379,14 @@ not acquire a redundant `As` requirement merely because it uses a Syren law.
 The EMUL2 example may define a derived `As` bridge for another component, but
 the bridge is not part of the adapter's scientific requirement.
 
+<a id="adapter-contracts-strict-inputs-and-composition"></a>
 #### Adapter values, multi-emulator assembly, and CMB requests
+
+`adapter-contracts.strict-inputs-and-composition` checks the shared value and
+path rules below, then constructs concrete cosmic-shear section plans. It
+requires disjoint sections to follow physical block order and requires
+overlaps, incompatible layouts, repeated full vectors, and wrong widths to
+stop before they can become a likelihood vector.
 
 All five adapters validate both extra-argument keys and values. Forbidden
 coercion patterns illustrate the failure:
@@ -1399,7 +1404,13 @@ on the Apple accelerator backend must behave identically; CUDA uses the
 GPU-capable environment. A mutation that
 restores a storage-sharing `.numpy()` return must fail.
 
+<a id="adapter-contracts-publication-and-owned-results"></a>
 ### Array ownership covers predictors, diagnostics, and Cobaya getters
+
+`adapter-contracts.publication-and-owned-results` checks two observable
+boundaries below. Scalar results must enter Cobaya's derived-result mapping,
+and a caller that changes a returned array or container must not change the
+scientific result seen by the next caller.
 
 **Reason.** A search limited to `.numpy()` misses adapters that return cached
 calculation state directly. The affected public methods include

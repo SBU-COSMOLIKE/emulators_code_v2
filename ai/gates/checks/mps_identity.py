@@ -1062,6 +1062,8 @@ def _lifecycle_files(tmp, law):
     np.savetxt(lifecycle_params, txt)
     _write_paramnames(lifecycle_params)
     _write_facts(lifecycle_params, "mps-lifecycle-" + law)
+    failure_mask = os.path.join(tmp, tag + "_failed.txt")
+    Path(failure_mask).write_text("0\n" * n, encoding="ascii")
     g2 = {"quantity": "pklin", "units": "Mpc3", "law": law,
           "z_file": os.path.join(tmp, tag + "_z.npy"),
           "k_file": os.path.join(tmp, tag + "_k.npy"), "k_stride": 1}
@@ -1073,8 +1075,10 @@ def _lifecycle_files(tmp, law):
     data = {"split_seed": 0, "n_train": 30, "n_val": 20,
             "train_params": os.path.join(tmp, tag + "_params.1.txt"),
             "train_dv": os.path.join(tmp, tag + "_dv.npy"),
+            "train_failure_mask": failure_mask,
             "val_params": os.path.join(tmp, tag + "_params.1.txt"),
-            "val_dv": os.path.join(tmp, tag + "_dv.npy")}
+            "val_dv": os.path.join(tmp, tag + "_dv.npy"),
+            "val_failure_mask": failure_mask}
     return data, g2, raw
 
 
@@ -1304,7 +1308,11 @@ def save_synthetic_grid2d(
     resolved_transfer = None
     if transfer_base is not None:
         resolved_transfer = {"form": transfer_base["form"],
-                             "space": transfer_base["space"]}
+                             "space": transfer_base["space"],
+                             "source_artifact_id":
+                                 transfer_base["source_artifact_id"],
+                             "source_checkpoint_sha256":
+                                 transfer_base["source_checkpoint_sha256"]}
         if transfer_refined:
             resolved_transfer["refine"] = {
                 "fixture": "embedded-drifted-state"}
@@ -1503,6 +1511,9 @@ def check_const_mask_artifact(tmp, device):
         units="Mpc3",
         law="none",
         seed=139)
+    with h5py.File(base_root + ".h5", "r") as source_artifact:
+        source_artifact_id = source_artifact.attrs["artifact_id"]
+        source_checkpoint_sha256 = source_artifact.attrs["checkpoint_sha256"]
     embedded_base = {
         "recipe": grid2d_recipe(Z4.size * K6.size),
         "state": base_model.state_dict(),
@@ -1510,6 +1521,8 @@ def check_const_mask_artifact(tmp, device):
         "dv_geometry": base_geom,
         "form": "gain",
         "space": "physical",
+        "source_artifact_id": source_artifact_id,
+        "source_checkpoint_sha256": source_checkpoint_sha256,
     }
     transfer_root = os.path.join(tmp, "emul_g2_mask_transfer")
     save_synthetic_grid2d(
@@ -2202,7 +2215,7 @@ def check_adapter(tmp, device):
             report("pair-count guard raises", False, "no raise")
         except ValueError as e:
             report_refusal("pair-count guard raises", e,
-                           needle="exactly TWO",
+                           needle="exactly 2",
                            law="the pair-count law")
         root_p2 = os.path.join(tmp, "ad_pklin2")
         # a second linear-power emulator, built to be refused beside the first.

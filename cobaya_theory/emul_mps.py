@@ -41,7 +41,6 @@ import os
 import sys
 
 import numpy as np
-import torch
 from scipy.interpolate import RectBivariateSpline
 from cobaya.theory import Theory
 from cobaya.log import LoggedError, get_logger
@@ -52,6 +51,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from emulator.inference import EmulatorPredictor          # noqa: E402
 from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
                                 check_artifacts_pair_up)
+from cobaya_theory._adapter_contract import (                   # noqa: E402
+    exact_bool,
+    pick_device,
+    resolve_emulator_roots,
+    validate_extra_args,
+)
 from emulator import syren_base                           # noqa: E402
 
 # The only extra_args the schema-v2 convention accepts (the legacy
@@ -284,23 +289,16 @@ class emul_mps(Theory):
         super().initialize()
         self._sigma8_requested = False
         self._check_extra_args()
-        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
-
-        roots = self.extra_args.get("emulators")
-        if not roots or len(roots) != 2:
-            raise ValueError(
-                "emul_mps: extra_args needs an 'emulators' list of "
-                "exactly TWO saved grid2d-emulator path roots — one "
-                "'pklin' and one 'boost'; got " + repr(roots))
-        compile_model = bool(self.extra_args.get("compile", False))
-        rootdir = os.environ.get("ROOTDIR", "")
+        self.device = pick_device(self.extra_args, adapter="emul_mps")
+        roots = resolve_emulator_roots(
+            self.extra_args, adapter="emul_mps", exact_count=2)
+        compile_model = exact_bool(
+            self.extra_args, "compile", adapter="emul_mps")
 
         by_quantity = {}
         req = {}
         for root in roots:
-            path = root if os.path.isabs(root) else os.path.join(rootdir,
-                                                                 root)
-            predictor = EmulatorPredictor(path, self.device,
+            predictor = EmulatorPredictor(root, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard: grid2d only.
             if not predictor._grid2d:
@@ -361,7 +359,9 @@ class emul_mps(Theory):
         # the training sampled them (an absent EoS = LCDM, the same
         # rule the generator applied — the two sides cannot disagree).
         if (self.p_lin.law != "none") or (self.p_boost.law != "none"):
-            for name in ("As", "ns", "H0", "omegab", "omegam"):
+            if "As" not in req and "As_1e9" not in req:
+                req["As"] = None
+            for name in ("ns", "H0", "omegab", "omegam"):
                 req[name] = None
         self._req = req
 
@@ -408,43 +408,15 @@ class emul_mps(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        unknown = []
-        for key in self.extra_args:
-            if key not in _ALLOWED_EXTRA_ARGS:
-                unknown.append(key)
-        if unknown:
-            raise ValueError(
-                "emul_mps: unrecognized extra_args key(s) "
-                f"{sorted(unknown)}. The schema-v2 convention accepts "
-                f"only {list(_ALLOWED_EXTRA_ARGS)}; the legacy "
-                "model_file / metadata_file / nl_* / use_syren / "
-                "param_order keys are retired (the h5 recipe + the "
-                "stored grids and laws replace them).")
-
-    @staticmethod
-    def _pick_device(requested):
-        """Resolve the requested device to cpu / cuda / mps.
-
-        Arguments:
-          requested = the extra_args 'device' string (cpu / cuda / mps).
-
-        Returns:
-          a torch.device, falling back to cpu when the requested
-          accelerator is unavailable (cuda -> mps -> cpu).
-        """
-        req = str(requested).lower()
-        if req == "cuda" and torch.cuda.is_available():
-            return torch.device("cuda")
-        if (req in ("cuda", "mps")
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_built()
-                and torch.backends.mps.is_available()):
-            return torch.device("mps")
-        return torch.device("cpu")
+        validate_extra_args(
+            self.extra_args, adapter="emul_mps", allowed=_ALLOWED_EXTRA_ARGS,
+            retired=("the legacy model_file / metadata_file / nl_* / "
+                     "use_syren / param_order keys are retired because the "
+                     "artifacts store those facts"))
 
     def get_requirements(self):
         """The sampled parameters the emulators + bases need."""
-        return self._req
+        return dict(self._req)
 
     def get_can_support_params(self):
         """Do not claim derived products as sampled input parameters.
@@ -623,6 +595,9 @@ class emul_mps(Theory):
         nonlinear follows Cobaya's BoltzmannBase default: an omitted
         argument returns the NONLINEAR grid. A caller that wants the
         linear spectrum requests it explicitly with nonlinear=False.
+
+        The three returned arrays own their storage. Editing them cannot
+        change the provider cache used by another likelihood.
         """
         if var_pair != ("delta_tot", "delta_tot"):
             raise LoggedError(
@@ -631,7 +606,9 @@ class emul_mps(Theory):
                 f"not {var_pair}")
         key = ("Pk_grid", nonlinear) + tuple(sorted(var_pair))
         if key in self.current_state:
-            return self.current_state[key]
+            k, z, power = self.current_state[key]
+            return (np.array(k, copy=True), np.array(z, copy=True),
+                    np.array(power, copy=True))
         raise LoggedError(
             self.log,
             f"Matter power spectrum (nonlinear={nonlinear}) not computed.")
@@ -651,10 +628,6 @@ class emul_mps(Theory):
                 self.log,
                 f"emul_mps only supports delta_tot power spectra, "
                 f"not {var_pair}")
-        key = (("Pk_interpolator", nonlinear, extrap_kmin, extrap_kmax)
-               + tuple(sorted(var_pair)))
-        if key in self.current_state:
-            return self.current_state[key]
         k, z, pk = self.get_Pk_grid(var_pair=var_pair,
                                     nonlinear=nonlinear)
         log_p = True
@@ -685,7 +658,6 @@ class emul_mps(Theory):
             extrap_kmin=extrap_kmin,
             extrap_kmax=extrap_kmax,
         )
-        self.current_state[key] = result
         return result
 
     @staticmethod

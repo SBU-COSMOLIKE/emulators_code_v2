@@ -373,7 +373,9 @@ class AdapterPublicationTests(unittest.TestCase):
       with self.subTest(adapter=class_name):
         module = _load_adapter(filename, "rescale_adapter_" + str(index))
         adapter = getattr(module, class_name)()
-        adapter.extra_args = {"emulators": roots}
+        adapter.extra_args = {
+          "emulators": [str(ROOT / root) for root in roots],
+        }
         with mock.patch.object(
             module,
             "EmulatorPredictor",

@@ -39,7 +39,6 @@ import os
 import sys
 
 import numpy as np
-import torch
 from cobaya.theory import Theory
 from scipy import interpolate
 
@@ -53,6 +52,12 @@ from emulator.background import distance_interpolators, C_KMS  # noqa: E402
 from emulator.geometries.grid import (                     # noqa: E402
     BACKGROUND_QUANTITY_UNITS,
     validate_background_quantity_units,
+)
+from cobaya_theory._adapter_contract import (                   # noqa: E402
+    exact_bool,
+    pick_device,
+    resolve_emulator_roots,
+    validate_extra_args,
 )
 
 # The only extra_args the schema-v2 convention accepts (the legacy ord /
@@ -110,24 +115,16 @@ class emul_baosn(Theory):
         """Build the two predictors and assemble the window layout."""
         super().initialize()
         self._check_extra_args()
-        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
-
-        roots = self.extra_args.get("emulators")
-        if not roots or len(roots) != 2:
-            raise ValueError(
-                "emul_baosn: extra_args needs an 'emulators' list of "
-                "exactly TWO saved grid-emulator path roots — one "
-                "'Hubble' (SN range) and one 'D_M' (recombination "
-                "window); got " + repr(roots))
-        compile_model = bool(self.extra_args.get("compile", False))
-        rootdir = os.environ.get("ROOTDIR", "")
+        self.device = pick_device(self.extra_args, adapter="emul_baosn")
+        roots = resolve_emulator_roots(
+            self.extra_args, adapter="emul_baosn", exact_count=2)
+        compile_model = exact_bool(
+            self.extra_args, "compile", adapter="emul_baosn")
 
         by_quantity = {}
         req = {}
         for root in roots:
-            path = root if os.path.isabs(root) else os.path.join(rootdir,
-                                                                 root)
-            predictor = EmulatorPredictor(path, self.device,
+            predictor = EmulatorPredictor(root, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard: grid artifacts only.
             if not predictor._grid:
@@ -247,42 +244,16 @@ class emul_baosn(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        unknown = []
-        for key in self.extra_args:
-            if key not in _ALLOWED_EXTRA_ARGS:
-                unknown.append(key)
-        if unknown:
-            raise ValueError(
-                "emul_baosn: unrecognized extra_args key(s) "
-                f"{sorted(unknown)}. The schema-v2 convention accepts "
-                f"only {list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / "
-                "extrapar / extra / file / TMAT / ZLIN keys are retired "
-                "(the h5 recipe + the stored grid replace them).")
-
-    @staticmethod
-    def _pick_device(requested):
-        """Resolve the requested device to cpu / cuda / mps.
-
-        Arguments:
-          requested = the extra_args 'device' string (cpu / cuda / mps).
-
-        Returns:
-          a torch.device, falling back to cpu when the requested
-          accelerator is unavailable (cuda -> mps -> cpu).
-        """
-        req = str(requested).lower()
-        if req == "cuda" and torch.cuda.is_available():
-            return torch.device("cuda")
-        if (req in ("cuda", "mps")
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_built()
-                and torch.backends.mps.is_available()):
-            return torch.device("mps")
-        return torch.device("cpu")
+        validate_extra_args(
+            self.extra_args, adapter="emul_baosn",
+            allowed=_ALLOWED_EXTRA_ARGS,
+            retired=("the legacy ord / extrapar / extra / file / TMAT / "
+                     "ZLIN keys are retired because the artifacts store "
+                     "those facts"))
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""
-        return self._req
+        return dict(self._req)
 
     def get_can_provide(self):
         """The background products this theory provides."""
@@ -429,7 +400,8 @@ class emul_baosn(Theory):
                 "the SN-range window [0, " + repr(self._sn_max) + "]; "
                 "H(z) is emulated only there (the recombination window "
                 "carries D_M, not H)")
-        h = self.current_state["baosn"]["itp"]["H"](z)
+        h = np.array(
+            self.current_state["baosn"]["itp"]["H"](z), copy=True)
         if units == "km/s/Mpc":
             return h
         if units == "1/Mpc":

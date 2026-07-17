@@ -28,7 +28,6 @@ import os
 import sys
 
 import numpy as np
-import torch
 from cobaya.theory import Theory
 
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so the
@@ -39,6 +38,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from emulator.inference import EmulatorPredictor  # noqa: E402
 from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
                                 check_artifacts_pair_up)
+from cobaya_theory._adapter_contract import (                   # noqa: E402
+    exact_bool,
+    exact_choice,
+    fast_parameter_groups,
+    pick_device,
+    resolve_emulator_roots,
+    validate_extra_args,
+)
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
 # extrapar / extra / file keys are retired (see the module docstring); an
@@ -74,28 +81,31 @@ class emul_cosmic_shear(Theory):
         """Build the predictors and assemble the requirements from the h5s."""
         super().initialize()
         self._check_extra_args()
-        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
-
-        roots = self.extra_args.get("emulators")
-        if not roots:
-            raise ValueError(
-                "emul_cosmic_shear: extra_args needs a non-empty 'emulators' "
-                "list of saved-emulator path roots (each root -> <root>.h5 + "
-                "<root>.emul).")
-        compile_model = bool(self.extra_args.get("compile", False))
+        self.device = pick_device(
+            self.extra_args, adapter="emul_cosmic_shear")
+        roots = resolve_emulator_roots(
+            self.extra_args, adapter="emul_cosmic_shear")
+        compile_model = exact_bool(
+            self.extra_args, "compile", adapter="emul_cosmic_shear")
         # the returned shape, passed to every predictor (default 'section':
         # the per-probe block the likelihood glues; '3x2pt' for the full
         # scattered vector). The predictor validates the value.
-        dv_return = str(self.extra_args.get("dv_return", "section"))
-        rootdir = os.environ.get("ROOTDIR", "")
+        dv_return = exact_choice(
+            self.extra_args, "dv_return", adapter="emul_cosmic_shear",
+            choices=("section", "3x2pt"), default="section")
+        if "fast_params" in self.extra_args:
+            fast_groups = fast_parameter_groups(
+                self.extra_args["fast_params"],
+                adapter="emul_cosmic_shear", emulator_count=len(roots))
+        else:
+            fast_groups = [[] for _ in roots]
 
         # one predictor per root; the requirements are the union of the
         # predictors' stored geometry names -- the YAML never re-declares them.
         self.predictors = []
         req = {}
         for root in roots:
-            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
-            predictor = EmulatorPredictor(path, self.device,
+            predictor = EmulatorPredictor(root, self.device,
                                           compile_model=compile_model,
                                           dv_return=dv_return)
             # wrong-kind guard: this theory serves data-vector emulators
@@ -130,9 +140,8 @@ class emul_cosmic_shear(Theory):
         # sampler provides and blocks them as fast (this theory is cheap), but
         # they never enter a network input -- an in-theory analytic use (e.g.
         # applying shear calibration to the dv) is a flagged future step.
-        for group in (self.extra_args.get("fast_params") or []):
-            names = [group] if isinstance(group, str) else list(group)
-            for name in names:
+        for group in fast_groups:
+            for name in group:
                 req[name] = None
         self._req = req
 
@@ -141,6 +150,82 @@ class emul_cosmic_shear(Theory):
         # from another family). Only now is it worth asking whether those
         # artifacts are ONE dataset.
         check_artifacts_pair_up(predictors=self.predictors)
+        self._composition = self._build_composition(dv_return)
+
+    def _build_composition(self, dv_return):
+        """Return predictors in physical block order with checked widths."""
+        if dv_return == "3x2pt":
+            if len(self.predictors) != 1:
+                raise ValueError(
+                    "emul_cosmic_shear: dv_return='3x2pt' serves one full "
+                    "global vector, so it cannot combine multiple emulators")
+            predictor = self.predictors[0]
+            return [(predictor, int(predictor.total_size))]
+
+        first_sizes = None
+        first_total = None
+        occupied = {}
+        plan = []
+        for predictor in self.predictors:
+            if predictor.section_sizes is None or predictor.probe is None:
+                raise ValueError(
+                    "emul_cosmic_shear: dv_return='section' requires every "
+                    "artifact to store section_sizes and probe")
+            if (not predictor.section_sizes
+                    or any(type(value) is not int or value <= 0
+                           for value in predictor.section_sizes)):
+                raise ValueError(
+                    "emul_cosmic_shear: section_sizes must be nonempty "
+                    "positive native integers, got "
+                    + repr(predictor.section_sizes))
+            sizes = tuple(predictor.section_sizes)
+            if (type(predictor.total_size) is not int
+                    or predictor.total_size <= 0):
+                raise ValueError(
+                    "emul_cosmic_shear: total_size must be a positive "
+                    "native integer, got " + repr(predictor.total_size))
+            total = predictor.total_size
+            if sum(sizes) != total:
+                raise ValueError(
+                    "emul_cosmic_shear: section_sizes sum to "
+                    + repr(sum(sizes)) + " but total_size is " + repr(total))
+            if first_sizes is None:
+                first_sizes, first_total = sizes, total
+            elif sizes != first_sizes or total != first_total:
+                raise ValueError(
+                    "emul_cosmic_shear: section emulators must describe the "
+                    "same global layout; got section_sizes/total_size "
+                    + repr((first_sizes, first_total)) + " and "
+                    + repr((sizes, total)))
+            try:
+                blocks = tuple(predictor.geom.PROBE_BLOCKS[predictor.probe])
+            except (AttributeError, KeyError) as error:
+                raise ValueError(
+                    "emul_cosmic_shear: artifact probe "
+                    + repr(predictor.probe)
+                    + " is not registered in its stored layout") from error
+            if not blocks:
+                raise ValueError(
+                    "emul_cosmic_shear: artifact probe "
+                    + repr(predictor.probe) + " serves no global blocks")
+            if (any(type(block) is not int for block in blocks)
+                    or min(blocks) < 0 or max(blocks) >= len(sizes)):
+                raise ValueError(
+                    "emul_cosmic_shear: probe " + repr(predictor.probe)
+                    + " names invalid global blocks " + repr(blocks)
+                    + " for " + repr(len(sizes)) + " sections")
+            for block in blocks:
+                if block in occupied:
+                    raise ValueError(
+                        "emul_cosmic_shear: probes "
+                        + repr(occupied[block]) + " and "
+                        + repr(predictor.probe) + " both serve global block "
+                        + repr(block) + "; section blocks must be disjoint")
+                occupied[block] = predictor.probe
+            width = sum(sizes[block] for block in blocks)
+            plan.append((min(blocks), predictor, width))
+        plan.sort(key=lambda item: item[0])
+        return [(predictor, width) for _, predictor, width in plan]
 
     def initialize_with_provider(self, provider):
         """Prove every served emulator was generated for THIS cosmology.
@@ -180,42 +265,15 @@ class emul_cosmic_shear(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        unknown = []
-        for key in self.extra_args:
-            if key not in _ALLOWED_EXTRA_ARGS:
-                unknown.append(key)
-        if unknown:
-            raise ValueError(
-                "emul_cosmic_shear: unrecognized extra_args key(s) "
-                f"{sorted(unknown)}. The schema-v2 convention accepts only "
-                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
-                "extra / file keys are retired (the h5 recipe + stored names "
-                "replace them, the emulator file IS the emulator).")
-
-    @staticmethod
-    def _pick_device(requested):
-        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
-
-        Arguments:
-          requested = the extra_args 'device' string (cpu / cuda / mps).
-
-        Returns:
-          a torch.device, falling back to cpu when the requested accelerator
-          is unavailable (cuda -> mps -> cpu, matching the legacy Theory).
-        """
-        req = str(requested).lower()
-        if req == "cuda" and torch.cuda.is_available():
-            return torch.device("cuda")
-        if (req in ("cuda", "mps")
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_built()
-                and torch.backends.mps.is_available()):
-            return torch.device("mps")
-        return torch.device("cpu")
+        validate_extra_args(
+            self.extra_args, adapter="emul_cosmic_shear",
+            allowed=_ALLOWED_EXTRA_ARGS,
+            retired=("the legacy ord / extrapar / extra / file keys are "
+                     "retired because the artifact stores those facts"))
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""
-        return self._req
+        return dict(self._req)
 
     def calculate(self, state, want_derived=True, **params):
         """Predict cosmic_shear from the sampled params.
@@ -227,15 +285,30 @@ class emul_cosmic_shear(Theory):
 
         Returns:
           True; state["cosmic_shear"] holds the physical data vector (one
-          emulator today; multiple concatenate in the emulators-list order).
+          emulator today; disjoint sections follow their stored physical
+          block order, independent of the YAML root order).
         """
-        dvs = []
-        for predictor in self.predictors:
-            dvs.append(predictor.predict(params))
-        state["cosmic_shear"] = (dvs[0] if len(dvs) == 1
-                                 else np.concatenate(dvs))
+        segments = []
+        for predictor, expected_width in self._composition:
+            segment = np.asarray(predictor.predict(params))
+            if segment.shape != (expected_width,):
+                raise ValueError(
+                    "emul_cosmic_shear: predictor for probe "
+                    + repr(predictor.probe) + " returned shape "
+                    + repr(segment.shape) + "; the stored layout requires "
+                    + repr((expected_width,)))
+            segments.append(segment)
+        result = (segments[0] if len(segments) == 1
+                  else np.concatenate(segments))
+        expected_total = sum(width for _, width in self._composition)
+        if result.shape != (expected_total,):
+            raise ValueError(
+                "emul_cosmic_shear: assembled data vector has shape "
+                + repr(result.shape) + "; the composition plan requires "
+                + repr((expected_total,)))
+        state["cosmic_shear"] = result
         return True
 
     def get_cosmic_shear(self):
-        """The likelihood contract kept from the legacy Theory."""
-        return self.current_state["cosmic_shear"]
+        """Return an owned vector; callers cannot alter the provider cache."""
+        return np.array(self.current_state["cosmic_shear"], copy=True)

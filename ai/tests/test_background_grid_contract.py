@@ -314,7 +314,7 @@ class BackgroundGridContractTests(unittest.TestCase):
     adapter = adapter_module.emul_baosn()
     adapter.extra_args = {
       "device": "cpu",
-      "emulators": ["bad_hubble", "distance"],
+      "emulators": [str(ROOT / "bad_hubble"), str(ROOT / "distance")],
     }
     with self.assertRaisesRegex(ValueError, r"\('Hubble', 'Mpc'\)"):
       adapter.initialize()

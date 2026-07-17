@@ -1027,7 +1027,7 @@ def check_adapter(tmp, device):
         # of distinct quantities with no D_M among them, which is exactly the
         # fixture that leg builds.
         report_refusal("missing D_M raises", e,
-                       needle="exactly TWO",
+                       needle="exactly 2",
                        law="the pair-count law")
     root_h2 = os.path.join(tmp, "ad_h2")
     # a second Hubble emulator, built to be refused beside the first. It carries

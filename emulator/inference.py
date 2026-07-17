@@ -1179,7 +1179,7 @@ class EmulatorPredictor:
     # function keyed by its quantity tag, with the stored grid beside it.
     if self._grid:
       row = decoded[0].detach().cpu().numpy()
-      return {"z": self.z.detach().cpu().numpy(),
+      return {"z": self.z.detach().cpu().numpy().copy(),
               self.quantity: row}
     # grid2d emulator: decode destandardizes to LAW SPACE (the
     # base multiply-back is the consumer's one step); the
@@ -1188,8 +1188,8 @@ class EmulatorPredictor:
       nz = int(self.z.numel())
       nk = int(self.k.numel())
       surface = decoded[0].detach().cpu().numpy()
-      return {"z": self.z.detach().cpu().numpy(),
-              "k": self.k.detach().cpu().numpy(),
+      return {"z": self.z.detach().cpu().numpy().copy(),
+              "k": self.k.detach().cpu().numpy().copy(),
               self.quantity: surface.reshape(nz, nk)}
     # CMB spectrum emulator: decode reverses the selected target law and
     # returns physical C_ell on the stored multipole grid. This family has

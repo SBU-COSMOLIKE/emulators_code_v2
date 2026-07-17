@@ -483,14 +483,17 @@ def check_record_laws(tmp, device):
     save_synthetic_dv(root=other, device=device, label=OTHER_DUMP_LABEL,
                       support=SUPPORT, seed=41)
 
-    # HORIZONTAL. Two halves off one dump share a dataset identity and may be
-    # served together; a half from another dump may not, and no comparison of
-    # the FACTS could have caught it -- two runs of one YAML with a fresh seed
-    # agree on every fact and every bound, and drew different points.
-    pair = build(cls, [one, twin])
-    report("two emulators off one dump are served together",
-           len(pair.predictors) == 2,
-           "one dataset identity, one pair")
+    # HORIZONTAL. Sharing a dataset is necessary but not sufficient: these two
+    # doubles both claim the xi block, so serving them together would count the
+    # same scientific segment twice. The adapter must reject that overlap.
+    try:
+        build(cls, [one, twin])
+        report("two emulators claiming one block are refused", False,
+               "no raise")
+    except ValueError as exc:
+        report_refusal("two emulators claiming one block are refused", exc,
+                       needle="both serve global block",
+                       law="the disjoint-section law")
 
     try:
         build(cls, [one, other])

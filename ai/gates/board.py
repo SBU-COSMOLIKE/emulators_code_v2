@@ -1946,6 +1946,27 @@ def gate_cs_adapter_identity(ctx):
                     + " (ai/gates/checks/cs_adapter_identity.py)")
 
 
+def gate_adapter_contracts(ctx):
+  """adapter-contracts: shared input and publication rules on the CPU.
+
+  The child runs focused tests for all five Cobaya emulator adapters.  Its
+  first group checks strict YAML values, canonical model paths, and safe
+  cosmic-shear section composition.  Its second group checks scalar and CMB
+  publication, matter-power dependencies, and copies at every public array
+  boundary.  Most tests use small stand-ins, and one scalar test uses the
+  installed Cobaya lifecycle.  No model is trained and no scientific dataset
+  is needed.
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("ai/gates/checks/adapter_contracts.py")
+  if ctx.dry:
+    return
+  ctx.expect(label="adapter-contracts child completed",
+             ok=(rc == 0),
+             detail="check exit code " + str(rc)
+                    + " (ai/gates/checks/adapter_contracts.py)")
+
+
 def gate_generator_seed(ctx):
   """generator-seed: the dataset generator samples from an owned, recorded RNG.
 
@@ -2932,6 +2953,28 @@ BOARD = [
                                "cobaya_theory/emul_cosmic_shear.py"),
                          inputs=()),
        needs=("torch",)),
+  Gate(id="adapter-contracts",
+       spec_code="ADC-A",
+       title="Shared Cobaya adapter inputs and public results",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="focused CPU checks cover the shared rules used by all five "
+            "Cobaya adapters. Actual booleans, documented device names, "
+            "known YAML keys, and distinct model paths are required. "
+            "Cosmic-shear sections follow physical block order and refuse "
+            "overlaps or inconsistent widths. Scalar and CMB results follow "
+            "Cobaya's requested shape, matter power keeps one amplitude name, "
+            "and every public array result is an owned copy",
+       evidence=(Assertion(
+                   "adapter-contracts.strict-inputs-and-composition",
+                   "artifacts-inference-warmstart.md#adapter-contracts-"
+                   "strict-inputs-and-composition"),
+                 Assertion(
+                   "adapter-contracts.publication-and-owned-results",
+                   "artifacts-inference-warmstart.md#adapter-contracts-"
+                   "publication-and-owned-results")),
+       run=gate_adapter_contracts,
+       needs=("torch", "cobaya")),
   Gate(id="artifact-readback",
        spec_code="ARB-A",
        title="Saved attributes parsed by type, not truthiness",

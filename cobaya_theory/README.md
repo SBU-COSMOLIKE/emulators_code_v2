@@ -308,9 +308,10 @@ Do not write a literal `$ROOTDIR` inside the YAML. YAML does not ask the shell
 to expand that variable. Source `start_cocoa.sh` and run from `$ROOTDIR`
 instead.
 
-If `$ROOTDIR` is unset, a relative root starts from the folder where
-`cobaya-run` was launched. This guide avoids that ambiguity by sourcing
-`start_cocoa.sh` first.
+If `$ROOTDIR` is unset or does not name an existing absolute folder, the
+adapter refuses a relative root. It does not guess from the folder where
+`cobaya-run` happened to start. Source `start_cocoa.sh` first, or use an
+absolute saved-emulator root.
 
 `python_path` follows Cobaya's external-class rule. From `$ROOTDIR`, use:
 
@@ -326,21 +327,28 @@ adapter Python file.
 
 | Adapter | Count | Additional rule |
 | --- | ---: | --- |
-| `emul_cosmic_shear` | One or more | Several vectors are joined in YAML order |
+| `emul_cosmic_shear` | One or more sections, or one full vector | Several sections must describe disjoint physical blocks in one saved layout |
 | `emul_scalars` | One or more | No two roots may return the same named value |
 | `emul_cmb` | One or more | Use one root for each requested spectrum |
 | `emul_baosn` | Exactly two | One `Hubble` root and one `D_M` root |
 | `emul_mps` | Exactly two | One `pklin` root and one `boost` root |
 
 The adapter reads the saved output description, so list order does not choose
-the meaning of either exactly-two pair. Giving two roots with the same output
-name is refused.
+the physical order of cosmic-shear sections or the meaning of either
+exactly-two pair. Giving two roots with the same output name, the same
+canonical path, or an overlapping cosmic-shear block is refused.
 
 ## FAQ A4. What does the adapter check when it loads files? <a id="faq-a4"></a>
 
 The adapter checks that every root belongs to its physical family. When several
 roots are used together, it also checks that they came from the same generated
 dataset and agree on saved scientific settings and parameter coordinates.
+
+Configuration values are checked before a saved model opens. For example,
+`compile` must be the YAML Boolean `true` or `false`; the text `"false"` is
+not accepted as a substitute. A device must be exactly `cpu`, `cuda`, or
+`mps`. Saved roots must be nonempty path strings, and two spellings that point
+to the same path cannot load one model twice.
 
 After Cobaya has assembled the model, the adapter compares the saved fixed
 settings with the active Cobaya settings. A **fixed setting** is a quantity
@@ -440,9 +448,11 @@ missing-parameter error.
 
 The matter-power adapter needs extra quantities when it reconstructs a Syren
 starting prediction. Syren supplies a matter-power formula that the emulator
-corrects. The adapter asks for `As`, `ns`, `H0`, `omegab`, and `omegam`.
-When the sampled amplitude is `As_1e9`, define `As` as a derived parameter,
-as shown in [`EXAMPLE_EMUL2_EVALUATE.yaml`](EXAMPLE_EMUL2_EVALUATE.yaml).
+corrects. The adapter asks for `ns`, `H0`, `omegab`, `omegam`, and one
+amplitude spelling. If a saved artifact already names `As_1e9`, the adapter
+uses that name and does not add a second `As` requirement. A larger EMUL2
+configuration may still define `As` for another component, as shown in
+[`EXAMPLE_EMUL2_EVALUATE.yaml`](EXAMPLE_EMUL2_EVALUATE.yaml).
 
 ## FAQ B3. What options may I place under `extra_args`? <a id="faq-b3"></a>
 
@@ -454,8 +464,10 @@ as shown in [`EXAMPLE_EMUL2_EVALUATE.yaml`](EXAMPLE_EMUL2_EVALUATE.yaml).
 | `emul_baosn` | `device`, `emulators`, `compile` |
 | `emul_mps` | `device`, `emulators`, `compile` |
 
-An unknown key stops initialization and prints the allowed list. Most runs need
-only `device` and `emulators`.
+An unknown key stops initialization and prints the allowed list. Values also
+keep their documented types: for example, `compile` is a Boolean rather than
+text, and `emulators` is a list of path strings rather than one path string.
+Most runs need only `device` and `emulators`.
 
 ## FAQ B4. How do I write a scalar theory block? <a id="faq-b4"></a>
 
@@ -471,8 +483,9 @@ theory:
 ```
 
 The saved file supplies its input names and output names. An optional
-`provides` list only checks that named outputs exist; it does not select or
-rename them.
+`provides` list restricts which of those saved outputs this theory publishes.
+Every listed name must exist in a loaded artifact. The list cannot invent or
+rename an output.
 
 ## FAQ B5. How do I write a cosmic-microwave-background theory block? <a id="faq-b5"></a>
 
@@ -595,8 +608,11 @@ new name so that both records remain available.
 
 It returns the ordered cosmic-shear vector through Cobaya's
 `get_cosmic_shear()` call. With one saved emulator, the result is that
-emulator's vector. With several roots, the adapter joins the vectors in YAML
-order.
+emulator's vector. With several section roots, the adapter reads their saved
+block descriptions and joins disjoint sections in physical block order. YAML
+list order does not change the result. Two roots that both claim the same
+block, describe different global layouts, or both return a full vector are
+refused.
 
 `dv_return: section` is the default and returns only the vector positions for
 the saved observable, called its **probe section**. `dv_return: 3x2pt`
@@ -628,7 +644,9 @@ $\ell(\ell+1)/(2\pi)$ plotting factor or convert units. TT, TE, and EE
 files loaded together must record the same units; PP is dimensionless.
 
 A likelihood cannot request a missing spectrum or a multipole above the
-stored maximum.
+stored maximum. Its requested maximum must be an integer in the stored range;
+a Boolean, decimal number, or quoted number is refused instead of being
+rounded or converted.
 
 ## FAQ C4. Why does `emul_baosn` need two redshift ranges? <a id="faq-c4"></a>
 

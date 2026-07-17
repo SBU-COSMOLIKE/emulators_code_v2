@@ -5,7 +5,7 @@ nn.Module and holds no prediction physics. Its whole job is the cobaya
 contract: pick a device, build one predictor per saved scalar-emulator path
 root, declare the sampled parameters the predictors need and the derived
 parameters they provide (both read from the h5s' stored geometry names), and
-on each step run every predictor and cache its named outputs on the state.
+on each step publish the selected outputs in Cobaya's derived mapping.
 
 One generic class replaces the legacy per-emulator classes (emultheta,
 emulrdrag, ...): each of those hard-coded one getter method per output
@@ -28,7 +28,6 @@ network.
 import os
 import sys
 
-import torch
 from cobaya.theory import Theory
 
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so the
@@ -37,6 +36,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from emulator.inference import EmulatorPredictor  # noqa: E402
 from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
                                 check_artifacts_pair_up)
+from cobaya_theory._adapter_contract import (                   # noqa: E402
+    exact_bool,
+    name_sequence,
+    pick_device,
+    resolve_emulator_roots,
+    validate_extra_args,
+)
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
 # extrapar / extra / file keys are retired (the h5 recipe + stored names
@@ -52,10 +58,9 @@ class emul_scalars(Theory):
       emulators = list of saved scalar-emulator path roots, one per emulator
                   (ROOTDIR-relative unless absolute). Each root provides its
                   own stored output names.
-      provides  = optional list of derived-parameter names, a CHECK ONLY:
-                  it must be a subset of the union the artifacts provide, and
-                  a mismatch is a loud error naming both lists. Never a source
-                  (the provided set comes from the artifacts).
+      provides  = optional list restricting the derived-parameter names to a
+                  subset of the artifact union. A mismatch is a loud error.
+                  It can select stored outputs but can never invent one.
       compile   = optional bool, torch.compile each module on CUDA (default
                   False; batch-1 MCMC latency rarely pays off the compile).
     """
@@ -67,16 +72,17 @@ class emul_scalars(Theory):
         """Build the predictors and assemble the requirements + provides."""
         super().initialize()
         self._check_extra_args()
-        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
-
-        roots = self.extra_args.get("emulators")
-        if not roots:
-            raise ValueError(
-                "emul_scalars: extra_args needs a non-empty 'emulators' list "
-                "of saved scalar-emulator path roots (each root -> <root>.h5 "
-                "+ <root>.emul).")
-        compile_model = bool(self.extra_args.get("compile", False))
-        rootdir = os.environ.get("ROOTDIR", "")
+        self.device = pick_device(self.extra_args, adapter="emul_scalars")
+        roots = resolve_emulator_roots(
+            self.extra_args, adapter="emul_scalars")
+        compile_model = exact_bool(
+            self.extra_args, "compile", adapter="emul_scalars")
+        if "provides" in self.extra_args:
+            declared = name_sequence(
+                self.extra_args["provides"], adapter="emul_scalars",
+                option="provides", allow_empty=False)
+        else:
+            declared = None
 
         # one predictor per root. The requirements are the union of the
         # predictors' stored input names; the provides the union of their
@@ -86,8 +92,7 @@ class emul_scalars(Theory):
         provided_by = {}       # output name -> the root that provides it
         req = {}               # required input names (a cobaya dict)
         for root in roots:
-            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
-            predictor = EmulatorPredictor(path, self.device,
+            predictor = EmulatorPredictor(root, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard: a data-vector artifact rebuilds without
             # output_names, so reject it loudly here rather than dying
@@ -109,7 +114,14 @@ class emul_scalars(Theory):
             self.predictors.append(predictor)
             # duplicate output across two artifacts = loud: a derived
             # parameter must be produced by exactly one emulator.
-            for name in predictor.output_names:
+            output_names = name_sequence(
+                predictor.output_names,
+                adapter="emul_scalars",
+                option="output_names",
+                allow_empty=False,
+                label="artifact " + repr(root) + " output_names",
+            )
+            for name in output_names:
                 if name in provided_by:
                     raise ValueError(
                         "emul_scalars: two emulators provide the output "
@@ -136,9 +148,8 @@ class emul_scalars(Theory):
                 "scalar emulators is out of scope (each output must be a fresh "
                 "derived parameter, not another emulator's input)")
 
-        # optional provides: a subset CHECK ONLY (never a source). Every
-        # declared name must be one the artifacts actually provide.
-        declared = self.extra_args.get("provides")
+        # Optional provides restricts the artifact union. Every declared name
+        # must be one the artifacts actually provide; it never invents output.
         if declared is not None:
             missing = []
             for name in declared:
@@ -153,7 +164,13 @@ class emul_scalars(Theory):
                     "check, never a source of the provided names")
 
         self._req = req
-        self._provides = provides
+        self._provides = list(provides if declared is None else declared)
+        reserved = {"derived", "params", "dependency_params"}
+        collisions = sorted(reserved.intersection(self._provides))
+        if collisions:
+            raise ValueError(
+                "emul_scalars: output name(s) " + repr(collisions)
+                + " are reserved by Cobaya state and cannot be published")
 
         # horizontal law, LAST: every configuration law above has passed, so
         # the served set is a well-formed one. Only now is it worth asking
@@ -194,42 +211,15 @@ class emul_scalars(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        unknown = []
-        for key in self.extra_args:
-            if key not in _ALLOWED_EXTRA_ARGS:
-                unknown.append(key)
-        if unknown:
-            raise ValueError(
-                "emul_scalars: unrecognized extra_args key(s) "
-                f"{sorted(unknown)}. The schema-v2 convention accepts only "
-                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
-                "extra / file keys are retired (the h5 recipe + stored names "
-                "replace them, the emulator file IS the emulator).")
-
-    @staticmethod
-    def _pick_device(requested):
-        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
-
-        Arguments:
-          requested = the extra_args 'device' string (cpu / cuda / mps).
-
-        Returns:
-          a torch.device, falling back to cpu when the requested accelerator
-          is unavailable (cuda -> mps -> cpu, matching emul_cosmic_shear).
-        """
-        req = str(requested).lower()
-        if req == "cuda" and torch.cuda.is_available():
-            return torch.device("cuda")
-        if (req in ("cuda", "mps")
-                and hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_built()
-                and torch.backends.mps.is_available()):
-            return torch.device("mps")
-        return torch.device("cpu")
+        validate_extra_args(
+            self.extra_args, adapter="emul_scalars",
+            allowed=_ALLOWED_EXTRA_ARGS,
+            retired=("the legacy ord / extrapar / extra / file keys are "
+                     "retired because the artifact stores those facts"))
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""
-        return self._req
+        return dict(self._req)
 
     def get_can_provide_params(self):
         """The derived parameters this theory provides (the artifact union).
@@ -240,10 +230,10 @@ class emul_scalars(Theory):
         Returns:
           the list of provided derived-parameter names.
         """
-        return self._provides
+        return list(self._provides)
 
     def calculate(self, state, want_derived=True, **params):
-        """Run every predictor and cache its named outputs on the state.
+        """Run every predictor, then publish selected derived outputs once.
 
         Arguments:
           state  = the cobaya state dict to populate.
@@ -253,8 +243,9 @@ class emul_scalars(Theory):
                    input names in order).
 
         Returns:
-          True; each provided name is cached at state[name] (so get_param
-          serves it) and, when want_derived, at state["derived"][name].
+          True. When want_derived is true, state["derived"] is created when
+          absent and receives the selected output names. No arbitrary output
+          is written at the top level of state.
         """
         pending = {}
         for predictor in self.predictors:
@@ -264,18 +255,24 @@ class emul_scalars(Theory):
         # Publish only after every predictor has passed its finite/type/shape
         # checks.  If a later artifact refuses, this sampled point must not
         # leave earlier scalar outputs behind in Cobaya's state.
-        for name, value in pending.items():
-            state[name] = value
-            if want_derived and "derived" in state:
-                state["derived"][name] = value
+        if want_derived:
+            current = state.get("derived", {})
+            if not isinstance(current, dict):
+                raise ValueError(
+                    "emul_scalars: state['derived'] must be a mapping when "
+                    "want_derived is true")
+            derived = dict(current)
+            for name in self._provides:
+                derived[name] = pending[name]
+            state["derived"] = derived
         return True
 
     def get_param(self, param):
         """Serve one provided derived parameter from the current point's cache.
 
         One generic getter for every output, replacing the legacy per-output
-        get_H0 / get_omegam / ... methods (the calculate step cached the value
-        at state[param]).
+        get_H0 / get_omegam / ... methods. The calculate step stores the value
+        in Cobaya's state["derived"] mapping.
 
         Arguments:
           param = a provided derived-parameter name.
@@ -283,4 +280,6 @@ class emul_scalars(Theory):
         Returns:
           its value at the current sampled point.
         """
-        return self.current_state[param]
+        if param not in self._provides:
+            raise KeyError("emul_scalars does not provide " + repr(param))
+        return self.current_state["derived"][param]
