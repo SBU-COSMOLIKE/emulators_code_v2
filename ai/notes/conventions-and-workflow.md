@@ -1191,6 +1191,56 @@ then-current `main` parent, creates `L` with that one parent, and saves `L` on
 a private crash-recovery reference before touching `main`. It refuses an empty
 or conflicting squash.
 
+### Commit messages explain the saved change
+
+GitHub displays a commit subject and body as Markdown. Every commit message
+authored by an AI role for this repository follows this rule, whether the
+commit is created during a mailbox watch or a manual AI session. Candidate,
+landing, and permanent-note commits are examples, not the complete scope. A
+message receives `GO` only when a reader can understand the saved change
+without opening the diff.
+
+The subject names the concrete change in plain language. For example, `Bind
+saved emulator weights to their scientific record` tells the reader what the
+commit does. A subject does not contain an internal ticket number, date, wave
+name, role label, branch name, or undefined project jargon. Generic subjects
+such as `Update files`, `Land unit 8`, and `Fix issue` receive `NO-GO`.
+
+The body uses short Markdown paragraphs or bullets to explain:
+
+- the problem a user or maintainer could observe;
+- what changed and the important boundary left unchanged; and
+- the exact evidence that was run and its visible result.
+
+Define an unfamiliar term at first use. When a broad idea is needed, give a
+concrete repository example before the general rule. Do not paste a backlog
+ticket, an audit transcript, or one long wall of text. Machine-required
+trailers may follow the human explanation, but they never replace it. The
+Architect applies the **Git commit message** row in
+`ai/notes/readme-go-no-go.md` before accepting the commit.
+
+The Architect reviews the exact candidate commit `C`, including its subject
+and body. Architect GO names the full hash of `C`, so it also binds that
+reviewed message before the landing commit exists. The daemon copies the human
+subject and body from `C` into landing commit `L` without rewriting them, then
+appends only the required mailbox recovery trailers. Creating or recovering
+`L` refuses if its message differs from the approved candidate message plus
+those exact trailers. Lines beginning `Mailbox-Cycle:` or
+`Mailbox-Candidate:` are reserved for those trailers; a candidate message that
+already uses either label is refused rather than copied into an ambiguous
+landing message. Letter-case changes and spaces before the colon are still the
+same reserved labels.
+
+Review evidence includes the visible result of:
+
+```bash
+git show -s --format=%B FULL_COMMIT
+```
+
+The deterministic landing test must also prove that the message survives
+creation and crash recovery unchanged. An internal ticket anchor or machine
+trailer never replaces the human explanation.
+
 If the user's checkout is not clean, is no longer attached to `main`, or no
 longer names the prepared parent, the daemon stops. It preserves `C`, `L`, the
 GO request, and the user's files without resetting or overwriting anything.

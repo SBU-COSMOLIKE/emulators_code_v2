@@ -53,6 +53,13 @@ README-only structure and visual rows do not apply to a permanent topic note.
 This writing rule does not give the Implementer or Red Team permission to edit
 any permanent note.
 
+Git commit messages created by the AI-development workflow use this contract's
+cold-reader, local-definition, concrete-example, manageable-length,
+current-state, neutral-audience, and anti-AI requirements. README layout,
+visual, link, and rendering checks do not apply. The required commit subject
+and body are owned by `ai/notes/conventions-and-workflow.md`, section **Commit
+messages explain the saved change**.
+
 Only the Architect issues `GO` or `NO-GO`. The Implementer supplies the
 change and its evidence. The Red Team may identify a problem and propose a
 repair. Neither role replaces the Architect's final review.
@@ -106,6 +113,43 @@ separate the short main guide from **Common questions raised by developers**.
 Appendices are grouped by topic and use real questions. The main guide stays
 short enough that a new user does not have to read the appendices before the
 first successful run.
+
+### Use `ai/README.md` as the positive structural exemplar
+
+For every tracked README unit, the Architect reads `ai/README.md` at the
+unit's pinned starting commit. Read its opening through the first complete
+worked example, its table of contents, and one complete FAQ appendix. If the
+unit changes `ai/README.md` itself, compare the candidate with that accepted
+starting version. This file is an example of teaching structure, not a factual
+source for another package; current code and shipped files still prove
+behavior.
+
+Adapt these traits to the README's subject:
+
+- Start with the smallest useful mental model. Add detail in later passes, and
+  introduce a new term only when the next action needs it.
+- Show a real file, command, setting, or visible result before asking the reader
+  to retain a broad name or rule. Then state the general rule the example
+  demonstrates.
+- Keep the route to the first useful result in short main sections with one job
+  each.
+- When deeper explanation or recovery detail needs an appendix, group it under
+  useful FAQ questions. Apply the same plain words and local definitions
+  there.
+- Draw sequences from top to bottom with short labels, and inspect them at a
+  phone-sized width.
+- Keep one stable name for each object. A glossary may support later lookup,
+  but it may not be required reading before the first action.
+
+`GO` requires the directive and final review to name the first useful result,
+the order in which new terms appear, the real examples used for new
+abstractions, and the main-guide or appendix placement decision. Include
+narrow-screen evidence when a sequence diagram is useful. When no appendix or
+sequence diagram is needed, record that reason instead of manufacturing one.
+`NO-GO` applies when the opening begins with a vocabulary list or complete
+internal topology, postpones definitions to a glossary, places several actions
+in one section, uses harder language in an appendix, or requires horizontal
+scrolling to follow a sequence.
 
 Small package READMEs do not need artificial appendices. They still put the
 first useful command or code example before internal design detail.
@@ -687,6 +731,7 @@ they are different programs.
 | Python comment | Restates the next line or adds a polished paragraph without a non-obvious reason | State the invariant, unit, shape, refusal reason, or compatibility constraint the code alone does not reveal |
 | Python docstring | Gives a broad purpose but omits real arguments, return shape, units, side effects, or errors | Match the current signature and state the behavior a caller needs |
 | Help or diagnostic string | Says only that input is invalid or an operation failed | Name the bad value or condition and the user's next safe action without exposing secrets |
+| Git commit message | Begins with an internal ticket, role, branch, or generic action and leaves the reader to inspect the diff | Use a concrete plain-language subject, then a short Markdown body that explains the observed problem, the saved change and its boundary, and the exact evidence |
 
 ### Preserve the useful human signals
 
