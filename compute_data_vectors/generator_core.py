@@ -467,6 +467,161 @@ CMB_CL_UNITS = "muK2"
 NEUTRINO_CONVENTION_KEY = "neutrino_hierarchy"
 
 
+def _dark_energy_publication_facts(parameterization, pinned):
+  """Describe the run's dark-energy coordinates in canonical ``w, wa`` form.
+
+  Cobaya permits a run to sample coordinates that are convenient for the
+  sampler and then calculate the coordinates consumed by a theory.  The
+  shipped matter-power configuration uses exactly that feature: it samples
+  ``w0pwa`` and ``w`` and calculates ``wa = w0pwa - w``.  Looking only at the
+  sampled names therefore misses a varying ``wa`` and records the wrong
+  physical law.
+
+  This function reads Cobaya's public parameterization surfaces.  A calculated
+  input varies when any of its declared dependencies is sampled.  The returned
+  record always uses the physical names ``w`` and ``wa`` even when the YAML
+  spells the present-day value ``w0`` or supplies the sum ``w0pwa = w0 + wa``.
+
+  Arguments:
+    parameterization = the resolved model's Cobaya Parameterization object.
+    pinned = all constants resolved from the parameter and theory components.
+
+  Returns:
+    ``(fixed, varying, law, inputs)``. ``fixed`` maps canonical fixed
+    coordinates to values, ``varying`` is the set of canonical coordinates
+    that change across samples, and ``law`` / ``inputs`` are the values written
+    to the scientific sidecar.
+
+  Raises:
+    TypeError or ValueError when a required public surface is unavailable or a
+    fixed coordinate is non-numeric, non-finite, or internally inconsistent.
+  """
+  surfaces = {}
+  for name in ("input_params", "constant_params", "sampled_params"):
+    reader = getattr(parameterization, name, None)
+    if not callable(reader):
+      raise TypeError(
+        "the resolved Cobaya parameterization must provide the public "
+        + name + "() mapping before dark-energy facts can be published")
+    values = reader()
+    if hasattr(values, "items"):
+      surfaces[name] = dict(values.items())
+    elif name != "constant_params" and isinstance(
+        values, (list, tuple, set, frozenset)):
+      if any(type(item) is not str for item in values):
+        raise TypeError(
+          "Cobaya parameterization." + name
+          + "() returned a name collection containing a non-string value")
+      surfaces[name] = {item: None for item in values}
+    else:
+      raise TypeError(
+        "Cobaya parameterization." + name
+        + "() must return a name mapping"
+        + (" or a name collection" if name != "constant_params" else "")
+        + "; got " + type(values).__name__)
+
+  dependencies = getattr(parameterization, "input_dependencies", None)
+  if not hasattr(dependencies, "items"):
+    raise TypeError(
+      "the resolved Cobaya parameterization must provide the public "
+      "input_dependencies mapping before dark-energy facts can be published")
+  dependencies = dict(dependencies.items())
+
+  input_names = set(surfaces["input_params"])
+  sampled_names = set(surfaces["sampled_params"])
+  varying_names = set(sampled_names)
+  for name, required in dependencies.items():
+    if name not in input_names:
+      raise ValueError(
+        "Cobaya input_dependencies names " + repr(name)
+        + ", but input_params() does not contain that calculated input")
+    if not isinstance(required, (set, frozenset, list, tuple)):
+      raise TypeError(
+        "Cobaya input_dependencies[" + repr(name)
+        + "] must be a collection of parameter names; got "
+        + type(required).__name__)
+    if set(required).intersection(sampled_names):
+      varying_names.add(name)
+
+  # Parameter constants take precedence over theory-component defaults, just
+  # as fixed_facts.resolved_constants specifies.  Ignore a fixed-looking value
+  # for a coordinate Cobaya says varies; a theory default must not pin a
+  # sampled parameter in the published record.
+  resolved = dict(pinned)
+  resolved.update(surfaces["constant_params"])
+
+  # This is the same representation tolerance owned publicly by
+  # emulator.syren_base.DARK_ENERGY_COORDINATE_ATOL.  Repeating the one-line
+  # float32 calculation here avoids importing the MPS analytic formulas into
+  # the lensing, CMB, and background generators merely to publish their facts.
+  atol = 4.0 * float(np.finfo(np.float32).eps)
+
+  def fixed_number(name):
+    if name not in resolved or name in varying_names:
+      return None
+    value = resolved[name]
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)):
+      raise TypeError(
+        "the fixed dark-energy coordinate " + repr(name)
+        + " must be a real scalar; got " + repr(value))
+    value = float(value)
+    if not math.isfinite(value):
+      raise ValueError(
+        "the fixed dark-energy coordinate " + repr(name)
+        + " must be finite; got " + repr(value))
+    return value
+
+  w = fixed_number("w")
+  w0 = fixed_number("w0")
+  if w is not None and w0 is not None and not np.isclose(
+      w, w0, rtol=0.0, atol=atol):
+    raise ValueError(
+      "the resolved Cobaya model gives inconsistent fixed aliases w="
+      + repr(w) + " and w0=" + repr(w0))
+  present = w if w is not None else w0
+  wa = fixed_number("wa")
+  w0pwa = fixed_number("w0pwa")
+  if present is not None and w0pwa is not None:
+    derived_wa = w0pwa - present
+    if wa is not None and not np.isclose(
+        wa, derived_wa, rtol=0.0, atol=atol):
+      raise ValueError(
+        "the resolved Cobaya model gives inconsistent fixed dark-energy "
+        "coordinates: w0pwa=" + repr(w0pwa) + " but w0 + wa="
+        + repr(present + wa))
+    wa = derived_wa
+  elif w0pwa is not None and present is None:
+    raise ValueError(
+      "the resolved Cobaya model fixes w0pwa but does not fix w or w0, so "
+      "the generator cannot determine the separate w and wa values to publish")
+
+  varying = set()
+  if varying_names.intersection(("w", "w0")):
+    varying.add("w")
+  if "wa" in varying_names or "w0pwa" in varying_names:
+    varying.add("wa")
+
+  fixed = {}
+  if "w" not in varying and present is not None:
+    fixed["w"] = present
+  if "wa" not in varying and wa is not None:
+    fixed["wa"] = wa
+
+  if "wa" in varying or (wa is not None and not np.isclose(
+      wa, 0.0, rtol=0.0, atol=atol)):
+    law = "w0wa-cpl"
+    inputs = ["w", "wa"]
+  elif "w" in varying or (present is not None and not np.isclose(
+      present, -1.0, rtol=0.0, atol=atol)):
+    law = "constant-w"
+    inputs = ["w"]
+  else:
+    law = "cosmological-constant"
+    inputs = []
+  return fixed, varying, law, inputs
+
+
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Class Definition
@@ -2032,9 +2187,20 @@ class GeneratorCore:
 
     sampled = set(self.sampled_params)
     pinned  = self._resolved_constants()
+    (dark_energy_fixed,
+     dark_energy_varying,
+     dark_energy_law,
+     dark_energy_inputs) = _dark_energy_publication_facts(
+       self.model.parameterization, pinned)
 
     cosmology_fixed = {}
     for key in fixed_facts.COSMOLOGY_FIXED_KEYS:
+      if key in ("w", "wa"):
+        if key in dark_energy_varying:
+          continue
+        cosmology_fixed[key] = dark_energy_fixed.get(
+          key, fixed_facts.NOT_APPLICABLE)
+        continue
       if key in sampled:
         continue                                 # validated as a sampled input
       if key in pinned:
@@ -2051,25 +2217,6 @@ class GeneratorCore:
       flat_only = False
     elif "omk" in pinned:
       flat_only = (pinned["omk"] == 0.0)
-
-    # the dark-energy law, read the way emulator/syren_base.py reads these two
-    # names: an absent equation-of-state parameter means the model is a
-    # cosmological constant (w = -1, wa = 0), not that a fact went missing. A
-    # name the run sampled, or pinned away from that constant, is a name the law
-    # consumes. dark_energy_inputs names what the law consumes, not what the run
-    # happened to write down, so that a run pinning w at -1 and a run that never
-    # mentions w describe the one universe they do describe.
-    w_free  = ("w" in sampled) or ("w" in pinned and pinned["w"] != -1.0)
-    wa_free = ("wa" in sampled) or ("wa" in pinned and pinned["wa"] != 0.0)
-    if wa_free:
-      dark_energy_law    = "w0wa-cpl"
-      dark_energy_inputs = ["w", "wa"]
-    elif w_free:
-      dark_energy_law    = "constant-w"
-      dark_energy_inputs = ["w"]
-    else:
-      dark_energy_law    = "cosmological-constant"
-      dark_energy_inputs = []
 
     # how the neutrino masses are split, in the model's own word for it.
     neutrino_convention = fixed_facts.NOT_APPLICABLE

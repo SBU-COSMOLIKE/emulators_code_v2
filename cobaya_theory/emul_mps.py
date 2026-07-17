@@ -86,6 +86,13 @@ _SIGMA8_QUADRATURE_RTOL = 1.0e-3
 _SIGMA8_MAX_PANEL_FRACTION = 0.1
 _SIGMA8_LOG_DECADE = math.log(10.0)
 
+_DARK_ENERGY_NAMES = ("w", "w0", "wa", "w0pwa")
+_DARK_ENERGY_LAWS = {
+    "w0wa-cpl": ("w", "wa"),
+    "constant-w": ("w",),
+    "cosmological-constant": (),
+}
+
 
 def _require_finite_syren_parameter(params, name):
     """Return one finite real Syren input without Boolean coercion."""
@@ -134,6 +141,103 @@ def _require_mps_surface(value, *, name, shape, positive=False):
     if positive and not (array > 0.0).all():
         return None
     return array
+
+
+def _saved_dark_energy_value(fixed, name):
+    """Return one numeric saved dark-energy fact, or ``None`` for ``n/a``."""
+    value = fixed.get(name)
+    if value in (None, "n/a"):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            "emul_mps: saved dark-energy fact " + repr(name)
+            + " is not a finite number: " + repr(value)) from error
+    if not math.isfinite(number):
+        raise ValueError(
+            "emul_mps: saved dark-energy fact " + repr(name)
+            + " is not finite: " + repr(value))
+    return number
+
+
+def _dark_energy_contract(predictor, predictor_names, req, *, need_base):
+    """Validate one artifact's coordinate law and adjust Cobaya requirements.
+
+    A dropped ``w0pwa`` is a sampling coordinate used to define ``wa``.  It is
+    not a value that a Cobaya Theory may request directly.  The adapter asks
+    for the present-day value and ``wa``, then reconstructs every spelling the
+    saved input geometry needs inside :meth:`calculate`.
+    """
+    facts = predictor.fixed_facts
+    law = facts.get("dark_energy_law")
+    declared_inputs = facts.get("dark_energy_inputs")
+    dark_names = set(predictor_names).intersection(_DARK_ENERGY_NAMES)
+    if not need_base and not dark_names:
+        return law, {}, False
+    if law not in _DARK_ENERGY_LAWS:
+        raise ValueError(
+            "emul_mps: the saved matter-power artifact has dark-energy law "
+            + repr(law) + "; serving requires one explicit current law from "
+            + repr(sorted(_DARK_ENERGY_LAWS))
+            + ". Re-generate the dataset and retrain the emulator.")
+    expected_inputs = list(_DARK_ENERGY_LAWS[law])
+    if declared_inputs != expected_inputs:
+        raise ValueError(
+            "emul_mps: dark_energy_inputs " + repr(declared_inputs)
+            + " disagree with saved law " + repr(law) + "; expected "
+            + repr(expected_inputs)
+            + ". Re-generate the dataset and retrain the emulator.")
+    if "w0pwa" in dark_names and law != "w0wa-cpl":
+        raise ValueError(
+            "emul_mps: an artifact sampled w0pwa but records " + repr(law)
+            + "; older transformed-coordinate records can silently erase "
+            "nonzero wa. Re-generate the dataset and retrain the emulator.")
+    if "wa" in dark_names and law != "w0wa-cpl":
+        raise ValueError(
+            "emul_mps: an artifact samples wa but records " + repr(law)
+            + "; re-generate the dataset and retrain the emulator.")
+    if law == "cosmological-constant" and dark_names:
+        raise ValueError(
+            "emul_mps: a cosmological-constant artifact cannot have sampled "
+            "dark-energy coordinates " + repr(sorted(dark_names))
+            + "; re-generate the dataset and retrain the emulator.")
+
+    fixed_block = facts.get("cosmology_fixed")
+    if type(fixed_block) is not dict:
+        raise ValueError(
+            "emul_mps: the artifact's cosmology_fixed record must be a "
+            "mapping before dark-energy coordinates can be resolved")
+    fixed = {}
+    for name in ("w", "wa"):
+        value = _saved_dark_energy_value(fixed_block, name)
+        if value is not None:
+            fixed[name] = value
+
+    req.pop("w0pwa", None)
+    if law in ("w0wa-cpl", "constant-w") and "w" not in fixed:
+        alias = "w0" if "w0" in dark_names and "w" not in dark_names else "w"
+        req[alias] = None
+    if law == "w0wa-cpl" and "wa" not in fixed:
+        req["wa"] = None
+    return law, fixed, True
+
+
+def _resolved_dark_energy_point(params, *, law, fixed, needed):
+    """Return parameters with all four equivalent coordinate names filled."""
+    point = dict(params)
+    for name, value in fixed.items():
+        if name in point:
+            # The shared resolver will compare an explicit sampled value with
+            # every redundant representation.  Do not overwrite that evidence.
+            continue
+        point[name] = value
+    if not needed:
+        return point
+    w0, wa = syren_base.resolve_dark_energy_coordinates(
+        point, dark_energy_law=law, where="emul_mps input")
+    point.update({"w": w0, "w0": w0, "wa": wa, "w0pwa": w0 + wa})
+    return point
 
 
 ########## Taken from cobaya/theories/cosmo/boltzmannbase.py ############
@@ -297,6 +401,7 @@ class emul_mps(Theory):
 
         by_quantity = {}
         req = {}
+        predictor_names = set()
         for root in roots:
             predictor = EmulatorPredictor(root, self.device,
                                           compile_model=compile_model)
@@ -324,6 +429,7 @@ class emul_mps(Theory):
             by_quantity[predictor.quantity] = predictor
             for name in predictor.names:
                 req[name] = None
+                predictor_names.add(name)
 
         for quantity in ("pklin", "boost"):
             if quantity not in by_quantity:
@@ -378,16 +484,22 @@ class emul_mps(Theory):
         self._z = z1
         self._k = k1
 
-        # a syren law reads named cosmology values (syren_params_from's
-        # one rule) beyond the artifact inputs; require them so cobaya
-        # hands them to calculate. w / wa ride the artifact inputs when
-        # the training sampled them (an absent EoS = LCDM, the same
-        # rule the generator applied — the two sides cannot disagree).
-        if (self.p_lin.law != "none") or (self.p_boost.law != "none"):
+        # A Syren law reads named cosmology values beyond the artifact inputs,
+        # so require them explicitly.  Dark energy is handled separately:
+        # the saved physical law decides which values Cobaya must supply.  A
+        # dropped sampling coordinate such as w0pwa is never requested from a
+        # Theory component; Cobaya supplies its calculated wa instead.
+        need_syren_base = (
+            (self.p_lin.law != "none") or (self.p_boost.law != "none"))
+        if need_syren_base:
             if "As" not in req and "As_1e9" not in req:
                 req["As"] = None
             for name in ("ns", "H0", "omegab", "omegam"):
                 req[name] = None
+        (self._dark_energy_law,
+         self._fixed_dark_energy,
+         self._dark_energy_needed) = _dark_energy_contract(
+             self.p_lin, predictor_names, req, need_base=need_syren_base)
         self._req = req
 
         # horizontal law, LAST: the pair is one 'pklin' + one 'boost' on one
@@ -488,8 +600,12 @@ class emul_mps(Theory):
         """
         z, k = self._z, self._k
         surface_shape = (len(z), len(k))
+        resolved_params = _resolved_dark_energy_point(
+            params, law=self._dark_energy_law,
+            fixed=self._fixed_dark_energy,
+            needed=self._dark_energy_needed)
         out_lin = _require_mps_surface(
-            self.p_lin.predict(params)["pklin"],
+            self.p_lin.predict(resolved_params)["pklin"],
             name="the linear-emulator output", shape=surface_shape)
         if out_lin is None:
             self.log.debug("non-finite linear-emulator output at "
@@ -498,17 +614,13 @@ class emul_mps(Theory):
         need_base = (self.p_lin.law != "none"
                      or self.p_boost.law != "none")
         if need_base:
-            amplitude_name = "As_1e9" if "As_1e9" in params else "As"
+            amplitude_name = (
+                "As_1e9" if "As_1e9" in resolved_params else "As")
             for name in (amplitude_name, "ns", "H0", "omegab", "omegam"):
-                _require_finite_syren_parameter(params, name)
-            if "w" in params:
-                _require_finite_syren_parameter(params, "w")
-            elif "w0" in params:
-                _require_finite_syren_parameter(params, "w0")
-            if "wa" in params:
-                _require_finite_syren_parameter(params, "wa")
+                _require_finite_syren_parameter(resolved_params, name)
             (as_1e9, ns, H0, Ob, Om,
-             w0, wa) = syren_base.syren_params_from(params)
+             w0, wa) = syren_base.syren_params_from(
+                 resolved_params, dark_energy_law=self._dark_energy_law)
         if self.p_lin.law == "syren_linear":
             base = _require_mps_surface(
                 syren_base.base_pklin(k_mpc=k, z=z, As_1e9=as_1e9,
@@ -533,7 +645,7 @@ class emul_mps(Theory):
             return False
 
         out_b = _require_mps_surface(
-            self.p_boost.predict(params)["boost"],
+            self.p_boost.predict(resolved_params)["boost"],
             name="the boost-emulator output", shape=surface_shape)
         if out_b is None:
             self.log.debug("non-finite boost-emulator output at "

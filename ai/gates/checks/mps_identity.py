@@ -202,6 +202,12 @@ def supported_test_record(names, label, family, support):
     """
     blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
         names=names, label=label, family=family, support=None))
+    if family == "grid2d":
+        facts = blocks[fixed_facts.FIXED_FACTS_GROUP]
+        facts["dark_energy_law"] = "cosmological-constant"
+        facts["dark_energy_inputs"] = []
+        facts["cosmology_fixed"]["w"] = -1.0
+        facts["cosmology_fixed"]["wa"] = 0.0
     domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
     domain["constraint"] = "box"
     for key in ("requested", "resolved"):

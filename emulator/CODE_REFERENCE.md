@@ -213,7 +213,9 @@ Calculates the analytic Syren $P(k)$ base used by the data generator,
 copy under `syren/`; [its guide](../syren/README.md) records their source and
 local differences.
 
-- `syren_params_from(params)` — map resolved parameters to the Syren arguments. It accepts `As` or `As_1e9`; an absent equation of state means LCDM.
+- `resolve_dark_energy_coordinates(params, *, dark_energy_law=None, where="dark-energy coordinates")` — validate `w`, `w0`, `wa`, and `w0pwa`, then return one checked `(w0, wa)` pair. Missing values are completed only by an explicit constant-`w` or cosmological-constant law.
+- `DARK_ENERGY_COORDINATE_ATOL` — the absolute tolerance, `4 * numpy.finfo(numpy.float32).eps`, used because coordinate values may have passed through `float32` data. The relative tolerance is zero.
+- `syren_params_from(params, *, dark_energy_law=None)` — map resolved parameters to the seven Syren arguments. It accepts `As` or `As_1e9` and delegates the dark-energy values to the shared resolver; absence alone never selects LCDM.
 - `base_pklin(...)` / `base_boost(...)` — calculate the analytic linear-power and nonlinear-boost bases with the units stated in `syren/README.md`.
 
 #### `emulator/analytics.py` <a name="apx-analytics"></a>

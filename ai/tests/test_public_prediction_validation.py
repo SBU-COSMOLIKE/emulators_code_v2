@@ -489,6 +489,9 @@ class AdapterPublicationTests(unittest.TestCase):
     adapter._k = np.array([0.1, 0.2])
     adapter.p_lin = _Predictor("none", "pklin", linear)
     adapter.p_boost = _Predictor("none", "boost", boost)
+    adapter._dark_energy_law = "cosmological-constant"
+    adapter._fixed_dark_energy = {}
+    adapter._dark_energy_needed = True
     adapter.output_params = list(output_params)
     adapter.log = _Log()
     return adapter

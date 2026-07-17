@@ -717,6 +717,32 @@ With `write_syren_base: true`, it also writes `pklin_base` and `boost_base`
 arrays. Every surface row is flattened in redshift-then-wavenumber order. Its
 length is `number of redshifts * number of wavenumbers`.
 
+### Dark-energy coordinates in matter-power data
+
+`w` and `w0` are two names for the present-day dark-energy value. `wa`
+describes how that value changes with cosmic time. `w0pwa` is the sum
+`w + wa`.
+
+The matter-power generator accepts two equivalent ways to describe a
+time-varying dark-energy point:
+
+```text
+w or w0, together with wa
+w or w0, together with w0pwa = w + wa
+```
+
+For example, `w = -0.9` and `w0pwa = -0.7` mean `wa = 0.2`. The generator
+records `dark_energy_law: w0wa-cpl` and
+`dark_energy_inputs: [w, wa]` in the dataset description. The sampled row
+still comes from Cobaya.
+
+With `write_syren_base: true`, the program compares every repeated form before
+calculating the two Syren starting surfaces. It stops if `w` and `w0`
+disagree, if `w0pwa` does not equal `w + wa`, or if a time-varying model does
+not provide enough information to determine both values. A missing `wa`
+becomes zero only when the resolved run has been classified and saved as a
+constant-`w` or cosmological-constant model.
+
 ## FAQ A3. How are the output filenames constructed? <a id="faq-a3-output-names"></a>
 
 All outputs go under:

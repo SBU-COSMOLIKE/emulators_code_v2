@@ -225,6 +225,7 @@ redshift-by-wavenumber surface.
 | `test_cocoa_dataset_resolution.py` | Do the training and validation filenames in a user YAML resolve to two complete, internally consistent generated datasets? |
 | `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
 | `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
+| `test_generator_dark_energy_facts.py` | Does the generator recognize that sampled `w0pwa` and `w` make the calculated `wa` vary, then save the physical `w, wa` law? |
 | `test_generator_ingress.py` | Does a generator validate every requested parameter, covariance entry, fiducial value, family grid, and final sample count before it creates output? |
 | `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
 | `test_generator_mpi_message_binding.py` | Can an MPI worker result update only the parameter row that rank zero actually assigned to that worker? |
@@ -233,6 +234,8 @@ redshift-by-wavenumber surface.
 | `test_generator_run_control.py` | Do the three legal run choices select new work, resume, or append without allowing one output kind to overwrite another? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
 | `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
+| `test_mps_generator_dark_energy_binding.py` | Does every generated Syren base row reuse the explicit dark-energy law obtained once during setup? |
+| `test_syren_dark_energy_coordinates.py` | Do the several accepted names for the two dark-energy coordinates resolve to one consistent pair without silently replacing a missing evolution value with zero? |
 
 #### Background quantities and physical units
 
@@ -678,6 +681,75 @@ quantity calculated from the sampled parameters.
 - **Why it matters:** selecting by a remembered column number can silently
   assign a parameter's values to the wrong physical name.
 
+#### Resolving dark-energy coordinate names
+
+`test_syren_dark_energy_coordinates.py` checks the shared conversion from
+`w`, `w0`, `wa`, and `w0pwa` to the two numbers read by the Syren analytic
+matter-power formula. Here `w` and `w0` are two names for the present-day
+equation of state, while `w0pwa` means `w0 + wa`.
+
+- **Example used:** one point gives `w0 = -0.8` and `wa = 0.3`. An equivalent
+  point gives `w = -0.8` and `w0pwa = -0.5`, from which the resolver must
+  recover the same nonzero `wa`.
+- **What the test does:** it tries both complete coordinate forms, all four
+  names together, and the explicit time-varying, constant-`w`, and
+  cosmological-constant laws. It also sends Python and NumPy real scalars and
+  values just inside and outside the one tolerance allowed for numbers stored
+  in `float32` data.
+- **Pass means:** equivalent forms produce the same `(w0, wa)` pair. Every
+  redundant value agrees with relative tolerance zero and absolute tolerance
+  `4 * numpy.finfo(numpy.float32).eps`. `syren_params_from` still returns the seven
+  numbers expected by the generator and adapter.
+- **A refusal it proves:** conflicting `w` and `w0`, an inconsistent
+  `w0pwa`, Boolean, text, array, complex or nonfinite input, an unknown law,
+  or a lone present-day value with no explicit constant-`w` law must stop.
+- **Why it matters:** setting a missing `wa` to zero produces a smooth finite
+  matter-power spectrum for the wrong cosmology. Shape and finiteness checks
+  cannot detect that scientific substitution later.
+
+#### Keeping one dark-energy law from generation to serving
+
+Four additional modules check where those resolved coordinates enter and
+leave the saved matter-power workflow.
+
+- `test_generator_dark_energy_facts.py` gives the dataset-description code the same
+  parameter pattern as the shipped EMUL2 YAML: `w0pwa` and `w` are sampled,
+  while `wa` is calculated from them. Pass means the saved law is
+  time-varying `w0wa-cpl`, with physical inputs `[w, wa]`; it is never mislabeled
+  as constant `w` merely because `wa` was not sampled directly.
+- `test_mps_generator_dark_energy_binding.py` builds tiny positive power
+  surfaces in memory. It proves that setup asks for the law once, reuses it
+  for every row, and that a
+  nonzero `wa=0.2` reaches both Syren base formulas. Separate examples show
+  that zero may be supplied only by the explicit constant-`w` or
+  cosmological-constant law.
+- `test_mps_dark_energy_adapter.py` checks the other side of the saved
+  emulator. A dropped `w0pwa` is removed from the names requested from Cobaya;
+  calculated `wa` is requested instead. The adapter then reconstructs all
+  names needed by a saved predictor before either learned model or analytic
+  base runs. A saved file that lists `w0pwa` as an input but calls its law
+  constant-`w` is refused with instructions to regenerate it.
+- `test_dark_energy_vertical_identity.py` checks fixed cosmologies. For
+  example, an artifact that saved `w=-0.9` matches a live model that calls the
+  same constant `w0=-0.9`. A chain that samples `w` and `w0pwa` does not borrow
+  `w=-1, wa=0` from theory defaults and therefore cannot serve an LCDM-fixed
+  artifact.
+
+`test_mps_dark_energy_real_cobaya.py` joins these pieces with Cobaya's real
+parameter engine. It samples `w0pwa=-0.7` and `w=-0.9`, so the calculated value
+is `wa=0.2`. Pass means Cobaya sends only `w` and `wa` to the Theory, the
+data generator saves the same physical law, and the data generator and Cobaya
+adapter obtain the same Syren pair `(-0.9, 0.2)`. The normal CPU suite skips
+this module when Cobaya is unavailable.
+
+To run the real check, open a terminal at the repository's top folder and
+activate an environment that contains Cobaya. The command changes no project
+files. It runs one test and ends with `OK`:
+
+```bash
+python -m unittest -v ai.tests.test_mps_dark_energy_real_cobaya
+```
+
 ### Training calculations
 
 | File | Question answered |
@@ -914,7 +986,10 @@ files belong together and constructing the model needed for new predictions.
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
+| `test_dark_energy_vertical_identity.py` | Can a saved fixed `w` be compared with a live model that calls the same value `w0`, without accepting a chain that actually samples dark energy? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
+| `test_mps_dark_energy_adapter.py` | Does the matter-power adapter ask Cobaya for physical `w, wa`, reconstruct saved coordinate names, and stop conflicts before either predictor runs? |
+| `test_mps_dark_energy_real_cobaya.py` | Does real Cobaya turn dropped sampled `w0pwa` into a nonzero calculated `wa` and give the data generator and adapter the same Syren coordinates? |
 | `test_padded_head_artifact.py` | Does a structured head refuse a model/geometry layout disagreement before saving, reopen a valid pair with the exact physical map and mask, and refuse a checkpoint that omits or replaces either fixed record? |
 | `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
 | `test_results_artifact_pair.py` | Do the learned weights and scientific record identify each other, refuse every already-used output name without changing it, and leave a new output name empty or visibly interrupted after a failed save? |

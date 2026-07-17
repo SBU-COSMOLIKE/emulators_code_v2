@@ -217,7 +217,10 @@ sampler:
       H0: 67.32
       omegab: 0.04
       omegam: 0.3
-      w0pwa: -0.9
+      # Together with w=-0.9 below, this gives wa=+0.2.  Keeping the example
+      # away from wa=0 proves that the dropped sampling coordinate is routed
+      # through Cobaya's calculated wa rather than silently replaced by zero.
+      w0pwa: -0.7
       w: -0.9
       LSST_DZ_S1: 0.0414632
       LSST_DZ_S2: 0.00147332

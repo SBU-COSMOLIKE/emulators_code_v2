@@ -7,6 +7,7 @@ syntax trees. No configured scientific run or checkpoint file is needed.
 
 import ast
 import copy
+import math
 import os
 from pathlib import Path
 import sys
@@ -14,6 +15,8 @@ import tempfile
 import types
 import unittest
 from unittest import mock
+
+import numpy as np
 
 from compute_data_vectors import dataset_manifest
 from compute_data_vectors.dataset_manifest import (
@@ -254,6 +257,16 @@ def _compile_core(source=None):
   """Compile the selected real GeneratorCore methods without heavy imports."""
   if source is None:
     source = GENERATOR.read_text(encoding="utf-8")
+  tree = ast.parse(source, filename=str(GENERATOR))
+  helpers = [
+    copy.deepcopy(node) for node in tree.body
+    if isinstance(node, ast.FunctionDef)
+    and node.name == "_dark_energy_publication_facts"
+  ]
+  if len(helpers) != 1:
+    raise AssertionError(
+      "expected one generator dark-energy publication helper, found "
+      + str(len(helpers)))
   production = _class_node(source, "GeneratorCore")
   methods = [
     copy.deepcopy(node) for node in production.body
@@ -269,10 +282,12 @@ def _compile_core(source=None):
     keywords=[],
     body=methods,
     decorator_list=[])
-  module = ast.Module(body=[fixture], type_ignores=[])
+  module = ast.Module(body=helpers + [fixture], type_ignores=[])
   ast.fix_missing_locations(module)
   namespace = {
     "__name__": "_generator_member_core_fixture",
+    "math": math,
+    "np": np,
     "Path": Path,
     "os": os,
     "sys": sys,
@@ -685,6 +700,12 @@ class GeneratorMemberBindingTests(unittest.TestCase):
       instance, module_name = _bind_instance(core_class, case, directory)
       try:
         instance.sampled_params = ()
+        instance.model = types.SimpleNamespace(
+          parameterization=types.SimpleNamespace(
+            input_params=lambda: {},
+            constant_params=lambda: {},
+            sampled_params=lambda: {},
+            input_dependencies={}))
         instance._resolved_constants = lambda: {}
         instance._syren_base_identity = lambda: "bound-syren-base"
         paths_before = tuple(instance._checkpoint_member_paths())

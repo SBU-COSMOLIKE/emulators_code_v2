@@ -691,6 +691,11 @@ class MatterPowerDependencyTests(unittest.TestCase):
                       else "dimensionless")
         self.law = ("syren_linear" if self.quantity == "pklin"
                     else "syren_halofit")
+        self.fixed_facts = {
+          "dark_energy_law": "cosmological-constant",
+          "dark_energy_inputs": [],
+          "cosmology_fixed": {"w": -1.0, "wa": 0.0},
+        }
         if "bad-law" in root:
           self.law = ("syren_halofit" if self.quantity == "pklin"
                       else "syren_linear")
@@ -730,6 +735,11 @@ class MatterPowerDependencyTests(unittest.TestCase):
                       else "dimensionless")
         self.law = ("syren_linear" if self.quantity == "pklin"
                     else "syren_halofit")
+        self.fixed_facts = {
+          "dark_energy_law": "cosmological-constant",
+          "dark_energy_inputs": [],
+          "cosmology_fixed": {"w": -1.0, "wa": 0.0},
+        }
         if "bad-law" in root:
           self.law = ("syren_halofit" if self.quantity == "pklin"
                       else "syren_linear")

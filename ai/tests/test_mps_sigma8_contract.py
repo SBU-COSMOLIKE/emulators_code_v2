@@ -231,6 +231,9 @@ class SigmaEightContractTests(unittest.TestCase):
     adapter._z = z
     adapter.p_lin = _Predictor("pklin", surface)
     adapter.p_boost = _Predictor("boost", 3.0 * np.ones_like(surface))
+    adapter._dark_energy_law = "cosmological-constant"
+    adapter._fixed_dark_energy = {}
+    adapter._dark_energy_needed = True
     adapter.output_params = ["sigma8"]
     adapter.log = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
     return h, adapter

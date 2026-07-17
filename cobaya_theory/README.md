@@ -446,6 +446,13 @@ another calculation in the Cobaya file. If a saved root expects `As_1e9`,
 renaming or dropping that quantity before it reaches the adapter causes a
 missing-parameter error.
 
+Matter power has one deliberate exception. A time-varying saved emulator may
+list `w0pwa`, the sum `w + wa`, even though Cobaya marks that sampling value
+with `drop: true`. Here **drop** means Cobaya samples the value but does not
+send it directly to theory components. The adapter asks for the saved
+present-day name, `w` or `w0`, and the calculated `wa`, then rebuilds
+`w0pwa` before prediction.
+
 The matter-power adapter needs extra quantities when it reconstructs a Syren
 starting prediction. Syren supplies a matter-power formula that the emulator
 corrects. The adapter asks for `ns`, `H0`, `omegab`, `omegam`, and one
@@ -697,6 +704,21 @@ equality, units, and starting formula. A `pklin` artifact must store `Mpc3`
 with either `syren_linear` or `none`. A `boost` artifact must be
 dimensionless and use either `syren_halofit` or `none`. Any crossed or
 unsupported combination refuses before Cobaya receives a result.
+
+The saved files also state whether dark energy is time-varying, constant in
+time, or a cosmological constant. For a time-varying model, Cobaya may sample
+`w0pwa = w + wa`, mark it `drop: true`, and calculate `wa`. Here **drop**
+means Cobaya samples the value but does not send it directly to theory
+components. The adapter asks Cobaya for the saved present-day name, `w` or
+`w0`, and for `wa`; it does not ask a theory component for `w0pwa`.
+
+For example, the shipped EMUL2 file uses `w = -0.9` and `w0pwa = -0.7`, so
+Cobaya calculates `wa = 0.2`. The adapter reconstructs all names required by
+the saved networks and gives the same pair `(-0.9, 0.2)` to Syren. It stops
+before prediction if supplied `w` and `w0` differ or if `w0pwa` differs from
+`w + wa`. A saved file that lists `w0pwa` as an input but calls its law
+constant-`w` is internally inconsistent; the adapter refuses it and tells the
+user to generate the data and train the emulator again.
 
 The adapter can also provide conventional $\sigma_8$. It converts `H0` to
 $h=H_0/100$ and uses the required radius $R=8/h$ Mpc because the saved

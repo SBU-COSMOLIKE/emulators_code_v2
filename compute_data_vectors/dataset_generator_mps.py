@@ -2,8 +2,8 @@ import numpy as np
 import math, os, sys, traceback
 import psutil
 from numpy.lib.format import open_memmap
-from generator_core import (GeneratorCore, capture_native_output,
-                            run_generator)
+from generator_core import (_dark_energy_publication_facts, GeneratorCore,
+                            capture_native_output, run_generator)
 from generator_ingress import finite_number, native_boolean, native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -159,6 +159,9 @@ class dataset(GeneratorCore):
         f"k grid's top ({self.k_mps[-1]}); the interpolator cannot be "
         f"evaluated beyond its extrapolation edge")
     self.write_base = self._read_write_base(train_args)
+    (_, _, self.dark_energy_law,
+     _) = _dark_energy_publication_facts(
+       self.model.parameterization, self._resolved_constants())
     if self.write_base:
       # fail at setup, not at sample 1 of an MPI farm: prove the base
       # formulas import on this rank (the syren package is vendored
@@ -481,7 +484,8 @@ class dataset(GeneratorCore):
       # (emulator/syren_base.py), the parameters read by one rule.
       from emulator.syren_base import (syren_params_from, base_pklin,
                                        base_boost)
-      as_1e9, ns, H0, Ob, Om, w0, wa = syren_params_from(param)
+      as_1e9, ns, H0, Ob, Om, w0, wa = syren_params_from(
+        param, dark_energy_law=self.dark_energy_law)
       pb = base_pklin(k_mpc=self.k_mps, z=self.z_mps, As_1e9=as_1e9,
                       ns=ns, H0=H0, Ob=Ob, Om=Om, w0=w0, wa=wa)
       bb = base_boost(k_mpc=self.k_mps, z=self.z_mps, pk_lin_mpc=pk_lin,
