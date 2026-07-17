@@ -4230,6 +4230,59 @@ equals the trunk.  The outer gate begins representably nonzero and the
 head activation must transmit a derivative at zero.  These three facts
 together give exact initial identity and a live first gradient.
 
+\subsection{Why model settings are checked in two stages}
+\label{sec:active-model-validation}
+
+A YAML value can look reasonable to a reader while having the wrong Python
+type.  For example, \code{rescale\_kernel: false} is a Boolean switch, but
+\code{rescale\_kernel: "false"} is text.  Nonempty text normally acts like
+true in a Python condition.  Silently accepting the quoted form could
+therefore enable the opposite of what the file says.  Counts have the same
+problem: \code{n\_blocks: 1} is an integer, while
+\code{n\_blocks: "1"} is text.
+
+The first validation stage examines the selected architecture before the
+program reads scientific files, chooses an accelerator or constructs learned
+layers.  It requires real Booleans for switches and unquoted integers for
+counts.  Selected CNN and transformer head depths must be positive.  It also
+checks rules that need no output data, such as an odd CNN kernel width and the
+short allowed lists for normalization and compilation mode.  A
+head block belonging to an unselected architecture remains unused, which lets
+one example file carry both CNN and transformer settings.
+
+Some questions cannot be answered until the physical output has been read.
+The second stage therefore uses the finished output geometry.  It checks, for
+example, that \code{n\_heads} divides the transformer's actual padded token
+width and that a requested CNN grouping follows the physical output
+divisions.  This later check is not a second interpretation of the YAML.  It
+compares the already type-checked choice with a shape that did not exist at
+the first stage.
+
+The correction head has a separate learning constraint.  In a simplified
+notation its initial output is
+\begin{equation*}
+  \widehat t
+  = \widehat t_{\rm trunk} + g\,a(Wh),
+  \qquad W=0,
+\end{equation*}
+where $W$ is the zero-initialized final learned layer, $a$ is the head
+activation and $g$ is the outer gate.  Because $a(0)=0$, the new head changes
+nothing before training.  Its first derivative with respect to $W$ contains
+\begin{equation*}
+  g\,a'(0)\,h^{\mathsf T}.
+\end{equation*}
+If either $g=0$ or $a'(0)=0$, that first learning signal vanishes.  The gate
+must therefore be finite and must remain nonzero after conversion to the
+model's 32-bit format.  Both \code{gate\_init: 0} and a number such as
+\code{1e-50}, which rounds to zero in that format, are refused.
+
+The currently accepted head activations are \code{H}, \code{multigate} and
+\code{tanh}.  \code{relu}, \code{power} and \code{gated\_power} are refused
+at this zero-initialized head position because their implemented derivative
+at zero does not satisfy the required check.  ReLU is still valid in the MLP
+trunk.  A frozen two-phase run may use a ReLU trunk and explicitly pin the
+head to one of the accepted families.
+
 \subsection{Frozen parameters remain present}
 
 A frozen trunk still executes forward to provide the head input.  A
@@ -6607,9 +6660,10 @@ implementations.
 
 \subsubsection{\code{head-activation-pin}: one head may own a different curve}
 
-\textbf{Claim and path.}  A structured head can pin a \code{gated\_power}
-activation while the trunk retains its model-wide family and illegal phase
-combinations are refused before training.
+\textbf{Claim and path.}  A structured head can pin a \code{multigate}
+activation while the trunk retains its model-wide family.  Illegal phase
+combinations and head activations whose implemented derivative vanishes at
+zero are refused before training.
 
 \textbf{Fixture and verdict.}  The resolved model-spec banner names the head
 family and gate count.  The parameter census must increase by the analytically

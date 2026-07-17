@@ -888,10 +888,10 @@ def gate_gft_c(ctx):
 def gate_gha_f(ctx):
   """head-activation-pin: the phase-2 head can pin its own activation.
 
-  WHAT: a model.trf.activation pin (gated_power) for the frozen-trunk
+  WHAT: a model.trf.activation pin (multigate) for the frozen-trunk
   head. WHY: the pin must win over the --activation flag with a warning,
   and an illegal pin (unfrozen trunk) must error, not misbuild. HOW: the
-  pinned-head smoke exits zero and prints the gated_power text; --activation
+  pinned-head smoke exits zero and prints the multigate text; --activation
   power prints the flag-vs-pin warning; the deliberately-invalid license YAML
   makes build_specs exit with the frozen-trunk message; plus the golden
   no-pin run, UNAVAILABLE while golden_bases has no configured base
@@ -905,9 +905,9 @@ def gate_gha_f(ctx):
               aid="head-activation-pin.golden-selected-text-equality")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-activation-pin-config",
-                      required_banners=["gated_power"],
+                      required_banners=["multigate"],
                       exit_aid="head-activation-pin.pinned-config-exit-zero",
-                      banner_aid="head-activation-pin.gated-power-text-present")
+                      banner_aid="head-activation-pin.multigate-text-present")
   # same pinned YAML, now with the flag, to trigger the warning.
   pin_yaml = ctx.require_config("head-activation-pin-config")
   rc_w, out_w = ctx.run_driver(yaml_path=pin_yaml,
@@ -922,7 +922,7 @@ def gate_gha_f(ctx):
     label="head-activation-pin flag-vs-pin warning",
     ok=(rc_w == 0 and logscan.contains(
       text=out_w,
-      needle="the head keeps its model.trf.activation pin (gated_power)")),
+      needle="the head keeps its model.trf.activation pin (multigate)")),
     detail="the flag-vs-pin run must succeed (rc " + str(rc_w) + ") AND print "
            "the startup warning that the pin wins over --activation; a warning "
            "printed on a failed run does not count")
@@ -3046,15 +3046,15 @@ BOARD = [
        title="Pinned head activation",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="the pinned-head driver exits zero and prints its gated_power text, "
+       maps="the pinned-head driver exits zero and prints its multigate text, "
             "the --activation flag run warns that the pin wins, and the invalid "
             "unfrozen-head config is refused with a frozen-trunk message",
        evidence=(Assertion("head-activation-pin.golden-selected-text-equality",
                            "models-and-designs.md#head-activation-pin-golden-selected-text-equality"),
                  Assertion("head-activation-pin.pinned-config-exit-zero",
                            "models-and-designs.md#head-activation-pin-pinned-config-exit-zero"),
-                 Assertion("head-activation-pin.gated-power-text-present",
-                           "models-and-designs.md#head-activation-pin-gated-power-text-present"),
+                 Assertion("head-activation-pin.multigate-text-present",
+                           "models-and-designs.md#head-activation-pin-multigate-text-present"),
                  Assertion("head-activation-pin.flag-vs-pin-warning",
                            "models-and-designs.md#head-activation-pin-flag-vs-pin-warning"),
                  Assertion("head-activation-pin.unfrozen-pin-refusal",

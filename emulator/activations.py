@@ -15,6 +15,47 @@ driver or YAML.
 import torch
 import torch.nn as nn
 
+from .validation import require_exact_int
+
+
+ACTIVATION_NAMES = (
+  "H", "power", "multigate", "gated_power", "relu", "tanh")
+
+# These families currently have a zero input derivative at exactly zero.
+# Correction heads zero their last layer, so using one of them after that
+# layer prevents at least part of the requested head from learning.  The
+# power-family entries leave this set when their separate analytic-origin
+# repair is implemented and tested.
+ZERO_DERIVATIVE_HEAD_ACTIVATIONS = frozenset(
+  ("relu", "power", "gated_power"))
+
+
+def activation_factory_name(factory):
+  """Return the configured activation name carried by a factory, if known."""
+  if factory is activation_fcn:
+    return "H"
+  if factory is PowerGatedActivation:
+    return "power"
+  if factory is GatedPowerActivation:
+    return "gated_power"
+  if factory is nn.ReLU:
+    return "relu"
+  if factory is nn.Tanh:
+    return "tanh"
+  return getattr(factory, "_emulator_activation_name", None)
+
+
+def require_live_head_activation(factory, source):
+  """Refuse a known activation that blocks a zero-initialized head layer."""
+  name = activation_factory_name(factory)
+  if name in ZERO_DERIVATIVE_HEAD_ACTIVATIONS:
+    raise ValueError(
+      source + " uses " + repr(name) + " after a zero-initialized head "
+      "layer. Its input derivative at zero is currently zero, so the "
+      "requested correction cannot fully begin learning. Use H, multigate, "
+      "or tanh for the head.")
+  return factory
+
 
 class activation_fcn(nn.Module):
     """
@@ -250,30 +291,35 @@ def make_activation(name, n_gates=3):
   Returns:
     a factory act(dim) -> nn.Module.
   """
+  require_exact_int(n_gates, "activation.n_gates", minimum=1)
   if name == "H":
     return activation_fcn
   if name == "power":
     def power_factory(dim):
       return PowerGatedActivation(dim)
+    power_factory._emulator_activation_name = name
     return power_factory
   if name == "multigate":
     def multigate_factory(dim):
       return GatedActivation(dim, n_gates=n_gates)
+    multigate_factory._emulator_activation_name = name
     return multigate_factory
   if name == "gated_power":
     def gated_power_factory(dim):
       return GatedPowerActivation(dim, n_gates=n_gates)
+    gated_power_factory._emulator_activation_name = name
     return gated_power_factory
   # parameter-free families: the factory ignores dim (ReLU / Tanh take
   # no shape argument), still honoring the act(dim) -> module contract.
   if name == "relu":
     def relu_factory(dim):
       return nn.ReLU()
+    relu_factory._emulator_activation_name = name
     return relu_factory
   if name == "tanh":
     def tanh_factory(dim):
       return nn.Tanh()
+    tanh_factory._emulator_activation_name = name
     return tanh_factory
   raise ValueError(
-    f"unknown activation {name!r}; one of: H / power / multigate / "
-    f"gated_power / relu / tanh")
+    f"unknown activation {name!r}; one of: " + " / ".join(ACTIVATION_NAMES))

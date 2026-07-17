@@ -45,9 +45,11 @@ data:
 # trim.start, model.mlp.width, model.cnn.kernel_size, model.cnn.film
 # (values true/false), head.lr.lr_base, ... Special case: parameter
 # model.activation sweeps the activation family (values H / power /
-# multigate / gated_power; leave --activation unset). model.name and
-# model.ia are refused (they change the model class, so use one sweep
-# per architecture).
+# multigate / gated_power; leave --activation unset). On rescnn/restrf,
+# a power-family trunk needs a separately pinned H / multigate / tanh
+# head in the frozen two-phase setup. model.name and model.ia are
+# refused (they change the model class, so use one sweep per
+# architecture).
 #
 # sweep:
 #   parameter: lr.lr_base
@@ -295,6 +297,13 @@ train_args:
     # keys at the top level or inside the active blocks are loud
     # errors.
     #
+    # Startup checks the selected model before reading training data.
+    # Write Boolean switches as unquoted true / false and counts as
+    # unquoted whole numbers. Quoted "false" and "1" are text and are
+    # refused. CNN/TRF n_blocks and TRF n_heads / n_mlp_blocks must be
+    # positive. Checks that need the physical output shape run after
+    # that shape is known.
+    #
     # The trunk (required; every architecture is built on it):
     mlp:
       width:    128        # residual-block width
@@ -309,9 +318,13 @@ train_args:
     #   relu         a plain rectifier (parameter-free)
     #   tanh         the classic tanh (parameter-free; pair with
     #                norm: per_feature to guard its saturation)
+    # All six choices are available in the MLP trunk. A selected CNN
+    # or TRF head may use only H / multigate / tanh until the other
+    # families have a nonzero derivative at the head's zero start. A
+    # ReLU trunk therefore needs a separately pinned safe head family.
     # The --activation flag, when given, overrides type. A bare
-   # string (activation: H) is accepted as shorthand for the type.
-   # activation:
+    # string (activation: H) is accepted as shorthand for the type.
+    # activation:
     #   type:    H
     #   n_gates: 3         # gates K for multigate / gated_power
     #
@@ -368,11 +381,12 @@ train_args:
     #                      # map; ~2*channels*n_param params/block;
     #                      # amplitude exactness untouched).
     #   n_blocks:    1     # stacked conv+activation blocks
-    #   gate_init:   0.1   # initial correction scale (small, not 0)
+    #   gate_init:   0.1   # finite initial correction scale; it must
+    #                      # stay nonzero in float32 (0 and 1e-50 fail)
     #   activation:          # optional: the CNN head's own family
-    #     type: gated_power  # (absent = shares the trunk's
+    #     type: multigate    # H / multigate / tanh are safe here;
     #     n_gates: 3         # model.activation; the head trains in
-    #                        # phase 2, so this pins its phase-2 family).
+    #                        # phase 2, so this pins its phase-2 family.
     #                        # Needs trunk_epochs > 0 + freeze_trunk true.
     #
     # Transformer head (name: restrf only): each bin is one token at
@@ -397,11 +411,12 @@ train_args:
     #                      # the token stream with a cosmology-
     #                      # dependent per-token affine (identity-
     #                      # initialized; same design as cnn.film)
-    #   gate_init:    0.1  # initial correction scale (small, not 0)
+    #   gate_init:    0.1  # finite initial correction scale; it must
+    #                      # stay nonzero in float32 (0 and 1e-50 fail)
     #   activation:          # optional: the TRF head's own family
-    #     type: gated_power  # (absent = shares the trunk's
+    #     type: multigate    # H / multigate / tanh are safe here;
     #     n_gates: 3         # model.activation; the head trains in
-    #                        # phase 2, so this pins its phase-2 family).
+    #                        # phase 2, so this pins its phase-2 family.
     #                        # Needs trunk_epochs > 0 + freeze_trunk true.
     #
     # compile_mode: default  # conv/TRF models default to this because

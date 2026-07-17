@@ -100,7 +100,12 @@ def _preflight_config(directory):
       "n_val": 1,
       "split_seed": 7,
     },
-    "train_args": {"model": {"name": "resmlp"}},
+    "train_args": {
+      "model": {
+        "name": "resmlp",
+        "mlp": {"width": 4, "n_blocks": 0},
+      },
+    },
   }
 
 

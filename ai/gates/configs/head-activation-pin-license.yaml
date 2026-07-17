@@ -60,5 +60,5 @@ train_args:
       n_blocks: 4
     trf:
       activation:
-        type:    gated_power
+        type:    multigate
         n_gates: 3

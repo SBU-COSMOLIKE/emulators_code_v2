@@ -36,7 +36,8 @@ import torch.nn as nn
 
 # activation_fcn (activations.py): the learned gated activation H(x) =
 # gate(x)*x, the default act factory for ResBlock and the conv/TRF heads.
-from ..activations import activation_fcn
+from ..activations import activation_fcn, require_live_head_activation
+from ..validation import require_exact_bool, require_exact_int
 
 
 class Affine(nn.Module):
@@ -221,6 +222,8 @@ class ResBlock(nn.Module):
                n_layers = 2,
                norm = affine_norm,
                act = activation_fcn):
+    require_exact_int(size, "ResBlock.size", minimum=1)
+    require_exact_int(n_layers, "ResBlock.n_layers", minimum=1)
     super().__init__()
     self.skip = nn.Identity()
 
@@ -339,6 +342,11 @@ def rescale_kernel_size(kernel_size, n_blocks_cnn):
     the per-block kernel width k_n (odd int; = kernel_size when
     n_blocks_cnn is 1).
   """
+  require_exact_int(kernel_size, "kernel_size", minimum=1)
+  require_exact_int(n_blocks_cnn, "n_blocks_cnn", minimum=1)
+  if kernel_size % 2 == 0:
+    raise ValueError("kernel_size must be odd; got " + repr(kernel_size))
+
   # ceil((kernel_size-1)/n) via negated floor division (pure ints,
   # no float rounding), + 1 = the smallest k_n with RF >=
   # kernel_size.
@@ -465,6 +473,9 @@ class BinLinear(nn.Module):
                n_tokens,
                in_features,
                out_features):
+    require_exact_int(n_tokens, "BinLinear.n_tokens", minimum=1)
+    require_exact_int(in_features, "BinLinear.in_features", minimum=1)
+    require_exact_int(out_features, "BinLinear.out_features", minimum=1)
     super().__init__()
     # build G ordinary nn.Linear layers just to borrow their init,
     # then stack their weights/biases and discard them. l.weight is
@@ -637,16 +648,25 @@ class TRFBlock(nn.Module):
                act=activation_fcn,
                shared_mlp=False,
                output_length=None):
+    require_exact_int(dim, "TRFBlock.dim", minimum=1)
+    require_exact_int(n_tokens, "TRFBlock.n_tokens", minimum=1)
+    require_exact_int(n_heads, "TRFBlock.n_heads", minimum=1)
+    require_exact_int(
+      n_mlp_blocks, "TRFBlock.n_mlp_blocks", minimum=1)
+    require_exact_bool(shared_mlp, "TRFBlock.shared_mlp")
     if output_length is None:
       output_length = n_tokens * dim
+    require_exact_int(output_length, "TRFBlock.output_length", minimum=1)
     validate_trf_token_width(
       output_length=output_length,
       n_tokens=n_tokens,
       token_width=dim)
     super().__init__()
-    assert dim % n_heads == 0, (
-      f"the token width ({dim} = the padded bin length) must be "
-      f"divisible by n_heads ({n_heads})")
+    if dim % n_heads != 0:
+      raise ValueError(
+        f"the token width ({dim} = the padded bin length) must be "
+        f"divisible by n_heads ({n_heads})")
+    require_live_head_activation(act, "TRFBlock.act")
     self.n_heads = n_heads
     self.d_head  = dim // n_heads
 

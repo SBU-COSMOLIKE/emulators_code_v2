@@ -25,7 +25,10 @@ smaller vector the network actually emulates.
 import torch
 import torch.nn as nn
 
-from ..activations import activation_fcn
+from ..activations import activation_fcn, require_live_head_activation
+from ..validation import (
+  require_exact_bool, require_exact_int, require_nonzero_float32,
+  require_positive_int_list)
 from .plain import DesignSpec
 from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
@@ -93,6 +96,17 @@ class TemplateMLP(DesignSpec, nn.Module):
       n_blocks    = number of residual blocks.
       block_opts  = ResBlock options dict (None -> {}).
     """
+    require_exact_int(input_dim, "TemplateMLP.input_dim", minimum=1)
+    require_exact_int(output_dim, "TemplateMLP.output_dim", minimum=1)
+    require_exact_int(n_amps, "TemplateMLP.n_amps", minimum=1)
+    require_exact_int(n_templates, "TemplateMLP.n_templates", minimum=1)
+    require_exact_int(int_dim_res, "TemplateMLP.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "TemplateMLP.n_blocks", minimum=0)
+    if input_dim <= n_amps:
+      raise ValueError(
+        "TemplateMLP.input_dim must exceed n_amps so the trunk has an input")
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("TemplateMLP.block_opts must be a mapping or None")
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -350,15 +364,50 @@ class TemplateResCNN(DesignSpec, nn.Module):
                      head's too (falls back to activation_fcn, the
                      paper's H).
     """
+    require_exact_int(input_dim, "TemplateResCNN.input_dim", minimum=1)
+    require_exact_int(output_dim, "TemplateResCNN.output_dim", minimum=1)
+    require_exact_int(n_amps, "TemplateResCNN.n_amps", minimum=1)
+    require_exact_int(
+      n_templates, "TemplateResCNN.n_templates", minimum=1)
+    require_exact_int(
+      int_dim_res, "TemplateResCNN.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "TemplateResCNN.n_blocks", minimum=0)
+    require_exact_int(
+      kernel_size, "TemplateResCNN.kernel_size", minimum=1)
+    if kernel_size % 2 == 0:
+      raise ValueError("TemplateResCNN.kernel_size must be odd")
+    require_exact_int(
+      n_blocks_cnn, "TemplateResCNN.n_blocks_cnn", minimum=1)
+    require_exact_int(groups, "TemplateResCNN.groups", minimum=1)
+    allowed_groups = (1, n_templates, 2 * n_templates)
+    if groups not in allowed_groups:
+      raise ValueError(
+        "TemplateResCNN.groups must be one of " + repr(allowed_groups)
+        + "; got " + repr(groups))
+    require_exact_bool(
+      rescale_kernel, "TemplateResCNN.rescale_kernel")
+    require_exact_bool(separable, "TemplateResCNN.separable")
+    require_exact_bool(film, "TemplateResCNN.film")
+    require_nonzero_float32(gate_init, "TemplateResCNN.gate_init")
+    if input_dim <= n_amps:
+      raise ValueError(
+        "TemplateResCNN.input_dim must exceed n_amps so the trunk has an "
+        "input")
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("TemplateResCNN.block_opts must be a mapping or None")
+    if not hasattr(geom, "bin_sizes"):
+      raise ValueError(
+        "TemplateResCNN needs geom.bin_sizes: prepare the output layout "
+        "before building the model")
+    sizes = require_positive_int_list(
+      geom.bin_sizes, "TemplateResCNN.geom.bin_sizes")
     super().__init__()
     if block_opts is None:
       block_opts = {}
-    assert kernel_size % 2 == 1, (
-      "kernel_size must be odd so same-padding keeps the length")
-    assert hasattr(geom, "bin_sizes"), (
-      "TemplateResCNN needs geom.bin_sizes: run "
-      "build_shear_angle_map(geom) first (EmulatorExperiment does "
-      "this for models with the needs_bins flag)")
+    cnn_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
+    require_live_head_activation(
+      cnn_act, "TemplateResCNN head activation")
     self.n_keep      = output_dim
     self.n_templates = n_templates
     # n_in = real input width: drop the n_amps amplitude columns.
@@ -377,9 +426,6 @@ class TemplateResCNN(DesignSpec, nn.Module):
     # the bin split: per-bin kept counts, contiguous in theta order,
     # and the fixed scatter/gather index into the padded layout (bin
     # g's j-th entry at g*max_bin + j), applied per template.
-    sizes = []
-    for s in geom.bin_sizes:
-      sizes.append(int(s))
     self.n_bins  = len(sizes)
     self.max_bin = max(sizes)
     pos = []
@@ -395,8 +441,6 @@ class TemplateResCNN(DesignSpec, nn.Module):
     # model.cnn.activation pin) wins when set; else the trunk's shared
     # family; act(max_bin) gives per-position parameters, broadcast
     # over the channels.
-    cnn_act = (head_act if head_act is not None
-               else block_opts.get("act", activation_fcn))
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
     # view, receptive field n*(k-1)+1 >= kernel_size, see
@@ -416,16 +460,11 @@ class TemplateResCNN(DesignSpec, nn.Module):
     # sharing one pm (0 = xi+, 1 = xi-); every template block
     # repeats the same bin order, so checking the bin list once
     # covers all templates.
-    assert groups in (1, n_templates, 2 * n_templates), (
-      f"TemplateResCNN groups must be 1 (dense), n_templates "
-      f"({n_templates}: templates never mix) or 2*n_templates "
-      f"({2 * n_templates}: templates never mix and xi+ never "
-      "mixes with xi-); the channels are template-major, so no "
-      "other cut has a physical meaning")
     if groups == 2 * n_templates:
-      assert hasattr(geom, "pm_kept") and self.n_bins % 2 == 0, (
-        "the branch cut needs geom.pm_kept "
-        "(build_shear_angle_map) and an even bin count")
+      if not hasattr(geom, "pm_kept") or self.n_bins % 2 != 0:
+        raise ValueError(
+          "TemplateResCNN branch groups need geom.pm_kept and an even "
+          "bin count")
       # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
       # from its first kept element geom.pm_kept[start]. This
       # assumes each bin is pm-homogeneous (its kept angular bins
@@ -448,11 +487,11 @@ class TemplateResCNN(DesignSpec, nn.Module):
       for pm in pm_bins[half:]:
         if pm != 1:
           split_ok = False
-      assert split_ok, (
-        "the branch cut needs the first half of each template's "
-        "bins to be xi+ and the second half xi- (a fully-masked "
-        "bin on one branch breaks the split); per-bin branches "
-        f"here: {pm_bins}")
+      if not split_ok:
+        raise ValueError(
+          "TemplateResCNN branch groups need the first half of bins to "
+          "be xi+ and the second half xi-; per-bin branches: "
+          + repr(pm_bins))
 
     pad = (kernel_size - 1) // 2
     n_ch = n_templates * self.n_bins
@@ -771,13 +810,41 @@ class TemplateResTRF(DesignSpec, nn.Module):
                      trunk family and, unless head_act is set, reaches
                      the TRF MLPs too.
     """
+    require_exact_int(input_dim, "TemplateResTRF.input_dim", minimum=1)
+    require_exact_int(output_dim, "TemplateResTRF.output_dim", minimum=1)
+    require_exact_int(n_amps, "TemplateResTRF.n_amps", minimum=1)
+    require_exact_int(
+      n_templates, "TemplateResTRF.n_templates", minimum=1)
+    require_exact_int(
+      int_dim_res, "TemplateResTRF.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "TemplateResTRF.n_blocks", minimum=0)
+    require_exact_int(n_heads, "TemplateResTRF.n_heads", minimum=1)
+    require_exact_int(
+      n_blocks_trf, "TemplateResTRF.n_blocks_trf", minimum=1)
+    require_exact_int(
+      n_mlp_blocks, "TemplateResTRF.n_mlp_blocks", minimum=1)
+    require_exact_bool(shared_mlp, "TemplateResTRF.shared_mlp")
+    require_exact_bool(film, "TemplateResTRF.film")
+    require_nonzero_float32(gate_init, "TemplateResTRF.gate_init")
+    if input_dim <= n_amps:
+      raise ValueError(
+        "TemplateResTRF.input_dim must exceed n_amps so the trunk has an "
+        "input")
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("TemplateResTRF.block_opts must be a mapping or None")
+    if not hasattr(geom, "bin_sizes"):
+      raise ValueError(
+        "TemplateResTRF needs geom.bin_sizes: prepare the output layout "
+        "before building the model")
+    sizes = require_positive_int_list(
+      geom.bin_sizes, "TemplateResTRF.geom.bin_sizes")
     super().__init__()
     if block_opts is None:
       block_opts = {}
-    assert hasattr(geom, "bin_sizes"), (
-      "TemplateResTRF needs geom.bin_sizes: run "
-      "build_shear_angle_map(geom) first (EmulatorExperiment does "
-      "this for models with the needs_bins flag)")
+    trf_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
+    require_live_head_activation(
+      trf_act, "TemplateResTRF head activation")
     self.n_keep      = output_dim
     self.n_templates = n_templates
     # n_in = real input width: drop the n_amps amplitude columns.
@@ -785,15 +852,17 @@ class TemplateResTRF(DesignSpec, nn.Module):
 
     # Resolve the token layout before allocating the template trunk. A
     # width-one refusal therefore leaves no partially constructed network.
-    sizes = []
-    for size in geom.bin_sizes:
-      sizes.append(int(size))
     self.n_bins = len(sizes)
     self.max_bin = max(sizes)
     validate_trf_token_width(
       output_length=n_templates * output_dim,
       n_tokens=n_templates * self.n_bins,
       token_width=self.max_bin)
+    if self.max_bin % n_heads != 0:
+      raise ValueError(
+        "TemplateResTRF.n_heads (" + str(n_heads)
+        + ") must divide the resolved padded token width ("
+        + str(self.max_bin) + ")")
 
     # trunk: the TemplateMLP layer stack, emitting all templates in
     # the full-whitened basis (well conditioned).
@@ -823,8 +892,6 @@ class TemplateResTRF(DesignSpec, nn.Module):
     # identity at init, so blocks(h) - h = 0 exactly. head_act (the
     # model.trf.activation pin) wins when set; else the trunk's
     # shared family reaches the TRF MLPs too.
-    trf_act = (head_act if head_act is not None
-               else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
       trf.append(TRFBlock(

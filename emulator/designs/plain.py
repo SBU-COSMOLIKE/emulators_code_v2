@@ -67,7 +67,10 @@ geometries.output).
 import torch
 import torch.nn as nn
 
-from ..activations import activation_fcn
+from ..activations import activation_fcn, require_live_head_activation
+from ..validation import (
+  require_exact_bool, require_exact_int, require_nonzero_float32,
+  require_positive_int_list)
 from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
   validate_trf_token_width)
@@ -165,6 +168,12 @@ class ResMLP(DesignSpec, nn.Module):
                int_dim_res,
                n_blocks=3,
                block_opts=None):
+    require_exact_int(input_dim, "ResMLP.input_dim", minimum=1)
+    require_exact_int(output_dim, "ResMLP.output_dim", minimum=1)
+    require_exact_int(int_dim_res, "ResMLP.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "ResMLP.n_blocks", minimum=0)
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("ResMLP.block_opts must be a mapping or None")
     super().__init__()
 
     # Default to {} (not in the signature: a mutable default is
@@ -411,16 +420,36 @@ class ResCNN(DesignSpec, nn.Module):
                separable=False, film=False, n_blocks=3,
                n_blocks_cnn=1, gate_init=0.1, head_act=None,
                block_opts=None):
+    require_exact_int(input_dim, "ResCNN.input_dim", minimum=1)
+    require_exact_int(output_dim, "ResCNN.output_dim", minimum=1)
+    require_exact_int(int_dim_res, "ResCNN.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "ResCNN.n_blocks", minimum=0)
+    require_exact_int(kernel_size, "ResCNN.kernel_size", minimum=1)
+    if kernel_size % 2 == 0:
+      raise ValueError(
+        "ResCNN.kernel_size must be odd so same-padding keeps the length")
+    require_exact_int(n_blocks_cnn, "ResCNN.n_blocks_cnn", minimum=1)
+    require_exact_int(groups, "ResCNN.groups", minimum=1)
+    if groups not in (1, 2):
+      raise ValueError("ResCNN.groups must be 1 or 2; got " + repr(groups))
+    require_exact_bool(rescale_kernel, "ResCNN.rescale_kernel")
+    require_exact_bool(separable, "ResCNN.separable")
+    require_exact_bool(film, "ResCNN.film")
+    require_nonzero_float32(gate_init, "ResCNN.gate_init")
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("ResCNN.block_opts must be a mapping or None")
+    if not hasattr(geom, "bin_sizes"):
+      raise ValueError(
+        "ResCNN needs geom.bin_sizes: prepare the output layout before "
+        "building the model")
+    sizes = require_positive_int_list(
+      geom.bin_sizes, "ResCNN.geom.bin_sizes")
     super().__init__()
     if block_opts is None:
       block_opts = {}
-    assert kernel_size % 2 == 1, (
-      "kernel_size must be odd so same-padding keeps the length")
-    assert hasattr(geom, "bin_sizes"), (
-      "ResCNN needs geom.bin_sizes: run build_shear_angle_map(geom) "
-      "on the cosmolike geometry, or attach_head_coords() on a "
-      "diagonal family geometry (EmulatorExperiment does this for "
-      "models with the needs_bins flag)")
+    cnn_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
+    require_live_head_activation(cnn_act, "ResCNN head activation")
 
     # ResMLP main path: standalone ResMLP layer stack, output in the
     # full-whitened basis (well conditioned).
@@ -434,9 +463,6 @@ class ResCNN(DesignSpec, nn.Module):
     # the bin split: per-bin kept counts, contiguous in theta order,
     # and the fixed scatter/gather index into the padded layout (bin
     # g's j-th entry at g*max_bin + j; see the class docstring).
-    sizes = []
-    for s in geom.bin_sizes:
-      sizes.append(int(s))
     self.n_bins  = len(sizes)
     self.max_bin = max(sizes)
     pos = []
@@ -452,8 +478,6 @@ class ResCNN(DesignSpec, nn.Module):
     # choice injected by EmulatorExperiment), falling back to
     # activation_fcn (the paper's H); act(max_bin) gives per-position
     # parameters, broadcast over the bin axis.
-    cnn_act = (head_act if head_act is not None
-               else block_opts.get("act", activation_fcn))
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
     # view, receptive field n*(k-1)+1 >= kernel_size, see
@@ -472,14 +496,10 @@ class ResCNN(DesignSpec, nn.Module):
     # first half of the bins must all be xi+ and the second half
     # xi- (a fully-masked bin on one branch would silently shift
     # the boundary, fail loudly instead).
-    assert groups in (1, 2), (
-      "ResCNN groups must be 1 (dense) or 2 (xi+ never mixes "
-      "with xi-); the channels are single bins, so no other cut "
-      "has a physical meaning")
     if groups == 2:
-      assert hasattr(geom, "pm_kept") and self.n_bins % 2 == 0, (
-        "groups=2 needs geom.pm_kept (build_shear_angle_map) and "
-        "an even bin count")
+      if not hasattr(geom, "pm_kept") or self.n_bins % 2 != 0:
+        raise ValueError(
+          "ResCNN.groups=2 needs geom.pm_kept and an even bin count")
       # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
       # from its first kept element geom.pm_kept[start]. This
       # assumes each bin is pm-homogeneous (its kept angular bins
@@ -502,10 +522,10 @@ class ResCNN(DesignSpec, nn.Module):
       for pm in pm_bins[half:]:
         if pm != 1:
           split_ok = False
-      assert split_ok, (
-        "groups=2 needs the first half of the bins to be xi+ and "
-        "the second half xi- (a fully-masked bin on one branch "
-        f"breaks the split); per-bin branches here: {pm_bins}")
+      if not split_ok:
+        raise ValueError(
+          "ResCNN.groups=2 needs the first half of the bins to be xi+ "
+          "and the second half xi-; per-bin branches: " + repr(pm_bins))
 
     pad = (kernel_size - 1) // 2
     convs, acts = [], []
@@ -830,21 +850,36 @@ class ResTRF(DesignSpec, nn.Module):
                n_mlp_blocks=2, n_tokens=None, gate_init=0.1,
                shared_mlp=False, film=False, head_act=None,
                block_opts=None):
+    require_exact_int(input_dim, "ResTRF.input_dim", minimum=1)
+    require_exact_int(output_dim, "ResTRF.output_dim", minimum=1)
+    require_exact_int(int_dim_res, "ResTRF.int_dim_res", minimum=1)
+    require_exact_int(n_blocks, "ResTRF.n_blocks", minimum=0)
+    require_exact_int(n_heads, "ResTRF.n_heads", minimum=1)
+    require_exact_int(n_blocks_trf, "ResTRF.n_blocks_trf", minimum=1)
+    require_exact_int(n_mlp_blocks, "ResTRF.n_mlp_blocks", minimum=1)
+    if n_tokens is not None:
+      require_exact_int(n_tokens, "ResTRF.n_tokens", minimum=2)
+    require_exact_bool(shared_mlp, "ResTRF.shared_mlp")
+    require_exact_bool(film, "ResTRF.film")
+    require_nonzero_float32(gate_init, "ResTRF.gate_init")
+    if block_opts is not None and not isinstance(block_opts, dict):
+      raise TypeError("ResTRF.block_opts must be a mapping or None")
+    if not hasattr(geom, "bin_sizes"):
+      raise ValueError(
+        "ResTRF needs geom.bin_sizes: prepare the output layout before "
+        "building the model")
+    sizes = require_positive_int_list(
+      geom.bin_sizes, "ResTRF.geom.bin_sizes")
     super().__init__()
     if block_opts is None:
       block_opts = {}
-    assert hasattr(geom, "bin_sizes"), (
-      "ResTRF needs geom.bin_sizes: run build_shear_angle_map(geom) "
-      "on the cosmolike geometry, or attach_head_coords() on a "
-      "diagonal family geometry (EmulatorExperiment does this for "
-      "models with the needs_bins flag)")
+    trf_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
+    require_live_head_activation(trf_act, "ResTRF head activation")
 
     # Resolve the token layout before allocating a learnable layer. This
     # ordering makes an invalid width a configuration error and avoids
     # leaving a partially constructed model behind.
-    sizes = []
-    for size in geom.bin_sizes:
-      sizes.append(int(size))
     # n_tokens: re-segment a SINGLE-bin geometry (a spectrum
     # on one axis: cmb's ell, grid's z) into contiguous near-equal
     # windows so attention has tokens to attend across — the first
@@ -860,7 +895,7 @@ class ResTRF(DesignSpec, nn.Module):
           + str(len(sizes)) + " physical bins (tomographic bins / "
           "z slices) — those ARE the tokens; drop n_tokens")
       output_length = sizes[0]
-      resolved_tokens = int(n_tokens)
+      resolved_tokens = n_tokens
       if resolved_tokens < 2 or resolved_tokens > output_length:
         raise ValueError(
           "model.trf.n_tokens must be in 2.." + str(output_length)
@@ -878,6 +913,11 @@ class ResTRF(DesignSpec, nn.Module):
       output_length=output_dim,
       n_tokens=self.n_bins,
       token_width=self.max_bin)
+    if self.max_bin % n_heads != 0:
+      raise ValueError(
+        "ResTRF.n_heads (" + str(n_heads)
+        + ") must divide the resolved padded token width ("
+        + str(self.max_bin) + ")")
 
     # ResMLP main path: standalone ResMLP layer stack, output in the
     # full-whitened basis (well conditioned).
@@ -906,8 +946,6 @@ class ResTRF(DesignSpec, nn.Module):
     # blocks(h) - h = 0 exactly. head_act (the model.trf.activation
     # pin) wins when set; else the trunk's shared family reaches the
     # TRF MLPs too.
-    trf_act = (head_act if head_act is not None
-               else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
       trf.append(TRFBlock(

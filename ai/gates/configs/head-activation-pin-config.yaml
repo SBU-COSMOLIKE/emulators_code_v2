@@ -1,5 +1,4 @@
-# head-activation-pin (spec: ai/notes/models-and-designs.md:405-430): a pinned
-# gated_power head. restrf + trf.activation gated_power; the 'model spec:' banner
+# head-activation-pin: a pinned multigate head. The model-spec banner
 # shows the pin.
 #
 data:
@@ -58,5 +57,5 @@ train_args:
       n_blocks: 4
     trf:
       activation:
-        type:    gated_power
+        type:    multigate
         n_gates: 3

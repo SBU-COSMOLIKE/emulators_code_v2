@@ -151,7 +151,8 @@ from .designs.ia import (TemplateMLP, TemplateResCNN,
                          TemplateResTRF)
 from .losses.ia import (TemplateFactoredChi2, nla_coeffs,
                         tatt_coeffs)
-from .activations import make_activation
+from .activations import (
+  ACTIVATION_NAMES, ZERO_DERIVATIVE_HEAD_ACTIVATIONS, make_activation)
 from .designs.blocks import make_norm
 from . import warmstart
 from .losses.transfer import (
@@ -161,7 +162,9 @@ from .training import (
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
   validate_loss, _loss_migration_message)
-from .validation import _is_finite_real
+from .validation import (
+  _is_finite_real, require_exact_bool, require_exact_int,
+  require_nonzero_float32, require_positive_int_list)
 
 
 # per-chunk read budget for the bounded grid2d law transform
@@ -320,6 +323,9 @@ MODEL_BLOCK_KEYS = {
           "activation":   "head_act"},
 }
 
+MODEL_NORM_NAMES = ("affine", "per_feature", "none")
+MODEL_COMPILE_MODES = ("reduce-overhead", "default", None)
+
 def _head_activation_spec(value, source):
   """
   Validate a per-head activation value into a {type, n_gates} spec.
@@ -347,22 +353,34 @@ def _head_activation_spec(value, source):
     mapping without "type" or carrying a key outside {type, n_gates}.
   """
   if isinstance(value, str):
-    return {"type": value, "n_gates": 3}
-  if not isinstance(value, dict):
+    activation_type = value
+    n_gates = 3
+  elif not isinstance(value, dict):
     raise TypeError(
       f"{source} must be a type string or a mapping {{type, n_gates}}, "
       f"got {type(value).__name__}")
-  unknown = set(value) - {"type", "n_gates"}
-  if unknown:
+  else:
+    unknown = set(value) - {"type", "n_gates"}
+    if unknown:
+      raise ValueError(
+        f"unknown key(s) {sorted(unknown)} in {source}; an activation "
+        f"takes only type / n_gates")
+    if "type" not in value:
+      raise ValueError(
+        f"{source} needs a 'type' (the activation family, e.g. H / "
+        f"multigate)")
+    activation_type = value["type"]
+    n_gates = value.get("n_gates", 3)
+  if not isinstance(activation_type, str):
+    raise TypeError(
+      f"{source}.type must be one of the named activation strings; got "
+      f"{activation_type!r}")
+  if activation_type not in ACTIVATION_NAMES:
     raise ValueError(
-      f"unknown key(s) {sorted(unknown)} in {source}; a per-head "
-      f"activation takes only type / n_gates")
-  if "type" not in value:
-    raise ValueError(
-      f"{source} needs a 'type' (the activation family, e.g. H / "
-      f"gated_power)")
-  return {"type": str(value["type"]),
-          "n_gates": int(value.get("n_gates", 3))}
+      f"unknown activation {activation_type!r} at {source}.type; one of: "
+      + " / ".join(ACTIVATION_NAMES))
+  require_exact_int(n_gates, source + ".n_gates", minimum=1)
+  return {"type": activation_type, "n_gates": n_gates}
 
 
 def _resolve_head_activation(canonical, alias, head_block, trunk_epochs,
@@ -414,6 +432,264 @@ def _resolve_head_activation(canonical, alias, head_block, trunk_epochs,
       f"and head training together the network keeps one family — set "
       f"model.activation only.")
   return pin
+
+
+def validate_active_model_values(
+    *, train_args, model_cls, activation=None, ia=None, geom=None,
+    defer_groups=False):
+  """Validate the selected model block without coercing its values.
+
+  The first call comes from :meth:`from_config`, before facts files, data,
+  an accelerator, or learned layers are touched.  A second call from
+  :meth:`build_specs` checks values produced by a parameter search and, once
+  the output geometry exists, verifies attention and grouping rules that
+  depend on the resolved output layout.  Configuration for an inactive head
+  remains ignored so one YAML can carry both ``cnn`` and ``trf`` blocks.
+
+  Returns the resolved trunk and head activation specifications.  The input
+  mapping is never modified.
+  """
+  if not isinstance(train_args, dict):
+    raise TypeError("train_args must be a mapping")
+  model = train_args.get("model")
+  if not isinstance(model, dict):
+    raise TypeError("train_args.model must be a mapping")
+
+  allowed_model_keys = {
+    "name", "ia", "mlp", "activation", "norm", "cnn", "trf",
+    "compile_mode",
+  }
+  unknown = set(model) - allowed_model_keys
+  if unknown:
+    raise ValueError(
+      "unknown model key(s) " + repr(sorted(unknown)) + "; allowed: "
+      + " / ".join(sorted(allowed_model_keys)))
+
+  mlp = model.get("mlp")
+  if not isinstance(mlp, dict):
+    raise TypeError(
+      "model.mlp must be a mapping containing width and optional n_blocks")
+  unknown_mlp = set(mlp) - set(MODEL_BLOCK_KEYS["mlp"])
+  if unknown_mlp:
+    raise ValueError(
+      "unknown model.mlp key(s) " + repr(sorted(unknown_mlp))
+      + "; allowed: n_blocks / width")
+  if "width" not in mlp:
+    raise ValueError("model.mlp.width is required")
+  require_exact_int(mlp["width"], "model.mlp.width", minimum=1)
+  if "n_blocks" in mlp:
+    # Zero is the documented linear-only trunk; negative depth is invalid.
+    require_exact_int(mlp["n_blocks"], "model.mlp.n_blocks", minimum=0)
+
+  if "norm" in model:
+    norm_name = model["norm"]
+    if type(norm_name) is not str:
+      raise TypeError(
+        "model.norm must be text naming affine, per_feature, or none; got "
+        + repr(norm_name))
+    if norm_name not in MODEL_NORM_NAMES:
+      raise ValueError(
+        "model.norm must be affine, per_feature, or none; got "
+        + repr(norm_name))
+  if "compile_mode" in model:
+    compile_mode = model["compile_mode"]
+    if compile_mode is not None and type(compile_mode) is not str:
+      raise TypeError(
+        "model.compile_mode must be text or null; got "
+        + repr(compile_mode))
+    if compile_mode not in MODEL_COMPILE_MODES:
+      raise ValueError(
+        "model.compile_mode must be reduce-overhead, default, or null; got "
+        + repr(compile_mode))
+
+  if "activation" in model:
+    trunk_activation = _head_activation_spec(
+      model["activation"], "model.activation")
+  else:
+    trunk_activation = {"type": "H", "n_gates": 3}
+  if activation is not None:
+    if not isinstance(activation, str):
+      raise TypeError(
+        "--activation must be one of the named activation strings; got "
+        + repr(activation))
+    if activation not in ACTIVATION_NAMES:
+      raise ValueError(
+        "unknown --activation " + repr(activation) + "; one of: "
+        + " / ".join(ACTIVATION_NAMES))
+    # The explicit flag changes the family but keeps the YAML gate count,
+    # matching build_specs and the saved recipe.
+    trunk_activation = dict(trunk_activation)
+    trunk_activation["type"] = activation
+
+  head_block = getattr(model_cls, "head_block", None)
+  head_values = {}
+  canonical_pin = None
+  alias_pin = None
+  if head_block is not None:
+    raw_head = model.get(head_block, {})
+    if not isinstance(raw_head, dict):
+      raise TypeError("model." + head_block + " must be a mapping")
+    unknown_head = set(raw_head) - set(MODEL_BLOCK_KEYS[head_block])
+    if unknown_head:
+      raise ValueError(
+        "unknown model." + head_block + " key(s) "
+        + repr(sorted(unknown_head)) + "; allowed: "
+        + " / ".join(sorted(MODEL_BLOCK_KEYS[head_block])))
+    head_values = raw_head
+    if "activation" in raw_head:
+      canonical_pin = _head_activation_spec(
+        raw_head["activation"], "model." + head_block + ".activation")
+    raw_alias = train_args.get("head")
+    if isinstance(raw_alias, dict) and "activation" in raw_alias:
+      alias_pin = _head_activation_spec(
+        raw_alias["activation"], "head.activation")
+
+    if canonical_pin is not None or alias_pin is not None:
+      trunk_epochs = train_args.get("trunk_epochs", 0)
+      require_exact_int(
+        trunk_epochs, "train_args.trunk_epochs", minimum=0)
+      freeze_trunk = train_args.get("freeze_trunk")
+      if freeze_trunk is not None:
+        require_exact_bool(freeze_trunk, "train_args.freeze_trunk")
+      head_pin = _resolve_head_activation(
+        canonical=canonical_pin, alias=alias_pin,
+        head_block=head_block, trunk_epochs=trunk_epochs,
+        freeze_trunk=freeze_trunk)
+    else:
+      head_pin = None
+    effective_head_activation = (
+      head_pin if head_pin is not None else trunk_activation)
+    if (effective_head_activation["type"]
+        in ZERO_DERIVATIVE_HEAD_ACTIVATIONS):
+      raise ValueError(
+        "model." + head_block + " uses "
+        + repr(effective_head_activation["type"])
+        + " after a zero-initialized correction layer. Its input "
+        "derivative at zero is currently zero, so the requested head "
+        "cannot fully begin learning. Use H, multigate, or tanh for the "
+        "head; ReLU remains valid in model.mlp trunks.")
+  else:
+    head_pin = None
+    effective_head_activation = None
+
+  if head_block == "cnn":
+    for key in ("rescale_kernel", "separable", "film"):
+      if key in head_values:
+        require_exact_bool(
+          head_values[key], "model.cnn." + key)
+    if "kernel_size" in head_values:
+      kernel_size = require_exact_int(
+        head_values["kernel_size"], "model.cnn.kernel_size", minimum=1)
+      if kernel_size % 2 == 0:
+        raise ValueError(
+          "model.cnn.kernel_size must be odd so same-padding preserves "
+          "the output length; got " + repr(kernel_size))
+    if "n_blocks" in head_values:
+      require_exact_int(
+        head_values["n_blocks"], "model.cnn.n_blocks", minimum=1)
+    if "groups" in head_values:
+      groups = require_exact_int(
+        head_values["groups"], "model.cnn.groups", minimum=1)
+      if not defer_groups:
+        if getattr(model_cls, "factored", False):
+          if ia not in IA_DESIGNS:
+            raise ValueError(
+              "a factored CNN needs a resolved model.ia before groups can "
+              "be checked")
+          n_templates = IA_DESIGNS[ia]["n_templates"]
+          allowed_groups = (1, n_templates, 2 * n_templates)
+        else:
+          allowed_groups = (1, 2)
+        if groups not in allowed_groups:
+          raise ValueError(
+            "model.cnn.groups must be one of " + repr(allowed_groups)
+            + " for the selected design; got " + repr(groups))
+    if "gate_init" in head_values:
+      require_nonzero_float32(
+        head_values["gate_init"], "model.cnn.gate_init")
+
+  if head_block == "trf":
+    for key in ("shared_mlp", "film"):
+      if key in head_values:
+        require_exact_bool(head_values[key], "model.trf." + key)
+    for key in ("n_heads", "n_blocks", "n_mlp_blocks"):
+      if key in head_values:
+        require_exact_int(
+          head_values[key], "model.trf." + key, minimum=1)
+    if "n_tokens" in head_values and head_values["n_tokens"] is not None:
+      require_exact_int(
+        head_values["n_tokens"], "model.trf.n_tokens", minimum=2)
+    if "gate_init" in head_values:
+      require_nonzero_float32(
+        head_values["gate_init"], "model.trf.gate_init")
+
+  if geom is not None and head_block is not None:
+    if not hasattr(geom, "bin_sizes"):
+      raise ValueError(
+        model_cls.__name__ + " needs output bin sizes before its "
+        + head_block + " layout can be checked")
+    sizes = require_positive_int_list(
+      geom.bin_sizes, "output geometry bin_sizes")
+
+    if head_block == "trf":
+      n_tokens = head_values.get("n_tokens")
+      if n_tokens is not None:
+        if len(sizes) != 1:
+          raise ValueError(
+            "model.trf.n_tokens may divide one physical output bin into "
+            "windows, but this output already has " + str(len(sizes))
+            + " physical bins; omit n_tokens")
+        output_length = sizes[0]
+        if n_tokens > output_length:
+          raise ValueError(
+            "model.trf.n_tokens must be in 2.." + str(output_length)
+            + "; got " + repr(n_tokens))
+        token_width = (output_length + n_tokens - 1) // n_tokens
+      else:
+        token_width = max(sizes)
+      if token_width < 2:
+        raise ValueError(
+          "the maximum padded transformer token width must be at least 2; "
+          "got " + str(token_width))
+      n_heads = head_values.get("n_heads", 2)
+      if token_width % n_heads != 0:
+        raise ValueError(
+          "model.trf.n_heads (" + str(n_heads)
+          + ") must divide the resolved padded token width ("
+          + str(token_width) + ")")
+
+    if head_block == "cnn":
+      groups = head_values.get("groups", 1)
+      branch_groups = 2
+      if getattr(model_cls, "factored", False):
+        if ia not in IA_DESIGNS:
+          raise ValueError(
+            "a factored CNN needs a resolved model.ia before its physical "
+            "group layout can be checked")
+        branch_groups = 2 * IA_DESIGNS[ia]["n_templates"]
+      if groups == branch_groups:
+        if not hasattr(geom, "pm_kept") or len(sizes) % 2 != 0:
+          raise ValueError(
+            "model.cnn.groups=" + str(groups)
+            + " needs an even xi-plus/xi-minus bin layout with pm_kept")
+        pm_values = []
+        start = 0
+        for size in sizes:
+          pm_values.append(int(geom.pm_kept[start]))
+          start += size
+        half = len(pm_values) // 2
+        if pm_values[:half] != [0] * half \
+            or pm_values[half:] != [1] * half:
+          raise ValueError(
+            "model.cnn.groups=" + str(groups)
+            + " needs the first half of bins to be xi+ and the second "
+            "half xi-; got " + repr(pm_values))
+
+  return {
+    "trunk_activation": trunk_activation,
+    "head_activation": effective_head_activation,
+    "head_pin": head_pin,
+  }
 
 
 def _activation_flag_notice(flag_type, head_block, head_pin):
@@ -2132,6 +2408,24 @@ class EmulatorExperiment:
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
 
+    # A fine-tune inherits its saved model recipe and therefore does not carry
+    # a fresh model block.  Every other run must name model values with their
+    # real YAML types; converting a Boolean or number to text would hide the
+    # configuration mistake before the active-model validator sees it.
+    if ta.get("finetune") is None:
+      model_block = ta.get("model")
+      if not isinstance(model_block, dict):
+        raise TypeError("train_args.model must be a mapping")
+      if "name" in model_block and not isinstance(model_block["name"], str):
+        raise TypeError(
+          "model.name must be an architecture string; got "
+          + repr(model_block["name"]))
+      if ("ia" in model_block and model_block["ia"] is not None
+          and not isinstance(model_block["ia"], str)):
+        raise TypeError(
+          "model.ia must be nla, tatt, or null; got "
+          + repr(model_block["ia"]))
+
     facts_are_ready = False
 
     def require_facts():
@@ -2157,6 +2451,12 @@ class EmulatorExperiment:
       kwargs["train_facts_yaml"] = train_facts_yaml
       kwargs["val_facts_yaml"] = val_facts_yaml
       facts_are_ready = True
+
+    def check_active_model(model_cls, ia=None):
+      """Run the CPU-only model check before facts, devices, or sources."""
+      return validate_active_model_values(
+        train_args=ta, model_cls=model_cls,
+        activation=kwargs.get("activation"), ia=ia)
 
     # scalar (derived-parameter) run (data.outputs present): inputs and
     # outputs are named columns of one parameter .txt, no cosmolike.
@@ -2249,6 +2549,7 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      check_active_model(model_cls, ia=None)
       pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
       require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
@@ -2290,6 +2591,7 @@ class EmulatorExperiment:
             "no plain model for architecture " + repr(transfer_name)
             + " (a CMB run uses the plain designs, ia=None; pick a name "
             "that has one)")
+        check_active_model(models[(transfer_name, None)], ia=None)
         validate_pce(cfg.get("pce"), diagonal=True)
         require_facts()
 
@@ -2370,6 +2672,7 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      check_active_model(model_cls, ia=None)
       pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
       require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
@@ -2422,6 +2725,7 @@ class EmulatorExperiment:
             "no plain model for architecture " + repr(transfer_name)
             + " (a grid run uses the plain designs, ia=None; pick a name "
             "that has one)")
+        check_active_model(models[(transfer_name, None)], ia=None)
         validate_pce(cfg.get("pce"), diagonal=True)
         require_facts()
 
@@ -2511,6 +2815,7 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      check_active_model(model_cls, ia=None)
       pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
       require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
@@ -2561,6 +2866,7 @@ class EmulatorExperiment:
             "no plain model for architecture " + repr(transfer_name)
             + " (a grid2d run uses the plain designs, ia=None; pick a name "
             "that has one)")
+        check_active_model(models[(transfer_name, None)], ia=None)
         validate_pce(cfg.get("pce"), diagonal=True)
         require_facts()
 
@@ -2649,6 +2955,7 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      check_active_model(model_cls, ia=None)
       pce_opts = validate_pce(cfg.get("pce"), diagonal=True)
       require_facts()
       exp = cls(data=cfg["data"], train_args=ta,
@@ -2742,6 +3049,15 @@ class EmulatorExperiment:
           "no correction model for architecture " + repr(correction_name)
           + "; pick a model.name available in this run before loading the "
           "transfer base")
+      early_model_cls = models.get((correction_name, None))
+      if early_model_cls is None:
+        early_model_cls = next(
+          model_cls for (model_name, _), model_cls in models.items()
+          if model_name == correction_name)
+      validate_active_model_values(
+        train_args=ta, model_cls=early_model_cls,
+        activation=kwargs.get("activation"), ia=None,
+        defer_groups=True)
       require_facts()
       device = kwargs.get("device")
       if device is None:
@@ -2771,6 +3087,7 @@ class EmulatorExperiment:
           kwargs["activation"] = str(act_blk)
         else:
           kwargs["activation"] = "H"
+      check_active_model(models[(name, ia_forced)], ia=ia_forced)
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=models[(name, ia_forced)],
                 raw_train_args=cfg["train_args"], **kwargs)
@@ -2836,6 +3153,7 @@ class EmulatorExperiment:
         kwargs["activation"] = str(act_blk)
       else:
         kwargs["activation"] = "H"
+    check_active_model(models[(name, ia)], ia=ia)
     require_facts()
     exp = cls(data=cfg["data"], train_args=ta,
               model_cls=models[(name, ia)],
@@ -4830,6 +5148,10 @@ class EmulatorExperiment:
       self.resolved_model = recipe
       return specs
 
+    checked_model = validate_active_model_values(
+      train_args=train_args, model_cls=self.model_cls,
+      activation=self.activation, ia=self.ia, geom=self.geom)
+
     # Translate the nested YAML model block into the constructors'
     # flat kwargs (MODEL_BLOCK_KEYS). name / ia picked the class
     # (from_config resolved them); the activation type was resolved by
@@ -4844,20 +5166,18 @@ class EmulatorExperiment:
     # that would affect the run fails loudly.
     ta = dict(train_args)
     model_opts = {}
-    n_gates = 3
+    n_gates = checked_model["trunk_activation"]["n_gates"]
     norm_name = "affine"             # model.norm (absent = the paper's
                                      # per-layer affine, byte-identical)
     head_pin = None                  # the model.<head>.activation pin
-    # the model class owns its head-knowledge (head_block: None | "cnn" |
-    # "trf"); with arch known (from_config ran) skip the inactive head's
-    # block, with arch None (direct construction) translate every block.
-    head = self.model_cls.head_block if self.arch is not None else None
+    # The model class owns its head knowledge.  An inactive head block is
+    # ignored even on a direct internal construction, exactly as on the YAML
+    # path, so a shared configuration can carry both alternatives safely.
+    head = self.model_cls.head_block
     for key, sub in ta["model"].items():
       if key in ("name", "ia"):
         continue
       if key == "activation":
-        if isinstance(sub, dict) and "n_gates" in sub:
-          n_gates = int(sub["n_gates"])
         continue
       if key == "norm":
         # a model-level string like activation (not a sub-block): its
@@ -4873,8 +5193,7 @@ class EmulatorExperiment:
         # not even validated, a stale key in a block that cannot
         # affect this run should not stop it). With arch unknown
         # (direct construction) every present block is translated.
-        if (self.arch is not None and key != "mlp"
-            and key != head):
+        if key != "mlp" and key != head:
           continue
         table = MODEL_BLOCK_KEYS[key]
         for k2, v2 in sub.items():

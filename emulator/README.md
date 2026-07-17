@@ -202,6 +202,17 @@ trunk. The accepted names are `affine`, `per_feature`, and `none`.
 `affine` fits one scale and offset for a layer. `per_feature` fits a separate
 pair for every hidden feature. `none` applies no such step.
 
+All six activation families may be used inside a plain `ResMLP` trunk. A CNN
+or transformer correction head has one extra restriction. Its final learned
+layer begins at zero so that a newly enabled head does not change the trunk's
+prediction. The activation immediately after that layer must still transmit a
+learning signal at zero. The head therefore accepts `H`, `multigate`, and
+`tanh`, but currently refuses `relu`, `power`, and `gated_power`.
+
+This does not ban ReLU from the trunk. A two-phase run may use ReLU in the
+trunk and pin its head to `H`, `multigate`, or `tanh`. The model-settings guide
+shows [the exact startup rules and a Boolean example](../example_yamls/README.md#what-startup-refuses).
+
 These choices change how the model is fitted; they do not change the physical
 meaning of the saved output. Their YAML form is in
 [the example-YAML guide](../example_yamls/README.md#faq-e6-model-settings).
@@ -220,6 +231,11 @@ For matter power, each redshift slice contains an ordered wavenumber axis.
 Named scalar outputs have no physical neighbor order. The scalar family
 therefore refuses `ResCNN` and uses `ResMLP`.
 
+An outer gate controls the size of the CNN correction. The correction itself
+still starts at exactly zero, but the gate must start at a finite nonzero
+32-bit value so the first update can reach the head. Startup therefore refuses
+`gate_init: 0` and values so small that they round to zero, such as `1e-50`.
+
 ### B4. How does the transformer head use tokens? <a id="faq-model-a4-transformer-head"></a>
 
 `ResTRF` also begins with the residual trunk. Its head groups the ordered
@@ -233,6 +249,12 @@ outputs have no defined token order, so the scalar family refuses `ResTRF`.
 
 The transformer blocks live in `designs/blocks.py`; the complete model lives
 in `designs/plain.py`.
+
+The transformer correction uses the same zero-start rule as the CNN
+correction. Its outer gate must be finite and remain nonzero when stored as a
+32-bit number. The program checks that value before model construction, then
+checks `n_heads` against the real token width after the output layout is
+known.
 
 ### B5. What does the polynomial base contribute? <a id="faq-model-a5-pce"></a>
 

@@ -310,7 +310,7 @@ or numerical prediction agreement.
   nonempty.
 - legs: 5, named `head-activation-pin.golden-selected-text-equality`,
   `head-activation-pin.pinned-config-exit-zero`,
-  `head-activation-pin.gated-power-text-present`,
+  `head-activation-pin.multigate-text-present`,
   `head-activation-pin.flag-vs-pin-warning`, and
   `head-activation-pin.unfrozen-pin-refusal`.
 - acceptance boundary: four process/text legs are executable when the Torch,
@@ -335,14 +335,14 @@ as evidence.
 `head-activation-pin.pinned-config-exit-zero` — the process running the
 pinned-head configuration exits with status zero.
 
-<a id="head-activation-pin-gated-power-text-present"></a>
-`head-activation-pin.gated-power-text-present` — the captured output from the
-pinned-head configuration contains the literal text `gated_power`.
+<a id="head-activation-pin-multigate-text-present"></a>
+`head-activation-pin.multigate-text-present` — the captured output from the
+pinned-head configuration contains the literal text `multigate`.
 
 <a id="head-activation-pin-flag-vs-pin-warning"></a>
 `head-activation-pin.flag-vs-pin-warning` — the run with
 `--activation=power` both exits with status zero and prints that the head keeps
-its `gated_power` pin.
+its `multigate` pin.
 
 <a id="head-activation-pin-unfrozen-pin-refusal"></a>
 `head-activation-pin.unfrozen-pin-refusal` — the deliberately invalid
@@ -726,9 +726,12 @@ parameter-dependent fixture.
 
 ## Model configuration values are validated before construction
 
-**Rule.** Every active model value is validated before geometry or learnable
-layers are constructed. Accepted values retain their resolved representation;
-inactive architecture blocks may remain configured but unused.
+**Rule.** Values in the selected model block keep the type and meaning written
+in YAML. The first check runs before facts files, training arrays, a saved
+source, an accelerator, or learned layers are touched. A second check uses the
+resolved output geometry before learned layers are constructed. A shared YAML
+may still contain settings for an unused CNN or Transformer alternative; only
+the selected architecture is checked.
 
 **Reason.** The name map in `emulator/experiment.py::MODEL_BLOCK_KEYS` cannot
 by itself validate the mapped values before
@@ -763,41 +766,50 @@ clear refusal:
   truncate fractional values, and accept numeric strings. It could also send
   zero to code that allocates an empty gate tensor. Validation must preserve
   the declared type instead of coercing these values.
+- A zero-initialized correction layer initially sends zero into its activation.
+  `relu`, `power`, and `gated_power` currently have zero derivative there, so
+  they cannot wake the entire requested CNN or Transformer head. `H`,
+  `multigate`, and `tanh` remain live at that starting point. ReLU is still a
+  valid activation inside an MLP trunk.
 
-**Implementation boundary.** One pure active-model value validator runs before
-geometry and model construction. Boolean fields require YAML booleans without
-truthiness or coercion. Integral fields reject booleans, strings, and
-fractional values. Width, gate count, head depth, MLP depth, and head count
-must be positive; CNN and TRF correction-block counts must be at least one.
-`n_tokens` is `None` or an exact integer followed by geometry-dependent bounds
-validation. `kernel_size` is positive and odd. `groups` is an exact allowed
-value for the selected design. `n_heads` is positive and divides the resolved
-token width. `gate_init` is a finite, real, non-boolean value. Normalized
-values persist in the resolved recipe. Public-path constructor assertions
-become typed exceptions so ordinary Python and `python -O` behave identically.
-This boundary owns model surfaces; the broader optimized-Python check owns
-other public surfaces.
+**Implementation boundary.** One pure active-model value validator runs twice.
+`EmulatorExperiment.from_config` calls it after selecting the model class and
+before files, devices, sources, or construction. `build_specs` repeats it for
+values produced by a parameter search. The second call has the output geometry
+and can therefore check physical CNN grouping, Transformer token width, and
+attention-head divisibility before translating the values into constructor
+arguments.
 
-**Code ownership.** A pure shared active-model value validator belongs in
-`emulator/experiment.py` and is called by
-`EmulatorExperiment.from_config` after the `MODELS` registry resolves the
-class and before staging or geometry construction. Existing key translation
-remains in `MODEL_BLOCK_KEYS` and `EmulatorExperiment.build_specs`; existing
-head-activation parsing remains in `_head_activation_spec` and
-`_resolve_head_activation`. Constructors in `emulator/designs/plain.py`,
-`emulator/designs/ia.py`, and `emulator/designs/blocks.py` own defensive checks
-for direct internal calls.
+Boolean fields require YAML booleans without truthiness or coercion. Integral
+fields reject booleans, strings, and fractional values. Width, gate count,
+head depth, Transformer MLP depth, and attention-head count are positive. An
+MLP trunk depth of zero remains valid because it explicitly requests the
+documented linear-only trunk. `n_tokens` is `None` or an exact positive integer
+followed by geometry-dependent checks. `kernel_size` is positive and odd.
+`groups` is an exact allowed value for the selected design. `gate_init` is a
+finite, real, non-Boolean value that remains nonzero when stored as `float32`.
+`model.norm` accepts `affine`, `per_feature`, or `none`.
+`model.compile_mode` accepts `default`, `reduce-overhead`, or YAML `null`.
+Typed exceptions preserve these checks under ordinary and optimized Python.
 
-**Acceptance evidence.** Each quoted-false field raises at its full dotted
-path, while a genuine false value preserves the resolved recipe and parameter
-census. Zero CNN blocks, transformer blocks, and transformer-MLP blocks each
-refuse before construction. Checks also cover zero or incompatible attention
-heads, an even or nonpositive kernel, invalid groups, and a coerced
-`n_tokens`. Nonfinite or boolean `gate_init` values refuse. Zero, negative,
-fractional, boolean, and string `n_gates` values refuse. Valid boundary
-controls construct under both ordinary Python and `python -O`. A requested
-ResCNN or ResTRF must contain at least one corresponding head block, which
-distinguishes a valid design from silent trunk-only demotion.
+**Code ownership.** Shared exact-value helpers live in
+`emulator/validation.py`. Model selection, the two validator calls, key
+translation, and head-activation parsing live in `emulator/experiment.py`.
+Constructors in `emulator/designs/plain.py`, `emulator/designs/ia.py`, and
+`emulator/designs/blocks.py` repeat their local checks before allocating
+learned layers so direct internal calls cannot bypass the public path.
+
+**Acceptance evidence.** `ai/tests/test_active_model_validation.py` compares
+real and quoted Booleans, exact and coercible counts, valid and invalid gates,
+head depths, kernels, groups, token layouts, attention widths, normalization,
+compile modes, and head activations. Errors name the full dotted setting. One
+public `from_config` example proves refusal before file, device, source, or
+model access. One `build_specs` example proves that a searched attention value
+is checked against the built geometry before spec translation. Direct
+constructors run in ordinary and optimized Python. Small valid CNN and
+Transformer examples prove that the requested blocks exist and that the final
+zero-initialized correction layer receives a finite nonzero gradient and
+changes on its first optimizer step.
 
 ### Transformer token width must be at least two
 

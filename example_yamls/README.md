@@ -330,14 +330,19 @@ remains in force when `--activation` changes the shared setting.
 | `--activation` | `model.activation` | head activation | trunk uses | head uses |
 | --- | --- | --- | --- | --- |
 | absent | `H` | absent | `H` | shared `H` |
-| absent | `H` | `gated_power` | `H` | pinned `gated_power` |
-| `power` | `H` | absent | `power` | shared `power` |
-| `power` | `H` | `gated_power` | `power` | pinned `gated_power`; startup prints a warning |
+| absent | `H` | `multigate` | `H` | pinned `multigate` |
+| `relu` | `H` | `multigate` | `relu` | pinned `multigate`; startup prints a warning |
+| `relu` | `H` | absent | `relu` | refused for a CNN or transformer because the shared ReLU would also reach the zero-initialized head |
 
 The command-line option sets the activation type only. `n_gates` still comes
 from the corresponding YAML block. A pinned head activation requires a
 frozen-trunk head phase: set `trunk_epochs` above zero and leave
 `freeze_trunk: true`.
+
+The current safe head families are `H`, `multigate`, and `tanh`. The other
+families remain available to an MLP trunk but are refused at a
+zero-initialized CNN or transformer head. [FAQ E6](#what-startup-refuses)
+explains why.
 
 The alternative spelling `head.activation` selects the same head slot. Do not
 use both spellings, and do not put `activation` inside `trunk`.
@@ -1039,6 +1044,51 @@ Start with the copied family example's `n_heads` value; startup will stop with
 an explanation if the edited value is incompatible. The model diagrams and
 the meanings of the two heads are in
 [the emulator model appendices](../emulator/README.md#faq-model-a1-residual-trunk).
+
+### What startup refuses
+
+The program first checks values whose meaning does not depend on the training
+data. For the selected model, Boolean switches must be the YAML values `true`
+or `false`, without quotes. Counts must be unquoted whole numbers. A CNN or
+transformer head must have at least one block, and every transformer head must
+have at least one attention head and one MLP block.
+
+For example, this is a real Boolean and is accepted:
+
+```yaml
+cnn:
+  rescale_kernel: false
+```
+
+This value is text, not a Boolean, and is refused:
+
+```yaml
+cnn:
+  rescale_kernel: "false"
+```
+
+Nonempty text can otherwise behave as true. For the same reason, startup
+refuses text such as `n_blocks: "1"` instead of converting it into a number.
+`model.norm` must name `affine`, `per_feature`, or `none`.
+`model.compile_mode` must name `reduce-overhead` or `default`, or use YAML
+`null` to leave compilation off. Other types and names stop at this same
+early check.
+
+A correction head starts by adding exactly zero to the trunk prediction. Its
+outer `gate_init` must nevertheless remain nonzero when stored as a 32-bit
+number, so both `0` and a value as small as `1e-50` are refused. The activation
+after the zero-initialized head layer must also pass a learning signal at zero.
+The currently allowed head choices are `H`, `multigate`, and `tanh`.
+`relu`, `power`, and `gated_power` remain available in an MLP trunk, but are
+currently refused in a CNN or transformer head. A run that needs a ReLU trunk
+may pin the head to an allowed activation using the frozen two-phase setup in
+[FAQ E7](#faq-e7-two-phase-training).
+
+These exact-value checks happen before the program reads scientific data or
+builds learned layers. After the output layout is known, a second check asks
+whether `n_heads` divides the actual transformer token width and whether CNN
+`groups` matches the physical output divisions. Those questions need the real
+output shape, while typing mistakes do not.
 
 ## FAQ E7. How do I train the trunk before the correction head? <a id="faq-e7-two-phase-training"></a>
 

@@ -285,6 +285,7 @@ The run layer that ties everything together.
 
 - `from_yaml` / `from_config` — build from a YAML file or parsed dictionary; `from_config` selects the scalar, CMB, grid, grid2d, or cosmic-shear branch.
 - `validate_param_cuts` / `validate_sizes` / `validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_transfer` — the pure data-block validators, one per concern.
+- `validate_active_model_values` — check the selected MLP and selected correction-head settings without converting quoted text or Booleans into numbers. `from_config` calls it before reading facts or data. `build_specs` calls it again after a parameter search and supplies the finished output geometry for checks such as transformer-head divisibility and physical CNN grouping.
 - `resolve_phase_args` / `validate_sweep_paths` — the two-phase schedule resolution.
 - `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the activation setting for each head.
 - `stage_train` / `stage_val` / `pool_size` — prepare the sources and report their legal row ceiling (the full named table with no cuts, or the physical-window survivor count). The grid2d branch thins the k axis, forms law-space rows in bounded chunks, computes moments from the stored float32 payload, and uses an experiment-owned temporary memmap when a full copy in RAM would exceed its memory budget.

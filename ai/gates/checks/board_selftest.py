@@ -2168,7 +2168,7 @@ class _GhaFakeCtx:
     def run_driver(self, *, yaml_path, extra=(), allow_fail=False, **kw):
         if extra:                        # the pin run WITH the --activation flag
             return (self._warn_rc,
-                    "the head keeps its model.trf.activation pin (gated_power)")
+                    "the head keeps its model.trf.activation pin (multigate)")
         return (1, "frozen")             # the invalid-license run (rc_l != 0)
 
     def expect(self, *, label, ok, detail="", aid=None):

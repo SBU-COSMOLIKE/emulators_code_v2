@@ -613,11 +613,42 @@ quantity calculated from the sampled parameters.
 
 | File | Question answered |
 | --- | --- |
+| `test_active_model_validation.py` | Does startup refuse ambiguous or unusable settings before it creates a learned model, while valid CNN and Transformer heads still receive a first training update? |
 | `test_batching_sizing.py` | Does the batch planner count the actual memory used by every stored target value before training starts? |
 | `test_d5_training_behavior_witnesses.py` | Do small numerical examples support the learning-rate, moving-average, activation, and frozen-layer results required by the longer training gate? |
 | `test_finetune_post_step_and_provenance.py` | Does fine-tuning update one weight in the required order and save which earlier emulator supplied the starting weights? |
 | `test_trf_token_width.py` | Does a Transformer refuse a one-number token that cannot respond to its input while continuing to accept supported two-number tokens? |
 | `test_warmstart_perturbed_finite.py` | Does a warm start report the exact input or output that first becomes `NaN` or infinite? |
+
+#### Model settings checked before construction
+
+`test_active_model_validation.py` checks values in the selected `model` block
+before PyTorch creates the model's learned layers. It also constructs tiny
+valid CNN and Transformer heads so refusal cases cannot replace the positive
+behavior the library needs.
+
+- **Example used:** one setting uses the Boolean `film: false`; another uses
+  the quoted text `film: "false"`. Other examples include zero head blocks, a
+  fractional token count, a correction gate so small that 32-bit storage
+  rounds it to zero, and three attention heads acting on a token width of
+  four.
+- **What the test does:** it calls the shared setting validator, checks the
+  public constructors under ordinary and optimized Python, counts the CNN or
+  Transformer blocks that a valid request creates, and performs one
+  frozen-trunk optimizer step on each valid head.
+- **Pass means:** real Booleans and exact positive counts keep their stated
+  meaning; an unused alternative head block does not affect the selected
+  architecture; physical CNN groups and Transformer widths agree with the
+  output layout; and both valid correction heads receive a finite nonzero
+  gradient and change a head weight on the first step.
+- **A refusal it proves:** quoted Booleans, strings or fractions in place of
+  counts, zero head depth, even CNN kernels, incompatible attention widths,
+  zero or nonfinite correction gates, and an activation that blocks the
+  zero-initialized head all stop before a learned linear layer is allocated.
+- **Why it matters:** silently converting one of these values can enable the
+  opposite switch, omit a requested correction, or build a head that cannot
+  begin learning. The run could otherwise finish with legal array shapes but
+  the wrong model behavior.
 
 #### Memory needed for one training batch
 
