@@ -349,8 +349,6 @@ Models can change from run to run. Authority does not.
 | **Implementer** | Follows the ordered directive, changes only the named ticket, and produces validation evidence | `to-opus` |
 | **Independent Red Team** | After the watcher records a ticket's accepted landing, reads that exact commit adversarially and returns a detailed advisory result; it never approves or blocks the landing | `to-sol` |
 
-![The command line selects the Architect and Implementer models. The Implementer edits one ticket in its own worktree. The Architect audits an immutable candidate and returns only GO or NO-GO. After the Architect exits, the parent watcher creates a distinct landing on a clean unchanged main checkout, queues the optional Red Team review, and attempts one non-force push. These jobs may overlap only while the selected cycle limit still has room for another ticket.](notes/assets/role-model-agent-loop.svg)
-
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
 not name the model or give a role authority. These addresses are for internal
@@ -358,213 +356,201 @@ handoffs. The user's command target is always `architect`.
 
 ### How the three bots work now
 
-The normal ticket path uses the Architect and Implementer. The Architect is
-the decision maker:
+The user sends every ticket to the Architect. The **watcher** is the Python
+program that carries the saved requests between roles. It is not a fourth bot
+and does not make design decisions.
 
-1. The **Architect** turns the user's request into complete, ordered
-   instructions.
-2. The **Implementer** follows those instructions, changes the code, runs the
-   named tests, and returns the real output.
-3. The **Architect** audits that immutable candidate. `GO` sends only a
-   decision bound to that exact candidate. `NO-GO` sends focused repair
-   instructions back to the Implementer.
-4. After the Architect process exits, the parent **watcher** creates a distinct
-   squash landing, verifies that your attached `main` folder is still clean
-   and unchanged, fast-forwards it, records the local landing, and advances
-   every safe clean idle role folder to that accepted version.
+The diagram shows one ticket. Read it from top to bottom.
 
-The Red Team is deliberately outside that approval path. After the watcher
-records the accepted landing, the **Red Team** reads that exact commit
-adversarially. It never supplies a required `GO`, and the Architect does not
-wait for its answer before deciding. Another ticket may start while the
-review runs only when the selected `--cycle` limit still has an unused ticket
-slot.
-
-The roles can therefore form a simple pipeline without sharing source files:
-
-1. The **Implementer** may change ticket B in `mailbox-implementer`.
-2. At the same time, the **Architect** may audit ticket A as a saved,
-   unchanging commit. The audit reads files and test output; it does not edit
-   source code.
-3. The optional **Red Team** may review an earlier daemon-recorded landing
-   through a
-   temporary, exact-commit snapshot. It also does not edit source code.
-
-Only the Implementer writes source code. The Architect audits and decides; it
-does not merge or push the ordinary ticket. The parent watcher owns that
-bounded Git step after the Architect process exits. Separate folders prevent
-the three roles from changing or committing through the same Git folder.
-
-The watcher does wait before it exits. In an ordinary three-role run, one
-**cycle** means one ticket has completed all of these steps:
-
-1. Architect and Implementer work back and forth until the Architect accepts
-   the immutable candidate and the watcher records its distinct landing.
-2. Red Team reviews that ticket's exact landing commit.
-3. Red Team returns either `NO CHANGE` or `REOPEN` with the same ticket and
-   commit identifiers.
-
-This separation keeps the Red Team advisory without losing the review when a
-finite watcher run ends. With `--cycle 1`, no second ticket may start and the
-watcher does not exit until step 3 returns. With `--cycle 3`, as many as three
-different tickets may be in progress while earlier Red Team reviews return,
-but a fourth ticket cannot start.
-
-The positive number limits **admission**, which means permission to start a
-new ticket. The watcher reserves one of the available ticket slots before it
-starts any role for that ticket. A pipeline may overlap work already admitted,
-but it may never use that overlap to start ticket 4 under `--cycle 3`.
-
-The watcher identifies the ticket without guessing from prose. When work
-first goes to the actual Implementer, the saved record names an anchor from a
-ticket currently listed as Open, its full 40-character starting Git commit,
-and one unchanged work mode. The Implementer receives `normal` work when Red
-Team is enabled and `two-role` work under `--skip-redteam`. All returns
-preserve those values. Candidate C must be a new saved version that descends
-from the starting commit, not the unchanged base or an unrelated branch. The
-Implementer returns C. The watcher later creates a
-different landing commit L with the same ticket change on the current main
-parent.
-
-This is why the Red Team is optional. The Architect already performs the
-mandatory audit before accepting a fix, so Architect and Implementer can
-complete a ticket without a third bot. Red Team spends additional tokens to
-provide a second, adversarial look afterward. Use that extra check when the
-budget permits it; use `--skip-redteam` when it does not. Omitting Red Team
-does not reduce the Architect's planning or audit duties. In a two-role watch,
-the watcher's recorded local landing completes the ticket and its cycle. Positive
-limits work normally: `--skip-redteam --cycle 2` finishes after two accepted
-tickets. `--cycle 0` finishes all recorded work on the enabled routes.
-
-After recording a local landing, the watcher makes one bounded, non-force
-push attempt. If that push fails or cannot be confirmed, the ticket does not
-reopen and the landing is not repeated. The watcher saves **push debt**: a
-plain local record naming the exact landing and the push command still owed.
-The local fix remains on `main`; the user can inspect the recorded debt and
-push later.
-
-If the watcher stops after preserving candidate C but before recording
-landing L, it resumes only from the saved record for that exact ticket. It
-does not compare the separate Architect branch with `main`, interpret their
-ordinary difference as unfinished work, or manufacture an Architect ticket
-from a changed-line count.
-
-If the old bug remains, the Red Team writes a detailed local note and returns
-`REOPEN`. If a separate bug is found during an allowed discovery task, it
-returns `NEW TICKET`. The Architect immediately links that note from the
-backlog and performs only the required bookkeeping. The Architect does not
-repeat the investigation at that moment.
-
-Later, when that ticket reaches the front of the permitted priority order,
-the Architect uses the Red Team note to judge the evidence and write the next
-Implementer plan. The note must therefore explain the bug to both a human and
-the Architect: what should happen, what happens instead, a reproducible
-example, the affected files and behavior, realistic impact, raw evidence,
-uncertainty, and the proposed acceptance check. This transfers the completed
-investigation and saves Architect tokens for prioritization, design, and
-audit.
-
-The Red Team may use a more capable model than the Architect. That can improve
-the finding, but it does not change the authority boundary. Persuasive evidence
-earns attention; model identity does not grant a veto or permission to edit
-the backlog.
-
-### The thinking roles must finish the plan
-
-The system is designed so the Implementer can be a simpler or less expensive
-model. It may be Sonnet, Haiku, an open-source model, or something else. The
-Architect and Red Team therefore do the reasoning; the Implementer should not
-need to invent architecture.
-
-Before implementation, the Architect's temporary ticket note must say:
-
-- the exact worktree, non-main branch, and base commit to use;
-- which files and exact symbols to edit;
-- what to do, in numbered dependency order;
-- the interfaces, types, shapes, algorithms, constants, and failure behavior;
-- the exact tests, fixtures, assertions, commands, and expected results;
-- what is off-limits, when to stop, and who owns each parallel file.
-
-The plan must also give the Implementer specific jobs to pass to subagents.
-A subagent is a short-lived helper that works on one bounded part of the
-ticket. This saves time without asking a cheaper Implementer model to decide
-how the ticket should be divided.
-
-For example, while the Implementer repairs a mailbox parser:
-
-- one subagent can reproduce the failure and return the exact command and
-  output;
-- another can inspect the existing regression tests and name the missing
-  case; and
-- the Implementer acts as the **Integrator**: it checks both reports, edits
-  the owned source, combines any non-overlapping test work, and runs the final
-  commands itself.
-
-This delegation is required in every directive, even for a small source edit.
-The Implementer must try to launch all planned helpers before making an
-Integrator-owned implementation edit. Helpers whose
-file ownership does not overlap run at the same time. The Implementer waits
-for every required return, integrates the accepted pieces, and only then runs
-the final commands personally. The Architect may not guess that a
-runtime lacks this feature. If the first attempted helper launch fails before
-any edit, the Implementer stops and places the failure inside the exact
-`IMPLEMENTER_HANDOFF`, under `Subagent work`:
-
-```text
-- Capability checked: `the launch capability that was tried`
-- Attempted operation: The concrete first helper launch attempted before editing.
-- Raw failure: `the first runtime error, unchanged`
+```mermaid
+flowchart TD
+    U["User describes one ticket"] --> A["Architect writes the full plan"]
+    A --> I["Implementer edits and tests"]
+    I --> Q["Architect checks the Implementer's saved version"]
+    Q --> D{"GO or NO-GO?"}
+    D -->|"NO-GO"| A
+    D -->|"GO"| L["Watcher records the change in the user's main Git folder"]
+    L --> R{"Red Team enabled?"}
+    R -->|"No"| C["Cycle complete"]
+    R -->|"Yes"| T["Red Team reviews that exact change"]
+    T --> X{"Does a concrete bug remain?"}
+    X -->|"No"| N["NO CHANGE: ticket stays closed"]
+    X -->|"Yes"| P["REOPEN: evidence goes to Architect"]
+    N --> C
+    P --> C
 ```
 
-These are not a later summary. The relay records the full ticket-cycle name
-and a SHA-256 fingerprint of the exact handoff that contains these rows. The
-Architect must copy the three rows exactly into the revised plan; it cannot
-rewrite them from memory, a log, or a second attempt. This makes the
-no-helper exception traceable to a real pre-edit failure rather than an
-assumption. Only after that revision is checked may the Implementer continue
-without helpers. “This ticket is small” is not an exception, and an unresolved
-`blocked` helper result cannot support `GO`.
+#### The required path
 
-The three required labels are `Capability checked`, `Attempted operation`,
-and `Raw failure`. Their spelling and their values remain unchanged through
-the exception review.
+1. The **Architect** turns the request into complete, ordered instructions.
+2. The **Implementer** follows those instructions, changes the named files,
+   runs the named tests, and returns the real output.
+3. The **Architect** audits the Implementer's saved Git commit. This saved,
+   unchanging version is the **candidate**. `NO-GO` sends focused repair
+   instructions back to the Implementer; `GO` accepts only that candidate.
+4. After the Architect process exits, the **watcher** checks that the user's
+   `main` folder is clean and unchanged. It then records the accepted change
+   as a separate Git commit on `main`. This commit is the **landing**.
 
-The Architect's source note also records which roles will work on the ticket
-and, when Red Team is included, the discovery severity. A normal mailbox user
-does not edit these internal rows. If you must carry instructions between
-manual web conversations, follow the
-[manual relay examples](tools/README.md#useful-daily-commands); their options
-can confirm the Architect's saved choices but cannot change them.
+For an ordinary ticket, only the Implementer edits source code. The Architect
+reads the candidate and decides; it does not merge or push the ticket. The
+watcher performs the limited Git step. It updates a role folder only when no
+AI job is using it and the folder has no edits that Git has not saved.
 
-Each file or test target begins its own visible bullet:
+#### What the optional Red Team adds
+
+The Red Team is deliberately outside that approval path. It reads the exact
+landing after the Architect has decided. Its answer is `NO CHANGE` when the
+review finds no remaining bug, or `REOPEN` when it has concrete evidence that
+the ticket needs more work. It never supplies a required `GO` and cannot veto
+the landing.
+
+This is why the Red Team is optional. The Architect has already audited the
+candidate before accepting it. Use the extra review when the token budget
+permits it; use `--skip-redteam` when Architect and Implementer must work
+alone. Skipping Red Team does not reduce the Architect's planning or audit
+duties.
+
+#### How work can overlap
+
+The Implementer may edit ticket C while the Architect checks ticket B and Red
+Team reviews ticket A. They use different folders or saved, read-only Git
+versions. This overlap is allowed only when the `--cycle` limit has room for
+all three tickets. [FAQ C1](#appendix-c--how-do-queues-and-lanes-work) explains
+why two jobs never edit through the same folder.
+
+#### One cycle means one ticket
+
+With Red Team enabled, a cycle ends after both events below occur:
+
+1. the watcher records the Architect-accepted landing; and
+2. Red Team returns `NO CHANGE` or `REOPEN` for that exact landing.
+
+A `REOPEN` return finishes this review cycle and leaves evidence for the
+Architect. It does not edit the backlog, undo the landing, or trap the watcher
+in the same cycle.
+
+With `--skip-redteam`, the landing finishes the cycle. For example,
+`--skip-redteam --cycle 2` exits after two accepted tickets have landed.
+
+The `--cycle` examples have exact limits:
+
+- `--cycle 1` permits one ticket to start. With Red Team enabled, the watcher
+  waits for that ticket's review before exiting.
+- `--cycle 3` permits three tickets to start. Their work may overlap, but a
+  fourth ticket cannot start.
+- `--cycle 0` removes the ticket-count limit. The watcher exits only after no
+  request for a role used in this run is waiting or being handled, and no
+  backlog item remains Open. The Architect must still send each ticket; the
+  watcher does not turn backlog text into a request.
+
+#### If the watcher is interrupted
+
+The watcher resumes from the saved record for the exact ticket; it does not
+guess from differences between folders. [FAQ A2](#faq-a2-unverified-outcome)
+explains what remains saved and what the user should inspect.
+
+#### If Red Team reports a problem
+
+Red Team sends the Architect a detailed note instead of editing the backlog.
+The note preserves the reproduction and evidence, which saves Architect tokens
+when that work reaches the front of the backlog. The
+[close-or-reopen guide](#close-or-reopen-a-ticket) explains `REOPEN`,
+`NEW TICKET`, and the Architect's later decision.
+
+### The Architect must finish the plan before coding
+
+The Implementer may be Sonnet, Haiku, an open-source model, or another less
+expensive model. It should not have to invent the design while spending tokens
+on code. The Architect decides the implementation before coding. Red Team
+must give the same level of detail when it proposes a repair.
+
+```mermaid
+flowchart TD
+    A["Architect finishes the design"] --> H["Plan names each helper's files"]
+    H --> S["Implementer starts every helper"]
+    S --> I["Implementer checks helper reports and edits"]
+    I --> V["Implementer runs the final tests"]
+```
+
+The Implementer checks helper reports, uses the relevant results, edits its
+assigned files, and runs the final tests. Helpers do not choose the design;
+their jobs come from the Architect's plan.
+
+#### What a finished plan contains
+
+The temporary ticket note must answer each question below before coding
+starts.
+
+| Question | What the Architect must write |
+| --- | --- |
+| Where does the work happen? | The exact AI work folder, which Git calls a worktree; its branch, Git's name for one line of saved project versions, which must not be `main`; and the starting commit, which is the saved project version before the ticket begins. |
+| What changes? | Every file path and function or class name, followed by numbered edits in the order they must happen. |
+| What behavior is required? | The accepted inputs, returned values and array dimensions, calculation, named fixed values, and result for invalid input. |
+| How is the result proved? | The sample input or test file, command to run, and exact successful output or expected error. |
+| What must remain untouched? | Files and behavior that must not change, conditions that require the Implementer to stop, and the files each helper may read or edit. |
+
+A file instruction begins with a repository path and function, class, or test
+name. This current source-and-test pair shows the required detail:
 
 ```markdown
-- `ai/tools/mailbox_daemon.py::agent_preamble`: Change the role preamble.
+- `ai/tools/mailbox_daemon.py::agent_preamble`: Keep `agent="user"` invalid.
+  Raise `ValueError` with text containing `unknown mailbox agent`. Do not
+  change the accepted `fable`, `opus`, or `sol` cases.
+- `ai/tests/test_role_directive_contract.py::RoleDirectiveContractTests`:
+  Call `agent_preamble(agent="user")` and require the same `ValueError` text.
 ```
 
-The file-and-symbol name must come first, followed by the exact edit or test.
-Inline links, images, hidden metadata, and copied mailbox or relay text cannot
-supply the required instructions. Put any supplemental diagram outside the
-checked directive.
-
-The same note also has a separate `## Implementation evidence / resume state`
-section. The Implementer appends results there and never changes the checked
-directive's heading structure.
-
-The Architect checks that directive before sending it to the Implementer:
+Run this read-only test from the repository's top folder. The command and
+visible successful result are also part of the plan:
 
 ```bash
-python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+python3 -m unittest \
+  ai.tests.test_role_directive_contract.RoleDirectiveContractTests.test_daemon_names_each_role_file_and_repeats_the_stop_boundary
 ```
 
-A Red Team finding must be equally useful: it explains why the problem happens
-and provides an ordered candidate repair plus a test that prevents the same
-problem from returning. It checks that proposal with
-`python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md`. The
-[persuasive finding template](../.codex/REDTEAM_ROLE.md#persuasive-finding-record)
-lists the required explanatory sections. The proposal goes back to the
-Architect first. Only the Architect may adopt it and issue the final directive
-the Implementer must follow.
+Expected result: one test runs and the final line is `OK`.
+
+The exact edit or test follows the locator. A diagram, link, hidden field, or
+copied mailbox message cannot replace that visible instruction.
+
+#### Helpers follow the Architect's division of work
+
+The mailbox tools use **subagent** as their internal name for a helper. A
+helper receives one specific job and the files it may read or edit. It is not
+another mailbox role and does not decide how to divide the work.
+
+For a mailbox-parser repair, the plan might assign these jobs:
+
+- one helper reproduces the failure and returns the exact command and output;
+- another reads the existing regression tests and identifies the missing
+  case; and
+- the Implementer reads both reports, uses the relevant results, edits its
+  assigned files, and runs the final tests.
+
+This delegation is required in every directive, including a small source
+edit. The Implementer starts every planned helper before making the source
+edit assigned to the Implementer. Helpers may run at the same time only when
+they will not edit the same file. The Implementer waits for every required
+report, checks and combines the accepted work, and runs the final commands.
+
+#### If the first helper cannot start
+
+If the first helper cannot start, the Implementer stops before editing and
+asks the Architect for a revised plan. “This ticket is small” is not an
+exception. The
+[exact helper-failure record](tools/README.md#which-tool-do-i-use)
+explains how the tools preserve the original error and check the revised plan.
+
+#### How the plan is checked
+
+Architect and Red Team each run the handoff checker before sending a note. The
+[tools guide](tools/README.md#which-tool-do-i-use) gives the exact
+commands and required note sections. A normal mailbox user does not edit those
+internal rows.
+
+Red Team can suggest a repair. Only the Architect decides whether to use it
+and sends the final instructions to the Implementer.
 
 If a directive is missing, contradictory, or leaves open a choice that could
 change the result, the Implementer stops and reports the gap.
@@ -1173,6 +1159,17 @@ same request file reached `done/`.
 Do not requeue or move an uncertain file. First compare the original request,
 its named log, and any copies in `done/` or `failed/` so you know which result,
 if any, was saved.
+
+A ticket can also stop after the Implementer saves the candidate but before
+the watcher records the landing on `main`. On restart, the watcher uses the
+saved record for that exact ticket. It does not compare the separate Architect
+folder with `main` or use a **changed-line count**, the number of added or
+removed lines, to invent another ticket.
+
+After recording a landing, the watcher tries one non-force push. If the push
+fails or cannot be confirmed, the accepted local change remains on `main`.
+The watcher saves **push debt**, a local record containing the exact commit and
+push command still owed; it does not reopen or land the ticket a second time.
 
 `--dry-run` only prints what would happen. It starts no role and moves no
 mailbox file.

@@ -180,7 +180,6 @@ class RoleDirectiveContractTests(unittest.TestCase):
 
         for name, source in (
                 ("Implementer role", implementer),
-                ("AI README", ai_readme),
                 ("tools README", tools_readme),
                 ("tests README", tests_readme)):
             with self.subTest(source=name):
@@ -191,6 +190,10 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 self.assertIn("`Capability checked`", source)
                 self.assertIn("`Attempted operation`", source)
                 self.assertIn("`Raw failure`", source)
+
+        self.assertIn("If the first helper cannot start", ai_readme)
+        self.assertIn("stops before editing", ai_readme)
+        self.assertIn("exact helper-failure record", ai_readme)
 
         first_failure_rows = (
             "- Capability checked: `the exact launch capability`\n"
@@ -623,16 +626,17 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("--section may name only the validated", self.router)
 
     def test_reader_facing_guide_explains_why_the_plan_is_detailed(self):
-        self.assertIn("The thinking roles must finish the plan", self.ai_readme)
+        self.assertIn("The Architect must finish the plan before coding",
+                      self.ai_readme)
         self.assertIn("Haiku, an open-source model", self.ai_readme)
-        self.assertIn("A subagent is a short-lived helper", self.ai_readme)
+        self.assertIn("internal name for a helper", self.ai_readme)
         self.assertIn("This delegation is required", self.ai_readme)
         self.assertIn("It is not another mailbox role", self.tools_readme)
         self.assertIn("may not skip this attempt merely because the edit is "
                       "small",
                       " ".join(self.tools_readme.split()))
         self.assertIn("Use your best judgment", self.ai_readme)
-        self.assertIn("candidate, never a self-executing ruling",
+        self.assertIn("Only the Architect decides whether to use it",
                       self.ai_readme)
 
     def test_readme_changes_require_the_architect_gate_twice(self):
@@ -1206,7 +1210,9 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       "baseline to L", architect)
         self.assertIn("all three persistent role baselines", architect)
         self.assertIn("every clean idle role baseline to L", architect_command)
-        self.assertIn("every safe clean idle role folder", ai_readme)
+        self.assertIn("updates a role folder only when no AI job is using it "
+                      "and the folder has no edits that Git has not saved",
+                      ai_readme)
         self.assertIn("authoritative daemon and role files do not stay behind",
                       tools_readme)
         self.assertIn("refusal rather than a reset", tools_readme)
