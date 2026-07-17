@@ -1,4 +1,12 @@
-# AI-assisted development
+# CoCoA-Flow
+
+**Careful AI workflows for scientific code**
+
+<p align="center">
+  <img src="../documentation/artwork/cocoa_flow_frontispiece.png"
+       alt="Three women work as planner, builder, and auditor at separate stations in a blue-and-gold cosmology observatory, joined by a stream of luminous messages."
+       width="900">
+</p>
 
 ## Why split the work into three roles?
 
