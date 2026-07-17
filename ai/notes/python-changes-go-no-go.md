@@ -91,6 +91,22 @@ accept the change only when the directive explains specifically why a smaller
 direct repair would be unsafe and why the ticket cannot be split into complete
 independent fixes. Passing tests or `--max 0` is not that justification.
 
+A bounded repair may remove the High- or Medium-severity failure while leaving
+an improbable edge case. When evidence shows that the remainder now meets only
+the Low boundary, the Architect accepts the bounded repair, closes the urgent
+ticket, and records the remainder as a linked **LOW — EDGE CASE** bug ticket.
+The accepted ticket states the exact unhandled case and never claims complete
+coverage. Do not use this rule to downgrade a probable failure, wrong primary
+scientific result, data loss, or broken core operation.
+
+### Refuse unsupported dependency versions
+
+Do not add compatibility branches for a dependency version outside the
+declared CoCoA environment. Detect the unsupported major version at the first
+shared boundary and stop with one clear error. Supporting a new major version
+requires its own migration ticket and validation; a test or gate must not
+quietly emulate that future support.
+
 Use neutral audience nouns:
 
 - **the user** for a person running or configuring the library;
