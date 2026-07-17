@@ -84,6 +84,13 @@ scientific reading path. The Architect must keep changes there small, direct,
 and understandable line by line. Prefer deleting duplicated machinery, using
 an existing function, or adding one local check over creating a new subsystem.
 
+For one bug, count added characters plus deleted characters outside
+`ai/tests/` and `ai/gates/checks/`. More than 1,500 characters creates a strong
+presumption of NO-GO. It is not an automatic rejection: the Architect may
+accept the change only when the directive explains specifically why a smaller
+direct repair would be unsafe and why the ticket cannot be split into complete
+independent fixes. Passing tests or `--max 0` is not that justification.
+
 Use neutral audience nouns:
 
 - **the user** for a person running or configuring the library;
