@@ -116,50 +116,33 @@ The command performs this check before it reads the YAML configuration or asks
 CAMB to calculate a spectrum, so a rerun cannot spend computation or alter an
 existing destination.
 
-Publication uses one hidden, uniquely named staging file in the final file's
-directory. After writing the zipped NumPy archive (`.npz`), the producer
-synchronizes the staging file with `fsync`. It then opens that staging file
-with `numpy.load(..., allow_pickle=False)` and reads every member. The member
-names, dtypes, shapes, and values must exactly match the arrays supplied for
-publication; missing, additional, reordered-by-substitution, or changed
-members refuse publication.
-
-Only a validated staging file may claim the final name. The producer uses an
-atomic create-if-absent operation, so a file or link created by another
-process after the early destination check wins unchanged. It never uses an
-overwriting replacement for this final step. After the final name is created,
-the producer synchronizes the containing directory so the new directory entry
-reaches the documented durability boundary. It removes its staging file after
-success and after every handled failure, including a write fault, a file-sync
-fault, invalid readback, a late competing destination, or a directory-sync
-fault.
+Publication uses one hidden temporary file in the final file's directory.
+After `numpy.savez` finishes and closes that file, one hard-link operation
+gives the completed bytes their final name. A hard link refuses an existing
+destination, so a file or link created after the early check wins unchanged.
+During ordinary execution, the temporary name is removed after success and
+after a handled write, interruption, or link failure.
 
 #### Why
 
-A covariance calculation can take substantial time, and downstream code
-treats the final filename as a complete scientific result. Same-directory
-staging and non-overwriting final-name creation ensure that readers see either
-no result or one fully checked archive. They never see a partial archive, and
-a concurrent producer never loses the result that reached the final name
-first.
+A covariance calculation can take substantial time. The private write keeps a
+partial archive away from the name used by readers. The non-overwriting link
+also preserves an earlier result and resolves two simultaneous writers without
+replacing either one's completed output silently.
 
 #### Acceptance evidence
 
 The gate claim `cmb-covariance-publication.transactional-output` receives GO
 only when all of the following checks pass:
 
-- a successful publication reads back the exact member-name set and the exact
-  dtype, shape, and value of every member with `allow_pickle=False`;
+- a successful publication produces an archive with the expected member names,
+  dtypes, shapes, and values and leaves no temporary file;
 - an existing file and a dangling-link destination both refuse before YAML
   parsing, CAMB evaluation, or staging-file creation;
-- faults at archive writing, staging-file synchronization, exact readback,
-  final-name creation, and directory synchronization leave no trusted partial
-  result and no staging file;
-- a destination created after readback remains byte-for-byte unchanged, while
-  the losing staging file is removed; and
-- mutations that permit pickle loading, skip one member comparison, overwrite
-  the final name, omit either synchronization step, or retain a staging file
-  make the claim fail.
+- handled faults during the private write or final-name creation leave no
+  public partial result and no temporary file; and
+- a destination created immediately before the hard link remains
+  byte-for-byte unchanged while the losing temporary file is removed.
 
 ### Generator evaluation boundaries
 
