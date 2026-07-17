@@ -145,6 +145,29 @@ saved model remains in use.
   state; polynomial-chaos-expansion (`pce`) or transfer-base state when
   applicable; training histories; and root attributes for `schema_version=3`,
   the Git commit, the Torch version, `rescale`, and family-specific facts.
+- **Production checks before expensive work.** `from_yaml` and `from_config`
+  first report errors that can be found in the configuration itself. They then
+  read the training and validation scientific-record sidecars and compare each
+  record's ordered sampled names with the covariance header. Both records must
+  pass before the run chooses an accelerator, opens a warm-start or transfer
+  artifact, or constructs the experiment. The approved text is retained and
+  passed into staging; staging does not reopen the path and silently adopt
+  different text. A low-level direct loader still performs the same record and
+  name checks before it opens a large data-vector file.
+- **One current writer format.** `save_emulator` requires the producer's exact
+  scientific-record text plus plain mappings for the resolved training and
+  model instructions. It checks the model-recipe keys and native value types
+  that `rebuild_emulator` immediately reads. These checks run before
+  `model.state_dict`, temporary-file creation, pair markers, or replacement of
+  an existing artifact. Every successful new save writes schema 3. There is no
+  flag that writes schema 1, schema 2, or a file without a schema.
+- **Legacy data are regenerated explicitly.** A missing `.facts.yaml` record
+  is not permission for training to invent scientific metadata. The run stops
+  with the generator's regeneration instruction. Importing the saved class and
+  proving that every arbitrary constructor keyword is complete remain the
+  deeper recipe-totality check; the writer check here guarantees the smaller
+  but essential rule that the public reader does not immediately reject the
+  structure just written.
 - Every geometry group carries a `"cls"` attribute with the full module path.
   Rebuild resolves the stored string through `importlib` and calls that
   class's `from_state` method. A missing marker raises a `KeyError` that names
