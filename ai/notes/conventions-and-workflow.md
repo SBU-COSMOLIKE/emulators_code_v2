@@ -1500,12 +1500,62 @@ the pinned family and strict check in every wrapper.
 
 The Architect decides what tracked documentation must change, writes a
 detailed directive for that change, and reviews the rendered result. The
-Implementer may edit a README or explanatory Python prose only when the
-Architect's bounded directive names the exact section or symbol. The Red Team
-may report a README or Python-prose defect but does not edit those artifacts.
-TeX source under `documentation/` has separate Red Team ownership defined in
-`CLAUDE.md`; that narrow ownership does not extend to READMEs, Python prose,
-or permanent notes.
+Implementer may edit a README, a long-form document under `documentation/`, or
+explanatory Python prose only when the Architect's bounded directive names the
+exact section, document, or symbol. The Red Team may report a documentation
+defect and review the rendered result, but it never edits tracked
+documentation. Permanent notes remain Architect-only.
+
+### Feature-specific long-form documentation
+
+A request such as `write documentation about X` asks for one bounded guide to
+an important feature, script, or mechanism whose complete explanation would
+overload a README. It does not authorize another manual for the whole library.
+The repository-wide example is `documentation/emulator_code_guide.tex`; the
+focused-feature example is `documentation/candidate_to_landing.tex`.
+
+Before planning a new file, the Architect searches
+`documentation/README.md`, tracked files under `documentation/`, relevant
+README headings, and likely source names, symbols, commands, and synonyms. The
+temporary source note records what was searched and which possible owner
+sections were opened. If one document already answers the same reader
+question, the plan updates that owner or improves the link to it. A second
+guide for the same question is `NO-GO`.
+
+A new guide is allowed only when both conditions hold:
+
+1. the topic is important for understanding or maintaining the library; and
+2. the full explanation is too long for the relevant README.
+
+The README keeps a short introduction and links to the one long-form owner.
+The Architect's directive names the reader's exact question, intended
+audience, included and excluded scope, current source files and symbols,
+existing-document census, README link, source and compiled deliverables,
+build command, page-render command, and page-by-page visual checks. It also
+requires comparison with current code so a polished explanation cannot
+preserve an obsolete command or behavior.
+
+Useful focused guides often include an executive summary, a small mental
+model, separate definitions for easily confused objects, commands explained
+one at a time, a complete worked example, important refusal behavior,
+alternatives and why they are not used, safety properties, an implementation
+map, and a compact translation table. This list is a teaching pattern, not a
+fixed page template. Select only the parts that help answer the named reader
+question.
+
+Feature-specific documentation is a **Low new-functionality ticket** by
+default. It becomes **High** only when the user explicitly requests High
+priority because understanding that feature is urgent. Importance alone does
+not promote it. Incorrect existing documentation that can damage normal use
+is a bug and receives the ordinary evidence-based bug severity instead of
+this feature default.
+
+The Architect owns scope, duplicate prevention, the complete directive,
+factual review, and final `GO` or `NO-GO`. The Implementer writes the tracked
+source and compiled artifact. The Red Team remains an optional advisory
+reviewer. Every changed PDF is compiled from its tracked source, rendered page
+by page, and inspected for clipping, overlap, unreadable figures, broken
+references, and stale terms before `GO`.
 
 A behavior change that affects a “Current gap” paragraph names that paragraph
 in the Architect source note. The directive requires the Implementer to

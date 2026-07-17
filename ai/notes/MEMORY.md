@@ -152,7 +152,8 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
    documentation, plotting, terminal, YAML, environment, and collaboration
    rules, including the permanent bug-versus-feature classification, backlog
    priorities and checksum practice, advisory Red Team reopening and finding
-   notes, discovery limit, separate role lanes, and the one-ticket cycle rule.
+   notes, discovery limit, separate role lanes, the one-ticket cycle rule, and
+   search-first planning for feature-specific long-form documentation.
 4. **[`python-changes-go-no-go.md`](python-changes-go-no-go.md)** — the
    mandatory style contract for every Python change.
 5. **[`models-and-designs.md`](models-and-designs.md)** — model families,
@@ -169,8 +170,8 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
 10. **[`families-scalar-cmb.md`](families-scalar-cmb.md)** — scalar and CMB
     family properties.
 11. **[`readme-go-no-go.md`](readme-go-no-go.md)** — the mandatory contract
-    for tracked READMEs and explanatory Python comments, docstrings, command
-    help, diagnostics, and strings.
+    for tracked READMEs, long-form documentation, and explanatory Python
+    comments, docstrings, command help, diagnostics, and strings.
 
 `MEMORY.md` changes only when the permanent map or the permanent-note contract
 needs clarification. The file is not a per-ticket index.

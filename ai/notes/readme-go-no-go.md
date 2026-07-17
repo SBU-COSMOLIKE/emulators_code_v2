@@ -34,6 +34,7 @@ to one branch.
 This contract applies whenever a unit creates or changes either:
 
 - a tracked README; or
+- a tracked long-form explanation under `documentation/`; or
 - explanatory prose inside Python: comments, docstrings, command help,
   user-facing diagnostics, and strings whose purpose is to explain behavior.
 
@@ -41,6 +42,10 @@ For a README, it covers the main guide, appendices, tables, diagrams,
 captions, command examples, and exact program output quoted in the guide. For
 Python, it covers the explanatory words, not protocol tokens, serialized data,
 test fixtures, or strings that have no teaching or diagnostic purpose.
+
+For a long-form document, the plain-language, current-state, factual-source,
+real-example, and rendered-visual rules apply. README-only requirements such
+as a main-guide table of contents do not apply mechanically to a TeX guide.
 
 The target reader is a physics undergraduate who knows no AI-agent language
 and may know little Git. A reader may open any section directly instead of
@@ -68,10 +73,10 @@ repair. Neither role replaces the Architect's final review.
 
 ## Describe one coherent current system
 
-README files, permanent notes, commit explanations, and explanatory Python
-prose describe how the library works now. When a rule changes, rewrite the
-owning explanation in place. Do not append a dated correction or leave the old
-rule beside the new one.
+README files, long-form documentation, permanent notes, commit explanations,
+and explanatory Python prose describe how the library works now. When a rule
+changes, rewrite the owning explanation in place. Do not append a dated
+correction or leave the old rule beside the new one.
 
 The reader needs the current rule, its reason, one concrete example when the
 reason is broad, and any present limitation. The reader does not need to know
@@ -123,15 +128,16 @@ technical meanings.
 
 ### Before writing the implementation directive
 
-1. Read the full README section or Python symbol that will change. For a
-   README, also read its table-of-contents entry and the paragraphs
-   immediately before and after it.
+1. Read the full README or long-form-document section, or the complete Python
+   symbol, that will change. For a README, also read its table-of-contents
+   entry and the paragraphs immediately before and after it. For a long-form
+   document, read its catalog entry and the complete neighboring sections.
 2. Read the code, shipped configuration, live help, or other current source
    that proves every behavior the covered prose will describe.
-3. For a README, decide which information belongs in the short main path and
-   which belongs in an appendix. For Python prose, decide whether the
-   explanation belongs beside the code, in a docstring, in command help, or
-   in the README instead.
+3. Decide whether the material belongs in the short README path, an appendix,
+   one existing long-form guide, or a new focused guide. For Python prose,
+   decide whether the explanation belongs beside the code, in a docstring, in
+   command help, or in the README instead.
 4. Copy every applicable check in this file into the directive's
    `Acceptance checklist`. Each check must name the evidence the Implementer
    will return.
@@ -142,8 +148,8 @@ technical meanings.
 ### Before reviewing the final change
 
 1. Reopen this file. Do not rely on memory or on the earlier directive.
-2. Read the final rendered README section or the complete Python symbol, not
-   only the changed lines.
+2. Read the final rendered README section, every rendered page of a long-form
+   document, or the complete Python symbol, not only the changed lines.
 3. Re-run the factual, command, link, and rendering checks that apply.
 4. Treat the Implementer's checked boxes as evidence to inspect. They are not
    the verdict.
@@ -160,8 +166,9 @@ The main path gets a new user to a valid result. It answers, in order:
 4. Which action follows that result?
 
 Theory, implementation detail, recovery internals, long explanations, and
-reference material belong in appendices. Moving material to an appendix does
-not permit harder language. The same reader standard applies everywhere.
+reference material belong in appendices or one linked specialist guide.
+Moving material out of the main path does not permit harder language. The same
+reader standard applies everywhere.
 
 For `README.md` and `ai/README.md`, the table of contents must visibly
 separate the short main guide from **Common questions raised by developers**.
@@ -207,8 +214,9 @@ Adapt these traits to the README's subject:
   Introduce an optional choice where the reader makes it, and state both what
   the choice changes and what remains required.
 - Keep the main README focused on the shortest safe route. Link to a specialist
-  README for long command references or recovery detail instead of duplicating
-  them, but give enough context that the link text and destination make sense.
+  README or long-form guide for long command references or recovery detail
+  instead of duplicating them, but give enough context that the link text and
+  destination make sense.
 
 `GO` requires the directive and final review to name the first useful result,
 the order in which new terms appear, the real examples used for new
@@ -246,6 +254,33 @@ continuing after an interruption, reading results, and forcing a rerun belong
 in separate paragraphs or headings, each with its own example when the action
 is not obvious. A dense paragraph that mixes these actions receives `NO-GO`
 even when every sentence is factually correct.
+
+### Use one long-form guide for one deep question
+
+Before creating a long-form document, the Architect searches
+`documentation/README.md`, the tracked files under `documentation/`, relevant
+README sections, and source names or synonyms for the requested topic. The
+directive records the possible owner documents that were opened. If one
+already answers the reader's question, update it or improve the link to it.
+Creating a second guide for the same question is `NO-GO`.
+
+A README gives enough context for a reader to recognize the question and then
+links to the one long-form guide that owns the detailed answer. Copying the
+complete explanation into both places is `NO-GO` because the two copies can
+drift. `documentation/candidate_to_landing.tex` is the positive example for
+one focused mechanism. `documentation/emulator_code_guide.tex` is the
+positive example for a complete library manual; a focused request must not
+expand into another manual of that size.
+
+The long-form directive names the exact reader question, audience, scope,
+source files and symbols, existing-document census, worked example, important
+failure path, README link, source and compiled output, build command, and
+page-render command. Final `GO` requires page-by-page visual inspection and a
+fresh comparison of every implementation claim with current code.
+
+`conventions-and-workflow.md`, section **Feature-specific long-form
+documentation**, owns ticket priority, role ownership, and the complete
+search-first workflow.
 
 Python comments explain a non-obvious reason, invariant, unit, shape, failure,
 or compatibility rule. They do not narrate the next line of code. Docstrings
@@ -938,6 +973,9 @@ Every covered prose review records the applicable evidence below:
   explain an abstraction;
 - a GitHub-compatible render and visual inspection of every changed Mermaid
   diagram;
+- a successful source build and page-by-page rendered inspection of every
+  changed long-form PDF, including clipping, overlap, figures, references,
+  source-to-PDF freshness, and readable narrow columns;
 - exact help or output parity when quoted program text changes;
 - full-source searches for residue, stale historical wording, and the
   technical terms the directive promised to define;
@@ -959,7 +997,7 @@ the target reader can act on the prose.
 Use this shape in the temporary ticket note:
 
 ```markdown
-### README / Python prose GO / NO-GO review
+### Reader-facing documentation / Python prose GO / NO-GO review
 
 - **Verdict:** GO | NO-GO
 - **Files and sections or symbols:** [exact paths and headings or symbols]
