@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Scratch-only checks for mailbox ticket-cycle accounting.
 
-The tests in this file never launch Claude or Codex.  Each check loads a
-fresh daemon module and redirects its mailbox, cycle state, and backlog into
-one temporary directory.  The checks distinguish a completed ticket cycle
-from both ordinary role conversation and the periodic safe-stop countdown.
+The tests never launch Claude or Codex. Each check loads a fresh daemon and
+redirects its mailbox, saved cycle state, and backlog into a temporary folder.
+
+The rule under test is deliberately simple: one accepted ticket is one cycle.
+In the normal three-role mode, that cycle finishes after the matched Red Team
+return. In two-role mode, it finishes at the accepted Architect commit.
 """
 
 import contextlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -29,15 +32,20 @@ COMMIT_D = "d" * 40
 TICKETS = (
     ("role-chatter", "HIGH"),
     ("normal-return", "HIGH"),
-    ("receipt-correlation", "HIGH"),
-    ("reopen-review", "HIGH"),
-    # Two Critical bug fixes put the scratch ledger into the daemon's proved
-    # emergency condition.  This is test state, not a severity example.
-    ("emergency-primary", "CRITICAL"),
-    ("emergency-second", "CRITICAL"),
+    ("two-role-return", "HIGH"),
+    ("capacity-a", "HIGH"),
+    ("capacity-b", "HIGH"),
+    ("capacity-c", "HIGH"),
+    ("pipeline-a", "HIGH"),
+    ("pipeline-b", "HIGH"),
+    ("pipeline-c", "HIGH"),
+    ("repair-a", "HIGH"),
+    ("repair-b", "HIGH"),
+    ("repair-c", "HIGH"),
     ("route-spoof", "HIGH"),
-    ("same-ticket", "HIGH"),
-    ("other-emergency", "HIGH"),
+    ("schema-primary", "HIGH"),
+    ("schema-second", "HIGH"),
+    ("schema-accepted", "HIGH"),
 )
 
 
@@ -61,13 +69,11 @@ def load_daemon():
     return module
 
 
-def backlog_text(tickets=TICKETS, emergency=False):
-    """Build a small but fully indexed backlog accepted by the daemon."""
+def backlog_text(tickets=TICKETS):
+    """Build a small, fully indexed Open backlog accepted by the daemon."""
     index = []
     details = []
     for anchor, severity in tickets:
-        if severity == "CRITICAL" and not emergency:
-            severity = "HIGH"
         title = anchor.replace("-", " ").title()
         index.append(
             "- OPEN **" + severity + "** **BUG FIX** — [" + title
@@ -83,7 +89,7 @@ def backlog_text(tickets=TICKETS, emergency=False):
 
 
 @contextlib.contextmanager
-def scratch_daemon(emergency=False):
+def scratch_daemon():
     """Redirect all state used by these checks into a temporary tree."""
     with tempfile.TemporaryDirectory(prefix="mailbox-ticket-cycle-") as tmp:
         root = Path(tmp)
@@ -91,11 +97,12 @@ def scratch_daemon(emergency=False):
         mailbox = ai_root / "notes" / "mailbox"
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
-        backlog.write_text(
-            backlog_text(emergency=emergency), encoding="utf-8")
-        shared_lane = root / "claude-lane"
+        backlog.write_text(backlog_text(), encoding="utf-8")
+        architect_lane = root / "architect-lane"
+        implementer_lane = root / "implementer-lane"
         sol_lane = root / "sol-lane"
-        shared_lane.mkdir()
+        architect_lane.mkdir()
+        implementer_lane.mkdir()
         sol_lane.mkdir()
 
         daemon = load_daemon()
@@ -108,21 +115,45 @@ def scratch_daemon(emergency=False):
         daemon.BACKLOG_LEDGER = str(backlog)
         daemon.PREAMBLE = "scratch ticket-cycle preamble\n"
         daemon.AGENT_CWD = {
-            "fable": str(shared_lane),
-            "opus": str(shared_lane),
+            "fable": str(architect_lane),
+            "opus": str(implementer_lane),
             "sol": str(sol_lane),
         }
         daemon.report_demand = lambda backlog: None
         daemon.report_landing_debt = lambda: None
-        daemon.reconcile_landing_debt_handoff = lambda: None
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.git_commit_exists = lambda commit: commit in {
             BASE_A, BASE_B, BASE_C, BASE_D}
+        descendants = {
+            BASE_A: COMMIT_A,
+            BASE_B: COMMIT_B,
+            BASE_C: COMMIT_C,
+            BASE_D: COMMIT_D,
+        }
         daemon.git_commit_descends_from = (
             lambda starting_commit, accepted_commit:
-            starting_commit in {BASE_A, BASE_B, BASE_C, BASE_D}
-            and accepted_commit in {COMMIT_A, COMMIT_B, COMMIT_C, COMMIT_D}
-            and starting_commit != accepted_commit)
+            descendants.get(starting_commit) == accepted_commit)
+        # This suite isolates ticket accounting from Git construction. Each
+        # synthetic Opus admission makes its cycle suffix the exact current
+        # main baseline, just as production admission requires.
+        current_main = [BASE_A]
+        production_register = daemon.register_ticket_cycle_message
+
+        def register_with_synthetic_main(agent, message, **kwargs):
+            if agent == "opus" and message.startswith(
+                    daemon.MAILBOX_FLOW_HEADER):
+                cycle_id, _mode, _body, problem = (
+                    daemon._ticket_flow_envelope(message=message))
+                if problem is None:
+                    current_main[0] = cycle_id.rsplit("@", 1)[1]
+            return production_register(
+                agent=agent, message=message, **kwargs)
+
+        daemon.register_ticket_cycle_message = register_with_synthetic_main
+        daemon._exact_git_object = (
+            lambda arguments, label: current_main[0])
+        daemon.require_architect_landing_locked = (
+            lambda cycle_id, landing_commit, ticket_state: landing_commit)
         yield daemon, mailbox
 
 
@@ -197,6 +228,27 @@ def write_receipt(daemon, mailbox, name, cycle_id, commit, result):
     return path
 
 
+def raises_cycle_error(daemon, action, phrase, error_type=None):
+    """Return whether one action fails closed with the expected reason."""
+    expected = daemon.TicketCycleStateError if error_type is None else error_type
+    try:
+        action()
+    except expected as exc:
+        return phrase in str(exc)
+    return False
+
+
+def start_finite_controller(daemon, limit, topology="normal"):
+    """Start or resume one durable finite watch in a scratch daemon."""
+    controller = daemon.SafeKillRendezvous(
+        ticket_cycle_limit=limit, ticket_cycle_topology=topology)
+    daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+    restored = daemon.prepare_finite_watch_progress(
+        limit=limit, topology=topology)
+    controller.restore_completed_ticket_cycles(count=restored)
+    return controller
+
+
 def arm_role_chatter_does_not_complete_cycle():
     """Repeated A/I exchanges register work but never complete a cycle."""
     with scratch_daemon() as (daemon, _mailbox):
@@ -218,375 +270,399 @@ def arm_role_chatter_does_not_complete_cycle():
             daemon._ACTIVE_WATCH_RENDEZVOUS = None
         passed = (
             state["generation"] == 0
-            and state["active"][cycle_id]["phase"] == "implementation"
-            and state["active"][cycle_id]["mode"] == "normal"
-            and state["active"][cycle_id]["route"] == "primary"
-            and state["active"][cycle_id]["epoch"] is None
+            and state["active"][cycle_id] == {
+                "phase": "implementation",
+                "commit": None,
+                "mode": "normal",
+                "route": "primary",
+            }
             and controller.completed_ticket_cycles() == 0)
     print("A/I chatter is not a cycle=" + str(passed))
     return passed
 
 
-def arm_normal_return_completes_cycle():
-    """One exact review receipt completes one normal ticket cycle."""
+def arm_normal_return_completes_one_cycle():
+    """A matched Red Team return, not the commit, completes normal mode."""
     with scratch_daemon() as (daemon, mailbox):
         cycle_id = "normal-return@" + BASE_A
-        register_normal_commit(daemon, cycle_id, COMMIT_A)
-        register_closure(daemon, cycle_id, COMMIT_A)
-        before = daemon.fable_message_inode_snapshot()
-        receipt = write_receipt(
-            daemon, mailbox, "0001-to-fable.md", cycle_id, COMMIT_A,
-            "NO CHANGE")
-        path, result, problem = daemon.matching_new_redteam_receipt(
-            cycle_id=cycle_id,
-            accepted_commit=COMMIT_A,
-            before_inodes=before)
-        completed = daemon.complete_ticket_cycle(cycle_id, COMMIT_A)
-        state = daemon.read_ticket_cycle_state()
-        passed = (
-            problem is None and Path(path) == receipt
-            and result == "NO CHANGE" and completed
-            and state["generation"] == 1
-            and state["completed"] == {cycle_id: COMMIT_A}
-            and not state["active"])
-    print("exact normal review completes one cycle=" + str(passed))
-    return passed
-
-
-def arm_wrong_or_missing_receipt_fails():
-    """No receipt, or a receipt for another commit, cannot close the cycle."""
-    with scratch_daemon() as (daemon, mailbox):
-        cycle_id = "receipt-correlation@" + BASE_B
-        register_normal_commit(daemon, cycle_id, COMMIT_B)
-        register_closure(daemon, cycle_id, COMMIT_B)
-        before = daemon.fable_message_inode_snapshot()
-        no_path, no_result, missing_problem = (
-            daemon.matching_new_redteam_receipt(
-                cycle_id=cycle_id,
-                accepted_commit=COMMIT_B,
-                before_inodes=before))
-        write_receipt(
-            daemon, mailbox, "0002-to-fable.md", cycle_id, COMMIT_C,
-            "NO CHANGE")
-        wrong_path, wrong_result, wrong_problem = (
-            daemon.matching_new_redteam_receipt(
-                cycle_id=cycle_id,
-                accepted_commit=COMMIT_B,
-                before_inodes=before))
-        state = daemon.read_ticket_cycle_state()
-        passed = (
-            no_path is None and no_result is None
-            and "found 0" in missing_problem
-            and wrong_path is None and wrong_result is None
-            and "found 0" in wrong_problem
-            and state["generation"] == 0
-            and state["active"][cycle_id]["phase"] == "awaiting-redteam")
-    print("wrong or missing review receipt fails=" + str(passed))
-    return passed
-
-
-def arm_reopen_return_completes_review():
-    """REOPEN is advisory, but its correlated pass still completes a cycle."""
-    with scratch_daemon() as (daemon, mailbox):
-        cycle_id = "reopen-review@" + BASE_C
-        register_normal_commit(daemon, cycle_id, COMMIT_C)
-        register_closure(daemon, cycle_id, COMMIT_C)
-        before = daemon.fable_message_inode_snapshot()
-        write_receipt(
-            daemon, mailbox, "0003-to-fable.md", cycle_id, COMMIT_C,
-            "REOPEN")
-        path, result, problem = daemon.matching_new_redteam_receipt(
-            cycle_id=cycle_id,
-            accepted_commit=COMMIT_C,
-            before_inodes=before)
-        completed = daemon.complete_ticket_cycle(cycle_id, COMMIT_C)
-        state = daemon.read_ticket_cycle_state()
-        passed = (
-            path is not None and problem is None and result == "REOPEN"
-            and completed and state["generation"] == 1
-            and state["completed"] == {cycle_id: COMMIT_C})
-    print("REOPEN return completes review pass=" + str(passed))
-    return passed
-
-
-def arm_emergency_pair_is_one_cycle():
-    """A primary and second Implementer commit pair counts exactly once."""
-    with scratch_daemon(emergency=True) as (daemon, mailbox):
-        primary = "emergency-primary@" + BASE_A
-        second = "emergency-second@" + BASE_D
-        daemon.register_ticket_cycle_message(
-            agent="opus", message=flow_payload(
-                primary, "Primary implementation",
-                mode="emergency-primary"))
-        first = daemon.record_architect_commit(
-            cycle_id=primary,
-            accepted_commit=COMMIT_A,
-            mode="emergency-primary")
-        after_one = daemon.read_ticket_cycle_state()
-        second_assignment = (
-            "MAILBOX-TICKET: closure\n"
-            + flow_payload(
-                second,
-                daemon.SECOND_IMPLEMENTER_MODE_SENTENCE
-                + "\n\nFollow the Architect's exact plan.",
-                mode="emergency-second"))
-        daemon.register_ticket_cycle_message(
-            agent="sol", message=second_assignment)
-        paired = daemon.record_architect_commit(
-            cycle_id=second,
-            accepted_commit=COMMIT_D,
-            mode="emergency-second")
-        after_pair = daemon.read_ticket_cycle_state()
-
-        # Replaying one exact archived receipt is idempotent.  It must not be
-        # mislabeled as a lone emergency ticket whose partner never arrived.
-        duplicate_path = mailbox / "0089-to-daemon.md"
-        duplicate_path.write_text(
-            daemon.architect_commit_receipt_payload(
-                cycle_id=primary, commit=COMMIT_A,
-                mode="emergency-primary"),
-            encoding="utf-8", newline="")
-        duplicate_output = io.StringIO()
-        with contextlib.redirect_stdout(duplicate_output):
-            duplicate_consumed = daemon.consume_daemon_message(
-                path=str(duplicate_path))
-        passed = (
-            first == 0 and after_one["generation"] == 0
-            and after_one["active"][primary]["phase"]
-            == "emergency-committed"
-            and after_one["active"][primary]["route"] == "primary"
-            and after_one["active"][primary]["epoch"] == 1
-            and paired == 1 and after_pair["generation"] == 1
-            and after_pair["completed"]
-            == {primary: COMMIT_A, second: COMMIT_D}
-            and not after_pair["active"]
-            and not after_pair["emergency_commits"]
-            and duplicate_consumed
-            and "unpaired emergency" not in duplicate_output.getvalue())
-    print("emergency commit pair is one cycle=" + str(passed))
-    return passed
-
-
-def arm_only_registered_emergency_work_is_grandfathered():
-    """Emergency exit keeps admitted Sol work, not another queued ticket."""
-    with scratch_daemon(emergency=True) as (daemon, mailbox):
-        admitted_cycle = "emergency-second@" + BASE_D
-        admitted_message = emergency_second_message(
-            daemon, admitted_cycle)
-        daemon.register_ticket_cycle_message(
-            agent="sol", message=admitted_message)
-
-        # Clearing both Critical classifications ends the emergency. The
-        # already registered assignment may finish, while another file that
-        # has only reached the root queue may not borrow that permission.
-        Path(daemon.BACKLOG_LEDGER).write_text(
-            backlog_text(emergency=False), encoding="utf-8")
-        daemon.sync_ticket_cycle_emergency_condition()
-        admitted_refusal = daemon.second_implementer_emergency_refusal(
-            message=admitted_message)
-
-        queued_cycle = "other-emergency@" + BASE_C
-        queued_message = emergency_second_message(daemon, queued_cycle)
-        (mailbox / "0090-to-sol.md").write_text(
-            queued_message, encoding="utf-8", newline="")
-        daemon.reconcile_ticket_cycle_state()
-        queued_refusal = daemon.second_implementer_emergency_refusal(
-            message=queued_message)
-        state = daemon.read_ticket_cycle_state()
-        passed = (
-            admitted_refusal is None
-            and queued_refusal is not None
-            and "emergency-only" in queued_refusal
-            and set(state["active"]) == {admitted_cycle}
-            and not state["emergency_condition"])
-    print("only registered emergency work is grandfathered=" + str(passed))
-    return passed
-
-
-def arm_unpaired_emergency_commit_does_not_block_drain():
-    """A finished lone emergency ticket is not miscounted or left active."""
-    with scratch_daemon(emergency=True) as (daemon, _mailbox):
-        primary = "emergency-primary@" + BASE_A
-        daemon.register_ticket_cycle_message(
-            agent="opus", message=flow_payload(
-                primary, "Primary implementation",
-                mode="emergency-primary"))
-        Path(daemon.BACKLOG_LEDGER).write_text(
-            backlog_text(emergency=False), encoding="utf-8")
-        daemon.sync_ticket_cycle_emergency_condition()
-        primary_result = daemon.record_architect_commit(
-            cycle_id=primary, accepted_commit=COMMIT_A,
-            mode="emergency-primary")
-        primary_state = daemon.read_ticket_cycle_state()
-
-    with scratch_daemon(emergency=True) as (daemon, _mailbox):
-        second = "emergency-second@" + BASE_D
-        daemon.register_ticket_cycle_message(
-            agent="sol", message=emergency_second_message(daemon, second))
-        second_result = daemon.record_architect_commit(
-            cycle_id=second, accepted_commit=COMMIT_D,
-            mode="emergency-second")
-        committed_state = daemon.read_ticket_cycle_state()
-        Path(daemon.BACKLOG_LEDGER).write_text(
-            backlog_text(emergency=False), encoding="utf-8")
-        daemon.sync_ticket_cycle_emergency_condition()
-        second_state = daemon.read_ticket_cycle_state()
-
-    passed = (
-        primary_result == 0
-        and primary_state["completed"] == {primary: COMMIT_A}
-        and primary_state["generation"] == 0
-        and not primary_state["active"]
-        and not primary_state["emergency_commits"]
-        and second_result == 0
-        and committed_state["active"][second]["phase"]
-        == "emergency-committed"
-        and second_state["completed"] == {second: COMMIT_D}
-        and second_state["generation"] == 0
-        and not second_state["active"]
-        and not second_state["emergency_commits"])
-    print("unpaired emergency commit does not block drain=" + str(passed))
-    return passed
-
-
-def arm_bad_backlog_refuses_without_traceback():
-    """A missing local backlog produces one plain fail-closed result."""
-    with scratch_daemon() as (daemon, _mailbox):
-        Path(daemon.BACKLOG_LEDGER).unlink()
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            result = daemon.process_backlog(dry_run=False)
-        text = output.getvalue()
-        passed = (
-            result is False
-            and "refused mailbox pass" in text
-            and "ai/notes/backlog.md is missing" in text
-            and "no new role work was started" in text)
-    print("bad backlog refuses without traceback=" + str(passed))
-    return passed
-
-
-def arm_rejected_daemon_receipts_are_recoverable():
-    """State-rejected receipts stay out of done and can be fixed/requeued."""
-    with scratch_daemon() as (daemon, mailbox):
-        cycle_id = "normal-return@" + BASE_A
-        payload = daemon.architect_commit_receipt_payload(
-            cycle_id=cycle_id, commit=COMMIT_A, mode="normal")
-        pending = mailbox / "0091-to-daemon.md"
-        pending.write_text(payload, encoding="utf-8", newline="")
-        first = daemon.consume_daemon_message(path=str(pending))
-        failed = mailbox / "failed" / pending.name
-        done = mailbox / "done" / pending.name
-        stayed_out_of_done = not done.exists()
-
-        # Reproduce a receipt archived by the older archive-before-state
-        # ordering. Startup must move it to failed rather than fail forever.
-        historical_cycle = "receipt-correlation@" + BASE_B
-        historical_name = "0092-to-daemon.md"
-        historical = mailbox / "done" / historical_name
-        historical.parent.mkdir(parents=True, exist_ok=True)
-        historical.write_text(
-            daemon.architect_commit_receipt_payload(
-                cycle_id=historical_cycle, commit=COMMIT_B, mode="normal"),
-            encoding="utf-8", newline="")
-        recovered_without_poison = daemon.reconcile_ticket_cycle_state()
-        historical_failed = mailbox / "failed" / historical_name
-
-        # Once the missing implementation identity exists, the first parked
-        # receipt can be put back in the root and consumed normally.
-        daemon.register_ticket_cycle_message(
-            agent="opus", message=flow_payload(
-                cycle_id, "Implementer start"))
-        requeued = mailbox / pending.name
-        failed.rename(requeued)
-        second = daemon.consume_daemon_message(path=str(requeued))
-        state = daemon.read_ticket_cycle_state()
-        passed = (
-            first is False and stayed_out_of_done
-            and historical_failed.is_file() and not historical.exists()
-            and recovered_without_poison == 0
-            and second is True and done.is_file()
-            and state["active"][cycle_id]["phase"]
-            == "committed-awaiting-closure")
-    print("rejected daemon receipts are recoverable=" + str(passed))
-    return passed
-
-
-def arm_crash_replays_one_pending_cycle_return():
-    """A crash between durable completion and the counter loses no cycle."""
-    with scratch_daemon() as (daemon, _mailbox):
-        cycle_id = "normal-return@" + BASE_A
-        first_controller = daemon.SafeKillRendezvous(ticket_cycle_limit=1)
-        daemon._ACTIVE_WATCH_RENDEZVOUS = first_controller
+        controller = start_finite_controller(daemon, limit=1)
         try:
             register_normal_commit(daemon, cycle_id, COMMIT_A)
+            after_commit = daemon.read_ticket_cycle_state()
             register_closure(daemon, cycle_id, COMMIT_A)
+            before = daemon.fable_message_inode_snapshot()
+            receipt = write_receipt(
+                daemon, mailbox, "0001-to-fable.md", cycle_id, COMMIT_A,
+                "NO CHANGE")
+            path, result, problem = daemon.matching_new_redteam_receipt(
+                cycle_id=cycle_id,
+                accepted_commit=COMMIT_A,
+                before_inodes=before)
             completed = daemon.complete_ticket_cycle(cycle_id, COMMIT_A)
-            before_crash = daemon.read_ticket_cycle_state()
-        finally:
-            daemon._ACTIVE_WATCH_RENDEZVOUS = None
-
-        replacement = daemon.SafeKillRendezvous(ticket_cycle_limit=1)
-        daemon._ACTIVE_WATCH_RENDEZVOUS = replacement
-        try:
-            daemon.reconcile_ticket_cycle_state()
+            before_delivery = daemon.read_ticket_cycle_state()
             delivered = daemon.deliver_pending_ticket_cycle_returns()
-            delivered_again = daemon.deliver_pending_ticket_cycle_returns()
-            after_restart = daemon.read_ticket_cycle_state()
+            final = daemon.read_ticket_cycle_state()
         finally:
             daemon._ACTIVE_WATCH_RENDEZVOUS = None
         passed = (
-            completed is True
-            and first_controller.completed_ticket_cycles() == 0
-            and before_crash["pending_cycle_returns"] == 1
-            and delivered == 1 and delivered_again == 0
-            and replacement.completed_ticket_cycles() == 1
-            and replacement.ticket_cycle_limit_reached()
-            and after_restart["pending_cycle_returns"] == 0)
-    print("crash replays one pending cycle return=" + str(passed))
+            after_commit["generation"] == 0
+            and after_commit["active"][cycle_id]["phase"]
+            == "committed-awaiting-closure"
+            and problem is None and Path(path) == receipt
+            and result == "NO CHANGE" and completed
+            and before_delivery["generation"] == 1
+            and before_delivery["pending_cycle_returns"] == 1
+            and delivered == 1
+            and controller.completed_ticket_cycles() == 1
+            and controller.ticket_cycle_limit_reached()
+            and final["pending_cycle_returns"] == 0
+            and final["completed"] == {cycle_id: COMMIT_A}
+            and not final["active"])
+    print("matched normal review completes one cycle=" + str(passed))
     return passed
 
 
-def arm_completed_receipt_needs_no_git_object():
-    """An idempotent archived receipt survives later Git object cleanup."""
-    with scratch_daemon() as (daemon, mailbox):
-        cycle_id = "normal-return@" + BASE_A
-        register_normal_commit(daemon, cycle_id, COMMIT_A)
-        register_closure(daemon, cycle_id, COMMIT_A)
-        daemon.complete_ticket_cycle(cycle_id, COMMIT_A)
-        done = mailbox / "done"
-        done.mkdir(parents=True, exist_ok=True)
-        (done / "0093-to-daemon.md").write_text(
-            daemon.architect_commit_receipt_payload(
-                cycle_id=cycle_id, commit=COMMIT_A, mode="normal"),
-            encoding="utf-8", newline="")
-        git_calls = []
-
-        def unavailable_git(*args, **kwargs):
-            git_calls.append((args, kwargs))
-            return False
-
-        daemon.git_commit_exists = unavailable_git
-        daemon.git_commit_descends_from = unavailable_git
-        direct = daemon.record_architect_commit(
-            cycle_id=cycle_id, accepted_commit=COMMIT_A, mode="normal")
-        recovered = daemon.reconcile_ticket_cycle_state()
+def arm_two_role_commit_completes_one_cycle():
+    """A primary two-role ticket completes at its accepted commit."""
+    with scratch_daemon() as (daemon, _mailbox):
+        cycle_id = "two-role-return@" + BASE_B
+        daemon.register_ticket_cycle_message(
+            agent="opus",
+            message=flow_payload(
+                cycle_id, "Primary Implementer start", mode="two-role"),
+            skip_redteam=True)
+        daemon.register_ticket_cycle_message(
+            agent="fable",
+            message=flow_payload(
+                cycle_id, "Architect return", mode="two-role"),
+            skip_redteam=True)
+        completed = daemon.record_architect_commit(
+            cycle_id=cycle_id, accepted_commit=COMMIT_B, mode="two-role")
+        state = daemon.read_ticket_cycle_state()
         passed = (
-            direct == 0 and recovered == 0 and not git_calls
-            and (done / "0093-to-daemon.md").is_file()
-            and daemon.read_ticket_cycle_state()["completed"]
-            == {cycle_id: COMMIT_A})
-    print("completed receipt needs no Git object=" + str(passed))
+            completed == 1 and state["generation"] == 1
+            and state["pending_cycle_returns"] == 0
+            and state["completed"] == {cycle_id: COMMIT_B}
+            and not state["active"])
+    print("two-role commit completes one cycle=" + str(passed))
     return passed
 
 
-def raises_cycle_error(daemon, action, phrase):
-    """Return whether one action fails closed with the expected reason."""
-    try:
-        action()
-    except daemon.TicketCycleStateError as exc:
-        return phrase in str(exc)
-    return False
+def arm_finite_capacity_reserves_before_completion():
+    """A finite watch never admits more tickets than its remaining slots."""
+    with scratch_daemon() as (daemon, _mailbox):
+        first = "capacity-a@" + BASE_A
+        later = "capacity-b@" + BASE_B
+        later_message = flow_payload(later, "Later Implementer start")
+        controller = start_finite_controller(daemon, limit=1)
+        try:
+            daemon.register_ticket_cycle_message(
+                agent="opus",
+                message=flow_payload(first, "First Implementer start"))
+            deferred_while_active = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=later_message),
+                "already reserved all 1 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+
+            daemon.record_architect_commit(
+                cycle_id=first, accepted_commit=COMMIT_A, mode="normal")
+            register_closure(daemon, first, COMMIT_A)
+            daemon.complete_ticket_cycle(first, COMMIT_A)
+            deferred_while_pending = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=later_message),
+                "already reserved all 1 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+            pending = daemon.read_ticket_cycle_state()["pending_cycle_returns"]
+            daemon.deliver_pending_ticket_cycle_returns()
+            deferred_after_count = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=later_message),
+                "already reserved all 1 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+
+            # A restart before clean exit resumes the same finite limit.
+            replacement = start_finite_controller(daemon, limit=1)
+            still_deferred_after_restart = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=later_message),
+                "already reserved all 1 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+            daemon.finish_finite_watch_progress(
+                limit=1, completed=1, topology="normal")
+
+            # A later invocation after that proved exit starts a new limit.
+            fresh = start_finite_controller(daemon, limit=1)
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=later_message)
+            final = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        passed = (
+            deferred_while_active and deferred_while_pending
+            and pending == 1 and deferred_after_count
+            and controller.completed_ticket_cycles() == 1
+            and replacement.completed_ticket_cycles() == 1
+            and still_deferred_after_restart
+            and fresh.completed_ticket_cycles() == 0
+            and set(final["active"]) == {later}
+            and final["active"][later]["phase"] == "implementation")
+    print("finite limit reserves every admitted ticket=" + str(passed))
+    return passed
+
+
+def arm_finite_two_ticket_pipeline_counts_each_ticket_once():
+    """A two-cycle watch may pipeline A and B, but must leave C untouched."""
+    with scratch_daemon() as (daemon, _mailbox):
+        first = "pipeline-a@" + BASE_A
+        second = "pipeline-b@" + BASE_B
+        deferred = "pipeline-c@" + BASE_C
+        controller = start_finite_controller(daemon, limit=2)
+        try:
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow_payload(
+                    first, "Implement candidate A"))
+            daemon.register_ticket_cycle_message(
+                agent="fable", message=flow_payload(
+                    first, "Audit candidate A while B starts"))
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow_payload(
+                    second, "Implement candidate B"))
+            after_two_admissions = daemon.read_ticket_cycle_state()
+            c_blocked = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=flow_payload(
+                        deferred, "Must wait for another watch")),
+                "already reserved all 2 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+
+            register_normal_commit(daemon, first, COMMIT_A)
+            register_closure(daemon, first, COMMIT_A)
+            first_completed = daemon.complete_ticket_cycle(first, COMMIT_A)
+            first_delivery = daemon.deliver_pending_ticket_cycle_returns()
+            after_first = daemon.read_ticket_cycle_state()
+            c_still_blocked = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=flow_payload(
+                        deferred, "Still belongs to another watch")),
+                "already reserved all 2 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+
+            register_normal_commit(daemon, second, COMMIT_B)
+            register_closure(daemon, second, COMMIT_B)
+            second_completed = daemon.complete_ticket_cycle(
+                second, COMMIT_B)
+            second_delivery = daemon.deliver_pending_ticket_cycle_returns()
+            final = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        passed = (
+            set(after_two_admissions["active"]) == {first, second}
+            and after_two_admissions["generation"] == 0
+            and c_blocked and first_completed and first_delivery == 1
+            and controller.completed_ticket_cycles() == 2
+            and after_first["generation"] == 1
+            and after_first["completed"] == {first: COMMIT_A}
+            and set(after_first["active"]) == {second}
+            and c_still_blocked and second_completed
+            and second_delivery == 1
+            and final["generation"] == 2
+            and final["completed"] == {
+                first: COMMIT_A, second: COMMIT_B}
+            and not final["active"]
+            and controller.ticket_cycle_limit_reached())
+    print("finite two-ticket pipeline counts A and B exactly once="
+          + str(passed))
+    return passed
+
+
+def arm_no_go_preserves_later_ticket_for_replay():
+    """Architect NO-GO leaves both A repair work and pipelined B intact."""
+    with scratch_daemon() as (daemon, _mailbox):
+        repair = "repair-a@" + BASE_A
+        later = "repair-b@" + BASE_B
+        deferred = "repair-c@" + BASE_C
+        start_finite_controller(daemon, limit=2)
+        try:
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow_payload(
+                    repair, "Implement candidate A"))
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow_payload(
+                    later, "Implement independent candidate B"))
+            before_no_go = daemon.read_ticket_cycle_state()
+
+            # GO/NO-GO is the Architect's decision inside its flow message.
+            # Only a later exact architect-commit receipt changes cycle
+            # state. Therefore NO-GO requests repair without completing A or
+            # mutating B.
+            daemon.register_ticket_cycle_message(
+                agent="fable", message=flow_payload(
+                    repair,
+                    "NO-GO. Repair A from its saved candidate and base."))
+            after_no_go = daemon.read_ticket_cycle_state()
+            c_blocked = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus", message=flow_payload(
+                        deferred, "Must not pass the finite boundary")),
+                "already reserved all 2 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+            wrong_commit_fails = raises_cycle_error(
+                daemon,
+                lambda: daemon.record_architect_commit(
+                    cycle_id=repair, accepted_commit=COMMIT_B,
+                    mode="normal"),
+                "not a new descendant")
+            final = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        passed = (
+            before_no_go == after_no_go == final
+            and set(final["active"]) == {repair, later}
+            and all(record["phase"] == "implementation"
+                    for record in final["active"].values())
+            and final["generation"] == 0
+            and not final["completed"]
+            and c_blocked and wrong_commit_fails)
+    print("NO-GO preserves A repair and later ticket B=" + str(passed))
+    return passed
+
+
+def arm_retired_schema_three_refuses_without_rewrite():
+    """Retired emergency state stops; the daemon never guesses a rewrite."""
+    with scratch_daemon() as (daemon, _mailbox):
+        primary = "schema-primary@" + BASE_A
+        second = "schema-second@" + BASE_B
+        accepted = "schema-accepted@" + BASE_C
+        legacy = {
+            "schema": 3,
+            "generation": 4,
+            "pending_cycle_returns": 1,
+            "emergency_epoch": 8,
+            "emergency_condition": True,
+            "active": {
+                primary: {
+                    "phase": "implementation", "commit": None,
+                    "mode": "emergency-primary", "route": "primary",
+                    "epoch": 8,
+                },
+                second: {
+                    "phase": "implementation", "commit": None,
+                    "mode": "emergency-second", "route": "second",
+                    "epoch": 8,
+                },
+                accepted: {
+                    "phase": "emergency-committed", "commit": COMMIT_C,
+                    "mode": "emergency-primary", "route": "primary",
+                    "epoch": 7,
+                },
+            },
+            "completed": {},
+            "emergency_commits": [
+                {"cycle": accepted, "commit": COMMIT_C,
+                 "implementer": "primary", "epoch": 7},
+            ],
+        }
+        state_path = Path(daemon.ticket_cycle_state_path())
+        state_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+        before = state_path.read_bytes()
+        passed = raises_cycle_error(
+            daemon, daemon.read_ticket_cycle_state,
+            "unsupported old schema")
+        passed = passed and state_path.read_bytes() == before
+    print("retired schema-three state refuses without rewrite=" + str(passed))
+    return passed
+
+
+def arm_corrupt_schema_three_fails_closed():
+    """Malformed retired state receives the same fail-closed boundary."""
+    with scratch_daemon() as (daemon, _mailbox):
+        corrupt = {
+            "schema": 3,
+            "generation": 0,
+            "pending_cycle_returns": 0,
+            "emergency_epoch": 0,
+            "emergency_condition": False,
+            "active": {},
+            "completed": {},
+            "emergency_commits": [{"garbage": "accepted"}],
+        }
+        Path(daemon.ticket_cycle_state_path()).write_text(
+            json.dumps(corrupt) + "\n", encoding="utf-8")
+        passed = raises_cycle_error(
+            daemon, daemon.read_ticket_cycle_state,
+            "unsupported old schema")
+    print("corrupt schema-three state fails closed=" + str(passed))
+    return passed
+
+
+def arm_topology_counts_only_enabled_active_tickets():
+    """Normal and two-role watches count only their saved ticket mode."""
+    with scratch_daemon() as (daemon, _mailbox):
+        normal = "role-chatter@" + BASE_A
+        primary = "two-role-return@" + BASE_B
+        daemon.register_ticket_cycle_message(
+            agent="opus", message=flow_payload(normal, "Normal"))
+        daemon.register_ticket_cycle_message(
+            agent="opus",
+            message=flow_payload(primary, "Primary", mode="two-role"),
+            skip_redteam=True)
+        passed = (
+            daemon.active_ticket_cycle_count() == 1
+            and daemon.active_ticket_cycle_count(skip_redteam=True) == 1)
+    print("active counts follow the selected topology=" + str(passed))
+    return passed
+
+
+def arm_incompatible_roots_remain_untouched():
+    """A normal watch never claims saved no-Red-Team work."""
+    with scratch_daemon() as (daemon, mailbox):
+        cycle = "two-role-return@" + BASE_B
+        payloads = {
+            "0001-to-opus.md": flow_payload(
+                cycle, "Saved primary work", mode="two-role"),
+            "0003-to-daemon.md": daemon.architect_go_request_payload(
+                cycle_id=cycle, candidate_commit=COMMIT_B, mode="two-role"),
+        }
+        before = {}
+        for name, payload in payloads.items():
+            path = mailbox / name
+            path.write_text(payload, encoding="utf-8", newline="")
+            before[name] = path.read_bytes()
+        outcome = daemon.process_backlog(dry_run=False)
+        passed = outcome is None and all(
+            (mailbox / name).read_bytes() == content
+            for name, content in before.items())
+        passed = passed and not (mailbox / "inflight").exists()
+    print("incompatible root messages stay untouched=" + str(passed))
+    return passed
+
+
+def arm_placeholder_never_reserves_a_slot():
+    """A template handoff cannot poison a finite ticket reservation."""
+    with scratch_daemon() as (daemon, mailbox):
+        path = mailbox / "0001-to-opus.md"
+        path.write_text(
+            flow_payload("capacity-a@" + BASE_A, "<unit>"),
+            encoding="utf-8", newline="")
+        controller = start_finite_controller(daemon, limit=1)
+        deferred, reservation = daemon.reserve_implementer_ticket_before_claim(
+            path=str(path))
+        state = daemon.read_ticket_cycle_state()
+        passed = (
+            deferred is None and reservation is None and not state["active"]
+            and controller.completed_ticket_cycles() == 0
+            and path.is_file())
+    print("placeholder handoff reserves no cycle=" + str(passed))
+    return passed
 
 
 def arm_mode_route_and_anchor_spoofing_fails():
@@ -617,86 +693,21 @@ def arm_mode_route_and_anchor_spoofing_fails():
             lambda: daemon.register_ticket_cycle_message(
                 agent="fable", message=flow_payload(
                     cycle_id, "Spoofed return", mode="two-role")),
-            "changed its saved mode or Implementer route")
-        primary_claims_second = raises_cycle_error(
+            "belongs to another watch role")
+
+        legacy_mode_fails = raises_cycle_error(
             daemon,
             lambda: daemon.register_ticket_cycle_message(
                 agent="opus", message=flow_payload(
-                    "other-emergency@" + BASE_C,
-                    "Wrong route", mode="emergency-second")),
-            "primary Implementer cannot claim")
-        sol_claims_primary_message = (
-            "MAILBOX-TICKET: closure\n"
-            + flow_payload(
-                "other-emergency@" + BASE_D,
-                daemon.SECOND_IMPLEMENTER_MODE_SENTENCE
-                + "\n\nSpoofed primary route.",
-                mode="emergency-primary"))
-        sol_claims_primary = raises_cycle_error(
-            daemon,
-            lambda: daemon.register_ticket_cycle_message(
-                agent="sol", message=sol_claims_primary_message),
-            "must use MAILBOX-MODE: emergency-second")
+                    "schema-second@" + BASE_C,
+                    "Removed mode", mode="emergency-second")),
+            "needs exact MAILBOX-FLOW")
         state = daemon.read_ticket_cycle_state()
         passed = (
             invented_fails and architect_fails and changed_mode_fails
-            and primary_claims_second and sol_claims_primary
-            and set(state["active"]) == {cycle_id}
+            and legacy_mode_fails and set(state["active"]) == {cycle_id}
             and state["active"][cycle_id]["mode"] == "normal")
     print("mode, route, and anchor spoofing fails=" + str(passed))
-    return passed
-
-
-def emergency_second_message(daemon, cycle_id):
-    """Return an exact Sol second-Implementer assignment."""
-    return (
-        "MAILBOX-TICKET: closure\n"
-        + flow_payload(
-            cycle_id,
-            daemon.SECOND_IMPLEMENTER_MODE_SENTENCE
-            + "\n\nImplement only this ticket.",
-            mode="emergency-second"))
-
-
-def arm_emergency_pair_identity_fails_closed():
-    """An emergency pair needs two ticket anchors and two accepted commits."""
-    with scratch_daemon(emergency=True) as (daemon, _mailbox):
-        first = "same-ticket@" + BASE_A
-        second = "same-ticket@" + BASE_B
-        daemon.register_ticket_cycle_message(
-            agent="opus", message=flow_payload(
-                first, "Primary", mode="emergency-primary"))
-        daemon.record_architect_commit(
-            cycle_id=first, accepted_commit=COMMIT_A,
-            mode="emergency-primary")
-        daemon.register_ticket_cycle_message(
-            agent="sol", message=emergency_second_message(daemon, second))
-        same_ticket_fails = raises_cycle_error(
-            daemon,
-            lambda: daemon.record_architect_commit(
-                cycle_id=second, accepted_commit=COMMIT_B,
-                mode="emergency-second"),
-            "two different tickets")
-
-    with scratch_daemon(emergency=True) as (daemon, _mailbox):
-        primary = "emergency-primary@" + BASE_C
-        second = "emergency-second@" + BASE_D
-        daemon.register_ticket_cycle_message(
-            agent="opus", message=flow_payload(
-                primary, "Primary", mode="emergency-primary"))
-        daemon.record_architect_commit(
-            cycle_id=primary, accepted_commit=COMMIT_C,
-            mode="emergency-primary")
-        daemon.register_ticket_cycle_message(
-            agent="sol", message=emergency_second_message(daemon, second))
-        same_commit_fails = raises_cycle_error(
-            daemon,
-            lambda: daemon.record_architect_commit(
-                cycle_id=second, accepted_commit=COMMIT_C,
-                mode="emergency-second"),
-            "two different accepted commits")
-    passed = same_ticket_fails and same_commit_fails
-    print("emergency pair identity fails closed=" + str(passed))
     return passed
 
 
@@ -712,33 +723,64 @@ def arm_accepted_commit_must_descend_from_base():
         passed = raises_cycle_error(
             daemon,
             lambda: daemon.record_architect_commit(
-                cycle_id=cycle_id, accepted_commit=COMMIT_A,
+                cycle_id=cycle_id,
+                accepted_commit=COMMIT_A,
                 mode="normal"),
             "not a new descendant")
     print("accepted commit must descend from base=" + str(passed))
     return passed
 
 
-def arm_cycle_limit_closes_admission_race():
-    """A returned cycle closes new admission while an older turn can finish."""
+def arm_crash_replays_one_pending_cycle_return():
+    """A crash between durable completion and the counter loses no cycle."""
     with scratch_daemon() as (daemon, _mailbox):
-        controller = daemon.SafeKillRendezvous(ticket_cycle_limit=1)
-        admitted_before_return = controller.begin_attempt()
-        controller.ticket_cycle_returned()
-        refused_after_return = controller.begin_attempt()
-        controller.finish_attempt(permit=admitted_before_return)
+        cycle_id = "normal-return@" + BASE_A
+        first_controller = start_finite_controller(daemon, limit=1)
+        try:
+            register_normal_commit(daemon, cycle_id, COMMIT_A)
+            register_closure(daemon, cycle_id, COMMIT_A)
+            completed = daemon.complete_ticket_cycle(cycle_id, COMMIT_A)
+            before_crash = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+        replacement = start_finite_controller(daemon, limit=1)
+        try:
+            daemon.reconcile_ticket_cycle_state()
+            delivered = daemon.deliver_pending_ticket_cycle_returns()
+            delivered_again = daemon.deliver_pending_ticket_cycle_returns()
+            after_restart = daemon.read_ticket_cycle_state()
+            # Crash again after RAM delivery but before the clean exit.
+            second_replacement = start_finite_controller(daemon, limit=1)
+            extra = "capacity-b@" + BASE_B
+            blocked_after_second_crash = raises_cycle_error(
+                daemon,
+                lambda: daemon.register_ticket_cycle_message(
+                    agent="opus",
+                    message=flow_payload(extra, "Must remain deferred")),
+                "already reserved all 1 ticket cycle(s)",
+                error_type=daemon.TicketCycleLimitDeferred)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
         passed = (
-            admitted_before_return is not None
-            and refused_after_return is None
-            and controller.ticket_cycle_limit_reached()
-            and controller.completed_ticket_cycles() == 1
-            and controller.all_idle())
-    print("cycle-limit admission race closes=" + str(passed))
+            completed is True
+            and first_controller.completed_ticket_cycles() == 0
+            and before_crash["pending_cycle_returns"] == 1
+            and delivered == 1 and delivered_again == 0
+            and replacement.completed_ticket_cycles() == 1
+            and replacement.ticket_cycle_limit_reached()
+            and after_restart["pending_cycle_returns"] == 0
+            and after_restart["finite_watch"] == {
+                "limit": 1, "completed": 1, "status": "active",
+                "topology": "normal"}
+            and second_replacement.completed_ticket_cycles() == 1
+            and blocked_after_second_crash)
+    print("crash replays one pending cycle return=" + str(passed))
     return passed
 
 
 def arm_safe_stop_never_counts_cycle():
-    """Child cadence and its 20-second manual window do not change cycles."""
+    """Child cadence and its manual window do not change ticket cycles."""
     with scratch_daemon() as (daemon, _mailbox):
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         controller = daemon.SafeKillRendezvous()
@@ -765,65 +807,44 @@ def arm_safe_stop_never_counts_cycle():
     return passed
 
 
-def arm_skip_redteam_rejects_positive_cycle():
-    """A positive cycle limit cannot run without the required Red Team."""
+def arm_removed_sol_flag_is_rejected():
+    """The removed Sol implementation option is not part of the CLI."""
     with scratch_daemon() as (daemon, _mailbox):
-        rc, output, errors, error = call_main(
-            daemon, ["--watch", "--skip-redteam", "--cycle", "1"])
+        rc_plain, _plain, errors_plain, error_plain = call_main(
+            daemon, ["--sol_as_implementer"])
         passed = (
-            rc == 1 and error is None and errors == ""
-            and "cannot use a positive --cycle" in output
-            and "a normal ticket cycle requires a Red Team return" in output)
-    print("skip-redteam rejects positive cycle=" + str(passed))
-    return passed
-
-
-def arm_cycle_zero_remains_drain():
-    """Cycle zero drains recorded two-role work and applies no cycle count."""
-    with scratch_daemon() as (daemon, _mailbox):
-        Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
-        rc, output, errors, error = call_main(
-            daemon, ["--watch", "--skip-redteam", "--cycle", "0"])
-        passed = (
-            rc == 0 and error is None and errors == ""
-            and "cycle 0: wait until no Architect or Implementer message"
-            in output
-            and "two-role drain complete; no ticket-cycle count applies"
-            in output
-            and "cycle limit reached" not in output)
-    print("cycle zero remains a drain=" + str(passed))
+            rc_plain == 2 and isinstance(error_plain, SystemExit)
+            and "unrecognized arguments: --sol_as_implementer"
+            in errors_plain)
+    print("removed Sol implementation flag is rejected=" + str(passed))
     return passed
 
 
 def main():
-    """Run every focused check and return nonzero on the first regression."""
+    """Run every focused check and return nonzero on any regression."""
     checks = [
         ("role chatter", arm_role_chatter_does_not_complete_cycle),
-        ("normal return", arm_normal_return_completes_cycle),
-        ("receipt correlation", arm_wrong_or_missing_receipt_fails),
-        ("reopen return", arm_reopen_return_completes_review),
-        ("emergency pair", arm_emergency_pair_is_one_cycle),
-        ("registered emergency grandfather",
-         arm_only_registered_emergency_work_is_grandfathered),
-        ("unpaired emergency completion",
-         arm_unpaired_emergency_commit_does_not_block_drain),
-        ("bad backlog plain refusal",
-         arm_bad_backlog_refuses_without_traceback),
-        ("recoverable daemon receipt",
-         arm_rejected_daemon_receipts_are_recoverable),
-        ("crash-safe cycle return",
-         arm_crash_replays_one_pending_cycle_return),
-        ("completed receipt without Git",
-         arm_completed_receipt_needs_no_git_object),
+        ("normal return", arm_normal_return_completes_one_cycle),
+        ("two-role return", arm_two_role_commit_completes_one_cycle),
+        ("finite capacity", arm_finite_capacity_reserves_before_completion),
+        ("finite two-ticket pipeline",
+         arm_finite_two_ticket_pipeline_counts_each_ticket_once),
+        ("NO-GO pipeline preservation",
+         arm_no_go_preserves_later_ticket_for_replay),
+        ("retired schema-three refusal",
+         arm_retired_schema_three_refuses_without_rewrite),
+        ("schema-three corruption", arm_corrupt_schema_three_fails_closed),
+        ("topology-aware active count",
+         arm_topology_counts_only_enabled_active_tickets),
+        ("topology root deferral", arm_incompatible_roots_remain_untouched),
+        ("placeholder reservation", arm_placeholder_never_reserves_a_slot),
         ("mode/route/anchor spoofing",
          arm_mode_route_and_anchor_spoofing_fails),
-        ("emergency identity", arm_emergency_pair_identity_fails_closed),
         ("commit ancestry", arm_accepted_commit_must_descend_from_base),
-        ("cycle admission race", arm_cycle_limit_closes_admission_race),
+        ("crash-safe cycle return",
+         arm_crash_replays_one_pending_cycle_return),
         ("safe-stop separation", arm_safe_stop_never_counts_cycle),
-        ("positive two-role refusal",
-         arm_skip_redteam_rejects_positive_cycle),
-        ("cycle-zero drain", arm_cycle_zero_remains_drain),
+        ("removed Sol CLI", arm_removed_sol_flag_is_rejected),
     ]
     failures = []
     for name, check in checks:

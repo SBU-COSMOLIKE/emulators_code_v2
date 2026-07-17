@@ -18,7 +18,7 @@ README_PATH = AI_ROOT / "tools" / "README.md"
 BASE_COMMIT = "1" * 40
 CYCLE_ID = "output-style@" + BASE_COMMIT
 ALLOWED_TERMINAL_ACRONYMS = {
-    "AGENT", "CLI", "MINUTES", "NUL", "TOKENS", "UTF",
+    "AGENT", "CLI", "GO", "HEAD", "MINUTES", "NUL", "TOKENS", "UTF",
 }
 
 
@@ -62,6 +62,8 @@ def terminal_literal_violations(source):
         # The role filename is data, not emphasis. The remaining uppercase
         # words in shipped print literals must be genuine acronyms.
         prose = (literal.replace(".claude/FABLE_ROLE.md", "")
+                 .replace("MAILBOX_ROLE", "")
+                 .replace("MAILBOX-ADMIN", "")
                  .replace("'- OPEN'", "")
                  .replace("REOPEN", "")
                  .replace("NO-GO", "")
@@ -105,11 +107,27 @@ def scratch_daemon():
             "sol": ["harmless-sol"],
         }
         daemon.AGENT_CWD = {
-            "fable": str(root),
-            "opus": str(root),
-            "sol": str(root),
+            "fable": str(root / "architect-lane"),
+            "opus": str(root / "implementer-lane"),
+            "sol": str(root / "sol-lane"),
         }
+        for path in daemon.AGENT_CWD.values():
+            pathlib.Path(path).mkdir()
+        topology_proofs = {
+            agent: object() for agent in ("fable", "opus", "sol")}
+        daemon.validate_live_agent_dispatch_topology = (
+            lambda agent: topology_proofs[agent])
+        daemon.revalidate_agent_dispatch_topology = lambda proof: proof
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent})
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.prepare_implementer_cycle_checkout = (
+            lambda cycle_id: BASE_COMMIT)
+        daemon.record_implementer_candidate = (
+            lambda cycle_id, starting_head: None)
         daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
+        daemon._exact_git_object = (
+            lambda arguments, label: BASE_COMMIT)
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         yield daemon, root
 
@@ -122,8 +140,8 @@ def implementer_payload(text):
         "MAILBOX-MODE: normal\n\n" + text + "\n")
 
 
-def runtime_emergency_line():
-    """Exercise the strict emergency reminder and return its exact line."""
+def runtime_demand_line():
+    """Show severity counts without letting those counts select Sol's role."""
     daemon = load_daemon()
     daemon.backlog_severity_counts = lambda: {
         "critical": 2,
@@ -140,7 +158,7 @@ def runtime_emergency_line():
     with contextlib.redirect_stdout(stream):
         daemon.report_demand(backlog=[])
     lines = [line for line in stream.getvalue().splitlines()
-             if line.startswith("  emergency: 2 open Critical bugs")]
+             if line.startswith("queue depth:")]
     return lines[0] if len(lines) == 1 else ""
 
 
@@ -205,13 +223,27 @@ def runtime_heartbeat_line():
             stdout.flush()
             return HarmlessProcess()
 
+        class SubprocessProxy:
+            """Override only Popen; preserve real Git-facing run helpers."""
+
+            def __init__(self, module):
+                self.module = module
+
+            def __getattr__(self, name):
+                return (fake_popen if name == "Popen"
+                        else getattr(self.module, name))
+
         daemon.datetime = types.SimpleNamespace(datetime=FrozenDateTime)
         daemon.time = types.SimpleNamespace(
             time=lambda: next(times), sleep=lambda _seconds: None)
-        daemon.subprocess.Popen = fake_popen
+        original_subprocess = daemon.subprocess
+        daemon.subprocess = SubprocessProxy(original_subprocess)
         stream = io.StringIO()
-        with contextlib.redirect_stdout(stream):
-            daemon.dispatch(path=str(path), dry_run=False)
+        try:
+            with contextlib.redirect_stdout(stream):
+                daemon.dispatch(path=str(path), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
         lines = [line for line in stream.getvalue().splitlines()
                  if " still running " in line]
         if len(lines) != 1:
@@ -225,13 +257,11 @@ def main():
     readme = README_PATH.read_text(encoding="utf-8")
     violations = terminal_literal_violations(source=source)
 
-    emergency = runtime_emergency_line()
-    expected_emergency = (
-        "  emergency: 2 open Critical bugs and 11 open High bugs. The "
-        "Architect may give Sol a separate implementation job only because "
-        "more than 1 Critical or more than 10 High bugs are open. High "
-        "features never contribute. The exact Architect declaration is "
-        "still required; otherwise Sol remains the Red Team.")
+    demand = runtime_demand_line()
+    expected_demand = (
+        "queue depth: opus=0 sol=0 fable=0 daemon=0 | open backlog: "
+        "critical=2 high=11 medium=0 low=30 unclassified=0 | all open: 43 "
+        "| discovery admission count: 13")
     refusal = runtime_refusal_line()
     expected_refusal = (
         "refused 0001-to-fable.md: the whole body is the template placeholder "
@@ -260,9 +290,12 @@ def main():
     checks = {
         "shipped terminal literals": not violations,
         "runtime refusal": refusal == expected_refusal,
-        "runtime emergency reminder": emergency == expected_emergency,
+        "runtime demand report": demand == expected_demand,
         "runtime heartbeat": heartbeat == expected_heartbeat,
-        "README emergency parity": readme.count(emergency + "\n") == 1,
+        "README removes automatic emergency":
+            "emergency: 2 open Critical bugs" not in readme,
+        "README removes Sol implementation option":
+            "--sol_as_implementer" not in readme,
         "README heartbeat parity": readme.count(heartbeat + "\n") == 1,
         "separator mutation reds": separator_mutation_red,
         "all-caps mutation reds": emphasis_mutation_red,
@@ -274,7 +307,7 @@ def main():
             print("  line " + str(line) + " " + kind + ": " + repr(literal))
     if not all(checks.values()):
         print("  observed refusal: " + repr(refusal))
-        print("  observed emergency: " + repr(emergency))
+        print("  observed demand: " + repr(demand))
         print("  observed heartbeat: " + repr(heartbeat))
         return 1
     return 0

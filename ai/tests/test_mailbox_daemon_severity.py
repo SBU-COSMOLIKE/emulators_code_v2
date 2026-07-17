@@ -10,6 +10,7 @@ from unittest import mock
 from ai.tools import backlog_guard
 from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_dispatch
 from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_send
+from ai.tests.tools_mailbox_daemon_fix_only_repro import clean_process
 from ai.tests.tools_mailbox_daemon_fix_only_repro import DAEMON_PATH
 from ai.tests.tools_mailbox_daemon_fix_only_repro import read_text_exact
 from ai.tests.tools_mailbox_daemon_fix_only_repro import run_main
@@ -33,15 +34,34 @@ def ticket_flow(text, mode="normal",
         "MAILBOX-MODE: " + mode + "\n\n" + text + "\n")
 
 
-def second_implementer_payload():
-    """Build a current Sol second-Implementer assignment envelope."""
+def retired_sol_implementation_payload():
+    """Build an invalid message using the retired Sol-Implementer shape."""
     return (
         TICKET + "closure\n"
         + ticket_flow(
             "### ARCHITECT_HANDOFF\n\n"
             "OpenAI Sol — this is a role as second Implementer for this "
             "unit.\nImplement the named repair.",
-            mode="emergency-second"))
+            mode="normal"))
+
+
+def captured_role_dispatch(daemon, path, launches):
+    """Dispatch one message while recording the child environment."""
+    original_popen = daemon.subprocess.Popen
+
+    def fake_popen(command, stdout, stderr, cwd, env):
+        del stderr
+        return clean_process(stdout, launches, command, cwd, env)
+
+    daemon.subprocess.Popen = fake_popen
+    stream = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stream):
+            outcome = daemon.dispatch(
+                path=str(path), dry_run=False, fix_only=False)
+    finally:
+        daemon.subprocess.Popen = original_popen
+    return outcome, stream.getvalue()
 
 
 class MailboxDiscoverySeverityTests(unittest.TestCase):
@@ -91,9 +111,9 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertEqual(
                 daemon.sol_ticket_body(message=current),
                 "\r\ncurrent body\r\n")
-            assignment = second_implementer_payload()
-            self.assertTrue(
-                daemon.sol_second_implementer_assignment(message=assignment))
+            assignment = retired_sol_implementation_payload()
+            self.assertIsNotNone(
+                daemon.redteam_closure_problem(message=assignment))
 
     def test_malformed_or_misplaced_headers_never_launch(self):
         bodies = (
@@ -197,7 +217,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 launches = []
                 with mock.patch.object(
                         daemon, "register_ticket_cycle_message",
-                        return_value=None):
+                        return_value=(None, None)):
                     outcome, _ = captured_dispatch(
                         daemon, path, False, launches)
                 self.assertTrue(outcome)
@@ -234,7 +254,6 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertTrue(launches[0]["command"][-1].endswith(request))
 
     def test_mailbox_role_helper_and_child_environment_follow_route(self):
-        assignment = second_implementer_payload()
         cases = (
             ("fable", "plan one repair\n", "architect", {}),
             ("opus", ticket_flow("implement one repair"),
@@ -242,10 +261,9 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             ("sol", TICKET + "discovery\n" + SEVERITY + "medium\n"
              + SCOPE + "bounded\n\nReview one repair.\n",
              "red-team", {}),
-            ("sol", assignment, "implementer", {"open_count": 11}),
         )
-        for index, (agent, message, expected, settings) in enumerate(
-                cases, start=1):
+        for index, case in enumerate(cases, start=1):
+            agent, message, expected, settings = case
             with self.subTest(agent=agent, expected=expected), \
                     mock.patch.dict(
                         os.environ, {"MAILBOX_ROLE": "spoofed"}), \
@@ -259,9 +277,9 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 launches = []
                 with mock.patch.object(
                         daemon, "register_ticket_cycle_message",
-                        return_value=None):
-                    outcome, output = captured_dispatch(
-                        daemon, path, False, launches)
+                        return_value=(None, None)):
+                    outcome, output = captured_role_dispatch(
+                        daemon, path, launches)
                 self.assertTrue(outcome, output)
                 self.assertEqual(len(launches), 1)
                 self.assertEqual(
@@ -277,12 +295,10 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 daemon.mailbox_role_for_dispatch("opus", "implement"),
                 daemon.mailbox_role_for_dispatch(
                     "sol", TICKET + "closure\n\nReview.\n"),
-                daemon.mailbox_role_for_dispatch(
-                    "sol", second_implementer_payload()),
             )
         self.assertEqual(
             nonarchitect_roles,
-            ("implementer", "red-team", "implementer"))
+            ("implementer", "red-team"))
         for role in nonarchitect_roles:
             with self.subTest(role=role), mock.patch.dict(
                     os.environ, {"MAILBOX_ROLE": role}, clear=True):
@@ -627,87 +643,91 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertEqual(before, tree_snapshot(root))
             self.assertFalse(mailbox.exists())
 
-    def test_second_implementer_requires_exact_bug_emergency(self):
-        assignment = second_implementer_payload().split("\n", 1)[1]
+    def test_backlog_severity_never_selects_sol_role(self):
+        severities = (
+            {},
+            {"critical_count": 1},
+            {"critical_count": 2},
+            {"open_count": 11},
+            {"high_feature_count": 20, "medium_count": 20,
+             "low_count": 20},
+        )
 
-        for settings in (
-                {"critical_count": 1, "open_count": 10,
-                 "high_feature_count": 20, "medium_count": 20,
-                 "low_count": 20},
-                {"critical_count": 0, "open_count": 0,
-                 "high_feature_count": 11}):
-            with self.subTest(refused=settings), scratch_daemon(
+        for settings in severities:
+            with self.subTest(fixed_role=settings), scratch_daemon(
                     create_mailbox=False, **settings) as (
-                        daemon, root, mailbox, _):
-                before = tree_snapshot(root)
-                outcome, output = captured_send(
-                    daemon, agent="sol", text=assignment, dry_run=False,
-                    ticket_kind="closure")
-                self.assertFalse(outcome)
-                self.assertIn("emergency-only", output)
-                self.assertEqual(before, tree_snapshot(root))
-                self.assertFalse(mailbox.exists())
+                        daemon, _root, _mailbox, _):
+                self.assertEqual(
+                    daemon.mailbox_role_for_dispatch(
+                        "sol", retired_sol_implementation_payload()),
+                    "red-team")
+                self.assertFalse(hasattr(
+                    daemon, "sol_second_" + "implementer_assignment"))
 
-        for settings in (
-                {"critical_count": 2},
-                {"open_count": 11}):
-            with self.subTest(allowed=settings), scratch_daemon(
+            with self.subTest(redteam_unchanged=settings), scratch_daemon(
                     **settings) as (daemon, _, _, _):
-                outcome, _ = captured_send(
-                    daemon, agent="sol", text=assignment, dry_run=False,
-                    ticket_kind="closure")
-                self.assertTrue(outcome)
+                outcome, output = captured_send(
+                    daemon, agent="sol", text="review the named repair",
+                    dry_run=False, ticket_kind="closure")
+                self.assertTrue(outcome, output)
 
-        with scratch_daemon() as (daemon, _, _, _):
-            outcome, _ = captured_send(
-                daemon, agent="sol", text="review the named repair",
-                dry_run=False, ticket_kind="closure")
-            self.assertTrue(outcome)
+    def test_sol_implementation_assignment_is_refused(self):
+        assignment = retired_sol_implementation_payload()
 
-    def test_stored_second_implementer_message_is_checked_again_at_dispatch(self):
-        assignment = second_implementer_payload()
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            path = write_pending(daemon, "0001-to-sol.md", assignment)
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                outcome = daemon.process_backlog(dry_run=False)
+            self.assertFalse(outcome)
+            self.assertIn("Red Team closure must name", stream.getvalue())
+            self.assertFalse(path.exists())
+            self.assertTrue((mailbox / "failed" / path.name).is_file())
 
-        for settings in (
-                {"critical_count": 1, "open_count": 10},
-                {"high_feature_count": 40}):
-            with self.subTest(refused=settings), scratch_daemon(
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            path = write_pending(daemon, "0002-to-sol.md", assignment)
+            launches = []
+            outcome, output = captured_role_dispatch(daemon, path, launches)
+            self.assertFalse(outcome)
+            self.assertEqual(launches, [])
+            self.assertIn("Red Team closure must name", output)
+            self.assertFalse(path.exists())
+            self.assertTrue((mailbox / "failed" / path.name).is_file())
+
+    def test_sol_implementation_is_never_enabled_by_backlog_severity(self):
+        assignment = retired_sol_implementation_payload()
+        severities = (
+            {},
+            {"critical_count": 1},
+            {"critical_count": 2},
+            {"open_count": 11},
+            {"high_feature_count": 40, "medium_count": 20,
+             "low_count": 20},
+        )
+        for index, settings in enumerate(severities, start=1):
+            with self.subTest(settings=settings), scratch_daemon(
                     **settings) as (daemon, _, mailbox, _):
                 path = write_pending(
-                    daemon, "0001-to-sol.md", assignment)
-                launches = []
-                outcome, output = captured_dispatch(
-                    daemon, path, False, launches)
-                self.assertFalse(outcome)
-                self.assertEqual(launches, [])
-                self.assertIn("emergency-only", output)
-                self.assertTrue(
-                    (mailbox / "failed" / path.name).is_file())
-
-        for settings in ({"critical_count": 2}, {"open_count": 11}):
-            with self.subTest(allowed=settings), scratch_daemon(
-                    **settings) as (daemon, _, mailbox, _):
-                path = write_pending(
-                    daemon, "0002-to-sol.md", assignment)
+                    daemon, "%04d-to-sol.md" % index, assignment)
                 launches = []
                 with mock.patch.object(
                         daemon, "register_ticket_cycle_message",
-                        return_value=None):
-                    outcome, _ = captured_dispatch(
-                        daemon, path, False, launches)
-                self.assertTrue(outcome)
-                self.assertEqual(len(launches), 1)
-                self.assertTrue(
-                    (mailbox / "done" / path.name).is_file())
+                        return_value=(None, None)):
+                    outcome, output = captured_role_dispatch(
+                        daemon, path, launches)
+                self.assertFalse(outcome)
+                self.assertEqual(launches, [])
+                self.assertIn("Red Team closure must name", output)
+                self.assertTrue((mailbox / "failed" / path.name).is_file())
 
         with scratch_daemon() as (daemon, _, mailbox, _):
             ordinary = (TICKET + "discovery\n" + SEVERITY + "medium\n"
                         + SCOPE + "bounded\n\n"
                         "Review the named repair.\n")
-            path = write_pending(daemon, "0003-to-sol.md", ordinary)
+            path = write_pending(daemon, "0100-to-sol.md", ordinary)
             launches = []
-            outcome, _ = captured_dispatch(
-                daemon, path, False, launches)
-            self.assertTrue(outcome)
+            outcome, output = captured_role_dispatch(daemon, path, launches)
+            self.assertTrue(outcome, output)
             self.assertEqual(len(launches), 1)
             self.assertTrue((mailbox / "done" / path.name).is_file())
 
@@ -769,35 +789,12 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             counts = daemon.backlog_severity_counts()
             self.assertEqual(counts["high"], 0)
             self.assertEqual(counts["unclassified"], len(malformed_lines))
-            self.assertFalse(daemon.second_implementer_emergency(counts))
             before = tree_snapshot(root)
             outcome, output = captured_send(
                 daemon, agent="sol", text="find another problem",
                 dry_run=False, ticket_kind="discovery", severity="low")
             self.assertFalse(outcome)
             self.assertIn("unclassified open ticket", output)
-            self.assertEqual(before, tree_snapshot(root))
-            self.assertFalse(mailbox.exists())
-
-        with scratch_daemon(open_count=11, create_mailbox=False) as (
-                daemon, root, mailbox, backlog):
-            duplicate = (
-                "- OPEN **HIGH** **BUG FIX** — [Duplicate]"
-                "(#scratch-high-bug-fix-1)\n")
-            with backlog.open("a", encoding="utf-8") as stream:
-                stream.write(duplicate)
-            counts = daemon.backlog_severity_counts()
-            self.assertEqual(counts["unclassified"], 1)
-            self.assertFalse(daemon.second_implementer_emergency(counts))
-            assignment = (
-                "### ARCHITECT_HANDOFF\n\nOpenAI Sol — this is a role as "
-                "second Implementer for this unit.\n")
-            before = tree_snapshot(root)
-            outcome, output = captured_send(
-                daemon, agent="sol", text=assignment, dry_run=False,
-                ticket_kind="closure")
-            self.assertFalse(outcome)
-            self.assertIn("malformed open ticket", output)
             self.assertEqual(before, tree_snapshot(root))
             self.assertFalse(mailbox.exists())
 
@@ -808,23 +805,6 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                 daemon, agent="sol", text="close the recorded problem",
                 dry_run=False, ticket_kind="closure")
             self.assertTrue(outcome)
-
-        assignment = (
-            "### ARCHITECT_HANDOFF\n\n"
-            "OpenAI Sol — this is a role as second Implementer for this "
-            "unit.\n")
-        with scratch_daemon(open_count=11, create_mailbox=False) as (
-                daemon, root, mailbox, backlog):
-            with backlog.open("a", encoding="utf-8") as stream:
-                stream.write("- OPEN missing priority and type\n")
-            before = tree_snapshot(root)
-            outcome, output = captured_send(
-                daemon, agent="sol", text=assignment, dry_run=False,
-                ticket_kind="closure")
-            self.assertFalse(outcome)
-            self.assertIn("malformed open ticket", output)
-            self.assertEqual(before, tree_snapshot(root))
-            self.assertFalse(mailbox.exists())
 
     def test_source_mutations_break_saved_severity_contract(self):
         source = DAEMON_PATH.read_text(encoding="utf-8")

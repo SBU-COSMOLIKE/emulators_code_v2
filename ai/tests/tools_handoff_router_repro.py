@@ -7,6 +7,7 @@ an agent CLI. Each arm copies the router into a temporary fake repository.
 
 import concurrent.futures
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -29,6 +30,52 @@ from ai.tests.test_handoff_contract import packet
 
 
 VALID_ARCHITECT_NOTE = packet(role="architect")
+
+
+def valid_subagent_evidence():
+    """Return evidence for both subagents in the shared Architect fixture."""
+    return (
+        "#### Subagent return `failure-reproducer`\n"
+        "- Returned artifact: The exact focused command and its complete "
+        "pre-edit failing assertion output.\n"
+        "- Acceptance: `pass`\n"
+        "- Evidence: Command `python3 -m unittest ai.tests.test_example` "
+        "exited one at the named assertion.\n"
+        "#### Subagent return `regression-writer`\n"
+        "- Returned artifact: The focused test-file diff and complete "
+        "pre-production failing command output.\n"
+        "- Acceptance: `pass`\n"
+        "- Evidence: The diff changes only ExampleTests and the focused "
+        "command output names the new assertion.")
+
+
+def implementer_handoff(evidence=None):
+    """Build one routed return with the exact evidence boundary fields."""
+    if evidence is None:
+        evidence = valid_subagent_evidence()
+    return (
+        "### IMPLEMENTER_HANDOFF: REQUESTING REVIEW\n\n"
+        "- **Current state:** Scratch implementation is ready for review.\n"
+        "- **Subagent work:**\n"
+        + evidence + "\n"
+        "- **Blockers/findings:** none\n"
+        "- **Action required:** Architect audit of the candidate.\n")
+
+
+CAPABILITY_UNAVAILABLE_PLAN = (
+    "- Capability checked: `collaboration.spawn_agent`\n"
+    "- Attempted operation: Launch the named reproducer subagent through "
+    "the advertised collaboration operation before implementation edits.\n"
+    "- Raw failure: `Unknown tool collaboration.spawn_agent in the "
+    "advertised runtime capability registry`")
+
+
+def blocked_subagent_evidence():
+    """Return planned-order blocked evidence plus exact capability rows."""
+    return (
+        valid_subagent_evidence().replace(
+            "- Acceptance: `pass`", "- Acceptance: `blocked`", 1)
+        + "\n" + CAPABILITY_UNAVAILABLE_PLAN)
 
 
 def load_scratch_router(root, name, linked=False):
@@ -106,7 +153,8 @@ def run_git(repo, *args):
 
 def write_bound_architect_note(
         repo, note, roles="Architect + Implementer + Red Team",
-        discovery_severity="medium", review_scope=None):
+        discovery_severity="medium", review_scope=None,
+        parallel_work_plan=None):
     """Create one non-main scratch checkout and its matching directive."""
     if not (repo / ".git").exists():
         run_git(repo, "init", "-q", "-b", "claude/router-fixture")
@@ -128,13 +176,14 @@ def write_bound_architect_note(
         "- Roles: `" + roles + "`\n"
         "- Discovery severity: `" + discovery_severity + "`\n"
         "- Review scope: `" + review_scope + "`")
+    bodies = {
+        "Execution checkout": checkout,
+        "Role plan": role_plan,
+    }
+    if parallel_work_plan is not None:
+        bodies["Parallel work plan"] = parallel_work_plan
     note.write_text(
-        packet(
-            role="architect",
-            bodies={
-                "Execution checkout": checkout,
-                "Role plan": role_plan,
-            }),
+        packet(role="architect", bodies=bodies),
         encoding="utf-8")
 
 
@@ -323,6 +372,298 @@ def arm_handoff_header():
         assert legacy_accepted_prose
         assert not prose_accepted
         assert captured == valid
+
+
+def arm_subagent_evidence_boundary():
+    """Only one exact marker-to-next-field fragment is accepted."""
+    with tempfile.TemporaryDirectory(
+            prefix="router-evidence-boundary-") as tmp:
+        root = Path(tmp)
+        module, _repo = load_scratch_router(
+            root, "scratch_router_evidence_boundary")
+        valid = implementer_handoff()
+        extracted = module.extract_implementer_subagent_evidence(valid)
+        valid_exact = extracted == valid_subagent_evidence()
+
+        marker = "- **Subagent work:**"
+        blockers = "- **Blockers/findings:** none"
+        malformed = (
+            valid.replace(marker, "- **Subagent work:** missing marker", 1),
+            valid.replace(marker, marker + "\n" + marker, 1),
+            valid.replace(
+                marker,
+                "- **Subagent work:** stale inline claim\n" + marker,
+                1),
+            valid.replace(
+                marker + "\n" + valid_subagent_evidence() + "\n" + blockers,
+                blockers + "\n" + marker + "\n"
+                + valid_subagent_evidence(),
+                1),
+            valid.replace(blockers, blockers + "\n" + blockers, 1),
+            valid.replace(
+                blockers,
+                "- **Gate results:** unvalidated\n" + blockers,
+                1),
+            valid.replace(
+                "### IMPLEMENTER_HANDOFF: REQUESTING REVIEW",
+                "### IMPLEMENTER_HANDOFF: REQUESTING REVIEW\n"
+                "### IMPLEMENTER_HANDOFF: DUPLICATE",
+                1),
+        )
+        refusals = []
+        for handoff in malformed:
+            try:
+                module.extract_implementer_subagent_evidence(handoff)
+            except module.DirectiveError:
+                refusals.append(True)
+            else:
+                refusals.append(False)
+
+        print("ARM subagent evidence boundary")
+        print("  valid fragment extracted byte-for-byte:", valid_exact)
+        print("  missing/duplicate/reordered boundaries refuse:",
+              all(refusals))
+        assert valid_exact
+        assert all(refusals)
+
+
+def arm_subagent_evidence_validation():
+    """Refuse an unproved subagent plan before archives or local checks."""
+    with tempfile.TemporaryDirectory(prefix="router-subagent-evidence-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_subagent_evidence", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+
+        def route(handoff, parallel_work_plan=None):
+            write_bound_architect_note(
+                repo=repo,
+                note=note,
+                parallel_work_plan=parallel_work_plan)
+            copied = []
+            archived = []
+            gates = []
+            module.copy_to_clipboard = copied.append
+            module.wait_for_block = lambda **_kwargs: handoff
+
+            def scratch_archive(seq, name, text):
+                archived.append((seq, name, text))
+                relative = "ai/notes/relay/" + seq + "-" + name + ".md"
+                destination = repo / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(
+                    "<!-- SUPPORTING COPY ONLY. The agent-written source "
+                    "note\n"
+                    "     that this block cites remains authoritative.\n"
+                    "     Saved by ai/tools/handoff_router.py. -->\n\n"
+                    + text + ("" if text.endswith("\n") else "\n"),
+                    encoding="utf-8")
+                return relative
+
+            def scratch_gates(commands, seq):
+                gates.append((commands, seq))
+                return "ai/notes/relay/" + seq + "-gates-log.md", True
+
+            module.archive = scratch_archive
+            module.run_gates = scratch_gates
+            reservations = Path(module.RUN_RESERVATIONS_DIR)
+            before_reservations = (
+                sorted(path.name for path in reservations.iterdir())
+                if reservations.is_dir() else [])
+            original_argv = module.sys.argv
+            module.sys.argv = [
+                "handoff_router.py", "--note", "ai/notes/spec.md"]
+            stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stream):
+                    rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+            released = False
+            try:
+                lock = module.acquire_router_lock()
+            except RuntimeError:
+                pass
+            else:
+                released = True
+                module.release_router_lock(lock)
+            after_reservations = (
+                sorted(path.name for path in reservations.iterdir())
+                if reservations.is_dir() else [])
+            return {
+                "rc": rc,
+                "copied": copied,
+                "archived": archived,
+                "gates": gates,
+                "output": stream.getvalue(),
+                "released": released,
+                "reservation_unchanged": (
+                    after_reservations == before_reservations),
+            }
+
+        valid = route(implementer_handoff())
+        valid_reaches_checks = (
+            valid["rc"] == 0
+            and len(valid["copied"]) == 2
+            and [row[1] for row in valid["archived"]] == ["implementer"]
+            and len(valid["gates"]) == 1
+            and valid["released"])
+
+        blocked = route(implementer_handoff(
+            evidence=blocked_subagent_evidence()))
+        blocked_is_checkpoint_only = (
+            blocked["rc"] == 0
+            and len(blocked["copied"]) == 2
+            and [row[1] for row in blocked["archived"]] == ["implementer"]
+            and blocked["gates"] == []
+            and "IMPLEMENTER CHECKPOINT FOR ARCHITECT"
+            in blocked["copied"][-1]
+            and blocked["released"])
+
+        checkpoint_paths = sorted(
+            (repo / "ai" / "notes" / "relay").glob(
+                "*-capability-checkpoint.json"))
+        checkpoint_binding_refusals = False
+        if len(checkpoint_paths) == 1:
+            checkpoint_path = checkpoint_paths[0]
+            checkpoint = json.loads(checkpoint_path.read_text(
+                encoding="utf-8"))
+            write_bound_architect_note(
+                repo=repo, note=note,
+                parallel_work_plan=CAPABILITY_UNAVAILABLE_PLAN)
+            checkpoint_evidence = (
+                "### Prior Implementer subagent launch failure\n"
+                "- Source cycle: `" + checkpoint["cycle"] + "`\n"
+                "- Source handoff SHA-256: `"
+                + checkpoint["handoff_sha256"] + "`\n"
+                "- Source: `prior same-cycle IMPLEMENTER_HANDOFF "
+                "checkpoint`\n" + CAPABILITY_UNAVAILABLE_PLAN)
+            note.write_text(
+                note.read_text(encoding="utf-8").replace(
+                    "No implementation evidence yet.",
+                    checkpoint_evidence),
+                encoding="utf-8")
+            directive = module.validate_directive_file(
+                role="architect", path=str(note), expected_max=0)
+            module.verify_manual_capability_checkpoint(
+                directive=directive, source_note="ai/notes/spec.md")
+            archive_path = repo / checkpoint["archive"]
+            original_archive = archive_path.read_text(encoding="utf-8")
+
+            def verification_refuses(candidate, source_note=None):
+                try:
+                    module.verify_manual_capability_checkpoint(
+                        directive=candidate,
+                        source_note=("ai/notes/spec.md" if source_note is None
+                                     else source_note))
+                except module.DirectiveError:
+                    return True
+                return False
+
+            archive_mutations = (
+                original_archive.replace(
+                    "- Raw failure: `", "- Failure returned: `", 1),
+                original_archive.replace(
+                    "- Raw failure: `", "- Extra evidence: inserted\n"
+                    "- Raw failure: `", 1),
+                original_archive.replace(
+                    CAPABILITY_UNAVAILABLE_PLAN,
+                    "\n".join(CAPABILITY_UNAVAILABLE_PLAN.splitlines()[::-1]),
+                    1),
+                original_archive.replace(
+                    "advertised runtime capability registry`",
+                    "different runtime failure`", 1),
+                original_archive.replace(
+                    "- Capability checked: `collaboration.spawn_agent`\n",
+                    "", 1),
+            )
+            archive_refusals = []
+            for mutation in archive_mutations:
+                archive_path.write_text(mutation, encoding="utf-8")
+                archive_refusals.append(verification_refuses(directive))
+            archive_path.write_text(original_archive, encoding="utf-8")
+
+            stale_cycle = copy.deepcopy(directive)
+            stale_cycle["capability_checkpoint"]["cycle"] = (
+                "manual-router-deadbeef@"
+                + directive["execution_checkout"]["Base"])
+            stale_sha = copy.deepcopy(directive)
+            stale_sha["capability_checkpoint"]["handoff_sha256"] = "0" * 64
+            fabricated = copy.deepcopy(directive)
+            fabricated["parallel_work_plan"]["raw_failure"] = (
+                "fabricated later plan value")
+            duplicate = checkpoint_path.with_name(
+                "duplicate-capability-checkpoint.json")
+            duplicate.write_bytes(checkpoint_path.read_bytes())
+            duplicate_refused = verification_refuses(directive)
+            duplicate.unlink()
+            checkpoint_binding_refusals = (
+                all(archive_refusals)
+                and verification_refuses(stale_cycle)
+                and verification_refuses(stale_sha)
+                and verification_refuses(fabricated)
+                and duplicate_refused
+                and verification_refuses(
+                    directive, source_note="ai/notes/other.md"))
+
+        evidence = valid_subagent_evidence()
+        second_heading = "#### Subagent return `regression-writer`"
+        missing_return = implementer_handoff(
+            evidence=evidence[:evidence.index(second_heading)].rstrip())
+        extra_return = implementer_handoff(
+            evidence=evidence + "\n"
+            "#### Subagent return `extra-reviewer`\n"
+            "- Returned artifact: The extra reviewer returned one exact "
+            "command transcript and focused output.\n"
+            "- Acceptance: `pass`\n"
+            "- Evidence: The extra command exited zero and printed the "
+            "complete observable result.")
+        mismatched_name = implementer_handoff(
+            evidence=evidence.replace(
+                "failure-reproducer", "unplanned-reviewer", 1))
+        weak_capability = implementer_handoff(
+            evidence=(
+                "- Capability checked: `collaboration.spawn_agent`\n"
+                "- Attempted operation: Launch the named reproducer subagent "
+                "through the advertised collaboration operation before "
+                "editing.\n"
+                "- Raw failure: `failed`"))
+
+        refused = [
+            route(missing_return),
+            route(extra_return),
+            route(mismatched_name),
+            route(
+                weak_capability,
+                parallel_work_plan=CAPABILITY_UNAVAILABLE_PLAN),
+        ]
+        refusals_stop_before_archive = all(
+            result["rc"] == 1
+            and len(result["copied"]) in {0, 1}
+            and result["archived"] == []
+            and result["gates"] == []
+            and result["released"]
+            and result["reservation_unchanged"]
+            and ("refused Implementer subagent evidence"
+                 in result["output"]
+                 or "refused incomplete Architect directive"
+                 in result["output"])
+            for result in refused)
+
+        print("ARM subagent evidence validation")
+        print("  valid planned returns reach archive and checks:",
+              valid_reaches_checks)
+        print("  blocked return reaches Architect checkpoint only:",
+              blocked_is_checkpoint_only)
+        print("  checkpoint mutations and same-base cross-note reuse refuse:",
+              checkpoint_binding_refusals)
+        print("  missing/extra/mismatched/weak evidence stops before archive:",
+              refusals_stop_before_archive)
+        assert valid_reaches_checks
+        assert blocked_is_checkpoint_only
+        assert checkpoint_binding_refusals
+        assert refusals_stop_before_archive
 
 
 def arm_clipboard_failure():
@@ -524,7 +865,7 @@ def arm_character_budget_binding():
             and "does not match MAILBOX_MAX_CHARACTERS" in
             mismatch_stream.getvalue())
 
-        returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
+        returns = iter([implementer_handoff()])
         module.wait_for_block = lambda **_kwargs: next(returns)
         routed_gate_commands = []
         module.run_gates = lambda commands, seq: (
@@ -562,7 +903,7 @@ def arm_character_budget_binding():
             and "--max 37" in automatic_guard[0])
 
         copied.clear()
-        failed_returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
+        failed_returns = iter([implementer_handoff()])
         module.wait_for_block = lambda **_kwargs: next(failed_returns)
         module.run_gates = lambda commands, seq: (
           "ai/notes/relay/scratch-failed-gates.md", False)
@@ -620,7 +961,7 @@ def arm_discovery_severity_binding():
         def route(extra_arguments, environment_value=None,
                   gates_green=True):
             copied = []
-            returns = iter(["### IMPLEMENTER_HANDOFF: DONE\n"])
+            returns = iter([implementer_handoff()])
             module.copy_to_clipboard = copied.append
             module.wait_for_block = lambda **_kwargs: next(returns)
             module.run_gates = lambda commands, seq: (
@@ -661,7 +1002,9 @@ def arm_discovery_severity_binding():
               and "accepts, upgrades, or downgrades" in copied[1]
               and "Post-acceptance Red Team plan" in copied[1]
               and "First audit the Implementer result" in copied[1]
-              and "close and commit the ticket immediately" in copied[1]
+              and "exact decision-only architect-go block" in copied[1]
+              and "do not merge, commit, or push" in copied[1]
+              and "After the daemon records landing L" in copied[1]
               and not any(prompt.startswith(
                   "### ARCHITECT_REDTEAM_HANDOFF") for prompt in copied))
             successful_bindings.append(passed)
@@ -688,8 +1031,6 @@ def arm_discovery_severity_binding():
            "--skip-redteam does not match the Architect Role plan"),
           (["--no-red-team"], None,
            "--skip-redteam does not match the Architect Role plan"),
-          (["--mode", "second-implementer"], None,
-           "does not match the Architect Role plan"),
         )
         refusals = []
         for arguments, inherited, message in refusal_cases:
@@ -771,7 +1112,7 @@ def arm_structured_review_scope():
 
             def returned_block(header, **_kwargs):
                 waited_headers.append(header)
-                return "### IMPLEMENTER_HANDOFF: DONE\n"
+                return implementer_handoff()
 
             module.wait_for_block = returned_block
             module.run_gates = lambda commands, seq: (
@@ -800,7 +1141,8 @@ def arm_structured_review_scope():
             and bounded_waits == ["### IMPLEMENTER_HANDOFF:"]
             and "Review scope: bounded" in bounded_copies[1]
             and "First audit the Implementer result" in bounded_copies[1]
-            and "accepted commit or change" in bounded_copies[1]
+            and "After the daemon records landing L" in bounded_copies[1]
+            and "names L" in bounded_copies[1]
             and "reviews only the behavior it directly affects"
             in bounded_copies[1]
             and "This later advice does not approve or block"
@@ -823,9 +1165,9 @@ def arm_structured_review_scope():
             and "Review scope: widespread" in widespread_copies[1]
             and "First audit the Implementer result" in widespread_copies[1]
             and "widespread search saved" in widespread_copies[1]
+            and "After the daemon records landing L" in widespread_copies[1]
             and "Any ticket discovered by that search is Low"
             in widespread_copies[1]
-            and "Only afterward" in widespread_copies[1]
             and not any(prompt.startswith(
                 "### ARCHITECT_REDTEAM_HANDOFF")
                 for prompt in widespread_copies))
@@ -1360,12 +1702,12 @@ def arm_primary_checkout_on_feature_branch_refusal():
         assert refused
 
 
-def arm_second_implementer_mode():
-    """A source-note plan, not ``--mode``, assigns Sol to implement."""
-    with tempfile.TemporaryDirectory(prefix="router-second-implementer-") as tmp:
+def arm_sol_implementer_plan_refusal():
+    """A note cannot assign Sol to implementation."""
+    with tempfile.TemporaryDirectory(prefix="router-sol-plan-refusal-") as tmp:
         root = Path(tmp)
         module, repo = load_scratch_router(
-          root, "scratch_router_second_implementer", linked=True)
+          root, "scratch_router_sol_plan_refusal", linked=True)
         note = repo / "ai" / "notes" / "spec.md"
         write_bound_architect_note(
             repo=repo,
@@ -1374,162 +1716,49 @@ def arm_second_implementer_mode():
             discovery_severity="not-used")
         module.ROUTER_LOCK_PATH = str(root / "router.lock")
         relay = repo / "ai" / "notes" / "relay"
+        effects = []
 
-        module.run_gates = lambda commands, seq: (
-          "ai/notes/relay/scratch-gates.md", True)
+        def forbidden_copy(text):
+            effects.append(("copy", text))
 
-        def route(extra_arguments):
-            copied = []
-            waited_headers = []
-            module.copy_to_clipboard = copied.append
+        def forbidden_wait(**_kwargs):
+            effects.append(("wait", "called"))
+            return implementer_handoff()
 
-            def implementer_return(header, **_kwargs):
-                waited_headers.append(header)
-                return "### IMPLEMENTER_HANDOFF: DONE\n"
+        def forbidden_archive(*args, **kwargs):
+            effects.append(("archive", (args, kwargs)))
+            return "ai/notes/relay/unexpected.md"
 
-            module.wait_for_block = implementer_return
-            original_argv = module.sys.argv
-            module.sys.argv = [
-              "handoff_router.py", "--note", "ai/notes/spec.md",
-            ] + list(extra_arguments)
-            stream = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(stream):
-                    rc = module.main()
-            finally:
-                module.sys.argv = original_argv
-            return rc, copied, waited_headers, stream.getvalue()
+        def forbidden_gates(*args, **kwargs):
+            effects.append(("gates", (args, kwargs)))
+            return "ai/notes/relay/unexpected-gates.md", True
 
-        refusal_cases = (
-            ("ten High bug fixes", {"high_bug_fix": 10}),
-            ("one Critical bug", {"critical": 1}),
-            ("both exact boundaries",
-             {"critical": 1, "high_bug_fix": 10}),
-            ("one hundred High features", {"high_feature": 100}),
-        )
-        boundary_refusals = []
-        for label, backlog_counts in refusal_cases:
-            write_backlog(repo=repo, **backlog_counts)
-            parsed = module.backlog_severity_counts()
-            before = sorted(path.name for path in relay.glob("*.md"))
-            refused_rc, copied, waited_headers, output = route([])
-            after = sorted(path.name for path in relay.glob("*.md"))
-            refused_cleanly = (
-                not module.second_implementer_emergency(counts=parsed)
-                and parsed["unclassified"] == 0
-                and refused_rc == 1
-                and copied == []
-                and waited_headers == []
-                and after == before
-                and "refused second-Implementer role" in output
-                and "more than 1 Critical bug" in output
-                and "more than 10 High bugs" in output
-                and "High features do not contribute" in output)
-            print("ARM second-Implementer refusal: " + label)
-            print("  boundary refuses before clipboard/archive work:",
-                  refused_cleanly)
-            boundary_refusals.append(refused_cleanly)
-
-        routed = []
-        write_backlog(repo=repo, high_bug_fix=11)
-        high_counts = module.backlog_severity_counts()
-        routed.append(route([]))
-        write_backlog(repo=repo, critical=2)
-        critical_counts = module.backlog_severity_counts()
-        routed.append(route(["--mode", "second-implementer"]))
-        exact_emergencies = (
-            module.second_implementer_emergency(counts=high_counts)
-            and high_counts["high_bug_fix"] == 11
-            and high_counts["critical"] == 0
-            and module.second_implementer_emergency(counts=critical_counts)
-            and critical_counts["critical"] == 2
-            and critical_counts["high_bug_fix"] == 0)
-        expected = (
-          "OpenAI Sol — this is a role as second Implementer for this unit.")
-        declaration_exact = (
-          module.SECOND_IMPLEMENTER_MODE_SENTENCE == expected)
-        routed_exactly = []
-        for routed_rc, copied, waited_headers, routed_output in routed:
-            sol_prompts = [
-              text for text in copied
-              if (text.startswith("### ARCHITECT_HANDOFF")
-                  and module.SECOND_IMPLEMENTER_MODE_SENTENCE in text)
-            ]
-            prompt_exact = (
-              routed_rc == 0
-              and len(copied) == 2
-              and len(sol_prompts) == 1
-              and len([text for text in copied
-                       if text.startswith("### ARCHITECT_HANDOFF")]) == 1
-              and sol_prompts[0].count(expected) == 1
-              and "\n\n" + expected + "\n\n" in sol_prompts[0]
-              and "Architect + Sol as Implementer" in sol_prompts[0]
-              and "Discovery severity: not-used" in sol_prompts[0]
-              and ".claude/OPUS_ROLE.md" in sol_prompts[0]
-              and "Execution checkout" in sol_prompts[0]
-              and waited_headers == ["### IMPLEMENTER_HANDOFF:"]
-              and all(marker in routed_output
-                      for marker in ("[1/3]", "[2/3]", "[3/3]")))
-            routed_exactly.append(prompt_exact)
-
-        override_refusals = []
-        for arguments, diagnostic in (
-                (["--mode", "redteam"],
-                 "does not match the Architect Role plan"),
-                (["--skip-redteam"],
-                 "--skip-redteam does not match the Architect Role plan"),
-                (["--severity", "medium"],
-                 "does not include Red Team")):
-            before = sorted(path.name for path in relay.glob("*.md"))
-            copied = []
-            module.copy_to_clipboard = copied.append
-            original_argv = module.sys.argv
-            module.sys.argv = [
-              "handoff_router.py", "--note", "ai/notes/spec.md",
-            ] + arguments
-            stream = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(stream):
-                    refused_rc = module.main()
-            finally:
-                module.sys.argv = original_argv
-            after = sorted(path.name for path in relay.glob("*.md"))
-            override_refusals.append(
-                refused_rc == 1
-                and diagnostic in stream.getvalue()
-                and copied == []
-                and after == before)
-
+        module.copy_to_clipboard = forbidden_copy
+        module.wait_for_block = forbidden_wait
+        module.archive = forbidden_archive
+        module.run_gates = forbidden_gates
         original_argv = module.sys.argv
-        module.sys.argv = ["handoff_router.py", "--mode", "backup"]
-        invalid_stream = io.StringIO()
-        backup_rejected = False
+        module.sys.argv = [
+          "handoff_router.py", "--note", "ai/notes/spec.md",
+        ]
+        before = sorted(path.name for path in relay.glob("*.md"))
+        stream = io.StringIO()
         try:
-            with contextlib.redirect_stderr(invalid_stream):
-                module.main()
-        except SystemExit as error:
-            backup_rejected = error.code == 2
+            with contextlib.redirect_stdout(stream):
+                refused_rc = module.main()
         finally:
             module.sys.argv = original_argv
-
-        print("ARM second-Implementer mode")
-        print("  10 High / 1 Critical / High features do not authorize:",
-              all(boundary_refusals))
-        print("  11 High bug fixes or 2 Critical bugs authorize:",
-              exact_emergencies and all(routed_exactly))
-        print("  note alone and matching --mode complete routing:",
-              all(routed_exactly))
-        print("  exact declaration routed once in each run:",
-              declaration_exact and all(routed_exactly))
-        print("  attempts to change the saved plan refuse zero-write:",
-              all(override_refusals))
-        print("  retired backup value rejected:", backup_rejected)
-        assert declaration_exact
-        assert all(boundary_refusals)
-        assert exact_emergencies
-        assert all(routed_exactly)
-        assert all(override_refusals)
-        assert backup_rejected
+        after = sorted(path.name for path in relay.glob("*.md"))
+        refused_cleanly = (
+          refused_rc == 1
+          and "refused incomplete Architect directive" in stream.getvalue()
+          and "one supported Roles value" in stream.getvalue()
+          and effects == []
+          and after == before)
+        print("ARM Sol Implementer plan refusal")
+        print("  unsupported plan refused before clipboard/archive work:",
+              refused_cleanly)
+        assert refused_cleanly
 
 
 def arm_skip_redteam_aliases():
@@ -1555,10 +1784,10 @@ def arm_skip_redteam_aliases():
                 archived_names = []
                 gate_calls = []
 
-                def implementer_handoff(header, last_copied):
+                def returned_implementer_handoff(header, last_copied):
                     waited_headers.append(header)
                     assert last_copied == copied[-1]
-                    return "### IMPLEMENTER_HANDOFF: DONE\n"
+                    return implementer_handoff()
 
                 def archive_transport(seq, name, text):
                     archived_names.append(name)
@@ -1570,7 +1799,7 @@ def arm_skip_redteam_aliases():
                         "ai/notes/relay/" + seq + "-gates-log.md", True)
 
                 module.copy_to_clipboard = copied.append
-                module.wait_for_block = implementer_handoff
+                module.wait_for_block = returned_implementer_handoff
                 module.archive = archive_transport
                 module.run_gates = green_gates
                 original_argv = module.sys.argv
@@ -1633,6 +1862,7 @@ def arm_skip_redteam_aliases():
     help_exact = (
       help_proc.returncode == 0
       and "--skip-redteam, --no-red-team" in normalized_help
+      and "second-implementer" not in normalized_help
       and "confirm that the Architect note chose only Architect and "
           "Implementer" in normalized_help
       and "cannot remove Red Team from another plan" in normalized_help)
@@ -1641,19 +1871,13 @@ def arm_skip_redteam_aliases():
 
 
 def arm_skip_redteam_mode_conflict():
-    """Refuse every ``--mode`` value when the note selects two roles."""
+    """Refuse Red Team mode when the note selects two roles."""
     cases = (
         (["--mode", "redteam"], "redteam without a skip flag"),
-        (["--mode", "second-implementer"],
-         "second Implementer without a skip flag"),
         (["--skip-redteam", "--mode", "redteam"],
          "redteam with --skip-redteam"),
         (["--no-red-team", "--mode", "redteam"],
          "redteam with --no-red-team"),
-        (["--skip-redteam", "--mode", "second-implementer"],
-         "second Implementer with --skip-redteam"),
-        (["--no-red-team", "--mode", "second-implementer"],
-         "second Implementer with --no-red-team"),
     )
     with tempfile.TemporaryDirectory(prefix="router-skip-conflict-") as tmp:
         root = Path(tmp)
@@ -1676,7 +1900,7 @@ def arm_skip_redteam_mode_conflict():
 
             def forbidden_wait(**_kwargs):
                 side_effects.append(("wait", "called"))
-                return "### IMPLEMENTER_HANDOFF: DONE\n"
+                return implementer_handoff()
 
             module.copy_to_clipboard = forbidden_copy
             module.wait_for_block = forbidden_wait
@@ -1716,6 +1940,8 @@ def main():
     arm_sequence_collision()
     arm_clipboard_lock()
     arm_handoff_header()
+    arm_subagent_evidence_boundary()
+    arm_subagent_evidence_validation()
     arm_clipboard_failure()
     arm_integrated_status()
     arm_incomplete_directive_refusal()
@@ -1728,7 +1954,7 @@ def main():
     arm_source_note_boundary_refusal()
     arm_mismatched_execution_checkout_refusal()
     arm_primary_checkout_on_feature_branch_refusal()
-    arm_second_implementer_mode()
+    arm_sol_implementer_plan_refusal()
     arm_skip_redteam_aliases()
     arm_skip_redteam_mode_conflict()
     print("ALL SCRATCH ROUTER REPRODUCTIONS PASS")

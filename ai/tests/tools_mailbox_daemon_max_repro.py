@@ -47,6 +47,33 @@ def load_daemon(source=None):
     return module
 
 
+def install_test_agent_topology_proof(daemon):
+    """Install opaque topology and persistent-state proofs for each role."""
+    agents = ("fable", "opus", "sol")
+    topology_proofs = {agent: object() for agent in agents}
+    persistent_proofs = {agent: object() for agent in agents}
+
+    def validate_topology(agent):
+        return topology_proofs[agent]
+
+    def revalidate_topology(proof):
+        if proof not in topology_proofs.values():
+            raise AssertionError("scratch role topology proof changed")
+        return proof
+
+    def capture_persistent_state(agent):
+        return persistent_proofs[agent]
+
+    def recheck_persistent_state(proof):
+        if proof not in persistent_proofs.values():
+            raise AssertionError("scratch persistent role state changed")
+
+    daemon.validate_live_agent_dispatch_topology = validate_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_topology
+    daemon.capture_persistent_role_state = capture_persistent_state
+    daemon.recheck_persistent_role_state = recheck_persistent_state
+
+
 def tree_snapshot(root):
     """Return the byte-and-type state below a disposable folder."""
     result = []
@@ -81,9 +108,11 @@ def scratch_daemon(source=None):
             "**Red Team reopen count: 0.**\n\n"
             "**Red Team reopening: allowed.**\n",
             encoding="utf-8")
-        claude_worktree = root / "claude-worktree"
+        architect_worktree = root / "architect-worktree"
+        implementer_worktree = root / "implementer-worktree"
         sol_worktree = root / "sol-worktree"
-        claude_worktree.mkdir()
+        architect_worktree.mkdir()
+        implementer_worktree.mkdir()
         sol_worktree.mkdir()
 
         daemon = load_daemon(source=source)
@@ -101,15 +130,15 @@ def scratch_daemon(source=None):
             "sol": ["harmless-sol"],
         }
         daemon.AGENT_CWD = {
-            "fable": str(claude_worktree),
-            "opus": str(claude_worktree),
+            "fable": str(architect_worktree),
+            "opus": str(implementer_worktree),
             "sol": str(sol_worktree),
         }
+        install_test_agent_topology_proof(daemon=daemon)
         daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.report_demand = lambda backlog: None
         daemon.report_landing_debt = lambda: None
-        daemon.reconcile_landing_debt_handoff = lambda: None
         yield daemon, root, mailbox
 
 
@@ -144,7 +173,7 @@ def prepare_finite_once(daemon):
     lock = object()
     daemon.acquire_dispatch_lock = lambda mode: lock
     daemon.release_dispatch_lock = lambda lock_file: None
-    daemon.process_backlog = lambda dry_run: None
+    daemon.process_backlog = lambda dry_run, **kwargs: None
 
 
 def arm_default_and_explicit_zero(source=None):
@@ -206,8 +235,10 @@ def arm_dry_run_once(source=None):
 class ExitAfterOnePass:
     """A watch controller that requests a clean source-change exit."""
 
-    def __init__(self, source_path, source_stamp, ticket_cycle_limit=None):
+    def __init__(self, source_path, source_stamp, ticket_cycle_limit=None,
+                 ticket_cycle_topology=None):
         del source_path, source_stamp, ticket_cycle_limit
+        del ticket_cycle_topology
 
     def source_changed(self):
         return True
@@ -219,7 +250,7 @@ def arm_positive_watch(source=None):
         lock = object()
         daemon.acquire_dispatch_lock = lambda mode: lock
         daemon.release_dispatch_lock = lambda lock_file: None
-        daemon.process_backlog = lambda dry_run: None
+        daemon.process_backlog = lambda dry_run, **kwargs: None
         daemon.SafeKillRendezvous = ExitAfterOnePass
         before = tree_snapshot(root)
         returncode, output, error_output, error = call_main(
@@ -326,8 +357,16 @@ def arm_banner_environment_and_suffix(source=None):
         daemon.MAX_CHARACTERS = 53
         daemon.agent_preamble = (
             lambda agent, message: "scratch role preamble " + agent + "\n")
-        daemon.validate_live_sol_dispatch_topology = lambda: {"ok": True}
-        daemon.revalidate_sol_dispatch_topology = lambda proof: proof
+
+        def ignore_cycle_registration(agent, message,
+                                      return_reservation=False, **kwargs):
+            """Keep this character-budget witness outside cycle Git state."""
+            del agent, message, kwargs
+            if return_reservation:
+                return None, None, False
+            return None, None
+
+        daemon.register_ticket_cycle_message = ignore_cycle_registration
         calls = []
         daemon.subprocess.Popen = fake_popen(calls=calls)
         consumed = []
@@ -344,9 +383,14 @@ def arm_banner_environment_and_suffix(source=None):
         for agent, call in zip(("fable", "opus", "sol"), calls):
             prompt = call["command"][-1]
             primary = daemon.AGENT_CWD["fable"]
+            implementer = daemon.AGENT_CWD["opus"]
             observations.append(
                 call["env"].get("MAILBOX_MAX_CHARACTERS") == "53"
                 and call["env"].get("MAILBOX_PRIMARY_WORKTREE") == primary
+                and call["env"].get("MAILBOX_IMPLEMENTER_WORKTREE")
+                == implementer
+                and call["env"].get("MAILBOX_EXECUTION_WORKTREE")
+                == implementer
                 and call["env"].get("MAILBOX_SHARED_NOTES")
                 == str(pathlib.Path(primary) / "ai" / "notes")
                 and call["env"].get("MAILBOX_HANDOFF_CONTRACT")

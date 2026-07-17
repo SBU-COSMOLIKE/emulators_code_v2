@@ -142,7 +142,7 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
    documentation, plotting, terminal, YAML, environment, and collaboration
    rules, including the permanent bug-versus-feature classification, backlog
    priorities and checksum practice, advisory Red Team reopening and finding
-   notes, discovery limit, and second-Implementer emergency rule.
+   notes, discovery limit, separate role lanes, and the one-ticket cycle rule.
 4. **[`python-changes-go-no-go.md`](python-changes-go-no-go.md)** — the
    mandatory style contract for every Python change.
 5. **[`models-and-designs.md`](models-and-designs.md)** — model families,
@@ -175,19 +175,45 @@ detail because the records describe temporary work.
 The Architect and Red Team provide the reasoning. A directive must resolve
 design choices and give the Implementer complete, ordered steps. The
 Implementer may use a simpler model and must return a blocker instead of
-inventing missing architecture. Architect acceptance closes and commits an
-Implementer fix without waiting for Red Team. A later Red Team finding remains
-advice: the Architect records its `NEW TICKET` or `REOPEN` bookkeeping first
-and assesses the detailed finding note only when priority brings the ticket
-forward. A normal cycle still waits for one review of the exact accepted
-commit before a finite watcher exits; emergency cycles instead require two
-different committed tickets, one per Implementer. A finished admitted
-emergency ticket with no admitted opposite-route partner is completed without
-a cycle count or retroactive review. High and Critical ratings
-require explicit comparisons with the next lower severity, and an Architect
-NO-GO to reopening permanently bars that ticket from another `REOPEN`. The
-required fields in each role-to-role instruction are defined in
+inventing missing architecture. Architect acceptance authorizes the parent
+daemon to build and verify one exact local `main` landing without waiting for
+Red Team. Fable records only the GO decision; Fable does not merge, commit,
+update a Git reference, or push. A later Red Team finding remains advice: the
+Architect records its `NEW TICKET` or `REOPEN` bookkeeping first and assesses
+the detailed finding note only when priority brings the ticket forward. A
+normal cycle still waits for one review of the exact daemon-created landing
+commit before a finite watcher exits. One ticket always equals one cycle.
+With `--skip-redteam`, the verified local landing completes that ticket's
+cycle because that watcher has no Red Team pass. A remote push failure becomes
+visible push debt and does not erase or endlessly repeat a valid local
+landing. A positive cycle limit is one shared admission total for the watch.
+When another slot remains,
+the Implementer may code the next admitted ticket while the Architect audits
+an earlier immutable candidate C and the Red Team reviews an earlier
+daemon-recorded landing L. Only the Implementer lane edits source code.
+Severity never selects roles. Every Architect implementation directive
+assigns bounded subagent work. The Implementer attempts every named launch
+before an Integrator-owned edit, runs independent non-overlapping work at the
+same time, integrates every return, and personally runs the combined
+validation. Only an actual pre-edit runtime rejection can begin the bound
+same-cycle capability-exception path. High and Critical ratings require
+explicit comparisons with the next lower severity, and an Architect NO-GO to
+reopening permanently bars that ticket from another `REOPEN`. The required
+fields in each role-to-role instruction are defined in
 `.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
+
+Permanent-note changes use a separate Architect-only administration turn;
+they are never folded into an Implementer ticket or a Red Team review. From a
+bound Architect turn, the Architect queues that work with
+`handoff_router.py --architect-notes-admin` and a plain-language summary. The
+turn runs only after ordinary ticket, candidate, landing, and closure work is
+idle. If durable knowledge changes, the Architect creates one clean commit P
+directly on the unchanged local-main commit B, changes only one or more of the
+eleven permanent notes, and returns the exact B/P `architect-notes-go`
+message. The parent daemon validates and fast-forwards B to P, records any
+push debt, and advances only clean safe role baselines. This administration
+uses no ticket cycle and receives no Sol review, but an unresolved admin turn
+or P landing prevents a watcher from claiming a clean exit.
 
 Roles exchange instructions by saving and moving Markdown files through the
 mailbox folders. A received final message needs no artificial reply only when

@@ -223,6 +223,25 @@ there is no independent Red Team model option. None of these choices changes
 role authority, Git worktree ownership, mailbox route, or evidence
 requirements.
 
+Only the Implementer edits source code, tests, or ordinary tracked
+documentation for a ticket. The Architect writes plans, maintains the local
+backlog and permanent notes, audits named commits, and records GO or NO-GO.
+The parent daemon performs the controlled landing after an Architect GO. The
+Red Team writes findings and audit returns. Architect and Red Team audits read
+an immutable commit by its full hash instead of treating the Implementer's
+changing working folder as evidence.
+
+The roles have independent runtime lanes. The Implementer uses a saved
+implementation worktree. The Architect uses the coordination worktree, and
+Sol uses the Red Team worktree. When the finite cycle limit has another unused
+ticket slot, the Implementer may code ticket B while the Architect audits
+ticket A's immutable candidate C and the Red Team reviews an earlier
+daemon-recorded landing L. This overlap
+does not combine tickets: each ticket keeps its own base, commit, messages,
+and one-cycle count. The parent daemon uses the landing lock and never borrows
+the Implementer's working folder. Fable never edits the user's checkout or runs
+the merge, commit, reference-update, or push command for a ticket landing.
+
 The Architect's source note is the authority for role topology and discovery
 severity. Manual router options only confirm that saved plan. A disagreement
 between the note and a manual option refuses before any lock, clipboard,
@@ -236,12 +255,79 @@ archive, or mailbox write. A detailed Architect directive includes:
 - named tests with expected observations;
 - exact validation commands;
 - stop conditions; and
-- non-overlapping ownership when work is divided.
+- non-overlapping ownership when work is divided; and
+- a subagent plan for independent reproduction, implementation, test,
+  documentation, or review work.
 
 The instruction must be complete enough for a simple Implementer to execute
 without inventing design decisions. A design-sensitive gap is a blocker. The
 Implementer reports the exact missing fact and waits for a revised Architect
 directive.
+
+The Implementer delegates independent bounded parts to subagents when the
+selected runtime supports them. The Implementer then integrates their work,
+reviews every changed file, and runs the final validation. A small or focused
+ticket is not an exception: a subagent can independently reproduce the bug,
+check the regression, or inspect the evidence while the Implementer edits.
+Only a runtime with no subagent support excuses delegation. In that case, the
+Implementer records the concrete capability failure and raw evidence. It
+never claims that delegation occurred when it did not.
+
+`handoff_contract.py` rejects an informal sentence such as “use helpers where
+useful.” The Architect writes one executable contract per helper. For
+example, a mailbox-parser ticket can contain:
+
+```markdown
+- Launch: `required before implementation edits`
+#### Subagent `failure-reproducer`
+- Mode: `read-only`
+- Ownership: `none (read-only)`
+- Task: Run the named malformed-message test before any source edit.
+- Return: Return the exact command, exit code, and failing assertion output.
+- Acceptance: The output shows the expected pre-edit parser failure.
+- Stop: Stop if the standard-library test cannot start.
+#### Integrator
+- Integration: Launch every helper before the Implementer begins its own owned edit. Let non-overlapping work run at the same time. Review every return before integrating helper work and before final validation.
+- Final validation: Run `python3 -m unittest ai.tests.test_handoff_contract` and require exit zero.
+```
+
+An editing helper uses `Mode: edit` and owns exact, backticked
+`repo/path::symbol` entries. One editing helper owns the whole file; two
+helpers may not claim different symbols in the same file because their edits
+could still collide.
+
+The first directive always contains named helper jobs. A capability exception
+is never guessed in advance. If the Implementer attempts the named launch and
+the runtime rejects it before editing, the Implementer marks that helper
+`blocked` in the same-cycle `IMPLEMENTER_HANDOFF`. As the final rows inside
+that handoff's `Subagent work` evidence, the Implementer records the exact
+`Capability checked`, `Attempted operation`, and `Raw failure` values from
+the first rejected pre-edit launch. The relay records the full current cycle
+and SHA-256 digest of that complete blocked handoff. The Architect then
+copies those three digest-bound rows character-for-character into the
+replacement plan and copies both binding rows plus the same failure evidence
+under this required sibling block:
+
+```markdown
+### Prior Implementer subagent launch failure
+
+- Source cycle: `ticket-anchor@0123456789abcdef0123456789abcdef01234567`
+- Source handoff SHA-256: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
+- Source: `prior same-cycle IMPLEMENTER_HANDOFF checkpoint`
+- Capability checked: `exact.launch.operation`
+- Attempted operation: Launch the named subagent through the advertised operation before implementation edits.
+- Raw failure: `the unchanged runtime error`
+```
+
+The relay verifies both binding rows and all three copied failure values
+against the saved handoff before the Architect's revised plan can run. A
+missing, paraphrased, normalized, or invented value refuses the exception.
+The Architect revalidates and sends that revised same-cycle directive. A
+speculative or stale-cycle exception fails validation. “The ticket is small”
+and “the work is indivisible” are not exceptions. A truthful `blocked` helper
+return may be used for this checkpoint, but unresolved blocked work cannot
+support final `GO`; every helper in the final ordinary plan must return
+`pass`.
 
 When enabled, Red Team reviews the named change and directly affected
 behavior. A repository-wide attack happens only when the Architect records an
@@ -265,7 +351,11 @@ does not change the scope of a named-change review.
   when evidence shows that a current defect broadly breaks a central library
   workflow or systematically makes the library's scientific results invalid.
 - **High** covers a defect that severely damages core behavior, loses data,
-  halts normal operation, or can make the scientific result wrong.
+  halts normal operation, or makes a primary scientific result wrong. A
+  primary result is the generated training data, the trained emulator, the
+  value served to a scientific caller, or another central library output. A
+  misleading plot, diagnostic ranking, optional report, or supporting export
+  is normally Medium because it does not change those primary results.
 - **Medium** includes High defects and concrete defects that are reasonably
   likely during normal use. A merely theoretical or very improbable edge case
   does not qualify. Medium is the default.
@@ -279,20 +369,25 @@ alone decides whether the finding becomes a ticket.
 High is deliberately difficult to assign, although its bar is lower than
 Critical. For every proposed or accepted High ticket, the Red Team and
 Architect state the demonstrated severe impact and why Medium is not enough.
+Writing only “wrong science” does not satisfy this comparison. The explanation
+must name the primary calculation, training data, served result, data-loss
+boundary, or core operation that the defect damages. If the demonstrated harm
+ends in a plot, diagnostic, ranking, or optional analysis product, classify it
+Medium unless separate evidence shows that the same defect also changes a
+primary result or stops a core workflow.
 Urgency, a missing test, unfinished cleanup, an expensive validation run, or a
 desire to work sooner is not by itself High evidence. If that comparison is
 missing, the rating is NO-GO and defaults to Medium until evidence supports an
-upgrade. This restraint prevents routine work from keeping Sol in emergency
-second-Implementer duty and removing the independent review that Sol normally
-provides.
+upgrade. This restraint preserves a meaningful work order. Severity never
+selects a role or changes the number of Implementers.
 
 The Critical bar is deliberately much higher than the High bar. A ticket is
 not Critical merely because it is High, urgent, scientific, hard to fix,
 limited to one important family or platform, or lacks a convenient workaround.
 Before assigning Critical, the Architect records why High is insufficient and
 the exact evidence for broad library breakage. The Architect never promotes a
-ticket to Critical merely to cross an emergency threshold or obtain another
-Implementer.
+ticket to Critical to change the number or kind of active roles. Severity
+controls work order; it never changes a role.
 
 A High discovery setting does not authorize a repository-wide search.
 Critical is not accepted by `--severity` or `MAILBOX-SEVERITY`. Fix-only mode,
@@ -321,34 +416,36 @@ Architect returns NO-GO and asks for a smaller ticket or a changed limit.
 ## Persisted agent worktrees
 
 Ordinary agent work never occurs in the user's repository checkout. The
-mailbox system owns two persisted worktrees. `<REPO_ROOT>` means the top folder
+mailbox system owns three persisted worktrees. `<REPO_ROOT>` means the top folder
 of the checked-out emulator repository:
 
 | Resource | Required value |
 | --- | --- |
-| Claude coordination name | `mailbox-primary` |
-| Claude worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
-| Claude branch | `refs/heads/claude/mailbox-primary` |
-| Claude state | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Architect coordination name | `mailbox-primary` |
+| Architect worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Architect branch | `refs/heads/claude/mailbox-primary` |
+| Architect state | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Implementer worktree name | `mailbox-implementer` |
+| Implementer worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-implementer` |
+| Implementer branch | `refs/heads/claude/mailbox-implementer` |
+| Implementer state | `<REPO_ROOT>/.claude/worktrees/.mailbox-implementer-worktree.json` |
 | Sol worktree name | `mailbox-sol` |
 | Sol worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-sol` |
 | Sol branch | `refs/heads/codex/mailbox-sol` |
 | Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 | Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
 
-Architect and Implementer share the Claude coordination worktree because they
-work one after another and both must see the same uncommitted code, note,
-staging area, and mailbox. Sol uses the independent Sol worktree. Changing a
-model option never selects a different worktree.
+The Architect, Implementer, and Sol use three different Git worktrees and
+branches. Changing a model option never selects a different worktree. Only
+the Implementer lane edits tracked source. The Architect audits a detached
+snapshot of the exact candidate commit, and Sol reviews a detached snapshot
+of the exact daemon-recorded landing L. Neither review follows the Implementer's moving
+branch.
 
-In normal advisory Red Team work, Sol does not edit tracked files or create a
-commit. Sol edits code, tests, or tracked documentation in the saved Sol
-worktree only for an explicit second-Implementer unit or another separately
-authorized tracked unit; neither case permits edits to the permanent eleven.
-The primary Claude worktree's `ai/notes/` directory is the one shared
+The primary Architect worktree's `ai/notes/` directory is the shared
 coordination location for mailbox files, relay copies, the local backlog, and
-temporary records. Sol receives explicit access to that directory and must
-not create a second active mailbox or backlog under the Sol worktree.
+temporary records. The other roles receive explicit access to that directory
+and must not create another active mailbox or backlog in their own worktrees.
 
 Each state record stores the canonical Git common directory, stable name,
 absolute path, and full branch reference. Every reuse is checked against
@@ -383,10 +480,16 @@ move` may update the saved path after full validation. Detached branches,
 wrong branches, deleted refs, manual directory moves, corrupt state, prunable
 worktrees, or unregistered branches refuse without fallback.
 
-The daemon preserves dirty, ahead, and diverged work. It never stashes,
-cleans, resets, checks out, prunes, merges, fetches, pulls, pushes, or invents
-a replacement worktree. Recovery starts by preserving the state and transport
-paths and comparing them with Git's registered worktrees.
+Ordinary recovery never resets or prunes the user's checkout or a dirty,
+unverified persistent role folder. It may reset only the verified clean
+Implementer lane to the exact commit saved for that cycle. It may prune Git's
+stale registration only after it has verified and removed an unchanged
+disposable audit snapshot. It does not stash, clean, fetch, pull, or invent a
+replacement worktree. The one bounded exception is the parent daemon's
+post-GO landing operation described below: it may fast-forward a verified
+clean user `main` checkout to an already prepared exact landing and attempt a
+non-force push. Recovery starts by preserving the state and transport paths
+and comparing them with Git's registered worktrees.
 
 ## Notes-first communication and mailbox transport
 
@@ -401,9 +504,9 @@ remaining obligations, and acceptance conditions.
 Red Team is always advisory, including when its model is more capable than the
 Architect or Implementer model. It can find defects and propose evidence, but
 it cannot decide a ticket, change the backlog, direct an Implementer, require a
-GO, delay a commit, or veto a landing. Its influence must come from reading the
-authorized code adversarially and explaining a real bug persuasively to the
-Architect and a human reader.
+GO, delay an accepted local landing, or veto that landing. Its influence must
+come from reading the authorized code adversarially and explaining a real bug
+persuasively to the Architect and a human reader.
 
 Every `Backlog action: NEW TICKET` or `Backlog action: REOPEN` return has one
 ignored temporary Markdown note at the stable repository-relative path
@@ -468,7 +571,7 @@ Only when priority later brings that ticket forward does the Architect assess
 the note, perform targeted independent verification, set the final severity,
 and decide whether to plan a repair. A missing or weak section is recorded as
 evidence the Red Team must improve then; it never holds admission bookkeeping
-or an unrelated accepted commit open.
+or an unrelated daemon-recorded landing open.
 
 ### Backlog ticket GO / NO-GO
 
@@ -514,12 +617,12 @@ Within one permitted group, preserve index order unless a recorded blocker or
 prerequisite requires moving to the next ticket.
 
 Every ticket also keeps an integer named **Red Team reopen count**. It starts
-at `0` and never resets. This number records how many end-of-cycle Red Team
-reviews said `REOPEN`. The Architect performs that state change as quick
-bookkeeping: increment the count, restore the open ticket, acknowledge the
-return, and leave the deeper evidence review for a later Architect turn. This
-prevents an advisory finding from disappearing merely because the Architect
-was busy when the return arrived.
+at `0` and never resets. This number records how many Red Team reviews in the
+final step of a normal cycle said `REOPEN`. The Architect performs that state
+change as quick bookkeeping: increment the count, restore the open ticket,
+acknowledge the return, and leave the deeper evidence review for a later
+Architect turn. This prevents an advisory finding from disappearing merely
+because the Architect was busy when the return arrived.
 
 The Architect still has the final word after that immediate bookkeeping. When
 the count is greater than `1`, the Architect later compares the new evidence
@@ -541,18 +644,19 @@ change the ticket, its count, or its reopening state.
 
 Red Team is always advisory. The ordinary acceptance path is: the Architect
 assigns a ticket, the Implementer repairs it, the Architect audits the repair,
-and an Architect `GO` closes and commits the ticket immediately. Red Team does
-not supply a required `GO`, and the Architect never waits for Red Team before
-committing an accepted fix.
+and an Architect `GO` authorizes the parent daemon to create and verify one
+local landing immediately. Red Team does not supply a required `GO`, and the
+Architect never waits for Red Team before authorizing an accepted fix.
 
-A normal cycle follows one ticket through Architect/Implementer exchanges,
-Architect GO, one accepted commit, and one Red Team review of that exact
-commit. If the bug remains, the handoff says `Backlog action: REOPEN`. The
-Architect may start the next ticket while that advisory review is pending, so
-work does not deadlock. A finite watcher, however, does not count or exit that
-cycle until the correlated Red Team return exists. On receipt, the Architect
-immediately restores an allowed ticket and increments its reopen count. The
-Architect evaluates the evidence, final priority, and GO/NO-GO later.
+A cycle follows one ticket through Architect/Implementer exchanges,
+Architect GO, one daemon-created landing, and one Red Team review of that exact
+landing. If the bug remains, the handoff says `Backlog action: REOPEN`. The
+Architect may start the next ticket while that advisory review is pending only
+when the selected cycle limit has another unused ticket slot. A finite watcher
+does not count or exit that cycle until the correlated Red Team return exists.
+On receipt, the Architect immediately restores an allowed ticket and
+increments its reopen count. The Architect evaluates the evidence, final
+priority, and GO/NO-GO later.
 
 #### Recreate the local backlog consistently
 
@@ -586,18 +690,17 @@ Medium, and Low use the harm and likelihood definitions in the permanent
 workflow contract.
 
 Every ticket has a Red Team reopen count that starts at zero. A ticket moved
-to Closed does not wait for Red Team approval. At the end of a cycle, Red Team
-may send REOPEN if the bug remains. The sixth REOPEN assessment automatically
-makes that ticket Low.
+to Closed does not wait for Red Team approval. In the final step of a normal
+cycle, Red Team may send REOPEN if the bug remains. The sixth REOPEN
+assessment automatically makes that ticket Low.
 
 Every ticket also says whether Red Team reopening is allowed. An Architect
 NO-GO to reopening is permanent; that ticket is barred from another REOPEN.
 
 New discovery stops when ten or more Critical, High, and Medium tickets are
-open; Low tickets do not enter that count. Sol may act as a second Implementer
-only in an emergency with more than one Critical Bug fix or more than ten High
-Bug fix tickets. A malformed open line blocks both decisions until the
-Architect repairs it.
+open; Low tickets do not enter that count. Severity never selects a role. Sol
+remains the advisory Red Team when enabled. A malformed open line blocks
+discovery decisions until the Architect repairs it.
 
 # Open tickets
 
@@ -627,7 +730,8 @@ No closed tickets.
 The introductory `How to read this backlog` section says, in ordinary
 language, that priority controls work order, type distinguishes a repair from
 a new capability, and each exact `- OPEN` index line represents one unfinished
-ticket. It also states the discovery and emergency counts below. An empty
+ticket. It also states the discovery count and the explicit role-selection
+rule below. An empty
 priority group remains visible. When its first ticket is added, the Architect
 replaces the `No open PRIORITY tickets.` sentence with the index line; the
 empty sentence and a ticket line never appear together. A clean clone with no
@@ -775,14 +879,19 @@ detailed section below `# Closed tickets`, changes `**OPEN.**` to
 `**CLOSED.**`, and changes `What is missing` to the exact sentence `Nothing
 for this ticket.` The title, anchor, type, final priority, reopen count,
 reopening state, human summary, completed work, and technical evidence remain.
-The Architect then
-commits the accepted Implementer fix without waiting for Red Team. If any
-required action remains, the ticket stays open or that action receives its own
-linked open ticket.
+The Architect then emits the exact decision-only `architect-go` request for
+the audited Implementer candidate C without waiting for Red Team. After that
+Architect process exits, the daemon creates and verifies distinct landing L,
+fast-forwards a clean unchanged user `main`, and records any remote push debt.
+The Architect does not merge, commit, update a Git reference, target the
+user's checkout, or push for the ordinary ticket. If any required action
+remains, the ticket stays open or that action receives its own linked open
+ticket.
 
-At the end of each normal cycle, Red Team reviews the one ticket and accepted
-commit from that cycle. A no-finding result is advisory and changes nothing.
-If the bug remains and reopening is still allowed,
+As the final step of each normal cycle, Red Team reviews the one ticket and
+daemon-recorded landing L from that cycle. A no-finding result is advisory and
+changes
+nothing. If the bug remains and reopening is still allowed,
 the handoff says `Backlog action: REOPEN`. The Architect does not stop to audit
 or reproduce the bug: immediately increment the reopen count, apply the
 greater-than-five Low rule, move the full section back to the matching open
@@ -834,15 +943,15 @@ updated:
 | Status | Appears in the correct Open or Closed section and agrees with the linked `- OPEN` index | Is missing, contradictory, or described as closed while required work remains hidden in prose |
 | Partial work | Separates completed work from missing work | Treats a landed partial fix or local test result as ticket closure |
 | Ticket type | Records Bug fix or New functionality and applies its ordering rule | Omits type, labels a feature Critical, or lets a feature bypass a higher-priority item |
-| Severity | The Architect records Critical, High, Medium, or Low from concrete harm and likelihood, explains why Medium is insufficient for High and why High is insufficient for Critical, and places the ticket in that priority group | Severity is omitted, copied from Red Team without review, High or Critical lacks its required comparison, or a ticket is ordered below a lower-severity ticket without a recorded blocker |
+| Severity | The Architect records Critical, High, Medium, or Low from concrete harm and likelihood, explains why Medium is insufficient for High and why High is insufficient for Critical, names the primary result or core workflow harmed by a High bug, and places the ticket in that priority group | Severity is omitted, copied from Red Team without review, says only “wrong science,” promotes a plot or diagnostic defect without evidence of primary harm, High or Critical lacks its required comparison, or a ticket is ordered below a lower-severity ticket without a recorded blocker |
 | Reopen count | Uses one canonical nonnegative integer, starts at zero, never resets, and increments for every formal Red Team `REOPEN` assessment | Omits the count, uses prose instead of an integer, resets it, or loses a Red Team reopening return |
 | Reopening state | Uses exactly `allowed` until an Architect NO-GO permanently changes it to `barred by Architect NO-GO`; a barred ticket cannot be reopened | Omits the state, removes a permanent bar, changes a barred ticket after another REOPEN, or treats a different defect as the same ticket |
 | Repeated reopening | Immediately restores every Red Team `REOPEN` return, then later compares new evidence with earlier attempts; a count above five forces Low | Delays the bookkeeping for a full audit, calls every repeated objection obnoxious without evidence, or keeps a priority above Low after the sixth attempt |
-| Red Team authority | Red Team advice never blocks Architect acceptance, closure, commit, or landing | Requires a Red Team GO, delays an accepted commit for Red Team, or lets Red Team edit the backlog |
+| Red Team authority | Red Team advice never blocks Architect acceptance or the daemon's verified local landing | Requires a Red Team GO, delays an accepted local landing for Red Team, or lets Red Team edit the backlog |
 | New Red Team ticket | The handoff says `Backlog action: NEW TICKET`; the Architect records it promptly with provisional Red Team priority and analyzes it later | The finding waits outside the backlog while the Architect performs a full audit, or another role writes the backlog directly |
 | Red Team source note | A `NEW TICKET` or `REOPEN` cites one stable repository-relative finding note with every persuasive-note heading and the backlog preserves the exact `See further instructions at ...` line | Uses an absolute or dated path, omits the note citation, gives a thin assertion, hides uncertainty or exclusions, inflates severity, or invents evidence |
 | Technical detail | Preserves exact evidence in the technical record after the human explanation | Removes evidence or makes a human decode it before learning the problem |
-| Closure | The Architect accepted the Implementer fix, every required action passed, and `What is missing` says nothing remains for this ticket | A required hardware run, scientific check, Architect decision, merge, or note update remains |
+| Closure | The Architect accepted the Implementer fix, the daemon verified its exact local landing, every required ticket action passed, and `What is missing` says nothing remains for this ticket; separately recorded remote push debt does not reopen the ticket | A required hardware run, scientific check, Architect decision, daemon landing, or note update remains |
 | Open-count check | The number of linked `- OPEN` index lines equals the number of detailed open ticket sections | The watcher count can omit, duplicate, or point to a missing ticket |
 
 Malformed backlog state always fails closed. This includes an `- OPEN` line
@@ -916,8 +1025,9 @@ The Architect updates the ticket in the same turn as every state change,
 including dispatch, returned evidence, GO or NO-GO, landing, a Red Team
 `REOPEN`, a `NEW TICKET` return, and a new or cleared blocker. The ticket stays OPEN until
 implementation, required evidence, Architect review, landing, and any required
-permanent-note update are complete. Architect acceptance then closes and
-commits it without waiting for Red Team; a later advisory review may reopen it.
+permanent-note update are complete. Architect acceptance closes the backlog
+ticket and emits the exact GO request without waiting for Red Team. The daemon
+then creates and records L; a later advisory review may reopen the ticket.
 
 The Architect note has one current `## Implementation directive`. A confirmed
 Red Team return has one current `## Repair directive`. The appropriate
@@ -940,13 +1050,17 @@ In two-role mode, Architect and Implementer communicate directly through the
 mailbox and no Sol message is created. Existing Sol messages remain untouched
 until a normal three-role watch handles them.
 
+Sol is never reassigned as an Implementer. A normal watch uses Sol only for
+advisory Red Team review and discovery. `--skip-redteam` turns that role off;
+it does not convert the role into another source-code editor.
+
 Five finished role turns or 15 elapsed minutes creates an occasional manual
 safe-stop opportunity. At that boundary, the watcher temporarily stops
 starting new work, lets every job already starting or running finish, and
 opens the 20-second Ctrl-C countdown. This timing boundary is not a cycle and
 never changes the `--cycle` count.
 
-A normal **ticket cycle** concerns exactly one indexed Open ticket. Its first
+A **ticket cycle** always concerns exactly one indexed Open ticket. Its first
 Implementer handoff starts with these saved lines:
 
 ```text
@@ -958,12 +1072,29 @@ MAILBOX-MODE: normal
 The cycle and mode remain unchanged through every Architect/Implementer return.
 The first handoff must go to the actual Implementer; an Architect message
 cannot invent an unbound cycle. The anchor must name exactly one Open backlog
-ticket, and the starting commit must exist. After Architect GO, the accepted
-commit must be a different descendant of that starting commit. The Architect
-records that commit for the daemon and sends Sol one review of the exact ticket
-and commit. Sol returns `NO CHANGE` or `REOPEN`. That return completes the
-cycle count. The Architect may already be working on the next ticket, but a
-finite watcher waits for the return before exiting.
+ticket, and the starting commit must exist. After the audit, Fable records this
+exact decision-only request and performs no Git write:
+
+```text
+MAILBOX-RETURN: architect-go
+MAILBOX-CYCLE: ticket-anchor@full-starting-commit
+MAILBOX-CANDIDATE: full-implementer-candidate
+MAILBOX-MODE: normal
+MAILBOX-DECISION: GO
+```
+
+The parent daemon proves that the request names the saved candidate. It then
+creates a distinct one-parent landing commit, verifies that the landing is the
+candidate's exact clean squash onto the current `main`, and fast-forwards only
+a clean, still-matching user `main` checkout. In normal mode, Sol receives one
+review of that exact landing and returns `NO CHANGE` or `REOPEN`. That return
+completes the cycle count. The Architect may already be working on the next
+ticket only when the finite limit has another unused ticket slot. The watcher
+waits for the correlated Red Team return before counting or exiting that
+normal cycle.
+
+In `two-role` mode, the verified local landing completes the ticket and its
+cycle because that watcher has no Red Team pass.
 
 Cycle settings control planned stopping:
 
@@ -979,74 +1110,103 @@ reports that completion could not be verified.
 
 Backlog prose never creates a mailbox request. Fix-only mode permits work that
 closes an existing ticket but refuses discovery and every request to create a
-new ticket. With `--skip-redteam`, positive cycle counts are invalid because a
-normal cycle requires a Red Team return. `--cycle 0` remains valid and drains
-all enabled two-role work; those ticket flows use `MAILBOX-MODE: two-role` and
-do not increment a cycle count.
+new ticket. Positive cycle counts work with both role setups. Two-role ticket
+flows use `MAILBOX-MODE: two-role`.
 
-### Discovery demand and a second Implementer
+### Discovery demand
 
-Two separate severity counts control two separate decisions:
+The open-ticket count controls one decision:
 
 1. **New-discovery admission.** Count open Critical, High, and Medium backlog
    tickets. Ten or more stops new discovery so accepted work can be closed.
    Open Low tickets and waiting mailbox files do not count. An unclassified
    open line fails closed until the Architect repairs its classification.
-2. **Second-Implementer emergency.** Count Critical bugs and High bugs
-   separately. Sol may become a second Implementer only when more than one
-   open bug is Critical or more than ten open bugs are High. High features,
-   Medium work, Low work, and waiting mailbox files do not contribute.
 
 Queue depth remains useful status information, and every open ticket,
 including Low, still prevents a `--cycle 0` run from claiming that all work is
-finished. Neither threshold changes Sol's role automatically. During a proven
-emergency, the Architect must still assign Sol for one named ticket in a
-validated directive. Sol then follows the Implementer contract and cannot
-audit the same ticket.
+finished. Severity never changes Sol's role. Sol remains the advisory Red Team
+in a normal watch and is absent from a `--skip-redteam` watch.
 
-During an emergency, the primary ticket flow uses
-`MAILBOX-MODE: emergency-primary` and Sol's separate ticket flow uses
-`MAILBOX-MODE: emergency-second`. One emergency cycle completes only after the
-Architect accepts and commits two different ticket anchors at two different
-descendant commits, one through each Implementer, during the same emergency
-period. These two commits replace the normal Red Team pass because Sol has no
-review capacity while implementing.
-
-Emergency status is checked again as tickets close. As soon as no more than
-one Critical bug and no more than ten High bugs remain, the Architect assigns
-no new Sol implementation ticket. A Sol implementation already admitted and
-started may finish and complete its saved pair; a file that was only waiting
-and never admitted is not a reserved emergency assignment. After outstanding
-work returns, Sol resumes Red Team review. `--cycle 0` still means drain all
-recorded work: it does not force the remaining non-emergency tickets to run
-without Red Team.
-
-If an admitted emergency ticket finishes after the threshold clears and no
-opposite-route ticket from that emergency period was admitted, save the
-ticket as completed without incrementing the cycle count. It receives no
-retroactive Red Team pass because its emergency mode is immutable. Do not
-admit a new emergency ticket merely to fill the missing half.
+Before any Implementer request is moved from the mailbox root, the daemon
+reserves one slot from the shared positive cycle limit. Active tickets,
+accepted tickets waiting for a Red Team return, and completed returns saved
+for delivery all consume that same limit. If no slot remains, the next request
+stays byte-for-byte at the mailbox root. A restart restores the durable count
+before it admits more work. This prevents `--cycle 1` from starting ticket B
+while ticket A waits for its Red Team return. It also prevents concurrent
+watch attempts from each spending the full limit.
 
 Only the Architect decides whether an accepted change alters a permanent
 general property. Permanent notes are not edited by an Implementer or Red
 Team. Routine milestones do not create permanent-note churn.
 
-## Landing and branch discipline
-
-Without an explicit grant, the user performs commit, merge, and push. A
-daemon-dispatched Architect has the narrow standing grant to create and push
-one squash commit for one audited GO result after checking for foreign
-commits. No other role inherits that authority. Only the Architect uses the
-main-landing lock. Only `main` is pushed; working branches remain local.
-
-After a squash lands on `main`, the working branch merges `main` locally:
+When a permanent rule really changes, the Architect queues one separate
+administration turn from its bound primary worktree:
 
 ```bash
-git merge main
+python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
+  --architect-notes-admin "PLAIN-LANGUAGE SUMMARY"
 ```
 
-`--ff-only` is incorrect because the squash and fine-grained branch histories
-intentionally diverge even when their trees match.
+This publisher is Architect-only. It writes the exact
+`MAILBOX-ADMIN: permanent-notes` self-route and refuses a second unresolved
+note update. The admin turn begins only when ordinary ticket reservations,
+candidate and landing recovery, role processes, and closure review are idle.
+It is the sole role launch in that mailbox pass. It may make no change and
+return silently. If a permanent note must change, it creates one clean commit
+P whose single parent is the exact unchanged local-main commit B. P modifies
+at least one of the eleven permanent Markdown notes and no other tracked path.
+It then writes exactly:
+
+```text
+MAILBOX-RETURN: architect-notes-go
+MAILBOX-BASE: FULL-B-COMMIT
+MAILBOX-NOTES-COMMIT: FULL-P-COMMIT
+MAILBOX-DECISION: GO
+```
+
+The parent daemon, not the Architect subprocess, rechecks B, P, the protected
+note set, every ordinary landing record, and the clean user checkout. It
+fast-forwards B to P only after those checks, records remote push debt, and
+fast-forwards clean safe Architect, Implementer, and Red Team baselines.
+Dirty, active, or diverged role work is preserved and refused rather than
+reset. The route consumes no ticket cycle and creates no Sol review. A queued,
+inflight, or failed administration/P record is still visible work: it cannot
+be abandoned merely because a positive cycle limit was reached or because
+the ordinary backlog is empty.
+
+## Landing and branch discipline
+
+Without an explicit grant, the user performs a landing and push. During a live
+watch with the saved standing grant, Fable still records only GO or NO-GO. The
+parent daemon alone uses the main-landing lock and carries out the bounded Git
+operation authorized by GO. No Implementer, Red Team, Fable subprocess, or
+subagent inherits that Git authority. Only `main` is pushed; working branches
+remain local.
+
+The Implementer's candidate commit `C` and the daemon-created landing commit
+`L` have different identities. The Architect audits an immutable snapshot of
+`C`. After GO, the parent daemon calculates the exact squash tree against the
+then-current `main` parent, creates `L` with that one parent, and saves `L` on
+a private crash-recovery reference before touching `main`. It refuses an empty
+or conflicting squash.
+
+If the user's checkout is not clean, is no longer attached to `main`, or no
+longer names the prepared parent, the daemon stops. It preserves `C`, `L`, the
+GO request, and the user's files without resetting or overwriting anything.
+When the checkout is clean and unchanged, the daemon performs only a
+fast-forward to the already verified `L`, rechecks the result, and records the
+local landing durably. The Red Team reviews an immutable snapshot of `L`.
+
+The daemon then attempts a normal, non-force push of that exact `L`. Missing
+credentials or a rejected push create a local push-debt record with the exact
+manual command. Push debt is visible work for the user, but it does not erase
+the local landing, reopen the ticket, or make the same cycle run forever.
+
+Do not merge `main` back into the Implementer worktree. The daemon restores
+the exact saved candidate when a repair is required and prepares later tickets
+from their own recorded commits. Mixing the landing history into that lane
+would break those identity checks.
 
 ## Environment assumptions
 

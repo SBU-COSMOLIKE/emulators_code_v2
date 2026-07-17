@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scratch-only witnesses for the mailbox daemon's two-role watch mode.
+"""Scratch-only witnesses for the optional Red Team topology.
 
 Every arm redirects mailbox, ledger, logs, locks, and child commands into a
 temporary repository.  No Claude or Codex executable is invoked.
@@ -18,7 +18,8 @@ import types
 AI_ROOT = Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 BASE_COMMIT = "1" * 40
-ACCEPTED_COMMIT = "2" * 40
+CANDIDATE_COMMIT = "2" * 40
+ACCEPTED_COMMIT = "3" * 40
 TICKET_ANCHOR = "scratch-ticket"
 CYCLE_ID = TICKET_ANCHOR + "@" + BASE_COMMIT
 
@@ -69,8 +70,8 @@ def load_daemon(source=None):
     return module
 
 
-def install_test_sol_topology_proof(daemon):
-    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+def install_test_agent_topology_proof(daemon):
+    """Install explicit synthetic Opus/Sol proofs in a scratch daemon.
 
     Arguments:
       daemon = the freshly loaded scratch daemon module.
@@ -78,18 +79,19 @@ def install_test_sol_topology_proof(daemon):
     Returns:
       None.
     """
-    expected_proof = object()
+    expected_proofs = {
+        agent: object() for agent in ("fable", "opus", "sol")}
 
-    def validate_test_topology():
-        return expected_proof
+    def validate_test_topology(agent):
+        return expected_proofs[agent]
 
     def revalidate_test_topology(proof):
-        if proof is not expected_proof:
-            raise AssertionError("scratch Sol topology proof changed")
-        return expected_proof
+        if proof not in expected_proofs.values():
+            raise AssertionError("scratch role topology proof changed")
+        return proof
 
-    daemon.validate_live_sol_dispatch_topology = validate_test_topology
-    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+    daemon.validate_live_agent_dispatch_topology = validate_test_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_test_topology
 
 
 @contextlib.contextmanager
@@ -102,9 +104,11 @@ def scratch_daemon(source=None):
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
         backlog.write_text("", encoding="utf-8")
-        shared_lane = root / "claude-lane"
+        architect_lane = root / "architect-lane"
+        implementer_lane = root / "implementer-lane"
         sol_lane = root / "sol-lane"
-        shared_lane.mkdir()
+        architect_lane.mkdir()
+        implementer_lane.mkdir()
         sol_lane.mkdir()
 
         daemon = load_daemon(source=source)
@@ -122,20 +126,51 @@ def scratch_daemon(source=None):
             "sol": ["sol-cli"],
         }
         daemon.AGENT_CWD = {
-            "fable": str(shared_lane),
-            "opus": str(shared_lane),
+            "fable": str(architect_lane),
+            "opus": str(implementer_lane),
             "sol": str(sol_lane),
         }
-        install_test_sol_topology_proof(daemon=daemon)
+        install_test_agent_topology_proof(daemon=daemon)
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent})
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.prepare_implementer_cycle_checkout = (
+            lambda cycle_id: BASE_COMMIT)
+        daemon.record_implementer_candidate = (
+            lambda cycle_id, starting_head: None)
+        daemon.create_audit_snapshot = (
+            lambda cycle_id, commit, agent:
+            str(root / ("audit-" + agent)))
+        daemon.remove_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
         # Ticket-cycle tests use synthetic but structurally valid commit ids.
         # The production ancestry check is covered elsewhere; these topology
         # witnesses must never inspect the caller's real repository.
         daemon.git_commit_exists = (
-            lambda commit: commit in {BASE_COMMIT, ACCEPTED_COMMIT})
+            lambda commit: commit in {
+                BASE_COMMIT, CANDIDATE_COMMIT, ACCEPTED_COMMIT})
         daemon.git_commit_descends_from = (
             lambda starting_commit, accepted_commit:
             starting_commit == BASE_COMMIT
             and accepted_commit == ACCEPTED_COMMIT)
+        daemon.require_architect_landing_locked = (
+            lambda cycle_id, landing_commit, ticket_state:
+            CANDIDATE_COMMIT)
+
+        def finish_synthetic_go(dispatch_path, cycle_id,
+                                candidate_commit, mode):
+            if candidate_commit != CANDIDATE_COMMIT:
+                raise AssertionError("scratch GO changed candidate C")
+            completed = daemon.record_architect_commit(
+                cycle_id=cycle_id, accepted_commit=ACCEPTED_COMMIT,
+                mode=mode)
+            if not daemon.archive_consumed_message(
+                    dispatch_path=dispatch_path):
+                return False, 0, ACCEPTED_COMMIT
+            daemon.deliver_pending_ticket_cycle_returns()
+            return True, completed, ACCEPTED_COMMIT
+
+        daemon.finish_claimed_architect_go = finish_synthetic_go
         daemon.report_landing_debt = lambda: None
         yield daemon, root, mailbox, backlog
 
@@ -309,8 +344,8 @@ def install_harmless_children(daemon, captures, commit_two_role=False,
         if agent == "opus" and commit_two_role:
             marker = Path(daemon.MAILBOX) / "9000-to-daemon.md"
             marker.write_text(
-                daemon.architect_commit_receipt_payload(
-                    cycle_id=CYCLE_ID, commit=ACCEPTED_COMMIT,
+                daemon.architect_go_request_payload(
+                    cycle_id=CYCLE_ID, candidate_commit=CANDIDATE_COMMIT,
                     mode="two-role"),
                 encoding="utf-8")
             if close_backlog is not None:
@@ -319,8 +354,8 @@ def install_harmless_children(daemon, captures, commit_two_role=False,
                     encoding="utf-8")
         if agent == "opus" and complete_normal_chain:
             Path(daemon.MAILBOX, "9000-to-daemon.md").write_text(
-                daemon.architect_commit_receipt_payload(
-                    cycle_id=CYCLE_ID, commit=ACCEPTED_COMMIT,
+                daemon.architect_go_request_payload(
+                    cycle_id=CYCLE_ID, candidate_commit=CANDIDATE_COMMIT,
                     mode="normal"),
                 encoding="utf-8")
             Path(daemon.MAILBOX, "9001-to-sol.md").write_text(
@@ -417,13 +452,13 @@ def arm_two_role_watch_preserves_sol(source=None):
             in output
             and "red-team route disabled; leaving 1 to-sol message queued "
             "and untouched." in output
-            and "  emergency:" not in output)
+            and "automatic emergency" not in output.lower())
 
         passed = (
             rc == 0 and error is None and errors == ""
             and launched == ["fable", "opus"]
             and prompts_bound and sol_preserved and output_truth
-            and "two-role drain complete; no ticket-cycle count applies"
+            and "implementation drain complete after 1 cycle"
             in output)
         print("two-role preserve/resume=" + str(passed))
         return passed
@@ -528,7 +563,8 @@ def arm_cycle_zero_defers_sol(source=None):
             and "no Architect or Implementer message is waiting or running"
             in output
             and "ai/notes/backlog.md has no '- OPEN' item" in output
-            and "1 Red Team message remain waiting" in output
+            and "red-team route disabled; leaving 1 to-sol message queued "
+            "and untouched." in output
             and "no role message is waiting or running" not in output
             and not daemon.skip_redteam_watch_is_active())
         print("cycle zero deferred Sol=" + str(passed))
@@ -554,7 +590,7 @@ def arm_completion_barrier_ignores_deferred_sol(source=None):
 
 
 def arm_cli_contract(source=None):
-    """Aliases are watch-only; positive ticket-cycle counting needs Sol."""
+    """Role options are watch-only and positive cycles work without review."""
     invalid = [
         ["--skip-redteam"],
         ["--once", "--skip-redteam"],
@@ -570,13 +606,6 @@ def arm_cli_contract(source=None):
             rejected = rejected and rc == 1 and (
                 "--skip-redteam is valid only with --watch" in output)
 
-    with scratch_daemon(source=source) as (daemon, _root, _mailbox,
-                                            _ledger):
-        rc, output, _errors, _error = call_main(
-            daemon, ["--watch", "--skip-redteam", "--cycle", "1"])
-        rejected = rejected and rc == 1 and (
-            "--skip-redteam cannot use a positive --cycle" in output)
-
     accepted = True
     for arguments in [
             ["--watch", "--skip-redteam", "--cycle", "0"],
@@ -589,15 +618,38 @@ def arm_cli_contract(source=None):
             accepted = accepted and (
                 rc == 0 and errors == "" and error is None)
 
+    # A positive two-role cycle must finish at the accepted Architect commit.
+    # An empty positive watch would wait for future work, so this arm supplies
+    # one real scratch ticket rather than relying on a former CLI refusal.
+    with scratch_daemon(source=source) as (daemon, _root, mailbox, ledger):
+        write_indexed_open_ticket(backlog=ledger)
+        write_message(
+            mailbox, "0001-to-opus.md", ticket_flow(mode="two-role"))
+        captures = []
+        install_harmless_children(
+            daemon=daemon, captures=captures, commit_two_role=True)
+        install_fast_clock(daemon=daemon)
+        daemon.RENDEZVOUS_DISPATCH_INTERVAL = 1
+        daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
+        rc, output, errors, error = call_main(
+            daemon, ["--watch", "--skip-redteam", "--cycle", "1"])
+        positive_cycle = (
+            rc == 0 and error is None and errors == ""
+            and [item["agent"] for item in captures] == ["opus"]
+            and "cycle limit reached (1/1 cycle)" in output)
+
     daemon = load_daemon(source=source)
     rc, help_text, errors, error = call_main(daemon, ["--help"])
     normalized_help = " ".join(help_text.split())
     help_ok = (
         isinstance(error, SystemExit) and rc == 0 and errors == ""
         and "--skip-redteam, --no-red-team" in normalized_help
+        and "--sol_as_implementer" not in normalized_help
         and "Red Team messages remain waiting for a later watch"
+        in normalized_help
+        and "one cycle is always one ticket"
         in normalized_help)
-    passed = rejected and accepted and help_ok
+    passed = rejected and accepted and positive_cycle and help_ok
     print("two-role CLI contract=" + str(passed))
     return passed
 
@@ -1144,6 +1196,21 @@ def replace_exact(source, old, new):
     return source.replace(old, new, 1)
 
 
+def replace_once_in_function(source, function_name, old, new):
+    """Replace one exact source site inside one production function."""
+    start = source.find("def " + function_name + "(")
+    end = source.find("\ndef ", start + 1)
+    if start < 0:
+        return None
+    if end < 0:
+        end = len(source)
+    function_source = source[start:end]
+    mutant_function = replace_exact(function_source, old, new)
+    if mutant_function is None:
+        return None
+    return source[:start] + mutant_function + source[end:]
+
+
 def mutate_skip_activation_without_sequence_lock(source):
     """Publish the two-role sidecar without serializing Sol senders."""
     start = source.find("def acquire_skip_redteam_lock():")
@@ -1221,46 +1288,26 @@ def probe_skip_post_flock_inode_check(source):
         source=source, verbose=False)
 
 
-def probe_disabled_mode_hides_emergency(source):
-    """A two-role demand report never advertises disabled Sol as help."""
-    daemon = load_daemon(source=source)
-    daemon.backlog_severity_counts = lambda: {
-        "critical": 2,
-        "high": 11,
-        "medium": 0,
-        "low": 0,
-        "high_bug_fix": 11,
-        "high_new_functionality": 0,
-        "unclassified": 0,
-        "problem": None,
-    }
-    daemon.report_landing_debt = lambda: None
-    stream = io.StringIO()
-    with contextlib.redirect_stdout(stream):
-        daemon.report_demand(backlog=[], skip_redteam=True)
-    return "emergency:" not in stream.getvalue()
-
-
 def arm_source_mutations():
     """Kill one source mutant for every binding two-role contract."""
     source = DAEMON_PATH.read_text(encoding="utf-8")
     cases = [
         (
             "process filter admits only Sol",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
-                "                       os.path.basename(path)).group(1) != \"sol\"]\n"
-                "    else:\n"
-                "        backlog = all_backlog\n",
-                "                       os.path.basename(path)).group(1) == \"sol\"]\n"
-                "    else:\n"
-                "        backlog = all_backlog\n"),
+                "message_is_enabled_for_topology",
+                "    if agent == \"sol\":\n"
+                "        return not skip_redteam\n",
+                "    if agent == \"sol\":\n"
+                "        return True\n"),
             arm_process_filter_preserves_sol,
         ),
         (
             "cycle zero counts deferred Sol",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
+                "acquire_cycle_completion_barrier",
                 "        waiting_before = enabled_pending_messages(\n"
                 "            skip_redteam=skip_redteam)\n"
                 "        waiting_after = enabled_pending_messages(\n"
@@ -1271,8 +1318,9 @@ def arm_source_mutations():
         ),
         (
             "dynamic banner drops topology",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
+                "dispatch_under_main_checkout_lock",
                 "        skip_redteam=skip_redteam,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
                 "        discovery_scope=effective_discovery_scope,\n"
@@ -1297,14 +1345,6 @@ def arm_source_mutations():
                 "            env.pop(SKIP_REDTEAM_ENVIRONMENT, None)\n",
                 "        env.pop(SKIP_REDTEAM_ENVIRONMENT, None)\n"),
             arm_two_role_watch_preserves_sol,
-        ),
-        (
-            "disabled mode prints emergency second-Implementer reminder",
-            lambda text: replace_exact(
-                text,
-                "    if second_implementer_emergency(counts=counts) and not skip_redteam:\n",
-                "    if second_implementer_emergency(counts=counts):\n"),
-            probe_disabled_mode_hides_emergency,
         ),
         (
             "active mode permits Sol sends",

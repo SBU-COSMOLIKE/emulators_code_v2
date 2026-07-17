@@ -10,10 +10,13 @@ bootstrap/re-exec contract and uses imported helpers only for topology checks.
 
 import contextlib
 import fcntl
+import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import select
 import stat
 import subprocess
 import sys
@@ -23,17 +26,39 @@ import time
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = AI_ROOT.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+HANDOFF_CONTRACT_PATH = AI_ROOT / "tools" / "handoff_contract.py"
+PERMANENT_NOTE_GUARD_PATH = AI_ROOT / "tools" / "permanent_note_guard.py"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
+PERMANENT_NOTES = (
+    "MEMORY.md",
+    "project-and-history.md",
+    "conventions-and-workflow.md",
+    "python-changes-go-no-go.md",
+    "models-and-designs.md",
+    "training-stack.md",
+    "artifacts-inference-warmstart.md",
+    "data-generation-and-cuts.md",
+    "families-background-mps.md",
+    "families-scalar-cmb.md",
+    "readme-go-no-go.md",
+)
 
 PRIMARY_NAME = "mailbox-primary"
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 STATE_NAME = ".mailbox-primary-worktree.json"
 LOCK_NAME = ".mailbox-primary-worktree.lock"
-PRIMARY_STATE_SCHEMA = 2
-PRIMARY_TOPOLOGY = "dedicated-sol-worktree-v1"
+PRIMARY_STATE_SCHEMA = 3
+PRIMARY_TOPOLOGY = "separate-role-worktrees-v1"
 PRIMARY_STATE_KEYS = {
     "schema", "repository", "name", "path", "branch", "topology"}
+IMPLEMENTER_NAME = "mailbox-implementer"
+IMPLEMENTER_BRANCH = "refs/heads/claude/mailbox-implementer"
+IMPLEMENTER_STATE_NAME = ".mailbox-implementer-worktree.json"
+IMPLEMENTER_STATE_SCHEMA = 1
+IMPLEMENTER_STATE_KEYS = {"schema", "repository", "name", "path", "branch"}
 SOL_NAME = "mailbox-sol"
 SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
@@ -61,6 +86,27 @@ def write_exact(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
         stream.write(data)
+
+
+def seal_backlog(primary):
+    """Save the Architect-authorized digest for one scratch backlog."""
+    backlog = primary / "ai" / "notes" / "backlog.md"
+    state = primary / "ai" / "notes" / ".backlog-guard.json"
+    payload = {
+        "backlog": "ai/notes/backlog.md",
+        "sha256": hashlib.sha256(backlog.read_bytes()).hexdigest(),
+        "version": 1,
+    }
+    write_exact(
+        state,
+        (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"))
+
+
+def create_empty_sealed_backlog(primary):
+    """Create the valid empty local ledger required before Sol admission."""
+    write_exact(primary / "ai" / "notes" / "backlog.md", b"")
+    seal_backlog(primary=primary)
 
 
 def file_identity(path):
@@ -109,13 +155,15 @@ def scratch_repository(source=None):
         write_exact(
             root / "ai" / "tools" / "mailbox_daemon.py",
             source_with_repo_paths(source).encode("utf-8"))
-        write_exact(root / "ai" / "notes" / "backlog.md", b"")
         # Production deliberately requires the repository's real .claude
         # directory to pre-exist; only its worktrees child may be bootstrapped.
         write_exact(root / ".claude" / ".keep", b"")
         # Sol receives these absolute, read-only instruction files from the
         # validated Claude primary. They must be committed regular files so
         # bootstrap proves the same authority boundary as production.
+        write_exact(
+            root / ".claude" / "FABLE_ROLE.md",
+            b"# Scratch Architect role\n\nAudit the immutable candidate.\n")
         write_exact(
             root / ".claude" / "OPUS_ROLE.md",
             b"# Scratch Implementer role\n\nFollow the validated directive.\n")
@@ -124,10 +172,13 @@ def scratch_repository(source=None):
             b"# Scratch Red Team role\n\nReview only the named change.\n")
         write_exact(
             root / "ai" / "tools" / "handoff_contract.py",
-            b"#!/usr/bin/env python3\n# Scratch directive validator.\n")
+            HANDOFF_CONTRACT_PATH.read_bytes())
         write_exact(
             root / "ai" / "tools" / "ticket_change_guard.py",
             b"#!/usr/bin/env python3\n# Scratch ticket size guard.\n")
+        write_exact(
+            root / "ai" / "tools" / "permanent_note_guard.py",
+            PERMANENT_NOTE_GUARD_PATH.read_bytes())
         # Worktrees and their two bootstrap sidecars are runtime state.  The
         # production ignore rule is asserted separately; the scratch rule
         # prevents Git status from recursively inspecting linked checkouts.
@@ -135,21 +186,29 @@ def scratch_repository(source=None):
         if ".claude/worktrees/" not in ignore:
             ignore = ignore + "\n.claude/worktrees/\n"
         write_exact(root / ".gitignore", ignore.encode("utf-8"))
+        for note_name in PERMANENT_NOTES:
+            write_exact(
+                root / "ai" / "notes" / note_name,
+                ("# Scratch permanent note\n\nArchitect-owned policy for "
+                 + note_name + ".\n").encode("utf-8"))
 
         git(root, "init")
         git(root, "symbolic-ref", "HEAD", "refs/heads/main")
         git(root, "config", "user.name", "Primary Worktree Witness")
         git(root, "config", "user.email", "primary@example.invalid")
-        # backlog.md is intentionally local runtime state in production.  This
-        # focused primary-worktree fixture force-adds an empty synthetic ledger
-        # so each linked checkout exercises routing rather than missing-ledger
-        # behavior (covered by the rendezvous reproduction).
+        # backlog.md and its checksum state remain absent on the synthetic
+        # clean clone. Individual ticket arms create and seal them only when
+        # they need a ledger; transport-only Sol work proves both-absent is a
+        # valid bootstrap state.
         git(root, "add", ".gitignore", ".claude/.keep",
+            ".claude/FABLE_ROLE.md",
             ".claude/OPUS_ROLE.md", ".codex/REDTEAM_ROLE.md",
             "ai/tools/mailbox_daemon.py",
             "ai/tools/handoff_contract.py",
-            "ai/tools/ticket_change_guard.py")
-        git(root, "add", "-f", "ai/notes/backlog.md")
+            "ai/tools/ticket_change_guard.py",
+            "ai/tools/permanent_note_guard.py")
+        git(root, "add", *[
+            "ai/notes/" + note_name for note_name in PERMANENT_NOTES])
         git(root, "commit", "-m", "scratch daemon fixture")
         yield root
 
@@ -193,7 +252,7 @@ def managed_base(root):
 
 
 def state_path(root):
-    """Return the exact schema-2 Claude-primary state path."""
+    """Return the exact schema-3 Architect-primary state path."""
     return managed_base(root) / STATE_NAME
 
 
@@ -212,6 +271,16 @@ def sol_state_path(root):
     return managed_base(root) / SOL_STATE_NAME
 
 
+def implementer_state_path(root):
+    """Return the exact schema-1 Implementer-worktree state path."""
+    return managed_base(root) / IMPLEMENTER_STATE_NAME
+
+
+def default_implementer(root):
+    """Return the deterministic first-install Implementer worktree path."""
+    return managed_base(root) / IMPLEMENTER_NAME
+
+
 def default_sol(root):
     """Return the deterministic first-install Sol worktree path."""
     return managed_base(root) / SOL_NAME
@@ -227,7 +296,7 @@ def common_directory(root):
 
 
 def load_state(root):
-    """Read the exact persisted schema-2 Claude-primary state object."""
+    """Read the exact persisted schema-3 Architect-primary state object."""
     with state_path(root).open("r", encoding="utf-8") as stream:
         return json.load(stream)
 
@@ -238,8 +307,14 @@ def load_sol_state(root):
         return json.load(stream)
 
 
+def load_implementer_state(root):
+    """Read the exact persisted schema-1 Implementer-worktree state."""
+    with implementer_state_path(root).open("r", encoding="utf-8") as stream:
+        return json.load(stream)
+
+
 def validate_state_shape(root, expected_path=None, expected_branch=None):
-    """Return whether schema-2 primary state and Git agree exactly."""
+    """Return whether schema-3 primary state and Git agree exactly."""
     if expected_path is None:
         expected_path = default_primary(root)
     if expected_branch is None:
@@ -288,21 +363,50 @@ def validate_sol_state_shape(root, expected_path=None):
             and expected_path.resolve() != root.resolve())
 
 
+def validate_implementer_state_shape(root, expected_path=None):
+    """Return whether saved Implementer state and Git agree exactly."""
+    if expected_path is None:
+        expected_path = default_implementer(root)
+    path = implementer_state_path(root)
+    if not path.is_file() or path.is_symlink():
+        return False
+    state = load_implementer_state(root)
+    if (set(state) != IMPLEMENTER_STATE_KEYS
+            or state.get("schema") != IMPLEMENTER_STATE_SCHEMA
+            or state.get("repository") != common_directory(root)
+            or state.get("name") != expected_path.name
+            or state.get("path") != str(expected_path.resolve())
+            or state.get("branch") != IMPLEMENTER_BRANCH):
+        return False
+    top = git(expected_path, "rev-parse", "--show-toplevel").stdout.strip()
+    branch = git(expected_path, "symbolic-ref", "HEAD").stdout.strip()
+    common = common_directory(expected_path)
+    return (str(Path(top).resolve()) == str(expected_path.resolve())
+            and branch == IMPLEMENTER_BRANCH
+            and common == common_directory(root)
+            and expected_path.resolve() != root.resolve())
+
+
 def validate_topology(root, primary_path=None, primary_branch=None,
-                      sol_path=None):
-    """Prove the two saved agent worktrees are valid and disjoint."""
+                      implementer_path=None, sol_path=None):
+    """Prove the three saved role worktrees are valid and disjoint."""
     if primary_path is None:
         primary_path = default_primary(root)
+    if implementer_path is None:
+        implementer_path = default_implementer(root)
     if sol_path is None:
         sol_path = default_sol(root)
+    paths = {
+        root.resolve(), primary_path.resolve(), implementer_path.resolve(),
+        sol_path.resolve()}
     return (
         validate_state_shape(
             root, expected_path=primary_path,
             expected_branch=primary_branch)
+        and validate_implementer_state_shape(
+            root, expected_path=implementer_path)
         and validate_sol_state_shape(root, expected_path=sol_path)
-        and primary_path.resolve() != sol_path.resolve()
-        and primary_path.resolve() != root.resolve()
-        and sol_path.resolve() != root.resolve())
+        and len(paths) == 4)
 
 
 def root_checkout_identity(root):
@@ -356,7 +460,7 @@ def load_scratch_daemon(worktree):
 
 
 def arm_all_live_actions_bootstrap(source=None):
-    """Every live action provisions both agent trees without touching root."""
+    """Every live action provisions all role trees without touching root."""
     cases = [
         ("once", ["--once"]),
         ("watch", ["--watch", "--cycle", "0"]),
@@ -372,6 +476,7 @@ def arm_all_live_actions_bootstrap(source=None):
             root_before = root_checkout_identity(root)
             rc, stdout, stderr = invoke(root, arguments)
             primary = default_primary(root)
+            implementer = default_implementer(root)
             sol = default_sol(root)
             acted_in_primary = True
             if label in ("send", "severity", "ping"):
@@ -387,18 +492,23 @@ def arm_all_live_actions_bootstrap(source=None):
                             "MAILBOX-SEVERITY: " + expected + "\n"
                             "MAILBOX-SCOPE: bounded\n\n"))
             records = worktree_records(root)
+            expected_rc = (124 if label == "watch" else 0)
             passed = (
-                rc == 0 and stderr == ""
+                rc == expected_rc and stderr == ""
                 and validate_topology(root)
                 and root_checkout_identity(root) == root_before
-                and len(records) == 3
+                and len(records) == 4
                 and len([item for item in records
                          if item.get("worktree")
                          == str(primary.resolve())]) == 1
                 and len([item for item in records
                          if item.get("worktree")
+                         == str(implementer.resolve())]) == 1
+                and len([item for item in records
+                         if item.get("worktree")
                          == str(sol.resolve())]) == 1
                 and not (primary / ".claude" / "worktrees").exists()
+                and not (implementer / ".claude" / "worktrees").exists()
                 and not (sol / ".claude" / "worktrees").exists()
                 and acted_in_primary)
             results.append(passed)
@@ -410,7 +520,7 @@ def arm_all_live_actions_bootstrap(source=None):
 
 def arm_stale_primary_protocol_refuses(source=None):
     """Refuse re-exec when the saved daemon lacks the current protocol."""
-    marker = "MAILBOX_PROTOCOL_VERSION = 3"
+    marker = "MAILBOX_PROTOCOL_VERSION = 5"
     if source is None or source.count(marker) != 1:
         return False
     with scratch_repository(source=source) as root:
@@ -419,7 +529,7 @@ def arm_stale_primary_protocol_refuses(source=None):
             return False
         primary = default_primary(root)
         stale_source = source.replace(
-            marker, "MAILBOX_PROTOCOL_VERSION = 2", 1)
+            marker, "MAILBOX_PROTOCOL_VERSION = 4", 1)
         write_exact(
             primary / "ai" / "tools" / "mailbox_daemon.py",
             stale_source.encode("utf-8"))
@@ -433,7 +543,8 @@ def arm_stale_primary_protocol_refuses(source=None):
              "Please coordinate one named review."])
         passed = (
             rc != 0
-            and "does not enforce the current Architect-only" in stdout
+            and "primary worktree error:" in stdout
+            and "Architect primary is ahead of main" in stdout
             and pending_markdown(root) == []
             and pending_markdown(primary) == []
             and state_path(root).read_bytes() == state_before
@@ -470,6 +581,10 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
                          and worktree_records(root) == baseline_registry
                          and not managed_base(root).exists()
                          and not branch_exists(root)
+                         and not branch_exists(
+                             root, branch=IMPLEMENTER_BRANCH)
+                         and not implementer_state_path(root).exists()
+                         and not default_implementer(root).exists()
                          and not branch_exists(root, branch=SOL_BRANCH)
                          and not sol_state_path(root).exists()
                          and not default_sol(root).exists())
@@ -481,7 +596,7 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
 
 
 def arm_reuse_and_cross_checkout_converge(source=None):
-    """Another checkout reuses both saved agent trees and primary transport."""
+    """Another checkout reuses all role trees and primary transport."""
     with scratch_repository(source=source) as root:
         rc, _stdout, _stderr = invoke(root, ["--once"])
         if rc != 0 or not validate_topology(root):
@@ -492,6 +607,8 @@ def arm_reuse_and_cross_checkout_converge(source=None):
         write_exact(dirty, b"keep this uncommitted byte-for-byte\n")
         dirty_before = file_identity(dirty)
         state_before = file_identity(state_path(root))
+        implementer_state_before = file_identity(
+            implementer_state_path(root))
         sol_state_before = file_identity(sol_state_path(root))
         primary_head = git(primary, "rev-parse", "HEAD").stdout.strip()
         root_before = root_checkout_identity(root)
@@ -514,11 +631,13 @@ def arm_reuse_and_cross_checkout_converge(source=None):
                 and pending_markdown(other) == []
                 and file_identity(dirty) == dirty_before
                 and file_identity(state_path(root)) == state_before
+                and file_identity(implementer_state_path(root))
+                == implementer_state_before
                 and file_identity(sol_state_path(root)) == sol_state_before
                 and git(primary, "rev-parse", "HEAD").stdout.strip()
                 == primary_head
                 and root_checkout_identity(root) == root_before
-                and len(worktree_records(root)) == 4
+                and len(worktree_records(root)) == 5
                 and str(primary / "ai" / "notes" / "mailbox")
                 in stdout)
             print("cross-checkout convergence=" + str(passed)
@@ -527,6 +646,39 @@ def arm_reuse_and_cross_checkout_converge(source=None):
         finally:
             git(root, "worktree", "remove", "--force", str(other),
                 check=False)
+
+
+def arm_interrupted_implementer_bootstrap_is_exactly_resumable(source=None):
+    """A registered exact Implementer tree is recovered when state is absent."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary_state_before = file_identity(state_path(root))
+        sol_state_before = file_identity(sol_state_path(root))
+        root_before = root_checkout_identity(root)
+        implementer = default_implementer(root)
+        implementer_head = git(
+            implementer, "rev-parse", "HEAD").stdout.strip()
+        sentinel = implementer / "interrupted-bootstrap-sentinel.txt"
+        write_exact(sentinel, b"preserve exact Implementer bytes\n")
+        sentinel_before = file_identity(sentinel)
+        implementer_state_path(root).unlink()
+
+        rc, stdout, stderr = invoke(root, ["--once"])
+        passed = (
+            rc == 0 and stderr == "" and validate_topology(root)
+            and file_identity(state_path(root)) == primary_state_before
+            and file_identity(sol_state_path(root)) == sol_state_before
+            and file_identity(sentinel) == sentinel_before
+            and git(implementer, "rev-parse", "HEAD").stdout.strip()
+            == implementer_head
+            and root_checkout_identity(root) == root_before
+            and len(worktree_records(root)) == 4
+            and "recovered exact interrupted implementer-worktree bootstrap"
+            in stdout.lower())
+        print("interrupted Implementer bootstrap recovery=" + str(passed))
+        return passed
 
 
 def arm_existing_linked_coordinator_is_adopted(source=None):
@@ -558,7 +710,7 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
             and file_identity(relay) == relay_before
             and [path.name for path in queued] == ["0043-to-fable.md"]
             and not default_primary(root).exists()
-            and len(worktree_records(root)) == 3)
+            and len(worktree_records(root)) == 4)
         print("existing coordinator adoption=" + str(passed))
         return passed
 
@@ -905,10 +1057,13 @@ def arm_concurrent_bootstrap_obeys_global_lock(source=None):
         passed = (
             waited and permitted_overlap_refusal and 0 in returncodes
             and validate_topology(root)
-            and len(records) == 3
+            and len(records) == 4
             and len([item for item in records
                      if item.get("worktree")
                      == str(default_primary(root).resolve())]) == 1
+            and len([item for item in records
+                     if item.get("worktree")
+                     == str(default_implementer(root).resolve())]) == 1
             and len([item for item in records
                      if item.get("worktree")
                      == str(default_sol(root).resolve())]) == 1)
@@ -918,35 +1073,37 @@ def arm_concurrent_bootstrap_obeys_global_lock(source=None):
 
 
 def arm_final_publication_fences_late_sender(source=None):
-    """A sender admitted after the last scan cannot be stranded in main."""
+    """A sender taking the sequence lock at publication cannot be stranded."""
     with scratch_repository(source=source) as root:
         daemon = load_scratch_daemon(root)
-        original_evidence = daemon.coordination_transport_evidence
-        root_scans = [0]
+        original_open = daemon._open_legacy_transport_lock
+        injected = [False]
         holder = [None]
 
-        def evidence_then_admit_sender(worktree):
-            result = original_evidence(worktree)
-            if Path(worktree).resolve() == root.resolve():
-                root_scans[0] += 1
-                if root_scans[0] == 2:
-                    mailbox = root / "ai" / "notes" / "mailbox"
-                    mailbox.mkdir(parents=True, exist_ok=True)
-                    sequence = mailbox / ".sequence.lock"
-                    program = (
-                        "import fcntl,sys,time; "
-                        "f=open(sys.argv[1],'a+'); "
-                        "fcntl.flock(f.fileno(),fcntl.LOCK_EX); "
-                        "print('ready',flush=True); time.sleep(30)")
-                    holder[0] = subprocess.Popen(
-                        [sys.executable, "-c", program, str(sequence)],
-                        cwd=str(root), stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE, text=True)
-                    if holder[0].stdout.readline().strip() != "ready":
-                        raise RuntimeError("late-sender fixture did not lock")
-            return result
+        def admit_sender_between_publication_locks(path, nonblocking):
+            lock = original_open(path=path, nonblocking=nonblocking)
+            if path.endswith("/.dispatch.lock") and not injected[0]:
+                injected[0] = True
+                sequence = Path(path).with_name(".sequence.lock")
+                program = (
+                    "import fcntl,sys,time; "
+                    "f=open(sys.argv[1],'a+'); "
+                    "fcntl.flock(f.fileno(),fcntl.LOCK_EX); "
+                    "print('ready',flush=True); time.sleep(30)")
+                holder[0] = subprocess.Popen(
+                    [sys.executable, "-c", program, str(sequence)],
+                    cwd=str(root), stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True)
+                readable, _writable, _errors = select.select(
+                    [holder[0].stdout], [], [], 5.0)
+                if (not readable
+                        or holder[0].stdout.readline().strip() != "ready"):
+                    lock.close()
+                    raise RuntimeError("late-sender fixture did not lock")
+            return lock
 
-        daemon.coordination_transport_evidence = evidence_then_admit_sender
+        daemon._open_legacy_transport_lock = (
+            admit_sender_between_publication_locks)
         error = None
         try:
             daemon.provision_or_adopt_primary(
@@ -957,11 +1114,11 @@ def arm_final_publication_fences_late_sender(source=None):
             if holder[0] is not None:
                 holder[0].terminate()
                 holder[0].wait(timeout=5)
-            daemon.coordination_transport_evidence = original_evidence
+            daemon._open_legacy_transport_lock = original_open
         passed = (
             isinstance(error, daemon.PrimaryWorktreeError)
             and "legacy transport is live" in str(error).lower()
-            and root_scans[0] >= 2 and not state_path(root).exists()
+            and injected[0] and not state_path(root).exists()
             and default_primary(root).is_dir() and branch_exists(root))
         print("late sender publication fence=" + str(passed)
               + " error=" + repr(str(error)))
@@ -1022,7 +1179,8 @@ def arm_legacy_v1_state_refuses_without_mutation(source=None):
             and file_identity(state_path(root)) == state_before
             and not sol_state_path(root).exists()
             and not default_sol(root).exists()
-            and "legacy schema-1 state" in preview.lower()
+            and "predates separate architect and implementer worktrees"
+            in preview.lower()
             and "live action would refuse" in preview.lower())
         rc, stdout, stderr = invoke(root, ["--once"])
         explanation = stdout.lower()
@@ -1037,11 +1195,65 @@ def arm_legacy_v1_state_refuses_without_mutation(source=None):
             and not sol_state_path(root).exists()
             and not default_sol(root).exists()
             and not branch_exists(root, branch=SOL_BRANCH)
-            and "schema-1" in explanation
-            and "stop" in explanation
+            and "predates the separate implementer worktree" in explanation
+            and "stop every old mailbox process" in explanation
             and "update" in explanation
             and "initialize" in explanation)
         print("legacy v1 topology refusal=" + str(passed)
+              + " rc=" + str(rc))
+        return passed
+
+
+def arm_legacy_two_tree_state_refuses_without_mutation(source=None):
+    """The former shared-Claude topology cannot resume under a new daemon."""
+    with scratch_repository(source=source) as root:
+        managed_base(root).mkdir(parents=True)
+        primary = default_primary(root)
+        git(root, "worktree", "add", "-b", "claude/mailbox-primary",
+            str(primary), "main")
+        legacy = {
+            "schema": 2,
+            "repository": common_directory(root),
+            "name": PRIMARY_NAME,
+            "path": str(primary.resolve()),
+            "branch": PRIMARY_BRANCH,
+            "topology": "dedicated-sol-worktree-v1",
+        }
+        write_exact(
+            state_path(root),
+            (json.dumps(legacy, sort_keys=True) + "\n").encode("utf-8"))
+        state_before = file_identity(state_path(root))
+        root_before = root_checkout_identity(root)
+        primary_head = git(primary, "rev-parse", "HEAD").stdout.strip()
+
+        preview_rc, preview, preview_err = invoke(
+            root, ["--dry-run", "--once"])
+        preview_preserved = (
+            preview_rc == 0 and preview_err == ""
+            and file_identity(state_path(root)) == state_before
+            and not implementer_state_path(root).exists()
+            and not default_implementer(root).exists()
+            and not sol_state_path(root).exists()
+            and not default_sol(root).exists()
+            and "predates separate architect and implementer worktrees"
+            in preview.lower())
+        rc, stdout, stderr = invoke(root, ["--once"])
+        explanation = stdout.lower()
+        passed = (
+            preview_preserved and rc != 0 and stderr == ""
+            and file_identity(state_path(root)) == state_before
+            and root_checkout_identity(root) == root_before
+            and git(primary, "rev-parse", "HEAD").stdout.strip()
+            == primary_head
+            and len(worktree_records(root)) == 2
+            and not implementer_state_path(root).exists()
+            and not default_implementer(root).exists()
+            and not branch_exists(root, branch=IMPLEMENTER_BRANCH)
+            and not sol_state_path(root).exists()
+            and not default_sol(root).exists()
+            and "predates the separate implementer worktree" in explanation
+            and "stop every old mailbox process" in explanation)
+        print("legacy two-tree topology refusal=" + str(passed)
               + " rc=" + str(rc))
         return passed
 
@@ -1062,7 +1274,7 @@ def arm_sol_collisions_and_corrupt_state_fail_closed(source=None):
             and not sol_state_path(root).exists()
             and not branch_exists(root, branch=SOL_BRANCH)
             and root_checkout_identity(root) == root_before
-            and len(worktree_records(root)) == 2
+            and len(worktree_records(root)) == 3
             and "not a registered worktree" in stdout)
         outcomes.append(refused)
         print("Sol path collision refused=" + str(refused))
@@ -1078,7 +1290,7 @@ def arm_sol_collisions_and_corrupt_state_fail_closed(source=None):
             and not default_sol(root).exists()
             and git(root, "rev-parse", SOL_BRANCH).stdout.strip() == sol_sha
             and root_checkout_identity(root) == root_before
-            and len(worktree_records(root)) == 2
+            and len(worktree_records(root)) == 3
             and "already exists" in stdout)
         outcomes.append(refused)
         print("Sol branch collision refused=" + str(refused))
@@ -1196,6 +1408,7 @@ def arm_sol_registered_move_and_reuse_are_preserved(source=None):
         saved_before_reuse = file_identity(sol_state_path(root))
         rc_reuse, _reuse_out, reuse_err = invoke(root, ["--once"])
         daemon = load_scratch_daemon(primary)
+        create_empty_sealed_backlog(primary=primary)
         queued = daemon.send(
             agent="sol", ticket_kind="discovery", severity="medium",
             scope="bounded", text="Review the saved moved Sol checkout.",
@@ -1273,6 +1486,7 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             return None
         primary = default_primary(root)
         daemon = load_scratch_daemon(primary)
+        create_empty_sealed_backlog(primary=primary)
         queued = daemon.send(
             agent="sol", ticket_kind="discovery", severity="medium",
             scope="bounded", text=unit, dry_run=False)
@@ -1500,6 +1714,2435 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
     return all(outcomes)
 
 
+def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
+    """Opus branch/state races cannot become successful child turns."""
+
+    class PopenProxy:
+        def __init__(self, module, replacement):
+            self.module = module
+            self.replacement = replacement
+
+        def __getattr__(self, name):
+            if name == "Popen":
+                return self.replacement
+            return getattr(self.module, name)
+
+    class ObservedProcess:
+        def __init__(self):
+            self.returncode = 0
+            self.killed = False
+            self.waited = False
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self):
+            self.waited = True
+            return self.returncode
+
+    def prepare(root, activate=True):
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return None
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — [Opus race](#opus-race)\n\n"
+            "<a id=\"opus-race\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        message = mailbox / "0001-to-opus.md"
+        message.write_text(
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: opus-race@" + base + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "Implement the bounded scratch race witness.\n",
+            encoding="utf-8", newline="")
+        daemon = load_scratch_daemon(primary)
+        daemon.AGENT_COMMANDS = {
+            "fable": ["harmless-fable"],
+            "opus": ["harmless-opus"],
+            "sol": ["harmless-sol"],
+        }
+        if activate:
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            # This arm isolates launch-boundary Git races. The separate
+            # evidence-contract arm owns directive/evidence parsing.
+            daemon.prepare_implementer_evidence_contract = lambda message: {
+                "contract": None, "parallel_work_plan": {},
+                "note_path": "focused topology witness"}
+        return daemon, primary, implementer, message
+
+    def counts(primary):
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        return {
+            "pending": len(list(mailbox.glob("*-to-opus.md"))),
+            "inflight": len(list((mailbox / "inflight").glob(
+                "*-to-opus.md"))),
+            "done": len(list((mailbox / "done").glob("*-to-opus.md"))),
+            "failed": len(list((mailbox / "failed").glob(
+                "*-to-opus.md"))),
+        }
+
+    outcomes = []
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root, activate=False)
+        if prepared is None:
+            return False
+        daemon, primary, _implementer, message = prepared
+        before = file_identity(message)
+        launches = []
+
+        def forbidden_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return ObservedProcess()
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, forbidden_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused = (
+            result is False and launches == []
+            and daemon.ACTIVE_TOPOLOGY is None
+            and message.exists() and file_identity(message) == before
+            and counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        outcomes.append(refused)
+        print("Implementer missing active topology refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root)
+        if prepared is None:
+            return False
+        daemon, primary, implementer, message = prepared
+        launches = []
+        child = ObservedProcess()
+        real_claim = daemon.claim_message
+
+        def claim_then_switch(path):
+            claimed = real_claim(path=path)
+            if claimed is not None:
+                git(implementer, "switch", "--ignore-other-worktrees", "main")
+            return claimed
+
+        def observed_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return child
+
+        original = daemon.subprocess
+        daemon.claim_message = claim_then_switch
+        daemon.subprocess = PopenProxy(original, observed_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused = (
+            result is False and launches == []
+            and not child.killed and not child.waited
+            and git(implementer, "symbolic-ref", "HEAD").stdout.strip()
+            == "refs/heads/main"
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused)
+        print("Implementer pre-Popen branch race refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root)
+        if prepared is None:
+            return False
+        daemon, primary, _implementer, message = prepared
+        launches = []
+        child = ObservedProcess()
+        state = load_implementer_state(root)
+
+        def corrupting_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            launches.append("admitted")
+            corrupt = dict(state)
+            corrupt["branch"] = PRIMARY_BRANCH
+            write_exact(
+                implementer_state_path(root),
+                (json.dumps(corrupt, sort_keys=True) + "\n").encode("utf-8"))
+            stdout.write("child crossed an Implementer state race\n")
+            stdout.flush()
+            return child
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, corrupting_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        killed = (
+            result is False and launches == ["admitted"]
+            and child.killed and child.waited and child.returncode == -9
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(killed)
+        print("Implementer around-Popen state race killed=" + str(killed))
+
+    return all(outcomes)
+
+
+def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
+    """Fable may launch only from the proved saved primary and role file."""
+
+    class PopenProxy:
+        def __init__(self, module, replacement):
+            self.module = module
+            self.replacement = replacement
+
+        def __getattr__(self, name):
+            return (self.replacement if name == "Popen"
+                    else getattr(self.module, name))
+
+    class ObservedProcess:
+        def __init__(self):
+            self.returncode = 0
+            self.killed = False
+            self.waited = False
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self):
+            self.waited = True
+            return self.returncode
+
+    def prepare(root, activate=True):
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return None
+        primary = default_primary(root)
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        message = mailbox / "0001-to-fable.md"
+        daemon = load_scratch_daemon(primary)
+        message.write_text(
+            daemon.architect_user_request_payload(
+                text="Plan the bounded Architect topology witness.",
+                discovery_severity="medium"),
+            encoding="utf-8", newline="")
+        daemon.AGENT_COMMANDS = {
+            "fable": ["harmless-fable"],
+            "opus": ["harmless-opus"],
+            "sol": ["harmless-sol"],
+        }
+        if activate:
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        return daemon, primary, message
+
+    def counts(primary):
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        return {
+            state: len(list(((mailbox if state == "pending"
+                              else mailbox / state)).glob("*-to-fable.md")))
+            for state in ("pending", "inflight", "done", "failed")
+        }
+
+    outcomes = []
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root, activate=False)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        before = file_identity(message)
+        launches = []
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(
+            original, lambda *args, **kwargs: launches.append("admitted"))
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused = (
+            result is False and launches == []
+            and message.exists() and file_identity(message) == before
+            and counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        outcomes.append(refused)
+        print("Architect missing active topology refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        launches = []
+        child = ObservedProcess()
+        role = primary / ".claude" / "FABLE_ROLE.md"
+        real_claim = daemon.claim_message
+
+        def claim_then_replace(path):
+            claimed = real_claim(path=path)
+            if claimed is not None:
+                replacement = role.with_name("FABLE_ROLE.replacement")
+                replacement.write_bytes(role.read_bytes())
+                os.replace(replacement, role)
+            return claimed
+
+        def observed(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return child
+
+        original = daemon.subprocess
+        daemon.claim_message = claim_then_replace
+        daemon.subprocess = PopenProxy(original, observed)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused = (
+            result is False and launches == []
+            and not child.killed and not child.waited
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused)
+        print("Architect pre-Popen role race refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare(root=root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        launches = []
+        child = ObservedProcess()
+
+        def switching(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            launches.append("admitted")
+            git(primary, "switch", "--ignore-other-worktrees", "main")
+            stdout.write("child crossed an Architect branch race\n")
+            stdout.flush()
+            return child
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, switching)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        killed = (
+            result is False and launches == ["admitted"]
+            and child.killed and child.waited and child.returncode == -9
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(killed)
+        print("Architect around-Popen branch race killed=" + str(killed))
+    return all(outcomes)
+
+
+def arm_candidate_snapshot_is_exact_and_immutable(source=None):
+    """A later Implementer commit cannot move an earlier audit snapshot."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        root_before = root_checkout_identity(root)
+
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        first_cycle = "candidate-a@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — [Candidate A](#candidate-a)\n"
+            "- OPEN **HIGH** **BUG FIX** — [Candidate B](#candidate-b)\n\n"
+            "<a id=\"candidate-a\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n\n"
+            "<a id=\"candidate-b\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+
+        def flow(cycle_id):
+            return (
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: " + cycle_id + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "Implement the exact scratch candidate.\n")
+
+        daemon.register_ticket_cycle_message(
+            agent="opus", message=flow(first_cycle))
+        starting_a = daemon.prepare_implementer_cycle_checkout(
+            cycle_id=first_cycle)
+        marker = implementer / "candidate-snapshot-marker.txt"
+        marker.write_text("candidate A\n", encoding="utf-8", newline="")
+        git(implementer, "add", marker.name)
+        git(implementer, "commit", "-m", "scratch candidate A")
+        commit_a = daemon.record_implementer_candidate(
+            cycle_id=first_cycle, starting_head=starting_a)
+        if commit_a is None:
+            return False
+
+        fable_snapshot = Path(daemon.create_audit_snapshot(
+            cycle_id=first_cycle, commit=commit_a, agent="fable"))
+        sol_snapshot = Path(daemon.create_audit_snapshot(
+            cycle_id=first_cycle, commit=commit_a, agent="sol"))
+        first_ref = daemon.cycle_candidate_ref(cycle_id=first_cycle)
+
+        second_cycle = "candidate-b@" + base
+        daemon.register_ticket_cycle_message(
+            agent="opus", message=flow(second_cycle))
+        starting_b = daemon.prepare_implementer_cycle_checkout(
+            cycle_id=second_cycle)
+        marker.write_text("candidate B\n", encoding="utf-8", newline="")
+        git(implementer, "add", marker.name)
+        git(implementer, "commit", "-m", "scratch candidate B")
+        commit_b = daemon.record_implementer_candidate(
+            cycle_id=second_cycle, starting_head=starting_b)
+        second_ref = daemon.cycle_candidate_ref(cycle_id=second_cycle)
+        candidate_state = daemon.read_candidate_state()
+
+        checks = {
+            "different-commits": commit_b is not None and commit_b != commit_a,
+            "first-ref": (git(root, "rev-parse", first_ref).stdout.strip()
+                          == commit_a),
+            "second-ref": (commit_b is not None
+                           and git(root, "rev-parse", second_ref).stdout.strip()
+                           == commit_b),
+            "different-refs": first_ref != second_ref,
+            "state-a": candidate_state["cycles"][first_cycle]
+            == {"ref": first_ref, "commit": commit_a},
+            "state-b": candidate_state["cycles"][second_cycle]
+            == {"ref": second_ref, "commit": commit_b},
+            "fable-detached": git(
+                fable_snapshot, "symbolic-ref", "-q", "HEAD",
+                check=False).returncode == 1,
+            "sol-detached": git(
+                sol_snapshot, "symbolic-ref", "-q", "HEAD",
+                check=False).returncode == 1,
+            "fable-head-a": git(
+                fable_snapshot, "rev-parse", "HEAD").stdout.strip()
+            == commit_a,
+            "sol-head-a": git(
+                sol_snapshot, "rev-parse", "HEAD").stdout.strip()
+            == commit_a,
+            "fable-bytes-a": (
+                fable_snapshot / marker.name).read_bytes() == b"candidate A\n",
+            "sol-bytes-a": (
+                sol_snapshot / marker.name).read_bytes() == b"candidate A\n",
+            "implementer-b": marker.read_bytes() == b"candidate B\n",
+            "root-preserved": root_checkout_identity(root) == root_before,
+        }
+        passed = all(checks.values())
+        try:
+            daemon.remove_audit_snapshot(
+                cycle_id=first_cycle, commit=commit_a, agent="fable")
+            daemon.remove_audit_snapshot(
+                cycle_id=first_cycle, commit=commit_a, agent="sol")
+        except BaseException:
+            passed = False
+        passed = passed and not fable_snapshot.exists() \
+            and not sol_snapshot.exists()
+        print("immutable candidate refs and audit snapshots=" + str(passed))
+        if not passed:
+            print("candidate snapshot checks=" + repr(checks))
+        return passed
+
+
+def arm_permanent_note_admin_is_exclusive_and_lands(source=None):
+    """One admin turn excludes Opus, then lands P on every clean role."""
+
+    class CompletedProcess:
+        def __init__(self, callback):
+            self.callback = callback
+            self.returncode = None
+            self.called = False
+
+        def poll(self):
+            if not self.called:
+                self.called = True
+                self.callback()
+                self.returncode = 0
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self):
+            return self.returncode
+
+    class PopenProxy:
+        def __init__(self, module, callback, launches):
+            self.module = module
+            self.callback = callback
+            self.launches = launches
+
+        def __getattr__(self, name):
+            return (self.popen if name == "Popen"
+                    else getattr(self.module, name))
+
+        def popen(self, command, stdout, stderr, cwd, env):
+            del command, stderr
+            self.launches.append((Path(cwd), dict(env)))
+            stdout.write("completed scratch note administration\n")
+            stdout.flush()
+            return CompletedProcess(
+                callback=lambda: self.callback(dict(env)))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        admin = mailbox / "0001-to-fable.md"
+        admin.write_text(
+            daemon.architect_notes_admin_payload(
+                "Record one durable scratch policy update."),
+            encoding="utf-8", newline="")
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
+        # This newer ticket is deliberately ready at the same instant.  The
+        # admin boundary must leave it untouched rather than racing Opus.
+        opus = mailbox / "0002-to-opus.md"
+        opus.write_text(
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: later@" + base + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "Implement a later scratch ticket.\n",
+            encoding="utf-8", newline="")
+        launches = []
+        created = {}
+
+        def commit_note(environment):
+            if environment.get("MAILBOX_NOTES_BASE") != base:
+                return
+            note = primary / "ai" / "notes" / "MEMORY.md"
+            note.write_text(
+                note.read_text(encoding="utf-8")
+                + "\nAdmin-only scratch policy.\n",
+                encoding="utf-8", newline="")
+            git(primary, "add", "ai/notes/MEMORY.md")
+            git(primary, "commit", "-m", "scratch permanent note P")
+            notes_commit = git(primary, "rev-parse", "HEAD").stdout.strip()
+            created["P"] = notes_commit
+            (mailbox / "0003-to-daemon.md").write_text(
+                daemon.architect_notes_go_request_payload(
+                    base_commit=base, notes_commit=notes_commit),
+                encoding="utf-8", newline="")
+
+        original_subprocess = daemon.subprocess
+        daemon.subprocess = PopenProxy(
+            original_subprocess, commit_note, launches)
+        try:
+            first = daemon.process_backlog(dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        p_commit = created.get("P")
+        journal = Path(daemon.architect_notes_admin_journal_path(
+            request_name=admin.name))
+        journal_retained = False
+        if journal.is_file():
+            saved_admin = mailbox / "done" / admin.name
+            saved_message = saved_admin.read_text(encoding="utf-8")
+            journal_state = daemon.read_architect_notes_admin_journal(
+                request_name=admin.name, request_message=saved_message)
+            journal_retained = (
+                journal_state["phase"] == "validated-commit"
+                and journal_state["base"] == base
+                and journal_state["notes_commit"] == p_commit)
+        before_landing = (
+            first is True and p_commit is not None
+            and [path.name for path in pending_markdown(primary)]
+            == ["0002-to-opus.md", "0003-to-daemon.md"]
+            and len(launches) == 1
+            and launches[0][0].resolve() == primary.resolve()
+            and git(root, "rev-parse", "HEAD").stdout.strip() == base
+            and journal_retained)
+        pending_barrier, _pending_error = (
+            daemon.acquire_positive_cycle_exit_barrier(
+                backlog_outcome=True))
+        pending_exit_blocked = pending_barrier is None
+        if pending_barrier is not None:
+            daemon.release_cycle_completion_barrier(
+                lock_file=pending_barrier)
+        daemon.push_exact_landing_or_record_debt = (
+            lambda landing: (False, "scratch has no remote"))
+        note_request = mailbox / "0003-to-daemon.md"
+        landed = daemon.consume_daemon_message(
+            path=str(note_request), dry_run=False)
+        all_heads = {
+            git(checkout, "rev-parse", "HEAD").stdout.strip()
+            for checkout in (root, primary, implementer, sol)}
+        after_landing = (
+            landed is True and all_heads == {p_commit}
+            and opus.is_file()
+            and (mailbox / "done" / "0003-to-daemon.md").is_file()
+            and not journal.exists())
+        final_barrier, _final_error = (
+            daemon.acquire_positive_cycle_exit_barrier(
+                backlog_outcome=True))
+        finite_exit_ready = final_barrier is not None
+        if final_barrier is not None:
+            daemon.release_cycle_completion_barrier(
+                lock_file=final_barrier)
+        passed = (before_landing and pending_exit_blocked
+                  and after_landing and finite_exit_ready)
+        print("exclusive permanent-note B-to-P landing=" + str(passed))
+        return passed
+
+
+def arm_permanent_note_journal_restart_is_exact(source=None):
+    """Restart accepts validated B/P evidence and refuses missing/started."""
+
+    def prepare(mode, admin_state="done"):
+        context = scratch_repository(source=source)
+        root = context.__enter__()
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            context.__exit__(None, None, None)
+            return None
+        primary = default_primary(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        state_dir = mailbox / admin_state
+        state_dir.mkdir(parents=True, exist_ok=True)
+        admin_name = "0001-to-fable.md"
+        admin_message = daemon.architect_notes_admin_payload(
+            "Record one restart-safe scratch policy update.")
+        (state_dir / admin_name).write_text(
+            admin_message, encoding="utf-8", newline="")
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
+        note = primary / "ai" / "notes" / "MEMORY.md"
+        note.write_text(
+            note.read_text(encoding="utf-8")
+            + "\nRestart-safe scratch policy.\n",
+            encoding="utf-8", newline="")
+        git(primary, "add", "ai/notes/MEMORY.md")
+        git(primary, "commit", "-m", "scratch restart note P")
+        notes_commit = git(primary, "rev-parse", "HEAD").stdout.strip()
+        go = mailbox / "0002-to-daemon.md"
+        go.write_text(
+            daemon.architect_notes_go_request_payload(
+                base_commit=base, notes_commit=notes_commit),
+            encoding="utf-8", newline="")
+        if mode == "validated-commit":
+            daemon.write_architect_notes_admin_journal(
+                request_name=admin_name, request_message=admin_message,
+                base_commit=base, phase=mode,
+                notes_commit=notes_commit,
+                receipt_sha256=hashlib.sha256(go.read_bytes()).hexdigest())
+        elif mode == "started":
+            daemon.write_architect_notes_admin_journal(
+                request_name=admin_name, request_message=admin_message,
+                base_commit=base, phase=mode)
+        return (context, root, primary, daemon, base, notes_commit,
+                admin_name, go)
+
+    positive = prepare(mode="validated-commit", admin_state="inflight")
+    if positive is None:
+        return False
+    (context, root, primary, daemon, _base, notes_commit,
+     admin_name, _go) = positive
+    try:
+        rc, stdout, stderr = invoke(root, ["--once"])
+        journal = Path(daemon.architect_notes_admin_journal_path(
+            request_name=admin_name))
+        heads = {
+            git(checkout, "rev-parse", "HEAD").stdout.strip()
+            for checkout in (root, primary, default_implementer(root),
+                             default_sol(root))}
+        positive_ok = (
+            rc == 0 and stderr == "" and heads == {notes_commit}
+            and (primary / "ai" / "notes" / "mailbox" / "done"
+                 / admin_name).is_file()
+            and (primary / "ai" / "notes" / "mailbox" / "done"
+                 / "0002-to-daemon.md").is_file()
+            and not journal.exists()
+            and "dispatching " + admin_name not in stdout)
+        second_rc, second_stdout, second_stderr = invoke(root, ["--once"])
+        positive_ok = (
+            positive_ok and second_rc == 0 and second_stderr == ""
+            and "dispatching " not in second_stdout
+            and not journal.exists())
+    finally:
+        context.__exit__(None, None, None)
+
+    negative_results = []
+    for case in ("started", "missing", "no-go"):
+        mode = "started" if case == "no-go" else case
+        prepared = prepare(mode=mode, admin_state="inflight")
+        if prepared is None:
+            negative_results.append(False)
+            continue
+        (context, root, primary, daemon, base, notes_commit,
+         admin_name, go) = prepared
+        try:
+            if case == "no-go":
+                go.unlink()
+            before = tree_snapshot(primary / "ai" / "notes")
+            rc, stdout, _stderr = invoke(root, ["--once"])
+            negative_results.append(
+                rc == 1
+                and git(root, "rev-parse", "HEAD").stdout.strip() == base
+                and git(primary, "rev-parse", "HEAD").stdout.strip()
+                == notes_commit
+                and (go.is_file() if case != "no-go" else not go.exists())
+                and (primary / "ai" / "notes" / "mailbox" / "inflight"
+                     / admin_name).is_file()
+                and tree_snapshot(primary / "ai" / "notes") == before
+                and "dispatching " + admin_name not in stdout)
+        finally:
+            context.__exit__(None, None, None)
+
+    noop_context = scratch_repository(source=source)
+    noop_root = noop_context.__enter__()
+    try:
+        noop_rc, _noop_stdout, noop_stderr = invoke(noop_root, ["--once"])
+        if (noop_rc != 0 or noop_stderr != ""
+                or not validate_topology(noop_root)):
+            noop_ok = False
+        else:
+            noop_primary = default_primary(noop_root)
+            noop_daemon = load_scratch_daemon(noop_primary)
+            noop_daemon.ensure_primary_execution(
+                live_action=True, dry_run=False)
+            noop_mailbox = noop_primary / "ai" / "notes" / "mailbox"
+            noop_inflight = noop_mailbox / "inflight"
+            noop_inflight.mkdir(parents=True, exist_ok=True)
+            noop_name = "0001-to-fable.md"
+            noop_message = noop_daemon.architect_notes_admin_payload(
+                "Check the saved notes and make no change.")
+            (noop_inflight / noop_name).write_text(
+                noop_message, encoding="utf-8", newline="")
+            noop_base = git(
+                noop_root, "rev-parse", "HEAD").stdout.strip()
+            noop_daemon.write_architect_notes_admin_journal(
+                request_name=noop_name, request_message=noop_message,
+                base_commit=noop_base, phase="validated-noop")
+            noop_journal = Path(
+                noop_daemon.architect_notes_admin_journal_path(
+                    request_name=noop_name))
+            noop_rc, noop_stdout, noop_stderr = invoke(
+                noop_root, ["--once"])
+            noop_ok = (
+                noop_rc == 0 and noop_stderr == ""
+                and (noop_mailbox / "done" / noop_name).is_file()
+                and not noop_journal.exists()
+                and "dispatching " + noop_name not in noop_stdout)
+    finally:
+        noop_context.__exit__(None, None, None)
+
+    prelaunch_results = []
+    for phase in ("missing", "started"):
+        pre_context = scratch_repository(source=source)
+        pre_root = pre_context.__enter__()
+        try:
+            pre_rc, _pre_stdout, pre_stderr = invoke(
+                pre_root, ["--once"])
+            if (pre_rc != 0 or pre_stderr != ""
+                    or not validate_topology(pre_root)):
+                prelaunch_results.append(False)
+                continue
+            pre_primary = default_primary(pre_root)
+            pre_daemon = load_scratch_daemon(pre_primary)
+            pre_daemon.ensure_primary_execution(
+                live_action=True, dry_run=False)
+            pre_mailbox = pre_primary / "ai" / "notes" / "mailbox"
+            pre_inflight = pre_mailbox / "inflight"
+            pre_inflight.mkdir(parents=True, exist_ok=True)
+            pre_name = "0001-to-fable.md"
+            pre_message = pre_daemon.architect_notes_admin_payload(
+                "Exercise an interrupted prelaunch admin.")
+            pre_path = pre_inflight / pre_name
+            pre_path.write_text(
+                pre_message, encoding="utf-8", newline="")
+            pre_base = git(
+                pre_root, "rev-parse", "HEAD").stdout.strip()
+            if phase == "started":
+                pre_daemon.write_architect_notes_admin_journal(
+                    request_name=pre_name, request_message=pre_message,
+                    base_commit=pre_base, phase="started")
+            request_before = pre_path.read_bytes()
+            journal_path = Path(
+                pre_daemon.architect_notes_admin_journal_path(
+                    request_name=pre_name))
+            journal_before = (
+                journal_path.read_bytes() if journal_path.is_file()
+                else None)
+            stopped_rc, stopped_stdout, _stopped_stderr = invoke(
+                pre_root, ["--once"])
+            prelaunch_results.append(
+                stopped_rc == 1 and pre_path.is_file()
+                and git(pre_root, "rev-parse", "HEAD").stdout.strip()
+                == pre_base
+                and git(pre_primary, "rev-parse", "HEAD").stdout.strip()
+                == pre_base
+                and pre_path.read_bytes() == request_before
+                and ((journal_path.read_bytes()
+                      if journal_path.is_file() else None)
+                     == journal_before)
+                and "dispatching " + pre_name not in stopped_stdout)
+        finally:
+            pre_context.__exit__(None, None, None)
+    passed = (positive_ok and all(negative_results) and noop_ok
+              and all(prelaunch_results))
+    print("permanent-note journal restart=" + str(passed))
+    if not passed:
+        print("journal restart checks=" + repr({
+            "positive": positive_ok,
+            "ahead-negatives": negative_results,
+            "validated-noop": noop_ok,
+            "prelaunch-negatives": prelaunch_results,
+        }))
+    return passed
+
+
+def arm_permanent_note_admin_publisher_is_architect_bound(source=None):
+    """Only a primary-bound Architect can publish the raw admin envelope."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        names = ("MAILBOX_ROLE", "MAILBOX_PRIMARY_WORKTREE",
+                 "MAILBOX_SHARED_NOTES")
+        saved = {name: os.environ.get(name) for name in names}
+        try:
+            os.environ["MAILBOX_ROLE"] = "implementer"
+            os.environ["MAILBOX_PRIMARY_WORKTREE"] = str(primary)
+            os.environ["MAILBOX_SHARED_NOTES"] = str(
+                primary / "ai" / "notes")
+            wrong_role = not daemon.send_architect_notes_admin(
+                text="Wrong role must fail.")
+            os.environ["MAILBOX_ROLE"] = "architect"
+            os.environ["MAILBOX_PRIMARY_WORKTREE"] = str(root)
+            wrong_runtime = not daemon.send_architect_notes_admin(
+                text="Wrong checkout must fail.")
+            os.environ["MAILBOX_PRIMARY_WORKTREE"] = str(primary)
+            accepted = daemon.send_architect_notes_admin(
+                text="Update the permanent scratch policy.")
+            duplicate = not daemon.send_architect_notes_admin(
+                text="A second update must wait.")
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        messages = pending_markdown(primary)
+        exact = (len(messages) == 1
+                 and messages[0].read_text(encoding="utf-8")
+                 == daemon.architect_notes_admin_payload(
+                     "Update the permanent scratch policy."))
+        passed = (wrong_role and wrong_runtime and accepted and duplicate
+                  and exact)
+        print("Architect-bound permanent-note publisher=" + str(passed))
+        return passed
+
+
+def arm_persistent_roles_refuse_tracked_and_untracked_source_edits(
+        source=None):
+    """Architect and Red Team may not create persistent source files."""
+
+    class PopenProxy:
+        def __init__(self, module, callback):
+            self.module = module
+            self.callback = callback
+
+        def __getattr__(self, name):
+            return (self.popen if name == "Popen"
+                    else getattr(self.module, name))
+
+        def popen(self, command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            return MutatingProcess(callback=self.callback)
+
+    class MutatingProcess:
+        def __init__(self, callback):
+            self.callback = callback
+            self.returncode = None
+            self.called = False
+
+        def poll(self):
+            if not self.called:
+                self.called = True
+                self.callback()
+                self.returncode = 0
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self):
+            return self.returncode
+
+    def prepare_fable(root):
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return None
+        primary = default_primary(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        daemon.AGENT_COMMANDS = daemon.build_agent_commands(
+            fable_effort=daemon.DEFAULT_FABLE_EFFORT,
+            opus_effort=daemon.DEFAULT_OPUS_EFFORT,
+            sol_effort=daemon.DEFAULT_SOL_EFFORT,
+            sol_context_budget=daemon.DEFAULT_SOL_CONTEXT_BUDGET,
+            sol_worktree=daemon.AGENT_CWD["sol"],
+            shared_notes=daemon.ACTIVE_TOPOLOGY["shared_notes"])
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        message = mailbox / "0001-to-fable.md"
+        message.write_text(
+            daemon.architect_user_request_payload(
+                text="Coordinate the persistent role witness.",
+                discovery_severity="medium"),
+            encoding="utf-8", newline="")
+        return daemon, primary, message
+
+    def state(primary, agent):
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        return {
+            key: len(list(((mailbox if key == "pending" else mailbox / key)
+                           ).glob("*-to-" + agent + ".md")))
+            for key in ("pending", "inflight", "done", "failed")}
+
+    outcomes = []
+    with scratch_repository(source=source) as root:
+        prepared = prepare_fable(root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        ordinary = primary / "ai" / "tools" / "mailbox_daemon.py"
+
+        def edit_ordinary():
+            ordinary.write_bytes(ordinary.read_bytes() + b"\n# role drift\n")
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, edit_ordinary)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused_preserved = (
+            result is False and ordinary.read_bytes().endswith(b"role drift\n")
+            and state(primary, "fable")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused_preserved)
+        print("Architect ordinary tracked edit preserved and refused="
+              + str(refused_preserved))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare_fable(root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        created = primary / "emulator" / "architect_created.py"
+
+        def create_architect_source():
+            created.parent.mkdir(parents=True, exist_ok=True)
+            created.write_text(
+                "raise RuntimeError('Architect must not implement')\n",
+                encoding="utf-8", newline="")
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, create_architect_source)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused_untracked_architect = (
+            result is False and created.is_file()
+            and state(primary, "fable")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused_untracked_architect)
+        print("Architect untracked source creation preserved and refused="
+              + str(refused_untracked_architect))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare_fable(root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        note = primary / "ai" / "notes" / "MEMORY.md"
+
+        def edit_note():
+            note.write_bytes(note.read_bytes() + b"\nArchitect policy note.\n")
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, edit_note)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused = (
+            result is False and note.read_bytes().endswith(
+                b"Architect policy note.\n")
+            and state(primary, "fable")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused)
+        print("uncommitted permanent-note edit preserved and refused="
+              + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare_fable(root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        ordinary = primary / "ai" / "tools" / "mailbox_daemon.py"
+        ordinary.write_bytes(ordinary.read_bytes() + b"\n# existing work\n")
+        before = ordinary.read_bytes()
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, lambda: None)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        baseline_preserved = (
+            result is True and ordinary.read_bytes() == before
+            and state(primary, "fable")
+            == {"pending": 0, "inflight": 0, "done": 1, "failed": 0})
+        outcomes.append(baseline_preserved)
+        print("Architect preexisting ordinary state preserved="
+              + str(baseline_preserved))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        sol = default_sol(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        daemon.AGENT_COMMANDS = daemon.build_agent_commands(
+            fable_effort=daemon.DEFAULT_FABLE_EFFORT,
+            opus_effort=daemon.DEFAULT_OPUS_EFFORT,
+            sol_effort=daemon.DEFAULT_SOL_EFFORT,
+            sol_context_budget=daemon.DEFAULT_SOL_CONTEXT_BUDGET,
+            sol_worktree=daemon.AGENT_CWD["sol"],
+            shared_notes=daemon.ACTIVE_TOPOLOGY["shared_notes"])
+        create_empty_sealed_backlog(primary=primary)
+        if not daemon.send(
+                agent="sol", ticket_kind="discovery", severity="medium",
+                scope="bounded", text="Review persistent Sol authority.",
+                dry_run=False):
+            return False
+        message = pending_markdown(primary)[0]
+        ordinary = sol / "ai" / "tools" / "mailbox_daemon.py"
+
+        def edit_sol():
+            ordinary.write_bytes(ordinary.read_bytes() + b"\n# Sol drift\n")
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, edit_sol)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused_sol = (
+            result is False and ordinary.read_bytes().endswith(b"Sol drift\n")
+            and state(primary, "sol")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused_sol)
+        print("Red Team tracked edit preserved and refused="
+              + str(refused_sol))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        sol = default_sol(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        daemon.AGENT_COMMANDS = daemon.build_agent_commands(
+            fable_effort=daemon.DEFAULT_FABLE_EFFORT,
+            opus_effort=daemon.DEFAULT_OPUS_EFFORT,
+            sol_effort=daemon.DEFAULT_SOL_EFFORT,
+            sol_context_budget=daemon.DEFAULT_SOL_CONTEXT_BUDGET,
+            sol_worktree=daemon.AGENT_CWD["sol"],
+            shared_notes=daemon.ACTIVE_TOPOLOGY["shared_notes"])
+        create_empty_sealed_backlog(primary=primary)
+        if not daemon.send(
+                agent="sol", ticket_kind="discovery", severity="medium",
+                scope="bounded", text="Try creating Red Team source.",
+                dry_run=False):
+            return False
+        message = pending_markdown(primary)[0]
+        created = sol / "emulator" / "redteam_created.py"
+
+        def create_redteam_source():
+            created.parent.mkdir(parents=True, exist_ok=True)
+            created.write_text(
+                "raise RuntimeError('Red Team is advisory')\n",
+                encoding="utf-8", newline="")
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, create_redteam_source)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        refused_untracked_sol = (
+            result is False and created.is_file()
+            and state(primary, "sol")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused_untracked_sol)
+        print("Red Team untracked source creation preserved and refused="
+              + str(refused_untracked_sol))
+    return all(outcomes)
+
+
+def arm_shared_protected_notes_require_architect_authority(source=None):
+    """Opus/Sol may write temporary notes, not unsealed protected files."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        notes = primary / "ai" / "notes"
+        backlog = notes / "backlog.md"
+        guard_state = notes / ".backlog-guard.json"
+        permanent = notes / "MEMORY.md"
+        backlog.write_bytes(b"")
+        seal_backlog(primary)
+
+        temporary = notes / "ticket-finding.md"
+        opus_temporary = daemon.capture_persistent_role_state(agent="opus")
+        sol_temporary = daemon.capture_persistent_role_state(agent="sol")
+        temporary.write_text(
+            "Temporary finding evidence.\n", encoding="utf-8", newline="")
+        temporary_allowed = True
+        try:
+            daemon.recheck_persistent_role_state(proof=opus_temporary)
+            daemon.recheck_persistent_role_state(proof=sol_temporary)
+        except daemon.PrimaryWorktreeError:
+            temporary_allowed = False
+
+        opus_extra = daemon.capture_persistent_role_state(agent="opus")
+        sol_extra = daemon.capture_persistent_role_state(agent="sol")
+        extra_note = notes / "accidental-twelfth.md"
+        extra_note.write_text(
+            "Accidentally staged note.\n", encoding="utf-8", newline="")
+        git(primary, "add", "-f", "ai/notes/accidental-twelfth.md")
+        extra_refused = []
+        for proof in (opus_extra, sol_extra):
+            refused = False
+            try:
+                daemon.recheck_persistent_role_state(proof=proof)
+            except daemon.PrimaryWorktreeError:
+                refused = True
+            extra_refused.append(refused)
+        git(primary, "reset", "HEAD", "--", "ai/notes/accidental-twelfth.md")
+        extra_note.unlink()
+
+        unsealed_refusals = []
+        for agent in ("opus", "sol"):
+            proof = daemon.capture_persistent_role_state(agent=agent)
+            original = backlog.read_bytes()
+            backlog.write_bytes(original + b"unsealed accidental edit\n")
+            refused = False
+            try:
+                daemon.recheck_persistent_role_state(proof=proof)
+            except daemon.PrimaryWorktreeError:
+                refused = True
+            backlog.write_bytes(original)
+            seal_backlog(primary)
+            unsealed_refusals.append(refused)
+
+        permanent_refusals = []
+        for agent in ("opus", "sol"):
+            proof = daemon.capture_persistent_role_state(agent=agent)
+            original = permanent.read_bytes()
+            permanent.write_bytes(original + b"accidental policy edit\n")
+            refused = False
+            try:
+                daemon.recheck_persistent_role_state(proof=proof)
+            except daemon.PrimaryWorktreeError:
+                refused = True
+            permanent.write_bytes(original)
+            permanent_refusals.append(refused)
+
+        opus_concurrent = daemon.capture_persistent_role_state(agent="opus")
+        sol_concurrent = daemon.capture_persistent_role_state(agent="sol")
+        backlog.write_bytes(backlog.read_bytes() + b"Architect ticket edit\n")
+        seal_backlog(primary)
+        permanent.write_bytes(
+            permanent.read_bytes() + b"Architect committed policy edit.\n")
+        git(primary, "add", "ai/notes/MEMORY.md")
+        git(primary, "commit", "-m", "Architect policy bookkeeping")
+        concurrent_allowed = True
+        try:
+            daemon.recheck_persistent_role_state(proof=opus_concurrent)
+            daemon.recheck_persistent_role_state(proof=sol_concurrent)
+        except daemon.PrimaryWorktreeError:
+            concurrent_allowed = False
+
+        backlog.unlink()
+        guard_state.unlink()
+        absent_allowed = True
+        try:
+            for agent in ("opus", "sol"):
+                proof = daemon.capture_persistent_role_state(agent=agent)
+                daemon.recheck_persistent_role_state(proof=proof)
+        except daemon.PrimaryWorktreeError:
+            absent_allowed = False
+
+        checks = {
+            "temporary-note-allowed": temporary_allowed,
+            "opus-extra-index-note-refused": extra_refused[0],
+            "sol-extra-index-note-refused": extra_refused[1],
+            "opus-unsealed-backlog-refused": unsealed_refusals[0],
+            "sol-unsealed-backlog-refused": unsealed_refusals[1],
+            "opus-permanent-note-refused": permanent_refusals[0],
+            "sol-permanent-note-refused": permanent_refusals[1],
+            "concurrent-architect-authority-allowed": concurrent_allowed,
+            "both-absent-bootstrap-allowed": absent_allowed,
+        }
+        passed = all(checks.values())
+        print("shared protected-note authority=" + str(passed))
+        if not passed:
+            print("shared protected-note checks=" + repr(checks))
+        return passed
+
+
+def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
+    """Candidate C is audited; daemon GO creates and records exact L."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        cycle_id = "squash-landing@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — "
+            "[Squash landing](#squash-landing)\n\n"
+            "<a id=\"squash-landing\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+        flow = (
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: " + cycle_id + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "Implement the exact scratch landing candidate.\n")
+        daemon.register_ticket_cycle_message(agent="opus", message=flow)
+        starting = daemon.prepare_implementer_cycle_checkout(
+            cycle_id=cycle_id)
+        candidate_file = implementer / "candidate-change.txt"
+        candidate_file.write_text(
+            "candidate change\n", encoding="utf-8", newline="")
+        git(implementer, "add", candidate_file.name)
+        git(implementer, "commit", "-m", "scratch candidate")
+        candidate = daemon.record_implementer_candidate(
+            cycle_id=cycle_id, starting_head=starting)
+        if candidate is None:
+            return False
+        architect_snapshot = Path(daemon.create_audit_snapshot(
+            cycle_id=cycle_id, commit=candidate, agent="fable"))
+
+        intervening_file = root / "intervening-main.txt"
+        intervening_file.write_text(
+            "main advanced independently\n", encoding="utf-8", newline="")
+        git(root, "add", intervening_file.name)
+        git(root, "commit", "-m", "intervening main change")
+        landing_parent = git(root, "rev-parse", "HEAD").stdout.strip()
+        expected_tree = git(
+            root, "merge-tree", "--write-tree", landing_parent,
+            candidate).stdout.strip()
+        git(root, "reset", "--hard", candidate)
+        candidate_as_landing_refused = False
+        try:
+            daemon.record_architect_commit(
+                cycle_id=cycle_id, accepted_commit=candidate, mode="normal")
+        except daemon.TicketCycleStateError:
+            candidate_as_landing_refused = True
+        git(root, "reset", "--hard", landing_parent)
+        wrong_file = root / "wrong-landing-tree.txt"
+        wrong_file.write_text(
+            "not candidate content\n", encoding="utf-8", newline="")
+        git(root, "add", wrong_file.name)
+        wrong_tree = git(root, "write-tree").stdout.strip()
+        wrong_landing = git(
+            root, "commit-tree", wrong_tree, "-p", landing_parent, "-m",
+            daemon._landing_commit_message(
+                cycle_id=cycle_id, candidate_commit=candidate)).stdout.strip()
+        git(root, "reset", "--hard", landing_parent)
+        wrong_tree_refused = False
+        try:
+            daemon._verify_prepared_landing(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                landing_commit=wrong_landing)
+        except daemon.TicketCycleStateError:
+            wrong_tree_refused = True
+        mailbox = Path(daemon.MAILBOX)
+        mailbox.mkdir(parents=True, exist_ok=True)
+        go_path = mailbox / "0003-to-daemon.md"
+        go_path.write_text(
+            daemon.architect_go_request_payload(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal"),
+            encoding="utf-8", newline="")
+        consumed = daemon.consume_daemon_message(path=str(go_path))
+        landing = git(root, "rev-parse", "HEAD").stdout.strip()
+        sol_snapshot = Path(daemon.create_audit_snapshot(
+            cycle_id=cycle_id, commit=landing, agent="sol"))
+        ticket_state = daemon.read_ticket_cycle_state()
+        candidate_ref = daemon.cycle_candidate_ref(cycle_id=cycle_id)
+        landing_ref = daemon.cycle_landing_ref(cycle_id=cycle_id)
+        closures = []
+        for path in mailbox.rglob("*-to-sol.md"):
+            text = path.read_text(encoding="utf-8")
+            if daemon.redteam_closure_ticket(text) == cycle_id:
+                closures.append(path)
+        recovery_one = daemon.reconcile_ticket_cycle_state()
+        recovery_two = daemon.reconcile_ticket_cycle_state()
+        closures_after_recovery = []
+        for path in mailbox.rglob("*-to-sol.md"):
+            text = path.read_text(encoding="utf-8")
+            if daemon.redteam_closure_ticket(text) == cycle_id:
+                closures_after_recovery.append(path)
+        real_run = daemon.subprocess.run
+        verification_timeout_became_debt = False
+        try:
+            def timeout_remote_verification(command, *args, **kwargs):
+                if "push" in command:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout=b"push accepted\n", stderr=b"")
+                if "ls-remote" in command:
+                    raise subprocess.TimeoutExpired(command, 120)
+                return real_run(command, *args, **kwargs)
+
+            daemon.subprocess.run = timeout_remote_verification
+            pushed, _detail = daemon.push_exact_landing_or_record_debt(
+                landing=landing)
+            verification_timeout_became_debt = (
+                not pushed and Path(
+                    daemon._push_debt_path(landing=landing)).is_file())
+        finally:
+            daemon.subprocess.run = real_run
+        checks = {
+            "go-consumed": consumed,
+            "candidate-is-not-landing": candidate_as_landing_refused,
+            "wrong-tree-is-not-landing": wrong_tree_refused,
+            "candidate-audited": git(
+                architect_snapshot, "rev-parse", "HEAD").stdout.strip()
+            == candidate,
+            "candidate-detached": git(
+                architect_snapshot, "symbolic-ref", "-q", "HEAD",
+                check=False).returncode == 1,
+            "landing-distinct": landing != candidate,
+            "landing-parent": git(
+                root, "rev-parse", landing + "^").stdout.strip()
+            == landing_parent,
+            "base-preserved": git(
+                root, "merge-base", "--is-ancestor", base,
+                landing_parent, check=False).returncode == 0,
+            "exact-squash-tree": git(
+                root, "rev-parse", landing + "^{tree}").stdout.strip()
+            == expected_tree,
+            "intervening-preserved": (
+                root / intervening_file.name).read_bytes()
+            == b"main advanced independently\n",
+            "candidate-change-landed": (
+                root / candidate_file.name).read_bytes()
+            == b"candidate change\n",
+            "normal-waits-redteam": cycle_id not in ticket_state["completed"],
+            "landing-saved": ticket_state["active"][cycle_id]["commit"]
+            == landing,
+            "landing-phase": ticket_state["active"][cycle_id]["phase"]
+            == "committed-awaiting-closure",
+            "candidate-ref-retired": git(
+                root, "rev-parse", "--verify", candidate_ref,
+                check=False).returncode != 0,
+            "landing-ref-retired": git(
+                root, "rev-parse", "--verify", landing_ref,
+                check=False).returncode != 0,
+            "one-sol-closure": len(closures) == 1,
+            "closure-binds-landing": (
+                len(closures) == 1
+                and daemon.redteam_closure_commit(
+                    closures[0].read_text(encoding="utf-8")) == landing),
+            "push-debt-visible": Path(
+                daemon._push_debt_path(landing=landing)).is_file(),
+            "two-restarts-idempotent": (
+                recovery_one == 0 and recovery_two == 0),
+            "go-stays-done": (
+                (mailbox / "done" / go_path.name).is_file()
+                and not (mailbox / "failed" / go_path.name).exists()),
+            "closure-stays-unique": len(closures_after_recovery) == 1,
+            "remote-verification-timeout-is-debt": (
+                verification_timeout_became_debt),
+            "sol-detached": git(
+                sol_snapshot, "symbolic-ref", "-q", "HEAD",
+                check=False).returncode == 1,
+            "sol-sees-landing": git(
+                sol_snapshot, "rev-parse", "HEAD").stdout.strip()
+            == landing,
+        }
+        passed = all(checks.values())
+        try:
+            daemon.remove_audit_snapshot(
+                cycle_id=cycle_id, commit=candidate, agent="fable")
+            daemon.remove_audit_snapshot(
+                cycle_id=cycle_id, commit=landing, agent="sol")
+        except BaseException:
+            passed = False
+        print("candidate C and squash landing L are distinct=" + str(passed))
+        if not passed:
+            print("candidate/landing checks=" + repr(checks))
+        return passed
+
+
+def arm_landed_candidate_hands_off_without_clobbering_pipeline(source=None):
+    """A retired C yields to L, while an already-saved next C is untouched."""
+    outcomes = []
+    for pipeline in (False, True):
+        with scratch_repository(source=source) as root:
+            rc, _stdout, stderr = invoke(root, ["--once"])
+            if rc != 0 or stderr != "" or not validate_topology(root):
+                outcomes.append(False)
+                continue
+            primary = default_primary(root)
+            implementer = default_implementer(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+            backlog = primary / "ai" / "notes" / "backlog.md"
+            backlog.write_text(
+                "- OPEN **HIGH** **BUG FIX** — [Handoff A](#handoff-a)\n"
+                "- OPEN **HIGH** **BUG FIX** — [Handoff B](#handoff-b)\n\n"
+                "<a id=\"handoff-a\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n\n"
+                "<a id=\"handoff-b\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+
+            def flow(cycle_id):
+                return (
+                    "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle_id
+                    + "\nMAILBOX-MODE: two-role\n\n"
+                    "Implement the exact scratch handoff ticket.\n")
+
+            cycle_a = "handoff-a@" + base
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow(cycle_a), skip_redteam=True)
+            starting_a = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle_a)
+            file_a = implementer / "handoff-a.txt"
+            file_a.write_text(
+                "".join("candidate A line " + str(index) + "\n"
+                        for index in range(451)),
+                encoding="utf-8", newline="")
+            git(implementer, "add", file_a.name)
+            git(implementer, "commit", "-m", "scratch handoff A")
+            candidate_a = daemon.record_implementer_candidate(
+                cycle_id=cycle_a, starting_head=starting_a)
+            before_landing_debt = daemon.landing_debt_snapshot()
+            candidate_b = None
+            state_b = None
+            tree_b = None
+            ref_b = None
+            cycle_b = "handoff-b@" + base
+            if pipeline:
+                daemon.register_ticket_cycle_message(
+                    agent="opus", message=flow(cycle_b), skip_redteam=True)
+                starting_b = daemon.prepare_implementer_cycle_checkout(
+                    cycle_id=cycle_b)
+                file_b = implementer / "handoff-b.txt"
+                file_b.write_text(
+                    "candidate B\n", encoding="utf-8", newline="")
+                git(implementer, "add", file_b.name)
+                git(implementer, "commit", "-m", "scratch handoff B")
+                candidate_b = daemon.record_implementer_candidate(
+                    cycle_id=cycle_b, starting_head=starting_b)
+                ref_b = daemon.cycle_candidate_ref(cycle_id=cycle_b)
+                state_b = daemon.read_candidate_state()["cycles"][cycle_b]
+                tree_b = git(
+                    implementer, "rev-parse", "HEAD^{tree}").stdout.strip()
+
+            mailbox = Path(daemon.MAILBOX)
+            mailbox.mkdir(parents=True, exist_ok=True)
+            go = mailbox / "0003-to-daemon.md"
+            go.write_text(
+                daemon.architect_go_request_payload(
+                    cycle_id=cycle_a, candidate_commit=candidate_a,
+                    mode="two-role"),
+                encoding="utf-8", newline="")
+            consumed = daemon.consume_daemon_message(path=str(go))
+            landing_a = git(root, "rev-parse", "HEAD").stdout.strip()
+            state_after = daemon.read_candidate_state()["cycles"]
+            if not pipeline:
+                # A planning-role branch can legitimately lag main. It is
+                # not implementation debt once C/ref/state were retired.
+                git(primary, "reset", "--hard", base)
+            after_landing_debt = daemon.landing_debt_snapshot()
+            with contextlib.redirect_stdout(io.StringIO()):
+                daemon.report_landing_debt(snapshot=after_landing_debt)
+            ref_a = daemon.cycle_candidate_ref(cycle_id=cycle_a)
+            checks = {
+                "consumed": consumed,
+                "a-state-retired": cycle_a not in state_after,
+                "a-ref-retired": git(
+                    root, "rev-parse", "--verify", ref_a,
+                    check=False).returncode != 0,
+            }
+            if pipeline:
+                checks.update({
+                    "b-head-preserved": git(
+                        implementer, "rev-parse", "HEAD").stdout.strip()
+                    == candidate_b,
+                    "b-tree-preserved": git(
+                        implementer, "rev-parse",
+                        "HEAD^{tree}").stdout.strip() == tree_b,
+                    "b-state-preserved": state_after.get(cycle_b) == state_b,
+                    "b-ref-preserved": git(
+                        root, "rev-parse", ref_b).stdout.strip()
+                    == candidate_b,
+                })
+                go_b = mailbox / "0005-to-daemon.md"
+                go_b.write_text(
+                    daemon.architect_go_request_payload(
+                        cycle_id=cycle_b, candidate_commit=candidate_b,
+                        mode="two-role"),
+                    encoding="utf-8", newline="")
+                consumed_b = daemon.consume_daemon_message(path=str(go_b))
+                landing_b = git(root, "rev-parse", "HEAD").stdout.strip()
+                state_after_b = daemon.read_candidate_state()["cycles"]
+                checks.update({
+                    "b-consumed": consumed_b,
+                    "b-landing-descends-a": git(
+                        root, "merge-base", "--is-ancestor",
+                        landing_a, landing_b, check=False).returncode == 0,
+                    "both-changes-landed": (
+                        (root / file_a.name).is_file()
+                        and (root / "handoff-b.txt").read_bytes()
+                        == b"candidate B\n"),
+                    "b-state-retired": cycle_b not in state_after_b,
+                    "b-ref-retired": git(
+                        root, "rev-parse", "--verify", ref_b,
+                        check=False).returncode != 0,
+                    "implementer-at-b-L": git(
+                        implementer, "rev-parse", "HEAD").stdout.strip()
+                    == landing_b,
+                    "implementer-clean-after-b": git(
+                        implementer, "status", "--porcelain").stdout == "",
+                })
+            else:
+                cycle_b = "handoff-b@" + landing_a
+                daemon.register_ticket_cycle_message(
+                    agent="opus", message=flow(cycle_b), skip_redteam=True)
+                prepared_b = daemon.prepare_implementer_cycle_checkout(
+                    cycle_id=cycle_b)
+                checks.update({
+                    "implementer-at-L": git(
+                        implementer, "rev-parse", "HEAD").stdout.strip()
+                    == landing_a,
+                    "next-ticket-prepared": prepared_b == landing_a,
+                    "implementer-clean": git(
+                        implementer, "status", "--porcelain").stdout == "",
+                    "large-candidate-was-visible": (
+                        before_landing_debt["available"]
+                        and before_landing_debt["changed_lines"] > 400),
+                    "accepted-large-L-has-no-debt": (
+                        after_landing_debt["available"]
+                        and after_landing_debt["changed_lines"] == 0
+                        and not list(mailbox.glob("*-to-fable.md"))),
+                })
+            passed = all(checks.values())
+            if not passed:
+                print("candidate handoff checks=" + repr(checks))
+            outcomes.append(passed)
+    passed = outcomes == [True, True]
+    print("landed candidate handoff and pipeline preservation=" + str(passed))
+    return passed
+
+
+def arm_candidate_retirement_internal_crash_replays(source=None):
+    """Reset-before-delete and ref-before-state cuts retire idempotently."""
+    outcomes = []
+    for cut in ("reset-complete", "ref-deleted"):
+        with scratch_repository(source=source) as root:
+            rc, _stdout, stderr = invoke(root, ["--once"])
+            if rc != 0 or stderr != "" or not validate_topology(root):
+                outcomes.append(False)
+                continue
+            primary = default_primary(root)
+            implementer = default_implementer(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+            anchor = "retirement-" + cut
+            cycle = anchor + "@" + base
+            backlog = primary / "ai" / "notes" / "backlog.md"
+            backlog.write_text(
+                "- OPEN **HIGH** **BUG FIX** — [Retirement](#" + anchor
+                + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+            flow = (
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: two-role\n\n"
+                "Implement the exact crash witness.\n")
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=flow, skip_redteam=True)
+            starting = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle)
+            changed = implementer / "retirement-cut.txt"
+            changed.write_text(cut + "\n", encoding="utf-8", newline="")
+            git(implementer, "add", changed.name)
+            git(implementer, "commit", "-m", "scratch " + cut)
+            candidate = daemon.record_implementer_candidate(
+                cycle_id=cycle, starting_head=starting)
+            landing, parent, _journal = daemon.prepare_exact_squash_landing(
+                cycle_id=cycle, candidate_commit=candidate, mode="two-role")
+            daemon.land_prepared_commit_in_clean_user_checkout(
+                landing=landing, parent=parent)
+            daemon.record_architect_commit(
+                cycle_id=cycle, accepted_commit=landing, mode="two-role")
+            git(implementer, "reset", "--hard", landing)
+            reference = daemon.cycle_candidate_ref(cycle_id=cycle)
+            if cut == "ref-deleted":
+                git(root, "update-ref", "-d", reference, candidate)
+            first = daemon.retire_cycle_candidate(
+                cycle_id=cycle, candidate_commit=candidate,
+                landing_commit=landing)
+            second = daemon.retire_cycle_candidate(
+                cycle_id=cycle, candidate_commit=candidate,
+                landing_commit=landing)
+            checks = {
+                "first-retired": first,
+                "second-idempotent": second,
+                "state-retired": (
+                    cycle not in daemon.read_candidate_state()["cycles"]),
+                "ref-retired": git(
+                    root, "rev-parse", "--verify", reference,
+                    check=False).returncode != 0,
+                "implementer-at-L": git(
+                    implementer, "rev-parse", "HEAD").stdout.strip()
+                == landing,
+                "implementer-clean": git(
+                    implementer, "status", "--porcelain").stdout == "",
+            }
+            passed = all(checks.values())
+            if not passed:
+                print("candidate retirement crash checks=" + repr(checks))
+            outcomes.append(passed)
+    passed = outcomes == [True, True]
+    print("candidate retirement internal crash replay=" + str(passed))
+    return passed
+
+
+def arm_architect_go_crash_cuts_recover_once(source=None):
+    """Prepared, landed, recorded, and archived GO cuts replay exactly."""
+    results = []
+    for cut in ("prepared", "fast-forwarded", "recorded", "closure",
+                "archived"):
+        with scratch_repository(source=source) as root:
+            rc, _stdout, stderr = invoke(root, ["--once"])
+            if rc != 0 or stderr != "" or not validate_topology(root):
+                results.append(False)
+                continue
+            primary = default_primary(root)
+            implementer = default_implementer(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+            anchor = "crash-" + cut
+            cycle_id = anchor + "@" + base
+            backlog = primary / "ai" / "notes" / "backlog.md"
+            backlog.write_text(
+                "- OPEN **HIGH** **BUG FIX** — [Crash cut](#" + anchor
+                + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+            flow = (
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: " + cycle_id + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "Implement the crash-cut candidate.\n")
+            daemon.register_ticket_cycle_message(agent="opus", message=flow)
+            starting = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle_id)
+            changed = implementer / "crash-cut.txt"
+            changed.write_text(cut + "\n", encoding="utf-8", newline="")
+            git(implementer, "add", changed.name)
+            git(implementer, "commit", "-m", "scratch " + cut)
+            candidate = daemon.record_implementer_candidate(
+                cycle_id=cycle_id, starting_head=starting)
+            mailbox = Path(daemon.MAILBOX)
+            inflight = mailbox / "inflight"
+            inflight.mkdir(parents=True, exist_ok=True)
+            go_path = inflight / "0003-to-daemon.md"
+            go_path.write_text(
+                daemon.architect_go_request_payload(
+                    cycle_id=cycle_id, candidate_commit=candidate,
+                    mode="normal"),
+                encoding="utf-8", newline="")
+            landing, parent, _reference = daemon.prepare_exact_squash_landing(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal")
+            if cut != "prepared":
+                daemon.land_prepared_commit_in_clean_user_checkout(
+                    landing=landing, parent=parent)
+            if cut in {"recorded", "closure", "archived"}:
+                daemon.record_architect_commit(
+                    cycle_id=cycle_id, accepted_commit=landing,
+                    mode="normal")
+            if cut in {"closure", "archived"}:
+                daemon.publish_redteam_closure_request(
+                    cycle_id=cycle_id, landing=landing)
+            if cut == "archived":
+                daemon.write_push_debt(
+                    landing=landing, detail="simulated crash before push")
+                if not daemon.archive_consumed_message(
+                        dispatch_path=str(go_path)):
+                    results.append(False)
+                    continue
+            try:
+                first = daemon.reconcile_ticket_cycle_state()
+                second = daemon.reconcile_ticket_cycle_state()
+            except BaseException as exc:
+                print("crash-cut " + cut + " failed: " + repr(exc))
+                results.append(False)
+                continue
+            state = daemon.read_ticket_cycle_state()
+            active = state["active"].get(cycle_id)
+            closures = []
+            for path in mailbox.rglob("*-to-sol.md"):
+                text = path.read_text(encoding="utf-8")
+                if daemon.redteam_closure_ticket(text) == cycle_id:
+                    closures.append(path)
+            checks = {
+                "recovery-count": first == 0 and second == 0,
+                "main-is-L": git(
+                    root, "rev-parse", "HEAD").stdout.strip() == landing,
+                "state-is-L": (
+                    active is not None and active["commit"] == landing
+                    and active["phase"] == "awaiting-redteam"),
+                "go-done": (
+                    (mailbox / "done" / go_path.name).is_file()
+                    and not (mailbox / "failed" / go_path.name).exists()),
+                "closure-unique": len(closures) == 1,
+                "candidate-retired": git(
+                    root, "rev-parse", "--verify",
+                    daemon.cycle_candidate_ref(cycle_id=cycle_id),
+                    check=False).returncode != 0,
+                "landing-retired": git(
+                    root, "rev-parse", "--verify",
+                    daemon.cycle_landing_ref(cycle_id=cycle_id),
+                    check=False).returncode != 0,
+                "push-debt": Path(
+                    daemon._push_debt_path(landing=landing)).is_file(),
+            }
+            passed = all(checks.values())
+            if not passed:
+                print("crash-cut " + cut + " checks=" + repr(checks))
+            results.append(passed)
+    passed = all(results) and len(results) == 5
+    print("Architect GO crash cuts recover exactly once=" + str(passed))
+    return passed
+
+
+def arm_two_role_debt_failure_replays_past_cycle_limit(source=None):
+    """A completed finite ticket still archives its requeued daemon GO."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        anchor = "two-role-debt-restart"
+        cycle_id = anchor + "@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — [Debt restart](#" + anchor
+            + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+
+        first_controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="two-role")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = first_controller
+        restored = daemon.prepare_finite_watch_progress(
+            limit=1, topology="two-role")
+        first_controller.restore_completed_ticket_cycles(count=restored)
+        flow = (
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: " + cycle_id + "\n"
+            "MAILBOX-MODE: two-role\n\n"
+            "Implement the finite restart candidate.\n")
+        daemon.register_ticket_cycle_message(
+            agent="opus", message=flow, skip_redteam=True)
+        starting = daemon.prepare_implementer_cycle_checkout(
+            cycle_id=cycle_id)
+        changed = implementer / "two-role-debt-restart.txt"
+        changed.write_text(
+            "finite restart\n", encoding="utf-8", newline="")
+        git(implementer, "add", changed.name)
+        git(implementer, "commit", "-m", "scratch finite debt restart")
+        candidate = daemon.record_implementer_candidate(
+            cycle_id=cycle_id, starting_head=starting)
+        if candidate is None:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+            return False
+        mailbox = Path(daemon.MAILBOX)
+        mailbox.mkdir(parents=True, exist_ok=True)
+        go_path = mailbox / "0003-to-daemon.md"
+        go_path.write_text(
+            daemon.architect_go_request_payload(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="two-role"),
+            encoding="utf-8", newline="")
+
+        real_write_push_debt = daemon.write_push_debt
+        debt_write_calls = 0
+
+        def fail_first_debt_write(*, landing, detail):
+            nonlocal debt_write_calls
+            debt_write_calls = debt_write_calls + 1
+            if debt_write_calls == 1:
+                raise OSError("simulated relay write failure")
+            return real_write_push_debt(landing=landing, detail=detail)
+
+        daemon.write_push_debt = fail_first_debt_write
+        fatal = False
+        try:
+            try:
+                daemon.process_backlog(
+                    dry_run=False, skip_redteam=True)
+            except daemon.FatalArchitectLandingError:
+                fatal = True
+            state_after_failure = daemon.read_ticket_cycle_state()
+            landing = state_after_failure["completed"].get(cycle_id)
+            first_checks = {
+                "fatal": fatal,
+                "one-debt-write": debt_write_calls == 1,
+                "go-requeued": go_path.is_file(),
+                "go-not-done": not (
+                    mailbox / "done" / go_path.name).exists(),
+                "cycle-durable": (
+                    isinstance(landing, str)
+                    and state_after_failure["pending_cycle_returns"] == 1
+                    and state_after_failure["finite_watch"] == {
+                        "limit": 1, "completed": 0, "status": "active",
+                        "topology": "two-role"}),
+                "not-counted-in-memory": (
+                    first_controller.completed_ticket_cycles() == 0),
+                "no-debt-yet": (
+                    isinstance(landing, str)
+                    and not Path(
+                        daemon._push_debt_path(landing=landing)).exists()),
+            }
+        finally:
+            daemon.write_push_debt = real_write_push_debt
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        if not all(first_checks.values()):
+            print("two-role first failure checks=" + repr(first_checks))
+            return False
+
+        replacement = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="two-role")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = replacement
+        try:
+            restored_again = daemon.prepare_finite_watch_progress(
+                limit=1, topology="two-role")
+            replacement.restore_completed_ticket_cycles(
+                count=restored_again)
+            daemon.reconcile_ticket_cycle_state()
+            delivered = daemon.deliver_pending_ticket_cycle_returns()
+            limit_before_replay = replacement.ticket_cycle_limit_reached()
+            restart_log = io.StringIO()
+            with contextlib.redirect_stdout(restart_log):
+                restart_outcome = daemon.process_backlog(
+                    dry_run=False, skip_redteam=True)
+            restart_text = restart_log.getvalue()
+            second_outcome = daemon.process_backlog(
+                dry_run=False, skip_redteam=True)
+            final_state = daemon.read_ticket_cycle_state()
+            final_count = replacement.completed_ticket_cycles()
+            daemon.finish_finite_watch_progress(
+                limit=1, completed=final_count, topology="two-role")
+            finished_state = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+        checks = {
+            "restored-zero-before-pending": restored_again == 0,
+            "delivered-once": delivered == 1,
+            "limit-was-already-reached": limit_before_replay,
+            "replay-consumed": restart_outcome is True,
+            "replay-reports-completed-two-role": (
+                "already complete at the exact local landing" in restart_text
+                and "Red Team review is queued" not in restart_text),
+            "second-pass-idempotent": second_outcome is None,
+            "go-left-root": not go_path.exists(),
+            "go-archived": (
+                (mailbox / "done" / go_path.name).is_file()
+                and not (mailbox / "failed" / go_path.name).exists()),
+            "debt-durable": Path(
+                daemon._push_debt_path(landing=landing)).is_file(),
+            "cycle-not-recounted": (
+                final_count == 1
+                and final_state["completed"] == {cycle_id: landing}
+                and final_state["pending_cycle_returns"] == 0
+                and not final_state["active"]),
+            "candidate-ref-retired": git(
+                root, "rev-parse", "--verify",
+                daemon.cycle_candidate_ref(cycle_id=cycle_id),
+                check=False).returncode != 0,
+            "landing-ref-retired": git(
+                root, "rev-parse", "--verify",
+                daemon.cycle_landing_ref(cycle_id=cycle_id),
+                check=False).returncode != 0,
+            "finite-exit-durable": finished_state["finite_watch"] == {
+                "limit": 1, "completed": 1, "status": "complete",
+                "topology": "two-role"},
+        }
+        passed = all(checks.values())
+        print("finite two-role GO recovery bypasses admission limit="
+              + str(passed))
+        if not passed:
+            print("finite two-role recovery checks=" + repr(checks))
+        return passed
+
+
+def arm_architect_go_user_checkout_stop_is_finite(source=None):
+    """Dirty L and stale prepared L stop once while preserving all work."""
+    results = []
+    for case in ("dirty-landed", "moved-main"):
+        with scratch_repository(source=source) as root:
+            rc, _stdout, stderr = invoke(root, ["--once"])
+            if rc != 0 or stderr != "" or not validate_topology(root):
+                results.append(False)
+                continue
+            primary = default_primary(root)
+            implementer = default_implementer(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+            anchor = "landing-stop-" + case
+            cycle_id = anchor + "@" + base
+            backlog = primary / "ai" / "notes" / "backlog.md"
+            backlog.write_text(
+                "- OPEN **HIGH** **BUG FIX** — [Landing stop](#" + anchor
+                + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+            flow = (
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: " + cycle_id + "\n"
+                "MAILBOX-MODE: normal\n\nPrepare stop witness.\n")
+            daemon.register_ticket_cycle_message(agent="opus", message=flow)
+            starting = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle_id)
+            changed = implementer / "stop-change.txt"
+            changed.write_text(case + "\n", encoding="utf-8", newline="")
+            git(implementer, "add", changed.name)
+            git(implementer, "commit", "-m", "scratch " + case)
+            candidate = daemon.record_implementer_candidate(
+                cycle_id=cycle_id, starting_head=starting)
+            landing, parent, _reference = daemon.prepare_exact_squash_landing(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal")
+            if case == "dirty-landed":
+                daemon.land_prepared_commit_in_clean_user_checkout(
+                    landing=landing, parent=parent)
+                user_file = root / "user-untracked.txt"
+                user_file.write_text(
+                    "preserve user work\n", encoding="utf-8", newline="")
+                expected_main = landing
+            else:
+                user_file = root / "user-main-work.txt"
+                user_file.write_text(
+                    "committed user work\n", encoding="utf-8", newline="")
+                git(root, "add", user_file.name)
+                git(root, "commit", "-m", "user advances main")
+                expected_main = git(
+                    root, "rev-parse", "HEAD").stdout.strip()
+            mailbox = Path(daemon.MAILBOX)
+            mailbox.mkdir(parents=True, exist_ok=True)
+            go_path = mailbox / "0003-to-daemon.md"
+            go_path.write_text(
+                daemon.architect_go_request_payload(
+                    cycle_id=cycle_id, candidate_commit=candidate,
+                    mode="normal"),
+                encoding="utf-8", newline="")
+            stop_rc, stop_stdout, stop_stderr = invoke(root, ["--once"])
+            state = daemon.read_ticket_cycle_state()
+            active = state["active"].get(cycle_id)
+            checks = {
+                "finite-nonzero": stop_rc == 1,
+                "clear-stop": (
+                    "Architect landing needs user action" in (
+                        stop_stdout + stop_stderr)
+                    or "primary worktree error:" in (
+                        stop_stdout + stop_stderr)),
+                "main-preserved": git(
+                    root, "rev-parse", "HEAD").stdout.strip()
+                == expected_main,
+                "user-work-preserved": user_file.read_text(
+                    encoding="utf-8").endswith("work\n"),
+                "go-retryable": go_path.is_file(),
+                "go-not-failed": not (
+                    mailbox / "failed" / go_path.name).exists(),
+                "state-not-advanced": (
+                    active is not None
+                    and active["phase"] == "implementation"
+                    and active["commit"] is None),
+                "candidate-preserved": git(
+                    root, "rev-parse", "--verify",
+                    daemon.cycle_candidate_ref(cycle_id=cycle_id),
+                    check=False).returncode == 0,
+                "landing-preserved": git(
+                    root, "rev-parse", "--verify",
+                    daemon.cycle_landing_ref(cycle_id=cycle_id),
+                    check=False).returncode == 0,
+            }
+            if case == "dirty-landed":
+                user_file.unlink()
+                resumed = daemon.consume_daemon_message(path=str(go_path))
+                checks["clean-restart-idempotent"] = resumed
+            else:
+                checks["honest-no-auto-recovery"] = (
+                    "primary worktree error:" in (
+                        stop_stdout + stop_stderr)
+                    and "root Architect GO has no exact target landing ref L"
+                    in (
+                        stop_stdout + stop_stderr))
+            passed = all(checks.values())
+            if not passed:
+                print("landing stop " + case + " checks=" + repr(checks))
+            results.append(passed)
+    passed = all(results) and len(results) == 2
+    print("Architect GO user-checkout stops are finite=" + str(passed))
+    return passed
+
+
+def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
+    """Blocked evidence relays to Fable but cannot freeze or advance work."""
+    from ai.tests.test_handoff_contract import packet
+
+    class PopenProxy:
+        def __init__(self, module, replacement):
+            self.module = module
+            self.replacement = replacement
+
+        def __getattr__(self, name):
+            return (self.replacement if name == "Popen"
+                    else getattr(self.module, name))
+
+    class ReturningProcess:
+        def __init__(self, callback):
+            self.callback = callback
+            self.returncode = None
+            self.called = False
+
+        def poll(self):
+            if not self.called:
+                self.called = True
+                self.callback()
+                self.returncode = 0
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self):
+            return self.returncode
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        daemon.AGENT_COMMANDS = {
+            "fable": ["harmless-fable"], "opus": ["harmless-opus"],
+            "sol": ["harmless-sol"]}
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        cycle = "blocked-evidence@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — "
+            "[Blocked evidence](#blocked-evidence)\n\n"
+            "<a id=\"blocked-evidence\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+        checkout = (
+            "- Worktree: `" + str(implementer) + "`\n"
+            "- Branch: `claude/mailbox-implementer`\n"
+            "- Base: `" + base + "`")
+        note = primary / "ai" / "notes" / "blocked-spec.md"
+        note.write_text(
+            packet(role="architect", bodies={"Execution checkout": checkout}),
+            encoding="utf-8", newline="")
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        inbound = mailbox / "0001-to-opus.md"
+        inbound.write_text(
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "- **Directive:** [ai/notes/blocked-spec.md, section "
+            "Implementation directive]\n",
+            encoding="utf-8", newline="")
+
+        evidence = (
+            "#### Subagent return `failure-reproducer`\n"
+            "- Returned artifact: The launch attempt and complete runtime "
+            "failure transcript.\n"
+            "- Acceptance: `blocked`\n"
+            "- Evidence: The exact launch operation failed before any "
+            "implementation edit began.\n"
+            "#### Subagent return `regression-writer`\n"
+            "- Returned artifact: A no-edit checkpoint explaining that the "
+            "second task never started.\n"
+            "- Acceptance: `blocked`\n"
+            "- Evidence: Repository status remained unchanged after the "
+            "failed launch operation.")
+        capability_plan = (
+            "- Capability checked: `collaboration.spawn_agent`\n"
+            "- Attempted operation: Launch the named reproducer subagent "
+            "through collaboration.spawn_agent before implementation edits.\n"
+            "- Raw failure: `Unknown collaboration.spawn_agent operation in "
+            "the advertised runtime capability registry`")
+        handoff_body = (
+            "### IMPLEMENTER_HANDOFF: BLOCKED\n\n"
+            "- **Current state:** Subagent launch is blocked.\n"
+            "- **Candidate commit:** `" + base + "`\n"
+            "- **Subagent work:**\n" + evidence + "\n" + capability_plan
+            + "\n"
+            "- **Blockers/findings:** Runtime lacks the launch operation.\n"
+            "- **Action required:** Architect capability decision.\n")
+        outbound = [mailbox / "0002-to-fable.md"]
+        edit_mode = ["dirty"]
+
+        def returned_body():
+            candidate = git(
+                implementer, "rev-parse", "HEAD").stdout.strip()
+            if edit_mode[0] == "capability":
+                return (
+                    "### IMPLEMENTER_HANDOFF: COMPLETE\n\n"
+                    "- **Current state:** The Architect-authorized no-helper "
+                    "fallback completed the bounded implementation.\n"
+                    "- **Candidate commit:** `" + candidate + "`\n"
+                    "- **Subagent work:**\n" + capability_plan + "\n"
+                    "- **Blockers/findings:** No remaining blocker.\n"
+                    "- **Action required:** Architect audit of candidate.\n")
+            body = handoff_body.replace(
+                "- **Candidate commit:** `" + base + "`",
+                "- **Candidate commit:** `" + candidate + "`")
+            return body.replace(
+                "Runtime lacks the launch operation.",
+                "Runtime lacks the launch operation (" + edit_mode[0]
+                + " attempt).")
+
+        def publish_return():
+            tracked = implementer / "ai" / "tools" / \
+                "ticket_change_guard.py"
+            if edit_mode[0] == "untracked":
+                (implementer / "hallucinated_source.py").write_text(
+                    "raise RuntimeError('not an accepted checkpoint')\n",
+                    encoding="utf-8", newline="")
+            if edit_mode[0] in {"dirty", "committed", "capability"}:
+                tracked.write_text(
+                    tracked.read_text(encoding="utf-8")
+                    + "# forbidden blocked-attempt edit\n",
+                    encoding="utf-8", newline="")
+            if edit_mode[0] in {"committed", "capability"}:
+                git(implementer, "add", str(tracked.relative_to(implementer)))
+                git(implementer, "commit", "-m", "forbidden blocked edit")
+            outbound[0].write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n" + returned_body(),
+                encoding="utf-8", newline="")
+
+        def fake_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            return ReturningProcess(callback=publish_return)
+
+        calls = []
+        real_record = daemon.record_implementer_candidate
+
+        def record_probe(cycle_id, starting_head):
+            calls.append((cycle_id, starting_head))
+            return real_record(
+                cycle_id=cycle_id, starting_head=starting_head)
+
+        original = daemon.subprocess
+        daemon.record_implementer_candidate = record_probe
+        daemon.subprocess = PopenProxy(original, fake_popen)
+        try:
+            dirty_result = daemon.dispatch(
+                path=str(inbound), dry_run=False)
+            dirty_refused = (
+                dirty_result is False and calls == []
+                and not outbound[0].exists())
+            git(implementer, "reset", "--hard", base)
+
+            inbound = mailbox / "0003-to-opus.md"
+            outbound[0] = mailbox / "0004-to-fable.md"
+            inbound.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/blocked-spec.md, section "
+                "Implementation directive]\n",
+                encoding="utf-8", newline="")
+            edit_mode[0] = "untracked"
+            untracked_result = daemon.dispatch(
+                path=str(inbound), dry_run=False)
+            untracked_refused = (
+                untracked_result is False and calls == []
+                and not outbound[0].exists())
+            git(implementer, "clean", "-fd")
+
+            inbound = mailbox / "0005-to-opus.md"
+            outbound[0] = mailbox / "0006-to-fable.md"
+            inbound.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/blocked-spec.md, section "
+                "Implementation directive]\n",
+                encoding="utf-8", newline="")
+            edit_mode[0] = "committed"
+            committed_result = daemon.dispatch(
+                path=str(inbound), dry_run=False)
+            committed_refused = (
+                committed_result is False and calls == []
+                and not outbound[0].exists())
+            git(implementer, "reset", "--hard", base)
+
+            inbound = mailbox / "0007-to-opus.md"
+            outbound[0] = mailbox / "0008-to-fable.md"
+            inbound.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/blocked-spec.md, section "
+                "Implementation directive]\n",
+                encoding="utf-8", newline="")
+            edit_mode[0] = "clean"
+            result = daemon.dispatch(path=str(inbound), dry_run=False)
+        finally:
+            daemon.subprocess = original
+
+        ticket_state = daemon.read_ticket_cycle_state()
+        candidate_state = daemon.read_candidate_state()
+        checkpoint_only = (
+            dirty_refused and untracked_refused and committed_refused
+            and result is True and calls == [] and outbound[0].exists()
+            and candidate_state["cycles"] == {}
+            and ticket_state["active"][cycle]["phase"] == "implementation"
+            and git(root, "rev-parse", "--verify",
+                    daemon.cycle_candidate_ref(cycle_id=cycle),
+                    check=False).returncode != 0)
+
+        blocked_body = returned_body()
+        digest = daemon.hashlib.sha256(
+            blocked_body.encode("utf-8")).hexdigest()
+
+        def capability_note(source_cycle, source_digest,
+                            failure_rows=capability_plan):
+            checkpoint = (
+                "### Prior Implementer subagent launch failure\n\n"
+                "- Source cycle: `" + source_cycle + "`\n"
+                "- Source handoff SHA-256: `" + source_digest + "`\n"
+                "- Source: `prior same-cycle IMPLEMENTER_HANDOFF checkpoint`\n"
+                + failure_rows)
+            return packet(
+                role="architect",
+                bodies={"Execution checkout": checkout,
+                        "Parallel work plan": failure_rows}).replace(
+                            "No implementation evidence yet.", checkpoint)
+
+        revised_message = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "- **Directive:** [ai/notes/blocked-spec.md, section "
+            "Implementation directive]\n")
+        note.write_text(
+            capability_note(cycle, digest), encoding="utf-8", newline="")
+        correct_binding = True
+        try:
+            daemon.prepare_implementer_evidence_contract(
+                message=revised_message)
+        except daemon.TicketCycleStateError:
+            correct_binding = False
+
+        checkpoint_path = outbound[0]
+        checkpoint_message = checkpoint_path.read_text(encoding="utf-8")
+        checkpoint_prefix = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+            "MAILBOX-MODE: normal\n\n")
+        checkpoint_bytes_match = (
+            checkpoint_message == checkpoint_prefix + blocked_body)
+        capability_rows = capability_plan.split("\n")
+        missing_row_refusals = []
+        for missing_row in capability_rows:
+            missing_body = blocked_body.replace(missing_row, "", 1)
+            missing_digest = daemon.hashlib.sha256(
+                missing_body.encode("utf-8")).hexdigest()
+            checkpoint_path.write_text(
+                checkpoint_prefix + missing_body,
+                encoding="utf-8", newline="")
+            note.write_text(
+                capability_note(cycle, missing_digest),
+                encoding="utf-8", newline="")
+            refused = False
+            try:
+                daemon.prepare_implementer_evidence_contract(
+                    message=revised_message)
+            except daemon.TicketCycleStateError:
+                refused = True
+            missing_row_refusals.append(refused)
+        checkpoint_path.write_text(
+            checkpoint_message, encoding="utf-8", newline="")
+
+        changed_failure_rows = {
+            "capability_checked": capability_plan.replace(
+                "- Capability checked: `collaboration.spawn_agent`",
+                "- Capability checked: `collaboration.spawn_agents`", 1),
+            "attempted_operation": capability_plan.replace(
+                "Launch the named reproducer subagent",
+                "Launch the named failure reproducer subagent", 1),
+            "raw_failure": capability_plan.replace(
+                "Unknown collaboration.spawn_agent operation",
+                "Rejected collaboration.spawn_agent operation", 1),
+        }
+        mismatch_refusals = {}
+        for field, failure_rows in changed_failure_rows.items():
+            note.write_text(
+                capability_note(cycle, digest, failure_rows=failure_rows),
+                encoding="utf-8", newline="")
+            refused = False
+            try:
+                daemon.prepare_implementer_evidence_contract(
+                    message=revised_message)
+            except daemon.TicketCycleStateError as exc:
+                refused = field in str(exc)
+            mismatch_refusals[field] = refused
+
+        stale_cycle = "stale-evidence@" + base
+        note.write_text(
+            capability_note(stale_cycle, digest),
+            encoding="utf-8", newline="")
+        stale_refused = False
+        try:
+            daemon.prepare_implementer_evidence_contract(
+                message=revised_message)
+        except daemon.TicketCycleStateError:
+            stale_refused = True
+
+        note.write_text(
+            capability_note(cycle, "0" * 64),
+            encoding="utf-8", newline="")
+        wrong_sha_refused = False
+        try:
+            daemon.prepare_implementer_evidence_contract(
+                message=revised_message)
+        except daemon.TicketCycleStateError:
+            wrong_sha_refused = True
+
+        note.write_text(
+            capability_note(cycle, digest), encoding="utf-8", newline="")
+        inbound = mailbox / "0009-to-opus.md"
+        outbound[0] = mailbox / "0010-to-fable.md"
+        inbound.write_text(
+            revised_message, encoding="utf-8", newline="")
+        edit_mode[0] = "capability"
+        daemon.subprocess = PopenProxy(original, fake_popen)
+        try:
+            fallback_result = daemon.dispatch(
+                path=str(inbound), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        fallback_state = daemon.read_candidate_state()["cycles"].get(cycle)
+        fallback_commit = git(
+            implementer, "rev-parse", "HEAD").stdout.strip()
+        fallback_completed = (
+            fallback_result is True and len(calls) == 1
+            and calls[0] == (cycle, base)
+            and fallback_state is not None
+            and fallback_state["commit"] == fallback_commit
+            and fallback_commit != base
+            and outbound[0].exists())
+
+        passed = (
+            checkpoint_only and correct_binding and checkpoint_bytes_match
+            and all(missing_row_refusals)
+            and all(mismatch_refusals.values())
+            and stale_refused and wrong_sha_refused and fallback_completed)
+        print("blocked checkpoint cannot freeze candidate=" + str(passed))
+        if not passed:
+            print("blocked checkpoint checks=" + repr({
+                "checkpoint-only": checkpoint_only,
+                "correct-binding": correct_binding,
+                "checkpoint-bytes-match": checkpoint_bytes_match,
+                "missing-row-refusals": missing_row_refusals,
+                "mismatch-refusals": mismatch_refusals,
+                "stale-refused": stale_refused,
+                "wrong-sha-refused": wrong_sha_refused,
+                "dirty-refused": dirty_refused,
+                "untracked-refused": untracked_refused,
+                "committed-refused": committed_refused,
+                "fallback-completed": fallback_completed,
+                "record-calls": calls}))
+        return passed
+
+
 def arm_corrupt_and_redirected_state_fail_closed(source=None):
     """Invalid state is preserved and never falls back to caller mailbox."""
     with scratch_repository(source=source) as root:
@@ -1512,12 +4155,12 @@ def arm_corrupt_and_redirected_state_fail_closed(source=None):
         variants = []
         variants.append(("invalid-json", b"{ definitely not json\n"))
         duplicate = (
-            "{\"schema\":2,\"schema\":2,\"repository\":"
+            "{\"schema\":3,\"schema\":3,\"repository\":"
             + json.dumps(state["repository"])
             + ",\"name\":\"mailbox-primary\",\"path\":"
             + json.dumps(state["path"])
             + ",\"branch\":\"refs/heads/claude/mailbox-primary\""
-            + ",\"topology\":\"dedicated-sol-worktree-v1\"}\n")
+            + ",\"topology\":\"separate-role-worktrees-v1\"}\n")
         variants.append(("duplicate-key", duplicate.encode("utf-8")))
         unknown = dict(state)
         unknown["model"] = "opus"
@@ -1623,18 +4266,21 @@ def arm_git_identity_and_collisions_fail_closed(source=None):
 
 
 def arm_route_topology_remains_role_based(source=None):
-    """Claude and Sol use saved disjoint trees; root stays human-owned."""
+    """Every role uses its saved disjoint tree; root stays human-owned."""
     with scratch_repository(source=source) as root:
         root_before = root_checkout_identity(root)
         rc, _stdout, _stderr = invoke(
-            root, ["--watch", "--cycle", "0", "--skip-redteam",
+            root, ["--once",
                    "--architect-model", "opus",
                    "--implementer-model", "sonnet"])
         if rc != 0 or not validate_topology(root):
             return False
         primary = default_primary(root)
+        implementer = default_implementer(root)
         sol = default_sol(root)
         daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        create_empty_sealed_backlog(primary=primary)
         queued = daemon.send(
             agent="sol", ticket_kind="discovery", severity="medium",
             scope="bounded", text="Review the saved Sol worktree topology.",
@@ -1647,6 +4293,7 @@ def arm_route_topology_remains_role_based(source=None):
         cd_value = command[command.index("--cd") + 1]
         notes_value = command[command.index("--add-dir") + 1]
         state = load_state(root)
+        implementer_state = load_implementer_state(root)
         sol_state = load_sol_state(root)
         checks = {
             "queue": rc_queue == 0 and queue_err == "",
@@ -1657,20 +4304,29 @@ def arm_route_topology_remains_role_based(source=None):
                               in preview),
             "preview-cwd": ("(cwd " + str(sol) + ")") in preview,
             "fable-primary": daemon.AGENT_CWD["fable"] == str(primary),
-            "opus-primary": daemon.AGENT_CWD["opus"] == str(primary),
+            "opus-implementer": (
+                daemon.AGENT_CWD["opus"] == str(implementer)),
             "sol-dedicated": daemon.AGENT_CWD["sol"] == str(sol),
             "command-cd": cd_value == str(sol),
             "command-notes": notes_value == str(primary / "ai" / "notes"),
-            "three-trees": len({daemon.AGENT_CWD["fable"],
-                                daemon.AGENT_CWD["sol"], str(root)}) == 3,
+            "four-trees": len({daemon.AGENT_CWD["fable"],
+                               daemon.AGENT_CWD["opus"],
+                               daemon.AGENT_CWD["sol"], str(root)}) == 4,
             "root-preserved": root_checkout_identity(root) == root_before,
             "primary-name": state["name"] == PRIMARY_NAME,
             "primary-schema": state["schema"] == PRIMARY_STATE_SCHEMA,
             "primary-topology": state["topology"] == PRIMARY_TOPOLOGY,
+            "implementer-name": (
+                implementer_state["name"] == IMPLEMENTER_NAME),
+            "implementer-schema": (
+                implementer_state["schema"] == IMPLEMENTER_STATE_SCHEMA),
             "sol-name": sol_state["name"] == SOL_NAME,
             "sol-schema": sol_state["schema"] == SOL_STATE_SCHEMA,
-            "model-not-persisted": ("opus" not in state.values()
-                                    and "sonnet" not in state.values()),
+            "model-not-persisted": (
+                "opus" not in state.values()
+                and "sonnet" not in state.values()
+                and "opus" not in implementer_state.values()
+                and "sonnet" not in implementer_state.values()),
         }
         passed = all(checks.values())
         print("role topology=" + str(passed)
@@ -1707,9 +4363,13 @@ def mutation_cases(source):
         "ensure_primary_execution(\n"
         "                live_action=True, dry_run=False)",
         arm_help_dry_run_and_invalid_are_zero_write)
-    add("Claude routes split",
-        '    "opus": WORKTREE,',
-        '    "opus": REPO_ROOT,',
+    add("Implementer collocated with Architect",
+        '    AGENT_CWD["opus"] = os.path.abspath(implementer_path)',
+        '    AGENT_CWD["opus"] = os.path.abspath(primary_path)',
+        arm_route_topology_remains_role_based)
+    add("Implementer fell back to user root",
+        '    AGENT_CWD["opus"] = os.path.abspath(implementer_path)',
+        '    AGENT_CWD["opus"] = os.path.abspath(REPO_ROOT)',
         arm_route_topology_remains_role_based)
     add("Sol fell back to user root",
         '    AGENT_CWD["sol"] = os.path.abspath(sol_path)',
@@ -1727,49 +4387,200 @@ def mutation_cases(source):
         '                "--add-dir", shared_notes],',
         '                "--add-dir", sol_worktree],',
         arm_route_topology_remains_role_based)
+    add("candidate accepted as its own squash landing",
+        "    if landing_commit == candidate_commit:\n",
+        "    if False:\n",
+        arm_architect_receipt_binds_candidate_to_squash_landing)
+    add("unrelated landing tree accepted",
+        "    if landing_tree != expected_tree:\n"
+        "        raise TicketCycleStateError(\n"
+        "            \"prepared landing tree is not the exact candidate "
+        "squash\")\n",
+        "    if False:\n"
+        "        raise TicketCycleStateError(\n"
+        "            \"prepared landing tree is not the exact candidate "
+        "squash\")\n",
+        arm_architect_receipt_binds_candidate_to_squash_landing)
+    add("candidate ownership deleted without clean C-to-L handoff",
+        '        _run_git(\n'
+        '            repository_root=worktree,\n'
+        '            arguments=["reset", "--hard", landing_commit])\n',
+        '        pass  # mutation: C remains checked out after retirement\n',
+        arm_landed_candidate_hands_off_without_clobbering_pipeline)
+    add("prior retirement clobbers a saved pipeline candidate",
+        '    if head == record["commit"]:\n',
+        '    if True:  # mutation: reset even when another C owns HEAD\n',
+        arm_landed_candidate_hands_off_without_clobbering_pipeline)
+    add("primary role branch resurrected as automatic landing debt",
+        '        diff_ranges = []\n',
+        '        diff_ranges = [("main", "HEAD")]  # old branch debt\n',
+        arm_landed_candidate_hands_off_without_clobbering_pipeline)
+    add("reset-complete candidate retirement cannot replay",
+        '    if head != landing_commit and head not in preserved_heads:\n',
+        '    if True:  # mutation: exact prior reset cannot retire state\n',
+        arm_candidate_retirement_internal_crash_replays)
+    add("persistent role end-state recheck dropped",
+        '            revalidate_agent_dispatch_topology('
+        'proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '        except (OSError, PrimaryWorktreeError) as exc:\n'
+        '            persistent_role_error = exc',
+        '            revalidate_agent_dispatch_topology('
+        'proof=agent_topology_proof)\n'
+        '            pass  # mutation: persistent tracked edits are ignored\n'
+        '        except (OSError, PrimaryWorktreeError) as exc:\n'
+        '            persistent_role_error = exc',
+        arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
+    add("Sol untracked source files omitted from status proof",
+        '         "--untracked-files=all", "--ignore-submodules=none"],',
+        '         "--untracked-files=no", "--ignore-submodules=none"],',
+        arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
+    add("Architect untracked source comparison neutralized",
+        '            or current_untracked != proof["untracked_state"]):',
+        '            or False):  # mutation: new Architect files ignored',
+        arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
+    add("Opus shared protected-note recheck dropped",
+        '    if agent in {"opus", "sol"}:\n'
+        '        _recheck_shared_protected_state(proof=proof['
+        '"shared_proof"])\n',
+        '    if agent == "sol":\n'
+        '        _recheck_shared_protected_state(proof=proof['
+        '"shared_proof"])\n',
+        arm_shared_protected_notes_require_architect_authority)
+    add("Sol shared protected-note recheck dropped",
+        '    if agent in {"opus", "sol"}:\n'
+        '        _recheck_shared_protected_state(proof=proof['
+        '"shared_proof"])\n',
+        '    if agent == "opus":\n'
+        '        _recheck_shared_protected_state(proof=proof['
+        '"shared_proof"])\n',
+        arm_shared_protected_notes_require_architect_authority)
+    add("permanent MEMORY note omitted from protection",
+        '    "ai/notes/MEMORY.md",\n',
+        '',
+        arm_shared_protected_notes_require_architect_authority)
+    add("blocked Implementer evidence treated as final candidate",
+        '            bool(evidence_results[0].get("completion_ready")))',
+        '            True)  # mutation: blocked checkpoint advances',
+        arm_blocked_evidence_is_checkpoint_not_candidate)
+    add("stale capability cycle accepted",
+        '                or checkpoint.get("cycle") != cycle_id):',
+        '                or False):',
+        arm_blocked_evidence_is_checkpoint_not_candidate)
     add("missing active Sol topology accepted",
         '    if ACTIVE_TOPOLOGY is None:\n'
         '        raise PrimaryWorktreeError(\n'
-        '            "live Sol dispatch has no validated agent-worktree '
+        '            "live " + agent + " dispatch has no validated '
         'topology")',
-        '    if ACTIVE_TOPOLOGY is None:\n'
-        '        return None  # mutation: imported callers gain Sol access',
+        '    if ACTIVE_TOPOLOGY is None and agent != "sol":\n'
+        '        raise PrimaryWorktreeError(\n'
+        '            "mutation lets Sol dispatch without live topology")',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("authoritative parent and role proof dropped",
         '        authoritative_files = validate_authoritative_role_files(\n'
         '            primary_path=primary["path"])',
         '        authoritative_files = {"directories": (), "files": ()}',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
-    add("pre-Popen Sol topology revalidation dropped",
-        '            if agent == "sol":\n'
-        '                revalidate_sol_dispatch_topology(\n'
-        '                    proof=sol_topology_proof)\n'
+    add("authoritative Architect role proof dropped",
+        '        ("role", os.path.join(\n'
+        '            primary, ".claude", "FABLE_ROLE.md")),\n',
+        '',
+        arm_architect_launch_boundary_revalidates_branch_and_role)
+    add("pre-Popen Architect topology revalidation dropped",
+        '            if agent in {"fable", "opus", "sol"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
         '            proc = subprocess.Popen(command,',
-        '            if False:\n'
-        '                revalidate_sol_dispatch_topology(\n'
-        '                    proof=sol_topology_proof)\n'
+        '            if agent in {"opus", "sol"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            proc = subprocess.Popen(command,',
+        arm_architect_launch_boundary_revalidates_branch_and_role)
+    add("post-Popen Architect topology revalidation dropped",
+        '                if agent in {"fable", "opus", "sol"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        '                if agent in {"opus", "sol"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        arm_architect_launch_boundary_revalidates_branch_and_role)
+    add("pre-Popen Sol topology revalidation dropped",
+        '            if agent in {"fable", "opus", "sol"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            proc = subprocess.Popen(command,',
+        '            if agent in {"fable", "opus"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
         '            proc = subprocess.Popen(command,',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("post-Popen Sol topology revalidation dropped",
-        '            try:\n'
-        '                if agent == "sol":\n'
-        '                    revalidate_sol_dispatch_topology(\n'
-        '                        proof=sol_topology_proof)\n'
+        '                if agent in {"fable", "opus", "sol"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
-        '            try:\n'
-        '                if False:\n'
-        '                    revalidate_sol_dispatch_topology(\n'
-        '                        proof=sol_topology_proof)\n'
+        '                if agent in {"fable", "opus"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    add("pre-Popen Implementer topology revalidation dropped",
+        '            if agent in {"fable", "opus", "sol"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            proc = subprocess.Popen(command,',
+        '            if agent in {"fable", "sol"}:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            proc = subprocess.Popen(command,',
+        arm_implementer_launch_boundary_revalidates_branch_and_state)
+    add("post-Popen Implementer topology revalidation dropped",
+        '                if agent in {"fable", "opus", "sol"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        '                if agent in {"fable", "sol"}:\n'
+        '                    revalidate_agent_dispatch_topology(\n'
+        '                        proof=agent_topology_proof)\n'
+        '                recheck_persistent_role_state('
+        'proof=persistent_role_state)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        arm_implementer_launch_boundary_revalidates_branch_and_state)
     add("around-Popen Sol Git revalidation reduced to inode check",
-        '    current = validate_live_sol_dispatch_topology()\n',
+        '    current = validate_live_agent_dispatch_topology('
+        'agent=proof["agent"])\n',
         '    current = proof  # mutation: branch and saved state not re-read\n',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     legacy_refusal = (
         '    raise PrimaryWorktreeError(\n'
-        '        "legacy schema-1 mailbox state cannot be migrated safely '
-        'while an "\n'
+        '        "the saved mailbox topology predates the separate '
+        'Implementer "\n'
+        '        "worktree and cannot be migrated safely while an "\n'
         '        "older daemon may already be admitted; stop every old '
         'mailbox "\n'
         '        "process, preserve the saved primary worktree and mailbox, '
@@ -1784,9 +4595,26 @@ def mutation_cases(source):
         "    return state  # mutation: legacy root-Sol runtime can resume",
         arm_legacy_v1_state_refuses_without_mutation)
     add("duplicate keys accepted",
-        "object_pairs_hook=_duplicate_key_refusal",
-        "object_pairs_hook=dict",
+        "        state = json.loads(text, "
+        "object_pairs_hook=_duplicate_key_refusal)",
+        "        state = json.loads(text, object_pairs_hook=dict)",
         arm_corrupt_and_redirected_state_fail_closed)
+    add("completed daemon GO blocked by finite cycle limit",
+        "    for daemon_path in daemon_paths:\n"
+        "        # This GO belongs to a ticket already admitted against the "
+        "finite\n"
+        "        # limit. Always finish its durable landing/archive recovery. "
+        "The\n"
+        "        # positive limit gates new role work in drain_lane(), never "
+        "this\n"
+        "        # already-admitted daemon transition.\n",
+        "    for daemon_path in daemon_paths:\n"
+        "        controller = (_ACTIVE_WATCH_RENDEZVOUS\n"
+        "                      if not dry_run else None)\n"
+        "        if (controller is not None\n"
+        "                and controller.ticket_cycle_limit_reached()):\n"
+        "            break\n",
+        arm_two_role_debt_failure_replays_past_cycle_limit)
     add("foreign repository accepted",
         '    if state["repository"] != repository:\n',
         "    if False:\n",
@@ -1910,6 +4738,8 @@ def main():
          arm_stale_primary_protocol_refuses),
         ("zero-write inspection", arm_help_dry_run_and_invalid_are_zero_write),
         ("cross-checkout reuse", arm_reuse_and_cross_checkout_converge),
+        ("interrupted Implementer bootstrap",
+         arm_interrupted_implementer_bootstrap_is_exactly_resumable),
         ("existing coordinator adoption",
          arm_existing_linked_coordinator_is_adopted),
         ("unsafe coordinator refusal",
@@ -1927,12 +4757,44 @@ def main():
          arm_concurrent_managed_root_winner_is_accepted),
         ("legacy v1 topology refusal",
          arm_legacy_v1_state_refuses_without_mutation),
+        ("legacy two-tree topology refusal",
+         arm_legacy_two_tree_state_refuses_without_mutation),
         ("Sol collision and corrupt-state refusal",
          arm_sol_collisions_and_corrupt_state_fail_closed),
         ("Sol move and reuse",
          arm_sol_registered_move_and_reuse_are_preserved),
         ("Sol launch-boundary topology race",
          arm_sol_launch_boundary_revalidates_branch_and_active_state),
+        ("Architect launch-boundary topology race",
+         arm_architect_launch_boundary_revalidates_branch_and_role),
+        ("Implementer launch-boundary topology race",
+         arm_implementer_launch_boundary_revalidates_branch_and_state),
+        ("candidate snapshot isolation",
+         arm_candidate_snapshot_is_exact_and_immutable),
+        ("candidate and squash landing binding",
+         arm_architect_receipt_binds_candidate_to_squash_landing),
+        ("landed candidate checkout handoff",
+         arm_landed_candidate_hands_off_without_clobbering_pipeline),
+        ("candidate retirement internal crash replay",
+         arm_candidate_retirement_internal_crash_replays),
+        ("Architect GO crash recovery",
+         arm_architect_go_crash_cuts_recover_once),
+        ("finite two-role daemon GO recovery",
+         arm_two_role_debt_failure_replays_past_cycle_limit),
+        ("Architect GO finite user-action stop",
+         arm_architect_go_user_checkout_stop_is_finite),
+        ("exclusive permanent-note admin landing",
+         arm_permanent_note_admin_is_exclusive_and_lands),
+        ("permanent-note journal restart",
+         arm_permanent_note_journal_restart_is_exact),
+        ("Architect-bound permanent-note publisher",
+         arm_permanent_note_admin_publisher_is_architect_bound),
+        ("persistent role source authority",
+         arm_persistent_roles_refuse_tracked_and_untracked_source_edits),
+        ("shared protected-note authority",
+         arm_shared_protected_notes_require_architect_authority),
+        ("blocked Implementer checkpoint binding",
+         arm_blocked_evidence_is_checkpoint_not_candidate),
         ("corrupt state refusal", arm_corrupt_and_redirected_state_fail_closed),
         ("Git identity refusal", arm_git_identity_and_collisions_fail_closed),
         ("role topology", arm_route_topology_remains_role_based),

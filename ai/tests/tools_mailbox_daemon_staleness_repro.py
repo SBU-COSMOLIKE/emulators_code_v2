@@ -32,8 +32,8 @@ def load_daemon(path=DAEMON_PATH):
     return module
 
 
-def install_test_sol_topology_proof(daemon):
-    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+def install_test_agent_topology_proof(daemon):
+    """Install opaque topology and persistent-state proofs for each role.
 
     Arguments:
       daemon = the freshly loaded scratch daemon module.
@@ -41,18 +41,29 @@ def install_test_sol_topology_proof(daemon):
     Returns:
       None.
     """
-    expected_proof = object()
+    agents = ("fable", "opus", "sol")
+    topology_proofs = {agent: object() for agent in agents}
+    persistent_proofs = {agent: object() for agent in agents}
 
-    def validate_test_topology():
-        return expected_proof
+    def validate_test_topology(agent):
+        return topology_proofs[agent]
 
     def revalidate_test_topology(proof):
-        if proof is not expected_proof:
-            raise AssertionError("scratch Sol topology proof changed")
-        return expected_proof
+        if proof not in topology_proofs.values():
+            raise AssertionError("scratch role topology proof changed")
+        return proof
 
-    daemon.validate_live_sol_dispatch_topology = validate_test_topology
-    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+    def capture_persistent_state(agent):
+        return persistent_proofs[agent]
+
+    def recheck_persistent_state(proof):
+        if proof not in persistent_proofs.values():
+            raise AssertionError("scratch persistent role state changed")
+
+    daemon.validate_live_agent_dispatch_topology = validate_test_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_test_topology
+    daemon.capture_persistent_role_state = capture_persistent_state
+    daemon.recheck_persistent_role_state = recheck_persistent_state
 
 
 @contextlib.contextmanager
@@ -65,7 +76,7 @@ def scratch_daemon(daemon_path=DAEMON_PATH):
         daemon = load_daemon(path=daemon_path)
         daemon.WORKTREE = str(root)
         daemon.AI_ROOT = str(ai_root)
-        daemon.REPO_ROOT = str(root / "sol-worktree")
+        daemon.REPO_ROOT = str(root)
         daemon.MAILBOX = str(ai_root / "notes" / "mailbox")
         daemon.DONE = str(ai_root / "notes" / "mailbox" / "done")
         daemon.RELAY_DIR = str(ai_root / "notes" / "relay")
@@ -76,16 +87,18 @@ def scratch_daemon(daemon_path=DAEMON_PATH):
             "opus": ["harmless-opus"],
             "sol": ["harmless-sol"],
         }
-        shared = str(root / "shared-worktree")
+        architect_worktree = str(root / "architect-worktree")
+        implementer_worktree = str(root / "implementer-worktree")
+        sol_worktree = str(root / "sol-worktree")
         daemon.AGENT_CWD = {
-            "fable": shared,
-            "opus": shared,
-            "sol": str(root / "sol-worktree"),
+            "fable": architect_worktree,
+            "opus": implementer_worktree,
+            "sol": sol_worktree,
         }
-        install_test_sol_topology_proof(daemon=daemon)
+        install_test_agent_topology_proof(daemon=daemon)
         os.makedirs(daemon.MAILBOX, exist_ok=True)
-        os.makedirs(shared, exist_ok=True)
-        os.makedirs(daemon.AGENT_CWD["sol"], exist_ok=True)
+        for worktree in daemon.AGENT_CWD.values():
+            os.makedirs(worktree, exist_ok=True)
         pathlib.Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
         yield daemon, root
 
@@ -195,14 +208,14 @@ def arm_post_claim_currency_banner():
                 return None
             # These artifacts appear only after the current message is no
             # longer pending. The recursive store maximum is the to-user
-            # file in hold/. Only the two root-pending Fable/Opus messages
-            # share the current dispatch's AGENT_CWD; Sol is another lane.
+            # file in hold/. Only the root-pending Fable message belongs to
+            # the current Architect lane. Implementer and Sol are separate.
             write_message(daemon, "9999-to-sol.md", "old archive\n",
                           directory=daemon.DONE)
             write_message(daemon, "10000-to-user.md", "human note\n",
                           directory=os.path.join(daemon.MAILBOX, "hold"))
-            write_message(daemon, "0043-to-opus.md", "newer shared one\n")
-            write_message(daemon, "0044-to-fable.md", "newer shared two\n")
+            write_message(daemon, "0043-to-opus.md", "newer implementer\n")
+            write_message(daemon, "0044-to-fable.md", "newer architect\n")
             write_message(daemon, "0045-to-sol.md", "newer other lane\n")
             return claimed
 
@@ -220,7 +233,7 @@ def arm_post_claim_currency_banner():
         newer_visible = (
             "newer" in lower
             and ("queued" in lower or "root-pending" in lower)
-            and re.search(r"(?:newer[^\n]*\b2\b|\b2\b[^\n]*newer)",
+            and re.search(r"(?:newer[^\n]*\b1\b|\b1\b[^\n]*newer)",
                           lower) is not None)
         banner_index = lower.find("dispatch currency")
         preamble_index = prompt.find(daemon.PREAMBLE)
@@ -235,7 +248,7 @@ def arm_post_claim_currency_banner():
         print("post-claim result=" + str(result)
               + " calls=" + str(len(calls))
               + " max10000=" + str(maximum_visible)
-              + " newer2=" + str(newer_visible)
+              + " newer1=" + str(newer_visible)
               + " raw_suffix=" + str(exact_envelope))
         return (result and len(calls) == 1 and maximum_visible
                 and newer_visible and exact_envelope)
@@ -438,21 +451,30 @@ def arm_archive_failure_propagates(daemon_path=DAEMON_PATH):
     return direct_ok and process_ok
 
 
-def arm_same_cwd_serializes_through_archive_and_logs():
-    """Prove the shared Fable/Opus lane archives before its next launch."""
+def arm_same_role_serializes_through_archive_and_logs():
+    """Prove one Architect lane archives before its next launch."""
     with scratch_daemon() as (daemon, _):
         first_name = "0080-to-fable.md"
-        second_name = "0081-to-opus.md"
-        first_body = "FIRST SAME-LANE BODY\n"
-        second_body = (
-            "MAILBOX-FLOW: ticket\n"
-            "MAILBOX-CYCLE: scratch-staleness@" + "1" * 40 + "\n"
-            "MAILBOX-MODE: normal\n\n"
-            "SECOND SAME-LANE BODY\n")
+        second_name = "0081-to-fable.md"
+        first_body = "FIRST ARCHITECT-LANE BODY\n"
+        second_body = "SECOND ARCHITECT-LANE BODY\n"
         write_message(daemon, first_name, first_body)
         write_message(daemon, second_name, second_body)
         calls = []
         second_saw_first_done = []
+
+        class SequentialLogStamp:
+            """Give rapid same-role launches distinct deterministic logs."""
+
+            def __init__(self):
+                self.value = 0
+
+            def now(self):
+                self.value += 1
+                return self
+
+            def strftime(self, _format):
+                return "20260716-0000%02d" % self.value
 
         def inspect(call):
             prompt = call["command"][-1]
@@ -465,7 +487,8 @@ def arm_same_cwd_serializes_through_archive_and_logs():
 
         daemon.subprocess.Popen = success_popen(
             calls=calls, inspect=inspect, output="streamed live output\n")
-        daemon.register_ticket_cycle_message = lambda agent, message: None
+        daemon.datetime = types.SimpleNamespace(
+            datetime=SequentialLogStamp())
         daemon.report_demand = lambda backlog: None
         result = daemon.process_backlog(dry_run=False)
         prompts = [call["command"][-1] for call in calls]
@@ -477,9 +500,8 @@ def arm_same_cwd_serializes_through_archive_and_logs():
             call["stderr"] is subprocess.STDOUT
             and pathlib.Path(call["stdout_name"]).parent
             == pathlib.Path(daemon.RELAY_DIR)
-            and call["cwd"] == daemon.AGENT_CWD[
-                "fable" if index == 0 else "opus"]
-            for index, call in enumerate(calls))
+            and call["cwd"] == daemon.AGENT_CWD["fable"]
+            for call in calls)
         logs = list(pathlib.Path(daemon.RELAY_DIR).glob("*.log"))
         logs_ok = (
             len(logs) == 2
@@ -489,7 +511,7 @@ def arm_same_cwd_serializes_through_archive_and_logs():
         both_done = all(
             (pathlib.Path(daemon.DONE) / name).is_file()
             for name in [first_name, second_name])
-        print("same-cwd result=" + str(result)
+        print("same-role result=" + str(result)
               + " order=" + str(order_ok)
               + " archived_before_second=" + repr(second_saw_first_done)
               + " popen_shape=" + str(popen_shape_ok)
@@ -509,11 +531,11 @@ def currency_contract_probe(daemon_path=DAEMON_PATH):
                       directory=daemon.DONE)
         write_message(daemon, "10000-to-user.md", "human hold\n",
                       directory=os.path.join(daemon.MAILBOX, "hold"))
-        write_message(daemon, "0043-to-opus.md", "same cwd\n")
-        write_message(daemon, "0044-to-fable.md", "same cwd\n")
-        write_message(daemon, "0045-to-sol.md", "other cwd\n")
+        write_message(daemon, "0043-to-opus.md", "implementer lane\n")
+        write_message(daemon, "0044-to-fable.md", "architect lane\n")
+        write_message(daemon, "0045-to-sol.md", "red-team lane\n")
         return daemon.dispatch_currency(
-            dispatch_path=current, agent="fable") == (10000, 2)
+            dispatch_path=current, agent="fable") == (10000, 1)
 
 
 def arm_archive_requires_source_absence(daemon_path=DAEMON_PATH):
@@ -562,7 +584,7 @@ def arm_lane_stops_after_unconsumed_head(daemon_path=DAEMON_PATH):
 
 
 def arm_cross_pass_inflight_blocks_only_its_cwd():
-    """Let Sol drain while a prior Fable claim blocks Fable and Opus."""
+    """Let Sol drain while a prior Architect claim blocks that role."""
     with scratch_daemon() as (daemon, _):
         inflight_name = "0100-to-fable.md"
         shared_name = "0101-to-fable.md"
@@ -992,10 +1014,8 @@ def arm_source_mutations():
         '                         recursive=True)')
     root_only_snapshot = (
         '    snapshot = glob.glob(os.path.join(MAILBOX, "*.md"))')
-    cwd_lane = (
-        '        if mailbox_lane_cwd(agent=queued_agent) == '
-        'mailbox_lane_cwd(agent=agent):')
-    same_agent_only = '        if queued_agent == agent:'
+    role_lane = '    return AGENT_CWD[agent]'
+    collapsed_roles = '    return AGENT_CWD["fable"]'
     timeout_write = (
         '                            write_timeout_history(\n'
         '                                name=name,\n'
@@ -1004,7 +1024,8 @@ def arm_source_mutations():
         '                                    observed_elapsed_minutes))')
     timeout_read = '            history = timeout_events(name=name)'
     archive_return = (
-        '    return archive_consumed_message(dispatch_path=dispatch_path)')
+        '    return archived\n\n\n'
+        'def park_failed_message(dispatch_path):')
     process_return = (
         '    return (daemon_outcome and not blockers\n'
         '            and len(lane_outcomes) == len(lanes)\n'
@@ -1025,13 +1046,15 @@ def arm_source_mutations():
     cases = [
         ("recursive-store-snapshot", recursive_snapshot,
          root_only_snapshot, currency_contract_probe),
-        ("cwd-lane-not-recipient", cwd_lane, same_agent_only,
+        ("independent-role-lanes", role_lane, collapsed_roles,
          currency_contract_probe),
         ("timeout-history-write", timeout_write, '                            pass',
          arm_timeout_history_and_retry_hint),
         ("timeout-history-read", timeout_read, '            history = []',
          arm_timeout_history_and_retry_hint),
-        ("dispatch-archive-result", archive_return, '    return True',
+        ("dispatch-archive-result", archive_return,
+         '    return True\n\n\n'
+         'def park_failed_message(dispatch_path):',
          arm_archive_failure_propagates),
         ("process-backlog-result", process_return, '    return True',
          arm_archive_failure_propagates),
@@ -1064,8 +1087,8 @@ def main():
          arm_ordinary_failure_has_no_timeout_history),
         ("dry-run-read-only", arm_dry_run_is_strictly_read_only),
         ("archive-failure-propagates", arm_archive_failure_propagates),
-        ("same-cwd-archive-and-logs",
-         arm_same_cwd_serializes_through_archive_and_logs),
+        ("same-role-archive-and-logs",
+         arm_same_role_serializes_through_archive_and_logs),
         ("archive-source-absence", arm_archive_requires_source_absence),
         ("lane-stops-on-unconsumed-head",
          arm_lane_stops_after_unconsumed_head),

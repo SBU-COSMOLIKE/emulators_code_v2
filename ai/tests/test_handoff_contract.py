@@ -15,15 +15,22 @@ from unittest import mock
 from ai.tools.handoff_contract import DirectiveError
 from ai.tools.handoff_contract import MAX_NOTE_BYTES
 from ai.tools.handoff_contract import REQUIRED_SECTIONS
+from ai.tools.handoff_contract import \
+    extract_blocked_implementer_capability_evidence
 from ai.tools.handoff_contract import main
 from ai.tools.handoff_contract import resolve_character_limit
 from ai.tools.handoff_contract import resolve_discovery_severity
 from ai.tools.handoff_contract import validate_directive_file
 from ai.tools.handoff_contract import validate_directive_text
+from ai.tools.handoff_contract import \
+    validate_implementer_handoff_subagent_evidence
+from ai.tools.handoff_contract import validate_implementer_subagent_evidence
 
 
 BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 WORKTREE = "/repo/.claude/worktrees/mailbox-primary"
+CHECKPOINT_CYCLE = "scratch-ticket@" + BASE_COMMIT
+CHECKPOINT_SHA256 = "a" * 64
 
 
 ARCHITECT_BODIES = {
@@ -67,7 +74,34 @@ ARCHITECT_BODIES = {
     "Stop and ask if": (
         "Stop if the named symbol is absent or another writer owns the file."),
     "Parallel work plan": (
-        "Keep this unit serial because code and test share one tiny contract."),
+        "- Launch: `required before implementation edits`\n"
+        "#### Subagent `failure-reproducer`\n"
+        "- Mode: `read-only`\n"
+        "- Ownership: `none (read-only)`\n"
+        "- Task: Run `python3 -m unittest ai.tests.test_example` and isolate "
+        "its exact pre-edit failure without modifying repository files.\n"
+        "- Return: Return the exact command, exit code, and complete failing "
+        "assertion output to the Integrator.\n"
+        "- Acceptance: The returned output shows one deterministic failure "
+        "at the missing-section assertion before editing begins.\n"
+        "- Stop: Stop and report if the focused test cannot start with the "
+        "standard-library runtime.\n"
+        "#### Subagent `regression-writer`\n"
+        "- Mode: `edit`\n"
+        "- Ownership: `ai/tests/test_example.py::ExampleTests`\n"
+        "- Task: Add the named missing-section regression case with the "
+        "directive's exact diagnostic and no production edits.\n"
+        "- Return: Return the focused test-file diff and the exact failing "
+        "test command output before production integration.\n"
+        "- Acceptance: The diff contains only the named test class and the "
+        "focused command fails at its new assertion.\n"
+        "- Stop: Stop and report if the named test class is absent from the "
+        "owned file.\n"
+        "#### Integrator\n"
+        "- Integration: Review every subagent return, integrate the "
+        "non-overlapping test edit, and make the production validator change.\n"
+        "- Final validation: Run `python3 -m unittest "
+        "ai.tests.test_example` and require exit zero after integration."),
 }
 
 
@@ -177,7 +211,6 @@ class HandoffContractTests(unittest.TestCase):
                 {
                     "route": "three-role",
                     "uses_red_team": True,
-                    "uses_sol_as_implementer": False,
                     "roles": "Architect + Implementer + Red Team",
                     "discovery_severity": "high",
                     "review_scope": "bounded",
@@ -190,21 +223,7 @@ class HandoffContractTests(unittest.TestCase):
                 {
                     "route": "two-role",
                     "uses_red_team": False,
-                    "uses_sol_as_implementer": False,
                     "roles": "Architect + Implementer",
-                    "discovery_severity": "not-used",
-                    "review_scope": "not-used",
-                },
-            ),
-            (
-                "- Roles: `Architect + Sol as Implementer`\n"
-                "- Discovery severity: `not-used`\n"
-                "- Review scope: `not-used`",
-                {
-                    "route": "sol-as-implementer",
-                    "uses_red_team": False,
-                    "uses_sol_as_implementer": True,
-                    "roles": "Architect + Sol as Implementer",
                     "discovery_severity": "not-used",
                     "review_scope": "not-used",
                 },
@@ -248,6 +267,453 @@ class HandoffContractTests(unittest.TestCase):
                         text=packet(
                             role="architect",
                             bodies={"Role plan": role_plan}))
+
+    def test_architect_parses_a_decision_complete_subagent_plan(self):
+        result = validate_directive_text(
+            role="architect", text=packet(role="architect"))
+        plan = result["parallel_work_plan"]
+        self.assertEqual(plan["mode"], "subagents")
+        self.assertEqual(
+            [row["name"] for row in plan["subagents"]],
+            ["failure-reproducer", "regression-writer"])
+        self.assertEqual(plan["subagents"][0]["mode"], "read-only")
+        self.assertEqual(plan["subagents"][0]["ownership"], [])
+        self.assertEqual(plan["subagents"][1]["mode"], "edit")
+        self.assertEqual(
+            plan["subagents"][1]["ownership"],
+            ["ai/tests/test_example.py::ExampleTests"])
+        self.assertIn(
+            "every subagent return", plan["integrator"]["integration"])
+
+    def test_architect_refuses_vague_or_optional_parallel_work(self):
+        invalid_plans = (
+            "Work in parallel where useful and report the final results.",
+            "This ticket is genuinely indivisible because it changes one "
+            "line and needs no delegation.",
+            "- Subagent reproducer: Run the focused test and report output.\n"
+            "- Integrator: Combine the result and finish the work.",
+            "The runtime has no subagent support because no launch tool is "
+            "listed in the prompt.",
+            ARCHITECT_BODIES["Parallel work plan"].replace(
+                "- Launch: `required before implementation edits`\n", ""),
+            ARCHITECT_BODIES["Parallel work plan"].replace(
+                "#### Integrator", "The Integrator combines all returns"),
+        )
+        for plan in invalid_plans:
+            with self.subTest(plan=plan[:80]):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Parallel work plan": plan}))
+
+    def test_subagent_blocks_require_exact_fields_and_real_ownership(self):
+        valid = ARCHITECT_BODIES["Parallel work plan"]
+        invalid_plans = (
+            valid.replace("- Mode: `read-only`", "- Mode: `review`", 1),
+            valid.replace(
+                "- Ownership: `none (read-only)`",
+                "- Ownership: none", 1),
+            valid.replace(
+                "- Mode: `read-only`", "- Mode: `edit`", 1),
+            valid.replace(
+                "- Ownership: `ai/tests/test_example.py::ExampleTests`",
+                "- Ownership: `path/to/file::symbol`", 1),
+            valid.replace(
+                "- Ownership: `ai/tests/test_example.py::ExampleTests`",
+                "- Ownership: `ai/tests/test_example.py::ExampleTests::"
+                "test_case`", 1),
+            valid.replace("- Task:", "- Action:", 1),
+            valid.replace("- Return:", "- Acceptance:", 1),
+            valid.replace(
+                "Run `python3 -m unittest ai.tests.test_example` and isolate "
+                "its exact pre-edit failure without modifying repository "
+                "files.",
+                "Work on the task as needed and report results.", 1),
+            valid.replace(
+                "Run `python3 -m unittest ai.tests.test_example` and isolate "
+                "its exact pre-edit failure without modifying repository "
+                "files.",
+                "Investigate the malformed-note behavior comprehensively "
+                "and prepare exact evidence for the Integrator.", 1),
+            valid.replace(
+                "Run `python3 -m unittest ai.tests.test_example` and isolate "
+                "its exact pre-edit failure without modifying repository "
+                "files.",
+                "Run the focused malformed-note test and isolate its exact "
+                "pre-edit failure without modifying repository files.", 1),
+            valid.replace(
+                "Return the exact command, exit code, and complete failing "
+                "assertion output to the Integrator.",
+                "Return a careful narrative about the completed activity.",
+                1),
+            valid.replace(
+                "The returned output shows one deterministic failure at the "
+                "missing-section assertion before editing begins.",
+                "The work is careful, comprehensive, and ready for review.",
+                1),
+            valid.replace(
+                "Stop and report if the focused test cannot start with the "
+                "standard-library runtime.",
+                "Report any general concerns to the Integrator promptly.",
+                1),
+            valid.replace(
+                "#### Subagent `regression-writer`",
+                "#### Subagent `failure-reproducer`", 1),
+        )
+        for plan in invalid_plans:
+            with self.subTest(plan=plan[:100]):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Parallel work plan": plan}))
+
+    def test_edit_subagent_may_own_multiple_exact_locator_entries(self):
+        plan = ARCHITECT_BODIES["Parallel work plan"].replace(
+            "- Ownership: `ai/tests/test_example.py::ExampleTests`",
+            "- Ownership: `ai/tests/test_example.py::ExampleTests`, "
+            "`ai/tests/test_contract_extra.py::ContractExtraTests`", 1)
+        parsed = validate_directive_text(
+            role="architect",
+            text=packet(
+                role="architect", bodies={"Parallel work plan": plan}))[
+                    "parallel_work_plan"]
+        self.assertEqual(
+            parsed["subagents"][1]["ownership"],
+            ["ai/tests/test_example.py::ExampleTests",
+             "ai/tests/test_contract_extra.py::ContractExtraTests"])
+
+    def test_parallel_plan_refuses_duplicate_edit_ownership(self):
+        valid = ARCHITECT_BODIES["Parallel work plan"]
+        duplicate = (
+            "#### Subagent `duplicate-writer`\n"
+            "- Mode: `edit`\n"
+            "- Ownership: `ai/tests/test_example.py::ExampleTests`\n"
+            "- Task: Add the exact duplicate-section refusal case without "
+            "editing any production implementation files.\n"
+            "- Return: Return the focused test diff and exact failing "
+            "assertion output before production integration.\n"
+            "- Acceptance: The returned diff contains the named test and its "
+            "output fails at the new assertion.\n"
+            "- Stop: Stop and report if the owned test class already has an "
+            "equivalent regression case.\n")
+        plan = valid.replace("#### Integrator", duplicate + "#### Integrator")
+        with self.assertRaisesRegex(DirectiveError, "duplicated"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect", bodies={"Parallel work plan": plan}))
+
+    def test_parallel_plan_refuses_same_file_with_different_symbols(self):
+        valid = ARCHITECT_BODIES["Parallel work plan"]
+        same_file = (
+            "#### Subagent `second-section-writer`\n"
+            "- Mode: `edit`\n"
+            "- Ownership: `ai/tests/test_example.py::OtherExampleTests`\n"
+            "- Task: Add the exact second-section refusal case without "
+            "editing any production implementation files.\n"
+            "- Return: Return the focused test diff and exact failing "
+            "assertion output before production integration.\n"
+            "- Acceptance: The returned diff contains the named test and its "
+            "output fails at the new assertion.\n"
+            "- Stop: Stop and report if the owned test class already has an "
+            "equivalent regression case.\n")
+        plan = valid.replace("#### Integrator",
+                             same_file + "#### Integrator")
+        with self.assertRaisesRegex(
+                DirectiveError,
+                r"Ownership file `ai/tests/test_example\.py` is duplicated"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect", bodies={"Parallel work plan": plan}))
+
+    def test_parallel_plan_refuses_noncanonical_ownership_alias(self):
+        """A leading ``./`` cannot hide a second writer for one file."""
+        valid = ARCHITECT_BODIES["Parallel work plan"]
+        aliased = (
+            "#### Subagent `alias-writer`\n"
+            "- Mode: `edit`\n"
+            "- Ownership: `./ai/tests/test_example.py::OtherTests`\n"
+            "- Task: Add the exact alias refusal test without editing any "
+            "production file.\n"
+            "- Return: Return the focused diff and failing assertion output "
+            "to the Integrator.\n"
+            "- Acceptance: The diff contains only the named test and the "
+            "command output fails at its assertion.\n"
+            "- Stop: Stop and report if the named test file is absent.\n")
+        plan = valid.replace("#### Integrator", aliased + "#### Integrator")
+        with self.assertRaisesRegex(DirectiveError, "malformed Ownership"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect", bodies={"Parallel work plan": plan}))
+
+    def test_integrator_requires_exact_integration_and_validation_fields(self):
+        valid = ARCHITECT_BODIES["Parallel work plan"]
+        invalid_plans = (
+            valid.replace("- Integration:", "- Integrator:", 1),
+            valid.replace("- Final validation:", "- Validation:", 1),
+            valid.replace(
+                "Review every subagent return, integrate the non-overlapping "
+                "test edit, and make the production validator change.",
+                "Apply the final production change with careful readable "
+                "control flow and complete regression coverage.", 1),
+            valid.replace(
+                "Run `python3 -m unittest ai.tests.test_example` and require "
+                "exit zero after integration.",
+                "Run the complete focused validation after integrating all "
+                "accepted subagent changes.", 1),
+            valid + "\nAdditional work may be performed after validation.",
+        )
+        for plan in invalid_plans:
+            with self.subTest(plan=plan[-120:]):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Parallel work plan": plan}))
+
+    def test_integrator_validation_must_repeat_directive_command(self):
+        plan = ARCHITECT_BODIES["Parallel work plan"].replace(
+            "- Final validation: Run `python3 -m unittest "
+            "ai.tests.test_example`",
+            "- Final validation: Run `true`", 1)
+        with self.assertRaisesRegex(
+                DirectiveError, "Validation commands section"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect", bodies={"Parallel work plan": plan}))
+
+    def test_capability_exception_requires_three_exact_raw_fields(self):
+        unsupported = (
+            "- Capability checked: `collaboration.spawn_agent`\n"
+            "- Attempted operation: Launch the named reproducer subagent "
+            "through the advertised collaboration operation before "
+            "implementation edits.\n"
+            "- Raw failure: `Unknown tool collaboration.spawn_agent in the "
+            "advertised runtime capability registry`")
+        checkpoint = (
+            "### Prior Implementer subagent launch failure\n\n"
+            "- Source cycle: `" + CHECKPOINT_CYCLE + "`\n"
+            "- Source handoff SHA-256: `" + CHECKPOINT_SHA256 + "`\n"
+            "- Source: `prior same-cycle IMPLEMENTER_HANDOFF checkpoint`\n"
+            "- Capability checked: `collaboration.spawn_agent`\n"
+            "- Attempted operation: Launch the named reproducer subagent "
+            "through the advertised collaboration operation before "
+            "implementation edits.\n"
+            "- Raw failure: `Unknown tool collaboration.spawn_agent in the "
+            "advertised runtime capability registry`")
+        revised = packet(
+            role="architect",
+            bodies={"Parallel work plan": unsupported}).replace(
+                "No implementation evidence yet.", checkpoint)
+        directive = validate_directive_text(
+            role="architect", text=revised)
+        parsed = directive["parallel_work_plan"]
+        self.assertEqual(parsed["mode"], "capability-unavailable")
+        self.assertEqual(parsed["subagents"], [])
+        self.assertEqual(
+            directive["capability_checkpoint"],
+            {"cycle": CHECKPOINT_CYCLE,
+             "handoff_sha256": CHECKPOINT_SHA256})
+
+        with self.assertRaisesRegex(
+                DirectiveError, "Prior Implementer subagent launch failure"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect",
+                    bodies={"Parallel work plan": unsupported}))
+
+        invalid = (
+            unsupported.replace(
+                "- Capability checked: `collaboration.spawn_agent`\n", ""),
+            unsupported.replace(
+                "Launch the named reproducer subagent through the advertised "
+                "collaboration operation before implementation edits.",
+                "Tried it."),
+            unsupported.replace(
+                "before implementation edits",
+                "after all implementation edits"),
+            unsupported.replace(
+                "`Unknown tool collaboration.spawn_agent in the advertised "
+                "runtime capability registry`", "`failed`"),
+            unsupported.replace("collaboration.spawn_agent", "[tool]", 1),
+            unsupported + "\n- Reason: The ticket is genuinely indivisible.",
+        )
+        for plan in invalid:
+            with self.subTest(plan=plan):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Parallel work plan": plan}).replace(
+                                "No implementation evidence yet.",
+                                checkpoint))
+
+        mismatched_checkpoint = revised.replace(
+            "Unknown tool collaboration.spawn_agent in the advertised "
+            "runtime capability registry`",
+            "Runtime returned a different launch failure after retry`",
+            1)
+        with self.assertRaisesRegex(DirectiveError, "must repeat the exact"):
+            validate_directive_text(
+                role="architect", text=mismatched_checkpoint)
+
+        for stale_binding in (
+                revised.replace(CHECKPOINT_CYCLE, "not-a-full-cycle", 1),
+                revised.replace(CHECKPOINT_SHA256, "abc123", 1)):
+            with self.subTest(stale_binding=stale_binding[-300:]):
+                with self.assertRaisesRegex(
+                        DirectiveError, "Source cycle|Source handoff"):
+                    validate_directive_text(
+                        role="architect", text=stale_binding)
+
+    def test_implementer_subagent_evidence_matches_every_planned_name(self):
+        plan = validate_directive_text(
+            role="architect", text=packet(role="architect"))[
+                "parallel_work_plan"]
+        evidence = (
+            "#### Subagent return `failure-reproducer`\n"
+            "- Returned artifact: The exact focused command and its complete "
+            "pre-edit failing assertion output.\n"
+            "- Acceptance: `pass`\n"
+            "- Evidence: Command `python3 -m unittest "
+            "ai.tests.test_example` exited one at the named assertion.\n"
+            "#### Subagent return `regression-writer`\n"
+            "- Returned artifact: The focused test-file diff and complete "
+            "pre-production failing command output.\n"
+            "- Acceptance: `pass`\n"
+            "- Evidence: The diff changes only ExampleTests and the focused "
+            "command output names the new assertion.")
+        parsed = validate_implementer_subagent_evidence(plan, evidence)
+        self.assertEqual(
+            [row["name"] for row in parsed["returns"]],
+            ["failure-reproducer", "regression-writer"])
+        self.assertTrue(parsed["completion_ready"])
+
+        blocked = validate_implementer_subagent_evidence(
+            plan, evidence.replace(
+                "- Acceptance: `pass`", "- Acceptance: `blocked`", 1))
+        self.assertFalse(blocked["completion_ready"])
+
+        invalid = (
+            evidence.replace(
+                "#### Subagent return `regression-writer`\n"
+                "- Returned artifact: The focused test-file diff and complete "
+                "pre-production failing command output.\n"
+                "- Acceptance: `pass`\n"
+                "- Evidence: The diff changes only ExampleTests and the "
+                "focused command output names the new assertion.", ""),
+            evidence.replace("failure-reproducer", "unplanned-reviewer", 1),
+            evidence.replace("- Acceptance: `pass`", "- Acceptance: `yes`", 1),
+            evidence.replace("- Returned artifact:", "- Artifact:", 1),
+            evidence + "\n#### Subagent return `extra-reviewer`\n"
+            "- Returned artifact: The extra reviewer returned a detailed "
+            "command transcript and focused output.\n"
+            "- Acceptance: `pass`\n"
+            "- Evidence: The extra command exited zero with complete output.",
+        )
+        for malformed in invalid:
+            with self.subTest(malformed=malformed[-100:]):
+                with self.assertRaises(DirectiveError):
+                    validate_implementer_subagent_evidence(plan, malformed)
+
+    def test_blocked_full_handoff_requires_exact_capability_failure_rows(self):
+        plan = validate_directive_text(
+            role="architect", text=packet(role="architect"))[
+                "parallel_work_plan"]
+        returns = (
+            "#### Subagent return `failure-reproducer`\n"
+            "- Returned artifact: The exact launch attempt and complete "
+            "runtime failure transcript.\n"
+            "- Acceptance: `blocked`\n"
+            "- Evidence: The launch operation failed before any source edit "
+            "began.\n"
+            "#### Subagent return `regression-writer`\n"
+            "- Returned artifact: The no-edit checkpoint and repository "
+            "status transcript.\n"
+            "- Acceptance: `blocked`\n"
+            "- Evidence: The second task did not start after the launch "
+            "capability failed.")
+        failure = (
+            "- Capability checked: `collaboration.spawn_agent`\n"
+            "- Attempted operation: Launch the named reproducer subagent "
+            "through collaboration.spawn_agent before implementation edits.\n"
+            "- Raw failure: `Unknown tool collaboration.spawn_agent in the "
+            "advertised runtime capability registry`")
+
+        def handoff(fragment):
+            return (
+                "### IMPLEMENTER_HANDOFF: BLOCKED\n\n"
+                "- **Current state:** The required subagent launch failed.\n"
+                "- **Candidate commit:** `" + BASE_COMMIT + "`\n"
+                "- **Subagent work:**\n" + fragment + "\n"
+                "- **Blockers/findings:** The runtime rejected the exact "
+                "launch operation.\n"
+                "- **Action required:** Architect capability decision.\n")
+
+        complete = handoff(returns + "\n" + failure)
+        parsed = extract_blocked_implementer_capability_evidence(complete)
+        self.assertEqual(
+            [record["name"] for record in parsed["returns"]],
+            ["failure-reproducer", "regression-writer"])
+        self.assertEqual(
+            parsed["capability_checked"], "collaboration.spawn_agent")
+        validated = validate_implementer_handoff_subagent_evidence(
+            parallel_work_plan=plan, handoff_text=complete)
+        self.assertFalse(validated["completion_ready"])
+        self.assertEqual(
+            validated["capability_failure"]["raw_failure"],
+            "Unknown tool collaboration.spawn_agent in the advertised "
+            "runtime capability registry")
+
+        rows = failure.split("\n")
+        for missing_index in range(3):
+            malformed = handoff(
+                returns + "\n" + "\n".join(
+                    row for index, row in enumerate(rows)
+                    if index != missing_index))
+            with self.subTest(missing_row=rows[missing_index]):
+                with self.assertRaisesRegex(
+                        DirectiveError, "blocked IMPLEMENTER_HANDOFF"):
+                    validate_implementer_handoff_subagent_evidence(
+                        parallel_work_plan=plan, handoff_text=malformed)
+
+    def test_capability_exception_evidence_must_repeat_the_raw_failure(self):
+        unsupported = (
+            "- Capability checked: `collaboration.spawn_agent`\n"
+            "- Attempted operation: Launch the named reproducer subagent "
+            "through the advertised collaboration operation before "
+            "implementation edits.\n"
+            "- Raw failure: `Unknown tool collaboration.spawn_agent in the "
+            "advertised runtime capability registry`")
+        checkpoint = (
+            "### Prior Implementer subagent launch failure\n\n"
+            "- Source cycle: `" + CHECKPOINT_CYCLE + "`\n"
+            "- Source handoff SHA-256: `" + CHECKPOINT_SHA256 + "`\n"
+            "- Source: `prior same-cycle IMPLEMENTER_HANDOFF checkpoint`\n"
+            + unsupported)
+        plan = validate_directive_text(
+            role="architect",
+            text=packet(
+                role="architect",
+                bodies={"Parallel work plan": unsupported}).replace(
+                    "No implementation evidence yet.", checkpoint))[
+                    "parallel_work_plan"]
+        parsed = validate_implementer_subagent_evidence(plan, unsupported)
+        self.assertEqual(parsed["mode"], "capability-unavailable")
+        self.assertTrue(parsed["completion_ready"])
+        changed = unsupported.replace("Unknown tool", "Operation rejected")
+        with self.assertRaisesRegex(DirectiveError, "does not match"):
+            validate_implementer_subagent_evidence(plan, changed)
 
     def test_architect_role_plan_binds_review_scope_without_prose_inference(self):
         widespread = (
@@ -305,7 +771,7 @@ class HandoffContractTests(unittest.TestCase):
                 "- Roles: `Architect + Sol as Implementer`\n"
                 "- Discovery severity: `not-used`\n"
                 "- Review scope: `widespread`",
-                "must use review scope `not-used`",
+                "one supported Roles value",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
@@ -1379,10 +1845,16 @@ class HandoffContractTests(unittest.TestCase):
         commands = (
             "The command emits a Markdown-looking line.\n"
             "```bash\nprintf '### not a packet heading\\n'\n```")
+        plan = ARCHITECT_BODIES["Parallel work plan"].replace(
+            "- Final validation: Run `python3 -m unittest "
+            "ai.tests.test_example` and require exit zero after integration.",
+            "- Final validation: Run `printf '### not a packet heading\\n'` "
+            "and require exit zero after integration.")
         validate_directive_text(
             role="architect",
             text=packet(role="architect",
-                        bodies={"Validation commands": commands}))
+                        bodies={"Validation commands": commands,
+                                "Parallel work plan": plan}))
 
     def test_commented_and_invalidly_closed_packets_do_not_validate(self):
         commented = "<!--\n" + packet(role="architect") + "\n-->\n"

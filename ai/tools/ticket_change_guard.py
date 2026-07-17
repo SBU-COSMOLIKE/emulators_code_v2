@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Check one committed ticket against a changed-character limit.
 
-The guard compares the complete tree at ``--base`` with the complete tree at
-``HEAD``.  Intermediate commits do not receive separate allowances.  A
-replacement uses the exact minimum number of single-character insertions and
-deletions.  Unchanged characters count zero.  Python Unicode code points are
-counted, not UTF-8 storage bytes.
+By default, the guard compares the complete tree at ``--base`` with the clean
+tree at ``HEAD``.  That is the Implementer's self-check.  An Architect can
+instead use ``--architect-audit --candidate COMMIT`` to name an immutable,
+full commit.  This audit mode keeps measuring that commit even when ``HEAD``
+has advanced to later work.
+
+Intermediate commits do not receive separate allowances.  A replacement uses
+the exact minimum number of single-character insertions and deletions.
+Unchanged characters count zero.  Python Unicode code points are counted, not
+UTF-8 storage bytes.
 
 Exit codes:
 
@@ -97,11 +102,19 @@ def nonnegative_integer(value):
             "value must be a nonnegative ASCII decimal integer") from exc
 
 
-def full_commit(value):
-    """Require the full 40-hex spelling used by this repository."""
+def full_base_commit(value):
+    """Require the full 40-hex spelling of the ticket's base commit."""
     if FULL_COMMIT_RE.fullmatch(value) is None:
         raise argparse.ArgumentTypeError(
             "--base must be one full 40-hex commit")
+    return value.lower()
+
+
+def full_candidate_commit(value):
+    """Require the full 40-hex spelling of an audited candidate commit."""
+    if FULL_COMMIT_RE.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError(
+            "--candidate must be one full 40-hex commit")
     return value.lower()
 
 
@@ -110,8 +123,15 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="check a committed ticket's changed-character limit")
     parser.add_argument(
-        "--base", required=True, type=full_commit,
+        "--base", required=True, type=full_base_commit,
         help="full 40-hex commit before this ticket began")
+    parser.add_argument(
+        "--architect-audit", action="store_true",
+        help="audit the immutable commit named by --candidate instead of "
+             "checking the Implementer's current HEAD")
+    parser.add_argument(
+        "--candidate", type=full_candidate_commit,
+        help="full commit for --architect-audit")
     parser.add_argument(
         "--max", dest="maximum", type=nonnegative_integer, default=None,
         help="largest accepted Unicode-code-point additions plus deletions; "
@@ -119,7 +139,12 @@ def parse_args(argv=None):
     parser.add_argument(
         "--repo", default=os.getcwd(),
         help="repository or a directory inside it (default: current directory)")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.architect_audit and args.candidate is None:
+        parser.error("--architect-audit requires --candidate")
+    if args.candidate is not None and not args.architect_audit:
+        parser.error("--candidate requires --architect-audit")
+    return args
 
 
 def run_git(repository, arguments):
@@ -226,7 +251,7 @@ def resolve_commit(repository, revision, label):
     return commit.lower()
 
 
-def require_ancestor(repository, base, candidate):
+def require_ancestor(repository, base, candidate, candidate_label="HEAD"):
     """Require the selected base to be in the candidate's history."""
     result = run_git(
         repository=repository,
@@ -234,7 +259,8 @@ def require_ancestor(repository, base, candidate):
     if result.returncode == 0:
         return
     if result.returncode == 1:
-        raise GuardError("--base is not an ancestor of HEAD")
+        raise GuardError(
+            "--base is not an ancestor of " + candidate_label)
     raise GuardError("could not check commit ancestry: "
                      + git_error(result=result))
 
@@ -304,6 +330,14 @@ def require_clean_candidate(repository, expected_head):
         raise GuardError(
             "HEAD is not the exact candidate: commit or remove staged, "
             "unstaged, and nonignored untracked changes")
+
+
+def require_exact_named_commit(repository, revision, expected, label):
+    """Require a full commit name to keep resolving to the audited object."""
+    current = resolve_commit(
+        repository=repository, revision=revision, label=label)
+    if current != expected:
+        raise GuardError(label + " changed while the ticket was being checked")
 
 
 def display_path(path):
@@ -652,10 +686,18 @@ def main(argv=None):
             repository=repository, revision=args.base, label="--base")
         if base != args.base:
             raise GuardError("--base does not resolve to the exact named commit")
+        audit_mode = args.architect_audit
+        candidate_revision = args.candidate if audit_mode else "HEAD"
+        candidate_label = "--candidate" if audit_mode else "HEAD"
         candidate = resolve_commit(
-            repository=repository, revision="HEAD", label="HEAD")
+            repository=repository, revision=candidate_revision,
+            label=candidate_label)
+        if audit_mode and candidate != args.candidate:
+            raise GuardError(
+                "--candidate does not resolve to the exact named commit")
         require_ancestor(
-            repository=repository, base=base, candidate=candidate)
+            repository=repository, base=base, candidate=candidate,
+            candidate_label=candidate_label)
 
         if maximum == 0:
             print("ticket change guard: size limit disabled")
@@ -665,12 +707,22 @@ def main(argv=None):
                   "is unlimited")
             return 0
 
-        require_clean_candidate(
-            repository=repository, expected_head=candidate)
+        if audit_mode:
+            require_exact_named_commit(
+                repository=repository, revision=args.candidate,
+                expected=candidate, label="--candidate")
+        else:
+            require_clean_candidate(
+                repository=repository, expected_head=candidate)
         count = measure_characters(
             repository=repository, base=base, candidate=candidate)
-        require_clean_candidate(
-            repository=repository, expected_head=candidate)
+        if audit_mode:
+            require_exact_named_commit(
+                repository=repository, revision=args.candidate,
+                expected=candidate, label="--candidate")
+        else:
+            require_clean_candidate(
+                repository=repository, expected_head=candidate)
     except GuardError as exc:
         print("ticket change guard: cannot measure: " + str(exc))
         return 2

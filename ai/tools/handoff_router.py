@@ -15,16 +15,17 @@ For one ticket, this program:
 
 1. checks the Architect's source note;
 2. puts the approved Implementer block on the clipboard;
-3. waits for the Implementer's returned block;
+3. waits for the Implementer's returned block and proves that every planned
+   subagent returned structured evidence;
 4. runs the local check commands and saves their exact output;
 5. puts the Implementer result and check output on the clipboard for the
    Architect.
 
-The Architect audits that result next. A ``GO`` closes and commits the ticket
-without waiting for Red Team. When the saved role plan includes Red Team, the
-Architect may issue the separate post-acceptance review only after that
-decision; this router never inserts Red Team between implementation and the
-Architect's audit.
+The Architect audits that result next. A ``GO`` authorizes the mailbox daemon
+to create the ticket's landing commit; it does not tell the Architect to merge
+or push. When the saved role plan includes Red Team, the daemon starts the
+separate post-landing review after it records that commit. This router never
+inserts Red Team between implementation and the Architect's audit.
 
 Usage:
 
@@ -32,9 +33,10 @@ Usage:
         "Implementation directive"
     python ai/tools/handoff_router.py --note ai/notes/<spec>.md
 
-The source note may choose three roles, two roles, or Sol as the Implementer.
-``--mode``, ``--skip-redteam``, and ``--severity`` can confirm that saved
-choice. They cannot change it.
+The source note may choose three roles or two roles. ``--mode``,
+``--skip-redteam``, and ``--severity`` can confirm that saved choice. They
+cannot change it. A plan that assigns Sol to implementation is unsupported
+and is refused before the router copies or saves anything.
 
 Use ``--gate-cmd`` to name a ticket's local check command:
 
@@ -49,6 +51,7 @@ changing the clipboard or waiting for another conversation:
 import argparse
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -67,9 +70,13 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from handoff_contract import DirectiveError
+from handoff_contract import extract_blocked_implementer_capability_evidence
+from handoff_contract import extract_implementer_subagent_evidence
 from handoff_contract import nonnegative_character_limit
 from handoff_contract import resolve_character_limit
 from handoff_contract import validate_directive_file
+from handoff_contract import validate_implementer_subagent_evidence
+from handoff_contract import validate_implementer_handoff_subagent_evidence
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
 DISCOVERY_SEVERITIES = ("high", "medium", "low")
 DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
@@ -78,6 +85,7 @@ ROUTER_LOCK_PATH = os.path.join(
     tempfile.gettempdir(),
     "cocoa-handoff-router-" + str(os.getuid()) + ".lock",
 )
+IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER = "- **Subagent work:**"
 
 COCOA_PYTHON = ("/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa"
                 "/.local/bin/python")
@@ -88,8 +96,6 @@ DEFAULT_GATE_COMMANDS = [
     "PYTHONPATH=. " + COCOA_PYTHON + " ai/gates/checks/board_selftest.py",
 ]
 
-SECOND_IMPLEMENTER_MODE_SENTENCE = (
-    "OpenAI Sol — this is a role as second Implementer for this unit.")
 PRIMARY_STATE_RELATIVE = os.path.join(
     ".claude", "worktrees", ".mailbox-primary-worktree.json")
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
@@ -111,10 +117,6 @@ NEAR_REOPEN_COUNT_RE = re.compile(
     r"^[ \t]*(?:[-+*][ \t]+)?(?:\*\*)?[ \t]*"
     r"red(?:[ -]+)team[ \t]+reopen[ \t]+count\b",
     re.IGNORECASE)
-SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD = 10
-SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD = 1
-
-
 class BacklogLedgerError(RuntimeError):
     """The saved primary backlog cannot safely authorize a role decision."""
 
@@ -400,19 +402,6 @@ def backlog_severity_counts(backlog_path=None):
     return counts
 
 
-def second_implementer_emergency(counts=None):
-    """Return whether open Critical or High tickets prove an emergency."""
-    if counts is None:
-        counts = backlog_severity_counts()
-    if counts.get("unclassified", 0):
-        return False
-    return (
-        counts["critical"]
-        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD
-        or counts["high_bug_fix"]
-        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)
-
-
 def widespread_review_refusal(counts=None):
     """Return a refusal message unless widespread discovery may begin.
 
@@ -655,6 +644,99 @@ def archive(seq, name, text):
     return os.path.relpath(path, REPO_ROOT)
 
 
+def manual_capability_cycle(directive, source_note):
+    """Bind a manual checkpoint to one canonical source note and base."""
+    if (not isinstance(source_note, str)
+            or not source_note.startswith("ai/notes/")
+            or source_note.count("/") != 2):
+        raise DirectiveError(
+            "manual capability checkpoint needs one canonical source note")
+    note_digest = hashlib.sha256(
+        source_note.encode("utf-8")).hexdigest()
+    return ("manual-router-" + note_digest + "@"
+            + directive["execution_checkout"]["Base"])
+
+
+def save_manual_capability_checkpoint(seq, cycle, source_note, archive_path,
+                                      handoff_text, capability_failure):
+    """Bind one blocked return to bytes that the router actually received."""
+    saved_handoff = (handoff_text if handoff_text.endswith("\n")
+                     else handoff_text + "\n")
+    digest = hashlib.sha256(saved_handoff.encode("utf-8")).hexdigest()
+    payload = {
+        "schema": 3,
+        "cycle": cycle,
+        "source_note": source_note,
+        "handoff_sha256": digest,
+        "archive": archive_path,
+        "capability_checked": capability_failure["capability_checked"],
+        "attempted_operation": capability_failure["attempted_operation"],
+        "raw_failure": capability_failure["raw_failure"],
+    }
+    path = os.path.join(RELAY_DIR, seq + "-capability-checkpoint.json")
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, sort_keys=True, indent=2)
+        stream.write("\n")
+    return digest
+
+
+def verify_manual_capability_checkpoint(directive, source_note):
+    """Prove a capability exception against a saved blocked handoff."""
+    if directive["parallel_work_plan"]["mode"] != "capability-unavailable":
+        return
+    expected = directive["capability_checkpoint"]
+    current_cycle = manual_capability_cycle(
+        directive=directive, source_note=source_note)
+    if expected["cycle"] != current_cycle:
+        raise DirectiveError(
+            "capability checkpoint Source cycle does not match this manual "
+            "router checkout")
+    matches = 0
+    for name in os.listdir(RELAY_DIR):
+        if not name.endswith("-capability-checkpoint.json"):
+            continue
+        path = os.path.join(RELAY_DIR, name)
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                payload = json.load(stream)
+            if (set(payload) != {
+                    "schema", "cycle", "source_note", "handoff_sha256",
+                    "archive",
+                    "capability_checked", "attempted_operation",
+                    "raw_failure"}
+                    or payload["schema"] != 3
+                    or payload["cycle"] != expected["cycle"]
+                    or payload["source_note"] != source_note
+                    or payload["handoff_sha256"]
+                    != expected["handoff_sha256"]):
+                continue
+            archive_path = os.path.join(REPO_ROOT, payload["archive"])
+            with open(archive_path, "r", encoding="utf-8") as stream:
+                saved = stream.read()
+            marker = "     Saved by ai/tools/handoff_router.py. -->\n\n"
+            if marker not in saved:
+                continue
+            handoff = saved.split(marker, 1)[1]
+            capability = extract_blocked_implementer_capability_evidence(
+                handoff_text=handoff)
+            expected_failure = directive["parallel_work_plan"]
+            exact_failure = all(
+                payload[field] == capability[field]
+                and payload[field] == expected_failure[field]
+                for field in ("capability_checked", "attempted_operation",
+                              "raw_failure"))
+            if (hashlib.sha256(handoff.encode("utf-8")).hexdigest()
+                    == expected["handoff_sha256"] and exact_failure):
+                matches += 1
+        except (OSError, UnicodeError, ValueError, TypeError,
+                DirectiveError):
+            continue
+    if matches != 1:
+        raise DirectiveError(
+            "capability exception is not bound to exactly one saved blocked "
+            "IMPLEMENTER_HANDOFF for the current cycle")
+
+
 def run_gates(commands, seq):
     """Run local checks and save their complete output.
 
@@ -804,14 +886,15 @@ def status_report():
         print("Architect work branch:        " + tip)
         if ahead != "0":
             print("  -> " + ahead + " saved change(s) are not on main.")
-            print("     After a GO verdict, only the Architect runs:")
-            print("     git merge --no-edit " + working
-                  + " && git push origin main")
+            print("     Do not merge or push this branch by hand.")
+            print("     After the Architect saves its exact GO request, run")
+            print("     python3 ai/tools/mailbox_daemon.py --once")
+            print("     so the daemon can verify and land the audited commit.")
         else:
             print("  -> main already includes this branch's saved changes.")
 
-    # Show Red Team or second-Implementer branches and whether main or the
-    # Architect work branch already includes them.
+    # Show advisory Red Team branches and whether main or the Architect work
+    # branch already includes them.
     print("\ncodex/* branches:")
     any_open = False
     for line in branches.splitlines():
@@ -834,7 +917,9 @@ def status_report():
         if is_integrated:
             state = "integrated"
         else:
-            state = "OPEN -- awaiting Architect audit/merge (or still in work)"
+            state = (
+                "OPEN: awaiting Architect audit and daemon landing, or still "
+                "in work")
             any_open = True
         tip = _git(["log", "--oneline", "-1", name])
         print("  [" + state + "] " + tip)
@@ -884,6 +969,10 @@ def main():
                         action="store_true",
                         help="show saved AI work, changes not yet on main, "
                              "and recent Architect records, then exit")
+    parser.add_argument(
+        "--architect-notes-admin", metavar="summary", default=None,
+        help="Architect-only: queue one dedicated permanent-note update "
+             "turn with this plain-language summary, then exit")
     parser.add_argument("--note",
                         required=False,
                         help="source note under ai/notes/ containing the "
@@ -893,10 +982,11 @@ def main():
                         help="optional exact section name; only "
                              "'Implementation directive' is valid")
     parser.add_argument("--mode",
-                        choices=["redteam", "second-implementer"],
+                        choices=["redteam"],
                         default=None,
-                        help="confirm the role plan saved by the Architect; "
-                             "this option cannot change that plan")
+                        help="confirm that the Architect note assigns Sol "
+                             "to Red Team review; this option cannot change "
+                             "another plan")
     parser.add_argument("--skip-redteam", "--no-red-team",
                         dest="skip_redteam",
                         action="store_true",
@@ -918,6 +1008,24 @@ def main():
         help="confirm the discovery severity saved in the Architect note; "
              "this option cannot change that value")
     args = parser.parse_args()
+
+    if args.architect_notes_admin is not None:
+        conflicting = (args.status or args.note or args.section
+                       or args.mode is not None or args.skip_redteam
+                       or bool(args.gate_cmd) or args.max is not None
+                       or args.severity is not None)
+        if conflicting:
+            print("--architect-notes-admin is a separate Architect-only "
+                  "operation and cannot be combined with other routes")
+            return 1
+        try:
+            import mailbox_daemon
+        except (ImportError, OSError, SyntaxError) as exc:
+            print("cannot load the authoritative mailbox publisher: "
+                  + str(exc))
+            return 1
+        return (0 if mailbox_daemon.send_architect_notes_admin(
+            text=args.architect_notes_admin, dry_run=False) else 1)
 
     if args.max is not None and (not args.note or args.status):
         print("--max is valid only with a --note run")
@@ -952,13 +1060,13 @@ def main():
             role="architect", path=note_path, expected_max=expected_max)
         verify_execution_checkout(
             checkout=directive["execution_checkout"])
+        verify_manual_capability_checkpoint(
+            directive=directive, source_note=note_display)
     except DirectiveError as exc:
         print("refused incomplete Architect directive: " + str(exc))
         return 1
     role_plan = directive["role_plan"]
-    if role_plan["uses_sol_as_implementer"]:
-        expected_mode = "second-implementer"
-    elif role_plan["uses_red_team"]:
+    if role_plan["uses_red_team"]:
         expected_mode = "redteam"
     else:
         expected_mode = None
@@ -971,31 +1079,6 @@ def main():
             return 1
         if refusal is not None:
             print(refusal)
-            return 1
-    if role_plan["uses_sol_as_implementer"]:
-        try:
-            counts = backlog_severity_counts()
-        except BacklogLedgerError as exc:
-            print("refused second-Implementer role: " + str(exc))
-            return 1
-        if not second_implementer_emergency(counts=counts):
-            if counts["unclassified"]:
-                print("refused second-Implementer role: the backlog has "
-                      + str(counts["unclassified"])
-                      + " malformed open ticket(s). The Architect must give "
-                      "every open line an exact priority and either BUG FIX "
-                      "or NEW FUNCTIONALITY before the emergency count can "
-                      "authorize this role")
-                return 1
-            print("refused second-Implementer role: Sol is emergency-only; "
-                  "the backlog has " + str(counts["critical"])
-                  + " open Critical bugs and "
-                  + str(counts["high_bug_fix"])
-                  + " open High bugs, but the role requires more than "
-                  "1 Critical bug or more than 10 High bugs. High features "
-                  "do not contribute. Only the Architect may "
-                  "designate Critical, and it must never be used merely to "
-                  "unlock another Implementer")
             return 1
     if args.mode is not None and args.mode != expected_mode:
         print("refused role confirmation: --mode " + args.mode
@@ -1037,7 +1120,6 @@ def main():
     except RuntimeError as exc:
         print(str(exc))
         return 1
-    seq = reserve_run_sequence()
     where = note_display + ', section "Implementation directive"'
     budget = directive["character_change_budget"]
     budget_prompt = (
@@ -1053,21 +1135,21 @@ def main():
     if role_plan["review_scope"] == "widespread":
         later_redteam_prompt = (
             "Post-acceptance Red Team plan: enabled with widespread scope. "
-            "First audit the Implementer result. If it earns GO, close and "
-            "commit the ticket immediately. Only afterward, create a "
-            "separate Architect-authored Red Team handoff for the "
-            "widespread search saved in " + where + ". Any ticket discovered "
-            "by that search is Low. This later advice does not approve or "
-            "block the accepted commit.\n\n")
+            "First audit the Implementer result. If it earns GO, return the "
+            "exact decision-only architect-go block and do not merge, commit, "
+            "or push. After the daemon records landing L, create a separate "
+            "Architect-authored Red Team handoff for the widespread search "
+            "saved in " + where + ". Any ticket discovered by that search is "
+            "Low. This later advice does not approve or block L.\n\n")
     elif role_plan["review_scope"] == "bounded":
         later_redteam_prompt = (
             "Post-acceptance Red Team plan: enabled with bounded scope. "
-            "First audit the Implementer result. If it earns GO, close and "
-            "commit the ticket immediately. Only afterward, create a "
-            "separate Architect-authored Red Team handoff that names the "
-            "accepted commit or change and reviews only the behavior it "
-            "directly affects. This later advice does not approve or block "
-            "the accepted commit.\n\n")
+            "First audit the Implementer result. If it earns GO, return the "
+            "exact decision-only architect-go block and do not merge, commit, "
+            "or push. After the daemon records landing L, create a separate "
+            "Architect-authored Red Team handoff that names L and reviews "
+            "only the behavior it directly affects. This later advice does "
+            "not approve or block L.\n\n")
     else:
         later_redteam_prompt = (
             "Post-acceptance Red Team plan: disabled. Complete the "
@@ -1084,37 +1166,24 @@ def main():
         "makes the final GO or NO-GO decision.\n\n")
     total_steps = 3
 
-    # [1] One execution owner receives this unit. Second-Implementer mode
-    # assigns it to Sol INSTEAD OF Opus; it never duplicates one directive.
-    if role_plan["uses_sol_as_implementer"]:
-        implementer_prompt = (
-            "### ARCHITECT_HANDOFF (relay)\n\n"
-            + SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
-            + role_prompt
-            + budget_prompt
-            + "The decision-complete Implementation directive is in "
-            + where + ". Read .codex/REDTEAM_ROLE.md for this explicit mode "
-            "switch, then .claude/OPUS_ROLE.md. Validate the directive and "
-            "verify its Execution checkout before editing. Execute this unit "
-            "as its only owner; do not perform a Red Team review. Append "
-            "evidence under the note's sibling evidence heading and reply "
-            "with IMPLEMENTER_HANDOFF.\n\n### ENDS\n")
-        implementer_name = "Sol second Implementer"
-        archive_name = "second-implementer"
-    else:
-        implementer_prompt = (
-            "### ARCHITECT_HANDOFF (relay)\n\n"
-            + role_prompt
-            + budget_prompt
-            + "The decision-complete Implementation directive for your next "
-            "unit is in " + where + " of this repository. Read "
-            ".claude/OPUS_ROLE.md, read that entry and its [[links]], run the "
-            "directive check, verify its Execution checkout, then follow its "
-            "ordered plan and reply with your IMPLEMENTER_HANDOFF block (a "
-            "short return; append the full result under the sibling evidence "
-            "heading first).\n\n### ENDS\n")
-        implementer_name = "Opus"
-        archive_name = "implementer"
+    # [1] The Implementer receives this unit.
+    implementer_prompt = (
+        "### ARCHITECT_HANDOFF (relay)\n\n"
+        + role_prompt
+        + budget_prompt
+        + "The decision-complete Implementation directive for your next "
+        "unit is in " + where + " of this repository. Read "
+        ".claude/OPUS_ROLE.md, read that entry and its [[links]], run the "
+        "directive check, verify its Execution checkout, then follow its "
+        "ordered plan and reply with your IMPLEMENTER_HANDOFF block (a "
+        "short return; append the full result under the sibling evidence "
+        "heading first). In that block, use the exact marker row "
+        + IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER + ", put every structured "
+        "Subagent return below it in planned order, and make "
+        "- **Blockers/findings:** the next bold handoff field.\n\n"
+        "### ENDS\n")
+    implementer_name = "Opus"
+    archive_name = "implementer"
 
     copy_to_clipboard(implementer_prompt)
     print("[1/" + str(total_steps) + "] " + implementer_name
@@ -1122,8 +1191,41 @@ def main():
     implementer_block = wait_for_block(
         header="### IMPLEMENTER_HANDOFF:",
         last_copied=implementer_prompt)
+    try:
+        evidence_result = validate_implementer_handoff_subagent_evidence(
+            parallel_work_plan=directive["parallel_work_plan"],
+            handoff_text=implementer_block)
+    except DirectiveError as exc:
+        release_router_lock(router_lock)
+        print("refused Implementer subagent evidence: " + str(exc))
+        return 1
+    seq = reserve_run_sequence()
     path = archive(seq, archive_name, implementer_block)
     print("      returned block saved -> " + path)
+
+    if not evidence_result["completion_ready"]:
+        cycle = manual_capability_cycle(
+            directive=directive, source_note=note_display)
+        digest = save_manual_capability_checkpoint(
+            seq=seq, cycle=cycle, source_note=note_display,
+            archive_path=path,
+            handoff_text=implementer_block,
+            capability_failure=evidence_result["capability_failure"])
+        architect_prompt = (
+            "### IMPLEMENTER CHECKPOINT FOR ARCHITECT\n\n"
+            "The Implementer returned a blocked subagent checkpoint. This "
+            "is not a candidate and cannot receive GO. Read the saved return "
+            "at " + path + ", decide the next directive, and preserve these "
+            "mechanical binding rows if a capability-unavailable retry is "
+            "justified:\n\n"
+            "- Source cycle: `" + cycle + "`\n"
+            "- Source handoff SHA-256: `" + digest + "`\n\n"
+            "### ENDS\n")
+        copy_to_clipboard(architect_prompt)
+        print("[checkpoint] blocked Implementer return copied to the "
+              "Architect; no checks or final-GO route were started.")
+        release_router_lock(router_lock)
+        return 0
 
     # [2] Run local checks and save their exact output. The Architect still
     # reruns every check required by the directive before deciding.
@@ -1146,8 +1248,9 @@ def main():
           + " -> " + log_path)
 
     # [3] Return the implementation records to the Architect before any Red
-    # Team work. The Architect reruns the required checks and closes/commits a
-    # GO immediately. A saved Red Team plan is a later advisory action.
+    # Team work. The Architect reruns the required checks and returns an exact
+    # GO decision immediately. The daemon, not the Architect, creates landing
+    # L. A saved Red Team plan is a later advisory action against L.
     architect_prompt = (
         "### RELAY FOR AUDIT\n\n"
         + role_prompt
@@ -1164,8 +1267,10 @@ def main():
            "close the ticket.\n")
         + "Review per your role file, including your own reruns of every\n"
         "required check. The saved blocks and check log support the review;\n"
-        "they do not replace it. Do not wait for Red Team before this audit,\n"
-        "closure, or commit.\n\n"
+        "they do not replace it. Do not wait for Red Team before this audit\n"
+        "or your exact architect-go decision. Do not merge, commit, update\n"
+        "main, or push; save the decision as a to-daemon message and let\n"
+        "mailbox_daemon.py create and record landing L.\n\n"
         "### ENDS\n")
     copy_to_clipboard(architect_prompt)
     print("[" + str(total_steps) + "/" + str(total_steps)

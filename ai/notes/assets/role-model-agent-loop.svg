@@ -4,13 +4,24 @@
   <title id="title">Architect-led AI development with advisory Red Team review</title>
   <desc id="description">A vertical workflow shows the Architect planning a
   ticket, the Implementer making the change, and the Architect auditing it.
-  Architect GO closes the ticket and commits immediately; NO-GO returns a
-  focused repair plan to the Implementer. The next ticket may start while an
-  optional Red Team reviews the exact accepted commit. Its NO CHANGE or
-  REOPEN return completes the normal cycle, but never approves or blocks the
-  commit. The ticket anchor, starting commit, and work mode stay unchanged
-  from the first Implementer handoff through the matching return. Command-line
-  options choose the models used
+  Every Implementer ticket launches its planned bounded helpers before the
+  Integrator edits, then the Integrator inspects their returns and personally
+  runs the combined validation. The eleven permanent notes use a separate
+  Architect-only P landing through the parent daemon, with no ticket cycle or
+  Red Team review.
+  Architect GO returns a decision bound to immutable candidate C; NO-GO
+  returns a focused repair plan to the Implementer. After the Architect exits,
+  the parent daemon creates distinct landing L, fast-forwards a clean unchanged
+  main checkout, records L, queues the optional Red Team review, and then
+  attempts one bounded non-force push. When the selected cycle limit has
+  another unused ticket slot, the Implementer may code the next
+  ticket in its separate worktree while the Architect audits a previous saved
+  commit and the optional Red Team reviews an earlier landing. The
+  Architect and Red Team do not edit source. A NO CHANGE or REOPEN return
+  completes the normal cycle, but never approves or blocks the landing. The
+  ticket anchor, starting commit, and work mode stay unchanged from the first
+  Implementer handoff through the matching return. Command-line options choose
+  the models used
   for the Architect and Implementer roles, while ai/notes remains the project
   record.</desc>
 
@@ -56,7 +67,7 @@
     Architect-led AI development
   </text>
   <text x="500" y="108" text-anchor="middle" class="subtitle">
-    The Red Team advises later. It never approves or blocks a commit.
+    The Red Team advises later. It never approves or blocks a landing.
   </text>
 
   <!-- Model choices are separate from role responsibilities. -->
@@ -83,7 +94,10 @@
     ai/notes/ is the project record
   </text>
   <text x="500" y="382" text-anchor="middle" class="body">
-    request • evidence • Architect decision
+    ticket records • eleven Architect-only permanent notes
+  </text>
+  <text x="500" y="405" text-anchor="middle" class="small">
+    Parent daemon lands note-only P separately: no cycle or Red Team
   </text>
 
   <path d="M 500 412 L 500 458" class="record"/>
@@ -115,10 +129,10 @@
     [I] IMPLEMENTER FOLLOWS THE PLAN
   </text>
   <text x="500" y="726" text-anchor="middle" class="body">
-    Change the code • run the named tests • return raw evidence
+    Launch planned helpers first • integrate every required return
   </text>
   <text x="500" y="754" text-anchor="middle" class="small">
-    The Implementer does not decide whether the ticket is finished.
+    Integrator personally runs final checks; helpers do not decide.
   </text>
 
   <path d="M 500 774 L 500 822" class="edge-blue"/>
@@ -137,7 +151,7 @@
     Inspect the changed files and the actual test output.
   </text>
   <text x="500" y="938" text-anchor="middle" class="small">
-    The Architect alone decides GO or NO-GO.
+    Read the saved commit; do not edit its source files.
   </text>
 
   <!-- A NO-GO returns directly to the Implementer. -->
@@ -154,7 +168,7 @@
     instructions
   </text>
 
-  <!-- A GO closes and lands without waiting for Red Team approval. -->
+  <!-- A GO returns a decision. The parent daemon lands after the role exits. -->
   <path d="M 500 962 L 500 1012" class="edge-blue"/>
   <rect x="462" y="974" width="76" height="30" rx="15"
         fill="#d8eafb" stroke="#1665a8" stroke-width="2"/>
@@ -164,13 +178,13 @@
         fill="#eaf7ef" stroke="#23804a" stroke-width="3"
         filter="url(#shadow)"/>
   <text x="500" y="1062" text-anchor="middle" class="box-title">
-    CLOSE TICKET AND COMMIT NOW
+    GO REQUEST → PARENT DAEMON LANDING
   </text>
   <text x="500" y="1098" text-anchor="middle" class="body">
-    Architect acceptance is sufficient. No Red Team GO is required.
+    Architect binds GO to candidate C, then exits.
   </text>
   <text x="500" y="1127" text-anchor="middle" class="small">
-    The next ticket may start while Red Team reviews this commit.
+    Daemon: create L • record main • queue review • try one push
   </text>
 
   <!-- Advisory work is deliberately separated from the landing path. -->
@@ -179,10 +193,10 @@
   <rect x="190" y="1179" width="620" height="54" rx="20"
         fill="#f7f2ff" stroke="#b49bd4" stroke-width="2"/>
   <text x="500" y="1214" text-anchor="middle" class="section">
-    SAME CYCLE: ADVISORY RED TEAM REVIEW
+    PIPELINE: ADVISORY RED TEAM REVIEW
   </text>
   <text x="500" y="1264" text-anchor="middle" class="subtitle">
-    The commit does not wait. A finite watcher does wait before exit.
+    A next ticket may start only when the cycle limit has room.
   </text>
 
   <path d="M 500 1282 L 500 1320" class="edge-optional"/>
@@ -194,13 +208,13 @@
     [R] RED TEAM READS ADVERSARIALLY
   </text>
   <text x="500" y="1406" text-anchor="middle" class="body">
-    Review this exact ticket and its accepted commit.
+    Review an earlier ticket and its exact daemon landing L.
   </text>
   <text x="500" y="1438" text-anchor="middle" class="body">
     Return NO CHANGE, or REOPEN with reproducible evidence.
   </text>
   <text x="500" y="1470" text-anchor="middle" class="small">
-    Write a detailed, persuasive note that a human can understand.
+    Write clear advice; do not edit the library source.
   </text>
 
   <path d="M 500 1496 L 500 1536" class="edge-purple"/>
@@ -214,7 +228,7 @@
     The matching NO CHANGE or REOPEN return completes the cycle.
   </text>
   <text x="500" y="1645" text-anchor="middle" class="small">
-    Advice never reverses the commit or becomes an approval.
+    Advice never reverses the landing or becomes an approval.
   </text>
 
   <path d="M 500 1654 L 500 1692" class="edge-blue"/>

@@ -18,20 +18,22 @@ inbound whose binding instruction explicitly says TERMINAL and no reply is
 owed ends without an outbound; ambiguity follows the ordinary outbound rule.
 
 What stays manual, on purpose:
-  - merges/pushes to main require an explicit user grant. The one standing
-    grant carried by every Architect dispatch is narrow: an Architect audit
-    that records GO lands that audited unit in the same turn, after the
-    mandatory foreign-commit STOP walk. Implementer and Red Team turns never
-    inherit that grant;
-  - the daemon only dispatches messages; it never edits code or notes itself;
+  - the Architect makes the GO/NO-GO decision but never changes main. A GO
+    names one immutable Implementer candidate C in a decision-only request;
+  - after the Architect process exits, the parent daemon verifies C, creates
+    and records exact local squash landing L, queues the optional Sol review,
+    and then attempts a bounded push. Implementer and Red Team turns never
+    receive that landing authority;
+  - the daemon changes only mailbox state and the exact accepted Git landing;
+    it never authors source code or permanent notes;
   - every dispatch's full CLI output is archived under ai/notes/relay/.
 
-Every live action converges on one persisted primary coordination worktree.
-The first valid action creates or safely adopts it; later actions validate
-the saved Git identity and re-exec this file from that worktree. Architect and
-Implementer share its uncommitted code, notes, and index. A second persisted
-worktree belongs to Sol. Ordinary agent turns never start in the user's main
-checkout.
+Every live action converges on three persisted role worktrees. The first valid
+action creates or safely adopts the Architect primary, the Implementer, and
+Sol checkouts; later actions validate every saved Git identity and re-exec
+this file from the Architect primary. The roles share the Architect's notes
+directory, but never a mutable code checkout or index. Ordinary agent turns
+never start in the user's main checkout.
 AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
 `claude -p` runs one headless turn against the subscription; the session
 needs enough tool permission to work unattended (set via the harness
@@ -74,6 +76,8 @@ import argparse
 import datetime
 import fcntl
 import glob
+import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -88,7 +92,8 @@ import time
 # Once main() passes CLI validation, every live action proves that this file
 # lives in the saved primary coordination worktree (or re-execs the copy that
 # does). Paths below can therefore remain simple derivations while launcher
-# checkouts converge on one shared mailbox, notes tree, and index.
+# checkouts converge on one shared mailbox and notes tree. Their code trees,
+# branches, and indexes stay separate.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AI_ROOT = os.path.dirname(SCRIPT_DIR)
 WORKTREE = os.path.dirname(AI_ROOT)
@@ -237,10 +242,12 @@ MAX_TIMEOUT_HISTORY_EVENTS = 1000
 MAX_BACKLOG_LEDGER_BYTES = 16777216
 
 # A watch periodically manufactures one GLOBAL manual safe-stop opportunity.
-# This cadence is deliberately unrelated to a ticket cycle. A ticket cycle is
-# one Architect/Implementer repair through the Architect's accepted commit,
-# followed by one correlated Red Team return for that commit. Five child turns
-# or fifteen minutes merely creates the occasional 20-second Ctrl-C window.
+# This cadence is deliberately unrelated to a ticket cycle. A ticket cycle
+# always belongs to one ticket. In the default three-role mode it ends after
+# the daemon-recorded local landing L receives its correlated Red Team return.
+# In a mode without Red Team it ends when the daemon records local landing L.
+# Five child turns or fifteen minutes merely creates the occasional 20-second
+# Ctrl-C window.
 # These are watch-only: --once and --dry-run retain their finite, delay-free
 # behavior.
 RENDEZVOUS_DISPATCH_INTERVAL = 5
@@ -250,29 +257,64 @@ WATCH_POLL_SECONDS = 20
 MAX_CYCLE_COUNT = 1000000
 TICKET_CYCLE_STATE_NAME = ".ticket-cycle-state.json"
 TICKET_CYCLE_LOCK_NAME = ".ticket-cycle-state.lock"
-TICKET_CYCLE_STATE_SCHEMA = 3
-LEGACY_TICKET_CYCLE_STATE_SCHEMA = 2
+TICKET_CYCLE_STATE_SCHEMA = 6
 MAX_TICKET_CYCLE_STATE_BYTES = 1024 * 1024
 MAX_TICKET_CYCLE_RECORDS = 10000
+CANDIDATE_STATE_NAME = ".ticket-candidate-state.json"
+CANDIDATE_STATE_SCHEMA = 1
+MAX_CANDIDATE_STATE_BYTES = 1024 * 1024
+ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA = 1
+MAX_ARCHITECT_NOTES_ADMIN_JOURNAL_BYTES = 16 * 1024
+CANDIDATE_REF_ROOT = "refs/mailbox/cycles"
+AUDIT_WORKTREE_PREFIX = "mailbox-audit-"
+ARCHITECT_PERMANENT_NOTE_PATHS = (
+    "ai/notes/MEMORY.md",
+    "ai/notes/project-and-history.md",
+    "ai/notes/conventions-and-workflow.md",
+    "ai/notes/python-changes-go-no-go.md",
+    "ai/notes/models-and-designs.md",
+    "ai/notes/training-stack.md",
+    "ai/notes/artifacts-inference-warmstart.md",
+    "ai/notes/data-generation-and-cuts.md",
+    "ai/notes/families-background-mps.md",
+    "ai/notes/families-scalar-cmb.md",
+    "ai/notes/readme-go-no-go.md",
+)
+ARCHITECT_PROTECTED_TRACKED_PATHS = (
+    ARCHITECT_PERMANENT_NOTE_PATHS
+    + ("ai/tools/permanent_note_guard.py",)
+)
+BACKLOG_GUARD_STATE_NAME = ".backlog-guard.json"
+MAX_PROTECTED_NOTE_BYTES = 4 * 1024 * 1024
+MAX_BACKLOG_GUARD_STATE_BYTES = 16 * 1024
+PROTECTED_STATE_RECHECK_ATTEMPTS = 20
+PROTECTED_STATE_RECHECK_SECONDS = 0.05
 
-# One durable coordination checkout belongs to the Claude ROLE pair, not to
-# either Claude model. A second durable checkout belongs to Sol. A first live
-# CLI action creates (or deliberately adopts) the Claude checkout, creates the
-# exact Sol checkout, and saves both Git identities. Later invocations prove
-# both records before any dispatch. REPO_ROOT remains the user's checkout.
+# Three durable agent checkouts keep the Architect's coordination files, the
+# Implementer's source edits, and the Red Team's review files out of each
+# other's Git indexes. A first live action creates or adopts the Architect
+# primary, then creates the exact Implementer and Sol checkouts. Later actions
+# prove all three saved identities before dispatch. REPO_ROOT remains the
+# user's checkout.
 PRIMARY_WORKTREE_NAME = "mailbox-primary"
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 PRIMARY_STATE_NAME = ".mailbox-primary-worktree.json"
 PRIMARY_LOCK_NAME = ".mailbox-primary-worktree.lock"
 LEGACY_PRIMARY_STATE_SCHEMA = 1
-PRIMARY_STATE_SCHEMA = 2
-PRIMARY_TOPOLOGY_MARKER = "dedicated-sol-worktree-v1"
+PREVIOUS_PRIMARY_STATE_SCHEMA = 2
+PREVIOUS_PRIMARY_TOPOLOGY_MARKER = "dedicated-sol-worktree-v1"
+PRIMARY_STATE_SCHEMA = 3
+PRIMARY_TOPOLOGY_MARKER = "separate-role-worktrees-v1"
+IMPLEMENTER_WORKTREE_NAME = "mailbox-implementer"
+IMPLEMENTER_BRANCH = "refs/heads/claude/mailbox-implementer"
+IMPLEMENTER_STATE_NAME = ".mailbox-implementer-worktree.json"
+IMPLEMENTER_STATE_SCHEMA = 1
 SOL_WORKTREE_NAME = "mailbox-sol"
 SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
-MAILBOX_TOPOLOGY_VERSION = 2
-MAILBOX_PROTOCOL_VERSION = 3
+MAILBOX_TOPOLOGY_VERSION = 3
+MAILBOX_PROTOCOL_VERSION = 5
 MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
 MAX_PRIMARY_STATE_BYTES = 16384
 MAX_PRIMARY_DAEMON_BYTES = 2 * 1024 * 1024
@@ -324,6 +366,19 @@ def sol_state_paths(repository_root):
         "state": os.path.join(managed_root, SOL_STATE_NAME),
         "default_path": os.path.join(managed_root, SOL_WORKTREE_NAME),
         "default_branch": SOL_BRANCH,
+    }
+
+
+def implementer_state_paths(repository_root):
+    """Return deterministic paths used by Implementer bootstrap."""
+    repository = os.path.abspath(repository_root)
+    managed_root = os.path.join(repository, ".claude", "worktrees")
+    return {
+        "managed_root": managed_root,
+        "state": os.path.join(managed_root, IMPLEMENTER_STATE_NAME),
+        "default_path": os.path.join(
+            managed_root, IMPLEMENTER_WORKTREE_NAME),
+        "default_branch": IMPLEMENTER_BRANCH,
     }
 
 
@@ -534,6 +589,8 @@ def load_primary_state(path):
     schema = state["schema"]
     if schema == LEGACY_PRIMARY_STATE_SCHEMA:
         expected = base_keys
+    elif schema == PREVIOUS_PRIMARY_STATE_SCHEMA:
+        expected = base_keys | {"topology"}
     elif schema == PRIMARY_STATE_SCHEMA:
         expected = base_keys | {"topology"}
     else:
@@ -559,8 +616,12 @@ def load_primary_state(path):
         raise PrimaryWorktreeError("state name must equal the path basename")
     if not state["branch"].startswith("refs/heads/"):
         raise PrimaryWorktreeError("state branch must be an attached head ref")
-    if (schema == PRIMARY_STATE_SCHEMA
-            and state["topology"] != PRIMARY_TOPOLOGY_MARKER):
+    expected_topology = {
+        PREVIOUS_PRIMARY_STATE_SCHEMA: PREVIOUS_PRIMARY_TOPOLOGY_MARKER,
+        PRIMARY_STATE_SCHEMA: PRIMARY_TOPOLOGY_MARKER,
+    }.get(schema)
+    if (expected_topology is not None
+            and state["topology"] != expected_topology):
         raise PrimaryWorktreeError(
             "primary-worktree topology marker is unsupported")
     return state
@@ -1435,7 +1496,8 @@ def _upgrade_primary_topology_state(state, repository_root):
     """Accept topology-aware state; never guess that every old process stopped."""
     if state["schema"] == PRIMARY_STATE_SCHEMA:
         return state
-    if state["schema"] != LEGACY_PRIMARY_STATE_SCHEMA:
+    if state["schema"] not in {
+            LEGACY_PRIMARY_STATE_SCHEMA, PREVIOUS_PRIMARY_STATE_SCHEMA}:
         raise PrimaryWorktreeError(
             "cannot upgrade unsupported primary-worktree state")
     # An old process can validate schema 1, pause before taking the dispatch
@@ -1445,7 +1507,8 @@ def _upgrade_primary_topology_state(state, repository_root):
     # safety claim. Preserve every byte and require an explicit stopped-old-
     # runtime recovery instead.
     raise PrimaryWorktreeError(
-        "legacy schema-1 mailbox state cannot be migrated safely while an "
+        "the saved mailbox topology predates the separate Implementer "
+        "worktree and cannot be migrated safely while an "
         "older daemon may already be admitted; stop every old mailbox "
         "process, preserve the saved primary worktree and mailbox, update "
         "that worktree to this daemon version, move the old local state "
@@ -1520,6 +1583,342 @@ def _require_primary_daemon_topology_support(primary_path):
             "its local work, then retry: " + primary_path)
 
 
+def _bootstrap_ticket_state(primary_path):
+    """Read the primary mailbox's current ticket state with strict schema."""
+    path = os.path.join(primary_path, "ai", "notes", "mailbox",
+                        TICKET_CYCLE_STATE_NAME)
+    if not os.path.isfile(path):
+        return empty_ticket_cycle_state()
+    try:
+        raw = stable_regular_bytes(
+            path=path, maximum_bytes=MAX_TICKET_CYCLE_STATE_BYTES,
+            label="bootstrap ticket-cycle state")
+        payload = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=_duplicate_key_refusal)
+    except (OSError, ValueError, UnicodeDecodeError,
+            json.JSONDecodeError) as exc:
+        raise PrimaryWorktreeError(
+            "cannot verify bootstrap ticket-cycle state: " + str(exc)) \
+            from exc
+    try:
+        return validate_ticket_cycle_state(payload=payload)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+
+
+def _bootstrap_candidate_state(primary_path):
+    """Read the primary mailbox's candidate ownership without globals."""
+    path = os.path.join(primary_path, "ai", "notes", "mailbox",
+                        CANDIDATE_STATE_NAME)
+    try:
+        raw = stable_regular_bytes(
+            path=path, maximum_bytes=MAX_CANDIDATE_STATE_BYTES,
+            label="bootstrap ticket-candidate state", missing_ok=True)
+    except (OSError, ValueError) as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+    if raw is None:
+        return empty_candidate_state()
+    try:
+        payload = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=_duplicate_key_refusal)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError,
+            OverflowError, RecursionError) as exc:
+        raise PrimaryWorktreeError(
+            "bootstrap ticket-candidate state is not exact JSON") from exc
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "cycles"}
+            or payload.get("schema") != CANDIDATE_STATE_SCHEMA
+            or not isinstance(payload.get("cycles"), dict)
+            or len(payload["cycles"]) > MAX_TICKET_CYCLE_RECORDS):
+        raise PrimaryWorktreeError(
+            "bootstrap ticket-candidate state has invalid keys")
+    normalized = {}
+    try:
+        for cycle_id, record in payload["cycles"].items():
+            expected_ref = cycle_candidate_ref(cycle_id=cycle_id)
+            if (not isinstance(record, dict)
+                    or set(record) != {"ref", "commit"}
+                    or record.get("ref") != expected_ref
+                    or not isinstance(record.get("commit"), str)
+                    or FULL_COMMIT_RE.fullmatch(record["commit"]) is None):
+                raise PrimaryWorktreeError(
+                    "bootstrap ticket-candidate state has an invalid "
+                    "cycle record")
+            normalized[cycle_id] = {
+                "ref": expected_ref, "commit": record["commit"]}
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+    return {"schema": CANDIDATE_STATE_SCHEMA, "cycles": normalized}
+
+
+def _bootstrap_root_ticket_authority(message, target, ticket_state,
+                                     candidate_state):
+    """Prove a still-root ordinary GO is the exact journaled C-to-L work."""
+    cycle_id, candidate_commit, mode, problem = _architect_go_request(
+        message=message)
+    if problem is not None:
+        return False, problem
+    record = candidate_state["cycles"].get(cycle_id)
+    candidate_ref = cycle_candidate_ref(cycle_id=cycle_id)
+    if (record != {"ref": candidate_ref, "commit": candidate_commit}
+            or git_ref_commit(reference=candidate_ref) != candidate_commit):
+        return False, "root Architect GO has no exact saved candidate C"
+    landing_ref = cycle_landing_ref(cycle_id=cycle_id)
+    if git_ref_commit(reference=landing_ref) != target:
+        return False, "root Architect GO has no exact target landing ref L"
+    try:
+        parent = _verify_prepared_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=target)
+        _require_ancestor_or_same(
+            ancestor=cycle_starting_commit(cycle_id), descendant=parent,
+            label="root Architect GO landing does not preserve its base")
+    except TicketCycleStateError as exc:
+        return False, str(exc)
+    active = ticket_state["active"].get(cycle_id)
+    completed = ticket_state["completed"].get(cycle_id)
+    if completed is not None:
+        if completed != target:
+            return False, "root Architect GO completed state names another L"
+    elif (active is None or active.get("mode") != mode
+          or (active.get("phase") != "implementation"
+              and active.get("commit") != target)):
+        return False, "root Architect GO does not match its saved cycle"
+    return True, None
+
+
+def _bootstrap_primary_ahead_notes_authority(primary_path, base_commit,
+                                             notes_commit):
+    """Prove clean primary P may wait ahead of main B for exact GO replay."""
+    mailbox = os.path.join(primary_path, "ai", "notes", "mailbox")
+    receipt_matches = []
+    for directory in (mailbox, os.path.join(mailbox, "inflight")):
+        for path in glob.glob(os.path.join(directory, "*-to-daemon.md")):
+            try:
+                raw = stable_regular_bytes(
+                    path=path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="ahead-primary permanent-note GO")
+                message = raw.decode("utf-8", errors="strict")
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            returned_base, returned_notes, problem = (
+                _architect_notes_go_request(message=message))
+            if (problem is None and returned_base == base_commit
+                    and returned_notes == notes_commit):
+                receipt_matches.append((path, raw))
+    if len(receipt_matches) != 1:
+        return False
+    try:
+        require_architect_notes_commit_object(
+            base_commit=base_commit, notes_commit=notes_commit)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+
+    inflight = os.path.join(mailbox, "inflight")
+    done = os.path.join(mailbox, "done")
+    relay = os.path.join(primary_path, "ai", "notes", "relay")
+    journal_prefix = ".pending-notes-admin-"
+    journal_suffix = ".json"
+    journal_paths = sorted(glob.glob(os.path.join(
+        relay, journal_prefix + "*" + journal_suffix)))
+    if len(journal_paths) != 1:
+        raise PrimaryWorktreeError(
+            "ahead Architect primary needs exactly one retained admin "
+            "recovery journal; found " + str(len(journal_paths)))
+    journal_name = os.path.basename(journal_paths[0])
+    request_name = journal_name[len(journal_prefix):-len(journal_suffix)]
+    request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
+    if request_match is None or request_match.group(1) != "fable":
+        raise PrimaryWorktreeError(
+            "ahead Architect primary has a malformed admin recovery "
+            "journal name")
+    admin_paths = [
+        path for path in (os.path.join(inflight, request_name),
+                          os.path.join(done, request_name))
+        if regular_inode(path=path) is not None]
+    if len(admin_paths) != 1:
+        raise PrimaryWorktreeError(
+            "ahead Architect primary recovery journal needs exactly one "
+            "saved inflight or archived admin request; found "
+            + str(len(admin_paths)))
+    admin_path = admin_paths[0]
+    try:
+        admin_message = stable_regular_bytes(
+            path=admin_path,
+            maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="ahead-primary note admin").decode(
+                "utf-8", errors="strict")
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        raise PrimaryWorktreeError(
+            "cannot verify saved permanent-note admin: " + str(exc)) \
+            from exc
+    if not is_architect_notes_admin_message(message=admin_message):
+        raise PrimaryWorktreeError(
+            "saved permanent-note admin is malformed")
+    try:
+        journal = read_architect_notes_admin_journal(
+            request_name=request_name,
+            request_message=admin_message, relay_dir=relay)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(
+            "ahead Architect primary has no valid admin recovery journal: "
+            + str(exc)) from exc
+    receipt_hash = hashlib.sha256(receipt_matches[0][1]).hexdigest()
+    if (journal["base"] != base_commit
+            or journal["phase"] != "validated-commit"
+            or journal["notes_commit"] != notes_commit
+            or journal["receipt_sha256"] != receipt_hash):
+        raise PrimaryWorktreeError(
+            "saved admin journal does not bind exact B/P receipt")
+    try:
+        _validate_current_protected_primary_state(
+            primary_worktree=primary_path)
+    except PrimaryWorktreeError:
+        raise
+    return True
+
+
+def bootstrap_sync_primary_from_landing_authority(primary_path):
+    """Advance stale clean primary only from an exact durable L/P request."""
+    current_main = _run_git(
+        repository_root=REPO_ROOT,
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"])
+    try:
+        target = current_main.stdout.decode(
+            "ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError("current main is not ASCII") from exc
+    primary_head = worktree_head(worktree=primary_path)
+    if primary_head == target:
+        return False
+    _symbolic_worktree_branch(
+        worktree=primary_path, expected_branch=PRIMARY_BRANCH,
+        label="Architect")
+    if _clean_worktree_status(worktree=primary_path):
+        raise PrimaryWorktreeError(
+            "stale Architect primary has work; landing authority cannot "
+            "advance it automatically")
+    ahead = _run_git(
+        repository_root=REPO_ROOT,
+        arguments=["merge-base", "--is-ancestor", target, primary_head],
+        check=False)
+    if ahead.returncode == 0:
+        if _bootstrap_primary_ahead_notes_authority(
+                primary_path=primary_path, base_commit=target,
+                notes_commit=primary_head):
+            print("kept saved Architect primary at authorized permanent-note "
+                  "commit " + primary_head + " while main remains at its "
+                  "exact base " + target, flush=True)
+            return False
+        raise PrimaryWorktreeError(
+            "Architect primary is ahead of main without one exact pending "
+            "B/P permanent-note GO")
+    if ahead.returncode != 1:
+        raise PrimaryWorktreeError(
+            "cannot compare saved Architect primary with current main")
+    try:
+        _require_ancestor_or_same(
+            ancestor=primary_head, descendant=target,
+            label="stale Architect primary is not an ancestor of main")
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+
+    mailbox = os.path.join(primary_path, "ai", "notes", "mailbox")
+    ticket_state = _bootstrap_ticket_state(primary_path=primary_path)
+    candidate_state = _bootstrap_candidate_state(primary_path=primary_path)
+    authorities = []
+    root_problems = []
+    for directory in (mailbox, os.path.join(mailbox, "done"),
+                      os.path.join(mailbox, "inflight")):
+        for path in glob.glob(os.path.join(directory, "*-to-daemon.md")):
+            try:
+                raw = stable_regular_bytes(
+                    path=path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="bootstrap landing request")
+                message = raw.decode("utf-8", errors="strict")
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            if message.startswith(
+                    MAILBOX_RETURN_HEADER + "architect-notes-go"):
+                base, notes_commit, problem = (
+                    _architect_notes_go_request(message=message))
+                if directory == mailbox:
+                    if problem is not None:
+                        root_problems.append(problem)
+                        continue
+                    if notes_commit != target or base != primary_head:
+                        root_problems.append(
+                            "root Architect notes GO does not name exact "
+                            "primary B and current main P")
+                        continue
+                if problem is None and notes_commit == target:
+                    try:
+                        require_architect_notes_commit_object(
+                            base_commit=base, notes_commit=notes_commit)
+                    except TicketCycleStateError as exc:
+                        raise PrimaryWorktreeError(str(exc)) from exc
+                    authorities.append(("notes", notes_commit))
+                continue
+            if directory == mailbox:
+                valid, problem = _bootstrap_root_ticket_authority(
+                    message=message, target=target,
+                    ticket_state=ticket_state,
+                    candidate_state=candidate_state)
+                if valid:
+                    authorities.append(("ticket", target))
+                else:
+                    root_problems.append(problem)
+                continue
+            cycle_id, _candidate, mode, problem = _architect_go_request(
+                message=message)
+            if problem is not None:
+                continue
+            recorded = ticket_state["completed"].get(cycle_id)
+            if recorded is None:
+                active = ticket_state["active"].get(cycle_id)
+                if active is not None:
+                    recorded = active.get("commit")
+            if recorded is None:
+                landing_ref = cycle_landing_ref(cycle_id=cycle_id)
+                result = _run_git(
+                    repository_root=REPO_ROOT,
+                    arguments=["rev-parse", "--verify",
+                               landing_ref + "^{commit}"], check=False)
+                if result.returncode == 0:
+                    try:
+                        recorded = result.stdout.decode(
+                            "ascii", errors="strict").strip()
+                    except UnicodeDecodeError:
+                        recorded = None
+            if recorded == target and mode in ARCHITECT_COMMIT_MODES:
+                authorities.append(("ticket", target))
+    if root_problems:
+        raise PrimaryWorktreeError(
+            "stale Architect primary has an invalid root landing request: "
+            + "; ".join(root_problems))
+    if not authorities:
+        raise PrimaryWorktreeError(
+            "main is ahead of the Architect primary without an exact root, "
+            "archived, or inflight Architect landing request for that "
+            "commit")
+    result = _run_git(
+        repository_root=primary_path,
+        arguments=["merge", "--ff-only", target], check=False)
+    if (result.returncode != 0
+            or worktree_head(worktree=primary_path) != target
+            or _clean_worktree_status(worktree=primary_path)):
+        raise PrimaryWorktreeError(
+            "durable landing authority could not fast-forward the clean "
+            "Architect primary")
+    print("advanced saved Architect primary to daemon-recorded landing "
+          + target, flush=True)
+    return True
+
+
 def validated_primary_notes(primary_path):
     """Return the canonical non-redirected shared notes directory."""
     primary = os.path.realpath(primary_path)
@@ -1538,7 +1937,7 @@ def validated_primary_notes(primary_path):
 
 
 def validate_authoritative_role_files(primary_path):
-    """Return stable proofs for Sol's primary roles and ticket tools."""
+    """Return stable proofs for every primary role and ticket tool."""
     primary = os.path.abspath(primary_path)
     primary_real = os.path.realpath(primary)
     directory_paths = (
@@ -1565,6 +1964,8 @@ def validate_authoritative_role_files(primary_path):
 
     authoritative_files = (
         ("role", os.path.join(
+            primary, ".claude", "FABLE_ROLE.md")),
+        ("role", os.path.join(
             primary, ".codex", "REDTEAM_ROLE.md")),
         ("role", os.path.join(
             primary, ".claude", "OPUS_ROLE.md")),
@@ -1579,16 +1980,16 @@ def validate_authoritative_role_files(primary_path):
             info = os.lstat(path)
         except OSError as exc:
             raise PrimaryWorktreeError(
-                "authoritative Sol " + kind + " is missing: " + str(exc))
+                "authoritative " + kind + " is missing: " + str(exc))
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise PrimaryWorktreeError(
-                "authoritative Sol " + kind + " must be a regular file: "
+                "authoritative " + kind + " must be a regular file: "
                 + path)
         expected_real = os.path.join(
             primary_real, os.path.relpath(path, primary))
         if os.path.realpath(path) != expected_real:
             raise PrimaryWorktreeError(
-                "authoritative Sol " + kind + " is redirected: " + path)
+                "authoritative " + kind + " is redirected: " + path)
         identity = (info.st_dev, info.st_ino, info.st_size,
                     info.st_mtime_ns, info.st_ctime_ns)
         file_proof.append((kind, path, identity))
@@ -1606,7 +2007,7 @@ def recheck_authoritative_role_files(proof):
     if (not isinstance(proof, dict)
             or set(proof) != {"directories", "files"}):
         raise PrimaryWorktreeError(
-            "authoritative Sol role-file proof is missing or malformed")
+            "authoritative role-file proof is missing or malformed")
     for label, path, identity in proof["directories"]:
         _require_directory_identity(
             path=path, identity=identity, label=label)
@@ -1615,14 +2016,14 @@ def recheck_authoritative_role_files(proof):
             info = os.lstat(path)
         except OSError as exc:
             raise PrimaryWorktreeError(
-                "cannot revalidate authoritative Sol " + kind + ": "
+                "cannot revalidate authoritative " + kind + ": "
                 + str(exc))
         current = (info.st_dev, info.st_ino, info.st_size,
                    info.st_mtime_ns, info.st_ctime_ns)
         if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
                 or current != identity):
             raise PrimaryWorktreeError(
-                "authoritative Sol " + kind
+                "authoritative " + kind
                 + " changed after topology validation: " + path)
 
 
@@ -1747,6 +2148,172 @@ def provision_or_reuse_sol(repository_root, primary_state):
     return state
 
 
+def _implementer_state_for_record(record, repository_root):
+    """Build the exact persisted Implementer record."""
+    return {
+        "schema": IMPLEMENTER_STATE_SCHEMA,
+        "repository": git_common_directory(checkout=repository_root),
+        "name": os.path.basename(record["path"]),
+        "path": os.path.abspath(record["path"]),
+        "branch": record["branch"],
+    }
+
+
+def validate_implementer_state(state, repository_root, primary_state,
+                               allow_move=False):
+    """Validate the fixed Implementer branch and its distinct checkout."""
+    if state["schema"] != IMPLEMENTER_STATE_SCHEMA:
+        raise PrimaryWorktreeError(
+            "unsupported Implementer-worktree state schema")
+    if state["branch"] != IMPLEMENTER_BRANCH:
+        raise PrimaryWorktreeError(
+            "saved Implementer worktree must use " + IMPLEMENTER_BRANCH)
+    if primary_state["branch"] == state["branch"]:
+        raise PrimaryWorktreeError(
+            "Architect and Implementer must use different branches")
+    resolved = validate_primary_state(
+        state=state, repository_root=repository_root, allow_move=False,
+        state_path=implementer_state_paths(repository_root)["state"])
+    implementer_path = os.path.realpath(resolved["path"])
+    if implementer_path == os.path.realpath(repository_root):
+        raise PrimaryWorktreeError(
+            "Implementer worktree must not be the user's checkout")
+    if implementer_path == os.path.realpath(primary_state["path"]):
+        raise PrimaryWorktreeError(
+            "Architect and Implementer must use different worktrees")
+    if allow_move and resolved != state:
+        _atomic_write_primary_state(
+            state=resolved,
+            path=implementer_state_paths(repository_root)["state"])
+        print("Implementer worktree moved by git; saved "
+              + resolved["path"], flush=True)
+    return resolved
+
+
+def _tracked_worktree_changes(worktree):
+    """Return staged, unstaged, or nonignored untracked worktree changes."""
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "-C", worktree, "status", "--porcelain=v1", "-z",
+         "--untracked-files=all", "--ignore-submodules=none"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        env=environment)
+    if result.returncode != 0:
+        raise PrimaryWorktreeError(
+            "cannot inspect tracked or untracked changes in " + worktree)
+    return result.stdout
+
+
+def provision_or_reuse_implementer(repository_root, primary_state):
+    """Create or validate the one fixed Implementer checkout."""
+    paths = implementer_state_paths(repository_root=repository_root)
+    _managed_primary_root(repository_root=repository_root, create=True)
+    if os.path.lexists(paths["state"]):
+        state = load_primary_state(path=paths["state"])
+        return validate_implementer_state(
+            state=state, repository_root=repository_root,
+            primary_state=primary_state, allow_move=True)
+
+    records = registered_worktrees(repository_root=repository_root)
+    default_record = _record_at_path(
+        records=records, path=paths["default_path"])
+    if default_record is not None:
+        if default_record.get("branch") != IMPLEMENTER_BRANCH:
+            raise PrimaryWorktreeError(
+                "default Implementer path is registered on another branch: "
+                + paths["default_path"])
+        _validate_primary_record(
+            record=default_record, branch=IMPLEMENTER_BRANCH,
+            repository_root=repository_root)
+        state = _implementer_state_for_record(
+            record=default_record, repository_root=repository_root)
+        state = validate_implementer_state(
+            state=state, repository_root=repository_root,
+            primary_state=primary_state)
+        _atomic_write_primary_state(state=state, path=paths["state"])
+        print("recovered exact interrupted Implementer-worktree bootstrap "
+              + state["path"], flush=True)
+        return state
+
+    branch_records = [record for record in records
+                      if record.get("branch") == IMPLEMENTER_BRANCH]
+    if branch_records:
+        raise PrimaryWorktreeError(
+            "Implementer branch is already checked out at an unexpected "
+            "path: " + ", ".join(sorted(
+                record["path"] for record in branch_records)))
+    if os.path.lexists(paths["default_path"]):
+        raise PrimaryWorktreeError(
+            "default Implementer path exists but is not a registered "
+            "worktree: " + paths["default_path"])
+    if _branch_exists(
+            repository_root=repository_root, branch=IMPLEMENTER_BRANCH):
+        raise PrimaryWorktreeError(
+            "Implementer branch already exists without its registered "
+            "default worktree; refusing to reset or reuse it: "
+            + IMPLEMENTER_BRANCH)
+    if _tracked_worktree_changes(worktree=primary_state["path"]):
+        raise PrimaryWorktreeError(
+            "cannot split an Implementer worktree from a primary checkout "
+            "with uncommitted tracked changes; commit or preserve that work "
+            "before retrying")
+
+    base = _run_git(
+        repository_root=primary_state["path"],
+        arguments=["rev-parse", "--verify", "HEAD^{commit}"])
+    try:
+        base_commit = base.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "primary commit identity is not ASCII") from exc
+    if not re.fullmatch(r"[0-9a-fA-F]{40,64}", base_commit):
+        raise PrimaryWorktreeError(
+            "git returned an invalid primary commit")
+    short_branch = IMPLEMENTER_BRANCH[len("refs/heads/"):]
+    _run_git(
+        repository_root=repository_root,
+        arguments=["worktree", "add", "-b", short_branch,
+                   paths["default_path"], base_commit])
+    refreshed = registered_worktrees(repository_root=repository_root)
+    created = _record_at_path(
+        records=refreshed, path=paths["default_path"])
+    if created is None:
+        raise PrimaryWorktreeError(
+            "git created no registered Implementer worktree; no state was "
+            "saved")
+    _validate_primary_record(
+        record=created, branch=IMPLEMENTER_BRANCH,
+        repository_root=repository_root)
+    state = _implementer_state_for_record(
+        record=created, repository_root=repository_root)
+    state = validate_implementer_state(
+        state=state, repository_root=repository_root,
+        primary_state=primary_state)
+    _atomic_write_primary_state(state=state, path=paths["state"])
+    print("created Implementer worktree " + state["path"] + " on "
+          + IMPLEMENTER_BRANCH, flush=True)
+    return state
+
+
+def validate_distinct_agent_states(primary_state, implementer_state,
+                                   sol_state):
+    """Prove the three role checkouts and branches are pairwise distinct."""
+    paths = {
+        os.path.realpath(primary_state["path"]),
+        os.path.realpath(implementer_state["path"]),
+        os.path.realpath(sol_state["path"]),
+    }
+    branches = {
+        primary_state["branch"], implementer_state["branch"],
+        sol_state["branch"],
+    }
+    if len(paths) != 3 or len(branches) != 3:
+        raise PrimaryWorktreeError(
+            "Architect, Implementer, and Sol require distinct worktrees "
+            "and branches")
+
+
 def _open_primary_lock(repository_root):
     """Open and exclusively lock the repo-shared bootstrap inode."""
     paths = primary_state_paths(repository_root=repository_root)
@@ -1787,15 +2354,15 @@ def _release_primary_lock(lock_file):
     lock_file.close()
 
 
-def configure_agent_worktrees(primary_path, sol_path):
+def configure_agent_worktrees(primary_path, implementer_path, sol_path):
     """Bind every role to its already-validated dispatch checkout."""
     AGENT_CWD["fable"] = os.path.abspath(primary_path)
-    AGENT_CWD["opus"] = os.path.abspath(primary_path)
+    AGENT_CWD["opus"] = os.path.abspath(implementer_path)
     AGENT_CWD["sol"] = os.path.abspath(sol_path)
 
 
 def ensure_primary_execution(live_action, dry_run):
-    """Validate both agent worktrees and re-exec from the Claude primary.
+    """Validate all agent worktrees and re-exec from the primary.
 
     This is deliberately a CLI-boundary operation.  Importing this module for
     focused function tests remains pure; the real ``__main__`` call invokes it
@@ -1804,16 +2371,22 @@ def ensure_primary_execution(live_action, dry_run):
     global ACTIVE_TOPOLOGY
 
     paths = primary_state_paths(repository_root=REPO_ROOT)
+    implementer_paths = implementer_state_paths(repository_root=REPO_ROOT)
     sol_paths = sol_state_paths(repository_root=REPO_ROOT)
     state_exists = os.path.lexists(paths["state"])
     if dry_run and not state_exists:
         print("[dry-run] agent worktrees are not initialized; a live action "
-              "would create Claude at " + paths["default_path"] + " on "
-              + PRIMARY_BRANCH + " and Sol at " + sol_paths["default_path"]
-              + " on " + SOL_BRANCH + ". Previewing this launcher mailbox "
+              "would create Architect at " + paths["default_path"] + " on "
+              + PRIMARY_BRANCH + ", Implementer at "
+              + implementer_paths["default_path"] + " on "
+              + IMPLEMENTER_BRANCH + ", and Sol at "
+              + sol_paths["default_path"] + " on " + SOL_BRANCH
+              + ". Previewing this launcher mailbox "
               "read-only.")
         configure_agent_worktrees(
-            primary_path=WORKTREE, sol_path=sol_paths["default_path"])
+            primary_path=WORKTREE,
+            implementer_path=implementer_paths["default_path"],
+            sol_path=sol_paths["default_path"])
         return None
     if dry_run:
         state = load_primary_state(path=paths["state"])
@@ -1827,17 +2400,34 @@ def ensure_primary_execution(live_action, dry_run):
                   "dispatched until that checkout is updated.")
             configure_agent_worktrees(
                 primary_path=state["path"],
+                implementer_path=implementer_paths["default_path"],
                 sol_path=sol_paths["default_path"])
             return state
-        if state["schema"] == LEGACY_PRIMARY_STATE_SCHEMA:
-            print("[dry-run] this is legacy schema-1 state; a live action "
-                  "would refuse until every old daemon is stopped and the "
-                  "two-worktree topology is deliberately initialized.")
+        if state["schema"] != PRIMARY_STATE_SCHEMA:
+            print("[dry-run] this saved state predates separate Architect "
+                  "and Implementer worktrees; a live action would refuse "
+                  "until every old daemon is stopped and the "
+                  "separate-role topology is deliberately initialized.")
             configure_agent_worktrees(
                 primary_path=state["path"],
+                implementer_path=implementer_paths["default_path"],
                 sol_path=sol_paths["default_path"])
             return state
-        if os.path.lexists(sol_paths["state"]):
+        implementer_exists = os.path.lexists(implementer_paths["state"])
+        if implementer_exists:
+            implementer_state = load_primary_state(
+                path=implementer_paths["state"])
+            implementer_state = validate_implementer_state(
+                state=implementer_state, repository_root=REPO_ROOT,
+                primary_state=state, allow_move=False)
+        else:
+            print("[dry-run] a live action would create and save the "
+                  "Implementer at " + implementer_paths["default_path"]
+                  + " on " + IMPLEMENTER_BRANCH + ".")
+            implementer_state = {"path": implementer_paths["default_path"],
+                                 "branch": IMPLEMENTER_BRANCH}
+        sol_exists = os.path.lexists(sol_paths["state"])
+        if sol_exists:
             sol_state = load_primary_state(path=sol_paths["state"])
             sol_state = validate_sol_state(
                 state=sol_state, repository_root=REPO_ROOT,
@@ -1846,6 +2436,10 @@ def ensure_primary_execution(live_action, dry_run):
             print("[dry-run] a live action would create and save Sol at "
                   + sol_paths["default_path"] + " on " + SOL_BRANCH + ".")
             sol_state = {"path": sol_paths["default_path"]}
+        if implementer_exists and sol_exists:
+            validate_distinct_agent_states(
+                primary_state=state, implementer_state=implementer_state,
+                sol_state=sol_state)
         shared_notes = validated_primary_notes(primary_path=state["path"])
         validate_authoritative_role_files(primary_path=state["path"])
     elif live_action:
@@ -1862,10 +2456,17 @@ def ensure_primary_execution(live_action, dry_run):
                     repository_root=REPO_ROOT, current_worktree=WORKTREE)
             state = _upgrade_primary_topology_state(
                 state=state, repository_root=REPO_ROOT)
+            bootstrap_sync_primary_from_landing_authority(
+                primary_path=state["path"])
             _require_primary_daemon_topology_support(
                 primary_path=state["path"])
+            implementer_state = provision_or_reuse_implementer(
+                repository_root=REPO_ROOT, primary_state=state)
             sol_state = provision_or_reuse_sol(
                 repository_root=REPO_ROOT, primary_state=state)
+            validate_distinct_agent_states(
+                primary_state=state, implementer_state=implementer_state,
+                sol_state=sol_state)
             shared_notes = validated_primary_notes(
                 primary_path=state["path"])
             validate_authoritative_role_files(primary_path=state["path"])
@@ -1875,12 +2476,17 @@ def ensure_primary_execution(live_action, dry_run):
         return None
 
     configure_agent_worktrees(
-        primary_path=state["path"], sol_path=sol_state["path"])
+        primary_path=state["path"],
+        implementer_path=implementer_state["path"],
+        sol_path=sol_state["path"])
     if live_action:
         ACTIVE_TOPOLOGY = {
             "primary_state": paths["state"],
+            "implementer_state": implementer_paths["state"],
             "sol_state": sol_paths["state"],
             "primary_path": os.path.abspath(state["path"]),
+            "implementer_path": os.path.abspath(
+                implementer_state["path"]),
             "sol_path": os.path.abspath(sol_state["path"]),
             "shared_notes": shared_notes,
         }
@@ -1936,13 +2542,18 @@ class SafeKillRendezvous:
     """
 
     def __init__(self, source_path=None, source_stamp=None,
-                 ticket_cycle_limit=None):
+                 ticket_cycle_limit=None, ticket_cycle_topology=None):
+        if (ticket_cycle_limit is not None
+                and ticket_cycle_topology not in ARCHITECT_COMMIT_MODES):
+            raise ValueError(
+                "a finite ticket-cycle controller needs a valid topology")
         self._lock = threading.Condition()
         self._active_attempts = 0
         self._in_flight = 0
         self._completed = 0
         self._ticket_cycles_completed = 0
         self._ticket_cycle_limit = ticket_cycle_limit
+        self._ticket_cycle_topology = ticket_cycle_topology
         self._draining = False
         self._deadline = self._next_deadline()
         self._source_path = source_path
@@ -1971,12 +2582,13 @@ class SafeKillRendezvous:
             self._source_changed = True
             self._draining = True
 
-    def begin_attempt(self):
-        """Return a release permit, or None once the global drain is armed."""
+    def begin_attempt(self, ignore_ticket_limit=False):
+        """Return a permit, optionally for cycle-free administration."""
         while True:
             with self._lock:
                 self._stop_for_source_change_locked()
-                if (self._ticket_cycle_limit is not None
+                if (not ignore_ticket_limit
+                        and self._ticket_cycle_limit is not None
                         and self._ticket_cycles_completed
                         >= self._ticket_cycle_limit):
                     return None
@@ -2064,10 +2676,12 @@ class SafeKillRendezvous:
             return self._active_attempts == 0 and self._in_flight == 0
 
     def ticket_cycle_returned(self):
-        """Record one correlated post-commit Red Team return.
+        """Record one completed ticket.
 
-        This is the only event that completes a positive ``--cycle`` unit.
-        Child-turn cadence and manual safe-stop windows never call it.
+        A normal ticket reaches this method after its Red Team return. A
+        ticket in a no-Red-Team mode reaches it after the daemon records local
+        landing L. Child-turn cadence and manual safe-stop windows never call
+        it.
         """
         with self._lock:
             self._ticket_cycles_completed = (
@@ -2085,6 +2699,29 @@ class SafeKillRendezvous:
             return (self._ticket_cycle_limit is not None
                     and self._ticket_cycles_completed
                     >= self._ticket_cycle_limit)
+
+    def ticket_cycle_limit_value(self):
+        """Return the positive ticket limit, or ``None`` when unbounded."""
+        with self._lock:
+            return self._ticket_cycle_limit
+
+    def ticket_cycle_topology_value(self):
+        """Return the topology bound to this finite watch, if any."""
+        with self._lock:
+            return self._ticket_cycle_topology
+
+    def restore_completed_ticket_cycles(self, count):
+        """Restore durable progress for an interrupted finite watch."""
+        if (isinstance(count, bool) or not isinstance(count, int)
+                or count < 0):
+            raise ValueError("restored ticket-cycle count must be nonnegative")
+        with self._lock:
+            if self._ticket_cycles_completed != 0:
+                raise ValueError("ticket-cycle progress was already restored")
+            if (self._ticket_cycle_limit is not None
+                    and count > self._ticket_cycle_limit):
+                raise ValueError("restored progress exceeds the cycle limit")
+            self._ticket_cycles_completed = count
 
     def reset_after_safe_opportunity(self):
         """Start a fresh cadence epoch after a proven all-idle interval."""
@@ -2121,7 +2758,7 @@ def _rendezvous_turn_finished():
 
 
 def _ticket_cycle_completed():
-    """Count one verified normal review or emergency commit pair."""
+    """Count one verified ticket completion for the active watch."""
     controller = _ACTIVE_WATCH_RENDEZVOUS
     if controller is not None:
         controller.ticket_cycle_returned()
@@ -2155,7 +2792,8 @@ def report_ordinary_safe_poll(controller, reset_cadence=True):
     """Report a safe Ctrl-C wait when every role job is idle.
 
     This ordinary mailbox check never completes a ticket cycle. Only a
-    correlated Red Team return for one accepted commit does that.
+    correlated Red Team return for one daemon-recorded local landing L does
+    that in the default three-role mode.
     """
     if not controller.all_idle():
         return False
@@ -2279,6 +2917,9 @@ def acquire_cycle_completion_barrier(backlog_outcome,
     gives zero mode a real cutoff: a racing send either lands before the scan
     and prevents exit, or lands after the watcher is no longer advertised.
     """
+    failed_debt = architect_notes_failed_debt_error()
+    if failed_debt is not None:
+        return None, failed_debt
     if backlog_outcome is False:
         return None, None
     lock_path = os.path.join(MAILBOX, ".sequence.lock")
@@ -2310,7 +2951,9 @@ def acquire_cycle_completion_barrier(backlog_outcome,
         error = "cannot verify pending mailbox messages: " + str(exc)
         waiting_before = []
         waiting_after = []
+    notes_pending = architect_notes_transition_pending()
     if (error is None and ledger == 0 and active_cycles == 0
+            and not notes_pending
             and not waiting_before and not waiting_after):
         return lock_file, None
     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
@@ -2322,6 +2965,36 @@ def release_cycle_completion_barrier(lock_file):
     """Release the final cycle-zero send barrier after watch-lock release."""
     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     lock_file.close()
+
+
+def acquire_positive_cycle_exit_barrier(backlog_outcome,
+                                        skip_redteam=False):
+    """Fence sends and refuse finite exit while note administration waits."""
+    failed_debt = architect_notes_failed_debt_error()
+    if failed_debt is not None:
+        return None, failed_debt
+    if backlog_outcome is False:
+        return None, None
+    lock_path = os.path.join(MAILBOX, ".sequence.lock")
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "a+", encoding="utf-8")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        active = active_ticket_cycle_count(skip_redteam=skip_redteam)
+        notes_pending = architect_notes_transition_pending()
+    except (OSError, TicketCycleStateError) as exc:
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except OSError:
+                pass
+        return None, "cannot verify finite-cycle exit: " + str(exc)
+    if active == 0 and not notes_pending:
+        return lock_file, None
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+    return None, None
 
 
 def report_cycle_limit_exit(completed_cycles, cycle_limit,
@@ -2345,13 +3018,12 @@ def report_cycle_work_complete(completed_cycles, skip_redteam=False):
     """Report cycle zero after its waiting-work checks all pass."""
     noun = "cycle" if completed_cycles == 1 else "cycles"
     if skip_redteam:
-        deferred = len(deferred_sol_messages())
-        deferred_noun = "message" if deferred == 1 else "messages"
-        print("two-role drain complete; no ticket-cycle count applies; "
-              "no Architect or Implementer message is waiting "
+        print("implementation drain complete after "
+              + str(completed_cycles) + " " + noun
+              + "; no enabled Architect or Implementer message is waiting "
               "or running; ai/notes/backlog.md has no '- OPEN' item; "
-              + str(deferred) + " Red Team " + deferred_noun
-              + " remain waiting; watcher stopped.", flush=True)
+              "disabled Red Team work remains untouched; watcher stopped.",
+              flush=True)
         return
     print("cycle work complete after " + str(completed_cycles) + " " + noun
           + "; no role message is waiting or running; "
@@ -2472,13 +3144,12 @@ AGENT_COMMANDS = build_agent_commands(
     sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
 
 # The working directory each dispatched agent starts in. CLI bootstrap proves
-# WORKTREE is the persisted primary before live dispatch begins. The Architect
-# and Implementer routes (legacy fable/opus keys) share that worktree. Sol's
-# deterministic default is replaced by its validated saved path at the CLI
-# boundary; the user checkout is never a live-agent fallback.
+# WORKTREE is replaced with the three validated saved paths at the CLI
+# boundary. The defaults keep imports pure without making the user checkout a
+# live Implementer or Sol fallback.
 AGENT_CWD = {
     "fable": WORKTREE,
-    "opus": WORKTREE,
+    "opus": implementer_state_paths(REPO_ROOT)["default_path"],
     "sol": sol_state_paths(REPO_ROOT)["default_path"],
 }
 
@@ -2499,15 +3170,11 @@ ACTIVE_TOPOLOGY = None
 PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
                        "your message here"]
 
-# Two independent limits use the severity written in the open-ticket index.
-# Ten open non-Low tickets stop new discovery. Sol may work as a second
-# Implementer only during an emergency: more than ten open High bug fixes or
-# more than one open Critical bug fix. Features and mailbox files contribute
-# to neither emergency count. The count never changes Sol's role by itself;
-# the Architect must still write the exact per-ticket declaration.
+# Discovery admission uses the severity written in the open-ticket index.
+# Ten open non-Low tickets stop new discovery. Backlog counts never select an
+# AI role. The historical declaration is parsed only so it can be rejected;
+# Sol is always advisory Red Team in a three-role watch.
 DISCOVERY_ADMISSION_THRESHOLD = 10
-SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD = 10
-SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD = 1
 BACKLOG_LEDGER = os.path.join(AI_ROOT, "notes", "backlog.md")
 OPEN_BACKLOG_TICKET_RE = re.compile(
     r"^- OPEN \*\*(CRITICAL|HIGH|MEDIUM|LOW)\*\* "
@@ -2532,22 +3199,33 @@ SOL_TICKET_HEADER = "MAILBOX-TICKET: "
 SOL_SEVERITY_HEADER = "MAILBOX-SEVERITY: "
 SOL_SCOPE_HEADER = "MAILBOX-SCOPE: "
 MAILBOX_FLOW_HEADER = "MAILBOX-FLOW: "
+MAILBOX_ADMISSION_HEADER = "MAILBOX-ADMISSION: "
+MAILBOX_ADMIN_HEADER = "MAILBOX-ADMIN: "
 MAILBOX_CYCLE_HEADER = "MAILBOX-CYCLE: "
 MAILBOX_COMMIT_HEADER = "MAILBOX-COMMIT: "
+MAILBOX_CANDIDATE_HEADER = "MAILBOX-CANDIDATE: "
+MAILBOX_BASE_HEADER = "MAILBOX-BASE: "
+MAILBOX_NOTES_COMMIT_HEADER = "MAILBOX-NOTES-COMMIT: "
 MAILBOX_RETURN_HEADER = "MAILBOX-RETURN: "
 MAILBOX_RESULT_HEADER = "MAILBOX-RESULT: "
 MAILBOX_MODE_HEADER = "MAILBOX-MODE: "
+MAILBOX_DECISION_HEADER = "MAILBOX-DECISION: "
+PUBLIC_ARCHITECT_NO_TICKET_RETURN = "architect-no-ticket"
+PUBLIC_ARCHITECT_NO_TICKET_DECISION = "NO TICKET"
 REDTEAM_REVIEW_RESULTS = ("NO CHANGE", "REOPEN")
-ARCHITECT_COMMIT_MODES = ("normal", "two-role", "emergency-primary",
-                          "emergency-second")
+ARCHITECT_COMMIT_MODES = ("normal", "two-role")
 TICKET_ANCHOR_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 REDTEAM_REVIEW_TICKET_RE = re.compile(TICKET_ANCHOR_PATTERN)
 FULL_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 CYCLE_ID_RE = re.compile(TICKET_ANCHOR_PATTERN + r"@[0-9a-f]{40}")
-SECOND_IMPLEMENTER_MODE_SENTENCE = (
-    "OpenAI Sol — this is a role as second Implementer for this unit.")
-SECOND_IMPLEMENTER_RELAY_HEADING_RE = re.compile(
-    r"^###[ \t]+ARCHITECT_HANDOFF(?:$|[ \t(:].*)")
+ARCHITECT_DIRECTIVE_LINE_RE = re.compile(
+    r"^- \*\*Directive:\*\* \[(ai/notes/"
+    r"[A-Za-z0-9][A-Za-z0-9._-]*\.md),[^\]\n]*"
+    r"Implementation directive[^\]\n]*\]$",
+    re.MULTILINE)
+IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
+    r"^- \*\*Candidate commit:\*\* `?([0-9a-f]{40})`?$",
+    re.MULTILINE)
 FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
 FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
@@ -2557,21 +3235,10 @@ DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 DISCOVERY_SCOPE_ENVIRONMENT = "MAILBOX_DISCOVERY_SCOPE"
 MAILBOX_ROLE_ENVIRONMENT = "MAILBOX_ROLE"
 
-# One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
-# witness/gate leg, and the notes audit record — a few hundred changed
-# lines. Unlanded content past this many lines means an audited unit is
-# overdue for its own squash landing to main (user rule, 2026-07-14,
-# after seven hours of work landed as one 12,000-line main commit).
-# Measured as the CONTENT diff against main, never as a commit count:
-# a squash landing leaves the old branch commits outside main's
-# ancestry forever, so commit counts overstate the debt permanently.
-# report_landing_debt() prints the meter with every demand report.
+# The demand report shows the size of saved, active Implementer candidates.
+# It is read-only: every candidate already has its same-cycle Architect route,
+# so a second automatically manufactured audit would be redundant and stale.
 LANDING_DEBT_LINE_LIMIT = 400
-LANDING_DEBT_STATE_NAME = ".landing-debt-state.json"
-LANDING_DEBT_STATE_SCHEMA = 1
-MAX_LANDING_DEBT_STATE_BYTES = 16384
-MAX_AUTOMATIC_MESSAGE_SCAN_BYTES = 65536
-AUTOMATIC_LANDING_DEBT_MARKER = "MAILBOX-AUTO: landing-debt-v1"
 
 # One sequence grammar owns both allocation and dispatch-time currency. The
 # optional letter is historical (messages such as 0107a); the recipient is
@@ -2801,88 +3468,6 @@ def discovery_admission_count():
     return counts["critical"] + counts["high"] + counts["medium"]
 
 
-def second_implementer_emergency(counts=None):
-    """Return whether backlog severity proves the Sol emergency condition."""
-    if counts is None:
-        counts = backlog_severity_counts()
-    if counts.get("problem") is not None or counts.get("unclassified", 0):
-        return False
-    return (
-        counts["critical"]
-        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD
-        or counts["high_bug_fix"]
-        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)
-
-
-def registered_second_implementer_assignment(message):
-    """Return whether this exact Sol assignment was admitted previously.
-
-    A root or failed mailbox file is only queued work. It becomes eligible
-    for post-emergency completion only after dispatch has registered its
-    cycle in durable state. The exact cycle, route, mode, and implementation
-    phase prevent another queued message from borrowing that permission.
-    """
-    if not sol_second_implementer_assignment(message=message):
-        return False
-    remainder = sol_ticket_body_after_kind(message=message)
-    if remainder.startswith("\r\n"):
-        remainder = remainder[2:]
-    elif remainder.startswith("\n"):
-        remainder = remainder[1:]
-    cycle_id, mode, _, problem = _ticket_flow_envelope(message=remainder)
-    if problem is not None or mode != "emergency-second":
-        return False
-    # A missing state file proves that no assignment was registered.  Return
-    # without acquiring the state lock so a refusal check cannot create the
-    # mailbox, lock file, or state directories as a side effect.
-    if not os.path.exists(ticket_cycle_state_path()):
-        return False
-    try:
-        lock_file = acquire_ticket_cycle_lock()
-    except TicketCycleStateError:
-        return False
-    try:
-        current = read_ticket_cycle_state()["active"].get(cycle_id)
-        return (current is not None
-                and current["phase"] == "implementation"
-                and current["mode"] == "emergency-second"
-                and current["route"] == "second")
-    except TicketCycleStateError:
-        return False
-    finally:
-        release_ticket_cycle_lock(lock_file=lock_file)
-
-
-def second_implementer_emergency_refusal(message, counts=None):
-    """Refuse a second-Implementer assignment outside a backlog emergency."""
-    if not sol_second_implementer_assignment(message=message):
-        return None
-    if counts is None:
-        counts = backlog_severity_counts()
-    if second_implementer_emergency(counts=counts):
-        return None
-    if registered_second_implementer_assignment(message=message):
-        return None
-    if counts["problem"] is not None:
-        return ("Sol is emergency-only as a second Implementer; "
-                + counts["problem"])
-    if counts["unclassified"]:
-        return (
-            "Sol is emergency-only as a second Implementer, and the backlog "
-            "has " + str(counts["unclassified"])
-            + " malformed open ticket(s). The Architect must give every "
-            "open line an exact priority and either BUG FIX or NEW "
-            "FUNCTIONALITY before the emergency count can authorize this "
-            "role")
-    return (
-        "Sol is emergency-only as a second Implementer; the backlog has "
-        + str(counts["critical"]) + " open Critical bugs and "
-        + str(counts["high_bug_fix"]) + " open High bugs, but the role "
-        "requires more than 1 Critical bug or more than 10 High bugs. "
-        "Critical is an "
-        "Architect-only designation and must never be used merely to unlock "
-        "another Implementer")
-
 PREAMBLE = (
     "You are invoked headlessly by ai/tools/mailbox_daemon.py (no human is\n"
     "watching this turn). Resolve your role per CLAUDE.md from the block\n"
@@ -2907,17 +3492,22 @@ PREAMBLE = (
     "Every Architect/Implementer exchange for one ticket starts with:\n"
     "    MAILBOX-FLOW: ticket\n"
     "    MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT\n"
-    "    MAILBOX-MODE: normal|two-role|emergency-primary|emergency-second\n"
+    "    MAILBOX-MODE: normal|two-role\n"
     "Keep that exact cycle and mode through every return and re-handoff.\n"
-    "After Architect GO and the accepted commit, the Architect also writes\n"
-    "one terminal <seq>-to-daemon.md receipt containing only:\n"
-    "    MAILBOX-RETURN: architect-commit\n"
+    "After Architect GO, the Architect writes one decision-only terminal\n"
+    "<seq>-to-daemon.md request containing only:\n"
+    "    MAILBOX-RETURN: architect-go\n"
     "    MAILBOX-CYCLE: THE-SAME-CYCLE\n"
-    "    MAILBOX-COMMIT: FULL-ACCEPTED-COMMIT\n"
-    "    MAILBOX-MODE: normal|two-role|emergency-primary|emergency-second\n"
-    "Normal mode then sends one Red Team closure. Two-role mode ends that\n"
-    "ticket without a cycle count. During an emergency, one primary and one\n"
-    "second-Implementer commit receipt together complete one cycle.\n"
+    "    MAILBOX-CANDIDATE: MAILBOX_CANDIDATE_COMMIT\n"
+    "    MAILBOX-MODE: normal|two-role\n"
+    "    MAILBOX-DECISION: GO\n"
+    "The daemon, after this Architect process exits, prepares and verifies\n"
+    "the exact squash landing. The Architect must not merge, commit, update\n"
+    "main, target the user's checkout, or push.\n"
+    "Normal mode then sends one Red Team closure. Two-role mode completes\n"
+    "one cycle when the daemon records local landing L because that watch\n"
+    "has no Red Team pass for the ticket. One cycle always belongs to one\n"
+    "ticket.\n"
     "Every work outbound addressed to Sol must start with exactly one of\n"
     "these classification lines:\n"
     "    MAILBOX-TICKET: closure\n"
@@ -2931,13 +3521,14 @@ PREAMBLE = (
     "Replace LEVEL with exactly high, medium, or low.\n"
     "    MAILBOX-SCOPE: SCOPE\n"
     "Replace SCOPE with exactly bounded or widespread.\n"
-    "A normal post-commit closure instead adds these exact second and third\n"
-    "lines, then one blank line and the handoff:\n"
+    "A normal review of daemon-recorded landing L instead adds these exact\n"
+    "second and third lines, then one blank line and the handoff:\n"
     "    MAILBOX-CYCLE: THE-SAME-CYCLE\n"
-    "    MAILBOX-COMMIT: FULL-ACCEPTED-COMMIT\n"
+    "    MAILBOX-COMMIT: FULL-DAEMON-LANDING-COMMIT\n"
     "The Red Team return to Fable must begin with exact return, cycle, commit,\n"
     "and result headers. Result is NO CHANGE or REOPEN, never GO/NO-GO. A\n"
-    "matching return completes the cycle but does not block the next ticket.\n"
+    "matching return completes the cycle. Another ticket may start only when\n"
+    "the current watch still has an unused cycle slot.\n"
     "A public request to the Architect uses those same severity and scope\n"
     "lines as its first two lines. The daemon validates and exports both\n"
     "values to the Architect turn; they are not a Sol ticket classification.\n"
@@ -2948,21 +3539,19 @@ PREAMBLE = (
     "explicitly says the thread is TERMINAL and no reply is owed, write no\n"
     "outbound merely to satisfy this wrapper. Ambiguity follows the ordinary\n"
     "rule: record the substance and write the outbound.\n"
-    "Git landing authority is role-specific. Obey an Architect-only standing\n"
-    "grant when one immediately precedes this common wrapper; without such a\n"
-    "grant, do not merge or push.\n\n"
+    "Git landing authority belongs to the parent daemon after the Architect\n"
+    "process exits. No AI role may merge, commit, update a ref, change the\n"
+    "user's checkout, or push as part of landing a ticket.\n\n"
     "--- MESSAGE ---\n")
 
 ARCHITECT_LANDING_PREAMBLE = (
-    "ARCHITECT STANDING LANDING GRANT (user ruling 2026-07-14):\n"
-    "When this audit turn records GO, perform that audited unit's squash\n"
-    "landing to main and push it in THIS SAME TURN; do not merely print a\n"
-    "landing block. Before EVERY squash, run `git log main..<branch> "
-    "--oneline` and walk every foreign commit. Any commit not covered by an\n"
-    "Architect GO is a STOP: abort the whole-branch squash, then land only a\n"
-    "fully audited subset or wait. Land exactly one audited unit per squash\n"
-    "commit and merge main back into the working branch after landing. This\n"
-    "grant belongs only to the Architect lane.\n\n")
+    "ARCHITECT DECISION GRANT:\n"
+    "When this audit records GO, write the exact architect-go request named\n"
+    "by the common wrapper. Bind it to MAILBOX_CANDIDATE_COMMIT. The parent\n"
+    "daemon performs the squash landing only after this process exits. Never\n"
+    "run merge, commit, update-ref, reset, checkout, or push for the landing,\n"
+    "and never target the user's repository checkout. This decision grant\n"
+    "belongs only to the Architect lane.\n\n")
 
 ARCHITECT_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the Architect / Auditor. Read and obey\n"
@@ -2979,24 +3568,16 @@ IMPLEMENTER_ROLE_PREAMBLE = (
 
 REDTEAM_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the bounded Red Team. Read and obey the exact\n"
-    "authoritative role file named below before acting. This inbound did not place the\n"
-    "exact second-Implementer declaration in the required first body line;\n"
-    "quoting it elsewhere never changes this role. A confirmed finding must include a validated,\n"
+    "authoritative role file named below before acting. Sol is advisory and\n"
+    "never implements a ticket. A confirmed finding must include a validated,\n"
     "implementation-ready Repair directive, but it returns to the Architect\n"
     "as candidate input and never executes itself.\n\n")
-
-SECOND_IMPLEMENTER_ROLE_PREAMBLE = (
-    "ROUTE ROLE: You are the second Implementer for this unit, not the Red\n"
-    "Team. Read the exact authoritative Red Team and Implementer role files\n"
-    "named below. Validate the Architect directive and\n"
-    "verify its exact linked worktree, non-main branch, and base before any\n"
-    "edit. Return a blocker rather than choosing a checkout or design.\n\n")
-
 
 def agent_preamble(agent, message=None):
     """Return role-specific standing text that precedes the common wrapper."""
     if agent == "fable":
         barred_notice = ""
+        checkpoint_notice = ""
         if message is not None and message.startswith(MAILBOX_RETURN_HEADER):
             cycle_id, _, result, _, problem = _redteam_review_receipt(
                 message=message)
@@ -3009,10 +3590,30 @@ def agent_preamble(agent, message=None):
                     "NO-GO to further reopening of this ticket. Read the "
                     "evidence, but do not change its backlog status or "
                     "reopen count. A different defect requires NEW TICKET.\n\n")
-        return (barred_notice + ARCHITECT_ROLE_PREAMBLE
+        if message is not None and message.startswith(MAILBOX_FLOW_HEADER):
+            cycle_id, _mode, body, problem = _ticket_flow_envelope(
+                message=message)
+            if (problem is None
+                    and "### IMPLEMENTER_HANDOFF:" in body
+                    and "- Acceptance: `blocked`" in body):
+                checkpoint_notice = (
+                    "BLOCKED IMPLEMENTER CHECKPOINT: this return is not a "
+                    "candidate and cannot receive GO. If the actual runtime "
+                    "cannot launch subagents, a revised capability exception "
+                    "must bind the source note to these exact rows:\n"
+                    "- Source cycle: `" + cycle_id + "`\n"
+                    "- Source handoff SHA-256: `"
+                    + hashlib.sha256(body.encode("utf-8")).hexdigest()
+                    + "`\n\n")
+        return (barred_notice + checkpoint_notice + ARCHITECT_ROLE_PREAMBLE
                 + ARCHITECT_LANDING_PREAMBLE)
     if agent == "opus":
-        return IMPLEMENTER_ROLE_PREAMBLE
+        return (IMPLEMENTER_ROLE_PREAMBLE
+                + "AUTHORITATIVE IMPLEMENTER ROLE FILE:\n    "
+                + os.path.join(AGENT_CWD["fable"], ".claude",
+                               "OPUS_ROLE.md")
+                + "\nRead this primary copy instead of a possibly older "
+                "copy in the candidate checkout.\n\n")
     if agent == "sol":
         primary = AGENT_CWD["fable"]
         authoritative = (
@@ -3031,11 +3632,6 @@ def agent_preamble(agent, message=None):
             "For a character check, pass `--repo` followed by the exact "
             "candidate worktree from the directive. Never measure the Sol "
             "checkout merely because it is this turn's current folder.\n")
-        if message is not None and sol_second_implementer_assignment(
-                message=message):
-            return (SECOND_IMPLEMENTER_ROLE_PREAMBLE + authoritative
-                    + "Execution checkout must name this saved Sol "
-                    "worktree exactly:\n    " + AGENT_CWD["sol"] + "\n\n")
         return REDTEAM_ROLE_PREAMBLE + authoritative + "\n"
     raise ValueError("unknown mailbox agent: " + repr(agent))
 
@@ -3068,6 +3664,52 @@ def pending_messages():
     return found
 
 
+def ticket_cycle_mode_is_enabled(mode, skip_redteam=False):
+    """Return whether this watch topology owns ``mode`` work."""
+    if skip_redteam:
+        return mode == "two-role"
+    return mode == "normal"
+
+
+def canonical_ticket_cycle_topology(skip_redteam=False):
+    """Return the single durable identity of this watch's role layout."""
+    if skip_redteam:
+        return "two-role"
+    return "normal"
+
+
+def message_is_enabled_for_topology(path, skip_redteam=False):
+    """Return whether this watch may consume one root mailbox message.
+
+    Messages for a disabled role remain byte-for-byte in the mailbox root.
+    Malformed messages stay enabled so the ordinary dispatcher can explain
+    and quarantine them instead of silently treating corruption as a role.
+    """
+    match = PENDING_MESSAGE_RE.match(os.path.basename(path))
+    if match is None:
+        return False
+    agent = match.group(1)
+    try:
+        message = read_cycle_message(path=path)
+    except (OSError, ValueError, TicketCycleStateError):
+        return True
+    if agent == "daemon":
+        _, _, mode, problem = _architect_go_request(message=message)
+        return (True if problem is not None else
+                ticket_cycle_mode_is_enabled(
+                    mode=mode, skip_redteam=skip_redteam))
+    if agent == "sol":
+        return not skip_redteam
+    if agent == "fable" and message.startswith(MAILBOX_RETURN_HEADER):
+        return not skip_redteam
+    if message.startswith(MAILBOX_FLOW_HEADER):
+        _, mode, _, problem = _ticket_flow_envelope(message=message)
+        return (True if problem is not None else
+                ticket_cycle_mode_is_enabled(
+                    mode=mode, skip_redteam=skip_redteam))
+    return True
+
+
 def enabled_pending_messages(skip_redteam=False):
     """Return root messages eligible for this watch topology.
 
@@ -3075,12 +3717,10 @@ def enabled_pending_messages(skip_redteam=False):
     A two-role watch excludes only exact ``to-sol`` roots; those files stay
     in place for a later Sol-enabled watch.
     """
-    backlog = pending_messages()
-    if not skip_redteam:
-        return backlog
-    return [path for path in backlog
-            if PENDING_MESSAGE_RE.match(os.path.basename(path)).group(1)
-            != "sol"]
+    return [
+        path for path in pending_messages()
+        if message_is_enabled_for_topology(
+            path=path, skip_redteam=skip_redteam)]
 
 
 def deferred_sol_messages():
@@ -3101,6 +3741,322 @@ def fable_message_inode_snapshot():
         if inode is not None:
             snapshot.add(inode)
     return snapshot
+
+
+def daemon_message_inode_snapshot():
+    """Return regular inodes for every existing daemon-addressed message."""
+    snapshot = set()
+    if not os.path.isdir(MAILBOX):
+        return snapshot
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-daemon.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is not None:
+            snapshot.add(inode)
+    return snapshot
+
+
+def opus_message_inode_snapshot():
+    """Return regular inodes for every existing Implementer message."""
+    snapshot = set()
+    if not os.path.isdir(MAILBOX):
+        return snapshot
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-opus.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is not None:
+            snapshot.add(inode)
+    return snapshot
+
+
+def sol_message_inode_snapshot():
+    """Return regular inodes for every existing Red Team message."""
+    snapshot = set()
+    if not os.path.isdir(MAILBOX):
+        return snapshot
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-sol.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is not None:
+            snapshot.add(inode)
+    return snapshot
+
+
+def user_message_inode_snapshot():
+    """Return regular inodes for every existing human-addressed message."""
+    snapshot = set()
+    if not os.path.isdir(MAILBOX):
+        return snapshot
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-user.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is not None:
+            snapshot.add(inode)
+    return snapshot
+
+
+def matching_new_architect_go(cycle_id, candidate_commit, mode,
+                               before_inodes):
+    """Prove any GO created by this Architect turn names its exact C."""
+    fresh = []
+    problems = []
+    problem_paths = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-daemon.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="Architect GO " + os.path.basename(path))
+            message = raw.decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError, ValueError) as exc:
+            problems.append(os.path.basename(path) + ": " + str(exc))
+            problem_paths.append(path)
+            continue
+        returned_cycle, returned_candidate, returned_mode, problem = (
+            _architect_go_request(message=message))
+        if problem is not None:
+            problems.append(os.path.basename(path) + ": " + problem)
+            problem_paths.append(path)
+            continue
+        if (returned_cycle != cycle_id
+                or returned_candidate != candidate_commit
+                or returned_mode != mode):
+            problems.append(
+                os.path.basename(path)
+                + ": GO does not name this turn's exact cycle, candidate, "
+                "and mode")
+            problem_paths.append(path)
+            continue
+        fresh.append(path)
+    if problems:
+        return None, problem_paths, "; ".join(problems)
+    if len(fresh) > 1:
+        return (None, fresh,
+                "expected at most one new exact Architect GO; found "
+                + str(len(fresh)))
+    return (fresh[0] if fresh else None), [], None
+
+
+def matching_new_architect_notes_go(base_commit, notes_commit,
+                                     before_inodes):
+    """Prove exactly one fresh note-only GO binds this Fable turn's B and P."""
+    fresh = []
+    invalid = []
+    problems = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-daemon.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="Architect notes GO " + os.path.basename(path))
+            message = raw.decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError, ValueError) as exc:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + str(exc))
+            continue
+        returned_base, returned_notes, problem = (
+            _architect_notes_go_request(message=message))
+        if problem is not None:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + problem)
+            continue
+        if (returned_base != base_commit
+                or returned_notes != notes_commit):
+            invalid.append(path)
+            problems.append(
+                os.path.basename(path)
+                + ": notes GO does not bind this turn's exact B and P")
+            continue
+        fresh.append(path)
+    if problems:
+        return None, invalid, "; ".join(problems)
+    if len(fresh) != 1:
+        return (None, fresh,
+                "a permanent-note commit requires exactly one fresh "
+                "architect-notes-go request; found " + str(len(fresh)))
+    return fresh[0], [], None
+
+
+def _authoritative_handoff_contract_module():
+    """Load the already-proved primary contract without importing a copy."""
+    path = os.path.join(
+        AGENT_CWD["fable"], "ai", "tools", "handoff_contract.py")
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_mailbox_authoritative_handoff_contract", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("no Python loader")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (ImportError, OSError, SyntaxError) as exc:
+        raise TicketCycleStateError(
+            "cannot load authoritative handoff contract: " + str(exc)) \
+            from exc
+    required = (
+        "DirectiveError", "validate_directive_file",
+        "extract_implementer_subagent_evidence",
+        "extract_blocked_implementer_capability_evidence",
+        "validate_implementer_handoff_subagent_evidence")
+    if any(not hasattr(module, name) for name in required):
+        raise TicketCycleStateError(
+            "authoritative handoff contract lacks Implementer evidence API")
+    return module
+
+
+def prove_blocked_implementer_checkpoint(cycle_id, handoff_sha256,
+                                         contract):
+    """Bind a capability retry to one actual prior blocked return."""
+    matches = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="blocked Implementer checkpoint")
+            message = raw.decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError, ValueError):
+            continue
+        if not message.startswith(MAILBOX_FLOW_HEADER):
+            continue
+        returned_cycle, _mode, body, problem = _ticket_flow_envelope(
+            message=message)
+        if problem is not None or returned_cycle != cycle_id:
+            continue
+        if hashlib.sha256(body.encode("utf-8")).hexdigest() != handoff_sha256:
+            continue
+        try:
+            evidence = (
+                contract.extract_blocked_implementer_capability_evidence(
+                handoff_text=body)
+            )
+        except contract.DirectiveError:
+            continue
+        matches.append(evidence)
+    if len(matches) != 1:
+        raise TicketCycleStateError(
+            "capability exception is not bound to exactly one actual "
+            "blocked IMPLEMENTER_HANDOFF in this MAILBOX-CYCLE")
+    return matches[0]
+
+
+def prepare_implementer_evidence_contract(message):
+    """Freeze the Architect's parsed subagent plan before Opus launches."""
+    matches = ARCHITECT_DIRECTIVE_LINE_RE.findall(message)
+    if len(matches) != 1:
+        raise TicketCycleStateError(
+            "Architect handoff must cite exactly one ai/notes source note "
+            "and its Implementation directive")
+    relative = matches[0]
+    note_path = os.path.abspath(os.path.join(AGENT_CWD["fable"], relative))
+    notes_root = os.path.abspath(os.path.join(AGENT_CWD["fable"], "ai", "notes"))
+    if (os.path.commonpath((note_path, notes_root)) != notes_root
+            or os.path.realpath(note_path) != note_path):
+        raise TicketCycleStateError(
+            "Architect handoff cites a redirected or external source note")
+    contract = _authoritative_handoff_contract_module()
+    try:
+        directive = contract.validate_directive_file(
+            role="architect", path=note_path, expected_max=MAX_CHARACTERS)
+    except contract.DirectiveError as exc:
+        raise TicketCycleStateError(
+            "Architect source directive is invalid: " + str(exc)) from exc
+    plan = directive.get("parallel_work_plan")
+    if not isinstance(plan, dict):
+        raise TicketCycleStateError(
+            "Architect source directive has no parsed Parallel work plan")
+    if plan.get("mode") == "capability-unavailable":
+        cycle_id, _mode, _body, problem = _ticket_flow_envelope(
+            message=message)
+        checkpoint = directive.get("capability_checkpoint")
+        if (problem is not None or not isinstance(checkpoint, dict)
+                or checkpoint.get("cycle") != cycle_id):
+            raise TicketCycleStateError(
+                "capability exception checkpoint does not name the current "
+                "MAILBOX-CYCLE")
+        prior_failure = prove_blocked_implementer_checkpoint(
+            cycle_id=cycle_id,
+            handoff_sha256=checkpoint.get("handoff_sha256", ""),
+            contract=contract)
+        for field in (
+                "capability_checked", "attempted_operation", "raw_failure"):
+            if prior_failure.get(field) != plan.get(field):
+                raise TicketCycleStateError(
+                    "capability exception field '" + field
+                    + "' does not exactly match the digest-bound blocked "
+                    "IMPLEMENTER_HANDOFF")
+    return {"contract": contract, "parallel_work_plan": plan,
+            "note_path": note_path}
+
+
+def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
+                                     before_inodes, evidence_contract):
+    """Prove one same-cycle Opus return and its exact subagent evidence."""
+    matches = []
+    malformed = []
+    malformed_paths = []
+    evidence_results = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="Implementer return " + os.path.basename(path))
+            message = raw.decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError, ValueError) as exc:
+            malformed.append(os.path.basename(path) + ": " + str(exc))
+            malformed_paths.append(path)
+            continue
+        if not message.startswith(MAILBOX_FLOW_HEADER):
+            continue
+        returned_cycle, returned_mode, body, problem = (
+            _ticket_flow_envelope(message=message))
+        if problem is not None:
+            malformed.append(os.path.basename(path) + ": " + problem)
+            malformed_paths.append(path)
+            continue
+        if returned_cycle != cycle_id:
+            continue
+        if returned_mode != mode:
+            malformed.append(
+                os.path.basename(path) + ": returned mode changed")
+            malformed_paths.append(path)
+            continue
+        candidate_lines = IMPLEMENTER_CANDIDATE_LINE_RE.findall(body)
+        if candidate_lines != [candidate_commit]:
+            malformed.append(
+                os.path.basename(path)
+                + ": Candidate commit does not name the exact Opus HEAD")
+            malformed_paths.append(path)
+            continue
+        try:
+            evidence_result = evidence_contract["contract"].\
+                validate_implementer_handoff_subagent_evidence(
+                    parallel_work_plan=(
+                        evidence_contract["parallel_work_plan"]),
+                    handoff_text=body)
+        except evidence_contract["contract"].DirectiveError as exc:
+            malformed.append(os.path.basename(path) + ": " + str(exc))
+            malformed_paths.append(path)
+            continue
+        matches.append(path)
+        evidence_results.append(evidence_result)
+    if malformed:
+        return None, malformed_paths, "; ".join(malformed), None
+    if len(matches) != 1:
+        return (None, [],
+                "expected exactly one new same-cycle IMPLEMENTER_HANDOFF; "
+                "found " + str(len(matches)), None)
+    return (matches[0], [], None,
+            bool(evidence_results[0].get("completion_ready")))
 
 
 def matching_new_redteam_receipt(cycle_id, accepted_commit, before_inodes):
@@ -3245,31 +4201,114 @@ def sol_discovery_scope(message):
     return scope if problem is None else None
 
 
-def _second_implementer_body(message):
-    """Return whether a closure body carries the emergency role switch.
+def public_architect_sol_downstream_problem(message):
+    """Validate one non-cycle Architect request addressed to Red Team."""
+    if sol_ticket_kind(message=message) != "discovery":
+        return ("public Architect control output to Sol must be an exact "
+                "discovery request")
+    _severity, _scope, body, problem = _sol_discovery_envelope(
+        message=message)
+    if problem is not None:
+        return problem
+    marker = placeholder_in(message=body)
+    if marker is not None:
+        return "Sol discovery body is only template placeholder '" + marker + "'"
+    if "\x00" in message:
+        return "Sol discovery contains a NUL byte"
+    return None
 
-    Review metadata is intentionally absent from a second-Implementer job:
-    that job edits a ticket and is not the Red Team pass that completes a
-    cycle. The declaration therefore remains the first meaningful assignment
-    line after the ordinary ticket wrapper and optional relay heading.
+
+def _body_architect_admission(body):
+    """Return the exact admission token on the first body line.
+
+    A public Architect outcome must be mechanically tied to the request that
+    occupied the finite-watch slot.  Looking for a token later in prose would
+    allow an unrelated output to consume that slot, so the binding line is
+    required first and duplicates are refused.
     """
-    if sol_ticket_kind(message=message) != "closure":
-        return False
-    remainder = sol_ticket_body_after_kind(message=message)
-    if remainder.startswith("\r\n"):
-        remainder = remainder[2:]
-    elif remainder.startswith("\n"):
-        remainder = remainder[1:]
-    if remainder.startswith(MAILBOX_FLOW_HEADER):
-        _, _, body, problem = _ticket_flow_envelope(message=remainder)
-        if problem is not None:
-            return False
-        remainder = body
-    lines = [line for line in remainder.splitlines() if line.strip()]
-    if (lines and SECOND_IMPLEMENTER_RELAY_HEADING_RE.fullmatch(lines[0])
-            is not None):
-        lines = lines[1:]
-    return bool(lines and lines[0] == SECOND_IMPLEMENTER_MODE_SENTENCE)
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_ADMISSION_HEADER)
+        + r"(\d+-to-fable\.md@[0-9a-f]{64})\r?\n", body)
+    admission_like = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*admission[ \t]*:")
+    if match is None:
+        if re.search(admission_like, body) is not None:
+            return None, "malformed MAILBOX-ADMISSION line"
+        return None, "missing first-body-line MAILBOX-ADMISSION"
+    if re.search(admission_like, body[match.end():]) is not None:
+        return None, "duplicate MAILBOX-ADMISSION line"
+    try:
+        split_architect_admission_token(token=match.group(1))
+    except TicketCycleStateError as exc:
+        return None, str(exc)
+    return match.group(1), None
+
+
+def public_architect_sol_outcome_problem(message, expected_token):
+    """Validate one exact, digest-bound public Architect-to-Sol outcome."""
+    problem = public_architect_sol_downstream_problem(message=message)
+    if problem is not None:
+        return problem
+    _severity, _scope, body, _problem = _sol_discovery_envelope(
+        message=message)
+    if body.startswith("\r\n"):
+        body = body[2:]
+    elif body.startswith("\n"):
+        body = body[1:]
+    else:
+        return "public Architect Sol outcome requires one header/body gap"
+    returned_token, admission_problem = _body_architect_admission(body=body)
+    if admission_problem is not None:
+        return admission_problem
+    if returned_token != expected_token:
+        return "MAILBOX-ADMISSION does not bind this public request"
+    return None
+
+
+def _public_architect_no_ticket_receipt(message):
+    """Parse one explicit no-ticket result from a public Architect turn."""
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_RETURN_HEADER)
+        + re.escape(PUBLIC_ARCHITECT_NO_TICKET_RETURN) + r"\r?\n"
+        + re.escape(MAILBOX_ADMISSION_HEADER)
+        + r"(\d+-to-fable\.md@[0-9a-f]{64})\r?\n"
+        + re.escape(MAILBOX_DECISION_HEADER)
+        + re.escape(PUBLIC_ARCHITECT_NO_TICKET_DECISION)
+        + r"(?:\r?\n\r?\n(?P<body>[\s\S]*))?\r?\n?\Z",
+        message)
+    if match is None:
+        return None, (
+            "no-ticket receipt needs exact MAILBOX-RETURN, "
+            "MAILBOX-ADMISSION, and MAILBOX-DECISION headers")
+    reserved = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*"
+        r"(?:return|admission|decision)[ \t]*:")
+    body = match.group("body") or ""
+    if re.search(reserved, body) is not None:
+        return None, "duplicate no-ticket receipt header"
+    if "\x00" in message:
+        return None, "no-ticket receipt contains a NUL byte"
+    marker = placeholder_in(message=body)
+    if marker is not None:
+        return None, (
+            "no-ticket receipt body is only template placeholder '"
+            + marker + "'")
+    try:
+        split_architect_admission_token(token=match.group(1))
+    except TicketCycleStateError as exc:
+        return None, str(exc)
+    return match.group(1), None
+
+
+def public_architect_no_ticket_problem(message, expected_token):
+    """Return why a public no-ticket receipt is invalid, or ``None``."""
+    returned_token, problem = _public_architect_no_ticket_receipt(
+        message=message)
+    if problem is not None:
+        return problem
+    if returned_token != expected_token:
+        return "MAILBOX-ADMISSION does not bind this public request"
+    return None
 
 
 def _ticket_flow_envelope(message):
@@ -3294,17 +4333,39 @@ def _ticket_flow_envelope(message):
     return match.group(1), match.group(2), body, None
 
 
+def _ticket_architect_admission(message):
+    """Return an exact public-request admission carried by an Opus flow.
+
+    Ordinary role-to-role ticket messages carry no admission line.  The
+    first Implementer handoff created by a public Architect turn carries the
+    exact request basename and SHA-256 so a crash or reordering cannot pair
+    the handoff with another public request.
+    """
+    _cycle_id, _mode, body, problem = _ticket_flow_envelope(message=message)
+    if problem is not None:
+        return None, None, problem
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_ADMISSION_HEADER)
+        + r"(\d+-to-fable\.md)@([0-9a-f]{64})\r?\n",
+        body)
+    admission_like = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*admission[ \t]*:")
+    if match is None:
+        if re.search(admission_like, body) is not None:
+            return None, None, "malformed MAILBOX-ADMISSION line"
+        return None, None, None
+    if re.search(admission_like, body[match.end():]) is not None:
+        return None, None, "duplicate MAILBOX-ADMISSION line"
+    return match.group(1), match.group(2), None
+
+
 def _redteam_closure_envelope(message):
     """Parse one post-commit Red Team request.
 
-    Returns ``(cycle_id, commit, body, problem)``. An emergency Sol
-    second-Implementer closure deliberately returns no review identity and no
-    problem because it is a different role, not a ticket-cycle review.
+    Returns ``(cycle_id, commit, body, problem)``.
     """
     remainder = sol_ticket_body_after_kind(message=message)
     if sol_ticket_kind(message=message) != "closure":
-        return None, None, remainder, None
-    if _second_implementer_body(message=message):
         return None, None, remainder, None
     match = re.match(
         r"\A" + re.escape(MAILBOX_CYCLE_HEADER)
@@ -3315,7 +4376,8 @@ def _redteam_closure_envelope(message):
     if match is None:
         return (None, None, remainder,
                 "a Red Team closure must name exactly one ticket cycle and "
-                "one accepted commit on its second and third physical lines")
+                "one daemon-recorded local landing L on its second and third "
+                "physical lines")
     body = remainder[match.end():]
     reserved = (
         r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*(?:cycle|commit|return|result)"
@@ -3337,7 +4399,7 @@ def redteam_closure_ticket(message):
 
 
 def redteam_closure_commit(message):
-    """Return the one full accepted commit, when valid."""
+    """Return the one full daemon-recorded landing L, when valid."""
     _, commit, _, problem = _redteam_closure_envelope(message=message)
     return commit if problem is None else None
 
@@ -3374,42 +4436,309 @@ def _redteam_review_receipt(message):
     return match.group(1), match.group(2), match.group(3), body, None
 
 
-def _architect_commit_receipt(message):
-    """Parse the Architect's proof that one ticket was accepted and saved."""
+def _architect_go_request(message):
+    """Parse one decision-only GO request bound to the audited candidate."""
     match = re.match(
         r"\A" + re.escape(MAILBOX_RETURN_HEADER)
-        + r"architect-commit\r?\n"
+        + r"architect-go\r?\n"
         + re.escape(MAILBOX_CYCLE_HEADER)
         + r"(" + CYCLE_ID_RE.pattern + r")\r?\n"
-        + re.escape(MAILBOX_COMMIT_HEADER)
+        + re.escape(MAILBOX_CANDIDATE_HEADER)
         + r"([0-9a-f]{40})\r?\n"
         + re.escape(MAILBOX_MODE_HEADER)
         + r"(" + "|".join(map(re.escape, ARCHITECT_COMMIT_MODES))
-        + r")(?:\r?\n|\Z)",
+        + r")\r?\n"
+        + re.escape(MAILBOX_DECISION_HEADER)
+        + r"GO(?:\r?\n|\Z)",
         message)
     if match is None:
         return (None, None, None,
-                "an Architect commit receipt needs exact return, cycle, "
-                "commit, and mode headers")
+                "an Architect GO request needs exact return, cycle, "
+                "candidate, mode, and GO decision headers")
     remainder = message[match.end():]
     if remainder.strip():
         return (None, None, None,
-                "an Architect commit receipt may not carry free-form work")
+                "an Architect GO request may not carry free-form work")
     return match.group(1), match.group(2), match.group(3), None
 
 
-def architect_commit_receipt_payload(cycle_id, commit, mode):
-    """Build the terminal daemon receipt written after Architect GO."""
+def architect_go_request_payload(cycle_id, candidate_commit, mode):
+    """Build the decision-only daemon request written after Architect GO."""
     if not isinstance(cycle_id, str) or CYCLE_ID_RE.fullmatch(cycle_id) is None:
         raise ValueError("invalid ticket cycle: " + repr(cycle_id))
-    if not isinstance(commit, str) or FULL_COMMIT_RE.fullmatch(commit) is None:
-        raise ValueError("invalid Architect commit: " + repr(commit))
+    if (not isinstance(candidate_commit, str)
+            or FULL_COMMIT_RE.fullmatch(candidate_commit) is None):
+        raise ValueError(
+            "invalid Implementer candidate: " + repr(candidate_commit))
     if mode not in ARCHITECT_COMMIT_MODES:
-        raise ValueError("invalid Architect commit mode: " + repr(mode))
-    return (MAILBOX_RETURN_HEADER + "architect-commit\n"
+        raise ValueError("invalid Architect GO mode: " + repr(mode))
+    return (MAILBOX_RETURN_HEADER + "architect-go\n"
             + MAILBOX_CYCLE_HEADER + cycle_id + "\n"
-            + MAILBOX_COMMIT_HEADER + commit + "\n"
-            + MAILBOX_MODE_HEADER + mode + "\n")
+            + MAILBOX_CANDIDATE_HEADER + candidate_commit + "\n"
+            + MAILBOX_MODE_HEADER + mode + "\n"
+            + MAILBOX_DECISION_HEADER + "GO\n")
+
+
+def _architect_notes_go_request(message):
+    """Parse one body-free permanent-note commit request bound to B and P."""
+    match = re.fullmatch(
+        re.escape(MAILBOX_RETURN_HEADER) + r"architect-notes-go\r?\n"
+        + re.escape(MAILBOX_BASE_HEADER) + r"([0-9a-f]{40})\r?\n"
+        + re.escape(MAILBOX_NOTES_COMMIT_HEADER)
+        + r"([0-9a-f]{40})\r?\n"
+        + re.escape(MAILBOX_DECISION_HEADER) + r"GO(?:\r?\n)?",
+        message)
+    if match is None:
+        return (None, None,
+                "an Architect notes GO needs exact return, base, notes "
+                "commit, and GO headers with no body")
+    if match.group(1) == match.group(2):
+        return (None, None,
+                "an Architect notes GO must name a new commit")
+    return match.group(1), match.group(2), None
+
+
+def architect_notes_go_request_payload(base_commit, notes_commit):
+    """Build the exact parent-daemon request for one permanent-note commit."""
+    if (not isinstance(base_commit, str)
+            or FULL_COMMIT_RE.fullmatch(base_commit) is None
+            or not isinstance(notes_commit, str)
+            or FULL_COMMIT_RE.fullmatch(notes_commit) is None
+            or base_commit == notes_commit):
+        raise ValueError("invalid permanent-note commit request")
+    return (MAILBOX_RETURN_HEADER + "architect-notes-go\n"
+            + MAILBOX_BASE_HEADER + base_commit + "\n"
+            + MAILBOX_NOTES_COMMIT_HEADER + notes_commit + "\n"
+            + MAILBOX_DECISION_HEADER + "GO\n")
+
+
+def _architect_notes_admin_envelope(message):
+    """Return the plain-language body of one dedicated note-update turn."""
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_ADMIN_HEADER)
+        + r"permanent-notes\r?\n\r?\n", message)
+    if match is None:
+        return None, "not a permanent-notes admin request"
+    body = message[match.end():]
+    if not body.strip():
+        return None, "permanent-notes admin request needs an update summary"
+    if re.search(
+            r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*admin[ \t]*:", body):
+        return None, "duplicate MAILBOX-ADMIN header"
+    return body, None
+
+
+def architect_notes_admin_payload(text):
+    """Build the exact Architect self-route for a durable note update."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("permanent-notes admin summary must be nonempty")
+    if re.search(
+            r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*admin[ \t]*:", text):
+        raise ValueError("permanent-notes admin summary repeats its header")
+    payload = MAILBOX_ADMIN_HEADER + "permanent-notes\n\n" + text
+    if not payload.endswith("\n"):
+        payload += "\n"
+    return payload
+
+
+def is_architect_notes_admin_message(message):
+    """Return whether ``message`` is one valid dedicated note-update turn."""
+    _body, problem = _architect_notes_admin_envelope(message=message)
+    return problem is None
+
+
+def architect_notes_admin_journal_path(request_name, relay_dir=None):
+    """Return the durable post-child journal for one exact admin request."""
+    if PENDING_MESSAGE_RE.fullmatch(request_name) is None:
+        raise TicketCycleStateError("invalid admin request journal name")
+    directory = RELAY_DIR if relay_dir is None else relay_dir
+    return os.path.join(
+        directory, ".pending-notes-admin-" + request_name + ".json")
+
+
+def write_architect_notes_admin_journal(request_name, request_message,
+                                        base_commit, phase,
+                                        notes_commit=None,
+                                        receipt_sha256=None):
+    """Atomically bind one admin request to its validated recovery phase."""
+    if phase not in {"started", "validated-noop", "validated-commit"}:
+        raise TicketCycleStateError("invalid note-admin journal phase")
+    if (FULL_COMMIT_RE.fullmatch(str(base_commit)) is None
+            or not is_architect_notes_admin_message(
+                message=request_message)):
+        raise TicketCycleStateError("invalid note-admin journal authority")
+    if phase == "validated-commit":
+        if (FULL_COMMIT_RE.fullmatch(str(notes_commit)) is None
+                or notes_commit == base_commit
+                or re.fullmatch(r"[0-9a-f]{64}",
+                                str(receipt_sha256)) is None):
+            raise TicketCycleStateError(
+                "validated note-admin commit journal needs exact P/receipt")
+    elif notes_commit is not None or receipt_sha256 is not None:
+        raise TicketCycleStateError(
+            "non-commit note-admin journal cannot name P/receipt")
+    payload = {
+        "schema": ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA,
+        "request": request_name,
+        "request_sha256": hashlib.sha256(
+            request_message.encode("utf-8")).hexdigest(),
+        "base": base_commit,
+        "phase": phase,
+        "notes_commit": notes_commit,
+        "receipt_sha256": receipt_sha256,
+    }
+    os.makedirs(RELAY_DIR, exist_ok=True)
+    path = architect_notes_admin_journal_path(request_name=request_name)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".pending-notes-admin-", dir=RELAY_DIR)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) \
+                as stream:
+            descriptor = -1
+            json.dump(payload, stream, sort_keys=True, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(directory=RELAY_DIR)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+    return path
+
+
+def read_architect_notes_admin_journal(request_name, request_message,
+                                       relay_dir=None):
+    """Read one exact journal and rebind it to the inflight request bytes."""
+    path = architect_notes_admin_journal_path(
+        request_name=request_name, relay_dir=relay_dir)
+    try:
+        raw = stable_regular_bytes(
+            path=path,
+            maximum_bytes=MAX_ARCHITECT_NOTES_ADMIN_JOURNAL_BYTES,
+            label="permanent-note admin journal")
+        payload = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=_duplicate_key_refusal)
+    except (OSError, ValueError, UnicodeDecodeError,
+            json.JSONDecodeError) as exc:
+        raise TicketCycleStateError(
+            "cannot verify permanent-note admin journal: " + str(exc)) \
+            from exc
+    if (not isinstance(payload, dict)
+            or set(payload) != {
+                "schema", "request", "request_sha256", "base", "phase",
+                "notes_commit", "receipt_sha256"}
+            or payload["schema"] != ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA
+            or payload["request"] != request_name
+            or payload["request_sha256"] != hashlib.sha256(
+                request_message.encode("utf-8")).hexdigest()
+            or FULL_COMMIT_RE.fullmatch(str(payload["base"])) is None
+            or payload["phase"] not in {
+                "started", "validated-noop", "validated-commit"}):
+        raise TicketCycleStateError(
+            "permanent-note admin journal has invalid fields")
+    if payload["phase"] == "validated-commit":
+        if (FULL_COMMIT_RE.fullmatch(
+                str(payload["notes_commit"])) is None
+                or payload["notes_commit"] == payload["base"]
+                or re.fullmatch(r"[0-9a-f]{64}",
+                                str(payload["receipt_sha256"])) is None):
+            raise TicketCycleStateError(
+                "permanent-note admin commit journal is incomplete")
+    elif (payload["notes_commit"] is not None
+          or payload["receipt_sha256"] is not None):
+        raise TicketCycleStateError(
+            "permanent-note admin non-commit journal names a receipt")
+    return payload
+
+
+def remove_architect_notes_admin_journal(request_name):
+    """Remove only the journal for a successfully archived admin request."""
+    path = architect_notes_admin_journal_path(request_name=request_name)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    fsync_directory(directory=RELAY_DIR)
+
+
+def _architect_notes_admin_request_path(request_name):
+    """Find the one durable admin request bound to a recovery journal."""
+    matches = []
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"),
+                      os.path.join(MAILBOX, "failed"), DONE):
+        path = os.path.join(directory, request_name)
+        if regular_inode(path=path) is not None:
+            matches.append(path)
+    if len(matches) != 1:
+        raise TicketCycleStateError(
+            "permanent-note admin journal needs exactly one saved request; "
+            "found " + str(len(matches)) + " for " + request_name)
+    return matches[0]
+
+
+def _validated_commit_admin_journals(base_commit, notes_commit,
+                                     receipt_sha256):
+    """Return exact validated-commit journals bound to one B/P receipt."""
+    prefix = ".pending-notes-admin-"
+    suffix = ".json"
+    matches = []
+    pattern = os.path.join(RELAY_DIR, prefix + "*" + suffix)
+    for journal_path in sorted(glob.glob(pattern)):
+        filename = os.path.basename(journal_path)
+        request_name = filename[len(prefix):-len(suffix)]
+        request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
+        if request_match is None or request_match.group(1) != "fable":
+            raise TicketCycleStateError(
+                "malformed permanent-note admin journal name: "
+                + journal_path)
+        request_path = _architect_notes_admin_request_path(
+            request_name=request_name)
+        try:
+            request_message = stable_regular_bytes(
+                path=request_path,
+                maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="journaled permanent-note admin").decode(
+                    "utf-8", errors="strict")
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            raise TicketCycleStateError(
+                "cannot verify saved permanent-note admin request: "
+                + str(exc)) from exc
+        journal = read_architect_notes_admin_journal(
+            request_name=request_name, request_message=request_message)
+        if (journal["phase"] == "validated-commit"
+                and journal["base"] == base_commit
+                and journal["notes_commit"] == notes_commit
+                and journal["receipt_sha256"] == receipt_sha256):
+            matches.append((request_name, request_path, journal_path))
+    return matches
+
+
+def retire_validated_commit_admin_journal(base_commit, notes_commit,
+                                          receipt_sha256):
+    """Remove one journal only after its exact P receipt is consumed."""
+    matches = _validated_commit_admin_journals(
+        base_commit=base_commit, notes_commit=notes_commit,
+        receipt_sha256=receipt_sha256)
+    if len(matches) > 1:
+        raise TicketCycleStateError(
+            "more than one validated admin journal names the same B/P "
+            "receipt")
+    if not matches:
+        return False
+    request_name, request_path, _journal_path = matches[0]
+    if os.path.dirname(request_path) != DONE:
+        raise TicketCycleStateError(
+            "validated admin journal cannot retire before its request is "
+            "archived")
+    remove_architect_notes_admin_journal(request_name=request_name)
+    return True
 
 
 def sol_ticket_body(message):
@@ -3439,16 +4768,6 @@ def architect_request_scope(text):
             is not None else "bounded")
 
 
-def sol_second_implementer_assignment(message):
-    """Return whether Sol's first assignment line switches its role.
-
-    The mandatory ``MAILBOX-TICKET`` line and one optional Architect relay
-    heading are transport wrappers. The next nonblank line must be the exact
-    declaration. A later quotation is ordinary Red Team prose.
-    """
-    return _second_implementer_body(message=message)
-
-
 def mailbox_role_for_dispatch(agent, message=None):
     """Return the checksum-guard role for one exact dispatch route."""
     if agent == "fable":
@@ -3456,9 +4775,6 @@ def mailbox_role_for_dispatch(agent, message=None):
     if agent == "opus":
         return "implementer"
     if agent == "sol":
-        if (message is not None
-                and sol_second_implementer_assignment(message=message)):
-            return "implementer"
         return "red-team"
     raise ValueError("unknown mailbox agent: " + repr(agent))
 
@@ -3615,6 +4931,57 @@ def architect_user_request_body(message):
     return message if problem is not None else body
 
 
+def architect_admission_token(request_name, digest):
+    """Return the exact token binding one public request to its handoff."""
+    match = (PENDING_MESSAGE_RE.fullmatch(request_name)
+             if isinstance(request_name, str) else None)
+    if (match is None or match.group(1) != "fable"
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None):
+        raise TicketCycleStateError(
+            "invalid public Architect admission identity")
+    return request_name + "@" + digest
+
+
+def split_architect_admission_token(token):
+    """Return ``(request_name, digest)`` for one exact admission token."""
+    if not isinstance(token, str) or "@" not in token:
+        raise TicketCycleStateError(
+            "invalid public Architect admission token")
+    request_name, digest = token.rsplit("@", 1)
+    architect_admission_token(request_name=request_name, digest=digest)
+    return request_name, digest
+
+
+def architect_admission_prompt(token):
+    """Tell one public Architect turn how to bind its single outcome."""
+    if token is None:
+        return ""
+    request_name, digest = split_architect_admission_token(token=token)
+    exact = architect_admission_token(
+        request_name=request_name, digest=digest)
+    return (
+        "PUBLIC REQUEST ADMISSION:\n"
+        "This public request provisionally occupies one finite ticket slot. "
+        "Produce exactly ONE fresh outcome and never remain silent:\n"
+        "1. For one Implementer ticket, put this exact line first in the "
+        "body immediately after the ticket flow headers and blank line:\n"
+        "    " + MAILBOX_ADMISSION_HEADER + exact + "\n"
+        "2. For one bounded or widespread Sol discovery request, put the "
+        "same exact line first in its body immediately after the Sol "
+        "severity and scope headers.\n"
+        "3. If this request creates no ticket, write one fresh "
+        "<next-sequence>-to-user.md receipt beginning exactly:\n"
+        "    " + MAILBOX_RETURN_HEADER
+        + PUBLIC_ARCHITECT_NO_TICKET_RETURN + "\n"
+        "    " + MAILBOX_ADMISSION_HEADER + exact + "\n"
+        "    " + MAILBOX_DECISION_HEADER
+        + PUBLIC_ARCHITECT_NO_TICKET_DECISION + "\n"
+        "You may put a plain-language answer after one blank line in option "
+        "3. Do not produce two outcomes, copy the admission to later work, "
+        "or treat silence as success.\n\n")
+
+
 def valid_sol_transport(message):
     """Return whether ``message`` is exactly the daemon's Sol ping."""
     return message == sol_ticket_payload(
@@ -3723,12 +5090,10 @@ def inflight_lane_blockers(skip_redteam=False):
     """Return unresolved inflight agent messages grouped by cwd lane.
 
     Only exact dispatchable message names participate. A hand-made file or an
-    archived ``-to-user`` note under inflight cannot block an agent lane, but
-    an unresolved Fable message blocks Opus too because those recipients share
-    one working directory. Two-role mode may ignore a historical Sol blocker
-    only when Sol's cwd is separate from both enabled Claude cwd lanes. In an
-    ordinary checkout all routes can share the repository root, so that same
-    Sol blocker must continue to hold the shared tree closed.
+    archived ``-to-user`` note under inflight cannot block an agent lane.
+    Live topology gives Architect, Implementer, and Sol distinct saved
+    directories, so one unresolved role blocks only that role. Imported tests
+    may still deliberately assign a shared cwd and retain shared-tree safety.
     """
     blockers = {}
     seen = {}
@@ -4634,7 +5999,7 @@ def main_checkout_turn_lock_path():
 
 
 def acquire_main_checkout_turn_lock():
-    """Serialize turns carrying Architect-only main-landing authority."""
+    """Serialize Architect decisions that the parent daemon may land."""
     try:
         lock_path = main_checkout_turn_lock_path()
     except (OSError, PrimaryWorktreeError) as exc:
@@ -4676,11 +6041,14 @@ def release_main_checkout_turn_lock(lock_file):
     lock_file.close()
 
 
-def validate_live_sol_dispatch_topology():
-    """Re-prove Sol's saved checkout and narrow notes grant before claim."""
+def validate_live_agent_dispatch_topology(agent):
+    """Re-prove one mutable agent's saved checkout before launch."""
+    if agent not in {"fable", "opus", "sol"}:
+        raise ValueError(
+            "topology proof is defined only for Fable, Opus, and Sol")
     if ACTIVE_TOPOLOGY is None:
         raise PrimaryWorktreeError(
-            "live Sol dispatch has no validated agent-worktree topology")
+            "live " + agent + " dispatch has no validated topology")
     lock_file = _open_primary_lock(repository_root=REPO_ROOT)
     try:
         primary = load_primary_state(path=ACTIVE_TOPOLOGY["primary_state"])
@@ -4689,6 +6057,11 @@ def validate_live_sol_dispatch_topology():
                 "live dispatch requires topology-aware primary state")
         primary = validate_primary_state(
             state=primary, repository_root=REPO_ROOT, allow_move=False)
+        implementer = load_primary_state(
+            path=ACTIVE_TOPOLOGY["implementer_state"])
+        implementer = validate_implementer_state(
+            state=implementer, repository_root=REPO_ROOT,
+            primary_state=primary, allow_move=False)
         sol = load_primary_state(path=ACTIVE_TOPOLOGY["sol_state"])
         sol = validate_sol_state(
             state=sol, repository_root=REPO_ROOT, primary_state=primary,
@@ -4696,74 +6069,417 @@ def validate_live_sol_dispatch_topology():
         notes = validated_primary_notes(primary_path=primary["path"])
         authoritative_files = validate_authoritative_role_files(
             primary_path=primary["path"])
+        validate_distinct_agent_states(
+            primary_state=primary, implementer_state=implementer,
+            sol_state=sol)
         expected = ACTIVE_TOPOLOGY
         if (os.path.abspath(primary["path"]) != expected["primary_path"]
+                or os.path.abspath(implementer["path"])
+                != expected["implementer_path"]
                 or os.path.abspath(sol["path"]) != expected["sol_path"]
                 or notes != expected["shared_notes"]
                 or AGENT_CWD["fable"] != expected["primary_path"]
-                or AGENT_CWD["opus"] != expected["primary_path"]
+                or AGENT_CWD["opus"] != expected["implementer_path"]
                 or AGENT_CWD["sol"] != expected["sol_path"]
                 or os.path.realpath(os.path.join(AI_ROOT, "notes"))
                 != expected["shared_notes"]):
             raise PrimaryWorktreeError(
                 "saved agent topology changed after this process started")
-        command = AGENT_COMMANDS["sol"]
-        if command.count("--cd") != 1 or command.count("--add-dir") != 1:
-            raise PrimaryWorktreeError(
-                "Sol command must carry one exact cwd and notes grant")
-        cd_index = command.index("--cd")
-        add_index = command.index("--add-dir")
-        if cd_index + 1 >= len(command) or add_index + 1 >= len(command):
-            raise PrimaryWorktreeError(
-                "Sol command is missing its cwd or notes value")
-        if (os.path.abspath(command[cd_index + 1])
-                != expected["sol_path"]
-                or os.path.realpath(command[add_index + 1])
-                != expected["shared_notes"]):
-            raise PrimaryWorktreeError(
-                "Sol command no longer matches saved worktree state")
-        sol_identity = _plain_directory(
-            path=expected["sol_path"], label="saved Sol worktree")
+        if agent == "sol":
+            command = AGENT_COMMANDS["sol"]
+            if command.count("--cd") != 1 or command.count("--add-dir") != 1:
+                raise PrimaryWorktreeError(
+                    "Sol command must carry one exact cwd and notes grant")
+            cd_index = command.index("--cd")
+            add_index = command.index("--add-dir")
+            if cd_index + 1 >= len(command) or add_index + 1 >= len(command):
+                raise PrimaryWorktreeError(
+                    "Sol command is missing its cwd or notes value")
+            if (os.path.abspath(command[cd_index + 1])
+                    != expected["sol_path"]
+                    or os.path.realpath(command[add_index + 1])
+                    != expected["shared_notes"]):
+                raise PrimaryWorktreeError(
+                    "Sol command no longer matches saved worktree state")
+        if agent == "fable":
+            role_path = expected["primary_path"]
+            role_label = "saved Architect primary worktree"
+        elif agent == "opus":
+            role_path = expected["implementer_path"]
+            role_label = "saved Implementer worktree"
+        else:
+            role_path = expected["sol_path"]
+            role_label = "saved Sol worktree"
+        role_identity = _plain_directory(
+            path=role_path, label=role_label)
         notes_identity = _plain_directory(
             path=expected["shared_notes"], label="shared notes directory")
-        return {
-            "sol_path": expected["sol_path"],
-            "sol_identity": sol_identity,
+        proof = {
+            "agent": agent,
+            "role_path": role_path,
+            "role_identity": role_identity,
             "notes_path": expected["shared_notes"],
             "notes_identity": notes_identity,
             "authoritative_files": authoritative_files,
         }
+        if agent == "sol":
+            proof["sol_path"] = role_path
+            proof["sol_identity"] = role_identity
+        return proof
     finally:
         _release_primary_lock(lock_file=lock_file)
 
 
-def recheck_sol_dispatch_directories(proof):
+def recheck_agent_dispatch_directories(proof):
     """Prove launch pathnames still name the pre-claim directories."""
     if proof is None:
         raise PrimaryWorktreeError(
-            "live Sol dispatch is missing its topology proof")
+            "live dispatch is missing its topology proof")
     _require_directory_identity(
-        path=proof["sol_path"], identity=proof["sol_identity"],
-        label="saved Sol worktree")
+        path=proof["role_path"], identity=proof["role_identity"],
+        label="saved " + proof["agent"] + " worktree")
     _require_directory_identity(
         path=proof["notes_path"], identity=proof["notes_identity"],
         label="shared notes directory")
     recheck_authoritative_role_files(proof=proof["authoritative_files"])
 
 
-def revalidate_sol_dispatch_topology(proof):
+def revalidate_agent_dispatch_topology(proof):
     """Re-prove all Git and command bindings without accepting a new inode."""
-    recheck_sol_dispatch_directories(proof=proof)
-    current = validate_live_sol_dispatch_topology()
+    recheck_agent_dispatch_directories(proof=proof)
+    current = validate_live_agent_dispatch_topology(agent=proof["agent"])
     if current != proof:
         raise PrimaryWorktreeError(
-            "saved Sol worktree topology changed after message claim")
-    recheck_sol_dispatch_directories(proof=current)
+            "saved agent worktree topology changed after message claim")
+    recheck_agent_dispatch_directories(proof=current)
     return current
 
 
-def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
-    """Serialize Architect landing authority, then run one dispatch."""
+def _architect_ordinary_tracked_state(worktree, base_commit, cached):
+    """Return exact non-note tracked state relative to one frozen base."""
+    arguments = [
+        "diff", "--no-ext-diff", "--no-renames", "--binary",
+        "--full-index", "--ignore-submodules=none"]
+    if cached:
+        arguments.append("--cached")
+    arguments.extend([base_commit, "--", "."])
+    arguments.extend(
+        ":(top,exclude)" + path
+        for path in ARCHITECT_PERMANENT_NOTE_PATHS)
+    try:
+        result = _run_git(
+            repository_root=worktree, arguments=arguments, check=False)
+    except PrimaryWorktreeError:
+        raise
+    if result.returncode != 0:
+        raise PrimaryWorktreeError(
+            "cannot capture Architect ordinary tracked state")
+    return result.stdout
+
+
+def _ordinary_untracked_worktree_state(worktree):
+    """Return every nonignored untracked path in one persistent worktree.
+
+    Mailbox transport, relay logs, the local backlog, and temporary note
+    evidence are deliberately ignored by Git and therefore do not appear in
+    this proof.  A newly created source, test, README, or tool does appear.
+    """
+    try:
+        result = _run_git(
+            repository_root=worktree,
+            arguments=["ls-files", "--others", "--exclude-standard", "-z",
+                       "--", "."],
+            check=False)
+    except PrimaryWorktreeError:
+        raise
+    if result.returncode != 0:
+        raise PrimaryWorktreeError(
+            "cannot capture nonignored untracked worktree paths")
+    return result.stdout
+
+
+def _git_path_bytes(worktree, object_name, relative_path, maximum_bytes):
+    """Read one bounded tracked blob from an exact commit or the index."""
+    result = _run_git(
+        repository_root=worktree,
+        arguments=["show", object_name + ":" + relative_path],
+        check=False)
+    if result.returncode != 0:
+        raise PrimaryWorktreeError(
+            relative_path + " is missing from " + object_name)
+    if len(result.stdout) > maximum_bytes:
+        raise PrimaryWorktreeError(
+            relative_path + " exceeds its protected size limit")
+    return result.stdout
+
+
+def _top_level_tracked_markdown(raw_paths, label):
+    """Decode one NUL path list and select top-level ai/notes Markdown."""
+    selected = set()
+    try:
+        values = [raw.decode("utf-8", errors="strict")
+                  for raw in raw_paths.split(b"\0") if raw]
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            label + " contains a non-UTF-8 tracked path") from exc
+    for relative_path in values:
+        parent, separator, name = relative_path.rpartition("/")
+        if (separator and parent == "ai/notes"
+                and name.casefold().endswith(".md")):
+            selected.add(relative_path)
+    return selected
+
+
+def _require_exact_permanent_note_set(primary_worktree, head):
+    """Require exactly eleven tracked top-level notes in HEAD and the index."""
+    expected = set(ARCHITECT_PERMANENT_NOTE_PATHS)
+    head_result = _run_git(
+        repository_root=primary_worktree,
+        arguments=["ls-tree", "-r", "--name-only", "-z", head,
+                   "--", "ai/notes"])
+    index_result = _run_git(
+        repository_root=primary_worktree,
+        arguments=["ls-files", "-z", "--", "ai/notes"])
+    head_notes = _top_level_tracked_markdown(
+        raw_paths=head_result.stdout, label="Architect HEAD")
+    index_notes = _top_level_tracked_markdown(
+        raw_paths=index_result.stdout, label="Architect index")
+    if head_notes != expected or index_notes != expected:
+        raise PrimaryWorktreeError(
+            "Architect HEAD and index must contain exactly the eleven "
+            "permanent top-level Markdown notes")
+
+
+def _validate_protected_tracked_state(primary_worktree):
+    """Require permanent notes and their guard to match current primary HEAD."""
+    try:
+        head = worktree_head(worktree=primary_worktree)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(
+            "cannot identify the Architect commit protecting permanent "
+            "notes: " + str(exc)) from exc
+    _require_exact_permanent_note_set(
+        primary_worktree=primary_worktree, head=head)
+    for relative_path in ARCHITECT_PROTECTED_TRACKED_PATHS:
+        expected = _git_path_bytes(
+            worktree=primary_worktree, object_name=head,
+            relative_path=relative_path,
+            maximum_bytes=MAX_PROTECTED_NOTE_BYTES)
+        staged = _git_path_bytes(
+            worktree=primary_worktree, object_name="",
+            relative_path=relative_path,
+            maximum_bytes=MAX_PROTECTED_NOTE_BYTES)
+        try:
+            working = stable_regular_bytes(
+                path=os.path.join(primary_worktree, relative_path),
+                maximum_bytes=MAX_PROTECTED_NOTE_BYTES,
+                label="protected " + relative_path)
+        except (OSError, ValueError) as exc:
+            raise PrimaryWorktreeError(str(exc)) from exc
+        if staged != expected or working != expected:
+            raise PrimaryWorktreeError(
+                relative_path + " does not match the current Architect "
+                "commit and index")
+    try:
+        ending_head = worktree_head(worktree=primary_worktree)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(
+            "cannot recheck the Architect commit protecting permanent "
+            "notes: " + str(exc)) from exc
+    if ending_head != head:
+        raise PrimaryWorktreeError(
+            "Architect HEAD changed while permanent notes were checked")
+
+
+def _validate_sealed_backlog(primary_worktree):
+    """Require the local backlog to match its Architect-sealed SHA-256."""
+    notes = os.path.join(primary_worktree, "ai", "notes")
+    backlog_path = os.path.join(notes, "backlog.md")
+    state_path = os.path.join(notes, BACKLOG_GUARD_STATE_NAME)
+    backlog_exists = os.path.lexists(backlog_path)
+    state_exists = os.path.lexists(state_path)
+    if not backlog_exists and not state_exists:
+        if (os.path.lexists(backlog_path)
+                or os.path.lexists(state_path)):
+            raise PrimaryWorktreeError(
+                "backlog or its guard appeared while absence was checked")
+        return
+    if backlog_exists != state_exists:
+        raise PrimaryWorktreeError(
+            "backlog and its Architect-sealed guard must either both exist "
+            "or both be absent")
+    try:
+        state_before = stable_regular_bytes(
+            path=state_path, maximum_bytes=MAX_BACKLOG_GUARD_STATE_BYTES,
+            label="backlog guard state")
+        backlog = stable_regular_bytes(
+            path=backlog_path, maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+            label="Architect backlog")
+        state_after = stable_regular_bytes(
+            path=state_path, maximum_bytes=MAX_BACKLOG_GUARD_STATE_BYTES,
+            label="backlog guard state")
+    except (OSError, ValueError) as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+    if state_after != state_before:
+        raise PrimaryWorktreeError(
+            "backlog guard state changed while the backlog was checked")
+    try:
+        state = json.loads(
+            state_before.decode("utf-8", errors="strict"),
+            object_pairs_hook=_duplicate_key_refusal)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PrimaryWorktreeError(
+            "backlog guard state is not exact UTF-8 JSON: " + str(exc)) \
+            from exc
+    if (not isinstance(state, dict)
+            or set(state) != {"backlog", "sha256", "version"}
+            or state.get("backlog") != "ai/notes/backlog.md"
+            or state.get("version") != 1
+            or not isinstance(state.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", state["sha256"]) is None):
+        raise PrimaryWorktreeError(
+            "backlog guard state has missing, extra, or invalid fields")
+    observed = hashlib.sha256(backlog).hexdigest()
+    if observed != state["sha256"]:
+        raise PrimaryWorktreeError(
+            "backlog differs from the SHA-256 last sealed by the Architect")
+
+
+def _validate_current_protected_primary_state(primary_worktree):
+    """Accept current Architect authority, including a concurrent seal/commit."""
+    last_error = None
+    for attempt in range(PROTECTED_STATE_RECHECK_ATTEMPTS):
+        try:
+            _validate_protected_tracked_state(
+                primary_worktree=primary_worktree)
+            _validate_sealed_backlog(primary_worktree=primary_worktree)
+            return
+        except PrimaryWorktreeError as exc:
+            last_error = exc
+            if attempt + 1 < PROTECTED_STATE_RECHECK_ATTEMPTS:
+                time.sleep(PROTECTED_STATE_RECHECK_SECONDS)
+    raise PrimaryWorktreeError(
+        "shared Architect-owned notes are not in an accepted state: "
+        + str(last_error))
+
+
+def _capture_shared_protected_state():
+    """Return a proof that can revalidate shared protected notes by authority."""
+    primary = AGENT_CWD["fable"]
+    identity = _plain_directory(
+        path=primary, label="saved Architect primary worktree")
+    _validate_current_protected_primary_state(
+        primary_worktree=primary)
+    return {"primary": primary, "identity": identity}
+
+
+def _recheck_shared_protected_state(proof):
+    """Allow only an Architect-sealed backlog or committed permanent notes."""
+    if (not isinstance(proof, dict)
+            or set(proof) != {"identity", "primary"}):
+        raise PrimaryWorktreeError(
+            "shared protected-note proof is missing or malformed")
+    _require_directory_identity(
+        path=proof["primary"], identity=proof["identity"],
+        label="saved Architect primary worktree")
+    _validate_current_protected_primary_state(
+        primary_worktree=proof["primary"])
+
+
+def capture_persistent_role_state(agent):
+    """Freeze tracked-state authority for persistent non-Implementer roles."""
+    if agent not in {"fable", "opus", "sol"}:
+        return None
+    worktree = AGENT_CWD[agent]
+    shared_proof = (_capture_shared_protected_state()
+                    if agent in {"opus", "sol"} else None)
+    try:
+        head = worktree_head(worktree=worktree)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(
+            "cannot capture persistent " + agent + " HEAD: " + str(exc)) \
+            from exc
+    if agent == "sol":
+        if _tracked_worktree_changes(worktree=worktree):
+            raise PrimaryWorktreeError(
+                "saved Sol worktree has tracked or nonignored untracked "
+                "changes; preserve them manually before Red Team dispatch")
+        return {"agent": agent, "worktree": worktree, "head": head,
+                "shared_proof": shared_proof}
+    if agent == "opus":
+        return {"agent": agent, "worktree": worktree,
+                "shared_proof": shared_proof}
+    return {
+        "agent": agent,
+        "worktree": worktree,
+        "base": head,
+        "worktree_state": _architect_ordinary_tracked_state(
+            worktree=worktree, base_commit=head, cached=False),
+        "index_state": _architect_ordinary_tracked_state(
+            worktree=worktree, base_commit=head, cached=True),
+        "untracked_state": _ordinary_untracked_worktree_state(
+            worktree=worktree),
+    }
+
+
+def recheck_persistent_role_state(proof):
+    """Refuse tracked edits outside the authority of Fable or Sol."""
+    if proof is None:
+        return
+    agent = proof["agent"]
+    worktree = proof["worktree"]
+    if agent in {"opus", "sol"}:
+        _recheck_shared_protected_state(proof=proof["shared_proof"])
+    if agent == "opus":
+        return
+    if agent == "sol":
+        try:
+            current_head = worktree_head(worktree=worktree)
+        except TicketCycleStateError as exc:
+            raise PrimaryWorktreeError(
+                "cannot recheck persistent Sol HEAD: " + str(exc)) from exc
+        if (current_head != proof["head"]
+                or _tracked_worktree_changes(worktree=worktree)):
+            raise PrimaryWorktreeError(
+                "Red Team changed tracked or nonignored untracked files in "
+                "its persistent worktree; the changes were preserved for "
+                "inspection")
+        return
+    if agent != "fable":
+        raise PrimaryWorktreeError("unknown persistent role-state proof")
+    current_worktree = _architect_ordinary_tracked_state(
+        worktree=worktree, base_commit=proof["base"], cached=False)
+    current_index = _architect_ordinary_tracked_state(
+        worktree=worktree, base_commit=proof["base"], cached=True)
+    current_untracked = _ordinary_untracked_worktree_state(
+        worktree=worktree)
+    if (current_worktree != proof["worktree_state"]
+            or current_index != proof["index_state"]
+            or current_untracked != proof["untracked_state"]):
+        raise PrimaryWorktreeError(
+            "Architect changed ordinary tracked or nonignored untracked "
+            "source, tests, README, or tools in the coordination worktree; "
+            "the changes were preserved for inspection")
+
+
+def validate_live_sol_dispatch_topology():
+    """Compatibility wrapper for focused Sol topology witnesses."""
+    return validate_live_agent_dispatch_topology(agent="sol")
+
+
+def recheck_sol_dispatch_directories(proof):
+    """Compatibility wrapper for focused Sol directory witnesses."""
+    return recheck_agent_dispatch_directories(proof=proof)
+
+
+def revalidate_sol_dispatch_topology(proof):
+    """Compatibility wrapper for focused Sol topology witnesses."""
+    return revalidate_agent_dispatch_topology(proof=proof)
+
+
+def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
+             new_reservation_cycle=None, architect_admission=None):
+    """Serialize Architect GO decisions, then run one dispatch."""
     match = PENDING_MESSAGE_RE.match(os.path.basename(path))
     if match is None:
         raise ValueError("not a pending agent message: " + path)
@@ -4771,23 +6487,50 @@ def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
     if dry_run or agent != "fable":
         return dispatch_under_main_checkout_lock(
             path=path, dry_run=dry_run, fix_only=fix_only,
-            skip_redteam=skip_redteam)
+            skip_redteam=skip_redteam,
+            new_reservation_cycle=new_reservation_cycle,
+            architect_admission=architect_admission)
+    notes_admin_reserved = False
+    try:
+        message = read_cycle_message(path=path)
+        notes_admin_reserved = is_architect_notes_admin_message(
+            message=message)
+    except (OSError, ValueError, TicketCycleStateError):
+        # The normal dispatch validator owns the precise refusal and archive.
+        notes_admin_reserved = False
     lock_file = acquire_main_checkout_turn_lock()
     if lock_file is None:
         print("refused " + os.path.basename(path) + ": the Architect "
-              "main-landing turn lock could not be proved; root message "
+              "GO-decision lock could not be proved; root message "
               "left untouched.")
         return False
+    notes_lock = None
     try:
+        if notes_admin_reserved:
+            notes_lock = acquire_ticket_cycle_lock()
+            _require_no_ordinary_landing_transition_locked(
+                current_dispatch_path=path)
         return dispatch_under_main_checkout_lock(
             path=path, dry_run=dry_run, fix_only=fix_only,
-            skip_redteam=skip_redteam)
+            skip_redteam=skip_redteam,
+            new_reservation_cycle=new_reservation_cycle,
+            architect_admission=architect_admission,
+            notes_admin_reserved=notes_admin_reserved)
+    except TicketCycleStateError as exc:
+        print("deferred " + os.path.basename(path)
+              + ": permanent-note admin turn requires an idle ticket "
+              "boundary (" + str(exc) + "); root message remains queued.")
+        return False
     finally:
+        if notes_lock is not None:
+            release_ticket_cycle_lock(lock_file=notes_lock)
         release_main_checkout_turn_lock(lock_file=lock_file)
 
 
 def dispatch_under_main_checkout_lock(
-        path, dry_run, fix_only=False, skip_redteam=False):
+        path, dry_run, fix_only=False, skip_redteam=False,
+        new_reservation_cycle=None, architect_admission=None,
+        notes_admin_reserved=False):
     """Send one message file to its addressee's headless CLI.
 
     Arguments:
@@ -4808,16 +6551,32 @@ def dispatch_under_main_checkout_lock(
         raise ValueError(
             "local daemon receipts must use consume_daemon_message, not an "
             "AI dispatch route")
-    if skip_redteam and agent == "sol":
-        print("deferred " + name + ": this two-role watch has the Sol route "
-              "disabled; the root message remains untouched.")
+    if not message_is_enabled_for_topology(
+            path=path, skip_redteam=skip_redteam):
+        hint = "run the matching watch role later"
+        print("deferred " + name + ": its saved role is disabled by this "
+              "watch; " + hint + "; the root message remains untouched.")
         return False
-    sol_topology_proof = None
-    if agent == "sol" and not dry_run:
+    agent_topology_proof = None
+    persistent_role_state = None
+    architect_turn_base = None
+    if agent in {"fable", "opus", "sol"} and not dry_run:
         try:
-            sol_topology_proof = validate_live_sol_dispatch_topology()
+            agent_topology_proof = validate_live_agent_dispatch_topology(
+                agent=agent)
+            persistent_role_state = capture_persistent_role_state(
+                agent=agent)
+            if (agent == "fable"
+                    and isinstance(persistent_role_state, dict)):
+                # Keep the turn's exact starting commit separately from the
+                # richer persistent-state proof.  Focused embeddings may use
+                # an opaque proof token, while the production proof remains
+                # a dictionary; neither case may make the post-turn binding
+                # depend on the shape of that token.
+                architect_turn_base = persistent_role_state.get("base")
         except (OSError, PrimaryWorktreeError) as exc:
-            print("refused " + name + ": saved Sol worktree validation "
+            print("refused " + name + ": saved " + agent
+                  + " worktree validation "
                   "failed (" + str(exc) + "); message left untouched.")
             return False
     # Take one severity snapshot before claim_message() moves the mailbox
@@ -4837,6 +6596,9 @@ def dispatch_under_main_checkout_lock(
     if not dry_run:
         dispatch_path = claim_message(path=path)
         if dispatch_path is None:
+            if new_reservation_cycle is not None:
+                release_unstarted_ticket_reservation(
+                    cycle_id=new_reservation_cycle)
             return False
         if not valid_duration(value=DISPATCH_TIMEOUT_MINUTES,
                               strictly_positive=True):
@@ -4877,6 +6639,28 @@ def dispatch_under_main_checkout_lock(
                   "inspect inflight/ and failed/.")
         return False
 
+    notes_admin_body, notes_admin_problem = (
+        _architect_notes_admin_envelope(message=message))
+    notes_admin_turn = notes_admin_problem is None
+    if (message.startswith(MAILBOX_ADMIN_HEADER)
+            and not notes_admin_turn):
+        if dry_run:
+            print("[dry-run] would refuse " + name + ": "
+                  + notes_admin_problem)
+            return False
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("refused " + name + ": " + notes_admin_problem + "; "
+              + ("parked in failed/." if parked else
+                 "failed-state move was not verified."))
+        return False
+    if not dry_run and notes_admin_turn != notes_admin_reserved:
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("refused " + name + ": permanent-note admin identity changed "
+              "across its exclusive reservation; "
+              + ("parked in failed/." if parked else
+                 "failed-state move was not verified."))
+        return False
+
     ticket_kind = None
     review_cycle_id = None
     review_accepted_commit = None
@@ -4898,12 +6682,10 @@ def dispatch_under_main_checkout_lock(
                   + ("parked in failed/." if parked else
                      "failed-state move was not verified."))
             return False
-        if skip_redteam and flow_mode != "two-role":
-            reason = ("a two-role watch requires MAILBOX-MODE: two-role on "
-                      "every new ticket exchange")
-        elif not skip_redteam and flow_mode == "two-role":
-            reason = ("MAILBOX-MODE: two-role is valid only while the Sol "
-                      "route is disabled with --skip-redteam")
+        if not ticket_cycle_mode_is_enabled(
+                mode=flow_mode, skip_redteam=skip_redteam):
+            reason = ("MAILBOX-MODE: " + flow_mode
+                      + " belongs to another watch role")
         else:
             reason = None
         if reason is not None:
@@ -4962,6 +6744,14 @@ def dispatch_under_main_checkout_lock(
             return False
         effective_discovery_severity = saved_architect_severity
         effective_discovery_scope = saved_architect_scope
+    if (architect_admission is not None
+            and (agent != "fable" or saved_architect_severity is None)):
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("refused " + name + ": saved Architect admission does not "
+              "name this exact public request; "
+              + ("parked in failed/." if parked else
+                 "failed-state move was not verified."))
+        return False
     if agent == "sol":
         ticket_kind = sol_ticket_kind(message=message)
         severity_problem = sol_discovery_severity_problem(message=message)
@@ -4983,18 +6773,7 @@ def dispatch_under_main_checkout_lock(
                 unclassified_count=(
                     severity_counts_before_claim["unclassified"]),
                 ledger_problem=severity_counts_before_claim["problem"])
-        if reason is None:
-            reason = second_implementer_emergency_refusal(
-                message=message, counts=severity_counts_before_claim)
-        if (reason is None and ticket_kind == "closure"
-                and sol_second_implementer_assignment(message=message)):
-            remainder = sol_ticket_body_after_kind(message=message)
-            if remainder.startswith("\r\n"):
-                remainder = remainder[2:]
-            elif remainder.startswith("\n"):
-                remainder = remainder[1:]
-            _, _, _, reason = _ticket_flow_envelope(message=remainder)
-        elif reason is None and ticket_kind == "closure":
+        if reason is None and ticket_kind == "closure":
             reason = redteam_closure_problem(message=message)
         if reason is not None:
             if dry_run:
@@ -5010,9 +6789,27 @@ def dispatch_under_main_checkout_lock(
                       "inflight/ and failed/.")
             return False
 
+    implementer_evidence_contract = None
+    implementer_return_before = None
+    if agent == "opus" and ACTIVE_TOPOLOGY is not None:
+        try:
+            implementer_evidence_contract = (
+                prepare_implementer_evidence_contract(message=message))
+            implementer_return_before = fable_message_inode_snapshot()
+        except (OSError, TicketCycleStateError) as exc:
+            reason = "Implementer evidence contract refused: " + str(exc)
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": " + reason + "; "
+                  + ("parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return False
+
+    registered_cycle_id = None
     if not dry_run:
         try:
-            register_ticket_cycle_message(agent=agent, message=message)
+            registered_cycle_id, _ = register_ticket_cycle_message(
+                agent=agent, message=message,
+                skip_redteam=skip_redteam)
         except TicketCycleStateError as exc:
             reason = "ticket-cycle state refused this message: " + str(exc)
             parked = park_failed_message(dispatch_path=dispatch_path)
@@ -5021,8 +6818,7 @@ def dispatch_under_main_checkout_lock(
                      "failed-state move was not verified."))
             return False
 
-    if (agent == "sol" and ticket_kind == "closure"
-            and not sol_second_implementer_assignment(message=message)):
+    if agent == "sol" and ticket_kind == "closure":
         review_cycle_id = redteam_closure_ticket(message=message)
         review_accepted_commit = redteam_closure_commit(message=message)
         if not dry_run:
@@ -5030,6 +6826,8 @@ def dispatch_under_main_checkout_lock(
 
     if agent == "sol":
         placeholder_body = sol_ticket_body(message=message)
+    elif message.startswith(MAILBOX_FLOW_HEADER):
+        _, _, placeholder_body, _ = _ticket_flow_envelope(message=message)
     elif agent == "fable":
         placeholder_body = architect_user_request_body(message=message)
     else:
@@ -5071,6 +6869,50 @@ def dispatch_under_main_checkout_lock(
               + "  (cwd " + AGENT_CWD[agent] + ")")
         return True
 
+    implementer_starting_head = None
+    audit_cycle_id = None
+    audit_commit = None
+    audit_worktree = None
+    architect_go_before = None
+    admin_opus_before = None
+    architect_opus_before = None
+    architect_fable_before = None
+    architect_sol_before = None
+    architect_user_before = None
+    try:
+        if agent == "fable":
+            architect_go_before = daemon_message_inode_snapshot()
+            if notes_admin_turn:
+                admin_opus_before = opus_message_inode_snapshot()
+            elif architect_admission is not None:
+                architect_opus_before = opus_message_inode_snapshot()
+                architect_fable_before = fable_message_inode_snapshot()
+                architect_sol_before = sol_message_inode_snapshot()
+                architect_user_before = user_message_inode_snapshot()
+        if agent == "opus" and registered_cycle_id is not None:
+            implementer_starting_head = prepare_implementer_cycle_checkout(
+                cycle_id=registered_cycle_id)
+        elif (agent == "fable" and registered_cycle_id is not None):
+            audit_commit = candidate_commit_for_cycle(
+                cycle_id=registered_cycle_id)
+            if audit_commit is not None:
+                audit_cycle_id = registered_cycle_id
+                audit_worktree = create_audit_snapshot(
+                    cycle_id=audit_cycle_id, commit=audit_commit,
+                    agent="fable")
+        elif agent == "sol" and ticket_kind == "closure":
+            audit_cycle_id = review_cycle_id
+            audit_commit = review_accepted_commit
+            audit_worktree = create_audit_snapshot(
+                cycle_id=audit_cycle_id, commit=audit_commit, agent="sol")
+    except (OSError, PrimaryWorktreeError, TicketCycleStateError) as exc:
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("refused " + name + ": exact cycle checkout failed ("
+              + str(exc) + "); "
+              + ("parked in failed/." if parked else
+                 "failed-state move was not verified."))
+        return False
+
     banner = dispatch_banner(
         store_max=currency[0],
         newer_in_lane=currency[1],
@@ -5084,11 +6926,26 @@ def dispatch_under_main_checkout_lock(
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
     # role-specific banner sits between them. Consequently PREAMBLE's
     # --- MESSAGE --- delimiter remains immediately before the exact raw
-    # mailbox body, and the body remains the prompt's exact suffix. Only the
-    # Architect route receives landing authority.
+    # mailbox body, and the body remains the prompt's exact suffix. The
+    # Architect route receives decision authority. The parent daemon owns the
+    # exact local landing after that process exits.
     command = AGENT_COMMANDS[agent] + [
-        banner + agent_preamble(agent=agent, message=message) + PREAMBLE
-        + message]
+        banner + agent_preamble(agent=agent, message=message)
+        + architect_admission_prompt(token=architect_admission)
+        + PREAMBLE + message]
+
+    if notes_admin_turn:
+        try:
+            write_architect_notes_admin_journal(
+                request_name=name, request_message=message,
+                base_commit=architect_turn_base, phase="started")
+        except (OSError, TicketCycleStateError) as exc:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! permanent-note admin journal could not be started: "
+                  + str(exc) + "; "
+                  + ("message parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return False
 
     print("dispatching " + name + " -> " + agent + " ...")
     # Stream the agent's output straight into the relay log AS IT RUNS
@@ -5120,13 +6977,29 @@ def dispatch_under_main_checkout_lock(
         env[DISCOVERY_SCOPE_ENVIRONMENT] = effective_discovery_scope
         env[MAILBOX_ROLE_ENVIRONMENT] = mailbox_role_for_dispatch(
             agent=agent, message=message)
+        if architect_admission is not None:
+            env["MAILBOX_ARCHITECT_ADMISSION"] = architect_admission
+        else:
+            env.pop("MAILBOX_ARCHITECT_ADMISSION", None)
+        if notes_admin_turn:
+            env["MAILBOX_NOTES_BASE"] = architect_turn_base
+        else:
+            env.pop("MAILBOX_NOTES_BASE", None)
         env["MAILBOX_PRIMARY_WORKTREE"] = AGENT_CWD["fable"]
+        env["MAILBOX_IMPLEMENTER_WORKTREE"] = AGENT_CWD["opus"]
+        env["MAILBOX_EXECUTION_WORKTREE"] = AGENT_CWD["opus"]
         env["MAILBOX_SHARED_NOTES"] = os.path.join(
             AGENT_CWD["fable"], "ai", "notes")
         env["MAILBOX_HANDOFF_CONTRACT"] = os.path.join(
             AGENT_CWD["fable"], "ai", "tools", "handoff_contract.py")
         env["MAILBOX_TICKET_CHANGE_GUARD"] = os.path.join(
             AGENT_CWD["fable"], "ai", "tools", "ticket_change_guard.py")
+        if audit_worktree is not None:
+            env["MAILBOX_CANDIDATE_COMMIT"] = audit_commit
+            env["MAILBOX_AUDIT_WORKTREE"] = audit_worktree
+        else:
+            env.pop("MAILBOX_CANDIDATE_COMMIT", None)
+            env.pop("MAILBOX_AUDIT_WORKTREE", None)
         if fix_only:
             env[FIX_ONLY_ENVIRONMENT] = "1"
         else:
@@ -5136,18 +7009,20 @@ def dispatch_under_main_checkout_lock(
         else:
             env.pop(SKIP_REDTEAM_ENVIRONMENT, None)
         try:
-            if agent == "sol":
-                revalidate_sol_dispatch_topology(
-                    proof=sol_topology_proof)
+            if agent in {"fable", "opus", "sol"}:
+                revalidate_agent_dispatch_topology(
+                    proof=agent_topology_proof)
+            recheck_persistent_role_state(proof=persistent_role_state)
             proc = subprocess.Popen(command,
                                     stdout=f,
                                     stderr=subprocess.STDOUT,
                                     cwd=AGENT_CWD[agent],
                                     env=env)
             try:
-                if agent == "sol":
-                    revalidate_sol_dispatch_topology(
-                        proof=sol_topology_proof)
+                if agent in {"fable", "opus", "sol"}:
+                    revalidate_agent_dispatch_topology(
+                        proof=agent_topology_proof)
+                recheck_persistent_role_state(proof=persistent_role_state)
             except (OSError, PrimaryWorktreeError):
                 proc.kill()
                 proc.wait()
@@ -5226,12 +7101,39 @@ def dispatch_under_main_checkout_lock(
                         _rendezvous_turn_finished()
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
 
+    persistent_role_error = None
+    if proc is not None and agent in {"fable", "opus", "sol"}:
+        try:
+            revalidate_agent_dispatch_topology(proof=agent_topology_proof)
+            recheck_persistent_role_state(proof=persistent_role_state)
+        except (OSError, PrimaryWorktreeError) as exc:
+            persistent_role_error = exc
+
+    if audit_worktree is not None:
+        try:
+            remove_audit_snapshot(
+                cycle_id=audit_cycle_id, commit=audit_commit, agent=agent)
+        except (OSError, PrimaryWorktreeError,
+                TicketCycleStateError) as exc:
+            if launch_error is None:
+                launch_error = PrimaryWorktreeError(
+                    "audit snapshot cleanup failed: " + str(exc))
+
     if launch_error is not None:
         parked = park_failed_message(dispatch_path=dispatch_path)
         state = "message parked in failed/" if parked \
             else "failed-state move was not verified"
         print("  !! dispatch could not start: " + str(launch_error)
               + "; " + state + "; log -> " + log_path)
+        return False
+
+    if persistent_role_error is not None:
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        state = "message parked in failed/" if parked \
+            else "failed-state move was not verified"
+        print("  !! dispatch violated its persistent role boundary: "
+              + str(persistent_role_error) + "; " + state
+              + "; changes preserved; log -> " + log_path)
         return False
 
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
@@ -5279,6 +7181,67 @@ def dispatch_under_main_checkout_lock(
                   "the log above.")
         return False
 
+    if agent == "opus" and registered_cycle_id is not None:
+        implementer_completion_ready = True
+        if implementer_evidence_contract is not None:
+            try:
+                returned_candidate = worktree_head(
+                    worktree=AGENT_CWD["opus"])
+                implementer_return, invalid_returns, evidence_problem, \
+                    implementer_completion_ready = (
+                    matching_new_implementer_handoff(
+                        cycle_id=registered_cycle_id, mode=flow_mode,
+                        candidate_commit=returned_candidate,
+                        before_inodes=implementer_return_before,
+                        evidence_contract=implementer_evidence_contract))
+            except (OSError, PrimaryWorktreeError,
+                    TicketCycleStateError) as exc:
+                implementer_return = None
+                invalid_returns = []
+                evidence_problem = str(exc)
+                implementer_completion_ready = None
+            if (evidence_problem is None
+                    and implementer_completion_ready is False
+                    and (returned_candidate != implementer_starting_head
+                         or _clean_worktree_status(
+                             worktree=AGENT_CWD["opus"]))):
+                invalid_returns = [implementer_return]
+                evidence_problem = (
+                    "blocked subagent evidence is valid only when Opus HEAD "
+                    "still equals its cycle starting commit and the "
+                    "Implementer worktree has no tracked or untracked edit")
+                implementer_completion_ready = None
+            if evidence_problem is not None:
+                for return_path in invalid_returns:
+                    park_failed_message(dispatch_path=return_path)
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Implementer returned rc=0 but its same-cycle "
+                      "subagent evidence was refused before candidate "
+                      "freeze: " + evidence_problem + "; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+        if implementer_completion_ready:
+            try:
+                candidate = record_implementer_candidate(
+                    cycle_id=registered_cycle_id,
+                    starting_head=implementer_starting_head)
+            except (OSError, PrimaryWorktreeError,
+                    TicketCycleStateError) as exc:
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Implementer returned rc=0 but its exact "
+                      "candidate could not be preserved: " + str(exc) + "; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            if candidate is not None:
+                print("  preserved Implementer candidate " + candidate
+                      + " for " + registered_cycle_id + ".")
+        else:
+            print("  Implementer returned a blocked subagent checkpoint; "
+                  "the Architect may revise the same ticket, but no "
+                  "candidate was frozen and no GO boundary advanced.")
+
     if review_cycle_id is not None:
         receipt_path, review_result, receipt_problem = (
             matching_new_redteam_receipt(
@@ -5319,7 +7282,313 @@ def dispatch_under_main_checkout_lock(
               + review_accepted_commit + ".")
         return True
 
-    return archive_consumed_message(dispatch_path=dispatch_path)
+    if (agent == "fable" and audit_cycle_id is not None
+            and audit_commit is not None
+            and architect_turn_base is not None):
+        if worktree_head(worktree=AGENT_CWD["fable"]) != architect_turn_base:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! Architect candidate audit changed the persistent "
+                  "primary HEAD; note commits require a separate no-ticket "
+                  "turn; " + ("message parked in failed/." if parked else
+                               "failed-state move was not verified."))
+            return False
+        try:
+            _validate_current_protected_primary_state(
+                primary_worktree=AGENT_CWD["fable"])
+        except PrimaryWorktreeError as exc:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! Architect candidate audit changed a protected "
+                  "permanent note, its guard, or the sealed backlog: "
+                  + str(exc) + "; "
+                  + ("message parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return False
+        go_path, invalid_go_paths, go_problem = matching_new_architect_go(
+            cycle_id=audit_cycle_id, candidate_commit=audit_commit,
+            mode=flow_mode, before_inodes=architect_go_before)
+        if go_problem is not None:
+            for invalid_path in invalid_go_paths:
+                park_failed_message(dispatch_path=invalid_path)
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! Architect returned rc=0 but its daemon GO boundary "
+                  "was refused: " + go_problem + "; "
+                  + ("message parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return False
+        if go_path is not None:
+            print("  authenticated Architect GO for exact candidate "
+                  + audit_commit + "; the daemon will prepare its landing "
+                  "after this Architect turn releases the main lock.")
+
+    if (agent == "fable" and audit_cycle_id is None
+            and architect_turn_base is not None):
+        base_commit = architect_turn_base
+        notes_commit = worktree_head(worktree=AGENT_CWD["fable"])
+        fresh_daemon = [
+            candidate for candidate in glob.glob(
+                os.path.join(MAILBOX, "**", "*-to-daemon.md"),
+                recursive=True)
+            if (regular_inode(path=candidate) is not None
+                and regular_inode(path=candidate) not in
+                architect_go_before)]
+        fresh_opus = []
+        opus_before = (admin_opus_before if notes_admin_turn
+                       else architect_opus_before)
+        if opus_before is not None:
+            fresh_opus = [
+                candidate for candidate in glob.glob(
+                    os.path.join(MAILBOX, "**", "*-to-opus.md"),
+                    recursive=True)
+                if (regular_inode(path=candidate) is not None
+                    and regular_inode(path=candidate) not in
+                    opus_before)]
+        fresh_fable = []
+        fresh_sol = []
+        fresh_user = []
+        if architect_fable_before is not None:
+            fresh_fable = [
+                candidate for candidate in glob.glob(
+                    os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                    recursive=True)
+                if (regular_inode(path=candidate) is not None
+                    and regular_inode(path=candidate) not in
+                    architect_fable_before)]
+        if architect_sol_before is not None:
+            fresh_sol = [
+                candidate for candidate in glob.glob(
+                    os.path.join(MAILBOX, "**", "*-to-sol.md"),
+                    recursive=True)
+                if (regular_inode(path=candidate) is not None
+                    and regular_inode(path=candidate) not in
+                    architect_sol_before)]
+        if architect_user_before is not None:
+            fresh_user = [
+                candidate for candidate in glob.glob(
+                    os.path.join(MAILBOX, "**", "*-to-user.md"),
+                    recursive=True)
+                if (regular_inode(path=candidate) is not None
+                    and regular_inode(path=candidate) not in
+                    architect_user_before)]
+        if notes_admin_turn:
+            if fresh_opus:
+                for invalid_path in fresh_opus:
+                    park_failed_message(dispatch_path=invalid_path)
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! permanent-note admin turn created an "
+                      "Implementer handoff; note administration is "
+                         "cycle-free; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+        if notes_commit == base_commit:
+            try:
+                _validate_current_protected_primary_state(
+                    primary_worktree=AGENT_CWD["fable"])
+            except PrimaryWorktreeError as exc:
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Architect left a protected permanent note, its "
+                      "guard, or the sealed backlog different from commit "
+                      "B: " + str(exc) + "; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            if architect_admission is not None:
+                fresh_outputs = (
+                    fresh_opus + fresh_sol + fresh_user
+                    + fresh_fable + fresh_daemon)
+                outcome_problem = None
+                outcome_kind = None
+                outcome_path = None
+                if len(fresh_outputs) != 1:
+                    outcome_problem = (
+                        "public Architect admission requires exactly one "
+                        "fresh digest-bound outcome; found "
+                        + str(len(fresh_outputs)))
+                elif fresh_fable or fresh_daemon:
+                    outcome_path = fresh_outputs[0]
+                    outcome_problem = (
+                        "public Architect admission cannot return through "
+                        + os.path.basename(outcome_path).split("-to-", 1)[-1])
+                else:
+                    outcome_path = fresh_outputs[0]
+                    if os.path.dirname(outcome_path) != MAILBOX:
+                        outcome_problem = (
+                            "public Architect outcome was not published in "
+                            "the mailbox root")
+                    else:
+                        try:
+                            outcome_message = read_cycle_message(
+                                path=outcome_path)
+                        except (OSError, ValueError,
+                                TicketCycleStateError) as exc:
+                            outcome_problem = str(exc)
+                        else:
+                            if fresh_opus:
+                                if not outcome_message.startswith(
+                                        MAILBOX_FLOW_HEADER):
+                                    outcome_problem = (
+                                        "Implementer outcome lacks its exact "
+                                        "ticket flow envelope")
+                                else:
+                                    try:
+                                        converted_cycle, _ = (
+                                            register_ticket_cycle_message(
+                                                agent="opus",
+                                                message=outcome_message,
+                                                skip_redteam=skip_redteam,
+                                                architect_admission=(
+                                                    architect_admission),
+                                                implementer_request_name=(
+                                                    os.path.basename(
+                                                        outcome_path))))
+                                    except TicketCycleStateError as exc:
+                                        outcome_problem = str(exc)
+                                    else:
+                                        outcome_kind = (
+                                            "Implementer ticket "
+                                            + str(converted_cycle))
+                            elif fresh_sol:
+                                outcome_problem = (
+                                    public_architect_sol_outcome_problem(
+                                        message=outcome_message,
+                                        expected_token=(
+                                            architect_admission)))
+                                if outcome_problem is None:
+                                    try:
+                                        release_architect_ticket_admission(
+                                            token=architect_admission)
+                                    except TicketCycleStateError as exc:
+                                        outcome_problem = str(exc)
+                                    else:
+                                        outcome_kind = "Sol advisory request"
+                            else:
+                                outcome_problem = (
+                                    public_architect_no_ticket_problem(
+                                        message=outcome_message,
+                                        expected_token=(
+                                            architect_admission)))
+                                if outcome_problem is None:
+                                    try:
+                                        release_architect_ticket_admission(
+                                            token=architect_admission)
+                                    except TicketCycleStateError as exc:
+                                        outcome_problem = str(exc)
+                                    else:
+                                        outcome_kind = "no-ticket receipt"
+                if outcome_problem is not None:
+                    for invalid_path in fresh_outputs:
+                        park_failed_message(dispatch_path=invalid_path)
+                    parked = park_failed_message(
+                        dispatch_path=dispatch_path)
+                    print("  !! Architect returned rc=0 but its public "
+                          "request outcome was refused: "
+                          + outcome_problem + "; the provisional admission "
+                          "was retained; "
+                          + ("message parked in failed/." if parked else
+                             "failed-state move was not verified."))
+                    return False
+                print("  authenticated public Architect outcome: "
+                      + outcome_kind + "; exact output "
+                      + os.path.basename(outcome_path)
+                      + " remains queued for its recipient.")
+            if fresh_daemon and architect_admission is None:
+                for invalid_path in fresh_daemon:
+                    park_failed_message(dispatch_path=invalid_path)
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Architect created a daemon request without one "
+                      "new permanent-note commit; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            if notes_admin_turn:
+                try:
+                    write_architect_notes_admin_journal(
+                        request_name=name, request_message=message,
+                        base_commit=base_commit, phase="validated-noop")
+                except (OSError, TicketCycleStateError) as exc:
+                    parked = park_failed_message(
+                        dispatch_path=dispatch_path)
+                    print("  !! validated no-op admin result could not be "
+                          "journaled: " + str(exc) + "; "
+                          + ("message parked in failed/." if parked else
+                             "failed-state move was not verified."))
+                    return False
+        else:
+            if not notes_admin_turn:
+                for invalid_path in fresh_daemon:
+                    park_failed_message(dispatch_path=invalid_path)
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Architect changed permanent notes outside the "
+                      "dedicated MAILBOX-ADMIN: permanent-notes route; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            go_path, invalid_paths, note_problem = (
+                matching_new_architect_notes_go(
+                    base_commit=base_commit, notes_commit=notes_commit,
+                    before_inodes=architect_go_before))
+            if note_problem is None:
+                try:
+                    require_architect_notes_commit(
+                        base_commit=base_commit, notes_commit=notes_commit)
+                    if notes_admin_reserved:
+                        _require_no_ordinary_landing_transition_locked(
+                            current_dispatch_path=go_path)
+                    else:
+                        require_no_ordinary_landing_transition(
+                            current_dispatch_path=go_path)
+                except (OSError, TicketCycleStateError) as exc:
+                    note_problem = str(exc)
+                    invalid_paths = [go_path]
+            if note_problem is not None:
+                for invalid_path in invalid_paths:
+                    if invalid_path is not None:
+                        park_failed_message(dispatch_path=invalid_path)
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! Architect permanent-note commit was refused: "
+                      + note_problem + "; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            try:
+                receipt_raw = stable_regular_bytes(
+                    path=go_path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="permanent-note GO receipt")
+                write_architect_notes_admin_journal(
+                    request_name=name, request_message=message,
+                    base_commit=base_commit, phase="validated-commit",
+                    notes_commit=notes_commit,
+                    receipt_sha256=hashlib.sha256(receipt_raw).hexdigest())
+            except (OSError, ValueError, TicketCycleStateError) as exc:
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("  !! validated permanent-note commit could not be "
+                      "journaled: " + str(exc) + "; "
+                      + ("message parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
+            print("  authenticated permanent-note commit " + notes_commit
+                  + " on exact main baseline " + base_commit
+                  + "; parent daemon will fast-forward it after this turn.")
+
+    archived = archive_consumed_message(dispatch_path=dispatch_path)
+    if archived and notes_admin_turn:
+        try:
+            journal = read_architect_notes_admin_journal(
+                request_name=name, request_message=message)
+            if journal["phase"] == "validated-noop":
+                remove_architect_notes_admin_journal(request_name=name)
+            elif journal["phase"] == "validated-commit":
+                print("  retained validated permanent-note admin journal "
+                      "until its exact P receipt is consumed.")
+            else:
+                raise TicketCycleStateError(
+                    "archived permanent-note admin still has only its "
+                    "pre-child journal")
+        except (OSError, TicketCycleStateError) as exc:
+            print("  warning: admin request is archived, but its recovery "
+                  "journal needs user attention: " + str(exc))
+    return archived
 
 
 def park_failed_message(dispatch_path):
@@ -5339,6 +7608,38 @@ def regular_inode(path):
     if not stat.S_ISREG(details.st_mode):
         return None
     return details.st_dev, details.st_ino
+
+
+def regular_file_has_prefix(path, prefix):
+    """Read only one ASCII prefix while proving a stable regular inode."""
+    if not isinstance(prefix, bytes) or not prefix:
+        raise ValueError("file prefix must be nonempty bytes")
+    initial = os.lstat(path)
+    if not stat.S_ISREG(initial.st_mode):
+        return False
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        before = os.fstat(descriptor)
+        raw = os.read(descriptor, len(prefix))
+        after = os.fstat(descriptor)
+        current = os.lstat(path)
+    finally:
+        os.close(descriptor)
+    identities = ((initial.st_dev, initial.st_ino),
+                  (before.st_dev, before.st_ino),
+                  (after.st_dev, after.st_ino),
+                  (current.st_dev, current.st_ino))
+    metadata = ((initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns),
+                (before.st_size, before.st_mtime_ns, before.st_ctime_ns),
+                (after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+                (current.st_size, current.st_mtime_ns,
+                 current.st_ctime_ns))
+    if len(set(identities)) != 1 or len(set(metadata)) != 1:
+        raise ValueError("file changed while its prefix was checked")
+    return raw == prefix
 
 
 def restore_state_source(guard_path, dispatch_path, source_inode):
@@ -5459,7 +7760,7 @@ def git_commit_exists(commit):
 
 
 def git_commit_descends_from(starting_commit, accepted_commit):
-    """Return whether an accepted commit is a new descendant of the base."""
+    """Return whether daemon-recorded landing L descends from the base."""
     if (not git_commit_exists(commit=starting_commit)
             or not git_commit_exists(commit=accepted_commit)
             or starting_commit == accepted_commit):
@@ -5472,100 +7773,1819 @@ def git_commit_descends_from(starting_commit, accepted_commit):
     return process.returncode == 0
 
 
-def consume_daemon_message(path, dry_run=False):
-    """Validate and consume one Architect commit receipt locally.
+def cycle_candidate_ref(cycle_id):
+    """Return one path-safe, deterministic private ref for a ticket."""
+    if not isinstance(cycle_id, str) or CYCLE_ID_RE.fullmatch(cycle_id) is None:
+        raise TicketCycleStateError("invalid cycle id for candidate ref")
+    digest = hashlib.sha256(cycle_id.encode("utf-8")).hexdigest()
+    return CANDIDATE_REF_ROOT + "/" + digest + "/candidate"
+
+
+def candidate_state_path():
+    """Return the ignored primary record binding cycles to immutable refs."""
+    return os.path.join(MAILBOX, CANDIDATE_STATE_NAME)
+
+
+def empty_candidate_state():
+    """Return a fresh candidate-state payload."""
+    return {"schema": CANDIDATE_STATE_SCHEMA, "cycles": {}}
+
+
+def read_candidate_state():
+    """Read the bounded exact-schema candidate record."""
+    try:
+        raw = stable_regular_bytes(
+            path=candidate_state_path(),
+            maximum_bytes=MAX_CANDIDATE_STATE_BYTES,
+            label="ticket-candidate state", missing_ok=True)
+    except (OSError, ValueError) as exc:
+        raise TicketCycleStateError(str(exc)) from exc
+    if raw is None:
+        return empty_candidate_state()
+    try:
+        payload = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=unique_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError,
+            OverflowError, RecursionError) as exc:
+        raise TicketCycleStateError(
+            "ticket-candidate state is not exact JSON") from exc
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "cycles"}
+            or payload.get("schema") != CANDIDATE_STATE_SCHEMA
+            or not isinstance(payload.get("cycles"), dict)
+            or len(payload["cycles"]) > MAX_TICKET_CYCLE_RECORDS):
+        raise TicketCycleStateError(
+            "ticket-candidate state has invalid keys")
+    normalized = {}
+    for cycle_id, record in payload["cycles"].items():
+        expected_ref = cycle_candidate_ref(cycle_id=cycle_id)
+        if (not isinstance(record, dict)
+                or set(record) != {"ref", "commit"}
+                or record.get("ref") != expected_ref
+                or not isinstance(record.get("commit"), str)
+                or FULL_COMMIT_RE.fullmatch(record["commit"]) is None):
+            raise TicketCycleStateError(
+                "ticket-candidate state has an invalid cycle record")
+        normalized[cycle_id] = {
+            "ref": expected_ref, "commit": record["commit"]}
+    return {"schema": CANDIDATE_STATE_SCHEMA, "cycles": normalized}
+
+
+def write_candidate_state(state):
+    """Publish candidate state by same-directory atomic replacement."""
+    if (not isinstance(state, dict)
+            or set(state) != {"schema", "cycles"}
+            or state.get("schema") != CANDIDATE_STATE_SCHEMA):
+        raise TicketCycleStateError(
+            "refusing malformed ticket-candidate state")
+    # Round-trip through the strict reader's structural rules before write.
+    for cycle_id, record in state["cycles"].items():
+        if (not isinstance(record, dict)
+                or record.get("ref") != cycle_candidate_ref(cycle_id)
+                or FULL_COMMIT_RE.fullmatch(
+                    str(record.get("commit", ""))) is None):
+            raise TicketCycleStateError(
+                "refusing malformed ticket-candidate cycle")
+    os.makedirs(MAILBOX, exist_ok=True)
+    payload = (json.dumps(state, sort_keys=True, indent=2) + "\n").encode(
+        "utf-8")
+    if len(payload) > MAX_CANDIDATE_STATE_BYTES:
+        raise TicketCycleStateError("ticket-candidate state is too large")
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=CANDIDATE_STATE_NAME + ".tmp-", dir=MAILBOX)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, candidate_state_path())
+        fsync_directory(directory=MAILBOX)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def git_ref_commit(reference):
+    """Return one private ref's full commit, or None when it is absent."""
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["rev-parse", "--verify", "--quiet",
+                   reference + "^{commit}"],
+        check=False)
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            "cannot inspect candidate ref " + reference)
+    try:
+        commit = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "candidate ref is not ASCII") from exc
+    if FULL_COMMIT_RE.fullmatch(commit) is None:
+        raise TicketCycleStateError("candidate ref has invalid commit")
+    return commit
+
+
+def candidate_record_locked(cycle_id, ticket_state, candidate_state,
+                            recover=True):
+    """Return and verify one candidate, adopting an interrupted ref write."""
+    active = ticket_state["active"].get(cycle_id)
+    record = candidate_state["cycles"].get(cycle_id)
+    reference = cycle_candidate_ref(cycle_id=cycle_id)
+    ref_commit = git_ref_commit(reference=reference)
+    if record is None and ref_commit is not None:
+        if (not recover or active is None
+                or active["phase"] != "implementation"
+                or not git_commit_descends_from(
+                    starting_commit=cycle_starting_commit(cycle_id),
+                    accepted_commit=ref_commit)):
+            raise TicketCycleStateError(
+                "unowned candidate ref exists for " + cycle_id)
+        record = {"ref": reference, "commit": ref_commit}
+        candidate_state["cycles"][cycle_id] = record
+        write_candidate_state(state=candidate_state)
+    if record is None:
+        return None
+    if ref_commit != record["commit"]:
+        raise TicketCycleStateError(
+            "candidate state and Git ref disagree for " + cycle_id)
+    if (active is None or active["phase"] != "implementation"
+            or not git_commit_descends_from(
+                starting_commit=cycle_starting_commit(cycle_id),
+                accepted_commit=record["commit"])):
+        raise TicketCycleStateError(
+            "candidate ref does not belong to an active implementation")
+    return record
+
+
+def _clean_worktree_status(worktree):
+    """Return exact porcelain bytes without permitting index refresh."""
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "-C", worktree, "status", "--porcelain=v1", "-z",
+         "--untracked-files=normal", "--ignore-submodules=none"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        env=environment)
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            "cannot inspect Implementer worktree status")
+    return result.stdout
+
+
+def worktree_head(worktree):
+    """Return the exact full commit checked out in one worktree."""
+    result = _run_git(
+        repository_root=worktree,
+        arguments=["rev-parse", "--verify", "HEAD^{commit}"])
+    try:
+        commit = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError("worktree HEAD is not ASCII") from exc
+    if FULL_COMMIT_RE.fullmatch(commit) is None:
+        raise TicketCycleStateError("worktree HEAD is not a full commit")
+    return commit
+
+
+def prepare_implementer_cycle_checkout(cycle_id):
+    """Reset the clean fixed Implementer branch to this cycle's saved tip."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        ticket_state = read_ticket_cycle_state()
+        active = ticket_state["active"].get(cycle_id)
+        if active is None or active["phase"] != "implementation":
+            raise TicketCycleStateError(
+                "Implementer checkout has no active implementation cycle")
+        candidate_state = read_candidate_state()
+        record = candidate_record_locked(
+            cycle_id=cycle_id, ticket_state=ticket_state,
+            candidate_state=candidate_state)
+        target = (record["commit"] if record is not None
+                  else cycle_starting_commit(cycle_id))
+        worktree = AGENT_CWD["opus"]
+        if _clean_worktree_status(worktree=worktree):
+            raise TicketCycleStateError(
+                "Implementer worktree is not clean; refusing to reset it")
+        current = worktree_head(worktree=worktree)
+        preserved = {item["commit"]
+                     for item in candidate_state["cycles"].values()}
+        if current != target and current not in preserved:
+            raise TicketCycleStateError(
+                "Implementer HEAD is not a saved candidate; refusing to "
+                "discard " + current)
+        _run_git(
+            repository_root=worktree,
+            arguments=["reset", "--hard", target])
+        if worktree_head(worktree=worktree) != target:
+            raise TicketCycleStateError(
+                "Implementer reset did not select the requested candidate")
+        return target
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def record_implementer_candidate(cycle_id, starting_head):
+    """Atomically preserve a successful clean Opus commit for its cycle."""
+    worktree = AGENT_CWD["opus"]
+    if _clean_worktree_status(worktree=worktree):
+        raise TicketCycleStateError(
+            "successful Implementer turn left an uncommitted worktree")
+    candidate = worktree_head(worktree=worktree)
+    if candidate == starting_head:
+        return None
+    if not git_commit_descends_from(
+            starting_commit=starting_head, accepted_commit=candidate):
+        raise TicketCycleStateError(
+            "Implementer result is not a new descendant of its saved base")
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        ticket_state = read_ticket_cycle_state()
+        active = ticket_state["active"].get(cycle_id)
+        if active is None or active["phase"] != "implementation":
+            raise TicketCycleStateError(
+                "candidate commit has no active implementation cycle")
+        candidate_state = read_candidate_state()
+        prior = candidate_record_locked(
+            cycle_id=cycle_id, ticket_state=ticket_state,
+            candidate_state=candidate_state)
+        expected = (prior["commit"] if prior is not None else "0" * 40)
+        if starting_head != (prior["commit"] if prior is not None
+                             else cycle_starting_commit(cycle_id)):
+            raise TicketCycleStateError(
+                "Implementer result began from another cycle tip")
+        reference = cycle_candidate_ref(cycle_id=cycle_id)
+        _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["update-ref", reference, candidate, expected])
+        candidate_state["cycles"][cycle_id] = {
+            "ref": reference, "commit": candidate}
+        write_candidate_state(state=candidate_state)
+        return candidate
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def candidate_commit_for_cycle(cycle_id):
+    """Return the verified immutable candidate for one active cycle."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        ticket_state = read_ticket_cycle_state()
+        candidate_state = read_candidate_state()
+        record = candidate_record_locked(
+            cycle_id=cycle_id, ticket_state=ticket_state,
+            candidate_state=candidate_state)
+        return None if record is None else record["commit"]
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def audit_snapshot_path(cycle_id, agent):
+    """Return a deterministic managed path for one exact audit checkout."""
+    if agent not in {"fable", "sol"}:
+        raise ValueError("audit snapshot agent must be fable or sol")
+    digest = hashlib.sha256(cycle_id.encode("utf-8")).hexdigest()[:24]
+    return os.path.join(
+        _managed_primary_root(repository_root=REPO_ROOT),
+        AUDIT_WORKTREE_PREFIX + digest + "-" + agent)
+
+
+def _validate_audit_record(record, path, commit):
+    """Prove one registered detached audit worktree names one commit."""
+    expected = _managed_child_path(
+        path=path,
+        managed_root=_managed_primary_root(repository_root=REPO_ROOT))
+    if (record is None or "detached" not in record["flags"]
+            or "branch" in record or "prunable" in record["flags"]):
+        raise PrimaryWorktreeError(
+            "audit worktree must be registered and detached: " + expected)
+    if git_common_directory(checkout=expected) != git_common_directory(
+            checkout=REPO_ROOT):
+        raise PrimaryWorktreeError(
+            "audit worktree belongs to another repository")
+    if worktree_head(worktree=expected) != commit:
+        raise PrimaryWorktreeError(
+            "audit worktree does not name the exact candidate commit")
+    return expected
+
+
+def create_audit_snapshot(cycle_id, commit, agent):
+    """Create or recover a detached exact-commit checkout for one audit."""
+    if (not isinstance(commit, str)
+            or FULL_COMMIT_RE.fullmatch(commit) is None
+            or not git_commit_exists(commit=commit)):
+        raise TicketCycleStateError("audit commit is not an exact commit")
+    path = audit_snapshot_path(cycle_id=cycle_id, agent=agent)
+    lock_file = _open_primary_lock(repository_root=REPO_ROOT)
+    try:
+        records = registered_worktrees(repository_root=REPO_ROOT)
+        record = _record_at_path(records=records, path=path)
+        if record is not None:
+            return _validate_audit_record(
+                record=record, path=path, commit=commit)
+        if os.path.lexists(path):
+            raise PrimaryWorktreeError(
+                "audit path exists without a registered worktree: " + path)
+        _run_git(
+            repository_root=REPO_ROOT,
+            arguments=["worktree", "add", "--detach", path, commit])
+        refreshed = registered_worktrees(repository_root=REPO_ROOT)
+        created = _record_at_path(records=refreshed, path=path)
+        return _validate_audit_record(
+            record=created, path=path, commit=commit)
+    finally:
+        _release_primary_lock(lock_file=lock_file)
+
+
+def remove_audit_snapshot(cycle_id, commit, agent):
+    """Remove only the unchanged disposable snapshot created for this turn."""
+    path = audit_snapshot_path(cycle_id=cycle_id, agent=agent)
+    lock_file = _open_primary_lock(repository_root=REPO_ROOT)
+    try:
+        records = registered_worktrees(repository_root=REPO_ROOT)
+        record = _record_at_path(records=records, path=path)
+        if record is None:
+            if os.path.lexists(path):
+                raise PrimaryWorktreeError(
+                    "unregistered audit path remains: " + path)
+            return
+        _validate_audit_record(record=record, path=path, commit=commit)
+        if _tracked_worktree_changes(worktree=path):
+            raise PrimaryWorktreeError(
+                "audit changed tracked files; preserving snapshot " + path)
+        # Ignored bytecode or test caches are disposable inside this exact,
+        # detached, commit-bound checkout. No user or candidate work lives
+        # here, so force removes only audit artifacts after the tracked proof.
+        _run_git(
+            repository_root=REPO_ROOT,
+            arguments=["worktree", "remove", "--force", path])
+        _run_git(
+            repository_root=REPO_ROOT,
+            arguments=["worktree", "prune"])
+        if (os.path.lexists(path)
+                or _record_at_path(
+                    records=registered_worktrees(repository_root=REPO_ROOT),
+                    path=path) is not None):
+            raise PrimaryWorktreeError(
+                "audit snapshot removal could not be verified")
+    finally:
+        _release_primary_lock(lock_file=lock_file)
+
+
+def _exact_git_object(arguments, label):
+    """Return one full Git object name from a bounded read-only command."""
+    try:
+        result = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=arguments, check=False)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(
+            "cannot inspect " + label + ": " + str(exc)) from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode(
+            "utf-8", errors="replace").strip()
+        if len(detail) > 500:
+            detail = detail[:500] + "..."
+        raise TicketCycleStateError(
+            "cannot inspect " + label
+            + ((": " + detail) if detail else ""))
+    try:
+        value = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(label + " is not ASCII") from exc
+    if FULL_COMMIT_RE.fullmatch(value) is None:
+        raise TicketCycleStateError(label + " is not one exact Git object")
+    return value
+
+
+def _single_commit_parent(commit):
+    """Return the sole parent of a squash landing commit."""
+    try:
+        result = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["rev-list", "--parents", "-n", "1", commit],
+            check=False)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(
+            "cannot inspect landing parents: " + str(exc)) from exc
+    if result.returncode != 0:
+        raise TicketCycleStateError("cannot inspect landing parents")
+    try:
+        fields = result.stdout.decode(
+            "ascii", errors="strict").strip().split()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "landing parent record is not ASCII") from exc
+    if (len(fields) != 2 or fields[0] != commit
+            or FULL_COMMIT_RE.fullmatch(fields[1]) is None):
+        raise TicketCycleStateError(
+            "Architect landing must be one ordinary commit with one parent")
+    return fields[1]
+
+
+def _require_ancestor_or_same(ancestor, descendant, label):
+    """Require ``descendant`` to preserve ``ancestor`` in its lineage."""
+    if ancestor == descendant:
+        return
+    try:
+        result = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["merge-base", "--is-ancestor", ancestor,
+                       descendant],
+            check=False)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(
+            "cannot inspect " + label + ": " + str(exc)) from exc
+    if result.returncode == 1:
+        raise TicketCycleStateError(label)
+    if result.returncode != 0:
+        raise TicketCycleStateError("cannot inspect " + label)
+
+
+def _exact_squash_tree(parent_commit, candidate_commit):
+    """Return the tree made by cleanly squashing candidate onto parent."""
+    try:
+        result = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["merge-tree", "--write-tree", parent_commit,
+                       candidate_commit],
+            check=False)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(
+            "cannot calculate the candidate squash: " + str(exc)) from exc
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            "the audited candidate does not squash cleanly onto the "
+            "landing parent")
+    try:
+        tree = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "calculated squash tree is not ASCII") from exc
+    if FULL_COMMIT_RE.fullmatch(tree) is None:
+        raise TicketCycleStateError(
+            "git did not return one exact calculated squash tree")
+    return tree
+
+
+def cycle_landing_ref(cycle_id):
+    """Return the private crash-journal ref for one prepared landing."""
+    return cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
+        + "/landing"
+
+
+def _landing_commit_message(cycle_id, candidate_commit):
+    """Return the bounded deterministic message for daemon-created L."""
+    return (
+        "mailbox: land " + cycle_ticket_anchor(cycle_id) + "\n\n"
+        "Mailbox-Cycle: " + cycle_id + "\n"
+        "Mailbox-Candidate: " + candidate_commit + "\n")
+
+
+def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit):
+    """Return L's parent after proving the exact journaled C -> L squash."""
+    parent_commit = _single_commit_parent(commit=landing_commit)
+    expected_tree = _exact_squash_tree(
+        parent_commit=parent_commit, candidate_commit=candidate_commit)
+    landing_tree = _exact_git_object(
+        arguments=["rev-parse", "--verify", landing_commit + "^{tree}"],
+        label="prepared landing tree")
+    if landing_tree != expected_tree:
+        raise TicketCycleStateError(
+            "prepared landing tree is not the exact candidate squash")
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["cat-file", "commit", landing_commit],
+        check=False)
+    if result.returncode != 0:
+        raise TicketCycleStateError("cannot inspect prepared landing message")
+    _headers, separator, message_bytes = result.stdout.partition(b"\n\n")
+    if not separator:
+        raise TicketCycleStateError(
+            "prepared landing commit has no message separator")
+    try:
+        message = message_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "prepared landing message is not UTF-8") from exc
+    if message != _landing_commit_message(
+            cycle_id=cycle_id, candidate_commit=candidate_commit):
+        raise TicketCycleStateError(
+            "prepared landing message does not bind its cycle and candidate")
+    return parent_commit
+
+
+def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
+    """Create or reuse exact L without touching any checkout or branch."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        ticket_state = read_ticket_cycle_state()
+        active = ticket_state["active"].get(cycle_id)
+        if (active is None or active["phase"] != "implementation"
+                or active["mode"] != mode):
+            raise TicketCycleStateError(
+                "Architect GO has no matching implementation cycle")
+        candidate_state = read_candidate_state()
+        record = candidate_record_locked(
+            cycle_id=cycle_id, ticket_state=ticket_state,
+            candidate_state=candidate_state)
+        if record is None or record["commit"] != candidate_commit:
+            raise TicketCycleStateError(
+                "Architect GO does not name the exact saved candidate")
+        reference = cycle_landing_ref(cycle_id=cycle_id)
+        prepared = git_ref_commit(reference=reference)
+        current_main = _exact_git_object(
+            arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+            label="current main commit")
+        if prepared is not None:
+            parent = _verify_prepared_landing(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                landing_commit=prepared)
+            if current_main not in {parent, prepared}:
+                raise RetryableArchitectLandingError(
+                    "main moved after the exact landing was prepared; "
+                    "the candidate requires a new Architect audit")
+            return prepared, parent, reference
+        _require_ancestor_or_same(
+            ancestor=cycle_starting_commit(cycle_id),
+            descendant=current_main,
+            label="landing parent does not preserve the cycle base")
+        tree = _exact_squash_tree(
+            parent_commit=current_main,
+            candidate_commit=candidate_commit)
+        parent_tree = _exact_git_object(
+            arguments=["rev-parse", "--verify", current_main + "^{tree}"],
+            label="landing parent tree")
+        if tree == parent_tree:
+            raise TicketCycleStateError(
+                "the audited candidate produces an empty squash landing")
+        result = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["commit-tree", tree, "-p", current_main, "-m",
+                       _landing_commit_message(
+                           cycle_id=cycle_id,
+                           candidate_commit=candidate_commit)],
+            check=False)
+        if result.returncode != 0:
+            detail = result.stderr.decode(
+                "utf-8", errors="replace").strip()[:500]
+            raise TicketCycleStateError(
+                "cannot create exact squash landing"
+                + (": " + detail if detail else ""))
+        try:
+            landing = result.stdout.decode(
+                "ascii", errors="strict").strip()
+        except UnicodeDecodeError as exc:
+            raise TicketCycleStateError(
+                "created landing commit is not ASCII") from exc
+        if FULL_COMMIT_RE.fullmatch(landing) is None:
+            raise TicketCycleStateError(
+                "commit-tree did not return one exact landing commit")
+        update = _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["update-ref", reference, landing, "0" * 40],
+            check=False)
+        if update.returncode != 0:
+            raise TicketCycleStateError(
+                "cannot publish the exact landing crash journal")
+        if git_ref_commit(reference=reference) != landing:
+            raise TicketCycleStateError(
+                "landing crash journal did not preserve the created commit")
+        parent = _verify_prepared_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=landing)
+        return landing, parent, reference
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def _user_checkout_status():
+    """Return exact tracked/untracked status without refreshing the index."""
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    result = subprocess.run(
+        ["git", "-C", REPO_ROOT, "status", "--porcelain=v1", "-z",
+         "--untracked-files=normal", "--ignore-submodules=none"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        env=environment)
+    if result.returncode != 0:
+        raise TicketCycleStateError("cannot inspect the user's main checkout")
+    return result.stdout
+
+
+def land_prepared_commit_in_clean_user_checkout(landing, parent):
+    """Fast-forward a clean attached main checkout; never reset or force."""
+    symbolic = _run_git(
+        repository_root=REPO_ROOT,
+        arguments=["symbolic-ref", "-q", "HEAD"], check=False)
+    if (symbolic.returncode != 0
+            or symbolic.stdout.decode("utf-8", errors="replace").strip()
+            != "refs/heads/main"):
+        raise TicketCycleStateError(
+            "the user's checkout is not attached to local main")
+    current = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    if current == landing:
+        if _user_checkout_status():
+            raise RetryableArchitectLandingError(
+                "local main reached the prepared landing but the user's "
+                "checkout is not clean")
+        return
+    if current != parent:
+        raise RetryableArchitectLandingError(
+            "main moved after the exact landing was prepared; the candidate "
+            "requires a new Architect audit")
+    if _user_checkout_status():
+        raise RetryableArchitectLandingError(
+            "the user's main checkout has staged, unstaged, or untracked "
+            "work; exact landing was preserved without touching it")
+    result = _run_git(
+        repository_root=REPO_ROOT,
+        arguments=["merge", "--ff-only", landing], check=False)
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            "clean user main could not fast-forward to the prepared landing")
+    after = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="landed main commit")
+    if after != landing or _user_checkout_status():
+        raise TicketCycleStateError(
+            "local main did not verify as one clean exact landing")
+
+
+def _push_debt_path(landing):
+    return os.path.join(RELAY_DIR, "pending-main-push-" + landing + ".txt")
+
+
+def write_push_debt(landing, detail):
+    """Durably record that exact local L still needs remote verification."""
+    os.makedirs(RELAY_DIR, exist_ok=True)
+    debt = _push_debt_path(landing=landing)
+    payload = (
+        "Local main contains verified landing " + landing + ".\n"
+        "Push is still required: git push origin " + landing
+        + ":refs/heads/main\n"
+        "Last push result: " + detail + "\n")
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".pending-main-push-", dir=RELAY_DIR)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) \
+                as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, debt)
+        fsync_directory(directory=RELAY_DIR)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+    return debt
+
+
+def push_exact_landing_or_record_debt(landing):
+    """Attempt one non-force push; preserve a durable user action on failure."""
+    command = ["git", "-C", AGENT_CWD["fable"], "push", "--porcelain",
+               "origin", landing + ":refs/heads/main"]
+    try:
+        result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=120)
+        pushed = result.returncode == 0
+        detail = (result.stderr + result.stdout).decode(
+            "utf-8", errors="replace").strip()[:2000]
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        pushed = False
+        detail = str(exc)
+    if pushed:
+        try:
+            verify = subprocess.run(
+                ["git", "-C", AGENT_CWD["fable"], "ls-remote", "--refs",
+                 "origin", "refs/heads/main"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                check=False, timeout=120)
+            try:
+                fields = verify.stdout.decode(
+                    "ascii", errors="strict").strip().split()
+            except UnicodeDecodeError:
+                fields = []
+            verified = (verify.returncode == 0
+                        and fields == [landing, "refs/heads/main"])
+            remote_detail = (verify.stderr + verify.stdout).decode(
+                "utf-8", errors="replace").strip()[:2000]
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            verified = False
+            remote_detail = str(exc)
+        if not verified:
+            pushed = False
+            detail = (detail + "\nremote verification: " + remote_detail) \
+                .strip()
+    debt = _push_debt_path(landing=landing)
+    if pushed:
+        try:
+            os.remove(debt)
+        except FileNotFoundError:
+            pass
+        return True, ""
+    write_push_debt(landing=landing, detail=detail)
+    return False, detail
+
+
+def retire_cycle_landing_ref(cycle_id, landing):
+    """Retire only the exact crash-journal ref after receipt archival."""
+    reference = cycle_landing_ref(cycle_id=cycle_id)
+    current = git_ref_commit(reference=reference)
+    if current is None:
+        return
+    if current != landing:
+        raise TicketCycleStateError(
+            "landing crash journal changed before retirement")
+    _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["update-ref", "-d", reference, landing])
+
+
+def recorded_landing_for_architect_go(cycle_id, mode):
+    """Return durable L after a prior partial consume, or ``None``."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        completed = state["completed"].get(cycle_id)
+        if completed is not None:
+            return completed
+        current = state["active"].get(cycle_id)
+        if current is None:
+            raise TicketCycleStateError(
+                "Architect GO has no active or completed ticket cycle")
+        if current["mode"] != mode:
+            raise TicketCycleStateError(
+                "Architect GO changed the ticket's saved mode")
+        if current["phase"] == "implementation":
+            return None
+        if (current["phase"] in {
+                "committed-awaiting-closure", "awaiting-redteam"}
+                and current["commit"] is not None):
+            return current["commit"]
+        raise TicketCycleStateError(
+            "Architect GO found an unsupported ticket-cycle phase")
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def redteam_closure_request_payload(cycle_id, landing):
+    """Build the daemon-owned advisory review request for exact L."""
+    return sol_ticket_payload(
+        ticket_kind="closure", review_cycle=cycle_id,
+        review_commit=landing,
+        text=(
+            "Review the exact daemon-created landing commit " + landing
+            + " for ticket " + cycle_id + ". Focus on this ticket and the "
+            "behavior directly affected by its landing. Return the exact "
+            "correlated NO CHANGE or REOPEN receipt; this review is "
+            "advisory and does not undo the Architect's local landing."))
+
+
+def matching_redteam_closure_request(cycle_id, landing):
+    """Return the sole saved Sol closure request, if one already exists."""
+    matches = []
+    conflicts = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-sol.md"),
+                          recursive=True):
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        if sol_ticket_kind(message=message) != "closure":
+            continue
+        returned_cycle, returned_landing, _body, problem = (
+            _redteam_closure_envelope(message=message))
+        if returned_cycle != cycle_id:
+            continue
+        if problem is not None or returned_landing != landing:
+            conflicts.append(path)
+        else:
+            matches.append(path)
+    if conflicts:
+        raise TicketCycleStateError(
+            "another Sol closure request uses this cycle with a different "
+            "or malformed landing")
+    if len(matches) > 1:
+        raise TicketCycleStateError(
+            "more than one Sol closure request names this cycle and landing")
+    return matches[0] if matches else None
+
+
+def publish_redteam_closure_request(cycle_id, landing):
+    """Publish or recover the one normal-mode Sol review of exact L."""
+    existing = matching_redteam_closure_request(
+        cycle_id=cycle_id, landing=landing)
+    if existing is not None:
+        return existing
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        raise RetryableArchitectLandingError(
+            "cannot lock the mailbox sequence for the Red Team request")
+    try:
+        existing = matching_redteam_closure_request(
+            cycle_id=cycle_id, landing=landing)
+        if existing is not None:
+            return existing
+        path = publish_message_locked(
+            agent="sol",
+            payload=redteam_closure_request_payload(
+                cycle_id=cycle_id, landing=landing))
+        if path is None:
+            raise RetryableArchitectLandingError(
+                "could not publish the Red Team request after 20 attempts")
+        return path
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
+def execute_architect_go_locked(cycle_id, candidate_commit, mode):
+    """Land C as exact L and durably advance state before any push."""
+    landing = recorded_landing_for_architect_go(
+        cycle_id=cycle_id, mode=mode)
+    if landing is None:
+        landing, parent, _reference = prepare_exact_squash_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            mode=mode)
+    else:
+        parent = _verify_prepared_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=landing)
+        journaled = git_ref_commit(
+            reference=cycle_landing_ref(cycle_id=cycle_id))
+        if journaled is not None and journaled != landing:
+            raise TicketCycleStateError(
+                "durable cycle state and landing crash journal disagree")
+    preflight_role_baseline_sync(
+        target=landing, retiring_candidate=candidate_commit)
+    land_prepared_commit_in_clean_user_checkout(
+        landing=landing, parent=parent)
+    completed_now = record_architect_commit(
+        cycle_id=cycle_id, accepted_commit=landing, mode=mode)
+    if mode == "normal":
+        publish_redteam_closure_request(
+            cycle_id=cycle_id, landing=landing)
+    return landing, completed_now
+
+
+def require_architect_landing_locked(cycle_id, landing_commit,
+                                     ticket_state):
+    """Bind candidate C to its exact, distinct squash landing L on main."""
+    if ACTIVE_TOPOLOGY is None:
+        # Pure function tests do not represent a live dispatch topology.
+        return None
+    candidate_state = read_candidate_state()
+    record = candidate_record_locked(
+        cycle_id=cycle_id, ticket_state=ticket_state,
+        candidate_state=candidate_state)
+    if record is None:
+        raise TicketCycleStateError(
+            "Architect landing has no saved candidate for this cycle")
+    candidate_commit = record["commit"]
+    if landing_commit == candidate_commit:
+        raise TicketCycleStateError(
+            "daemon landing record names the Implementer candidate, not its "
+            "distinct squash landing")
+    if not git_commit_exists(commit=landing_commit):
+        raise TicketCycleStateError(
+            "daemon landing record names a missing landing commit")
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    if current_main != landing_commit:
+        raise TicketCycleStateError(
+            "daemon landing record does not name the current main landing")
+    parent_commit = _single_commit_parent(commit=landing_commit)
+    _require_ancestor_or_same(
+        ancestor=cycle_starting_commit(cycle_id),
+        descendant=parent_commit,
+        label="landing parent does not preserve the cycle base")
+    expected_tree = _exact_squash_tree(
+        parent_commit=parent_commit, candidate_commit=candidate_commit)
+    landing_tree = _exact_git_object(
+        arguments=["rev-parse", "--verify", landing_commit + "^{tree}"],
+        label="Architect landing tree")
+    if landing_tree != expected_tree:
+        raise TicketCycleStateError(
+            "Architect landing tree is not the exact candidate squash on "
+            "its parent")
+    return candidate_commit
+
+
+def _require_retirement_landing_locked(cycle_id, landing_commit,
+                                       ticket_state):
+    """Prove one durable L authorizes retirement of this cycle's C."""
+    active = ticket_state["active"].get(cycle_id)
+    completed = ticket_state["completed"].get(cycle_id)
+    recorded = completed
+    if recorded is None and active is not None:
+        if active["phase"] == "implementation":
+            raise TicketCycleStateError(
+                "candidate cannot retire before its daemon landing")
+        recorded = active["commit"]
+    if recorded != landing_commit:
+        raise TicketCycleStateError(
+            "candidate retirement does not name its durable landing")
+    if not git_commit_exists(commit=landing_commit):
+        raise TicketCycleStateError(
+            "candidate retirement landing no longer exists")
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    _require_ancestor_or_same(
+        ancestor=landing_commit, descendant=current_main,
+        label="current main does not preserve the retired cycle landing")
+
+
+def retire_cycle_candidate_locked(cycle_id, candidate_commit,
+                                  landing_commit):
+    """Hand off exact clean C to L, then delete only C's ownership."""
+    if ACTIVE_TOPOLOGY is None:
+        return True
+    ticket_state = read_ticket_cycle_state()
+    _require_retirement_landing_locked(
+        cycle_id=cycle_id, landing_commit=landing_commit,
+        ticket_state=ticket_state)
+    state = read_candidate_state()
+    record = state["cycles"].get(cycle_id)
+    reference = cycle_candidate_ref(cycle_id=cycle_id)
+    current = git_ref_commit(reference=reference)
+    if record is None:
+        if current is not None:
+            raise TicketCycleStateError(
+                "accepted cycle has an unowned candidate ref")
+        return True
+    if record["commit"] != candidate_commit:
+        raise TicketCycleStateError(
+            "refusing to retire another candidate commit")
+    worktree = AGENT_CWD["opus"]
+    head = worktree_head(worktree=worktree)
+    if head == record["commit"]:
+        if _clean_worktree_status(worktree=worktree):
+            # Another ticket may already be editing from C. Keep both the
+            # state row and ref until that work is saved or moved; deleting
+            # them here would erase the only durable authority for C.
+            return False
+        _run_git(
+            repository_root=worktree,
+            arguments=["reset", "--hard", landing_commit])
+        if (worktree_head(worktree=worktree) != landing_commit
+                or _clean_worktree_status(worktree=worktree)):
+            raise TicketCycleStateError(
+                "Implementer checkout did not complete exact C-to-L handoff")
+        head = landing_commit
+    preserved_heads = {
+        item["commit"] for other_cycle, item in state["cycles"].items()
+        if other_cycle != cycle_id
+    }
+    preserved_heads.update(
+        cycle_starting_commit(other_cycle)
+        for other_cycle, item in ticket_state["active"].items()
+        if other_cycle != cycle_id and item["phase"] == "implementation")
+    if head != landing_commit and head not in preserved_heads:
+        # A concurrent Implementer turn is allowed, but only durable cycle
+        # state may prove that its HEAD is not abandoned work.
+        return False
+    if current is not None:
+        if current != record["commit"]:
+            raise TicketCycleStateError(
+                "candidate ref changed before retirement")
+        _run_git(
+            repository_root=AGENT_CWD["fable"],
+            arguments=["update-ref", "-d", reference, record["commit"]])
+    del state["cycles"][cycle_id]
+    write_candidate_state(state=state)
+    return True
+
+
+def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit):
+    """Retire exact C after durable GO state, preserving concurrent work."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        return retire_cycle_candidate_locked(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=landing_commit)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def _symbolic_worktree_branch(worktree, expected_branch, label):
+    """Require one persistent role checkout to stay on its saved branch."""
+    result = _run_git(
+        repository_root=worktree,
+        arguments=["symbolic-ref", "-q", "HEAD"], check=False)
+    try:
+        branch = result.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(label + " branch is not UTF-8") from exc
+    if result.returncode != 0 or branch != expected_branch:
+        raise TicketCycleStateError(
+            label + " checkout left its saved branch")
+
+
+def sync_clean_role_baseline(worktree, expected_branch, target, label):
+    """Fast-forward one clean role baseline to an exact landed commit."""
+    _symbolic_worktree_branch(
+        worktree=worktree, expected_branch=expected_branch, label=label)
+    if _clean_worktree_status(worktree=worktree):
+        raise TicketCycleStateError(
+            label + " checkout has staged, unstaged, or untracked work")
+    current = worktree_head(worktree=worktree)
+    if current == target:
+        return False
+    _require_ancestor_or_same(
+        ancestor=current, descendant=target,
+        label=label + " baseline is not an ancestor of the landing")
+    result = _run_git(
+        repository_root=worktree,
+        arguments=["merge", "--ff-only", target], check=False)
+    if result.returncode != 0:
+        raise TicketCycleStateError(
+            label + " baseline could not fast-forward to the landing")
+    if (worktree_head(worktree=worktree) != target
+            or _clean_worktree_status(worktree=worktree)):
+        raise TicketCycleStateError(
+            label + " baseline did not advance cleanly to the landing")
+    return True
+
+
+def _role_baseline_plan_locked(target, retiring_candidate=None):
+    """Preflight all role baselines without changing a checkout."""
+    candidate_state = read_candidate_state()
+    ticket_state = read_ticket_cycle_state()
+    plan = []
+    for worktree, branch, label in (
+            (AGENT_CWD["fable"], PRIMARY_BRANCH, "Architect"),
+            (AGENT_CWD["sol"], SOL_BRANCH, "Red Team")):
+        _symbolic_worktree_branch(
+            worktree=worktree, expected_branch=branch, label=label)
+        if _clean_worktree_status(worktree=worktree):
+            raise TicketCycleStateError(
+                label + " checkout has work that baseline sync would touch")
+        current = worktree_head(worktree=worktree)
+        _require_ancestor_or_same(
+            ancestor=current, descendant=target,
+            label=label + " baseline is not an ancestor of the landing")
+        plan.append((worktree, branch, label, current != target))
+    opus_head = worktree_head(worktree=AGENT_CWD["opus"])
+    preserved = {record["commit"]
+                 for record in candidate_state["cycles"].values()}
+    preserved.update(
+        cycle_starting_commit(cycle_id)
+        for cycle_id, record in ticket_state["active"].items()
+        if record["phase"] == "implementation")
+    _symbolic_worktree_branch(
+        worktree=AGENT_CWD["opus"], expected_branch=IMPLEMENTER_BRANCH,
+        label="Implementer")
+    if opus_head == retiring_candidate:
+        if _clean_worktree_status(worktree=AGENT_CWD["opus"]):
+            raise TicketCycleStateError(
+                "Implementer candidate C has unsaved work")
+        plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
+                     "Implementer candidate", False))
+    elif opus_head in preserved:
+        plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
+                     "Implementer preserved work", False))
+    else:
+        if _clean_worktree_status(worktree=AGENT_CWD["opus"]):
+            raise TicketCycleStateError(
+                "Implementer checkout has work that baseline sync would "
+                "touch")
+        _require_ancestor_or_same(
+            ancestor=opus_head, descendant=target,
+            label="Implementer baseline is not an ancestor of the landing")
+        plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
+                     "Implementer", opus_head != target))
+    return tuple(plan)
+
+
+def preflight_role_baseline_sync(target, retiring_candidate=None):
+    """Prove every role can preserve or fast-forward before main changes."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        return _role_baseline_plan_locked(
+            target=target, retiring_candidate=retiring_candidate)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def sync_all_clean_role_baselines(target):
+    """Advance clean idle role baselines under exact ticket-state authority."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        plan = _role_baseline_plan_locked(target=target)
+        changed = False
+        for worktree, branch, label, should_sync in plan:
+            if should_sync:
+                changed = (sync_clean_role_baseline(
+                    worktree=worktree, expected_branch=branch,
+                    target=target, label=label) or changed)
+        return changed
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def _permanent_note_commit_paths(base_commit, notes_commit):
+    """Return exact modified paths while refusing structural Git changes."""
+    summary = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["diff", "--summary", base_commit, notes_commit,
+                   "--", "."])
+    if summary.stdout:
+        raise TicketCycleStateError(
+            "permanent-note commit changes a path mode, type, name, or "
+            "existence")
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["diff", "--name-only", "-z", "--diff-filter=M",
+                   base_commit, notes_commit, "--", "."])
+    try:
+        paths = [item.decode("utf-8", errors="strict")
+                 for item in result.stdout.split(b"\0") if item]
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "permanent-note commit path is not UTF-8") from exc
+    if (not paths
+            or len(paths) != len(set(paths))
+            or not set(paths).issubset(set(ARCHITECT_PERMANENT_NOTE_PATHS))):
+        raise TicketCycleStateError(
+            "permanent-note commit must modify only the exact eleven "
+            "allowed note paths")
+    return tuple(paths)
+
+
+def require_architect_notes_commit_object(base_commit, notes_commit):
+    """Prove immutable B-to-P history and its exact note-only path set."""
+    if (not git_commit_exists(commit=base_commit)
+            or not git_commit_exists(commit=notes_commit)):
+        raise TicketCycleStateError(
+            "Architect notes request names a missing B or P commit")
+    if _single_commit_parent(commit=notes_commit) != base_commit:
+        raise TicketCycleStateError(
+            "Architect notes P must be exactly one commit directly on B")
+    _permanent_note_commit_paths(
+        base_commit=base_commit, notes_commit=notes_commit)
+
+
+def require_architect_notes_commit(base_commit, notes_commit,
+                                   allow_landed_replay=False):
+    """Prove clean one-parent B-to-P authority for a note-only landing."""
+    primary = AGENT_CWD["fable"]
+    _symbolic_worktree_branch(
+        worktree=primary, expected_branch=PRIMARY_BRANCH,
+        label="Architect")
+    if _clean_worktree_status(worktree=primary):
+        raise TicketCycleStateError(
+            "Architect note checkout is not clean at commit P")
+    if worktree_head(worktree=primary) != notes_commit:
+        raise TicketCycleStateError(
+            "Architect notes GO does not name primary HEAD P")
+    require_architect_notes_commit_object(
+        base_commit=base_commit, notes_commit=notes_commit)
+    try:
+        _validate_protected_tracked_state(primary_worktree=primary)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(str(exc)) from exc
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    allowed = {base_commit, notes_commit} if allow_landed_replay \
+        else {base_commit}
+    if current_main not in allowed:
+        raise TicketCycleStateError(
+            "Architect notes B is not the exact current main baseline")
+    return current_main
+
+
+def _require_no_ordinary_landing_transition_locked(current_dispatch_path):
+    """Refuse P while ordinary durable work exists; caller holds state lock."""
+    ticket_state = read_ticket_cycle_state()
+    candidate_state = read_candidate_state()
+    if ticket_state["active"] or candidate_state["cycles"]:
+        raise TicketCycleStateError(
+            "permanent notes wait until every active ticket and candidate "
+            "is retired")
+    refs = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["for-each-ref", "--format=%(refname)",
+                   CANDIDATE_REF_ROOT])
+    if refs.stdout.strip():
+        raise TicketCycleStateError(
+            "permanent notes wait until every candidate/landing ref is "
+            "retired")
+    current_key = _path_key(current_dispatch_path)
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"),
+                      os.path.join(MAILBOX, "failed")):
+        for path in glob.glob(os.path.join(directory, "*-to-daemon.md")):
+            if _path_key(path) == current_key:
+                continue
+            try:
+                message = read_cycle_message(path=path)
+            except (OSError, ValueError, TicketCycleStateError) as exc:
+                raise TicketCycleStateError(
+                    "cannot verify another daemon request: " + str(exc)) \
+                    from exc
+            if message.startswith(
+                    MAILBOX_RETURN_HEADER + "architect-go"):
+                raise TicketCycleStateError(
+                    "permanent notes wait for the ordinary Architect GO")
+
+
+def require_no_ordinary_landing_transition(current_dispatch_path):
+    """Refuse P while any ordinary ticket, C/ref, landing ref, or GO remains."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        _require_no_ordinary_landing_transition_locked(
+            current_dispatch_path=current_dispatch_path)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def architect_notes_transition_pending():
+    """Return whether a durable note admin turn or P landing is unresolved."""
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"),
+                      os.path.join(MAILBOX, "failed")):
+        for suffix, header in (
+                ("*-to-fable.md", MAILBOX_ADMIN_HEADER),
+                ("*-to-daemon.md",
+                 MAILBOX_RETURN_HEADER + "architect-notes-go")):
+            for path in glob.glob(os.path.join(directory, suffix)):
+                try:
+                    matches = regular_file_has_prefix(
+                        path=path, prefix=header.encode("ascii"))
+                except (OSError, ValueError):
+                    continue
+                if matches:
+                    return True
+    return False
+
+
+ARCHITECT_NOTES_DEBT_PREFIX = "permanent-note user action required: "
+
+
+def failed_architect_notes_transition_paths():
+    """Return exact failed admin/P files that no watcher may retry itself."""
+    failed = os.path.join(MAILBOX, "failed")
+    found = []
+    for suffix, header in (
+            ("*-to-fable.md", MAILBOX_ADMIN_HEADER),
+            ("*-to-daemon.md",
+             MAILBOX_RETURN_HEADER + "architect-notes-go")):
+        for path in glob.glob(os.path.join(failed, suffix)):
+            try:
+                matches = regular_file_has_prefix(
+                    path=path, prefix=header.encode("ascii"))
+            except (OSError, ValueError):
+                continue
+            if matches:
+                found.append(path)
+    return sorted(found, key=message_sequence)
+
+
+def architect_notes_failed_debt_error():
+    """Explain failed-only note debt as a finite user-action stop."""
+    paths = failed_architect_notes_transition_paths()
+    if not paths:
+        return None
+    relative = [os.path.relpath(path, MAILBOX) for path in paths]
+    return (ARCHITECT_NOTES_DEBT_PREFIX
+            + ", ".join(relative)
+            + "; inspect the saved failure, correct its cause, then move "
+              "only the verified exact request back to the mailbox root "
+              "before restarting the watcher")
+
+
+def message_belongs_to_active_cycle(path, active_cycles):
+    """Return whether one root agent message advances an admitted ticket."""
+    match = PENDING_MESSAGE_RE.match(os.path.basename(path))
+    if match is None:
+        return False
+    try:
+        message = read_cycle_message(path=path)
+    except (OSError, ValueError, TicketCycleStateError):
+        return False
+    agent = match.group(1)
+    if agent in {"fable", "opus"} and message.startswith(
+            MAILBOX_FLOW_HEADER):
+        cycle_id, _mode, _body, problem = _ticket_flow_envelope(
+            message=message)
+        return problem is None and cycle_id in active_cycles
+    if agent == "sol" and sol_ticket_kind(message=message) == "closure":
+        cycle_id = redteam_closure_ticket(message=message)
+        return cycle_id in active_cycles
+    return False
+
+
+def requeue_retryable_daemon_message(dispatch_path):
+    """Return one valid inflight GO to root without calling it malformed."""
+    _path, verified = verified_state_move(
+        dispatch_path=dispatch_path, directory=MAILBOX)
+    return verified
+
+
+def finish_claimed_architect_go(dispatch_path, cycle_id,
+                                candidate_commit, mode):
+    """Finish or replay one already-claimed, well-formed Architect GO."""
+    name = os.path.basename(dispatch_path)
+    main_lock = acquire_main_checkout_turn_lock()
+    if main_lock is None:
+        requeued = requeue_retryable_daemon_message(
+            dispatch_path=dispatch_path)
+        raise FatalArchitectLandingError(
+            "daemon landing lock was unavailable; "
+            + ("the exact GO was returned to the mailbox root"
+               if requeued else
+               "the inflight GO remains preserved for recovery")
+            + ". Stop the other landing process and restart.")
+    try:
+        landing, completed = execute_architect_go_locked(
+            cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
+    except RetryableArchitectLandingError as exc:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+        requeued = requeue_retryable_daemon_message(
+            dispatch_path=dispatch_path)
+        preserved = ("the exact GO was returned to the mailbox root"
+                     if requeued else
+                     "the inflight GO remains preserved for recovery")
+        if "main moved" in str(exc):
+            remedy = (
+                "Automated same-cycle re-audit is not supported yet; keep "
+                "C, L, GO, and the user's work preserved, and do not restart "
+                "this cycle until that recovery is handled explicitly")
+        else:
+            remedy = (
+                "Make the user's unchanged-parent main checkout clean, then "
+                "restart this watcher")
+        raise FatalArchitectLandingError(
+            str(exc) + "; " + preserved + ". " + remedy + ".") from exc
+    except (OSError, TicketCycleStateError) as exc:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("refused " + name + ": exact local landing was not accepted: "
+              + str(exc) + "; "
+              + ("parked in failed/." if parked else
+                 "failed-state move was not verified."))
+        return False, 0, None
+    # State first, archive second. A crash in between leaves one inflight GO
+    # whose exact landing, state, and closure publication replay idempotently.
+    try:
+        write_push_debt(
+            landing=landing,
+            detail="local landing recorded; remote push not yet attempted")
+    except OSError as exc:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+        requeued = requeue_retryable_daemon_message(
+            dispatch_path=dispatch_path)
+        raise FatalArchitectLandingError(
+            "local landing state is durable, but its required push-debt "
+            "note could not be written: " + str(exc) + "; "
+            + ("the exact GO was returned to the mailbox root"
+               if requeued else
+               "the inflight GO remains preserved for recovery")
+            + ". Repair relay-directory writes, then restart.") from exc
+    if not archive_consumed_message(dispatch_path=dispatch_path):
+        release_main_checkout_turn_lock(lock_file=main_lock)
+        return False, 0, landing
+    try:
+        retire_cycle_landing_ref(cycle_id=cycle_id, landing=landing)
+    except (OSError, TicketCycleStateError) as exc:
+        print("  warning: durable state and GO archive are complete, but "
+              "the private landing journal remains for recovery: "
+              + str(exc))
+    try:
+        retired = retire_cycle_candidate(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=landing)
+    except (OSError, TicketCycleStateError) as exc:
+        print("  warning: durable state and GO archive are complete, but "
+              "the private candidate journal remains for recovery: "
+              + str(exc))
+        retired = False
+    try:
+        sync_all_clean_role_baselines(target=landing)
+    except (OSError, TicketCycleStateError) as exc:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+        raise FatalArchitectLandingError(
+            "local landing is durable, but clean role baselines did not "
+            "finish advancing to it: " + str(exc)
+            + "; restart to replay the archived GO recovery") from exc
+    release_main_checkout_turn_lock(lock_file=main_lock)
+    deliver_pending_ticket_cycle_returns()
+    if mode == "two-role":
+        if completed:
+            print("ticket cycle complete at the exact local landing: "
+                  + cycle_id + ".")
+        else:
+            print("ticket cycle was already complete at the exact local "
+                  "landing: " + cycle_id + ".")
+    else:
+        print("recorded exact local landing " + landing
+              + " for ticket cycle " + cycle_id
+              + "; its advisory Red Team review is queued.")
+    try:
+        pushed, detail = push_exact_landing_or_record_debt(landing=landing)
+    except (OSError, ValueError) as exc:
+        pushed = False
+        detail = str(exc)
+    if pushed:
+        print("verified remote main at exact landing " + landing + ".")
+    else:
+        print("local landing is complete; remote push remains follow-up "
+              "debt for " + landing + (": " + detail if detail else "."))
+    return True, completed, landing
+
+
+DAEMON_MESSAGE_CONSUMED = "consumed"
+DAEMON_NOTE_DEFERRED = "retryable-note-deferred"
+DAEMON_MESSAGE_HARD_STOP = "hard-stop"
+
+
+def finish_claimed_architect_notes_go(dispatch_path, base_commit,
+                                      notes_commit, return_outcome=False):
+    """Fast-forward exact note-only P, sync clean roles, archive, and push."""
+    def result(consumed, outcome):
+        ordinary = (consumed, notes_commit)
+        return ordinary + (outcome,) if return_outcome else ordinary
+
+    name = os.path.basename(dispatch_path)
+    main_lock = acquire_main_checkout_turn_lock()
+    if main_lock is None:
+        requeue_retryable_daemon_message(dispatch_path=dispatch_path)
+        raise FatalArchitectLandingError(
+            "Architect note landing lock was unavailable; exact request "
+            "was preserved for restart")
+    main_advanced = False
+    try:
+        try:
+            current_main = require_architect_notes_commit(
+                base_commit=base_commit, notes_commit=notes_commit,
+                allow_landed_replay=True)
+        except TicketCycleStateError as exc:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": note-only landing was invalid: "
+                  + str(exc) + "; "
+                  + ("parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return result(False, DAEMON_MESSAGE_HARD_STOP)
+        landed_replay = current_main == notes_commit
+        if not landed_replay:
+            try:
+                require_no_ordinary_landing_transition(
+                    current_dispatch_path=dispatch_path)
+            except TicketCycleStateError as exc:
+                requeued = requeue_retryable_daemon_message(
+                    dispatch_path=dispatch_path)
+                print("deferred " + name + ": " + str(exc) + "; "
+                      + ("request returned to mailbox root"
+                         if requeued else
+                         "request remains preserved in inflight")
+                      + ". Older admitted ticket work may continue.")
+                return result(False, DAEMON_NOTE_DEFERRED)
+            # Re-prove the no-ticket barrier and exact B/P immediately before
+            # changing the user checkout. The main-turn lock prevents a
+            # landing between these checks and the ff-only operation.
+            require_no_ordinary_landing_transition(
+                current_dispatch_path=dispatch_path)
+            current_main = require_architect_notes_commit(
+                base_commit=base_commit, notes_commit=notes_commit,
+                allow_landed_replay=True)
+            if current_main != base_commit:
+                raise TicketCycleStateError(
+                    "permanent-note B changed before its exact landing")
+        preflight_role_baseline_sync(target=notes_commit)
+        land_prepared_commit_in_clean_user_checkout(
+            landing=notes_commit, parent=base_commit)
+        main_advanced = True
+        try:
+            write_push_debt(
+                landing=notes_commit,
+                detail="local permanent-note landing recorded; remote push "
+                       "not yet attempted")
+        except OSError as exc:
+            requeued = requeue_retryable_daemon_message(
+                dispatch_path=dispatch_path)
+            raise FatalArchitectLandingError(
+                "permanent-note P reached main, but push debt could not be "
+                "saved: " + str(exc) + "; "
+                + ("request returned to mailbox root" if requeued else
+                   "request remains preserved in inflight")) from exc
+        sync_all_clean_role_baselines(target=notes_commit)
+    except RetryableArchitectLandingError as exc:
+        requeued = requeue_retryable_daemon_message(
+            dispatch_path=dispatch_path)
+        raise FatalArchitectLandingError(
+            str(exc) + "; permanent-note request "
+            + ("returned to mailbox root" if requeued
+               else "remains preserved in inflight")) from exc
+    except FatalArchitectLandingError:
+        raise
+    except (OSError, TicketCycleStateError) as exc:
+        requeued = requeue_retryable_daemon_message(
+            dispatch_path=dispatch_path)
+        phase = ("after P reached main" if main_advanced else
+                 "before P changed main")
+        raise FatalArchitectLandingError(
+            "permanent-note landing stopped " + phase + ": " + str(exc)
+            + "; " + ("request returned to mailbox root" if requeued else
+                       "request remains preserved in inflight")
+            + "; restart after correcting the named role baseline") from exc
+    finally:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+    try:
+        receipt_raw = stable_regular_bytes(
+            path=dispatch_path,
+            maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="consumed permanent-note GO receipt")
+    except (OSError, ValueError) as exc:
+        raise FatalArchitectLandingError(
+            "permanent-note P and role baselines are ready, but the exact "
+            "GO receipt could not be reread before archive: " + str(exc)) \
+            from exc
+    receipt_sha256 = hashlib.sha256(receipt_raw).hexdigest()
+    if not archive_consumed_message(dispatch_path=dispatch_path):
+        return result(False, DAEMON_MESSAGE_HARD_STOP)
+    try:
+        retired_journal = retire_validated_commit_admin_journal(
+            base_commit=base_commit, notes_commit=notes_commit,
+            receipt_sha256=receipt_sha256)
+    except (OSError, TicketCycleStateError) as exc:
+        raise FatalArchitectLandingError(
+            "permanent-note GO is archived and P baselines are verified, "
+            "but its validated admin journal remains: " + str(exc)) \
+            from exc
+    if retired_journal:
+        print("retired validated permanent-note admin journal after exact "
+              "P receipt consumption.")
+    try:
+        pushed, detail = push_exact_landing_or_record_debt(
+            landing=notes_commit)
+    except (OSError, ValueError) as exc:
+        pushed, detail = False, str(exc)
+    if pushed:
+        print("verified remote main at permanent-note commit "
+              + notes_commit + ".")
+    else:
+        print("permanent-note landing is complete; remote push remains "
+              "follow-up debt for " + notes_commit
+              + (": " + detail if detail else "."))
+    return result(True, DAEMON_MESSAGE_CONSUMED)
+
+
+def consume_daemon_message(path, dry_run=False, return_outcome=False):
+    """Validate and consume one candidate-bound Architect GO locally.
 
     The daemon recipient is not an AI lane. It exists so cycle completion is
     based on a saved Architect decision instead of inference from prose or a
     changing backlog count.
     """
+    def result(outcome):
+        return outcome if return_outcome \
+            else outcome == DAEMON_MESSAGE_CONSUMED
+
     name = os.path.basename(path)
     dispatch_path = path
     if not dry_run:
         dispatch_path = claim_message(path=path)
         if dispatch_path is None:
-            return False
+            return result(DAEMON_MESSAGE_HARD_STOP)
     try:
         with open(dispatch_path, encoding="utf-8", newline="") as stream:
             message = stream.read()
     except (OSError, UnicodeError) as exc:
         if dry_run:
             print("[dry-run] would refuse " + name + ": " + str(exc))
-            return False
+            return result(DAEMON_MESSAGE_HARD_STOP)
         parked = park_failed_message(dispatch_path=dispatch_path)
-        print("refused " + name + ": cannot read Architect commit receipt; "
+        print("refused " + name + ": cannot read Architect GO request; "
               + ("parked in failed/." if parked else
                  "failed-state move was not verified."))
-        return False
-    cycle_id, commit, mode, problem = _architect_commit_receipt(
+        return result(DAEMON_MESSAGE_HARD_STOP)
+    if message.startswith(MAILBOX_RETURN_HEADER + "architect-notes-go"):
+        base_commit, notes_commit, problem = (
+            _architect_notes_go_request(message=message))
+        if problem is not None:
+            if dry_run:
+                print("[dry-run] would refuse " + name + ": " + problem)
+                return result(DAEMON_MESSAGE_HARD_STOP)
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": " + problem + "; "
+                  + ("parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return result(DAEMON_MESSAGE_HARD_STOP)
+        if dry_run:
+            print("[dry-run] would land exact permanent-note commit "
+                  + notes_commit + " on " + base_commit)
+            return result(DAEMON_MESSAGE_CONSUMED)
+        _consumed, _notes_commit, outcome = (
+            finish_claimed_architect_notes_go(
+            dispatch_path=dispatch_path, base_commit=base_commit,
+            notes_commit=notes_commit, return_outcome=True))
+        return result(outcome)
+    cycle_id, candidate_commit, mode, problem = _architect_go_request(
         message=message)
     if problem is not None:
         if dry_run:
             print("[dry-run] would refuse " + name + ": " + problem)
-            return False
+            return result(DAEMON_MESSAGE_HARD_STOP)
         parked = park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": " + problem + "; "
               + ("parked in failed/." if parked else
                  "failed-state move was not verified."))
-        return False
+        return result(DAEMON_MESSAGE_HARD_STOP)
     if dry_run:
-        if not git_commit_descends_from(
-                starting_commit=cycle_starting_commit(cycle_id),
-                accepted_commit=commit):
-            reason = ("accepted commit must be a new descendant of the "
-                      "cycle's starting commit")
-            print("[dry-run] would refuse " + name + ": " + reason)
-            return False
-        print("[dry-run] would record Architect commit receipt " + name)
-        return True
-    was_emergency_implementation = False
+        print("[dry-run] would prepare and locally land exact candidate "
+              + candidate_commit + " from Architect GO " + name)
+        return result(DAEMON_MESSAGE_CONSUMED)
+    consumed, _completed, _landing = finish_claimed_architect_go(
+        dispatch_path=dispatch_path, cycle_id=cycle_id,
+        candidate_commit=candidate_commit, mode=mode)
+    return result(DAEMON_MESSAGE_CONSUMED if consumed
+                  else DAEMON_MESSAGE_HARD_STOP)
+
+
+def release_unstarted_ticket_reservation(cycle_id):
+    """Remove only a new implementation reservation that was never claimed."""
+    lock_file = acquire_ticket_cycle_lock()
     try:
-        if mode.startswith("emergency-"):
-            state_before_receipt = read_ticket_cycle_state()
-            saved_before_receipt = state_before_receipt["active"].get(
-                cycle_id)
-            was_emergency_implementation = (
-                saved_before_receipt is not None
-                and saved_before_receipt["phase"] == "implementation"
-                and saved_before_receipt["mode"] == mode)
-        completed = record_architect_commit(
-            cycle_id=cycle_id, accepted_commit=commit, mode=mode)
-    except TicketCycleStateError as exc:
-        parked = park_failed_message(dispatch_path=dispatch_path)
-        print("refused " + name + ": ticket-cycle state was not updated: "
-              + str(exc) + "; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
-        return False
-    # State first, archive second. A crash in between leaves one inflight
-    # receipt whose exact transition is idempotent on restart. A rejected
-    # state transition is parked above and can never become poisoned done/.
-    if not archive_consumed_message(dispatch_path=dispatch_path):
-        return False
-    unpaired_emergency = False
-    if was_emergency_implementation and not completed:
-        state_after_receipt = read_ticket_cycle_state()
-        unpaired_emergency = (
-            state_after_receipt["completed"].get(cycle_id) == commit
-            and cycle_id not in state_after_receipt["active"])
-    if completed:
-        print("emergency cycle complete: one primary and one second "
-              "Implementer ticket were accepted and committed.")
-    elif unpaired_emergency:
-        print("finished unpaired emergency ticket " + cycle_id
-              + "; no ticket cycle was counted and no new emergency work "
-              "will be started to fill the missing half.")
-    else:
-        print("recorded Architect commit for ticket cycle " + cycle_id + ".")
-    deliver_pending_ticket_cycle_returns()
-    if mode.startswith("emergency-"):
-        counts = backlog_severity_counts()
-        if not second_implementer_emergency(counts=counts):
-            print("emergency threshold cleared: finish second-Implementer "
-                  "work already assigned, but assign no new second-"
-                  "Implementer ticket. Sol returns to Red Team duty after "
-                  "the outstanding emergency pair is complete.")
-    return True
+        state = read_ticket_cycle_state()
+        current = state["active"].get(cycle_id)
+        if (current is not None and current["phase"] == "implementation"
+                and current["commit"] is None):
+            del state["active"][cycle_id]
+            write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def implementer_reservation_preflight_problem(path, message):
+    """Return a permanent pre-launch problem before a slot is reserved."""
+    if "\x00" in message:
+        return "the message contains a NUL byte"
+    if not valid_duration(value=DISPATCH_TIMEOUT_MINUTES,
+                          strictly_positive=True):
+        return "the dispatch timeout is invalid"
+    try:
+        timeout_events(name=os.path.basename(path))
+    except (OSError, ValueError, json.JSONDecodeError,
+            OverflowError, RecursionError) as exc:
+        return "timeout history cannot be verified: " + str(exc)
+    _, _, body, problem = _ticket_flow_envelope(message=message)
+    if problem is None and placeholder_in(message=body) is not None:
+        return "the Implementer body is only a template placeholder"
+    return problem
+
+
+def reserve_architect_ticket_before_claim(path, skip_redteam=False):
+    """Durably charge one valid public request before Architect launch.
+
+    The exact request basename and SHA-256 stay charged until the same turn's
+    first Implementer handoff carries their admission token.  This closes the
+    interval in which a finite watch used to launch two public requests before
+    either one had reached the Implementer lane.
+    """
+    controller = _ACTIVE_WATCH_RENDEZVOUS
+    if controller is None or controller.ticket_cycle_limit_value() is None:
+        return None, None
+    name = os.path.basename(path)
+    match = PENDING_MESSAGE_RE.fullmatch(name)
+    if match is None or match.group(1) != "fable":
+        return None, None
+    try:
+        message = read_cycle_message(path=path)
+    except (OSError, ValueError, TicketCycleStateError):
+        return None, None
+    if (not message.startswith(SOL_SEVERITY_HEADER)
+            or architect_user_request_problem(message=message) is not None
+            or placeholder_in(
+                message=architect_user_request_body(message=message))
+            is not None
+            or "\x00" in message):
+        return None, None
+    digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    topology = canonical_ticket_cycle_topology(
+        skip_redteam=skip_redteam)
+    record = {"mode": topology, "sequence": message_sequence(path),
+              "sha256": digest}
+    token = architect_admission_token(
+        request_name=name, digest=digest)
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        existing = state["architect_admissions"].get(name)
+        if existing is not None:
+            if existing != record:
+                raise TicketCycleStateError(
+                    "saved public Architect admission changed identity")
+            return None, token
+        for earlier_path in pending_messages():
+            if message_sequence(earlier_path) >= record["sequence"]:
+                break
+            earlier_match = PENDING_MESSAGE_RE.fullmatch(
+                os.path.basename(earlier_path))
+            if earlier_match is None or earlier_match.group(1) != "opus":
+                continue
+            try:
+                earlier_message = read_cycle_message(path=earlier_path)
+            except (OSError, ValueError, TicketCycleStateError):
+                continue
+            earlier_cycle, earlier_mode, _body, earlier_problem = (
+                _ticket_flow_envelope(message=earlier_message))
+            if (earlier_problem is None
+                    and ticket_cycle_mode_is_enabled(
+                        mode=earlier_mode, skip_redteam=skip_redteam)
+                    and earlier_cycle not in state["active"]):
+                return ("an earlier Implementer handoff must reserve its "
+                        "ticket before this public request", None)
+        if architect_notes_transition_pending():
+            return ("a permanent-note admin turn or P landing is still "
+                    "pending; no newer ticket may be admitted", None)
+        used = finite_cycle_capacity_used(
+            state=state, skip_redteam=skip_redteam)
+        if used >= controller.ticket_cycle_limit_value():
+            return ("the finite watch has already reserved all "
+                    + str(controller.ticket_cycle_limit_value())
+                    + " ticket cycle(s)", None)
+        state["architect_admissions"][name] = record
+        write_ticket_cycle_state(state=state)
+        return None, token
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def release_architect_ticket_admission(token):
+    """Atomically retire one exact public request that created no ticket."""
+    request_name, digest = split_architect_admission_token(token=token)
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        record = state["architect_admissions"].get(request_name)
+        if record is None or record["sha256"] != digest:
+            raise TicketCycleStateError(
+                "public Architect admission changed before release")
+        del state["architect_admissions"][request_name]
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def reserve_implementer_ticket_before_claim(path, skip_redteam=False):
+    """Reserve one finite-watch ticket slot while its root file is untouched.
+
+    Malformed or otherwise invalid messages are left for the ordinary
+    dispatch validator, which can park them with a concrete explanation. Only
+    the positive-cycle capacity refusal is returned here because it is a
+    valid ticket for a later watch, not a failed message.
+    """
+    match = PENDING_MESSAGE_RE.match(os.path.basename(path))
+    if match is None or match.group(1) != "opus":
+        return None, None
+    try:
+        message = read_cycle_message(path=path)
+    except (OSError, ValueError, TicketCycleStateError):
+        return None, None
+    if not message.startswith(MAILBOX_FLOW_HEADER):
+        return None, None
+    preflight_problem = implementer_reservation_preflight_problem(
+        path=path, message=message)
+    if preflight_problem is not None:
+        return None, None
+    try:
+        _, _, created = register_ticket_cycle_message(
+            agent="opus", message=message,
+            skip_redteam=skip_redteam,
+            return_reservation=True,
+            implementer_request_name=os.path.basename(path))
+    except TicketCycleLimitDeferred as exc:
+        return str(exc), None
+    except TicketCycleStateError:
+        return None, None
+    if not created:
+        return None, None
+    parsed_cycle, _, _, problem = _ticket_flow_envelope(message=message)
+    admission_name, _admission_digest, admission_problem = (
+        _ticket_architect_admission(message=message))
+    converted_public_admission = (
+        admission_problem is None and admission_name is not None)
+    return None, (parsed_cycle if (problem is None
+                                   and not converted_public_admission)
+                  else None)
 
 
 def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
@@ -5579,30 +9599,63 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
     """
     all_consumed = True
     for path in paths:
+        notes_admin = False
+        try:
+            notes_admin = regular_file_has_prefix(
+                path=path,
+                prefix=MAILBOX_ADMIN_HEADER.encode("ascii"))
+        except (OSError, ValueError):
+            pass
         controller = (_ACTIVE_WATCH_RENDEZVOUS
                       if not dry_run else None)
         if (controller is not None
-                and controller.ticket_cycle_limit_reached()):
+                and controller.ticket_cycle_limit_reached()
+                and not notes_admin):
             # The message remains in the mailbox root for a later watch. A
             # child already launched in another lane may still finish, but no
             # additional turn is admitted after the requested count returns.
             break
         permit = None
         if controller is not None:
-            permit = controller.begin_attempt()
+            permit = controller.begin_attempt(
+                ignore_ticket_limit=notes_admin)
             if permit is None:
                 # A watch-global rendezvous is due.  Leave this exact root
                 # message untouched; main performs the safe window only after
                 # every lane worker has returned.
                 break
             _RENDEZVOUS_LOCAL.permit = permit
+        new_reservation_cycle = None
+        architect_admission = None
         try:
+            if not dry_run:
+                deferred, architect_admission = (
+                    reserve_architect_ticket_before_claim(
+                        path=path, skip_redteam=skip_redteam))
+                if deferred is not None:
+                    print("deferred " + os.path.basename(path) + ": "
+                          + deferred + "; root message remains untouched.")
+                    continue
+                deferred, new_reservation_cycle = (
+                    reserve_implementer_ticket_before_claim(
+                        path=path,
+                        skip_redteam=skip_redteam))
+                if deferred is not None:
+                    print("deferred " + os.path.basename(path) + ": "
+                          + deferred + "; root message remains untouched.")
+                    # A later file may continue an already reserved ticket.
+                    continue
             if skip_redteam:
                 consumed = dispatch(
                     path=path, dry_run=dry_run, fix_only=fix_only,
-                    skip_redteam=True)
+                    skip_redteam=True,
+                    new_reservation_cycle=new_reservation_cycle,
+                    architect_admission=architect_admission)
             else:
-                consumed = dispatch(path=path, dry_run=dry_run, fix_only=fix_only)
+                consumed = dispatch(
+                    path=path, dry_run=dry_run, fix_only=fix_only,
+                    new_reservation_cycle=new_reservation_cycle,
+                    architect_admission=architect_admission)
         finally:
             if controller is not None:
                 try:
@@ -5621,16 +9674,13 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
 def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     """Dispatch the whole backlog: lanes in PARALLEL, each lane in order.
 
-    In the default topology the three agents are independent sessions, so
-    Opus can execute a unit while Sol attacks another -- but two messages to
-    the SAME agent must
-    stay sequential (a lane is one conversation partner, not a pool), and
-    two agents sharing a WORKING DIRECTORY must too: concurrent turns in
-    one git tree race each other's index (the 2026-07-14 incident where a
-    live edit was swept into another agent's commit). So the parallel unit
-    is the cwd: Fable+Opus (same worktree) serialize. Sol has its own saved
-    worktree and can run alongside either Claude role. Only Architect turns
-    take the root landing-authority lock.
+    Live topology gives each role a separate saved working directory. The
+    Architect may audit one frozen candidate while the Implementer advances
+    another cycle and Sol reviews an exact daemon-recorded landing L. Two
+    messages to the same role remain sequential, and imported tests that
+    deliberately share a cwd remain serialized. The parallel unit is still
+    the cwd. Architect decisions and parent-daemon landing transitions share
+    one root lock; the Implementer and Red Team lanes do not take it.
 
     Arguments:
       dry_run  = True to print the would-be commands without running them.
@@ -5644,40 +9694,108 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     """
     if not dry_run:
         try:
-            sync_ticket_cycle_emergency_condition()
+            read_ticket_cycle_state()
         except (OSError, ValueError, TicketCycleStateError) as exc:
-            print("refused mailbox pass: cannot verify ticket-cycle and "
-                  "emergency state (" + str(exc) + "); no new role work "
-                  "was started. Repair ai/notes/backlog.md or the saved "
-                  "ticket-cycle state, then run the watcher again.")
+            print("refused mailbox pass: cannot verify ticket-cycle state ("
+                  + str(exc) + "); no new role work was started. Repair the "
+                  "saved ticket-cycle state, then run the watcher again.")
             return False
     all_backlog = pending_messages()
-    daemon_paths = [
+    all_daemon_paths = [
         path for path in all_backlog
         if PENDING_MESSAGE_RE.match(os.path.basename(path)).group(1)
         == "daemon"]
+    daemon_paths = [
+        path for path in all_daemon_paths
+        if message_is_enabled_for_topology(
+            path=path, skip_redteam=skip_redteam)]
     daemon_outcome = True
     for daemon_path in daemon_paths:
-        controller = (_ACTIVE_WATCH_RENDEZVOUS
-                      if not dry_run else None)
-        if (controller is not None
-                and controller.ticket_cycle_limit_reached()):
-            break
-        if not consume_daemon_message(path=daemon_path, dry_run=dry_run):
+        # This GO belongs to a ticket already admitted against the finite
+        # limit. Always finish its durable landing/archive recovery. The
+        # positive limit gates new role work in drain_lane(), never this
+        # already-admitted daemon transition.
+        outcome = consume_daemon_message(
+            path=daemon_path, dry_run=dry_run, return_outcome=True)
+        if outcome == DAEMON_NOTE_DEFERRED:
+            # An unlanded P can wait behind a later, already-admitted
+            # ordinary GO. Continue the daemon lane so that exact ticket can
+            # reach L and clear P's idle-boundary requirement.
+            daemon_outcome = False
+            continue
+        if outcome != DAEMON_MESSAGE_CONSUMED:
             daemon_outcome = False
             break
-    all_backlog = [path for path in all_backlog
-                   if path not in daemon_paths]
-    if skip_redteam:
-        backlog = [path for path in all_backlog
-                   if PENDING_MESSAGE_RE.match(
-                       os.path.basename(path)).group(1) != "sol"]
-    else:
-        backlog = all_backlog
+    agent_backlog = [path for path in all_backlog
+                     if path not in all_daemon_paths]
+    backlog = [
+        path for path in agent_backlog
+        if message_is_enabled_for_topology(
+            path=path, skip_redteam=skip_redteam)]
     if skip_redteam:
         blockers = inflight_lane_blockers(skip_redteam=True)
     else:
         blockers = inflight_lane_blockers()
+    admin_paths = []
+    for candidate in backlog:
+        match = PENDING_MESSAGE_RE.match(os.path.basename(candidate))
+        if match is None or match.group(1) != "fable":
+            continue
+        try:
+            admin_prefix = regular_file_has_prefix(
+                path=candidate,
+                prefix=MAILBOX_ADMIN_HEADER.encode("ascii"))
+        except (OSError, ValueError):
+            admin_prefix = False
+        if admin_prefix:
+            admin_paths.append(candidate)
+    if admin_paths:
+        admin_paths.sort(key=message_sequence)
+        admin_path = admin_paths[0]
+        boundary = message_sequence(admin_path)
+        state = read_ticket_cycle_state()
+        limit_reached = (
+            _ACTIVE_WATCH_RENDEZVOUS is not None
+            and _ACTIVE_WATCH_RENDEZVOUS.ticket_cycle_limit_reached())
+        earlier = ([] if limit_reached else [
+            candidate for candidate in backlog
+            if (candidate != admin_path
+                and message_sequence(candidate) < boundary)])
+        admitted = [candidate for candidate in backlog
+                    if (candidate != admin_path
+                        and message_belongs_to_active_cycle(
+                            path=candidate,
+                            active_cycles=state["active"]))]
+        older_work = list(dict.fromkeys(earlier + admitted))
+        admin_problem = None
+        try:
+            require_no_ordinary_landing_transition(
+                current_dispatch_path=admin_path)
+        except (OSError, TicketCycleStateError) as exc:
+            admin_problem = str(exc)
+        if not older_work and not blockers and admin_problem is None:
+            # An eligible note turn is the sole launch in this pass.  The
+            # dispatch itself holds main->ticket locks across the child, so a
+            # second watcher cannot reserve Opus during B-to-P creation.
+            backlog = [admin_path]
+        else:
+            # Keep the admin root and every later request untouched.  Only
+            # work that was already waiting or belongs to an admitted older
+            # cycle may advance toward the idle boundary.
+            backlog = older_work
+            explanation = (admin_problem if admin_problem is not None else
+                           "older mailbox work or an inflight lane remains")
+            print("deferred " + os.path.basename(admin_path)
+                  + ": permanent-note administration waits for an idle "
+                  "boundary (" + explanation + ").")
+    elif architect_notes_transition_pending():
+        # A validated P request may wait behind an older admitted cycle.
+        # Continue that cycle, but never admit unrelated/newer work before P
+        # reaches main and the clean role baselines.
+        active = read_ticket_cycle_state()["active"]
+        backlog = [candidate for candidate in backlog
+                   if message_belongs_to_active_cycle(
+                       path=candidate, active_cycles=active)]
     if all_backlog or daemon_paths:
         if skip_redteam:
             report_demand(backlog=all_backlog, skip_redteam=True)
@@ -5761,11 +9879,11 @@ def report_deferred_sol_messages():
 
 
 def report_demand(backlog, skip_redteam=False):
-    """Print queue depth, severity counts, and the emergency reminder.
+    """Print queue depth and the classified backlog counts.
 
     Queue depth is informational. New-discovery admission counts open
-    Critical, High, and Medium tickets. The second-Implementer emergency
-    counts Critical and High separately. Low tickets affect neither decision.
+    Critical, High, and Medium tickets. Low tickets do not stop discovery.
+    Backlog counts never select Sol's role.
 
     Arguments:
       backlog = Current waiting message paths from pending_messages().
@@ -5795,78 +9913,82 @@ def report_demand(backlog, skip_redteam=False):
     if counts["unclassified"]:
         print("  warning: classify every open backlog ticket before new "
               "discovery; an unclassified ticket fails closed.")
-    if second_implementer_emergency(counts=counts) and not skip_redteam:
-        print("  emergency: " + str(counts["critical"])
-              + " open Critical bugs and " + str(counts["high_bug_fix"])
-              + " open High bugs. The Architect may give Sol a separate "
-              "implementation job only because more than 1 Critical or more "
-              "than 10 High bugs are open. High features never contribute. "
-              "The exact Architect "
-              "declaration is still required; otherwise Sol remains the Red "
-              "Team.")
     report_landing_debt()
 
 
 def landing_debt_snapshot():
-    """Measure the current branch's content delta from main.
+    """Measure only saved, unlanded Implementer candidates.
 
-    Returns a mapping with ``available``, ``stat``, and ``changed_lines``.
-    Git failures remain data instead of disappearing: every demand report
-    must still print one truthful debt line when the main ref is unavailable.
+    The Architect primary branch is a planning lane, so comparing that branch
+    with main mistakes completed landings and protected-note edits for code
+    awaiting review. Candidate refs plus active ticket state are the daemon's
+    durable authority for work that can still need an Architect decision.
     """
-    proc = subprocess.run(
-        ["git", "diff", "--shortstat", "main..HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=WORKTREE)
-    if proc.returncode != 0:
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        ticket_state = read_ticket_cycle_state()
+        candidate_state = read_candidate_state()
+        changed_lines = 0
+        diff_ranges = []
+        for cycle_id, saved in candidate_state["cycles"].items():
+            active = ticket_state["active"].get(cycle_id)
+            if active is None and cycle_id not in ticket_state["completed"]:
+                raise TicketCycleStateError(
+                    "candidate debt has no active or completed ticket")
+            if active is None or active["phase"] != "implementation":
+                # A candidate retained across GO archival or checkout handoff
+                # is recovery authority, not new work needing another audit.
+                continue
+            record = candidate_record_locked(
+                cycle_id=cycle_id, ticket_state=ticket_state,
+                candidate_state=candidate_state, recover=False)
+            if record is None or record != saved:
+                raise TicketCycleStateError(
+                    "active candidate debt lost its durable identity")
+            base = cycle_starting_commit(cycle_id)
+            diff_ranges.append((base, saved["commit"]))
+        for base, candidate in diff_ranges:
+            process = subprocess.run(
+                ["git", "diff", "--shortstat", base + ".." + candidate],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, cwd=AGENT_CWD["fable"], check=False)
+            if process.returncode != 0:
+                return {
+                    "available": False, "stat": "", "changed_lines": 0,
+                    "returncode": process.returncode}
+            for count, _keyword in re.findall(
+                    r"(\d+) (insertion|deletion)", process.stdout):
+                changed_lines = changed_lines + int(count)
+        active_candidates = len(diff_ranges)
+    except (OSError, ValueError, TicketCycleStateError):
         return {
-            "available": False,
-            "stat": "",
-            "changed_lines": 0,
-            "returncode": proc.returncode,
-        }
-    shortstat = proc.stdout.strip()
-    changed_lines = 0
-    # --shortstat prints e.g. "3 files changed, 120 insertions(+), 4
-    # deletions(-)"; debt is the total content lines touched either way.
-    for count, _keyword in re.findall(
-            r"(\d+) (insertion|deletion)", shortstat):
-        changed_lines = changed_lines + int(count)
+            "available": False, "stat": "", "changed_lines": 0,
+            "returncode": 1}
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+    stat_line = ""
+    if active_candidates:
+        noun = "candidate" if active_candidates == 1 else "candidates"
+        stat_line = (str(active_candidates) + " active " + noun + ", "
+                     + str(changed_lines) + " changed lines")
     return {
-        "available": True,
-        "stat": shortstat,
-        "changed_lines": changed_lines,
-        "returncode": 0,
-    }
+        "available": True, "stat": stat_line,
+        "changed_lines": changed_lines, "returncode": 0}
 
 
 def report_landing_debt(snapshot=None):
-    """Print how much branch content has not yet landed on main.
-
-    The milestone that must land is ONE FULL AUDIT TRAIL: the feature,
-    its witness or gate leg, and the audit decision. Debt past
-    LANDING_DEBT_LINE_LIMIT changed lines means an audited unit is
-    sitting unlanded, which is how the 12,000-line batch landing of
-    2026-07-14 happened (user rule: land at every audit-GO boundary,
-    one unit per squash commit). Content is measured with git diff
-    against main -- a commit count would never drop after a squash
-    landing, because squashing leaves the original branch commits
-    outside main's ancestry.
-
-    Returns the structured snapshot so callers may reuse the measurement.
-    """
+    """Print saved candidate size without treating role branches as debt."""
     if snapshot is None:
         snapshot = landing_debt_snapshot()
     if not snapshot["available"]:
-        print("landing debt: unavailable; git diff --shortstat main..branch "
-              "exited " + str(snapshot["returncode"]))
+        print("landing debt: unavailable; active candidate state could not "
+              "be measured (check exited "
+              + str(snapshot["returncode"]) + ")")
         return snapshot
     if snapshot["stat"] == "":
-        print("landing debt: none; the branch and main hold the "
-              "same content")
+        print("landing debt: none; no saved active candidate is waiting")
         return snapshot
-    print("landing debt: " + snapshot["stat"] + " vs main")
+    print("landing debt: " + snapshot["stat"])
     if snapshot["changed_lines"] > LANDING_DEBT_LINE_LIMIT:
         print("  hint: more than " + str(LANDING_DEBT_LINE_LIMIT)
               + " unlanded lines means at least one full audit trail "
@@ -5874,11 +9996,6 @@ def report_landing_debt(snapshot=None):
               "now, one unit per commit "
               "(.claude/FABLE_ROLE.md, Landing granularity).")
     return snapshot
-
-
-def landing_debt_state_path():
-    """Return the ignored per-mailbox deduplication state path."""
-    return os.path.join(MAILBOX, LANDING_DEBT_STATE_NAME)
 
 
 def fsync_directory(directory):
@@ -5893,7 +10010,7 @@ def fsync_directory(directory):
         os.close(descriptor)
 
 
-def acquire_landing_debt_sequence_lock():
+def acquire_mailbox_sequence_lock():
     """Acquire the publication lock without following or blocking on devices."""
     lock_path = os.path.join(MAILBOX, ".sequence.lock")
     try:
@@ -5905,7 +10022,7 @@ def acquire_landing_debt_sequence_lock():
         flags |= getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(lock_path, flags, 0o600)
     except OSError as exc:
-        print("landing-debt auto-handoff blocked: sequence lock failed ("
+        print("mailbox publication blocked: sequence lock failed ("
               + str(exc) + ").")
         return None
     lock_file = os.fdopen(descriptor, "r+", encoding="utf-8")
@@ -5924,7 +10041,7 @@ def acquire_landing_debt_sequence_lock():
                 != (current.st_dev, current.st_ino)):
             raise OSError("sequence lock path changed")
     except OSError as exc:
-        print("landing-debt auto-handoff blocked: sequence lock failed ("
+        print("mailbox publication blocked: sequence lock failed ("
               + str(exc) + ").")
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
@@ -5935,7 +10052,7 @@ def acquire_landing_debt_sequence_lock():
     return lock_file
 
 
-def release_landing_debt_sequence_lock(lock_file):
+def release_mailbox_sequence_lock(lock_file):
     """Release a landing-debt sequence lock."""
     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     lock_file.close()
@@ -6015,6 +10132,18 @@ class TicketCycleStateError(RuntimeError):
     """The daemon-owned ticket-cycle record is unsafe or inconsistent."""
 
 
+class RetryableArchitectLandingError(TicketCycleStateError):
+    """A valid GO is preserved until the user's main checkout is safe."""
+
+
+class FatalArchitectLandingError(TicketCycleStateError):
+    """Stop this process after preserving a valid GO for a later retry."""
+
+
+class TicketCycleLimitDeferred(TicketCycleStateError):
+    """A valid new ticket belongs to a later finite watch."""
+
+
 def ticket_cycle_state_path():
     """Return the ignored daemon-owned ticket-cycle state path."""
     return os.path.join(MAILBOX, TICKET_CYCLE_STATE_NAME)
@@ -6026,37 +10155,28 @@ def empty_ticket_cycle_state():
         "schema": TICKET_CYCLE_STATE_SCHEMA,
         "generation": 0,
         "pending_cycle_returns": 0,
-        "emergency_epoch": 0,
-        "emergency_condition": False,
+        "finite_watch": None,
+        "architect_admissions": {},
         "active": {},
         "completed": {},
-        "emergency_commits": [],
     }
 
 
 def validate_ticket_cycle_state(payload):
-    """Return a normalized ticket-cycle state or raise fail closed."""
-    legacy_required = {
-        "schema", "generation", "emergency_epoch", "emergency_condition",
-        "active", "completed", "emergency_commits"}
-    if (isinstance(payload, dict)
-            and payload.get("schema") == LEGACY_TICKET_CYCLE_STATE_SCHEMA
-            and set(payload) == legacy_required):
-        # Schema 2 predates crash-safe delivery to a positive --cycle
-        # controller. Historical completions were already consumed by their
-        # owning process, so migration must not invent a pending return.
-        payload = dict(payload)
-        payload["schema"] = TICKET_CYCLE_STATE_SCHEMA
-        payload["pending_cycle_returns"] = 0
-    required = {"schema", "generation", "emergency_epoch",
-                "emergency_condition", "active", "completed",
-                "emergency_commits", "pending_cycle_returns"}
+    """Return current ticket-cycle state; refuse every retired schema."""
+    schema = payload.get("schema") if isinstance(payload, dict) else None
+    if schema != TICKET_CYCLE_STATE_SCHEMA:
+        raise TicketCycleStateError(
+            "saved ticket-cycle state uses an unsupported old schema; "
+            "stop every older watcher, preserve the state for inspection, "
+            "then remove or reinitialize it deliberately")
+    required = {"schema", "generation", "active", "completed",
+                "pending_cycle_returns", "finite_watch",
+                "architect_admissions"}
     if not isinstance(payload, dict) or set(payload) != required:
         raise TicketCycleStateError("ticket-cycle state has wrong keys")
     generation = payload.get("generation")
     pending_cycle_returns = payload.get("pending_cycle_returns")
-    emergency_epoch = payload.get("emergency_epoch")
-    emergency_condition = payload.get("emergency_condition")
     if (payload.get("schema") != TICKET_CYCLE_STATE_SCHEMA
             or isinstance(generation, bool)
             or not isinstance(generation, int)
@@ -6068,71 +10188,74 @@ def validate_ticket_cycle_state(payload):
             or pending_cycle_returns > generation):
         raise TicketCycleStateError(
             "ticket-cycle state has invalid pending cycle returns")
-    if (isinstance(emergency_epoch, bool)
-            or not isinstance(emergency_epoch, int)
-            or emergency_epoch < 0 or emergency_epoch > MAX_CYCLE_COUNT
-            or not isinstance(emergency_condition, bool)):
-        raise TicketCycleStateError(
-            "ticket-cycle state has invalid emergency identity")
     active = payload.get("active")
     completed = payload.get("completed")
-    emergency = payload.get("emergency_commits")
+    architect_admissions = payload.get("architect_admissions")
+    finite_watch = payload.get("finite_watch")
     if (not isinstance(active, dict) or not isinstance(completed, dict)
-            or not isinstance(emergency, list)):
+            or not isinstance(architect_admissions, dict)):
         raise TicketCycleStateError("ticket-cycle collections are invalid")
-    if (len(active) + len(completed) + len(emergency)
+    if (len(active) + len(completed) + len(architect_admissions)
             > MAX_TICKET_CYCLE_RECORDS):
         raise TicketCycleStateError("ticket-cycle state has too many records")
+    normalized_admissions = {}
+    for request_name, record in architect_admissions.items():
+        match = (PENDING_MESSAGE_RE.fullmatch(request_name)
+                 if isinstance(request_name, str) else None)
+        if (match is None or match.group(1) != "fable"
+                or not isinstance(record, dict)
+                or set(record) != {"mode", "sequence", "sha256"}):
+            raise TicketCycleStateError(
+                "invalid Architect ticket admission")
+        sequence = record.get("sequence")
+        digest = record.get("sha256")
+        mode = record.get("mode")
+        if (isinstance(sequence, bool) or not isinstance(sequence, int)
+                or sequence != sequence_in_name(request_name)
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                or mode not in ARCHITECT_COMMIT_MODES):
+            raise TicketCycleStateError(
+                "Architect ticket admission has invalid fields")
+        normalized_admissions[request_name] = {
+            "mode": mode, "sequence": sequence, "sha256": digest}
     normalized_active = {}
     for cycle_id, record in active.items():
         if (not isinstance(cycle_id, str)
                 or CYCLE_ID_RE.fullmatch(cycle_id) is None
                 or not isinstance(record, dict)
-                or set(record) != {"phase", "commit", "mode", "route",
-                                   "epoch"}):
+                or set(record) != {"phase", "commit", "mode", "route"}):
             raise TicketCycleStateError("invalid active ticket-cycle record")
         phase = record.get("phase")
         commit = record.get("commit")
         mode = record.get("mode")
         route = record.get("route")
-        epoch = record.get("epoch")
         if phase not in {"implementation", "committed-awaiting-closure",
-                         "awaiting-redteam", "emergency-committed"}:
+                         "awaiting-redteam"}:
             raise TicketCycleStateError("invalid active ticket-cycle phase")
         if phase == "implementation" and commit is not None:
             raise TicketCycleStateError(
-                "implementation cycle unexpectedly names an accepted commit")
+                "implementation cycle unexpectedly names landing L")
         if mode not in ARCHITECT_COMMIT_MODES:
             raise TicketCycleStateError("ticket-cycle mode is invalid")
-        expected_route = ("second" if mode == "emergency-second"
-                          else "primary")
-        if route != expected_route:
+        if route != "primary":
             raise TicketCycleStateError(
                 "ticket-cycle mode conflicts with its Implementer route")
-        if mode.startswith("emergency-"):
-            if (isinstance(epoch, bool) or not isinstance(epoch, int)
-                    or epoch <= 0 or epoch > emergency_epoch):
-                raise TicketCycleStateError(
-                    "emergency ticket lacks a valid emergency period")
-        elif epoch is not None:
-            raise TicketCycleStateError(
-                "ordinary ticket unexpectedly names an emergency period")
         if (phase != "implementation"
                 and (not isinstance(commit, str)
                      or FULL_COMMIT_RE.fullmatch(commit) is None)):
             raise TicketCycleStateError(
-                "committed ticket cycle lacks a full accepted commit")
+                "committed ticket cycle lacks a full daemon-recorded "
+                "landing L")
         expected_modes = {
             "committed-awaiting-closure": {"normal"},
             "awaiting-redteam": {"normal"},
-            "emergency-committed": {"emergency-primary",
-                                     "emergency-second"},
         }
         if phase != "implementation" and mode not in expected_modes[phase]:
             raise TicketCycleStateError("ticket-cycle mode conflicts with phase")
         normalized_active[cycle_id] = {
             "phase": phase, "commit": commit, "mode": mode,
-            "route": route, "epoch": epoch}
+            "route": route}
     normalized_completed = {}
     for cycle_id, commit in completed.items():
         if (not isinstance(cycle_id, str)
@@ -6144,43 +10267,39 @@ def validate_ticket_cycle_state(payload):
             raise TicketCycleStateError(
                 "ticket cycle is both active and completed")
         normalized_completed[cycle_id] = commit
-    normalized_emergency = []
-    emergency_cycles = set()
-    for record in emergency:
-        if (not isinstance(record, dict)
-                or set(record) != {"cycle", "commit", "implementer",
-                                   "epoch"}
-                or not isinstance(record.get("cycle"), str)
-                or CYCLE_ID_RE.fullmatch(record["cycle"]) is None
-                or not isinstance(record.get("commit"), str)
-                or FULL_COMMIT_RE.fullmatch(record["commit"]) is None
-                or record.get("implementer") not in {"primary", "second"}
-                or isinstance(record.get("epoch"), bool)
-                or not isinstance(record.get("epoch"), int)
-                or record["epoch"] <= 0
-                or record["epoch"] > emergency_epoch):
-            raise TicketCycleStateError("invalid emergency commit record")
-        if record["cycle"] in emergency_cycles:
-            raise TicketCycleStateError("duplicate emergency commit cycle")
-        emergency_cycles.add(record["cycle"])
-        active_record = normalized_active.get(record["cycle"])
-        if (active_record is None
-                or active_record["phase"] != "emergency-committed"
-                or active_record["commit"] != record["commit"]
-                or active_record["route"] != record["implementer"]
-                or active_record["epoch"] != record["epoch"]):
+    normalized_finite = None
+    if finite_watch is not None:
+        if (not isinstance(finite_watch, dict)
+                or set(finite_watch)
+                != {"limit", "completed", "status", "topology"}):
             raise TicketCycleStateError(
-                "emergency commit does not match its active ticket")
-        normalized_emergency.append(dict(record))
+                "finite-watch progress has invalid keys")
+        limit = finite_watch.get("limit")
+        finite_completed = finite_watch.get("completed")
+        status = finite_watch.get("status")
+        topology = finite_watch.get("topology")
+        if (isinstance(limit, bool) or not isinstance(limit, int)
+                or limit <= 0 or limit > MAX_CYCLE_COUNT
+                or isinstance(finite_completed, bool)
+                or not isinstance(finite_completed, int)
+                or finite_completed < 0 or finite_completed > limit
+                or status not in {"active", "complete"}
+                or topology not in ARCHITECT_COMMIT_MODES
+                or (status == "complete" and finite_completed != limit)
+                or (status == "complete" and pending_cycle_returns != 0)):
+            raise TicketCycleStateError(
+                "finite-watch progress is invalid")
+        normalized_finite = {
+            "limit": limit, "completed": finite_completed,
+            "status": status, "topology": topology}
     return {
         "schema": TICKET_CYCLE_STATE_SCHEMA,
         "generation": generation,
         "pending_cycle_returns": pending_cycle_returns,
-        "emergency_epoch": emergency_epoch,
-        "emergency_condition": emergency_condition,
+        "finite_watch": normalized_finite,
+        "architect_admissions": normalized_admissions,
         "active": normalized_active,
         "completed": normalized_completed,
-        "emergency_commits": normalized_emergency,
     }
 
 
@@ -6256,17 +10375,105 @@ def record_pending_ticket_cycle_return(state):
     before its in-memory controller is updated, the next watch can replay
     exactly this durable count.
     """
-    if _ACTIVE_WATCH_RENDEZVOUS is None:
+    controller = _ACTIVE_WATCH_RENDEZVOUS
+    if controller is None:
         return
+    finite_limit = controller.ticket_cycle_limit_value()
+    if finite_limit is not None:
+        saved = state["finite_watch"]
+        if (saved is None or saved["status"] != "active"
+                or saved["limit"] != finite_limit
+                or saved["topology"]
+                != controller.ticket_cycle_topology_value()):
+            raise TicketCycleStateError(
+                "ticket completion does not match the active finite-watch "
+                "topology")
     if state["pending_cycle_returns"] >= MAX_CYCLE_COUNT:
         raise TicketCycleStateError("pending ticket-cycle return count is full")
     state["pending_cycle_returns"] = state["pending_cycle_returns"] + 1
 
 
+def prepare_finite_watch_progress(limit, topology):
+    """Start or resume the durable progress record for ``--cycle N``."""
+    if (isinstance(limit, bool) or not isinstance(limit, int)
+            or limit <= 0 or limit > MAX_CYCLE_COUNT):
+        raise TicketCycleStateError("finite watch limit is invalid")
+    if topology not in ARCHITECT_COMMIT_MODES:
+        raise TicketCycleStateError("finite watch topology is invalid")
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        saved = state["finite_watch"]
+        if saved is None or saved["status"] == "complete":
+            saved = {"limit": limit, "completed": 0, "status": "active",
+                     "topology": topology}
+        else:
+            if saved["topology"] != topology:
+                raise TicketCycleStateError(
+                    "interrupted finite watch belongs to topology "
+                    + saved["topology"] + ", not " + topology)
+            if saved["completed"] + state["pending_cycle_returns"] > limit:
+                raise TicketCycleStateError(
+                    "interrupted finite watch already completed more than "
+                    "the requested --cycle limit")
+            saved = dict(saved, limit=limit)
+        state["finite_watch"] = saved
+        write_ticket_cycle_state(state=state)
+        return saved["completed"]
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def clear_finite_watch_progress(topology):
+    """Abandon an interrupted finite limit when this run is not finite."""
+    if topology not in ARCHITECT_COMMIT_MODES:
+        raise TicketCycleStateError("watch topology is invalid")
+    if not os.path.exists(ticket_cycle_state_path()):
+        return
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        saved = state["finite_watch"]
+        if (saved is not None and saved["status"] == "active"
+                and saved["topology"] != topology):
+            raise TicketCycleStateError(
+                "interrupted finite watch belongs to topology "
+                + saved["topology"] + ", not " + topology)
+        if saved is not None:
+            state["finite_watch"] = None
+            write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def finish_finite_watch_progress(limit, completed, topology):
+    """Mark a proved finite run complete before its success is reported."""
+    if topology not in ARCHITECT_COMMIT_MODES:
+        raise TicketCycleStateError("finite watch topology is invalid")
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        saved = state["finite_watch"]
+        if (saved is None or saved["status"] != "active"
+                or saved["limit"] != limit
+                or saved["completed"] != completed
+                or saved["topology"] != topology
+                or completed != limit
+                or state["pending_cycle_returns"] != 0
+                or any(record["mode"] == topology for record in
+                       state["architect_admissions"].values())):
+            raise TicketCycleStateError(
+                "finite-watch progress does not prove a clean exit")
+        state["finite_watch"] = dict(saved, status="complete")
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
 def deliver_pending_ticket_cycle_returns():
     """Count and acknowledge every durable return for the active watch.
 
-    The state lock serializes concurrent normal and emergency completions.
+    The state lock serializes concurrent ticket completions.
     The controller is updated before the acknowledgement is written. A crash
     in that narrow gap replays the return into the replacement process; it
     can never lose the return from both durable and in-memory state.
@@ -6283,11 +10490,34 @@ def deliver_pending_ticket_cycle_returns():
     try:
         state = read_ticket_cycle_state()
         pending = state["pending_cycle_returns"]
-        for _ in range(pending):
-            _ticket_cycle_completed()
-        if pending:
-            state["pending_cycle_returns"] = 0
-            write_ticket_cycle_state(state=state)
+        finite_limit = controller.ticket_cycle_limit_value()
+        if finite_limit is not None:
+            saved = state["finite_watch"]
+            if (saved is None or saved["status"] != "active"
+                    or saved["limit"] != finite_limit
+                    or saved["topology"]
+                    != controller.ticket_cycle_topology_value()
+                    or saved["completed"]
+                    != controller.completed_ticket_cycles()
+                    or saved["completed"] + pending > finite_limit):
+                raise TicketCycleStateError(
+                    "durable finite-watch progress does not match the live "
+                    "cycle controller")
+            if pending:
+                saved = dict(saved, completed=saved["completed"] + pending)
+                state["finite_watch"] = saved
+                state["pending_cycle_returns"] = 0
+                # Durable progress is published before RAM is advanced. A
+                # crash between these operations resumes from this value.
+                write_ticket_cycle_state(state=state)
+                for _ in range(pending):
+                    _ticket_cycle_completed()
+        else:
+            if pending:
+                for _ in range(pending):
+                    _ticket_cycle_completed()
+                state["pending_cycle_returns"] = 0
+                write_ticket_cycle_state(state=state)
         return pending
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
@@ -6321,154 +10551,162 @@ def require_open_backlog_ticket(ticket_anchor):
             "ticket: " + ticket_anchor)
 
 
-def emergency_condition_from_backlog():
-    """Return the current proved emergency flag or fail on bad bookkeeping."""
-    counts = backlog_severity_counts()
-    if counts.get("problem") is not None:
-        raise TicketCycleStateError(counts["problem"])
-    if counts.get("unclassified", 0):
+def active_cycle_records_for_topology(state, skip_redteam=False):
+    """Return active records this watch can advance."""
+    return [
+        record for record in state["active"].values()
+        if ticket_cycle_mode_is_enabled(
+            mode=record["mode"], skip_redteam=skip_redteam)]
+
+
+def architect_admissions_for_topology(state, skip_redteam=False):
+    """Return public Architect requests already charged to this watch."""
+    return [
+        record for record in state["architect_admissions"].values()
+        if ticket_cycle_mode_is_enabled(
+            mode=record["mode"], skip_redteam=skip_redteam)]
+
+
+def finite_cycle_capacity_used(state, skip_redteam=False):
+    """Return every completed, admitted, or active charged ticket."""
+    controller = _ACTIVE_WATCH_RENDEZVOUS
+    if controller is None or controller.ticket_cycle_limit_value() is None:
+        return None
+    topology = canonical_ticket_cycle_topology(skip_redteam=skip_redteam)
+    if controller.ticket_cycle_topology_value() != topology:
         raise TicketCycleStateError(
-            "the backlog has unclassified Open tickets; emergency state "
-            "cannot be proved")
-    return second_implementer_emergency(counts=counts)
+            "finite cycle capacity was requested for another topology")
+    saved = state["finite_watch"]
+    if (saved is None or saved["status"] != "active"
+            or saved["topology"] != topology):
+        raise TicketCycleStateError(
+            "finite cycle capacity lacks matching durable progress")
+    return (controller.completed_ticket_cycles()
+            + state["pending_cycle_returns"]
+            + len(active_cycle_records_for_topology(
+                state=state, skip_redteam=skip_redteam))
+            + len(architect_admissions_for_topology(
+                state=state, skip_redteam=skip_redteam)))
 
 
-def update_emergency_period(state, emergency_now):
-    """Apply one observed emergency transition to a locked state value."""
-    if emergency_now and not state["emergency_condition"]:
-        if state["emergency_epoch"] >= MAX_CYCLE_COUNT:
-            raise TicketCycleStateError("emergency period counter is full")
-        state["emergency_epoch"] = state["emergency_epoch"] + 1
-    state["emergency_condition"] = emergency_now
-
-
-def retire_unpaired_emergency_commits(state):
-    """Finish committed emergency tickets that can no longer form a pair.
-
-    Once the backlog leaves emergency mode, no new opposite-route assignment
-    may be admitted.  A ticket that was already admitted may still finish,
-    but if no opposite-route ticket from the same emergency period is active,
-    keeping its commit in ``emergency-committed`` would make a zero-cycle
-    drain wait forever.  Such a ticket is durable completed work, but it does
-    not increment the cycle generation: one emergency cycle still requires
-    two different accepted tickets.
-
-    Returns the cycle identifiers retired by this state transition.
-    """
-    if state["emergency_condition"]:
-        return []
-    retired = []
-    for cycle_id, record in list(state["active"].items()):
-        if record["phase"] != "emergency-committed":
-            continue
-        opposite_route = (
-            "second" if record["route"] == "primary" else "primary")
-        has_registered_partner = any(
-            other_cycle != cycle_id
-            and other["epoch"] == record["epoch"]
-            and other["route"] == opposite_route
-            for other_cycle, other in state["active"].items())
-        if has_registered_partner:
-            continue
-        del state["active"][cycle_id]
-        state["completed"][cycle_id] = record["commit"]
-        state["emergency_commits"] = [
-            item for item in state["emergency_commits"]
-            if item["cycle"] != cycle_id]
-        retired.append(cycle_id)
-    return retired
-
-
-def sync_ticket_cycle_emergency_condition():
-    """Persist entry to or exit from the dynamic emergency condition."""
-    emergency_now = emergency_condition_from_backlog()
-    lock_file = acquire_ticket_cycle_lock()
-    retired = []
-    try:
-        state = read_ticket_cycle_state()
-        before = (state["emergency_epoch"], state["emergency_condition"])
-        update_emergency_period(state=state, emergency_now=emergency_now)
-        after = (state["emergency_epoch"], state["emergency_condition"])
-        retired = retire_unpaired_emergency_commits(state=state)
-        if after != before or retired:
-            write_ticket_cycle_state(state=state)
-    finally:
-        release_ticket_cycle_lock(lock_file=lock_file)
-    for cycle_id in retired:
-        print("finished unpaired emergency ticket " + cycle_id
-              + "; no ticket cycle was counted and no new emergency work "
-              "will be started to fill the missing half.")
-    return after
-
-
-def register_ticket_cycle_message(agent, message):
+def register_ticket_cycle_message(
+        agent, message, skip_redteam=False, return_reservation=False,
+        architect_admission=None, implementer_request_name=None):
     """Register a ticket exchange or post-commit review before dispatch.
 
     Returns ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
     ``(cycle_id, None)`` for an Architect/Implementer exchange, and
-    ``(None, None)`` for unrelated work or emergency second implementation.
+    ``(None, None)`` for unrelated work. A new ticket reserves one positive
+    ``--cycle`` slot before its mailbox file is claimed.
     """
     cycle_id = None
     accepted_commit = None
     requested_mode = None
     phase = None
+    created = False
     if agent in {"fable", "opus"} and message.startswith(MAILBOX_FLOW_HEADER):
         cycle_id, requested_mode, _, problem = _ticket_flow_envelope(
             message=message)
         if problem is not None:
             raise TicketCycleStateError(problem)
         phase = "implementation"
-    elif (agent == "sol" and sol_ticket_kind(message=message) == "closure"
-          and sol_second_implementer_assignment(message=message)):
-        remainder = sol_ticket_body_after_kind(message=message)
-        if remainder.startswith("\r\n"):
-            remainder = remainder[2:]
-        elif remainder.startswith("\n"):
-            remainder = remainder[1:]
-        cycle_id, requested_mode, _, problem = _ticket_flow_envelope(
-            message=remainder)
-        if problem is not None:
-            raise TicketCycleStateError(problem)
-        if requested_mode != "emergency-second":
-            raise TicketCycleStateError(
-                "a Sol second-Implementer ticket must use "
-                "MAILBOX-MODE: emergency-second")
-        phase = "implementation"
     elif (agent == "sol" and sol_ticket_kind(message=message) == "closure"):
+        if skip_redteam:
+            raise TicketCycleStateError(
+                "this watch does not dispatch Red Team closures")
         cycle_id, accepted_commit, _, problem = (
             _redteam_closure_envelope(message=message))
         if problem is not None:
             raise TicketCycleStateError(problem)
         phase = "awaiting-redteam"
     else:
-        return None, None
+        if architect_admission is not None:
+            raise TicketCycleStateError(
+                "Architect admission does not name an Implementer flow")
+        return ((None, None, False) if return_reservation
+                else (None, None))
 
-    emergency_now = emergency_condition_from_backlog()
     lock_file = acquire_ticket_cycle_lock()
     try:
         state = read_ticket_cycle_state()
-        update_emergency_period(state=state, emergency_now=emergency_now)
         completed_commit = state["completed"].get(cycle_id)
         if completed_commit is not None:
             raise TicketCycleStateError(
                 "ticket cycle was already completed at " + completed_commit)
         current = state["active"].get(cycle_id)
         if phase == "implementation":
-            requested_route = (
-                "second" if requested_mode == "emergency-second"
-                else "primary")
-            if agent == "opus" and requested_route != "primary":
+            requested_route = "primary"
+            expected_primary_mode = "two-role" if skip_redteam else "normal"
+            if not ticket_cycle_mode_is_enabled(
+                    mode=requested_mode, skip_redteam=skip_redteam):
                 raise TicketCycleStateError(
-                    "the primary Implementer cannot claim the emergency-"
-                    "second route")
-            if agent == "sol" and requested_route != "second":
+                    "ticket exchange belongs to another watch role")
+            if agent == "opus" and requested_mode != expected_primary_mode:
                 raise TicketCycleStateError(
-                    "Sol can implement only the emergency-second route")
+                    "the primary Implementer must use MAILBOX-MODE: "
+                    + expected_primary_mode + " for this watch")
             if current is None:
                 if agent == "fable":
                     raise TicketCycleStateError(
                         "the Architect route cannot invent a cycle before an "
                         "Implementer handoff")
+                if (architect_admission is None
+                        and implementer_request_name is not None):
+                    request_match = PENDING_MESSAGE_RE.fullmatch(
+                        implementer_request_name)
+                    if (request_match is None
+                            or request_match.group(1) != "opus"):
+                        raise TicketCycleStateError(
+                            "invalid Implementer request identity")
+                    flow_name, flow_digest, admission_problem = (
+                        _ticket_architect_admission(message=message))
+                    if admission_problem is not None:
+                        raise TicketCycleStateError(admission_problem)
+                    if flow_name is not None:
+                        admission_record = state[
+                            "architect_admissions"].get(flow_name)
+                        if (admission_record is None
+                                or admission_record["sha256"]
+                                != flow_digest
+                                or admission_record["sequence"]
+                                >= message_sequence(
+                                    implementer_request_name)):
+                            raise TicketCycleStateError(
+                                "Implementer flow names no exact earlier "
+                                "public Architect admission")
+                        architect_admission = architect_admission_token(
+                            request_name=flow_name, digest=flow_digest)
+                admission = None
+                if architect_admission is not None:
+                    admission_name, admission_digest = (
+                        split_architect_admission_token(
+                            token=architect_admission))
+                    flow_name, flow_digest, admission_problem = (
+                        _ticket_architect_admission(message=message))
+                    if admission_problem is not None:
+                        raise TicketCycleStateError(admission_problem)
+                    if (flow_name != admission_name
+                            or flow_digest != admission_digest):
+                        raise TicketCycleStateError(
+                            "Implementer flow does not carry its exact "
+                            "public Architect admission")
+                    admission = state["architect_admissions"].get(
+                        admission_name)
+                    if admission is None:
+                        raise TicketCycleStateError(
+                            "Implementer flow lacks its exact public "
+                            "Architect admission")
+                    if admission["sha256"] != admission_digest:
+                        raise TicketCycleStateError(
+                            "Implementer flow admission digest changed")
+                    if admission["mode"] != requested_mode:
+                        raise TicketCycleStateError(
+                            "Implementer flow changed its admitted watch "
+                            "topology")
+                if architect_notes_transition_pending():
+                    raise TicketCycleLimitDeferred(
+                        "a permanent-note admin turn or P landing is still "
+                        "pending; no newer ticket may be admitted")
                 require_open_backlog_ticket(
                     ticket_anchor=cycle_ticket_anchor(cycle_id))
                 starting_commit = cycle_starting_commit(cycle_id)
@@ -6476,25 +10714,38 @@ def register_ticket_cycle_message(agent, message):
                     raise TicketCycleStateError(
                         "ticket cycle starting commit does not exist: "
                         + starting_commit)
-                if (requested_mode.startswith("emergency-")
-                        and not emergency_now):
-                    raise TicketCycleStateError(
-                        "new emergency implementation work is forbidden "
-                        "after the emergency threshold clears")
-                if emergency_now and requested_mode == "normal":
-                    raise TicketCycleStateError(
-                        "new primary work during an emergency must use "
-                        "MAILBOX-MODE: emergency-primary")
-                epoch = (state["emergency_epoch"]
-                         if requested_mode.startswith("emergency-")
-                         else None)
+                current_main = _exact_git_object(
+                    arguments=["rev-parse", "--verify",
+                               "refs/heads/main^{commit}"],
+                    label="current main commit")
+                if starting_commit != current_main:
+                    raise TicketCycleLimitDeferred(
+                        "ticket cycle base is not the exact current main "
+                        "commit; wait for any earlier P/L landing, then "
+                        "reissue the Architect handoff from that commit")
+                if admission is None:
+                    used = finite_cycle_capacity_used(
+                        state=state, skip_redteam=skip_redteam)
+                    controller = _ACTIVE_WATCH_RENDEZVOUS
+                    if (used is not None
+                            and used >= controller.ticket_cycle_limit_value()):
+                        raise TicketCycleLimitDeferred(
+                            "the finite watch has already reserved all "
+                            + str(controller.ticket_cycle_limit_value())
+                            + " ticket cycle(s)")
                 state["active"][cycle_id] = {
                     "phase": "implementation", "commit": None,
-                    "mode": requested_mode, "route": requested_route,
-                    "epoch": epoch}
+                    "mode": requested_mode, "route": requested_route}
+                if admission is not None:
+                    del state["architect_admissions"][admission_name]
+                created = True
             elif current["phase"] != "implementation":
                 raise TicketCycleStateError(
-                    "ticket exchange arrived after its accepted commit")
+                    "ticket exchange arrived after the daemon recorded "
+                    "landing L")
+            elif architect_admission is not None:
+                raise TicketCycleStateError(
+                    "public Architect admission was already converted")
             elif (current["mode"] != requested_mode
                   or current["route"] != requested_route):
                 raise TicketCycleStateError(
@@ -6503,23 +10754,21 @@ def register_ticket_cycle_message(agent, message):
         else:
             if current is None:
                 raise TicketCycleStateError(
-                    "Red Team closure has no Architect commit receipt")
+                    "Red Team closure has no recorded daemon landing")
             if current["phase"] == "implementation":
                 raise TicketCycleStateError(
-                    "Red Team closure arrived before Architect commit receipt")
-            if current["phase"] == "emergency-committed":
-                raise TicketCycleStateError(
-                    "an emergency ticket uses the two-commit cycle rule, "
-                    "not a Red Team closure")
+                    "Red Team closure arrived before the daemon landing was "
+                    "recorded")
             if (current["phase"] == "awaiting-redteam"
                     and current["commit"] != accepted_commit):
                 raise TicketCycleStateError(
-                    "ticket cycle names two different accepted commits")
+                    "ticket cycle names two different daemon landings")
             if (current is not None
                     and current["phase"] == "committed-awaiting-closure"
                     and current["commit"] != accepted_commit):
                 raise TicketCycleStateError(
-                    "Red Team closure does not name the Architect commit")
+                    "Red Team closure does not name the recorded daemon "
+                    "landing")
             if current["mode"] != "normal" or current["route"] != "primary":
                 raise TicketCycleStateError(
                     "only a normal primary ticket receives Red Team closure")
@@ -6529,7 +10778,8 @@ def register_ticket_cycle_message(agent, message):
         write_ticket_cycle_state(state=state)
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
-    return cycle_id, accepted_commit
+    result = (cycle_id, accepted_commit)
+    return result + (created,) if return_reservation else result
 
 
 def complete_ticket_cycle(cycle_id, accepted_commit):
@@ -6559,18 +10809,17 @@ def complete_ticket_cycle(cycle_id, accepted_commit):
 
 
 def record_architect_commit(cycle_id, accepted_commit, mode):
-    """Record one Architect GO commit and complete an emergency pair.
+    """Record the daemon squash landing accepted by one Architect GO.
 
-    Returns ``1`` only when this receipt supplies the missing half of an
-    emergency primary/second-Implementer pair. A normal receipt returns ``0``
-    and waits for its correlated Red Team pass.
+    Returns ``1`` when a two-role ticket completes at this landing record. A
+    normal ticket returns ``0`` and waits for its correlated Red Team pass.
     """
     if (not isinstance(cycle_id, str)
             or CYCLE_ID_RE.fullmatch(cycle_id) is None
             or not isinstance(accepted_commit, str)
             or FULL_COMMIT_RE.fullmatch(accepted_commit) is None
             or mode not in ARCHITECT_COMMIT_MODES):
-        raise TicketCycleStateError("invalid Architect commit receipt")
+        raise TicketCycleStateError("invalid daemon landing record")
     lock_file = acquire_ticket_cycle_lock()
     completed_now = 0
     try:
@@ -6579,7 +10828,7 @@ def record_architect_commit(cycle_id, accepted_commit, mode):
             if state["completed"][cycle_id] == accepted_commit:
                 return 0
             raise TicketCycleStateError(
-                "Architect commit cycle was completed at another commit")
+                "Architect GO cycle was completed at another landing")
         current = state["active"].get(cycle_id)
         if (current is not None and current["phase"] != "implementation"
                 and current["commit"] == accepted_commit
@@ -6587,11 +10836,14 @@ def record_architect_commit(cycle_id, accepted_commit, mode):
             return 0
         if current is None or current["phase"] != "implementation":
             raise TicketCycleStateError(
-                "Architect commit receipt has no active implementation cycle")
+                "daemon landing record has no active implementation cycle")
         if current["mode"] != mode:
             raise TicketCycleStateError(
-                "Architect commit receipt changed the ticket's saved mode")
-        # Git ancestry proves a new decision. An exact receipt already
+                "Architect GO changed the ticket's saved mode")
+        candidate_commit = require_architect_landing_locked(
+            cycle_id=cycle_id, landing_commit=accepted_commit,
+            ticket_state=state)
+        # Git ancestry proves a new landing. An exact landing record already
         # represented by durable completed/active state is idempotent above
         # and must not depend forever on historical Git objects remaining
         # reachable.
@@ -6599,69 +10851,22 @@ def record_architect_commit(cycle_id, accepted_commit, mode):
                 starting_commit=cycle_starting_commit(cycle_id),
                 accepted_commit=accepted_commit):
             raise TicketCycleStateError(
-                "accepted commit is not a new descendant of the cycle base")
+                "daemon-recorded landing L is not a new descendant of the "
+                "cycle base")
         if mode == "two-role":
             del state["active"][cycle_id]
             state["completed"][cycle_id] = accepted_commit
+            state["generation"] = state["generation"] + 1
+            record_pending_ticket_cycle_return(state=state)
+            completed_now = 1
         elif mode == "normal":
             state["active"][cycle_id] = dict(
                 current, phase="committed-awaiting-closure",
                 commit=accepted_commit)
-        else:
-            implementer = current["route"]
-            if any(record["cycle"] == cycle_id
-                   for record in state["emergency_commits"]):
-                raise TicketCycleStateError(
-                    "duplicate emergency Architect commit receipt")
-            record = {"cycle": cycle_id, "commit": accepted_commit,
-                      "implementer": implementer,
-                      "epoch": current["epoch"]}
-            state["emergency_commits"].append(record)
-            state["active"][cycle_id] = dict(
-                current, phase="emergency-committed",
-                commit=accepted_commit)
-            epoch = current["epoch"]
-            primary_index = next(
-                (index for index, item in enumerate(
-                    state["emergency_commits"])
-                 if item["implementer"] == "primary"
-                 and item["epoch"] == epoch), None)
-            second_index = next(
-                (index for index, item in enumerate(
-                    state["emergency_commits"])
-                 if item["implementer"] == "second"
-                 and item["epoch"] == epoch), None)
-            if primary_index is not None and second_index is not None:
-                pair = [state["emergency_commits"][primary_index],
-                        state["emergency_commits"][second_index]]
-                pair_anchors = {
-                    cycle_ticket_anchor(item["cycle"]) for item in pair}
-                pair_commits = {item["commit"] for item in pair}
-                if len(pair_anchors) != 2 or len(pair_commits) != 2:
-                    raise TicketCycleStateError(
-                        "an emergency cycle requires two different tickets "
-                        "and two different accepted commits")
-                for index in sorted((primary_index, second_index),
-                                    reverse=True):
-                    del state["emergency_commits"][index]
-                for item in pair:
-                    active = state["active"].get(item["cycle"])
-                    if (active is None
-                            or active["phase"] != "emergency-committed"
-                            or active["commit"] != item["commit"]):
-                        raise TicketCycleStateError(
-                            "emergency pair does not match active tickets")
-                    del state["active"][item["cycle"]]
-                    state["completed"][item["cycle"]] = item["commit"]
-                state["generation"] = state["generation"] + 1
-                record_pending_ticket_cycle_return(state=state)
-                completed_now = 1
-            # The threshold may clear after this ticket was admitted but
-            # before any partner was admitted.  It may finish, but queued
-            # work is not grandfathered merely to fill a pair.  Retire the
-            # lone committed ticket without counting an emergency cycle.
-            retire_unpaired_emergency_commits(state=state)
         write_ticket_cycle_state(state=state)
+        # C and its private ref remain reachable until the GO itself reaches
+        # done/. Startup recovery still needs C to re-prove an interrupted
+        # exact landing or closure publication.
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
     return completed_now
@@ -6670,21 +10875,16 @@ def record_architect_commit(cycle_id, accepted_commit, mode):
 def active_ticket_cycle_count(skip_redteam=False):
     """Return active enabled-cycle count, raising on unsafe daemon state.
 
-    A two-role watch deliberately leaves Red Team work untouched. Normal
-    commits already waiting for Sol, and half-finished emergency pairs, are
-    therefore deferred just like their ``to-sol`` files. Implementation work
-    still counts because the Architect and primary Implementer remain enabled.
+    Each topology counts only tickets it can advance. Valid work saved for a
+    different topology remains active and untouched for a later watch.
     """
     lock_file = acquire_ticket_cycle_lock()
     try:
-        active = read_ticket_cycle_state()["active"].values()
-        if not skip_redteam:
-            return len(list(active))
-        deferred_phases = {"committed-awaiting-closure",
-                           "awaiting-redteam", "emergency-committed"}
-        return sum(record["route"] != "second"
-                   and record["phase"] not in deferred_phases
-                   for record in active)
+        state = read_ticket_cycle_state()
+        return (len(active_cycle_records_for_topology(
+                    state=state, skip_redteam=skip_redteam))
+                + len(architect_admissions_for_topology(
+                    state=state, skip_redteam=skip_redteam)))
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
 
@@ -6724,6 +10924,195 @@ def any_matching_redteam_receipt(cycle_id, accepted_commit):
     return bool(matches)
 
 
+def _matching_journaled_notes_go(base_commit, notes_commit,
+                                  receipt_sha256):
+    """Return one exact B/P receipt whose bytes match an admin journal."""
+    matches = []
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"), DONE):
+        for path in glob.glob(os.path.join(directory, "*-to-daemon.md")):
+            try:
+                raw = stable_regular_bytes(
+                    path=path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="journaled permanent-note GO")
+                message = raw.decode("utf-8", errors="strict")
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            returned_base, returned_notes, problem = (
+                _architect_notes_go_request(message=message))
+            if (problem is None and returned_base == base_commit
+                    and returned_notes == notes_commit
+                    and hashlib.sha256(raw).hexdigest() == receipt_sha256):
+                matches.append(path)
+    if len(matches) != 1:
+        raise TicketCycleStateError(
+            "validated permanent-note admin journal needs exactly one "
+            "unchanged B/P receipt; found " + str(len(matches)))
+    return matches[0]
+
+
+def reconcile_architect_notes_admin_journals():
+    """Validate every admin journal and retire only proved done no-ops."""
+    prefix = ".pending-notes-admin-"
+    suffix = ".json"
+    pattern = os.path.join(RELAY_DIR, prefix + "*" + suffix)
+    retired = 0
+    for journal_path in sorted(glob.glob(pattern)):
+        filename = os.path.basename(journal_path)
+        request_name = filename[len(prefix):-len(suffix)]
+        request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
+        if request_match is None or request_match.group(1) != "fable":
+            raise TicketCycleStateError(
+                "malformed permanent-note admin journal name: "
+                + journal_path)
+        request_path = _architect_notes_admin_request_path(
+            request_name=request_name)
+        try:
+            request_message = stable_regular_bytes(
+                path=request_path,
+                maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="saved permanent-note admin").decode(
+                    "utf-8", errors="strict")
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            raise TicketCycleStateError(
+                "cannot verify saved permanent-note admin " + request_path
+                + ": " + str(exc)) from exc
+        if not is_architect_notes_admin_message(message=request_message):
+            raise TicketCycleStateError(
+                "saved permanent-note admin is malformed: " + request_path)
+        journal = read_architect_notes_admin_journal(
+            request_name=request_name, request_message=request_message)
+        directory = os.path.dirname(request_path)
+        if directory not in {os.path.join(MAILBOX, "inflight"), DONE}:
+            raise TicketCycleStateError(
+                "admin recovery journal is bound to an invalid request "
+                "state: " + request_path)
+        if journal["phase"] == "started":
+            # The inflight reconciler prints the stronger warning that the
+            # child may still be alive. Never infer a result from P/GO files.
+            if directory != os.path.join(MAILBOX, "inflight"):
+                raise TicketCycleStateError(
+                    "archived permanent-note admin has only a pre-child "
+                    "journal: " + request_path)
+            continue
+        if journal["phase"] == "validated-noop":
+            if directory == os.path.join(MAILBOX, "inflight"):
+                continue
+            base_commit = journal["base"]
+            primary_head = worktree_head(worktree=AGENT_CWD["fable"])
+            current_main = _exact_git_object(
+                arguments=["rev-parse", "--verify",
+                           "refs/heads/main^{commit}"],
+                label="current main commit")
+            if primary_head != base_commit or current_main != base_commit:
+                raise TicketCycleStateError(
+                    "archived validated no-op admin no longer names exact B")
+            try:
+                _validate_current_protected_primary_state(
+                    primary_worktree=AGENT_CWD["fable"])
+            except PrimaryWorktreeError as exc:
+                raise TicketCycleStateError(str(exc)) from exc
+            remove_architect_notes_admin_journal(
+                request_name=request_name)
+            retired += 1
+            print("retired archived validated no-op admin journal "
+                  + request_name + ".")
+            continue
+        base_commit = journal["base"]
+        notes_commit = journal["notes_commit"]
+        _matching_journaled_notes_go(
+            base_commit=base_commit, notes_commit=notes_commit,
+            receipt_sha256=journal["receipt_sha256"])
+        require_architect_notes_commit(
+            base_commit=base_commit, notes_commit=notes_commit,
+            allow_landed_replay=True)
+        try:
+            _validate_current_protected_primary_state(
+                primary_worktree=AGENT_CWD["fable"])
+        except PrimaryWorktreeError as exc:
+            raise TicketCycleStateError(str(exc)) from exc
+    return retired
+
+
+def reconcile_inflight_architect_notes_admin():
+    """Archive only post-child admin results proved by their durable journal."""
+    recovered = 0
+    paths = sorted(glob.glob(os.path.join(
+        MAILBOX, "inflight", "*-to-fable.md")), key=message_sequence)
+    for path in paths:
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError) as exc:
+            try:
+                is_raw_admin = regular_file_has_prefix(
+                    path=path,
+                    prefix=MAILBOX_ADMIN_HEADER.encode("ascii"))
+            except (OSError, ValueError):
+                is_raw_admin = False
+            if is_raw_admin:
+                raise TicketCycleStateError(
+                    "cannot verify inflight permanent-note admin " + path
+                    + ": " + str(exc)) from exc
+            continue
+        if not is_architect_notes_admin_message(message=message):
+            if message.startswith(MAILBOX_ADMIN_HEADER):
+                raise TicketCycleStateError(
+                    "inflight permanent-note admin is malformed: " + path)
+            continue
+        name = os.path.basename(path)
+        journal_path = architect_notes_admin_journal_path(
+            request_name=name)
+        if not os.path.isfile(journal_path):
+            raise TicketCycleStateError(
+                "inflight permanent-note admin has no recovery journal: "
+                + path + "; inspect its dispatch log and requeue only after "
+                  "proving that no child is still running")
+        journal = read_architect_notes_admin_journal(
+            request_name=name, request_message=message)
+        phase = journal["phase"]
+        base_commit = journal["base"]
+        if phase == "started":
+            raise TicketCycleStateError(
+                "inflight permanent-note admin has only a pre-child "
+                "journal: " + path + "; a child may still be alive or its "
+                "result may be unvalidated. Inspect the dispatch log and "
+                "process before any manual requeue")
+        if phase == "validated-noop":
+            primary_head = worktree_head(worktree=AGENT_CWD["fable"])
+            current_main = _exact_git_object(
+                arguments=["rev-parse", "--verify",
+                           "refs/heads/main^{commit}"],
+                label="current main commit")
+            if primary_head != base_commit or current_main != base_commit:
+                raise TicketCycleStateError(
+                    "validated no-op admin journal no longer names exact B")
+            try:
+                _validate_current_protected_primary_state(
+                    primary_worktree=AGENT_CWD["fable"])
+            except PrimaryWorktreeError as exc:
+                raise TicketCycleStateError(str(exc)) from exc
+        else:
+            notes_commit = journal["notes_commit"]
+            _matching_journaled_notes_go(
+                base_commit=base_commit, notes_commit=notes_commit,
+                receipt_sha256=journal["receipt_sha256"])
+            require_architect_notes_commit(
+                base_commit=base_commit, notes_commit=notes_commit,
+                allow_landed_replay=True)
+        if not archive_consumed_message(dispatch_path=path):
+            raise TicketCycleStateError(
+                "validated inflight permanent-note admin could not archive")
+        if phase == "validated-noop":
+            remove_architect_notes_admin_journal(request_name=name)
+        else:
+            print("retained validated permanent-note admin journal until "
+                  "its exact P receipt is consumed.")
+        recovered += 1
+        print("recovered validated permanent-note admin result " + name
+              + " without rerunning the Architect.")
+    return recovered
+
+
 def reconcile_ticket_cycle_state():
     """Recover cycle state from durable pending and completed messages.
 
@@ -6733,6 +11122,8 @@ def reconcile_ticket_cycle_state():
     # Validate even when the mailbox has no messages. Corrupt daemon state is
     # never permission to claim a drain or positive cycle complete.
     read_ticket_cycle_state()
+    reconcile_architect_notes_admin_journals()
+    reconcile_inflight_architect_notes_admin()
     active_directories = [MAILBOX,
                           os.path.join(MAILBOX, "inflight"),
                           os.path.join(MAILBOX, "failed")]
@@ -6742,116 +11133,209 @@ def reconcile_ticket_cycle_state():
 
     # First revalidate implementation identities already admitted into
     # durable state. Merely queued root/failed work must not be registered by
-    # startup recovery: doing so would grandfather a second-Implementer job
-    # that never entered dispatch before the emergency threshold cleared.
-    registered_cycles = set(read_ticket_cycle_state()["active"])
+    # startup recovery because finite-cycle capacity is reserved only when a
+    # watcher actually admits the ticket.
+    registered_cycles = read_ticket_cycle_state()["active"]
     for path in sorted(active_paths):
         name = os.path.basename(path)
         match = PENDING_MESSAGE_RE.match(name)
         if match is None or match.group(1) == "daemon":
             continue
-        message = read_cycle_message(path=path)
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            # Root corruption belongs to the ordinary dispatcher, which can
+            # claim and park the exact inode with a useful reason. Inflight
+            # corruption remains a lane blocker. Neither state can register
+            # or consume a ticket during recovery.
+            continue
         agent = match.group(1)
-        is_flow = message.startswith(MAILBOX_FLOW_HEADER)
-        is_second = (agent == "sol"
-                     and sol_second_implementer_assignment(message=message))
+        is_flow = (agent in {"fable", "opus"}
+                   and message.startswith(MAILBOX_FLOW_HEADER))
         cycle_id = None
         if is_flow:
             cycle_id, _, _, problem = _ticket_flow_envelope(message=message)
             if problem is not None:
                 continue
-        elif is_second:
-            remainder = sol_ticket_body_after_kind(message=message)
-            if remainder.startswith("\r\n"):
-                remainder = remainder[2:]
-            elif remainder.startswith("\n"):
-                remainder = remainder[1:]
-            cycle_id, _, _, problem = _ticket_flow_envelope(
-                message=remainder)
-            if problem is not None:
-                continue
         if cycle_id in registered_cycles:
-            register_ticket_cycle_message(agent=agent, message=message)
+            record = registered_cycles[cycle_id]
+            register_ticket_cycle_message(
+                agent=agent, message=message,
+                skip_redteam=(record["mode"] == "two-role"))
 
     completed_now = 0
     inflight_daemon = glob.glob(
         os.path.join(MAILBOX, "inflight", "*-to-daemon.md"))
     for path in sorted(inflight_daemon, key=message_sequence):
         message = read_cycle_message(path=path)
-        cycle_id, commit, mode, problem = _architect_commit_receipt(
+        if message.startswith(
+                MAILBOX_RETURN_HEADER + "architect-notes-go"):
+            base_commit, notes_commit, problem = (
+                _architect_notes_go_request(message=message))
+            if problem is not None:
+                if not park_failed_message(dispatch_path=path):
+                    raise TicketCycleStateError(
+                        "malformed inflight Architect notes GO could not be "
+                        "parked: " + os.path.basename(path) + ": " + problem)
+                continue
+            consumed, _notes = finish_claimed_architect_notes_go(
+                dispatch_path=path, base_commit=base_commit,
+                notes_commit=notes_commit)
+            if not consumed:
+                continue
+            # Permanent-note administration is cycle-free.
+            continue
+        cycle_id, candidate_commit, mode, problem = _architect_go_request(
             message=message)
         if problem is not None:
             if not park_failed_message(dispatch_path=path):
                 raise TicketCycleStateError(
-                    "malformed inflight daemon receipt could not be parked: "
+                    "malformed inflight Architect GO could not be parked: "
                     + os.path.basename(path) + ": " + problem)
-            print("parked malformed Architect commit receipt "
+            print("parked malformed Architect GO request "
                   + os.path.basename(path) + " in failed/: " + problem)
             continue
         try:
-            completed_now = completed_now + record_architect_commit(
-                cycle_id=cycle_id, accepted_commit=commit, mode=mode)
-        except TicketCycleStateError as exc:
-            if not park_failed_message(dispatch_path=path):
-                raise TicketCycleStateError(
-                    "rejected inflight daemon receipt could not be parked: "
-                    + os.path.basename(path) + ": " + str(exc)) from exc
-            print("parked rejected Architect commit receipt "
-                  + os.path.basename(path) + " in failed/: " + str(exc))
+            consumed, completed, _landing = finish_claimed_architect_go(
+                dispatch_path=path, cycle_id=cycle_id,
+                candidate_commit=candidate_commit, mode=mode)
+        except FatalArchitectLandingError:
+            raise
+        if not consumed:
             continue
-        if not archive_consumed_message(dispatch_path=path):
-            raise TicketCycleStateError(
-                "recovered daemon receipt could not be archived: "
-                + os.path.basename(path))
+        completed_now = completed_now + completed
 
     done_daemon = glob.glob(os.path.join(DONE, "*-to-daemon.md"))
     for path in sorted(done_daemon, key=message_sequence):
         message = read_cycle_message(path=path)
-        cycle_id, commit, mode, problem = _architect_commit_receipt(
+        if message.startswith(
+                MAILBOX_RETURN_HEADER + "architect-notes-go"):
+            base_commit, notes_commit, problem = (
+                _architect_notes_go_request(message=message))
+            if problem is not None:
+                if not park_failed_message(dispatch_path=path):
+                    raise TicketCycleStateError(
+                        "malformed archived Architect notes GO could not be "
+                        "parked: " + os.path.basename(path) + ": " + problem)
+                continue
+            try:
+                receipt_raw = stable_regular_bytes(
+                    path=path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="archived permanent-note GO receipt")
+                require_architect_notes_commit_object(
+                    base_commit=base_commit, notes_commit=notes_commit)
+                current_main = _exact_git_object(
+                    arguments=["rev-parse", "--verify",
+                               "refs/heads/main^{commit}"],
+                    label="current main commit")
+                _require_ancestor_or_same(
+                    ancestor=notes_commit, descendant=current_main,
+                    label="archived permanent-note P is not on main")
+                main_lock = acquire_main_checkout_turn_lock()
+                if main_lock is None:
+                    raise TicketCycleStateError(
+                        "cannot lock archived permanent-note recovery")
+                try:
+                    preflight_role_baseline_sync(target=current_main)
+                    sync_all_clean_role_baselines(target=current_main)
+                finally:
+                    release_main_checkout_turn_lock(lock_file=main_lock)
+                retire_validated_commit_admin_journal(
+                    base_commit=base_commit, notes_commit=notes_commit,
+                    receipt_sha256=hashlib.sha256(receipt_raw).hexdigest())
+                if current_main == notes_commit:
+                    debt_path = _push_debt_path(landing=notes_commit)
+                    if os.path.isfile(debt_path):
+                        push_exact_landing_or_record_debt(
+                            landing=notes_commit)
+            except TicketCycleStateError as exc:
+                if not park_failed_message(dispatch_path=path):
+                    raise TicketCycleStateError(
+                        "rejected archived Architect notes GO could not be "
+                        "parked: " + os.path.basename(path) + ": "
+                        + str(exc)) from exc
+            continue
+        cycle_id, candidate_commit, mode, problem = _architect_go_request(
             message=message)
         if problem is not None:
             if not park_failed_message(dispatch_path=path):
                 raise TicketCycleStateError(
-                    "malformed archived daemon receipt could not be parked: "
+                    "malformed archived Architect GO could not be parked: "
                     + os.path.basename(path) + ": " + problem)
-            print("moved malformed historical Architect commit receipt "
+            print("moved malformed historical Architect GO request "
                   + os.path.basename(path) + " from done/ to failed/: "
                   + problem)
             continue
         try:
-            completed_now = completed_now + record_architect_commit(
-                cycle_id=cycle_id, accepted_commit=commit, mode=mode)
+            landing = recorded_landing_for_architect_go(
+                cycle_id=cycle_id, mode=mode)
+            if landing is None:
+                raise TicketCycleStateError(
+                    "archived Architect GO has no durable local landing")
+            if mode == "normal":
+                state = read_ticket_cycle_state()
+                active = state["active"].get(cycle_id)
+                if (active is not None
+                        and active["phase"] in {
+                            "committed-awaiting-closure",
+                            "awaiting-redteam"}):
+                    publish_redteam_closure_request(
+                        cycle_id=cycle_id, landing=landing)
+            retire_cycle_landing_ref(
+                cycle_id=cycle_id, landing=landing)
+            retire_cycle_candidate(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                landing_commit=landing)
+            current_main = _exact_git_object(
+                arguments=["rev-parse", "--verify",
+                           "refs/heads/main^{commit}"],
+                label="current main commit")
+            _require_ancestor_or_same(
+                ancestor=landing, descendant=current_main,
+                label="archived ordinary landing is not on main")
+            if current_main == landing:
+                main_lock = acquire_main_checkout_turn_lock()
+                if main_lock is None:
+                    raise TicketCycleStateError(
+                        "cannot lock archived role-baseline recovery")
+                try:
+                    sync_all_clean_role_baselines(target=landing)
+                finally:
+                    release_main_checkout_turn_lock(lock_file=main_lock)
+                debt_path = _push_debt_path(landing=landing)
+                if os.path.isfile(debt_path):
+                    push_exact_landing_or_record_debt(landing=landing)
         except TicketCycleStateError as exc:
             if not park_failed_message(dispatch_path=path):
                 raise TicketCycleStateError(
-                    "rejected archived daemon receipt could not be parked: "
+                    "rejected archived Architect GO could not be parked: "
                     + os.path.basename(path) + ": " + str(exc)) from exc
-            print("moved rejected historical Architect commit receipt "
+            print("moved rejected historical Architect GO request "
                   + os.path.basename(path) + " from done/ to failed/: "
                   + str(exc))
 
-    # Register still-waiting review requests after the Architect receipt has
-    # restored their committed phase.
+    # Register still-waiting review requests after Architect GO recovery has
+    # restored their recorded landing phase.
     for path in sorted(active_paths):
         name = os.path.basename(path)
         match = PENDING_MESSAGE_RE.match(name)
         if match is None or match.group(1) != "sol":
             continue
         message = read_cycle_message(path=path)
-        if (sol_ticket_kind(message=message) == "closure"
-                and not sol_second_implementer_assignment(message=message)):
+        if sol_ticket_kind(message=message) == "closure":
             register_ticket_cycle_message(agent="sol", message=message)
 
     # A crash can occur after the request reached done/ and before its state
-    # replacement. The receipt plus archived request is enough to finish that
-    # exact transition once, never to infer a missing review from rc alone.
+    # replacement. The Red Team return plus archived request is enough to
+    # finish that exact transition once, never to infer a missing review from
+    # rc alone.
     review_paths = glob.glob(os.path.join(DONE, "*-to-sol.md"))
     review_paths.extend(glob.glob(
         os.path.join(MAILBOX, "inflight", "*-to-sol.md")))
     for path in sorted(review_paths, key=message_sequence):
         message = read_cycle_message(path=path)
         if (sol_ticket_kind(message=message) != "closure"
-                or sol_second_implementer_assignment(message=message)
                 or redteam_closure_problem(message=message) is not None):
             continue
         cycle_id = redteam_closure_ticket(message=message)
@@ -6881,126 +11365,6 @@ def reconcile_ticket_cycle_state():
     return completed_now
 
 
-def read_landing_debt_state():
-    """Read and validate the active landing-debt episode state.
-
-    Missing state starts generation one. Malformed, redirected, or oversized
-    state is a blocker, never permission to flood another Architect message.
-    """
-    raw = stable_regular_bytes(
-        path=landing_debt_state_path(),
-        maximum_bytes=MAX_LANDING_DEBT_STATE_BYTES,
-        label="landing-debt state",
-        missing_ok=True)
-    if raw is None:
-        return {"schema": LANDING_DEBT_STATE_SCHEMA,
-                "generation": 1, "active": False}
-    try:
-        payload = json.loads(
-            raw.decode("utf-8", errors="strict"),
-            object_pairs_hook=unique_json_object)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError,
-            OverflowError, ValueError) as exc:
-        raise ValueError("landing-debt state is invalid JSON") from exc
-    generation = payload.get("generation") \
-        if isinstance(payload, dict) else None
-    active = payload.get("active") if isinstance(payload, dict) else None
-    if (not isinstance(payload, dict)
-            or set(payload) != {"schema", "generation", "active"}
-            or payload.get("schema") != LANDING_DEBT_STATE_SCHEMA
-            or isinstance(generation, bool)
-            or not isinstance(generation, int)
-            or generation < 1
-            or generation > MAX_CYCLE_COUNT
-            or not isinstance(active, bool)):
-        raise ValueError("landing-debt state has an invalid schema")
-    return {"schema": LANDING_DEBT_STATE_SCHEMA,
-            "generation": generation, "active": active}
-
-
-def write_landing_debt_state(state):
-    """Publish validated debt state through an fsynced atomic replacement."""
-    os.makedirs(MAILBOX, exist_ok=True)
-    payload = (json.dumps(state, sort_keys=True, separators=(",", ":"))
-               + "\n").encode("utf-8")
-    handle, temporary = tempfile.mkstemp(
-        prefix=".landing-debt-", dir=MAILBOX)
-    try:
-        os.fchmod(handle, 0o600)
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, landing_debt_state_path())
-        fsync_directory(directory=MAILBOX)
-    finally:
-        if os.path.exists(temporary):
-            os.remove(temporary)
-
-
-def automatic_landing_debt_marker(generation):
-    """Return the stable identity of one high-debt episode's message."""
-    return (AUTOMATIC_LANDING_DEBT_MARKER
-            + " generation=" + str(generation))
-
-
-def automatic_landing_debt_message(snapshot, generation):
-    """Build the bounded landing-only instruction for the Architect lane."""
-    return (
-        automatic_landing_debt_marker(generation=generation) + "\n"
-        "LANDING-ONLY ARCHITECT TURN. The watcher measured "
-        + str(snapshot["changed_lines"]) + " changed content lines ("
-        + snapshot["stat"] + ") against main, past the "
-        + str(LANDING_DEBT_LINE_LIMIT) + "-line limit. Do no implementation "
-        "and no broad review. Audit each unadjudicated unit in this bounded "
-        "debt, then land each GO unit as its own squash commit. Before EVERY "
-        "squash run `git log main..<branch> --oneline`; any foreign commit "
-        "without an Architect GO is a STOP, so abort that whole-branch "
-        "squash and land only a fully audited subset or wait. Push each "
-        "accepted landing and merge main back into the working branch. "
-        "Binding: after all audited units land, this thread is TERMINAL and "
-        "no reply is owed; if a STOP remains, write only the bounded audit "
-        "handoff needed to clear it.\n")
-
-
-def automatic_landing_debt_message_exists(generation):
-    """Return whether this episode's marker exists in any mailbox state."""
-    marker = automatic_landing_debt_marker(
-        generation=generation).encode("ascii")
-    if not os.path.isdir(MAILBOX):
-        return False
-    for directory, child_directories, names in os.walk(
-            MAILBOX, followlinks=False, onerror=_raise_walk_error):
-        child_directories[:] = [
-            name for name in child_directories
-            if not os.path.islink(os.path.join(directory, name))]
-        for name in names:
-            if re.fullmatch(r"\d+[a-z]?-to-fable\.md", name) is None:
-                continue
-            path = os.path.join(directory, name)
-            prefix = stable_regular_bytes(
-                path=path,
-                maximum_bytes=len(marker) + 1,
-                label="Fable message " + name,
-                complete=False)
-            if prefix not in (marker, marker + b"\n"):
-                continue
-            raw = stable_regular_bytes(
-                path=path,
-                maximum_bytes=MAX_AUTOMATIC_MESSAGE_SCAN_BYTES,
-                label="Fable message " + name)
-            lines = raw.splitlines()
-            if lines and lines[0] == marker:
-                if (len(lines) < 2
-                        or not lines[1].startswith(
-                            b"LANDING-ONLY ARCHITECT TURN.")):
-                    raise ValueError(
-                        "automatic landing-debt marker has an invalid body "
-                        "in " + path)
-                return True
-    return False
-
-
 def publish_message_locked(agent, payload, attempts=20):
     """Atomically publish one message while the caller holds sequence lock."""
     for _ in range(attempts):
@@ -7028,88 +11392,6 @@ def publish_message_locked(agent, payload, attempts=20):
             if os.path.isfile(temporary):
                 os.remove(temporary)
     return None
-
-
-def reconcile_landing_debt_handoff(snapshot=None):
-    """Measure one watch pass and queue at most one handoff per debt episode.
-
-    The active state remains set after the message moves to inflight, done, or
-    failed, so repeated high-debt passes cannot flood Fable. Once content debt
-    returns to or below the limit, the next generation is armed for a future
-    independent high-debt episode.
-
-    Returns the structured measurement made by this watch pass.
-    """
-    if snapshot is None:
-        snapshot = landing_debt_snapshot()
-    if not snapshot["available"]:
-        return snapshot
-    os.makedirs(MAILBOX, exist_ok=True)
-    lock_file = acquire_landing_debt_sequence_lock()
-    if lock_file is None:
-        return snapshot
-    try:
-        try:
-            state = read_landing_debt_state()
-        except ValueError as exc:
-            print("landing-debt auto-handoff blocked: " + str(exc)
-                  + ".")
-            return snapshot
-        if snapshot["changed_lines"] <= LANDING_DEBT_LINE_LIMIT:
-            episode_seen = state["active"]
-            if not episode_seen:
-                try:
-                    episode_seen = automatic_landing_debt_message_exists(
-                        generation=state["generation"])
-                except (OSError, ValueError) as exc:
-                    print("landing-debt auto-handoff blocked: "
-                          + str(exc) + ".")
-                    return snapshot
-            if episode_seen:
-                if state["generation"] >= MAX_CYCLE_COUNT:
-                    print("landing-debt auto-handoff blocked: episode "
-                          "generation limit reached.")
-                    return snapshot
-                state = {
-                    "schema": LANDING_DEBT_STATE_SCHEMA,
-                    "generation": state["generation"] + 1,
-                    "active": False,
-                }
-                write_landing_debt_state(state=state)
-            return snapshot
-        if state["active"]:
-            return snapshot
-        try:
-            marker_exists = automatic_landing_debt_message_exists(
-                generation=state["generation"])
-        except (OSError, ValueError) as exc:
-            print("landing-debt auto-handoff blocked: " + str(exc)
-                  + ".")
-            return snapshot
-        if marker_exists:
-            # Crash recovery can observe a linked marker from a publisher
-            # that died before its directory fsync. Make that marker
-            # durable before state is allowed to suppress a replay.
-            fsync_directory(directory=MAILBOX)
-            state["active"] = True
-            write_landing_debt_state(state=state)
-            return snapshot
-        payload = automatic_landing_debt_message(
-            snapshot=snapshot, generation=state["generation"])
-        path = publish_message_locked(agent="fable", payload=payload)
-        if path is None:
-            print("landing-debt auto-handoff could not claim a sequence "
-                  "number after 20 tries.")
-            return snapshot
-        print("queued automatic landing-debt handoff " + path)
-        state["active"] = True
-        # Do not dispatch the durable marker until active state is also
-        # durable. An exception stops this watch pass with the message
-        # still pending; a later pass adopts its exact marker first.
-        write_landing_debt_state(state=state)
-        return snapshot
-    finally:
-        release_landing_debt_sequence_lock(lock_file=lock_file)
 
 
 def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
@@ -7180,13 +11462,6 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
             ledger_problem=counts["problem"])
         if reason is not None:
             return reason
-        if ticket_kind in SOL_DISPATCH_TICKET_KINDS:
-            candidate = sol_ticket_payload(
-                ticket_kind=ticket_kind, text=text,
-                discovery_severity=effective_severity,
-                discovery_scope=effective_scope)
-            return second_implementer_emergency_refusal(
-                message=candidate, counts=counts)
         return None
 
     reason = refusal_now()
@@ -7243,6 +11518,50 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
     return False
 
 
+def send_architect_notes_admin(text, dry_run=False):
+    """Publish one narrow Architect-only permanent-note self-route."""
+    if os.environ.get(MAILBOX_ROLE_ENVIRONMENT) != "architect":
+        print("refused permanent-note admin request: MAILBOX_ROLE must be "
+              "architect.")
+        return False
+    primary = os.environ.get("MAILBOX_PRIMARY_WORKTREE")
+    shared_notes = os.environ.get("MAILBOX_SHARED_NOTES")
+    if (primary is None or shared_notes is None
+            or os.path.realpath(primary) != os.path.realpath(WORKTREE)
+            or os.path.realpath(shared_notes)
+            != os.path.realpath(os.path.join(AI_ROOT, "notes"))):
+        print("refused permanent-note admin request: this process is not "
+              "bound to the saved Architect primary and shared notes.")
+        return False
+    try:
+        payload = architect_notes_admin_payload(text=text)
+    except ValueError as exc:
+        print("refused permanent-note admin request: " + str(exc) + ".")
+        return False
+    if dry_run:
+        print("[dry-run] would queue " + os.path.join(
+            MAILBOX, next_seq() + "-to-fable.md"))
+        return True
+    os.makedirs(MAILBOX, exist_ok=True)
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        return False
+    try:
+        if architect_notes_transition_pending():
+            print("refused permanent-note admin request: another note admin "
+                  "turn or P landing is already pending.")
+            return False
+        path = publish_message_locked(agent="fable", payload=payload)
+        if path is None:
+            print("refused permanent-note admin request: no unique mailbox "
+                  "sequence could be published.")
+            return False
+        print("queued " + path)
+        return True
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
 def main():
     # both are rebound below from the parsed command line; Python wants
     # the global declaration before the first mention of either name.
@@ -7269,12 +11588,11 @@ def main():
     parser.add_argument("--cycle", metavar="count",
                         type=nonnegative_cycle_count, default=None,
                         help="with --watch, stop after this many completed "
-                             "ticket cycles; normally one cycle is one "
-                             "Architect/Implementer ticket through its "
-                             "accepted commit plus one matching Red Team "
-                             "return; during the emergency second-Implementer "
-                             "mode, one cycle is two accepted committed "
-                             "tickets, one per Implementer; 0 "
+                             "ticket cycles; one cycle is always one ticket; "
+                             "with Red Team it ends when the matching review "
+                             "returns for daemon-recorded local landing L, "
+                             "and without Red Team it ends when the daemon "
+                             "records local landing L; 0 "
                              "instead waits until no enabled role has a "
                              "waiting message and ai/notes/backlog.md has no "
                              "open item; omit this option to keep watching")
@@ -7345,7 +11663,7 @@ def main():
                              "(default: " + DEFAULT_OPUS_EFFORT + ")")
     parser.add_argument("--sol-effort", default=DEFAULT_SOL_EFFORT,
                         choices=CODEX_EFFORT_CHOICES,
-                        help="codex CLI reasoning effort for the Red Team "
+                        help="codex CLI reasoning effort for Sol as Red Team "
                              "(default: "
                              + DEFAULT_SOL_EFFORT + ")")
     parser.add_argument("--dispatch-timeout", metavar="MINUTES",
@@ -7395,12 +11713,6 @@ def main():
         if conflicting_action:
             print("--skip-redteam is valid only with --watch")
             return 1
-        if args.cycle is not None and args.cycle > 0:
-            print("--skip-redteam cannot use a positive --cycle: a normal "
-                  "ticket cycle requires a Red Team return; omit --cycle "
-                  "for an indefinite two-role watch or use --cycle 0 to "
-                  "drain all two-role work")
-            return 1
     if args.severity is not None:
         severity_run = args.watch or args.once
         severity_send = args.send == "architect"
@@ -7449,6 +11761,8 @@ def main():
 
     fix_only = args.fix_only is True
     skip_redteam = args.skip_redteam
+    watch_topology = canonical_ticket_cycle_topology(
+        skip_redteam=skip_redteam)
     MAX_CHARACTERS = (DEFAULT_MAX_CHARACTERS
                       if args.max_characters is None
                       else args.max_characters)
@@ -7503,18 +11817,19 @@ def main():
                 print("cycle 0: wait until no Architect or Implementer "
                       "message is waiting or running and "
                       "ai/notes/backlog.md has no '- OPEN' item, then exit; "
-                      "this two-role watch ignores Red Team messages")
+                      "this watch ignores Red Team messages")
             else:
                 print("cycle 0: wait until no role message is waiting or "
                       "running and ai/notes/backlog.md has no '- OPEN' item, "
                       "then exit")
         elif args.cycle is not None:
             print("cycle limit: stop after " + str(args.cycle)
-                  + " completed ticket cycles; a normal cycle ends only "
-                  "when the correlated Red Team return arrives; an emergency "
-                  "cycle ends after one accepted commit from each "
-                  "Implementer; finish every role job already starting or "
-                  "running before exit")
+                  + " completed tickets; one ticket is one cycle; a normal "
+                  "cycle ends when its correlated Red Team return names the "
+                  "daemon-recorded local landing L, while a ticket without "
+                  "Red Team ends when the daemon records local landing L; "
+                  "finish every role job already starting or running before "
+                  "exit")
 
     if args.ping:
         ping_text = transport_ping_text(agent="architect")
@@ -7535,6 +11850,10 @@ def main():
         return 0 if queued else 1
 
     if args.dry_run:
+        failed_debt = architect_notes_failed_debt_error()
+        if failed_debt is not None:
+            print(failed_debt)
+            return 1
         outcome = process_backlog(dry_run=args.dry_run)
         if outcome is None:
             print("mailbox empty")
@@ -7549,7 +11868,20 @@ def main():
         if dispatch_lock is None:
             return 1
         try:
-            outcome = process_backlog(dry_run=False)
+            try:
+                reconcile_ticket_cycle_state()
+                failed_debt = architect_notes_failed_debt_error()
+                if failed_debt is not None:
+                    print(failed_debt)
+                    return 1
+                outcome = process_backlog(dry_run=False)
+            except FatalArchitectLandingError as exc:
+                print("Architect landing needs user action: " + str(exc))
+                return 1
+            except (OSError, ValueError, TicketCycleStateError) as exc:
+                print("ticket-cycle recovery failed: " + str(exc)
+                      + "; no mailbox work was dispatched.")
+                return 1
             if outcome is None:
                 print("mailbox empty")
             elif not outcome:
@@ -7598,12 +11930,27 @@ def main():
             source_path=source_path, source_stamp=source_stamp,
             ticket_cycle_limit=(args.cycle
                                 if args.cycle is not None and args.cycle > 0
-                                else None))
+                                else None),
+            ticket_cycle_topology=(
+                watch_topology
+                if args.cycle is not None and args.cycle > 0 else None))
         _ACTIVE_WATCH_RENDEZVOUS = rendezvous
         first_pass = True
         completed_cycles = 0
         cycle_completion_barrier = None
         try:
+            try:
+                if args.cycle is not None and args.cycle > 0:
+                    restored_progress = prepare_finite_watch_progress(
+                        limit=args.cycle, topology=watch_topology)
+                    rendezvous.restore_completed_ticket_cycles(
+                        count=restored_progress)
+                else:
+                    clear_finite_watch_progress(topology=watch_topology)
+            except (OSError, ValueError, TicketCycleStateError) as exc:
+                print("finite cycle recovery failed: " + str(exc)
+                      + "; watcher did not start dispatching work.")
+                return 1
             try:
                 reconcile_ticket_cycle_state()
             except (OSError, ValueError, TicketCycleStateError) as exc:
@@ -7615,6 +11962,18 @@ def main():
                 print("recovered " + str(recovered_cycles)
                       + " completed ticket cycle(s) from durable mailbox "
                       "receipts.")
+            if args.cycle is not None and args.cycle > 0:
+                active_at_start = active_ticket_cycle_count(
+                    skip_redteam=skip_redteam)
+                used_at_start = (rendezvous.completed_ticket_cycles()
+                                 + active_at_start)
+                if used_at_start > args.cycle:
+                    print("ticket-cycle recovery found "
+                          + str(used_at_start) + " completed or active "
+                          "tickets, beyond --cycle " + str(args.cycle)
+                          + "; watcher did not start new work. Resume with a "
+                          "limit of at least " + str(used_at_start) + ".")
+                    return 1
             while True:
                 # Preserve the existing first-pass call shape for finite
                 # witnesses, then check before every later release as well as
@@ -7626,34 +11985,60 @@ def main():
                           "the next start runs it (relaunch --watch).")
                     return 0
                 first_pass = False
-                # This watch-only hook runs on idle and busy passes alike.
-                # Above-limit content debt publishes one deduplicated
-                # Architect landing-only turn before the pass snapshots the
-                # pending queue; --once, --dry-run, and --send never invoke it.
-                reconcile_landing_debt_handoff()
-                if fix_only:
-                    if skip_redteam:
-                        backlog_outcome = process_backlog(
-                            dry_run=False, fix_only=True,
-                            skip_redteam=True)
-                    else:
-                        backlog_outcome = process_backlog(dry_run=False, fix_only=True)
-                else:
-                    if skip_redteam:
-                        backlog_outcome = process_backlog(
-                            dry_run=False, skip_redteam=True)
-                    else:
-                        backlog_outcome = process_backlog(dry_run=False)
+                try:
+                    backlog_outcome = process_backlog(
+                        dry_run=False, fix_only=fix_only,
+                        skip_redteam=skip_redteam)
+                except FatalArchitectLandingError as exc:
+                    print("Architect landing needs user action: " + str(exc))
+                    return 1
                 if (rendezvous.source_changed()
                         or os.path.getmtime(source_path) != source_stamp):
                     print("daemon source changed on disk; exiting so "
                           "the next start runs it (relaunch --watch).")
                     return 0
                 completed_cycles = rendezvous.completed_ticket_cycles()
+                active_cycles = active_ticket_cycle_count(
+                    skip_redteam=skip_redteam)
+                if (args.cycle is not None and args.cycle > 0
+                        and completed_cycles >= args.cycle
+                        and rendezvous.all_idle() and active_cycles):
+                    print("cycle limit reached, but " + str(active_cycles)
+                          + " extra active ticket cycle(s) remain in saved "
+                          "state; refusing to claim a clean exit. No new "
+                          "ticket will be started; inspect the ticket-cycle "
+                          "state and mailbox receipts.")
+                    return 1
                 if (args.cycle is not None and args.cycle > 0
                         and completed_cycles >= args.cycle
                         and rendezvous.all_idle()
-                        and backlog_outcome is not False):
+                        and active_cycles == 0):
+                    barrier, completion_error = (
+                        acquire_positive_cycle_exit_barrier(
+                            backlog_outcome=backlog_outcome,
+                            skip_redteam=skip_redteam))
+                    if barrier is None:
+                        if completion_error is not None:
+                            report_cycle_completion_unverified(
+                                error=completion_error)
+                            if completion_error.startswith(
+                                    ARCHITECT_NOTES_DEBT_PREFIX):
+                                return 1
+                        # Admin turns and P landings are cycle-free, but a
+                        # positive limit cannot abandon them.  The next pass
+                        # bypasses the reached ticket limit only for that
+                        # exact administrative route.
+                        continue
+                    cycle_completion_barrier = barrier
+                    try:
+                        finish_finite_watch_progress(
+                            limit=args.cycle,
+                            completed=completed_cycles,
+                            topology=watch_topology)
+                    except TicketCycleStateError as exc:
+                        print("cycle limit was reached, but durable progress "
+                              "could not prove a clean exit: " + str(exc))
+                        return 1
                     report_cycle_limit_exit(
                         completed_cycles=completed_cycles,
                         cycle_limit=args.cycle,
@@ -7670,7 +12055,7 @@ def main():
                             if skip_redteam:
                                 report_cycle_work_complete(
                                     completed_cycles=completed_cycles,
-                                    skip_redteam=True)
+                                    skip_redteam=skip_redteam)
                             else:
                                 report_cycle_work_complete(
                                     completed_cycles=completed_cycles)
@@ -7678,6 +12063,9 @@ def main():
                         if completion_error is not None:
                             report_cycle_completion_unverified(
                                 error=completion_error)
+                            if completion_error.startswith(
+                                    ARCHITECT_NOTES_DEBT_PREFIX):
+                                return 1
                     run_safe_kill_countdown(controller=rendezvous)
                     # Queued work resumes immediately after the manufactured
                     # window rather than paying an extra ordinary poll delay.
@@ -7692,7 +12080,7 @@ def main():
                         if skip_redteam:
                             report_cycle_work_complete(
                                 completed_cycles=completed_cycles,
-                                skip_redteam=True)
+                                skip_redteam=skip_redteam)
                         else:
                             report_cycle_work_complete(
                                 completed_cycles=completed_cycles)
@@ -7700,6 +12088,9 @@ def main():
                     if completion_error is not None:
                         report_cycle_completion_unverified(
                             error=completion_error)
+                        if completion_error.startswith(
+                                ARCHITECT_NOTES_DEBT_PREFIX):
+                            return 1
                 ordinary_safe = report_ordinary_safe_poll(
                     controller=rendezvous,
                     reset_cadence=args.cycle is None)

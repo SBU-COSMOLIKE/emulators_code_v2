@@ -35,24 +35,35 @@ started with `--skip-redteam` (alias `--no-red-team`) deliberately uses only
 Architect and Implementer. That changes the enabled route, not this execution
 contract or the Architect's mandatory audit.
 
+The roles are fixed. There is one Architect, one Implementer, and the optional
+advisory Red Team. Sol is never an Implementer. Severity, backlog counts,
+demand, and model choice never change those roles.
+
 ## Persisted coordination home
 
-Every headless Architect and Implementer turn executes in one saved primary
-coordination worktree. The route is role-based, not model-based: selecting
-Sonnet, Opus, Fable, or a full Claude model ID does not select another tree.
-Sol executes in a separately saved worktree. No ordinary agent turn starts in
-the user's `REPO_ROOT`. An explicit second-Implementer directive must name the
-saved Sol worktree, its exact non-main branch, and its base commit.
+Only the Implementer lane edits source code, tests, or ordinary tracked
+documentation for a ticket. The permanent notes and local backlog remain
+Architect-only. Subagents launched by the Implementer remain inside this lane
+and may edit only the exact,
+non-overlapping files assigned in the Architect's plan. Architect and Red
+Team subagents are read-only. The daemon prepares an isolated execution
+worktree for one named ticket cycle and exposes its exact path as both
+`MAILBOX_EXECUTION_WORKTREE` and `MAILBOX_IMPLEMENTER_WORKTREE`. Those values
+must agree, and the current Git worktree, branch, base, and cycle must match
+the Architect directive before any edit. A model option selects a model, not
+another checkout.
 
-On a clean installation, the first valid live `--watch`, `--once`, `--send`,
-or `--ping` creates
-`<REPO_ROOT>/.claude/worktrees/mailbox-primary` on
-`refs/heads/claude/mailbox-primary`, plus
-`<REPO_ROOT>/.claude/worktrees/mailbox-sol` on
-`refs/heads/codex/mailbox-sol`. The daemon records both choices locally. Later commands
-may be launched from any checkout, but they validate and re-execute in that
-saved primary before dispatch or mailbox mutation. Uncommitted source notes
-and implementation work belong in that primary so both Claude roles see them.
+The Architect audits a previous immutable candidate in a different worktree,
+and Red Team reviews an earlier daemon-recorded landing in another isolated
+snapshot.
+That separation permits all three lanes to run at once without sharing an
+editable Git index. Never edit from the Architect coordination checkout, an
+audit snapshot, the saved Red Team checkout, or the user's `REPO_ROOT`.
+
+The authoritative ticket note and mailbox remain in the shared coordination
+home named by `MAILBOX_SHARED_NOTES`; they are not evidence that source roles
+share a Git worktree. Append the required ignored evidence there while all
+tracked source edits and tests stay in `MAILBOX_EXECUTION_WORKTREE`.
 
 `--help`, a no-action preview, invalid commands, and every `--dry-run` form
 write no worktree, branch, state, or bootstrap lock. A first live command may
@@ -64,12 +75,12 @@ primary while the originals remain untouched. Active or ambiguous transport
 is never copied or combined. Pre-migration `notes/{mailbox,relay}` paths are
 also detected and named, but never adopted or auto-bridged.
 
-A uniquely registered `git worktree move` is recoverable. If state is corrupt,
-or the saved worktree is detached, missing, moved manually outside Git, on the
-wrong branch, or ambiguous, stop. Preserve the state and transport directories
-and repair the reported Git identity. Never create a replacement tree, clean
-or reset the shared index, or fall back to the checkout that launched the
-command.
+If either execution environment value is absent, the two values disagree, the
+prepared worktree is detached or on the wrong branch, or its saved cycle/base
+does not match the directive, stop. Never create a replacement tree, clean or
+reset an index, switch or checkout a branch, or fall back to the directory
+that launched the command. The daemon, not the Implementer, prepares and
+restores ticket worktrees.
 
 ## Operating Constraints
 
@@ -100,11 +111,13 @@ command.
      --max RUNTIME_N
    ```
 
-   Confirm that the current `Implementation directive` decides the exact
+   Confirm that `MAILBOX_EXECUTION_WORKTREE` and
+   `MAILBOX_IMPLEMENTER_WORKTREE` are present, equal, and identify the current
+   linked worktree. Confirm that the current `Implementation directive` decides the exact
    execution checkout, files and symbols, ordered edits, interfaces and
    behavior, failure paths, tests, commands, acceptance checks, exclusions,
    stop conditions, and file ownership. Verify that the current Git worktree,
-   branch, and base match `Execution checkout`; never create or choose a
+   branch, base, and cycle match `Execution checkout`; never create or choose a
    replacement. If the check is `INVALID`, two fields contradict each other, reality
    contradicts the directive, or any consequential choice remains open, halt
    and emit an `IMPLEMENTER_HANDOFF` listing the missing or conflicting
@@ -131,7 +144,16 @@ command.
    The eleven permanent notes and `ai/tools/permanent_note_guard.py` are
    off-limits in every Implementer unit, not only documentation units. If the
    directive's `Do not change` section does not list all twelve exact paths,
-   return a blocker before editing.
+   return a blocker before editing. The Architect's separate permanent-note
+   landing is not an Implementer unit: do not edit, commit, synchronize,
+   review, or push its B/P pair. The parent daemon handles that route only
+   while ordinary ticket work is inactive. A
+   `MAILBOX-ADMIN: permanent-notes` request never belongs in this lane. If one
+   arrives, edit nothing and return a routing blocker. A later ticket waits
+   until P has landed and the daemon has safely advanced the clean role
+   baselines; never work around that deferral. Never run
+   `handoff_router.py --architect-notes-admin`. The publisher requires the
+   exact `MAILBOX_ROLE=architect` binding and must refuse this role.
 
    The local ticket list is also Architect-owned. You may read
    `ai/notes/backlog.md` and may run `python3 ai/tools/backlog_guard.py check`,
@@ -149,8 +171,8 @@ command.
    readable decomposition. For a positive `N`, run the exact command in the
    directive at its checkpoints and on the final clean candidate commit. That
    command must use the authoritative absolute path from
-   `MAILBOX_TICKET_CHANGE_GUARD`, `--repo` with the directive's exact
-   `Execution checkout` worktree, its full `--base`, and `--max N`. Only when
+   `MAILBOX_TICKET_CHANGE_GUARD`, `--repo "$MAILBOX_EXECUTION_WORKTREE"`, the
+   directive's full `--base`, and `--max N`. Only when
    that variable is absent in a manual session may it use the guard below the
    current repository root. Record added, deleted, total, and limit. For
    `N = 0`, report `size limit disabled (0); measurement skipped` and never
@@ -168,6 +190,76 @@ command.
    When the complete readable tested unit does not fit, report that fact; the
    Architect alone decides `NO-GO`, a new ticket split, or a request for a
    higher user-approved limit.
+
+1b. **Use the directive's bounded subagent plan.** Every ticket must attempt
+   the plan. You must launch every helper named in `Parallel work plan` before
+   making any Integrator-owned implementation edit; delegation is mandatory,
+   not a suggestion. Typical independent parts are a
+   failure reproducer and evidence capture, production-code edits, regression
+   tests, and scoped documentation or audit evidence. An editing subagent is
+   part of the Implementer lane; it does not become another mailbox role or
+   receive another Git lane. Give each subagent only
+   its named files and symbols, required output, acceptance checks, and stop
+   conditions. Preserve non-overlapping ownership and run independent helper
+   jobs concurrently. A subagent never chooses
+   architecture, widens scope, edits the permanent notes or backlog, or lands
+   a commit.
+
+   You remain the Integrator. Wait for every required return, inspect it,
+   reconcile it with the binding directive, and integrate compatible work.
+   Only after integration do you personally run the final combined validation
+   commands. A subagent report is not proof and does not
+   transfer responsibility. Even a small source edit has an independent
+   reproduction, regression review, or evidence task to delegate. If the
+   runtime rejects the first actual subagent launch before any implementation
+   edit, make no implementation edit. Return a same-cycle checkpoint. Inside
+   that exact `IMPLEMENTER_HANDOFF`, place the `Subagent work` evidence under
+   its exact `- **Subagent work:**` marker. Report the planned return blocks
+   with the rejected helper marked `blocked`, then append these exact three
+   rows as the final Subagent-work evidence:
+
+   ```markdown
+   - Capability checked: `the exact launch capability`
+   - Attempted operation: The concrete first subagent launch attempted before editing.
+   - Raw failure: `the unchanged first runtime failure`
+   ```
+
+   The required labels are `Capability checked`, `Attempted operation`, and
+   `Raw failure`. Preserve both the labels and their values.
+
+   Use the first observed pre-edit launch failure. Do not paraphrase it,
+   replace it with a later retry, or put these rows only in
+   `Implementation evidence / resume state`. That exact handoff is the
+   evidence source. The relay binds all of its bytes to the current cycle and
+   a SHA-256 fingerprint after receiving it; the Implementer never invents
+   those values. Wait for the Architect to revise and revalidate the
+   capability-exception directive by copying the three SHA-bound rows.
+   Proceed without helpers only after receiving that revision. Never accept a
+   speculative exception. Never claim delegation that did not happen, and
+   never keep independent work serial merely for convenience.
+
+   A `blocked` helper return is a checkpoint and cannot support final `GO`.
+   The final candidate handoff must report `pass` for every helper in the
+   active plan, unless the Architect supplied the validated same-cycle
+   capability exception described above.
+
+1c. **Keep one execution worktree bound to one cycle.** Do not run
+   `git reset`, `git switch`, or `git checkout`. Do not merge `main`, another
+   candidate, or another ticket branch into this worktree. Do not copy tracked
+   edits from another active cycle. If a dependency or conflict makes any of
+   those actions appear necessary, stop and return the evidence to the
+   Architect.
+
+   Commit only the named ticket's tracked changes. The candidate commit must
+   be a new full commit descended from the directive's base, and the final
+   handoff must name that full commit. After committing, do not amend, reset,
+   or advance it. The daemon saves the immutable candidate for Architect
+   audit. Other cycles keep separate candidate refs.
+
+   After `NO-GO`, preserve the same `MAILBOX-CYCLE`. The daemon restores this
+   cycle's execution lane from its saved candidate before the repair turn.
+   Verify the restored base and directive, then make a new repair candidate.
+   Never restore the worktree yourself or borrow another cycle's candidate.
 
 2. **Verbatim numerics.** When a directive quotes a reference expression
    in `Interfaces and exact behavior`, transplant it character-faithful —
@@ -237,8 +329,9 @@ command.
    and no reply is owed: honor it without manufacturing an outbound. If the
    instruction is ambiguous, the ordinary outbound rule applies. Convention:
    `ai/notes/conventions-and-workflow.md`, the mailbox addendum. This role
-   never merges or pushes `main`. The user's main checkout is user-owned; the
-   only agent exception is the Architect's explicit audited-GO landing grant.
+   never merges, commits, updates refs, or pushes `main`, and never touches the
+   user's checkout. After Architect GO, only the parent daemon may create and
+   record the distinct squash landing.
 
 6b. **Preserve the ticket-cycle identity.** Every mailbox implementation
    request begins with these exact three lines:
@@ -249,12 +342,14 @@ command.
    MAILBOX-MODE: normal
    ```
 
-   Replace `normal` only with the mode already chosen by the Architect. A
-   primary Implementer request may use `normal`, `two-role`, or
-   `emergency-primary`. A Sol session following this file as the explicit
-   second Implementer may use only `emergency-second`. This inbound must be
-   the first cycle message: a `to-fable` message cannot create a ticket cycle
-   before an actual Implementer receives it.
+   Replace `normal` only with the mode selected by the watch topology and
+   recorded by the Architect. A primary Implementer request uses `normal` when
+   the Red Team will review the daemon-recorded landing, or `two-role` when
+   the watch uses `--skip-redteam`. Sol never follows this Implementer contract. A
+   severity label, backlog count, message header, or Architect preference
+   cannot change the roles. This inbound must be the first cycle message: a
+   `to-fable` message cannot create a ticket cycle before the Implementer
+   receives it.
 
    Confirm that `TICKET-ANCHOR` names an indexed Open backlog ticket and that
    the text after `@` is its existing full 40-character starting commit. Copy
@@ -264,13 +359,25 @@ command.
    plan, change the mode, or substitute the current commit for the starting
    commit after `@`. If a header, Open ticket, or starting commit is missing
    or malformed, return a blocker without editing. The Architect alone
-   records the accepted commit and chooses the mode.
+   records the mode and acceptance decision; the daemon records landing L.
 
    The final candidate commit must be new and descend from the starting
-   commit. Do not report the unchanged starting commit, an unrelated commit,
-   or an ancestor as the implemented result.
-   Implementer messages do not complete a cycle; the normal cycle later needs
-   the Architect's commit and a matching Red Team return.
+   commit. Report its full 40-character ID and then leave it immutable for the
+   daemon to mount in the Architect audit worktree. Do not report the
+   unchanged starting commit, a moving branch name, an unrelated commit, or
+   an ancestor as the implemented result.
+   Implementer messages do not complete a cycle. In normal mode, the cycle
+   completes after the Architect accepts C, the daemon records distinct L,
+   and the Red Team returns its advisory closure assessment of L. In
+   `two-role` mode, the cycle completes at the daemon-recorded local landing
+   because no Red Team return is available. One ticket always equals one cycle.
+
+   A finite cycle limit is also an admission limit. Active ticket
+   reservations, daemon-recorded landings whose closure return is still being
+   delivered, and completed cycles together may never exceed it. Work on a
+   later ticket may overlap only when an unused reservation remains. The same
+   limit is valid in normal and two-role mode and remains binding across a
+   watcher restart.
 
 6c. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
    You never weaken a check script, threshold, fixture, or golden base to
@@ -320,11 +427,31 @@ below is the required shape:
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
 
 - **Current state:** [what was coded/modified, by file]
+- **Candidate commit:** [full immutable 40-character commit for this cycle]
 - **Gate results:** [each gate command → raw pass/fail output, pasted]
 - **Character-change result:** [positive limit: ticket_change_guard.py →
   added, deleted, total, and binding limit for the exact final candidate;
   zero limit: `size limit disabled (0); measurement skipped`, with no invented counts]
 - **Deviations from directive:** [any, each with its reason — or "none"]
+- **Subagent work:**
+
+#### Subagent return `exact-planned-name`
+- Returned artifact: [the exact artifact or evidence this helper returned]
+- Acceptance: `pass` or `blocked`
+- Evidence: [the concrete command, output, path, diff, or observation]
+
+[Repeat one Subagent return block for every planned name, in the exact plan
+order, with no extra helper. For the first pre-edit launch failure checkpoint,
+mark the rejected helper `blocked` and append these three exact final rows:
+
+- Capability checked: `the exact launch capability`
+- Attempted operation: [the concrete first subagent launch attempted before editing]
+- Raw failure: `the unchanged first runtime failure`
+
+If the Architect later records the validated capability exception, omit the
+Subagent return blocks and repeat only the same three SHA-bound rows here.
+Never reconstruct, improve, or invent their text.]
+
 - **Blockers/findings:** [unexpected behavior, limitations, surprises]
 - **Notes entry updated:** [ai/notes/<name>.md — resume state appended]
 - **Action required:** [what you need from the Architect: sign-off,

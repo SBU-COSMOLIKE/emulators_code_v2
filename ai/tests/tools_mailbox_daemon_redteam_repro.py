@@ -31,8 +31,8 @@ def load_daemon():
     return module
 
 
-def install_test_sol_topology_proof(daemon):
-    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+def install_test_role_state_proofs(daemon):
+    """Install opaque topology and persistent-state proofs for each role.
 
     Arguments:
       daemon = the freshly loaded scratch daemon module.
@@ -40,18 +40,30 @@ def install_test_sol_topology_proof(daemon):
     Returns:
       None.
     """
-    expected_proof = object()
+    agents = ("fable", "opus", "sol")
+    topology_proofs = {agent: object() for agent in agents}
+    persistent_proofs = {agent: object() for agent in agents}
 
-    def validate_test_topology():
-        return expected_proof
+    def validate_test_topology(agent):
+        return topology_proofs[agent]
 
     def revalidate_test_topology(proof):
-        if proof is not expected_proof:
-            raise AssertionError("scratch Sol topology proof changed")
-        return expected_proof
+        if proof not in topology_proofs.values():
+            raise AssertionError("scratch role topology proof changed")
+        return proof
 
-    daemon.validate_live_sol_dispatch_topology = validate_test_topology
-    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+    def capture_test_persistent_state(agent):
+        return persistent_proofs[agent]
+
+    def recheck_test_persistent_state(proof):
+        if proof not in persistent_proofs.values():
+            raise AssertionError("scratch persistent role state changed")
+        return proof
+
+    daemon.validate_live_agent_dispatch_topology = validate_test_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_test_topology
+    daemon.capture_persistent_role_state = capture_test_persistent_state
+    daemon.recheck_persistent_role_state = recheck_test_persistent_state
 
 
 @contextlib.contextmanager
@@ -83,13 +95,51 @@ def scratch_daemon():
             "opus": str(root),
             "sol": str(root),
         }
-        install_test_sol_topology_proof(daemon=daemon)
+        install_test_role_state_proofs(daemon=daemon)
         daemon.git_commit_exists = (
             lambda commit: commit in {BASE_COMMIT, ACCEPTED_COMMIT})
         daemon.git_commit_descends_from = (
             lambda starting_commit, accepted_commit:
             starting_commit == BASE_COMMIT
             and accepted_commit == ACCEPTED_COMMIT)
+        # Cycle registration now proves that the suffix names exact current
+        # ``main``.  This fixture deliberately uses synthetic commit names,
+        # so keep that Git boundary local instead of invoking the caller's
+        # checkout (or the harmless child-process stub below).
+        daemon._exact_git_object = (
+            lambda arguments, label: BASE_COMMIT
+            if arguments == ["rev-parse", "--verify",
+                             "refs/heads/main^{commit}"]
+            else ACCEPTED_COMMIT)
+
+        def prepare_test_implementer_checkout(cycle_id):
+            if cycle_id != CYCLE_ID:
+                raise AssertionError("scratch Implementer cycle changed")
+            return BASE_COMMIT
+
+        def record_test_implementer_candidate(cycle_id, starting_head):
+            if cycle_id != CYCLE_ID or starting_head != BASE_COMMIT:
+                raise AssertionError("scratch candidate boundary changed")
+            return None
+
+        def create_test_audit_snapshot(cycle_id, commit, agent):
+            if (cycle_id != CYCLE_ID or commit != ACCEPTED_COMMIT
+                    or agent != "sol"):
+                raise AssertionError("scratch Red Team audit changed")
+            audit = root / "sol-audit"
+            audit.mkdir(exist_ok=True)
+            return str(audit)
+
+        def remove_test_audit_snapshot(cycle_id, commit, agent):
+            if (cycle_id != CYCLE_ID or commit != ACCEPTED_COMMIT
+                    or agent != "sol"):
+                raise AssertionError("scratch Red Team cleanup changed")
+
+        daemon.prepare_implementer_cycle_checkout = (
+            prepare_test_implementer_checkout)
+        daemon.record_implementer_candidate = record_test_implementer_candidate
+        daemon.create_audit_snapshot = create_test_audit_snapshot
+        daemon.remove_audit_snapshot = remove_test_audit_snapshot
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         pathlib.Path(daemon.BACKLOG_LEDGER).write_text("", encoding="utf-8")
         yield daemon, root

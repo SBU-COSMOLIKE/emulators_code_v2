@@ -40,8 +40,6 @@ The emulator library itself is documented in the top-level
 architecture, public interface, tests, and Python readability rules constrain
 every agent change.
 
-![The command line selects the Architect and Implementer models. The Architect plans, audits, and commits a ticket. The next ticket may start while the advisory Red Team reviews that exact commit, but a counted cycle is complete only when the review returns.](notes/assets/role-model-agent-loop.svg)
-
 ## Contents
 
 ### Main guide
@@ -65,7 +63,7 @@ every agent change.
 - [FAQ C1. Why can some AI jobs run together while others must wait?](#appendix-c--how-do-queues-and-lanes-work)
 - [FAQ C2. Where does Sol work?](#faq-c2-sol-worktree)
 - [FAQ D1. Why can the tool refuse a new Red Team search?](#appendix-d--what-is-the-demand-guard)
-- [FAQ D2. When may Sol implement instead of review?](#faq-d2-second-implementer)
+- [FAQ D2. Can Sol change the code?](#faq-d2-can-sol-change-code)
 - [FAQ F1. Which folder does each role use?](#appendix-f--what-is-the-worktree-topology)
 - [FAQ F2. Can I create another work folder for myself?](#faq-f2-other-worktrees)
 
@@ -139,13 +137,32 @@ whose required result is written before it starts.
 A **ticket** is one requested change described by a source note.
 
 A worktree is not a copy made by hand. Git registers it and gives it a branch.
-The mailbox tool creates or reuses two agent worktrees: one shared by Claude
-and one for Sol.
+The mailbox tool creates or reuses three agent worktrees:
+
+- `mailbox-primary` is the Architect's coordination folder for plans,
+  decisions, and shared records;
+- `mailbox-implementer` is where the Implementer changes source code; and
+- `mailbox-sol` is the optional Red Team's saved role folder.
+
+When the Architect or Red Team must inspect source code, the watcher also
+creates a temporary, read-only view of the exact commit under review. This
+prevents either role from accidentally reading newer unfinished work from a
+saved worktree.
+
+The Architect and Red Team inspect saved commits. They do not edit source
+code. Only the Implementer changes source files. After an Architect `GO`, the
+Architect sends a five-line decision bound to candidate C, the exact commit it
+audited. After that Architect process exits, the parent watcher creates and
+records landing L on `main`. The Architect does not perform that Git step or
+touch your main folder. Before later role work starts, the watcher safely
+advances each clean idle role folder to L so the next turn uses the accepted
+tools and role instructions. It refuses rather than resetting a folder with
+unfinished or different work.
 
 The watcher may be launched from any project folder that Git recognizes.
-Mailbox commands that write files find both saved worktrees, then continue
-from the saved Claude work folder. This prevents two terminals from silently
-using different mailboxes or placing an agent in your main folder.
+Mailbox commands that write files find the saved worktrees, then continue
+from the Architect's coordination folder. This prevents two terminals from
+silently using different mailboxes or placing an agent in your main folder.
 
 ### Where things live
 
@@ -178,7 +195,7 @@ From any project folder that Git recognizes:
 python3 ai/tools/mailbox_daemon.py --dry-run
 ```
 
-Expected result on an empty installation: the command prints the two AI work
+Expected result on an empty installation: the command prints the three AI work
 folders that a command which writes files would create, reports `mailbox
 empty`, and changes nothing. If messages are waiting, it also prints the role
 command and working folder that a command which writes files would use. No
@@ -193,19 +210,21 @@ writing a ticket note that Git has not saved:
 python3 ai/tools/mailbox_daemon.py --once
 ```
 
-Expected result: on a clean installation, the tool creates and saves two Git
+Expected result: on a clean installation, the tool creates and saves three Git
 *worktrees*. A worktree is simply another folder for the same repository,
 with its own branch and working files.
 
-- The Architect and Implementer share `mailbox-primary`.
-- Sol uses a separate folder named `mailbox-sol`.
+- The Architect uses `mailbox-primary` for plans, audits, and records.
+- The Implementer changes source code in `mailbox-implementer`.
+- Sol uses `mailbox-sol` for optional Red Team review.
 - Your original repository folder remains yours. No ordinary AI job starts
   there.
 
 The command reports the saved paths, checks for waiting requests, and exits.
 An empty first run prints that the mailbox is empty.
 
-Open the saved Claude work-folder path reported by `--once` for the next step.
+Open the saved Architect coordination folder reported by `--once` for the
+next step.
 A newly created worktree starts from the latest saved Git version, so it cannot
 see a ticket note that Git has not saved in another project folder.
 
@@ -216,7 +235,7 @@ it names and follow the
 
 ### 3. Write the source note
 
-In the saved Claude work folder, create a temporary ticket note such as
+In the saved Architect coordination folder, create a temporary ticket note such as
 `ai/notes/version-flag.md`:
 
 ```markdown
@@ -294,7 +313,7 @@ widespread search” command saves the widespread scope and Low severity.
 
 ### 6. Follow GO or NO-GO
 
-For a read-only summary, run this from the saved Claude work folder:
+For a read-only summary, run this from the saved Architect coordination folder:
 
 ```bash
 python3 ai/tools/handoff_router.py --status
@@ -302,9 +321,9 @@ python3 ai/tools/handoff_router.py --status
 
 The Architect records exactly one decision for the named ticket:
 
-- **GO**: the cited evidence satisfies the gates. The Architect uses its
-  explicit permission to combine that approved ticket with `main` during that
-  same Architect job.
+- **GO**: the cited evidence satisfies the gates. The Architect writes only
+  the five-line decision bound to the exact candidate. After the Architect
+  job exits, the parent watcher creates and records the distinct landing.
 - **NO-GO**: the ticket is held, and the Architect names the smallest repair
   needed for another review.
 
@@ -328,7 +347,9 @@ Models can change from run to run. Authority does not.
 | --- | --- | --- |
 | **Architect / Auditor** | Thinks through the design, writes the complete implementation directive, checks the original evidence, and decides `GO` or `NO-GO` | `to-fable` |
 | **Implementer** | Follows the ordered directive, changes only the named ticket, and produces validation evidence | `to-opus` |
-| **Independent Red Team** | After the Architect commits a ticket, reads that exact change adversarially and returns a detailed advisory result; it never approves or blocks the commit | `to-sol` |
+| **Independent Red Team** | After the watcher records a ticket's accepted landing, reads that exact commit adversarially and returns a detailed advisory result; it never approves or blocks the landing | `to-sol` |
+
+![The command line selects the Architect and Implementer models. The Implementer edits one ticket in its own worktree. The Architect audits an immutable candidate and returns only GO or NO-GO. After the Architect exits, the parent watcher creates a distinct landing on a clean unchanged main checkout, queues the optional Red Team review, and attempts one non-force push. These jobs may overlap only while the selected cycle limit still has room for another ticket.](notes/assets/role-model-agent-loop.svg)
 
 The role instructions live in `.claude/FABLE_ROLE.md`,
 `.claude/OPUS_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. That mailbox address does
@@ -344,46 +365,89 @@ the decision maker:
    instructions.
 2. The **Implementer** follows those instructions, changes the code, runs the
    named tests, and returns the real output.
-3. The **Architect** audits that result. `GO` closes the ticket and commits the
-   accepted change immediately. `NO-GO` sends focused repair instructions back
-   to the Implementer.
+3. The **Architect** audits that immutable candidate. `GO` sends only a
+   decision bound to that exact candidate. `NO-GO` sends focused repair
+   instructions back to the Implementer.
+4. After the Architect process exits, the parent **watcher** creates a distinct
+   squash landing, verifies that your attached `main` folder is still clean
+   and unchanged, fast-forwards it, records the local landing, and advances
+   every safe clean idle role folder to that accepted version.
 
-The Red Team is deliberately outside that approval path. After the Architect
-commits the accepted ticket, the **Red Team** reads that exact commit
+The Red Team is deliberately outside that approval path. After the watcher
+records the accepted landing, the **Red Team** reads that exact commit
 adversarially. It never supplies a required `GO`, and the Architect does not
-wait for its answer before committing or beginning the next ticket.
+wait for its answer before deciding. Another ticket may start while the
+review runs only when the selected `--cycle` limit still has an unused ticket
+slot.
+
+The roles can therefore form a simple pipeline without sharing source files:
+
+1. The **Implementer** may change ticket B in `mailbox-implementer`.
+2. At the same time, the **Architect** may audit ticket A as a saved,
+   unchanging commit. The audit reads files and test output; it does not edit
+   source code.
+3. The optional **Red Team** may review an earlier daemon-recorded landing
+   through a
+   temporary, exact-commit snapshot. It also does not edit source code.
+
+Only the Implementer writes source code. The Architect audits and decides; it
+does not merge or push the ordinary ticket. The parent watcher owns that
+bounded Git step after the Architect process exits. Separate folders prevent
+the three roles from changing or committing through the same Git folder.
 
 The watcher does wait before it exits. In an ordinary three-role run, one
 **cycle** means one ticket has completed all of these steps:
 
 1. Architect and Implementer work back and forth until the Architect accepts
-   and commits the ticket.
-2. Red Team reviews that ticket's exact accepted commit.
+   the immutable candidate and the watcher records its distinct landing.
+2. Red Team reviews that ticket's exact landing commit.
 3. Red Team returns either `NO CHANGE` or `REOPEN` with the same ticket and
    commit identifiers.
 
 This separation keeps the Red Team advisory without losing the review when a
-finite watcher run ends. The Architect may begin the next ticket during step
-2, but `--cycle 1` does not exit until step 3 returns.
+finite watcher run ends. With `--cycle 1`, no second ticket may start and the
+watcher does not exit until step 3 returns. With `--cycle 3`, as many as three
+different tickets may be in progress while earlier Red Team reviews return,
+but a fourth ticket cannot start.
+
+The positive number limits **admission**, which means permission to start a
+new ticket. The watcher reserves one of the available ticket slots before it
+starts any role for that ticket. A pipeline may overlap work already admitted,
+but it may never use that overlap to start ticket 4 under `--cycle 3`.
 
 The watcher identifies the ticket without guessing from prose. When work
 first goes to the actual Implementer, the saved record names an anchor from a
 ticket currently listed as Open, its full 40-character starting Git commit,
-and one unchanged work mode. The primary Implementer receives normal,
-two-role, and emergency-primary work; Sol receives emergency-second work. All
-returns preserve those values. The accepted commit must be a new saved version
-that descends from the starting commit, not the unchanged base or an unrelated
-branch.
+and one unchanged work mode. The Implementer receives `normal` work when Red
+Team is enabled and `two-role` work under `--skip-redteam`. All returns
+preserve those values. Candidate C must be a new saved version that descends
+from the starting commit, not the unchanged base or an unrelated branch. The
+Implementer returns C. The watcher later creates a
+different landing commit L with the same ticket change on the current main
+parent.
 
 This is why the Red Team is optional. The Architect already performs the
 mandatory audit before accepting a fix, so Architect and Implementer can
 complete a ticket without a third bot. Red Team spends additional tokens to
 provide a second, adversarial look afterward. Use that extra check when the
 budget permits it; use `--skip-redteam` when it does not. Omitting Red Team
-does not reduce the Architect's planning or audit duties. A two-role watch can
-use `--cycle 0` to finish all recorded work, but it cannot use a positive
-cycle count because the review that completes an ordinary counted cycle is
-disabled.
+does not reduce the Architect's planning or audit duties. In a two-role watch,
+the watcher's recorded local landing completes the ticket and its cycle. Positive
+limits work normally: `--skip-redteam --cycle 2` finishes after two accepted
+tickets. `--cycle 0` finishes all recorded work on the enabled routes.
+
+After recording a local landing, the watcher makes one bounded, non-force
+push attempt. If that push fails or cannot be confirmed, the ticket does not
+reopen and the landing is not repeated. The watcher saves **push debt**: a
+plain local record naming the exact landing and the push command still owed.
+The local fix remains on `main`; the user can inspect the recorded debt and
+push later.
+
+If the watcher stops after preserving candidate C but before recording
+landing L, it resumes only from the saved record for that exact ticket. It
+does not compare the separate Architect branch with `main`, interpret their
+ordinary difference as unfinished work, or manufacture an Architect ticket
+from a changed-line count.
 
 If the old bug remains, the Red Team writes a detailed local note and returns
 `REOPEN`. If a separate bug is found during an allowed discovery task, it
@@ -420,6 +484,50 @@ Before implementation, the Architect's temporary ticket note must say:
 - the interfaces, types, shapes, algorithms, constants, and failure behavior;
 - the exact tests, fixtures, assertions, commands, and expected results;
 - what is off-limits, when to stop, and who owns each parallel file.
+
+The plan must also give the Implementer specific jobs to pass to subagents.
+A subagent is a short-lived helper that works on one bounded part of the
+ticket. This saves time without asking a cheaper Implementer model to decide
+how the ticket should be divided.
+
+For example, while the Implementer repairs a mailbox parser:
+
+- one subagent can reproduce the failure and return the exact command and
+  output;
+- another can inspect the existing regression tests and name the missing
+  case; and
+- the Implementer acts as the **Integrator**: it checks both reports, edits
+  the owned source, combines any non-overlapping test work, and runs the final
+  commands itself.
+
+This delegation is required in every directive, even for a small source edit.
+The Implementer must try to launch all planned helpers before making an
+Integrator-owned implementation edit. Helpers whose
+file ownership does not overlap run at the same time. The Implementer waits
+for every required return, integrates the accepted pieces, and only then runs
+the final commands personally. The Architect may not guess that a
+runtime lacks this feature. If the first attempted helper launch fails before
+any edit, the Implementer stops and places the failure inside the exact
+`IMPLEMENTER_HANDOFF`, under `Subagent work`:
+
+```text
+- Capability checked: `the launch capability that was tried`
+- Attempted operation: The concrete first helper launch attempted before editing.
+- Raw failure: `the first runtime error, unchanged`
+```
+
+These are not a later summary. The relay records the full ticket-cycle name
+and a SHA-256 fingerprint of the exact handoff that contains these rows. The
+Architect must copy the three rows exactly into the revised plan; it cannot
+rewrite them from memory, a log, or a second attempt. This makes the
+no-helper exception traceable to a real pre-edit failure rather than an
+assumption. Only after that revision is checked may the Implementer continue
+without helpers. “This ticket is small” is not an exception, and an unresolved
+`blocked` helper result cannot support `GO`.
+
+The three required labels are `Capability checked`, `Attempted operation`,
+and `Raw failure`. Their spelling and their values remain unchanged through
+the exception review.
 
 The Architect's source note also records which roles will work on the ticket
 and, when Red Team is included, the discovery severity. A normal mailbox user
@@ -509,9 +617,84 @@ Only the Architect decides whether the evidence is sufficient.
   repair.
 - “Pass” and “fail” may describe a test, but they do not replace the decision.
 
-The Architect owns any accepted edit to the permanent notes and permission to
-combine an approved change with `main`. The Implementer and Red Team do not
-inherit that authority.
+The Architect owns any accepted edit to the permanent notes and may commit
+those eleven notes separately in the Architect coordination branch. The
+Implementer and Red Team do not inherit that authority. For an ordinary
+ticket, the Architect only audits C and sends the decision; the parent watcher
+alone creates L and advances `main` after that Architect process exits.
+
+### How a permanent-note update reaches `main`
+
+The eleven permanent notes explain durable project rules to future users and
+AI roles. Only the Architect may edit them. The Implementer and Red Team may
+report a problem with a note, but they never change or commit one.
+
+This protected update is deliberately separate from ticket work. It waits
+until no ordinary ticket is reserved, running, awaiting landing recovery, or
+awaiting its closure review. Completed history and an older push failure do
+not count as active ticket work.
+
+The process uses two saved project versions:
+
+- B is the exact local `main` version before the Architect starts.
+- P is the Architect's clean saved update. P has one parent—B—and changes
+  one or more of the eleven permanent notes and nothing else.
+
+Git calls B the **parent** of P because P is saved directly after B. P is not
+combined with another branch or unrelated change.
+
+The watcher marks this special Architect turn with
+`MAILBOX-ADMIN: permanent-notes` and supplies B through
+`MAILBOX_NOTES_BASE`. These are internal safety labels; a normal user does not
+write them. When an audit discovers a durable update, the bound Architect
+queues the separate note turn with:
+
+```bash
+python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
+  --architect-notes-admin "PLAIN-LANGUAGE SUMMARY"
+```
+
+This is not a command for a normal user terminal, the Implementer, or the Red
+Team. It works only inside the saved Architect process and waits for ticket
+work to become idle. A changed turn ends with one exact four-line request and no
+Implementer message:
+
+```text
+MAILBOX-RETURN: architect-notes-go
+MAILBOX-BASE: FULL-B-FROM-MAILBOX_NOTES_BASE
+MAILBOX-NOTES-COMMIT: FULL-P
+MAILBOX-DECISION: GO
+```
+
+If the Architect decides that no note needs to change, it leaves the saved
+version at B and sends neither a daemon request nor an Implementer request.
+
+```mermaid
+flowchart TD
+  B["B: unchanged local main"] --> A["Architect edits only permanent notes"]
+  A --> P["P: one clean note-only commit whose parent is B"]
+  P --> D["Parent watcher checks B, P, and the changed paths"]
+  D --> M["Watcher moves clean unchanged main from B to P"]
+  M --> S["Watcher safely prepares a clean idle lane for the next ticket"]
+```
+
+The Architect does not move the user's checkout and does not push P. After
+the Architect process exits, the parent watcher checks the exact B/P pair and
+moves a clean, attached, unchanged `main` to the already-created P. This
+operation does not use or complete a ticket cycle and does not ask Sol for a
+review.
+
+Before moving `main`, the watcher proves that the clean idle Architect,
+Implementer, and Red Team work folders can all move forward safely. After P
+lands, it moves all three saved role folders to P. A later Implementer
+request waits until this is complete, so the next ticket begins from
+`ticket@P` and uses the current tools and role instructions.
+
+The watcher then tries one bounded non-force push. If the result is failed or
+uncertain, it saves push debt naming that exact P instead of repeating the
+edit. It never resets a role folder that is dirty, has different saved work,
+or is still active; it preserves that work and explains why P cannot land or
+the next ticket cannot start.
 
 ### When does the Red Team run?
 
@@ -521,12 +704,13 @@ Enabling the role does not start a review. Sol runs only after the Architect
 saves an internal `to-sol` message. That review covers the named saved Git
 version or change and the behavior directly affected by it.
 
-After the Architect commits a ticket, the Architect sends a bounded Red Team
-review for that ticket and exact commit. This advisory review does not delay
-the close, commit, or start of the next ticket. Its return does complete the
-counted cycle, so a watcher with a positive `--cycle` limit remains alive
-until the matching result arrives. A remaining bug produces `REOPEN`; a clean
-review produces `NO CHANGE`, not an approval.
+After the watcher records a ticket's landing, it queues a bounded Red Team
+review for that ticket and exact landing. This advisory review does not delay
+the Architect's GO or the local landing. Another ticket may start only when the chosen cycle limit
+has an unused slot. The review return completes the counted cycle, so a
+watcher with a positive `--cycle` limit remains alive until the matching
+result arrives. A remaining bug produces `REOPEN`; a clean review produces
+`NO CHANGE`, not an approval.
 
 It does **not** turn a ticket review into a broad attack on the library. A
 widespread search happens only when the user begins the request with the
@@ -590,8 +774,16 @@ feature, difficult repair, or desire for another Implementer does not make a
 bug High. The Red Team must connect a concrete failure to the severe harm in
 the table. The Architect must record why the evidence exceeds Medium before
 placing the accepted ticket in High. Otherwise the ticket is Medium or Low.
-This restraint matters because too many High bug fixes activate the emergency
-second-Implementer mode described below.
+This restraint matters because severity controls the order in which work is
+done. It never selects a model, adds an Implementer, or changes what a cycle
+means.
+
+“This can make the science wrong” is still not enough by itself. High means
+the defect damages a primary result: generated training data, a trained
+emulator, a value served to a scientific program, saved data, or a core run.
+A wrong plot, diagnostic ranking, or optional report is normally Medium even
+when it could mislead the reader. It becomes High only if evidence also shows
+that the same defect changes a primary result or stops a core workflow.
 
 The backlog has one additional bug classification: **Critical**. It is not a
 command-line choice and the Red Team never assigns it. Only the Architect may
@@ -628,12 +820,15 @@ shows the exact commands and the saved ticket lines.
 
 The normal path does not wait for Red Team approval. The Architect sends the
 plan, the Implementer makes and tests the change, and the Architect checks the
-evidence. If the evidence earns `GO`, the Architect closes the ticket and
-commits the accepted change immediately.
+evidence. If the evidence earns `GO`, the Architect closes the backlog record
+and sends the exact five-line `architect-go` decision for candidate C. The
+Architect does not merge, commit, update `main`, or push that ticket.
 
-After that commit, the Red Team reviews the same ticket and accepted commit.
-This is an advisory check after the Architect's decision. It cannot stop or
-undo the commit. If no bug remains, Red Team returns `NO CHANGE`. If a
+After the Architect process exits, the parent watcher creates distinct
+landing L, fast-forwards a clean unchanged user `main`, and records the
+result. The Red Team then reviews the same ticket and exact L. This is an
+advisory check after the Architect's decision. It cannot stop or undo the
+landing. If no bug remains, Red Team returns `NO CHANGE`. If a
 concrete bug remains, Red Team returns a formal `REOPEN` assessment with its
 evidence.
 
@@ -663,8 +858,8 @@ Team's evidence: the ticket stays open for repair. `NO-GO` means that the
 evidence does not justify more work: the Architect closes the ticket again,
 records why, and permanently bars another Red Team reopening of that ticket.
 These labels judge the Red Team proposal; they are separate from the earlier
-Architect audit that approved and committed the Implementer fix. The Red Team
-proposes; the Architect decides.
+Architect audit that approved the Implementer candidate and caused the parent
+watcher to land it. The Red Team proposes; the Architect decides.
 
 Every ticket says either `Red Team reopening: allowed` or `Red Team
 reopening: barred by Architect NO-GO`. Once barred, the status never changes
@@ -691,19 +886,19 @@ group, the Architect must compare the new file and command with the first
 report. A copied report with no new failing file can receive `NO-GO`; a newly
 demonstrated failure can receive `GO` and exact repair instructions.
 
-A **normal cycle** follows one ticket. Architect and Implementer may exchange
-several repair messages, but those messages do not each count as a cycle. The
-cycle completes only after the Architect accepts and commits the ticket and
-the Red Team returns its advisory review of that exact commit. The next ticket
-may start while that review is running, but the watcher cannot claim the
-cycle is complete or exit for that cycle limit until the result returns.
+A **cycle** follows exactly one ticket. Architect and Implementer may exchange
+several repair messages, but those messages do not each count as a cycle. In
+the normal three-role setup, the cycle completes after the Architect accepts
+the immutable candidate, the watcher records its distinct landing, and the Red
+Team returns its advisory review of that exact landing. Another ticket may start during that review only when the
+selected cycle limit has another unused ticket slot. For example, `--cycle 1`
+never admits ticket B while ticket A is awaiting its review.
 
 The watcher's 20-second safe-stop countdown is only a chance to press Ctrl-C.
-It never starts or completes a cycle. A two-role run may implement, test,
-close, and commit through the same Architect decision; because it has no Red
-Team pass, it supports the drain-all `--cycle 0` form rather than a positive
-cycle count. The [cycle appendix](tools/README.md#faq-b2-cycle-count) gives
-normal, emergency, and two-role examples.
+It never starts or completes a cycle. In a two-role run, the cycle completes
+when the watcher records that ticket's local landing. The
+[cycle appendix](tools/README.md#faq-b2-cycle-count) gives examples for the
+normal three-role setup and the two-role setup.
 
 ## Notes, tests, and gates
 
@@ -738,9 +933,10 @@ The three checking tools have different jobs:
 
 Git's `main` branch is the public sequence of accepted project versions. Each
 accepted fix enters `main` as one commit containing the fix, its tests, and
-any tracked documentation it requires. The Architect combines intermediate
-branch commits before adding the fix; Git calls this a **squash**. Intermediate
-attempts do not get their own main commit.
+any tracked documentation it requires. The watcher combines the exact
+candidate's ticket change into one distinct commit after the Architect exits;
+Git calls this a **squash**. Intermediate attempts do not get their own main
+commit. The Architect does not run that merge or push.
 
 Local status updates stay out of `main`. A workflow-rule change that is not
 part of the scientific or code fix stays out of that fix commit. When the rule
@@ -816,8 +1012,10 @@ python3 ai/tools/permanent_note_guard.py \
 ```
 
 The capitalized values are placeholders. The Architect replaces
-`EXACT_WORKTREE` with the AI work-folder path and `FULL_STARTING_COMMIT` with
-the full starting commit recorded in the directive.
+`EXACT_WORKTREE` with the Implementer's worktree path and
+`FULL_STARTING_COMMIT` with the full starting commit recorded in the
+directive. This is a read-only Architect check; the Architect does not edit
+source in that folder.
 
 The command calculates a SHA-256 fingerprint—a short identifier for exact
 file bytes—from Git. It checks the notes in four places:
@@ -825,9 +1023,9 @@ file bytes—from Git. It checks the notes in four places:
 | Place checked | Plain meaning |
 | --- | --- |
 | Starting commit | The saved project version named by the Architect before work begins |
-| Current `HEAD` | The latest saved commit in the AI work folder |
+| Current `HEAD` | The latest saved commit in the Implementer worktree |
 | Git staging area | Files selected for the next commit |
-| Working files | Files currently visible in the AI work folder |
+| Working files | Files currently visible in the Implementer worktree |
 
 The expected fingerprints do not come from an editable checksum list. Only
 the Architect's rerun counts; copied output from another role is supporting
@@ -913,7 +1111,7 @@ combinations with cycle and two-role options.
 
 ## Choose and run a command-line tool
 
-The six scripts under `ai/tools/` have different jobs. The
+The scripts under `ai/tools/` have different jobs. The
 [tool command guide](tools/README.md) provides a task-based chooser, daily
 commands, current option reference, safe stopping instructions, setup,
 recovery, and unfinished-work transfer.
@@ -981,8 +1179,8 @@ mailbox file.
 
 ### FAQ C1. Why can some AI jobs run together while others must wait? <a id="appendix-c--how-do-queues-and-lanes-work"></a>
 
-Two roles must not edit the same working folder at the same time. The watcher
-therefore starts only one job at a time in each AI folder. Jobs in separate AI
+Two jobs must not change or commit through the same Git folder at the same
+time. The watcher therefore gives each role its own folder. Jobs in separate
 folders may run together.
 
 The documentation calls each one-at-a-time sequence a **lane**. A **turn** is
@@ -993,20 +1191,24 @@ important idea.
 ```mermaid
 flowchart TB
   M["waiting request"] --> R{"which role receives it?"}
-  R -->|"Architect or Implementer"| C["shared Claude work folder"]
-  R -->|"Sol, when enabled"| S["separate Sol work folder"]
-  C --> Q["only one Claude job at a time"]
-  S --> T["only one Sol job at a time"]
-  Q --> A["Architect checks the evidence"]
-  T --> A
+  R -->|"Architect"| A["plans or audits a saved commit"]
+  R -->|"Implementer"| I["changes source in the implementation worktree"]
+  R -->|"Red Team, when enabled"| S["reviews daemon landing L"]
+  A --> G["GO returns a decision bound to candidate C"]
+  I --> G
+  G --> D["Parent watcher creates distinct landing L"]
+  D --> S
 ```
 
 The number at the beginning of each message filename determines its order
 inside the same lane.
 
-Architect and Implementer intentionally share one Claude folder so both see
-the same notes and unfinished edits. They must therefore take turns. Sol uses
-a different folder and may run at the same time as one Claude role.
+The source note and saved commit identifiers connect the lanes. The roles do
+not need to share unfinished source edits. For example, the Implementer may
+work on ticket B while the Architect audits ticket A and the Red Team reviews
+an earlier daemon-recorded landing. A positive `--cycle` limit must still have
+a free
+ticket slot before ticket B starts.
 
 ### FAQ C2. Where does Sol work? <a id="faq-c2-sol-worktree"></a>
 
@@ -1014,22 +1216,16 @@ A Git **worktree** is an extra working copy of the same project. It has its
 own files and its own named line of work, called a branch, while sharing the
 project's saved Git history.
 
-Sol never edits code in the main folder that you use. On the first live run,
-the watcher creates a separate Sol worktree and remembers its location. Later
-runs reuse it.
+Sol never edits source code. On the first live run, the watcher creates a
+separate Sol worktree and remembers its location. Later runs reuse it as
+Sol's role folder. For each review, the watcher creates a temporary detached
+snapshot of the exact daemon-recorded landing named in the closure request.
+Sol reads the source from that snapshot, so later Implementer work cannot
+change what Sol is reviewing.
 
-Claude and Sol therefore edit code in different folders, and neither normally
-interferes with your main folder. Sol can also read and write the Claude
-worktree's `ai/notes/` folder so all roles share the same source notes and
-mailbox records.
-
-Before Sol starts an implementation job, the Architect's `Execution checkout`
-field must name the saved Sol project folder, its branch (which must not be
-`main`), and the full identifier of the starting Git commit—the exact saved
-version of the project from which Sol should begin. If any detail is missing
-or different, Sol must not edit any file. The manual router refuses before
-sending the job; a mailbox-started Sol turn returns a blocker to the
-Architect.
+Sol can also read the Architect coordination worktree's `ai/notes/` folder so
+all roles use the same source notes and mailbox records. A Red Team result may
+write its review note there, but it does not change the library source.
 
 Only the Architect may enter your main folder, and only after recording `GO`,
 to combine an approved change with `main`.
@@ -1072,115 +1268,46 @@ flowchart TD
   X --> C["Work on a known item may continue"]
 ```
 
-### FAQ D2. When may Sol implement instead of review? <a id="faq-d2-second-implementer"></a>
+### FAQ D2. Can Sol change the code? <a id="faq-d2-can-sol-change-code"></a>
 
-Sol may implement only during an emergency: more than one open Critical bug,
-or more than ten open High bugs. High features, Medium work, Low work, and
-waiting mailbox files do not count. The runtime and manual relay refuse this
-role outside an emergency.
+No. Sol has one optional job: Red Team review. It reads one named commit and
+sends advice to the Architect. It does not implement a ticket, edit source
+files, approve a commit, or merge a branch.
 
-These classifications need strong evidence. A High bug must show severe harm
-and explain why Medium is insufficient. A Critical bug must show broad
-breakage and explain why High is insufficient. The Architect must not inflate
-either group to obtain a second Implementer; otherwise the system would stay
-in emergency mode during ordinary maintenance.
+Use `--skip-redteam` when a run should use only Architect and Implementer.
+This option leaves Sol idle; it does not turn Sol into another Implementer.
 
-The emergency does not change Sol's role automatically. Ask the Architect to
-choose one named ticket. The Architect writes the validated directive and
-internal assignment. The
-first non-empty line after the required ticket line selects Sol's role for
-this message. One optional line beginning `### ARCHITECT_HANDOFF` may appear
-between them. To select the second-Implementer role, that first non-empty
-assignment line must be the exact declaration below. In this required program
-sentence, `unit` means this ticket:
-
-```text
-OpenAI Sol — this is a role as second Implementer for this unit.
-```
-
-The user never sends this declaration to Sol. Putting that sentence later in
-an Architect message, or merely quoting it in a discussion, does not change
-the role. Without the Architect-authored declaration in the required place,
-Sol remains the Red Team and reviews only the named change.
-
-The declaration selects the role; it does not by itself permit an edit. Sol
-may begin editing only after the cited Architect `Implementation directive`
-passes validation. That directive must say what to change, how to change it,
-and which tests must pass.
-
-Only the Architect may classify a bug Critical. The Architect must not turn a
-High bug into Critical merely to create the emergency that permits this role.
-
-Otherwise Sol returns a blocker to the Architect. After valid
-second-Implementer work, Sol follows `.claude/OPUS_ROLE.md` and sends an
-`IMPLEMENTER_HANDOFF`, the structured result sent back to the Architect. Sol
-does not also Red Team review the same job.
-
-Emergency work changes what one cycle counts. Instead of one committed ticket
-followed by one Red Team review, one emergency cycle contains two different
-committed tickets:
-
-- one ticket completed by the primary Implementer; and
-- one ticket completed by Sol as the second Implementer.
-
-The Architect audits and commits both tickets separately. Neither ticket is
-counted twice, and Sol does not review either commit during that emergency
-pair. While the backlog still proves the emergency, the Architect starts the
-pair by assigning two distinct tickets, one to each Implementer. They may
-finish in either order. The pair must keep two different ticket anchors, two
-different accepted commits, and the same period during which the backlog
-stayed above the emergency threshold.
-
-The watcher checks the backlog again after each accepted ticket. As soon as
-the counts reach ten or fewer open High bug fixes and one or fewer open
-Critical bug fixes, it stops assigning new second-Implementer tickets. A Sol
-ticket whose dispatch preparation was already admitted, or whose role process
-already started, may finish. A request file merely waiting in the mailbox is
-not grandfathered and must not begin as emergency work after the threshold
-clears. After admitted work finishes, Sol returns to Red Team reviews for
-later normal cycles. For example, if eleven High bug fixes
-trigger the emergency, the primary Implementer and Sol may each finish one
-ticket. Once the count falls below the threshold, the remaining tickets use
-the normal ticket-plus-review cycle; the watcher does not process the whole
-backlog without Red Team merely because the run started in emergency mode.
-
-An admitted emergency ticket can finish after the threshold clears even when
-no opposite-route ticket was admitted. The watcher saves that ticket as
-completed, but it counts as no cycle and receives no retroactive Red Team
-review. The watcher does not start a new emergency ticket merely to fill the
-missing half.
-
-`--cycle 0` keeps its separate meaning during either mode: finish all recorded
-work and then exit safely. It does not mean “stay in emergency mode” and it
-does not skip reviews after the emergency has cleared.
-
-The [manual second-Implementer guide](tools/README.md#ask-the-architect-to-use-sol-as-a-second-implementer)
-explains the command, separate-worktree check, and printed reminder. The
-watcher never creates those jobs or changes Sol's role by itself. The manual
-relay also requires the Architect's validated role plan to name
-`Architect + Sol as Implementer`; a command-line option cannot create that
-assignment.
+The user still talks only to the Architect. A request for a Red Team review or
+widespread search goes to the Architect, who writes the internal Sol handoff.
 
 ### FAQ F1. Which folder does each role use? <a id="appendix-f--what-is-the-worktree-topology"></a>
 
 A **worktree** is a separate project folder that Git creates and remembers.
 
 - You use the repository's main folder.
-- Architect and Implementer share one Claude worktree.
-- Sol uses a different worktree.
+- Architect uses `mailbox-primary` for plans, decisions, and records.
+- Implementer changes source code in `mailbox-implementer`.
+- Sol uses `mailbox-sol` as the optional Red Team's saved role folder.
 
-The first mailbox command that can start or send work creates both AI folders
+The Architect does not inspect a candidate through unfinished files in
+`mailbox-primary`, and Sol does not inspect an accepted change through
+unfinished files in `mailbox-sol`. For each source review, the watcher creates
+a temporary detached snapshot of the exact commit that role must inspect.
+
+The first mailbox command that can start or send work creates the AI folders
 and remembers them. A dry run does not.
 
-Code changes happen in the role's own worktree, never in your main folder. Sol
-also uses the Claude worktree's `ai/notes/` folder for shared coordination
-records. The single exception for code is explicit: after the Architect
-records `GO`, the Architect may enter the main folder to combine that approved
-change with `main`.
+Only the Implementer edits source files. The Architect and Red Team read saved
+commits and write plans, decisions, or review notes. They can therefore work
+at the same time without editing through the Implementer's Git folder. After
+the Architect records `GO` and exits, the parent watcher may perform the
+controlled Git landing that combines the exact approved candidate with
+`main`. The Architect never edits, commits, or pushes through the user's main
+folder for an ordinary ticket.
 
 ### FAQ F2. Can I create another work folder for myself? <a id="faq-f2-other-worktrees"></a>
 
 Yes. A worktree is a separate project folder that Git creates and remembers.
 You may create another one for a manual experiment or other development work.
-That extra folder does not change the saved Claude or Sol folder used by the
-watcher.
+That extra folder does not change the saved Architect, Implementer, or Sol
+folder used by the watcher.

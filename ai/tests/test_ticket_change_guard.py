@@ -77,9 +77,12 @@ def repository(files=None):
         yield root, base
 
 
-def run_guard(repository, base, maximum=None, environment_limit=None):
+def run_guard(repository, base, maximum=None, environment_limit=None,
+              candidate=None):
     """Run the guard in-process and capture its user-facing output."""
     arguments = ["--repo", str(repository), "--base", base]
+    if candidate is not None:
+        arguments.extend(("--architect-audit", "--candidate", candidate))
     if maximum is not None:
         arguments.extend(("--max", str(maximum)))
     output = io.StringIO()
@@ -197,6 +200,137 @@ class TicketChangeGuardTests(unittest.TestCase):
 
         self.assertEqual(matching_code, 0)
         self.assertIn("within limit", matching_output)
+
+    def test_architect_audit_keeps_measuring_the_named_commit(self):
+        """Later HEAD work cannot change the earlier audit measurement."""
+        with repository() as (root, base):
+            write_bytes(repository=root, name="ticket-a.txt", payload=b"four")
+            ticket_a = commit_all(repository=root, message="ticket A")
+            write_bytes(
+                repository=root, name="ticket-b.txt", payload=b"later work")
+            ticket_b = commit_all(repository=root, message="ticket B")
+
+            audit_code, audit_output = run_guard(
+                repository=root, base=base, maximum=4,
+                candidate=ticket_a)
+            default_code, default_output = run_guard(
+                repository=root, base=base, maximum=4)
+
+        self.assertEqual(audit_code, 0)
+        self.assertIn("candidate commit: " + ticket_a, audit_output)
+        self.assertIn(
+            "changed characters: 4 (4 added + 0 deleted)", audit_output)
+        self.assertEqual(default_code, 1)
+        self.assertIn("candidate commit: " + ticket_b, default_output)
+        self.assertIn(
+            "changed characters: 14 (14 added + 0 deleted)", default_output)
+
+    def test_architect_audit_reads_commit_objects_not_worktree_edits(self):
+        """Uncommitted later work is irrelevant only to an immutable audit."""
+        with repository() as (root, base):
+            write_bytes(repository=root, name="ticket.txt", payload=b"ok\n")
+            candidate = commit_all(repository=root, message="candidate")
+            write_bytes(
+                repository=root, name="waiting.txt", payload=b"next ticket\n")
+
+            audit_code, audit_output = run_guard(
+                repository=root, base=base, maximum=3,
+                candidate=candidate)
+            default_code, default_output = run_guard(
+                repository=root, base=base, maximum=3)
+
+        self.assertEqual(audit_code, 0)
+        self.assertIn("candidate commit: " + candidate, audit_output)
+        self.assertEqual(default_code, 2)
+        self.assertIn("HEAD is not the exact candidate", default_output)
+
+    def test_architect_audit_flags_and_full_candidate_are_required_together(
+            self):
+        """Partial, abbreviated, and symbolic audit requests fail at parsing."""
+        with repository() as (root, base):
+            candidate = git(root, "rev-parse", "HEAD")
+            cases = (
+                (["--architect-audit"], "requires --candidate"),
+                (["--candidate", candidate],
+                 "requires --architect-audit"),
+                (["--architect-audit", "--candidate", candidate[:12]],
+                 "one full 40-hex commit"),
+                (["--architect-audit", "--candidate", "HEAD"],
+                 "one full 40-hex commit"),
+            )
+            for extra, diagnostic in cases:
+                with self.subTest(extra=extra):
+                    error = io.StringIO()
+                    with redirect_stderr(error):
+                        with self.assertRaises(SystemExit) as caught:
+                            ticket_change_guard.main(argv=[
+                                "--repo", str(root), "--base", base,
+                                "--max", "10"] + extra)
+                    self.assertEqual(caught.exception.code, 2)
+                    self.assertIn(diagnostic, error.getvalue())
+
+    def test_architect_audit_candidate_must_exist_in_this_repository(self):
+        """A full commit from another repository is not a local candidate."""
+        with repository() as (root, base):
+            with repository(files={"other.txt": b"different\n"}) as (
+                    other_root, _other_base):
+                write_bytes(
+                    repository=other_root, name="foreign.txt",
+                    payload=b"foreign commit\n")
+                foreign = commit_all(
+                    repository=other_root, message="foreign candidate")
+
+            return_code, output = run_guard(
+                repository=root, base=base, maximum=100,
+                candidate=foreign)
+
+        self.assertEqual(return_code, 2)
+        self.assertIn("--candidate is not a commit", output)
+
+    def test_architect_audit_candidate_must_descend_from_base(self):
+        """An unrelated local commit cannot be presented as this ticket."""
+        with repository() as (root, base):
+            tree = git(root, "rev-parse", "HEAD^{tree}")
+            unrelated = git(root, "commit-tree", tree, "-m", "unrelated")
+
+            return_code, output = run_guard(
+                repository=root, base=base, maximum=100,
+                candidate=unrelated)
+
+        self.assertEqual(return_code, 2)
+        self.assertIn(
+            "--base is not an ancestor of --candidate", output)
+
+    def test_architect_audit_rechecks_candidate_identity_after_measurement(
+            self):
+        """An inconsistent Git answer cannot silently change the audit target."""
+        with repository() as (root, base):
+            write_bytes(repository=root, name="ticket.txt", payload=b"one\n")
+            candidate = commit_all(repository=root, message="candidate")
+            write_bytes(repository=root, name="later.txt", payload=b"two\n")
+            later = commit_all(repository=root, message="later")
+            real_resolve = ticket_change_guard.resolve_commit
+            candidate_resolutions = 0
+
+            def inconsistent_resolve(repository, revision, label):
+                nonlocal candidate_resolutions
+                resolved = real_resolve(repository, revision, label)
+                if label == "--candidate":
+                    candidate_resolutions += 1
+                    if candidate_resolutions == 3:
+                        return later
+                return resolved
+
+            with mock.patch.object(
+                    ticket_change_guard, "resolve_commit",
+                    side_effect=inconsistent_resolve):
+                return_code, output = run_guard(
+                    repository=root, base=base, maximum=100,
+                    candidate=candidate)
+
+        self.assertEqual(return_code, 2)
+        self.assertIn(
+            "--candidate changed while the ticket was being checked", output)
 
     def test_add_delete_replace_unicode_and_exact_boundary(self):
         """Spaces, newlines, and Unicode each count as one code point."""

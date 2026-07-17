@@ -381,10 +381,10 @@ text, and Mermaid source.
 ### Replace generic praise with checkable facts
 
 Use concrete actors and verbs. “The watcher moves the file” is easier to
-check than “a filesystem transition occurs.” “`--cycle 2` exits after two
-normal tickets have an accepted commit and a matching Red Team return” carries
-more information than “this provides useful runtime
-control.”
+check than “a filesystem transition occurs.” “`--cycle 2` admits no more than
+two tickets; in the normal setup each ticket needs a daemon-recorded landing L
+and its matching Red Team return before exit” carries more information than “this
+provides useful runtime control.”
 
 The following claims need evidence or removal:
 

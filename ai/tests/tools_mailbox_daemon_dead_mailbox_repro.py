@@ -39,6 +39,8 @@ def scratch_daemon(create_mailbox=True, source=None):
     with tempfile.TemporaryDirectory(prefix="mailbox-dead-repro-") as tmp:
         root = pathlib.Path(tmp)
         worktree = root / ".claude" / "worktrees" / "current"
+        implementer_worktree = root / "implementer-worktree"
+        sol_worktree = root / "sol-worktree"
         ai_root = worktree / "ai"
         mailbox = ai_root / "notes" / "mailbox"
         daemon = load_daemon(source=source)
@@ -51,9 +53,11 @@ def scratch_daemon(create_mailbox=True, source=None):
         daemon.BACKLOG_LEDGER = str(ai_root / "notes" / "backlog.md")
         daemon.AGENT_CWD = {
             "fable": str(worktree),
-            "opus": str(worktree),
-            "sol": str(root),
+            "opus": str(implementer_worktree),
+            "sol": str(sol_worktree),
         }
+        implementer_worktree.mkdir(parents=True)
+        sol_worktree.mkdir(parents=True)
         daemon.report_demand = lambda backlog: None
         if create_mailbox:
             mailbox.mkdir(parents=True)
@@ -340,6 +344,47 @@ def arm_advisory_send_and_ping_succeed():
     return send_ok and ping_ok
 
 
+def arm_oversized_failed_admin_is_exit_debt():
+    """Once and watch report a raw oversized failed admin, never empty."""
+    outcomes = []
+    for arguments in (["--once"], ["--watch", "--cycle", "0"]):
+        with scratch_daemon() as (daemon, _, mailbox):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            path = failed / "0001-to-fable.md"
+            with path.open("wb") as stream:
+                stream.write(
+                    daemon.MAILBOX_ADMIN_HEADER.encode("ascii")
+                    + b"permanent-notes\n\n")
+                stream.seek(daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES + 128)
+                stream.write(b"x")
+            previous = sys.argv
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            error = None
+            sys.argv = [str(DAEMON_PATH)] + list(arguments)
+            try:
+                with contextlib.redirect_stdout(stdout), \
+                        contextlib.redirect_stderr(stderr):
+                    try:
+                        rc = daemon.main()
+                    except BaseException as exc:
+                        error = exc
+                        rc = None
+            finally:
+                sys.argv = previous
+            text = stdout.getvalue()
+            outcomes.append(
+                error is None and rc == 1 and stderr.getvalue() == ""
+                and path.is_file()
+                and ("permanent-note user action required: failed/"
+                     + path.name) in text
+                and "mailbox empty" not in text)
+    passed = outcomes == [True, True]
+    print("oversized failed admin is exit debt=" + str(passed))
+    return passed
+
+
 def witness_once_warns(source):
     """Return whether a source variant still warns for a held once lock."""
     with scratch_daemon(source=source) as (daemon, _, mailbox):
@@ -403,10 +448,11 @@ def witness_main_lock_mode(source, flag):
         lambda mode="unknown": modes.append(mode) or object())
     daemon.release_dispatch_lock = lambda lock_file: None
     if flag == "once":
-        daemon.process_backlog = lambda dry_run: None
+        daemon.process_backlog = lambda dry_run, **kwargs: None
     else:
         daemon.process_backlog = (
-            lambda dry_run: (_ for _ in ()).throw(StopWatch()))
+            lambda dry_run, **kwargs:
+            (_ for _ in ()).throw(StopWatch()))
     previous_argv = sys.argv
     sys.argv = [str(DAEMON_PATH), "--" + flag]
     try:
@@ -496,6 +542,8 @@ def main():
         ("nonexistent dry-run read-only", arm_nonexistent_dry_run_is_read_only),
         ("symlink/FIFO/shared-probe safe", arm_symlink_fifo_and_shared_probe_are_safe),
         ("advisory send and ping", arm_advisory_send_and_ping_succeed),
+        ("oversized failed admin debt",
+         arm_oversized_failed_admin_is_exit_debt),
     ]
     outcomes = []
     for label, arm in arms:

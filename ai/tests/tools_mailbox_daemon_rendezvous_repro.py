@@ -66,6 +66,34 @@ def load_daemon(source=None):
     return module
 
 
+def install_test_role_state_proofs(daemon):
+    """Install opaque topology and persistent-state proofs for each role."""
+    agents = ("fable", "opus", "sol")
+    topology_proofs = {agent: object() for agent in agents}
+    persistent_proofs = {agent: object() for agent in agents}
+
+    def validate_topology(agent):
+        return topology_proofs[agent]
+
+    def revalidate_topology(proof):
+        if proof not in topology_proofs.values():
+            raise AssertionError("scratch role topology proof changed")
+        return proof
+
+    def capture_persistent_state(agent):
+        return persistent_proofs[agent]
+
+    def recheck_persistent_state(proof):
+        if proof not in persistent_proofs.values():
+            raise AssertionError("scratch persistent role state changed")
+        return proof
+
+    daemon.validate_live_agent_dispatch_topology = validate_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_topology
+    daemon.capture_persistent_role_state = capture_persistent_state
+    daemon.recheck_persistent_role_state = recheck_persistent_state
+
+
 @contextlib.contextmanager
 def scratch_daemon(source=None):
     """Redirect a fresh daemon into one disposable repository."""
@@ -93,15 +121,16 @@ def scratch_daemon(source=None):
             "sol": ["harmless-sol"],
         }
         daemon.AGENT_CWD = {
-            "fable": str(root / "shared-lane"),
-            "opus": str(root / "shared-lane"),
+            "fable": str(root / "architect-lane"),
+            "opus": str(root / "implementer-lane"),
             "sol": str(root / "sol-lane"),
         }
         daemon._production_warn_if_mailbox_unwatched = (
             daemon.warn_if_mailbox_unwatched)
         daemon.warn_if_mailbox_unwatched = lambda: None
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, **kwargs: None
         daemon.report_landing_debt = lambda: None
+        install_test_role_state_proofs(daemon=daemon)
         # Ticket-cycle registration is exercised only with synthetic commit
         # identities in this disposable repository.  Keep ancestry checks
         # deterministic and isolated from the caller's real checkout.
@@ -111,6 +140,11 @@ def scratch_daemon(source=None):
             lambda starting_commit, accepted_commit:
             starting_commit == BASE_COMMIT
             and accepted_commit == ACCEPTED_COMMIT)
+        daemon._exact_git_object = (
+            lambda arguments, label: BASE_COMMIT
+            if arguments == ["rev-parse", "--verify",
+                             "refs/heads/main^{commit}"]
+            else ACCEPTED_COMMIT)
         yield daemon, root, mailbox
 
 
@@ -121,14 +155,37 @@ def write_pending(mailbox, name, body="close existing work\n"):
     return path
 
 
+def write_indexed_open_tickets(backlog, anchors=("cycle-witness",)):
+    """Write classified Open tickets with exact cycle bookkeeping."""
+    index = []
+    details = []
+    for anchor in anchors:
+        title = anchor.replace("-", " ").title()
+        index.append(
+            "- OPEN **MEDIUM** **BUG FIX** — [" + title + "](#"
+            + anchor + ")\n")
+        details.extend([
+            "\n<a id=\"" + anchor + "\"></a>\n",
+            "**Red Team reopen count: 0.**\n",
+            "**Red Team reopening: allowed.**\n",
+        ])
+    backlog.write_text("".join(index + details), encoding="utf-8")
+
+
 def write_indexed_open_ticket(backlog):
-    """Write one classified Open ticket with exact cycle bookkeeping."""
-    backlog.write_text(
-        "- OPEN **MEDIUM** **BUG FIX** — [Cycle witness](#cycle-witness)\n"
-        "\n<a id=\"cycle-witness\"></a>\n"
-        "**Red Team reopen count: 0.**\n"
-        "**Red Team reopening: allowed.**\n",
-        encoding="utf-8")
+    """Keep the original one-ticket helper used by cycle-zero arms."""
+    write_indexed_open_tickets(backlog=backlog)
+
+
+def ticket_flow_payload(
+        cycle_id, mode="normal",
+        text="Change the named fixture and run its focused regression."):
+    """Return one exact Architect/Implementer cycle message."""
+    return (
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + cycle_id + "\n"
+        "MAILBOX-MODE: " + mode + "\n\n"
+        + text + "\n")
 
 
 def tree_snapshot(root):
@@ -306,10 +363,6 @@ def arm_dispatch_cadence_global_window(source=None):
     with scratch_daemon(source=source) as (daemon, root, mailbox):
         daemon.RENDEZVOUS_DISPATCH_INTERVAL = 2
         daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
-        # This witness needs two independent cwd lanes so both reservations
-        # can be live at the global K boundary. The normal shared Claude cwd
-        # topology is covered by the mailbox topology tests.
-        daemon.AGENT_CWD["opus"] = str(root / "opus-lane")
         first = write_pending(mailbox, "0001-to-fable.md")
         second = write_pending(mailbox, "0002-to-opus.md")
         third = write_pending(mailbox, "0003-to-fable.md")
@@ -325,8 +378,8 @@ def arm_dispatch_cadence_global_window(source=None):
         dispatch_errors = []
         fourth_holder = []
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 with launch_lock:
                     index = len(launches)
@@ -417,8 +470,8 @@ def arm_minute_cadence_and_idle_status(source=None):
 
         clock.on_poll = add_work_after_first_idle_window
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 launches.append(pathlib.Path(path).name)
                 clock.events.append("launch")
@@ -481,8 +534,8 @@ def arm_safe_line_expires_before_claim(source=None):
 
         clock.on_poll = add_work_during_safe_poll
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             visible = sys.stdout.getvalue()
             target = pathlib.Path(path)
             observed["unsafe"] = (
@@ -549,8 +602,8 @@ def arm_ctrl_c_preserves_waiting_message(source=None):
         clock.raise_on_countdown = True
         clock.raise_on_poll = True
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 launches.append(pathlib.Path(path).name)
                 pathlib.Path(path).unlink()
@@ -588,8 +641,8 @@ def arm_source_change_stops_mid_pass(source=None):
         launches = []
         clock = ControlledClock()
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 target = pathlib.Path(path)
                 launches.append(target.name)
@@ -654,6 +707,99 @@ def arm_production_dispatch_lifecycle(source=None):
         return passed
 
 
+def arm_three_role_pipeline_concurrency(source=None):
+    """Three role lanes overlap while each role remains sequential."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        anchors = ("pipeline-first", "pipeline-second")
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=anchors)
+        architect = write_pending(
+            mailbox, "0001-to-fable.md", "Audit frozen candidate A.\n")
+        implementer_first = write_pending(
+            mailbox, "0002-to-opus.md",
+            ticket_flow_payload(
+                cycle_id=anchors[0] + "@" + BASE_COMMIT,
+                text="Implement ticket B."))
+        red_team = write_pending(
+            mailbox, "0003-to-sol.md", "Review older accepted ticket.\n")
+        implementer_second = write_pending(
+            mailbox, "0004-to-opus.md",
+            ticket_flow_payload(
+                cycle_id=anchors[1] + "@" + BASE_COMMIT,
+                text="Implement the next ticket."))
+
+        releases = {
+            architect.name: threading.Event(),
+            implementer_first.name: threading.Event(),
+            red_team.name: threading.Event(),
+        }
+        three_started = threading.Event()
+        second_started = threading.Event()
+        launch_lock = threading.Lock()
+        launches = []
+        first_names = {
+            architect.name, implementer_first.name, red_team.name}
+
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
+            target = pathlib.Path(path)
+            agent = daemon.PENDING_MESSAGE_RE.match(target.name).group(1)
+            with launch_lock:
+                launches.append((target.name, daemon.AGENT_CWD[agent]))
+                started_names = {name for name, _cwd in launches}
+                if first_names.issubset(started_names):
+                    three_started.set()
+                if target.name == implementer_second.name:
+                    second_started.set()
+            release = releases.get(target.name)
+            if release is not None and not release.wait(timeout=3.0):
+                return False
+            target.unlink()
+            return True
+
+        daemon.dispatch = fake_dispatch
+        result = {}
+
+        def run_pass():
+            result["value"] = daemon.process_backlog(dry_run=False)
+
+        worker = threading.Thread(target=run_pass)
+        worker.start()
+        first_wave = three_started.wait(timeout=2.0)
+        second_held_initially = not second_started.is_set()
+        releases[architect.name].set()
+        releases[red_team.name].set()
+        second_held_by_implementer = not second_started.wait(timeout=0.2)
+        releases[implementer_first.name].set()
+        second_released = second_started.wait(timeout=2.0)
+        worker.join(timeout=4.0)
+        if worker.is_alive():
+            for release in releases.values():
+                release.set()
+            worker.join(timeout=1.0)
+
+        first_wave_cwds = {
+            cwd for name, cwd in launches if name in first_names}
+        names = [name for name, _cwd in launches]
+        passed = (
+            first_wave and second_held_initially
+            and second_held_by_implementer and second_released
+            and not worker.is_alive() and result.get("value") is True
+            and len(first_wave_cwds) == 3
+            and names.count(architect.name) == 1
+            and names.count(implementer_first.name) == 1
+            and names.count(red_team.name) == 1
+            and names.count(implementer_second.name) == 1
+            and names.index(implementer_first.name)
+            < names.index(implementer_second.name)
+            and not any(path.exists() for path in (
+                architect, implementer_first, red_team,
+                implementer_second)))
+        print("three role lanes overlap and each lane stays sequential="
+              + str(passed))
+        return passed
+
+
 def finite_action_case(source, arguments, dry_run):
     """Run one finite action and return whether rendezvous stayed absent."""
     with scratch_daemon(source=source) as (daemon, root, mailbox):
@@ -668,8 +814,8 @@ def finite_action_case(source, arguments, dry_run):
         def forbidden_sleep(seconds):
             raise AssertionError("finite action slept " + repr(seconds))
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del fix_only, kwargs
             launches.append(pathlib.Path(path).name)
             if not dry_run:
                 pathlib.Path(path).unlink()
@@ -701,7 +847,7 @@ def arm_once_and_dry_run_are_unaffected(source=None):
 
 
 def arm_cycle_argument_contract(source=None):
-    """Cycle counts are nonnegative, watch-only, and fix-only compatible."""
+    """Cycle is watch-only and works in both supported topologies."""
     with scratch_daemon(source=source) as (daemon, _, _):
         nonwatch_rc, nonwatch_output, _, nonwatch_error = call_main(
             daemon, ["--cycle", "1"])
@@ -711,6 +857,8 @@ def arm_cycle_argument_contract(source=None):
             daemon, ["--watch", "--cycle", "two"])
         valid_rc, valid_output, _, valid_error = call_main(
             daemon, ["--watch", "--fix-only", "yes", "--cycle", "0"])
+        two_role_rc, two_role_output, _, two_role_error = call_main(
+            daemon, ["--watch", "--skip-redteam", "--cycle", "0"])
         retry_lock = daemon.acquire_dispatch_lock(mode="once")
         released = retry_lock is not None
         if retry_lock is not None:
@@ -732,7 +880,12 @@ def arm_cycle_argument_contract(source=None):
             and "cycle 0: wait until no role message is waiting or running "
             "and ai/notes/backlog.md has no '- OPEN' item, then exit"
             in valid_output
-            and "cycle work complete after 0 cycles" in valid_output)
+            and "cycle work complete after 0 cycles" in valid_output
+            and two_role_error is None and two_role_rc == 0
+            and "two-role watch: Red Team and the entire Sol route are "
+            "disabled" in two_role_output
+            and "implementation drain complete after 0 cycles"
+            in two_role_output)
         print("cycle parser/action contract=" + str(passed))
         return passed
 
@@ -765,7 +918,8 @@ def arm_positive_cycle_limit_preserves_queue(source=None):
     daemon = load_daemon(source=source)
     daemon.RENDEZVOUS_DISPATCH_INTERVAL = 8
     daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
-    controller = daemon.SafeKillRendezvous(ticket_cycle_limit=2)
+    controller = daemon.SafeKillRendezvous(
+        ticket_cycle_limit=2, ticket_cycle_topology="normal")
     every_child_admitted = True
     for _ in range(5):
         permit = controller.begin_attempt()
@@ -797,7 +951,8 @@ def arm_positive_cycle_waits_for_exact_boundary(source=None):
     daemon = load_daemon(source=source)
     daemon.RENDEZVOUS_DISPATCH_INTERVAL = 8
     daemon.RENDEZVOUS_MINUTE_INTERVAL = 1000
-    controller = daemon.SafeKillRendezvous(ticket_cycle_limit=2)
+    controller = daemon.SafeKillRendezvous(
+        ticket_cycle_limit=2, ticket_cycle_topology="normal")
     controller.ticket_cycle_returned()
     first = controller.begin_attempt()
     admitted_after_one = first is not None
@@ -810,6 +965,635 @@ def arm_positive_cycle_waits_for_exact_boundary(source=None):
         and controller.completed_ticket_cycles() == 2)
     print("positive ticket-cycle boundary is exact=" + str(passed))
     return passed
+
+
+def arm_finite_architect_admission_blocks_second_user_request(source=None):
+    """One public request occupies the finite slot before Opus starts."""
+    live_checks = False
+    with scratch_daemon(source=source) as (daemon, root, mailbox):
+        anchor = "public-admission"
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=(anchor,))
+        first = write_pending(
+            mailbox, "0001-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Fix the public admission witness."))
+        second = write_pending(
+            mailbox, "0002-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Fix a later ticket only after the first cycle."))
+        second_bytes = second.read_bytes()
+        for cwd in set(daemon.AGENT_CWD.values()):
+            pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent, "base": BASE_COMMIT}
+            if agent == "fable" else object())
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.worktree_head = lambda worktree: BASE_COMMIT
+        daemon._validate_current_protected_primary_state = (
+            lambda primary_worktree: None)
+        launches = []
+        outbound = mailbox / "0003-to-opus.md"
+
+        def fake_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd
+            launches.append(first.name)
+            token = env.get("MAILBOX_ARCHITECT_ADMISSION")
+            if token is None:
+                stdout.write("Architect launched without an admission.\n")
+                stdout.flush()
+                return ImmediateProcess()
+            outbound.write_text(
+                ticket_flow_payload(
+                    cycle_id=anchor + "@" + BASE_COMMIT,
+                    text=(daemon.MAILBOX_ADMISSION_HEADER + token
+                          + "\n- **Directive:** [ai/notes/spec.md, section "
+                          "Implementation directive]")),
+                encoding="utf-8", newline="")
+            stdout.write("Architect published one exact handoff.\n")
+            stdout.flush()
+            return ImmediateProcess()
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=fake_popen)
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="normal")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            controller.restore_completed_ticket_cycles(count=restored)
+            consumed = daemon.drain_lane(
+                paths=[str(first), str(second)], dry_run=False)
+            after_first = daemon.read_ticket_cycle_state()
+            charged_first = daemon.finite_cycle_capacity_used(
+                state=after_first)
+
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+            replacement = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = replacement
+            restored_again = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            replacement.restore_completed_ticket_cycles(
+                count=restored_again)
+            launches_before_restart = list(launches)
+            restarted = daemon.drain_lane(
+                paths=[str(second)], dry_run=False)
+            deferred, new_cycle = (
+                daemon.reserve_implementer_ticket_before_claim(
+                    path=str(outbound), skip_redteam=False))
+            after_restart = daemon.read_ticket_cycle_state()
+            charged_restart = daemon.finite_cycle_capacity_used(
+                state=after_restart)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        done = mailbox / "done" / first.name
+        cycle = anchor + "@" + BASE_COMMIT
+        live_checks = (
+            consumed and restarted and launches == [first.name]
+            and launches == launches_before_restart
+            and done.is_file() and not first.exists()
+            and second.is_file() and second.read_bytes() == second_bytes
+            and not (mailbox / "done" / second.name).exists()
+            and not (mailbox / "failed" / second.name).exists()
+            and after_first["architect_admissions"] == {}
+            and set(after_first["active"]) == {cycle}
+            and charged_first == 1 and charged_restart == 1
+            and restored_again == 0 and deferred is None
+            and new_cycle is None
+            and set(after_restart["active"]) == {cycle})
+
+    recovery_checks = False
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        anchor = "public-recovery"
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=(anchor,))
+        request = write_pending(
+            mailbox, "0001-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Recover only the exact public request."))
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="normal")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            controller.restore_completed_ticket_cycles(count=restored)
+            deferred, token = daemon.reserve_architect_ticket_before_claim(
+                path=str(request), skip_redteam=False)
+            wrong_token = token[:-1] + ("0" if token[-1] != "0" else "1")
+            wrong = write_pending(
+                mailbox, "0002-to-opus.md",
+                ticket_flow_payload(
+                    cycle_id=anchor + "@" + BASE_COMMIT,
+                    text=(daemon.MAILBOX_ADMISSION_HEADER + wrong_token
+                          + "\nwrong binding")))
+            wrong_refused = False
+            try:
+                daemon.register_ticket_cycle_message(
+                    agent="opus", message=wrong.read_text(encoding="utf-8"),
+                    implementer_request_name=wrong.name)
+            except daemon.TicketCycleStateError:
+                wrong_refused = True
+            before_restart = daemon.read_ticket_cycle_state()
+            wrong.unlink()
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+            replacement = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = replacement
+            restored_again = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            replacement.restore_completed_ticket_cycles(
+                count=restored_again)
+            later = write_pending(
+                mailbox, "0003-to-fable.md",
+                daemon.architect_user_request_payload(
+                    "This later request must stay outside the saved slot."))
+            later_bytes = later.read_bytes()
+            later_deferred, later_token = (
+                daemon.reserve_architect_ticket_before_claim(
+                    path=str(later), skip_redteam=False))
+            correct = write_pending(
+                mailbox, "0004-to-opus.md",
+                ticket_flow_payload(
+                    cycle_id=anchor + "@" + BASE_COMMIT,
+                    text=(daemon.MAILBOX_ADMISSION_HEADER + token
+                          + "\nexact crash-recovery binding")))
+            correct_deferred, _ = (
+                daemon.reserve_implementer_ticket_before_claim(
+                    path=str(correct), skip_redteam=False))
+            after_conversion = daemon.read_ticket_cycle_state()
+            charged = daemon.finite_cycle_capacity_used(
+                state=after_conversion)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        recovery_checks = (
+            deferred is None and token is not None and wrong_refused
+            and set(before_restart["architect_admissions"]) == {request.name}
+            and before_restart["active"] == {}
+            and later_deferred is not None and later_token is None
+            and later.is_file() and later.read_bytes() == later_bytes
+            and correct_deferred is None
+            and after_conversion["architect_admissions"] == {}
+            and set(after_conversion["active"])
+            == {anchor + "@" + BASE_COMMIT}
+            and charged == 1)
+
+    passed = live_checks and recovery_checks
+    print("finite Architect admission blocks second public request="
+          + str(passed))
+    return passed
+
+
+def arm_public_architect_non_ticket_outcomes_release_admission(source=None):
+    """One Sol control or explicit receipt releases a provisional slot."""
+    sol_pipeline = False
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        anchor = "after-sol-control"
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=(anchor,))
+        control = write_pending(
+            mailbox, "0001-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Ask Sol to inspect this bounded concern."))
+        first = write_pending(
+            mailbox, "0003-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Implement the first real ticket."))
+        second = write_pending(
+            mailbox, "0004-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Wait until another finite watch."))
+        second_bytes = second.read_bytes()
+        for cwd in set(daemon.AGENT_CWD.values()):
+            pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent, "base": BASE_COMMIT}
+            if agent == "fable" else object())
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.worktree_head = lambda worktree: BASE_COMMIT
+        daemon._validate_current_protected_primary_state = (
+            lambda primary_worktree: None)
+        launches = []
+        issued_tokens = {}
+
+        def fake_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd
+            token = env["MAILBOX_ARCHITECT_ADMISSION"]
+            request_name = token.split("@", 1)[0]
+            launches.append(request_name)
+            issued_tokens[request_name] = token
+            if request_name == control.name:
+                write_pending(
+                    mailbox, "0002-to-sol.md",
+                    daemon.sol_ticket_payload(
+                        ticket_kind="discovery",
+                        text=(daemon.MAILBOX_ADMISSION_HEADER + token
+                              + "\nInspect only this public concern."),
+                        discovery_severity="medium",
+                        discovery_scope="bounded"))
+            else:
+                write_pending(
+                    mailbox, "0005-to-opus.md",
+                    ticket_flow_payload(
+                        cycle_id=anchor + "@" + BASE_COMMIT,
+                        text=(daemon.MAILBOX_ADMISSION_HEADER + token
+                              + "\n- **Directive:** [ai/notes/spec.md, "
+                              "section Implementation directive]")))
+            stdout.write("Architect published one classified outcome.\n")
+            stdout.flush()
+            return ImmediateProcess()
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=fake_popen)
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="normal")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            controller.restore_completed_ticket_cycles(count=restored)
+            control_consumed = daemon.drain_lane(
+                paths=[str(control)], dry_run=False)
+            after_control = daemon.read_ticket_cycle_state()
+            control_charge = daemon.finite_cycle_capacity_used(
+                state=after_control)
+            ticket_pass = daemon.drain_lane(
+                paths=[str(first), str(second)], dry_run=False)
+            after_ticket = daemon.read_ticket_cycle_state()
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        sol_output = mailbox / "0002-to-sol.md"
+        sol_pipeline = (
+            control_consumed and ticket_pass
+            and launches == [control.name, first.name]
+            and after_control["architect_admissions"] == {}
+            and after_control["active"] == {} and control_charge == 0
+            and (mailbox / "done" / control.name).is_file()
+            and sol_output.is_file()
+            and daemon.public_architect_sol_outcome_problem(
+                message=sol_output.read_text(encoding="utf-8"),
+                expected_token=issued_tokens[control.name]) is None
+            and set(after_ticket["active"])
+            == {anchor + "@" + BASE_COMMIT}
+            and after_ticket["architect_admissions"] == {}
+            and second.is_file() and second.read_bytes() == second_bytes
+            and not (mailbox / "done" / second.name).exists())
+
+    terminal_release = False
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        request = write_pending(
+            mailbox, "0001-to-fable.md",
+            daemon.architect_user_request_payload(
+                "Explain why no tracked change is required."))
+        for cwd in set(daemon.AGENT_CWD.values()):
+            pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent, "base": BASE_COMMIT})
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.worktree_head = lambda worktree: BASE_COMMIT
+        daemon._validate_current_protected_primary_state = (
+            lambda primary_worktree: None)
+        receipt = mailbox / "0002-to-user.md"
+
+        def fake_terminal(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd
+            token = env["MAILBOX_ARCHITECT_ADMISSION"]
+            receipt.write_text(
+                "MAILBOX-RETURN: architect-no-ticket\n"
+                "MAILBOX-ADMISSION: " + token + "\n"
+                "MAILBOX-DECISION: NO TICKET\n\n"
+                "No tracked change is required.\n",
+                encoding="utf-8", newline="")
+            stdout.write("Architect returned an explicit no-ticket result.\n")
+            stdout.flush()
+            return ImmediateProcess()
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=fake_terminal)
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="normal")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            controller.restore_completed_ticket_cycles(count=restored)
+            consumed = daemon.drain_lane(
+                paths=[str(request)], dry_run=False)
+            state = daemon.read_ticket_cycle_state()
+            charged = daemon.finite_cycle_capacity_used(state=state)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+        terminal_release = (
+            consumed and state["architect_admissions"] == {}
+            and state["active"] == {} and charged == 0
+            and receipt.is_file()
+            and (mailbox / "done" / request.name).is_file())
+
+    passed = sol_pipeline and terminal_release
+    print("public Architect Sol and no-ticket outcomes release admission="
+          + str(passed))
+    return passed
+
+
+def arm_public_architect_ambiguous_outcomes_fail_closed(source=None):
+    """Silence, malformed output, multiples, and mixed routes stay charged."""
+    results = []
+    for case in ("silent", "malformed", "multiple", "mixed"):
+        with scratch_daemon(source=source) as (daemon, _, mailbox):
+            request = write_pending(
+                mailbox, "0001-to-fable.md",
+                daemon.architect_user_request_payload(
+                    "Exercise the " + case + " outcome boundary."))
+            for cwd in set(daemon.AGENT_CWD.values()):
+                pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+            daemon.capture_persistent_role_state = (
+                lambda agent: {"agent": agent, "base": BASE_COMMIT})
+            daemon.recheck_persistent_role_state = lambda proof: None
+            daemon.worktree_head = lambda worktree: BASE_COMMIT
+            daemon._validate_current_protected_primary_state = (
+                lambda primary_worktree: None)
+            created = []
+
+            def fake_invalid(command, stdout, stderr, cwd, env):
+                del command, stderr, cwd
+                token = env["MAILBOX_ARCHITECT_ADMISSION"]
+                receipt_text = (
+                    "MAILBOX-RETURN: architect-no-ticket\n"
+                    "MAILBOX-ADMISSION: " + token + "\n"
+                    "MAILBOX-DECISION: NO TICKET\n")
+                if case == "malformed":
+                    path = mailbox / "0002-to-user.md"
+                    wrong_token = token[:-1] + (
+                        "0" if token[-1] != "0" else "1")
+                    path.write_text(
+                        receipt_text.replace(token, wrong_token),
+                        encoding="utf-8", newline="")
+                    created.append(path)
+                elif case in {"multiple", "mixed"}:
+                    first_output = mailbox / "0002-to-user.md"
+                    first_output.write_text(
+                        receipt_text, encoding="utf-8", newline="")
+                    created.append(first_output)
+                    if case == "multiple":
+                        second_output = mailbox / "0003-to-user.md"
+                        second_output.write_text(
+                            receipt_text, encoding="utf-8", newline="")
+                    else:
+                        second_output = mailbox / "0003-to-sol.md"
+                        second_output.write_text(
+                            daemon.sol_ticket_payload(
+                                ticket_kind="discovery",
+                                text=(daemon.MAILBOX_ADMISSION_HEADER + token
+                                      + "\nReview this exact concern."),
+                                discovery_severity="medium",
+                                discovery_scope="bounded"),
+                            encoding="utf-8", newline="")
+                    created.append(second_output)
+                stdout.write("Architect invalid-outcome witness.\n")
+                stdout.flush()
+                return ImmediateProcess()
+
+            daemon.subprocess = AttributeProxy(
+                daemon.subprocess, Popen=fake_invalid)
+            controller = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+            try:
+                restored = daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                controller.restore_completed_ticket_cycles(count=restored)
+                consumed = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False)
+                state = daemon.read_ticket_cycle_state()
+                charged = daemon.finite_cycle_capacity_used(state=state)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+            results.append(
+                not consumed
+                and set(state["architect_admissions"]) == {request.name}
+                and state["active"] == {} and charged == 1
+                and (mailbox / "failed" / request.name).is_file()
+                and all((mailbox / "failed" / path.name).is_file()
+                        for path in created)
+                and all(not path.exists() for path in created))
+    passed = all(results)
+    print("public Architect ambiguous outcomes fail closed=" + str(passed))
+    return passed
+
+
+def arm_cycle_one_never_overlaps_next_ticket(source=None):
+    """A one-cycle watch reserves its only slot through Red Team review."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        first_anchor = "finite-one-first"
+        second_anchor = "finite-one-second"
+        backlog = pathlib.Path(daemon.BACKLOG_LEDGER)
+        write_indexed_open_tickets(
+            backlog=backlog, anchors=(first_anchor, second_anchor))
+        first_cycle = first_anchor + "@" + BASE_COMMIT
+        second_cycle = second_anchor + "@" + BASE_COMMIT
+        first = write_pending(
+            mailbox, "0001-to-opus.md",
+            ticket_flow_payload(cycle_id=first_cycle))
+        second = write_pending(
+            mailbox, "0002-to-opus.md",
+            ticket_flow_payload(cycle_id=second_cycle))
+        second_bytes = second.read_bytes()
+        launches = []
+
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
+            target = pathlib.Path(path)
+            launches.append(target.name)
+            target.unlink()
+            return True
+
+        daemon.dispatch = fake_dispatch
+        # This arm tests finite admission, not Git landing construction.
+        # Supply the exact candidate/landing authority that the production
+        # daemon would already have journaled before this state transition.
+        daemon.require_architect_landing_locked = (
+            lambda cycle_id, landing_commit, ticket_state: "3" * 40)
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=1, ticket_cycle_topology="normal")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=1, topology="normal")
+            controller.restore_completed_ticket_cycles(count=restored)
+            first_pass = daemon.process_backlog(
+                dry_run=False, fix_only=False)
+            after_implementation = daemon.read_ticket_cycle_state()
+
+            # The accepted commit does not complete normal three-role mode.
+            # The slot remains occupied while the Red Team request waits and
+            # after that request has been registered for review.
+            completed_at_commit = daemon.record_architect_commit(
+                cycle_id=first_cycle,
+                accepted_commit=ACCEPTED_COMMIT,
+                mode="normal")
+            closure = daemon.sol_ticket_payload(
+                ticket_kind="closure",
+                text="Review only this accepted ticket.",
+                review_cycle=first_cycle,
+                review_commit=ACCEPTED_COMMIT)
+            daemon.register_ticket_cycle_message(
+                agent="sol", message=closure)
+            second_pass = daemon.process_backlog(
+                dry_run=False, fix_only=False)
+            awaiting_review = daemon.read_ticket_cycle_state()
+            charged_slots = daemon.finite_cycle_capacity_used(
+                state=awaiting_review)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+        passed = (
+            first_pass is True and second_pass is True
+            and launches == [first.name]
+            and not first.exists() and second.is_file()
+            and second.read_bytes() == second_bytes
+            and set(after_implementation["active"]) == {first_cycle}
+            and after_implementation["active"][first_cycle]["phase"]
+            == "implementation"
+            and second_cycle not in after_implementation["active"]
+            and completed_at_commit == 0
+            and awaiting_review["active"][first_cycle]["phase"]
+            == "awaiting-redteam"
+            and second_cycle not in awaiting_review["active"]
+            and controller.completed_ticket_cycles() == 0
+            and charged_slots == 1)
+        print("cycle one never starts a second ticket before review="
+              + str(passed))
+        return passed
+
+
+def arm_two_role_limit_is_restart_safe(source=None):
+    """A two-role finite watch keeps its reservations across a restart."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        anchors = tuple(
+            "finite-primary-" + str(index) for index in range(1, 7))
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=anchors)
+
+        paths = []
+        for sequence, anchor in enumerate(anchors, start=1):
+            paths.append(write_pending(
+                mailbox,
+                str(sequence).zfill(4) + "-to-opus.md",
+                ticket_flow_payload(
+                    cycle_id=anchor + "@" + BASE_COMMIT,
+                    mode="two-role")))
+
+        launches = []
+
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
+            target = pathlib.Path(path)
+            launches.append(target.name)
+            target.unlink()
+            return True
+
+        daemon.dispatch = fake_dispatch
+        controller = daemon.SafeKillRendezvous(
+            ticket_cycle_limit=3, ticket_cycle_topology="two-role")
+        daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+        try:
+            restored = daemon.prepare_finite_watch_progress(
+                limit=3, topology="two-role")
+            controller.restore_completed_ticket_cycles(count=restored)
+            first_pass = daemon.process_backlog(
+                dry_run=False, fix_only=False, skip_redteam=True)
+            after_first_pass = daemon.read_ticket_cycle_state()
+            waiting_before_restart = {
+                path.name: path.read_bytes() for path in paths if path.exists()}
+
+            # Simulate a process replacement. Durable active reservations,
+            # not a lane-local counter, must still occupy all three slots.
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+            replacement = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=3, ticket_cycle_topology="two-role")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = replacement
+            restored_again = daemon.prepare_finite_watch_progress(
+                limit=3, topology="two-role")
+            replacement.restore_completed_ticket_cycles(
+                count=restored_again)
+            launches_before_restart_pass = list(launches)
+            restart_pass = daemon.process_backlog(
+                dry_run=False, fix_only=False, skip_redteam=True)
+            after_restart = daemon.read_ticket_cycle_state()
+            charged_after_restart = daemon.finite_cycle_capacity_used(
+                state=after_restart, skip_redteam=True)
+        finally:
+            daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+        waiting_after_restart = {
+            path.name: path.read_bytes() for path in paths if path.exists()}
+        passed = (
+            first_pass is True and restart_pass is True
+            and len(launches) == 3
+            and launches == launches_before_restart_pass
+            and all(record["route"] == "primary"
+                    for record in after_first_pass["active"].values())
+            and len(after_first_pass["active"]) == 3
+            and after_first_pass["finite_watch"] == {
+                "limit": 3, "completed": 0, "status": "active",
+                "topology": "two-role"}
+            and controller.completed_ticket_cycles() == 0
+            and restored_again == 0
+            and replacement.completed_ticket_cycles() == 0
+            and len(after_restart["active"]) == 3
+            and charged_after_restart == 3
+            and len(waiting_before_restart) == 3
+            and waiting_after_restart == waiting_before_restart)
+        print("two-role cycle three is total and restart-safe="
+              + str(passed))
+        return passed
+
+
+def arm_reached_limit_raw_admin_fails_once(source=None):
+    """A corrupt raw admin bypasses the ticket limit and becomes debt."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        daemon.require_no_ordinary_landing_transition = (
+            lambda current_dispatch_path: None)
+        state = daemon.read_ticket_cycle_state()
+        state["finite_watch"] = {
+            "limit": 1, "completed": 1, "status": "active",
+            "topology": "normal"}
+        daemon.write_ticket_cycle_state(state=state)
+        message = mailbox / "0001-to-fable.md"
+        message.write_bytes(
+            daemon.MAILBOX_ADMIN_HEADER.encode("ascii")
+            + b"permanent-notes\n\ninvalid\xfftail")
+        launches = []
+        real_subprocess = daemon.subprocess
+
+        class NoChildProxy:
+            def __getattr__(self, name):
+                if name == "Popen":
+                    def forbidden(*args, **kwargs):
+                        launches.append((args, kwargs))
+                        raise AssertionError(
+                            "corrupt admin launched a child")
+                    return forbidden
+                return getattr(real_subprocess, name)
+
+        daemon.subprocess = NoChildProxy()
+        try:
+            rc, output, stderr, error = call_main(
+                daemon, ["--watch", "--cycle", "1"])
+        finally:
+            daemon.subprocess = real_subprocess
+        failed = mailbox / "failed" / message.name
+        passed = (
+            error is None and rc == 1 and stderr == "" and not launches
+            and not message.exists() and failed.is_file()
+            and failed.read_bytes().endswith(b"invalid\xfftail")
+            and ("permanent-note user action required: failed/"
+                 + message.name) in output
+            and "mailbox empty" not in output)
+        print("reached-limit raw admin fails once=" + str(passed))
+        return passed
 
 
 def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
@@ -832,8 +1616,8 @@ def arm_zero_cycle_drains_ledger_and_preserves_cadence(source=None):
 
         clock.on_poll = add_second_after_ordinary_poll
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 target = pathlib.Path(path)
                 launches.append(target.name)
@@ -875,8 +1659,8 @@ def arm_zero_cycle_waits_for_queue(source=None):
         launches = []
         clock = ControlledClock()
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 target = pathlib.Path(path)
                 launches.append(target.name)
@@ -909,17 +1693,17 @@ def arm_zero_cycle_send_before_cutoff_is_seen(source=None):
         injected = []
         real_process_backlog = daemon.process_backlog
 
-        def inject_after_empty_pass(dry_run, fix_only=False):
+        def inject_after_empty_pass(dry_run, fix_only=False, **kwargs):
             outcome = real_process_backlog(
-                dry_run=dry_run, fix_only=fix_only)
+                dry_run=dry_run, fix_only=fix_only, **kwargs)
             if not injected and outcome is None:
                 injected.append(daemon.send(
                     agent="opus", text="arrived before cutoff",
                     dry_run=False))
             return outcome
 
-        def fake_dispatch(path, dry_run, fix_only=False):
-            del dry_run, fix_only
+        def fake_dispatch(path, dry_run, fix_only=False, **kwargs):
+            del dry_run, fix_only, kwargs
             with simulated_child_turn(daemon):
                 target = pathlib.Path(path)
                 launches.append(target.name)
@@ -1243,6 +2027,28 @@ def arm_source_mutations():
             arm_positive_cycle_limit_preserves_queue,
         ),
         (
+            "public Architect pre-claim admission omitted",
+            lambda text: replace_exact(
+                text,
+                "                deferred, architect_admission = (\n"
+                "                    reserve_architect_ticket_before_claim(\n"
+                "                        path=path, skip_redteam=skip_redteam))\n",
+                "                deferred, architect_admission = (None, None)\n"),
+            arm_finite_architect_admission_blocks_second_user_request,
+        ),
+        (
+            "public Architect admissions omitted from finite capacity",
+            lambda text: replace_exact(
+                text,
+                "            + len(active_cycle_records_for_topology(\n"
+                "                state=state, skip_redteam=skip_redteam))\n"
+                "            + len(architect_admissions_for_topology(\n"
+                "                state=state, skip_redteam=skip_redteam)))\n",
+                "            + len(active_cycle_records_for_topology(\n"
+                "                state=state, skip_redteam=skip_redteam)))\n"),
+            arm_finite_architect_admission_blocks_second_user_request,
+        ),
+        (
             "missing ledger is treated as empty",
             lambda text: replace_exact(
                 text,
@@ -1262,8 +2068,42 @@ def arm_source_mutations():
             "cycle completion publication lock omitted",
             lambda text: replace_exact(
                 text,
+                "def acquire_cycle_completion_barrier(backlog_outcome,\n"
+                "                                     skip_redteam=False):\n"
+                '    """Return a held send barrier only when cycle-zero work is verified done.\n'
+                "\n"
+                "    Daemon sends serialize publication through ``.sequence.lock``. Holding\n"
+                "    that lock from the final queue/ledger scan until the watch lock is released\n"
+                "    gives zero mode a real cutoff: a racing send either lands before the scan\n"
+                "    and prevents exit, or lands after the watcher is no longer advertised.\n"
+                '    """\n'
+                "    failed_debt = architect_notes_failed_debt_error()\n"
+                "    if failed_debt is not None:\n"
+                "        return None, failed_debt\n"
+                "    if backlog_outcome is False:\n"
+                "        return None, None\n"
+                '    lock_path = os.path.join(MAILBOX, ".sequence.lock")\n'
+                "    lock_file = None\n"
+                "    try:\n"
                 '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
                 "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n",
+                "def acquire_cycle_completion_barrier(backlog_outcome,\n"
+                "                                     skip_redteam=False):\n"
+                '    """Return a held send barrier only when cycle-zero work is verified done.\n'
+                "\n"
+                "    Daemon sends serialize publication through ``.sequence.lock``. Holding\n"
+                "    that lock from the final queue/ledger scan until the watch lock is released\n"
+                "    gives zero mode a real cutoff: a racing send either lands before the scan\n"
+                "    and prevents exit, or lands after the watcher is no longer advertised.\n"
+                '    """\n'
+                "    failed_debt = architect_notes_failed_debt_error()\n"
+                "    if failed_debt is not None:\n"
+                "        return None, failed_debt\n"
+                "    if backlog_outcome is False:\n"
+                "        return None, None\n"
+                '    lock_path = os.path.join(MAILBOX, ".sequence.lock")\n'
+                "    lock_file = None\n"
+                "    try:\n"
                 '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
                 "        pass  # publication lock omitted\n"),
             arm_zero_cycle_cutoff_serializes_sender,
@@ -1339,11 +2179,24 @@ def main():
         ("Ctrl-C preservation", arm_ctrl_c_preserves_waiting_message),
         ("mid-pass source change", arm_source_change_stops_mid_pass),
         ("production dispatch hooks", arm_production_dispatch_lifecycle),
+        ("three-role pipeline", arm_three_role_pipeline_concurrency),
         ("finite modes", arm_once_and_dry_run_are_unaffected),
         ("cycle arguments", arm_cycle_argument_contract),
         ("cycle omitted", arm_omitted_cycle_remains_unbounded),
         ("cycle positive", arm_positive_cycle_limit_preserves_queue),
         ("cycle positive exact", arm_positive_cycle_waits_for_exact_boundary),
+        ("public Architect finite admission",
+         arm_finite_architect_admission_blocks_second_user_request),
+        ("public Architect non-ticket outcomes",
+         arm_public_architect_non_ticket_outcomes_release_admission),
+        ("public Architect ambiguous outcomes",
+         arm_public_architect_ambiguous_outcomes_fail_closed),
+        ("cycle one finite reservation",
+         arm_cycle_one_never_overlaps_next_ticket),
+        ("two-role finite restart",
+         arm_two_role_limit_is_restart_safe),
+        ("reached-limit raw admin debt",
+         arm_reached_limit_raw_admin_fails_once),
         ("cycle zero", arm_zero_cycle_drains_ledger_and_preserves_cadence),
         ("cycle zero queue", arm_zero_cycle_waits_for_queue),
         ("cycle zero pre-cutoff send",

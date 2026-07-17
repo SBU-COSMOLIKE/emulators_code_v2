@@ -72,17 +72,10 @@ ARCHITECT_ROLE_PLANS = {
     "Architect + Implementer + Red Team": {
         "route": "three-role",
         "uses_red_team": True,
-        "uses_sol_as_implementer": False,
     },
     "Architect + Implementer": {
         "route": "two-role",
         "uses_red_team": False,
-        "uses_sol_as_implementer": False,
-    },
-    "Architect + Sol as Implementer": {
-        "route": "sol-as-implementer",
-        "uses_red_team": False,
-        "uses_sol_as_implementer": True,
     },
 }
 
@@ -97,6 +90,34 @@ NUMBERED_ANY_STEP_RE = re.compile(
     r"^[ \t]*\d+[.)][ \t]+(.+)$", re.MULTILINE)
 CHECKBOX_RE = re.compile(
     r"^[ \t]*-[ \t]+\[[ xX]\][ \t]+(.+)$", re.MULTILINE)
+SUBAGENT_HEADING_RE = re.compile(
+    r"^#### Subagent `([a-z][a-z0-9-]{1,47})`$")
+SUBAGENT_FIELD_RE = re.compile(
+    r"^- (Mode|Ownership|Task|Return|Acceptance|Stop):[ \t]+(.+)$")
+INTEGRATOR_FIELD_RE = re.compile(
+    r"^- (Integration|Final validation):[ \t]+(.+)$")
+PARALLEL_LAUNCH_ROW = (
+    "- Launch: `required before implementation edits`")
+CAPABILITY_EXCEPTION_ROWS = (
+    ("Capability checked",
+     re.compile(r"^- Capability checked: `([^`\n]+)`$")),
+    ("Attempted operation",
+     re.compile(r"^- Attempted operation: (.+)$")),
+    ("Raw failure",
+     re.compile(r"^- Raw failure: `([^`\n]+)`$")),
+)
+CAPABILITY_CHECKPOINT_CYCLE_RE = re.compile(
+    r"^- Source cycle: `([a-z0-9]+(?:-[a-z0-9]+)*@[0-9a-f]{40})`$")
+CAPABILITY_CHECKPOINT_SHA256_RE = re.compile(
+    r"^- Source handoff SHA-256: `([0-9a-f]{64})`$")
+SUBAGENT_EVIDENCE_HEADING_RE = re.compile(
+    r"^#### Subagent return `([a-z][a-z0-9-]{1,47})`$")
+SUBAGENT_EVIDENCE_FIELD_RE = re.compile(
+    r"^- (Returned artifact|Acceptance|Evidence):[ \t]+(.+)$")
+IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER = "- **Subagent work:**"
+IMPLEMENTER_SUBAGENT_EVIDENCE_END_FIELD = "Blockers/findings"
+IMPLEMENTER_HANDOFF_FIELD_RE = re.compile(
+    r"^- \*\*([^*\n]+):\*\*(?:[ \t]+.*)?$")
 PLACEHOLDER_BODY_RE = re.compile(
     r"^[ \t]*(?:\[[^\n]+\]|<[^\n]+>|TBD|TODO|FIXME|"
     r"your (?:text|answer|details) here)[.!]?[ \t]*$",
@@ -223,7 +244,7 @@ CHARACTER_BUDGET_ROWS = (
 ROLE_PLAN_ROWS = (
     re.compile(
         r"^- Roles: `(Architect \+ Implementer \+ Red Team|"
-        r"Architect \+ Implementer|Architect \+ Sol as Implementer)`$"),
+        r"Architect \+ Implementer)`$"),
     re.compile(
         r"^- Discovery severity: `(high|medium|low|not-used)`$"),
     re.compile(
@@ -604,7 +625,7 @@ def _section_bodies(text, title, required):
 
 
 def _require_evidence_destination(text, packet_title):
-    """Require the Architect packet's immediate sibling evidence heading."""
+    """Require and return the Architect packet's sibling evidence body."""
     boundary_rows = [(line, level, heading)
                      for line, level, heading in _heading_rows(text=text)
                      if level <= 2]
@@ -630,6 +651,59 @@ def _require_evidence_destination(text, packet_title):
         raise DirectiveError(
             "expected exactly one sibling '## " + expected
             + "' heading; found " + str(len(matches)))
+    evidence_line = boundary_rows[packet_index + 1][0]
+    end_line = len(text.split("\n")) + 1
+    for line_number, _level, _heading in boundary_rows[packet_index + 2:]:
+        end_line = line_number
+        break
+    lines = text.split("\n")
+    return "\n".join(lines[evidence_line:end_line - 1])
+
+
+def _require_prior_capability_checkpoint(evidence_body,
+                                         parallel_work_plan):
+    """Bind a no-subagent exception to a prior Implementer checkpoint."""
+    structural = _binding_markdown_text(text=evidence_body)
+    lines = [line.strip() for line in structural.split("\n")
+             if line.strip()]
+    heading = "### Prior Implementer subagent launch failure"
+    starts = [index for index, line in enumerate(lines) if line == heading]
+    if len(starts) != 1:
+        raise DirectiveError(
+            "a capability-unavailable Parallel work plan requires exactly "
+            "one '### Prior Implementer subagent launch failure' checkpoint "
+            "under 'Implementation evidence / resume state'")
+    start = starts[0]
+    if start + 2 >= len(lines):
+        raise DirectiveError(
+            "the prior Implementer capability checkpoint must name its "
+            "full Source cycle and Source handoff SHA-256")
+    cycle_match = CAPABILITY_CHECKPOINT_CYCLE_RE.fullmatch(lines[start + 1])
+    sha_match = CAPABILITY_CHECKPOINT_SHA256_RE.fullmatch(lines[start + 2])
+    if cycle_match is None or sha_match is None:
+        raise DirectiveError(
+            "the prior Implementer capability checkpoint must name exact "
+            "Source cycle and Source handoff SHA-256 rows")
+    expected = [
+        heading,
+        lines[start + 1],
+        lines[start + 2],
+        "- Source: `prior same-cycle IMPLEMENTER_HANDOFF checkpoint`",
+        "- Capability checked: `"
+        + parallel_work_plan["capability_checked"] + "`",
+        "- Attempted operation: "
+        + parallel_work_plan["attempted_operation"],
+        "- Raw failure: `" + parallel_work_plan["raw_failure"] + "`",
+    ]
+    if lines[start:start + len(expected)] != expected:
+        raise DirectiveError(
+            "the prior Implementer capability checkpoint must repeat the "
+            "exact Capability checked, Attempted operation, and Raw failure "
+            "rows from the revised Parallel work plan")
+    return {
+        "cycle": cycle_match.group(1),
+        "handoff_sha256": sha_match.group(1),
+    }
 
 
 def _require_substance(bodies):
@@ -759,6 +833,7 @@ def _valid_locator_rows(body):
         path = match.group(1).strip()
         symbol = match.group(2).strip()
         normalized = path.replace("\\", "/")
+        canonical = PurePosixPath(normalized).as_posix()
         parts = PurePosixPath(normalized).parts
         basename = PurePosixPath(normalized).name
         scheme_path = re.match(
@@ -778,7 +853,8 @@ def _valid_locator_rows(body):
                 "path/to/source", "some/path", "your/file.py"}
             or normalized.casefold().startswith("path/to/")
             or any(part.casefold() in ("some", "your") for part in parts))
-        if (not path or not symbol or normalized.startswith("/")
+        if (not path or not symbol or normalized != path
+                or canonical != normalized or normalized.startswith("/")
                 or re.match(r"^[A-Za-z]:", normalized) is not None
                 or scheme_path or "\\" in path
                 or ".." in parts or generic_path or glob_syntax
@@ -1016,6 +1092,615 @@ def _require_architect_role_plan(body):
     plan["discovery_severity"] = severity
     plan["review_scope"] = review_scope
     return plan
+
+
+def _parallel_payload(field, value, minimum_alphanumeric=24,
+                      minimum_words=5,
+                      context="section 'Parallel work plan'"):
+    """Require one concrete, visible action or observable result."""
+    if (not _has_substantive_payload(
+            value,
+            minimum_alphanumeric=minimum_alphanumeric,
+            minimum_words=minimum_words)
+            or PLACEHOLDER_BODY_RE.fullmatch(value) is not None
+            or EMBEDDED_PLACEHOLDER_RE.search(value) is not None):
+        raise DirectiveError(
+            context + " field '" + field
+            + "' needs concrete, non-placeholder detail")
+    generic = re.search(
+        r"\b(?:as needed|where useful|if useful|use best judg(?:e)?ment|"
+        r"help with|work on|handle (?:it|this|the task)|"
+        r"do (?:the )?(?:work|task|thing)|report results?|see above|"
+        r"same as above)\b",
+        value,
+        re.IGNORECASE)
+    if generic is not None:
+        raise DirectiveError(
+            context + " field '" + field
+            + "' is vague at '" + generic.group(0) + "'")
+
+
+def _subagent_ownership(value, mode, name):
+    """Return exact repository locators owned by one named subagent."""
+    if value == "`none (read-only)`":
+        if mode != "read-only":
+            raise DirectiveError(
+                "edit Subagent '" + name + "' cannot use "
+                "`none (read-only)` ownership")
+        return []
+
+    tokens = re.findall(r"`([^`\n]+)`", value)
+    canonical = ", ".join("`" + token + "`" for token in tokens)
+    if not tokens or canonical != value:
+        raise DirectiveError(
+            "Subagent '" + name + "' Ownership must be "
+            "`none (read-only)` or a comma-separated list of exact "
+            "backticked `repo/path::symbol` entries")
+    ownership = []
+    for token in tokens:
+        rows = _valid_locator_rows(body="`" + token + "`")
+        if (token.count("::") != 1 or len(rows) != 1
+                or token != rows[0][0] + "::" + rows[0][1]):
+            raise DirectiveError(
+                "Subagent '" + name + "' has a generic or malformed "
+                "Ownership entry `" + token + "`")
+        if rows[0] in ownership:
+            raise DirectiveError(
+                "Subagent '" + name + "' repeats Ownership `"
+                + token + "`")
+        ownership.append(rows[0])
+    return ownership
+
+
+def _capability_exception(lines):
+    """Parse the sole permitted exception to mandatory subagent launch."""
+    if len(lines) != len(CAPABILITY_EXCEPTION_ROWS):
+        raise DirectiveError(
+            "section 'Parallel work plan' without launched subagents "
+            "requires exactly Capability checked, Attempted operation, and "
+            "Raw failure rows")
+    values = {}
+    for line, (field, pattern) in zip(lines, CAPABILITY_EXCEPTION_ROWS):
+        match = pattern.fullmatch(line)
+        if match is None:
+            raise DirectiveError(
+                "section 'Parallel work plan' capability exception requires "
+                "the exact ordered fields Capability checked, Attempted "
+                "operation, and Raw failure")
+        values[field] = match.group(1).strip()
+
+    capability = values["Capability checked"]
+    if (re.fullmatch(r"[A-Za-z0-9_.:/-]{3,120}", capability) is None
+            or capability.casefold() in {
+                "none", "unknown", "unavailable", "not-applicable"}):
+        raise DirectiveError(
+            "Capability checked must name the exact launch operation that "
+            "the runtime was asked to provide")
+
+    attempted = values["Attempted operation"]
+    _parallel_payload("Attempted operation", attempted)
+    if (re.search(r"\b(?:launch|spawn|delegate|invoke|call)\w*\b",
+                  attempted, re.IGNORECASE) is None
+            or re.search(r"\bsubagent\b", attempted, re.IGNORECASE) is None
+            or re.search(r"\bbefore implementation edits\b", attempted,
+                         re.IGNORECASE) is None):
+        raise DirectiveError(
+            "Attempted operation must state the concrete subagent launch "
+            "that was tried before implementation edits")
+
+    raw_failure = values["Raw failure"]
+    if (not _has_substantive_payload(
+            raw_failure, minimum_alphanumeric=12, minimum_words=3)
+            or PLACEHOLDER_BODY_RE.fullmatch(raw_failure) is not None
+            or EMBEDDED_PLACEHOLDER_RE.search(raw_failure) is not None
+            or re.fullmatch(
+                r"(?:error|failed|failure|unavailable|unsupported|"
+                r"no support|unknown)(?:[.!])?",
+                raw_failure,
+                re.IGNORECASE) is not None):
+        raise DirectiveError(
+            "Raw failure must preserve the concrete runtime failure, not a "
+            "summary or placeholder")
+    return {
+        "mode": "capability-unavailable",
+        "capability_checked": capability,
+        "attempted_operation": attempted,
+        "raw_failure": raw_failure,
+        "subagents": [],
+    }
+
+
+def _require_parallel_subagent_plan(body):
+    """Parse mandatory, non-overlapping delegation and integration steps.
+
+    The schema is deliberately strict.  It gives a less-capable Implementer
+    one launch instruction, one bounded contract per subagent, and one exact
+    integration contract.  Prose that merely mentions an integrator or says
+    that parallel work may be useful is not executable and is refused.
+    """
+    structural = _binding_markdown_text(text=body)
+    lines = [line.strip() for line in structural.split("\n") if line.strip()]
+    if not lines:
+        raise DirectiveError(
+            "section 'Parallel work plan' requires a structured subagent "
+            "plan")
+    if lines[0].startswith("- Capability checked:"):
+        return _capability_exception(lines=lines)
+    if lines[0] != PARALLEL_LAUNCH_ROW:
+        raise DirectiveError(
+            "section 'Parallel work plan' must start with the exact launch "
+            "row " + PARALLEL_LAUNCH_ROW)
+
+    subagents = []
+    names = set()
+    edit_owners = {}
+    index = 1
+    expected_fields = (
+        "Mode", "Ownership", "Task", "Return", "Acceptance", "Stop")
+    while index < len(lines) and lines[index] != "#### Integrator":
+        heading = SUBAGENT_HEADING_RE.fullmatch(lines[index])
+        if heading is None:
+            raise DirectiveError(
+                "each Parallel work plan task must start with the exact "
+                "heading #### Subagent `descriptive-name`")
+        name = heading.group(1)
+        if name in {"agent", "helper", "subagent", "worker", "integrator"}:
+            raise DirectiveError(
+                "Subagent name '" + name
+                + "' is generic; use a bounded responsibility name")
+        if name in names:
+            raise DirectiveError(
+                "Parallel work plan repeats Subagent name '" + name + "'")
+        names.add(name)
+        index += 1
+
+        fields = {}
+        for expected_field in expected_fields:
+            if index >= len(lines):
+                raise DirectiveError(
+                    "Subagent '" + name + "' is missing field '"
+                    + expected_field + "'")
+            field_match = SUBAGENT_FIELD_RE.fullmatch(lines[index])
+            if (field_match is None
+                    or field_match.group(1) != expected_field):
+                raise DirectiveError(
+                    "Subagent '" + name + "' requires the exact ordered "
+                    "fields Mode, Ownership, Task, Return, Acceptance, Stop; "
+                    "expected '" + expected_field + "'")
+            fields[expected_field] = field_match.group(2).strip()
+            index += 1
+
+        mode_value = fields["Mode"]
+        if mode_value not in ("`read-only`", "`edit`"):
+            raise DirectiveError(
+                "Subagent '" + name
+                + "' Mode must be exactly `read-only` or `edit`")
+        mode = mode_value[1:-1]
+        ownership = _subagent_ownership(
+            value=fields["Ownership"], mode=mode, name=name)
+        for field in ("Task", "Return", "Acceptance", "Stop"):
+            _parallel_payload(field, fields[field])
+
+        if re.match(
+                r"^(?:Run|Read|Compare|Write|Add|Edit|Change|Implement|"
+                r"Create|Remove|Replace|Measure|Reproduce|Verify|Audit|"
+                r"Inspect|Trace|Review|Execute)\b",
+                fields["Task"], re.IGNORECASE) is None:
+            raise DirectiveError(
+                "Subagent '" + name + "' Task must begin with one concrete "
+                "imperative action, not an open investigation")
+        if not ownership and re.search(r"`[^`\n]+`", fields["Task"]) is None:
+            raise DirectiveError(
+                "read-only Subagent '" + name + "' with no file Ownership "
+                "must name its exact command or artifact in backticks")
+        if re.search(
+                r"\b(?:command|output|diff|patch|file|assertion|report|"
+                r"result|evidence|line|list|commit|artifact)\w*\b",
+                fields["Return"], re.IGNORECASE) is None:
+            raise DirectiveError(
+                "Subagent '" + name + "' Return must name the exact "
+                "artifact or evidence to send back")
+        if re.search(
+                r"\b(?:exit|contains?|equals?|matches?|passes?|fails?|"
+                r"created|unchanged|reports?|shows?|diff|output|file|"
+                r"assertion)\w*\b",
+                fields["Acceptance"], re.IGNORECASE) is None:
+            raise DirectiveError(
+                "Subagent '" + name + "' Acceptance must name an "
+                "observable result")
+        if (re.match(r"^(?:Stop|Block)\b", fields["Stop"], re.IGNORECASE)
+                is None
+                or re.search(r"\b(?:if|when|unless)\b",
+                             fields["Stop"], re.IGNORECASE) is None):
+            raise DirectiveError(
+                "Subagent '" + name + "' Stop must state a concrete "
+                "blocker condition beginning with Stop or Block")
+
+        if mode == "edit":
+            if not ownership:
+                raise DirectiveError(
+                    "edit Subagent '" + name
+                    + "' requires at least one exact Ownership locator")
+            for path in sorted({owner[0] for owner in ownership}):
+                if path in edit_owners:
+                    raise DirectiveError(
+                        "edit Ownership file `" + path
+                        + "` is duplicated by Subagents '"
+                        + edit_owners[path] + "' and '" + name + "'")
+                edit_owners[path] = name
+        subagents.append({
+            "name": name,
+            "mode": mode,
+            "ownership": [path + "::" + symbol
+                          for path, symbol in ownership],
+            "task": fields["Task"],
+            "return": fields["Return"],
+            "acceptance": fields["Acceptance"],
+            "stop": fields["Stop"],
+        })
+
+    if not subagents:
+        raise DirectiveError(
+            "section 'Parallel work plan' must define at least one named "
+            "Subagent before the Integrator")
+    if index >= len(lines) or lines[index] != "#### Integrator":
+        raise DirectiveError(
+            "section 'Parallel work plan' requires the exact heading "
+            "#### Integrator after all Subagent blocks")
+    index += 1
+    integrator = {}
+    for expected_field in ("Integration", "Final validation"):
+        if index >= len(lines):
+            raise DirectiveError(
+                "Integrator is missing field '" + expected_field + "'")
+        match = INTEGRATOR_FIELD_RE.fullmatch(lines[index])
+        if match is None or match.group(1) != expected_field:
+            raise DirectiveError(
+                "Integrator requires exactly the ordered fields Integration "
+                "and Final validation; expected '" + expected_field + "'")
+        integrator[expected_field] = match.group(2).strip()
+        _parallel_payload(expected_field, integrator[expected_field])
+        index += 1
+    if index != len(lines):
+        raise DirectiveError(
+            "section 'Parallel work plan' contains extra text after the "
+            "Integrator contract")
+    if (re.search(r"\b(?:each|every|all)\b",
+                  integrator["Integration"], re.IGNORECASE) is None
+            or re.search(r"\b(?:subagent|return)\w*\b",
+                         integrator["Integration"], re.IGNORECASE) is None):
+        raise DirectiveError(
+            "Integrator Integration must explain how every named subagent "
+            "return is combined")
+    if (re.search(r"`[^`\n]+`", integrator["Final validation"]) is None
+            or re.search(
+                r"\b(?:exit|pass|fail|output|reports?|equals?|matches?)\w*\b",
+                integrator["Final validation"], re.IGNORECASE) is None):
+        raise DirectiveError(
+            "Integrator Final validation must name an exact backticked "
+            "command and its observable required result")
+    return {
+        "mode": "subagents",
+        "launch": "required before implementation edits",
+        "subagents": subagents,
+        "integrator": {
+            "integration": integrator["Integration"],
+            "final_validation": integrator["Final validation"],
+        },
+    }
+
+
+def _require_integrator_validation_command(parallel_work_plan,
+                                           validation_commands_body):
+    """Bind final integration to one command already named by Architect."""
+    if parallel_work_plan.get("mode") != "subagents":
+        return
+    final_validation = parallel_work_plan["integrator"]["final_validation"]
+    named = re.findall(r"`([^`\n]+)`", final_validation)
+    available = set()
+    for _tag, command_lines in _command_blocks(
+            body=validation_commands_body):
+        available.update(_logical_shell_commands(lines=command_lines))
+    if len(named) != 1 or named[0] not in available:
+        raise DirectiveError(
+            "Integrator Final validation must repeat exactly one command "
+            "from the directive's Validation commands section")
+
+
+def validate_implementer_subagent_evidence(parallel_work_plan, text):
+    """Validate an Implementer return against its parsed Architect plan.
+
+    ``parallel_work_plan`` is the dictionary returned under that key by
+    :func:`validate_directive_text`.  For an ordinary plan, ``text`` contains
+    one block per planned name in the same order::
+
+        #### Subagent return `name`
+        - Returned artifact: exact artifact description
+        - Acceptance: `pass`
+        - Evidence: exact command, output, path, or other observable evidence
+
+    ``blocked`` is also accepted as an Acceptance value so a truthful
+    checkpoint can return without pretending that a subagent passed.
+    """
+    if not isinstance(parallel_work_plan, dict):
+        raise DirectiveError(
+            "parallel_work_plan must be the parsed Architect plan")
+    if not isinstance(text, str):
+        raise DirectiveError("subagent evidence text must be a native string")
+    structural = _binding_markdown_text(text=text)
+    lines = [line.strip() for line in structural.split("\n") if line.strip()]
+
+    if parallel_work_plan.get("mode") == "capability-unavailable":
+        evidence = _capability_exception(lines=lines)
+        for key in ("capability_checked", "attempted_operation", "raw_failure"):
+            if evidence[key] != parallel_work_plan.get(key):
+                raise DirectiveError(
+                    "Implementer capability evidence does not match the "
+                    "Architect's Parallel work plan field '" + key + "'")
+        # This mode is reachable only after the Architect directive embeds
+        # the exact prior blocked cycle/SHA checkpoint.  Repeating the same
+        # capability failure is therefore the mechanically authorized
+        # no-helper fallback, not another request to loop back to Architect.
+        evidence["completion_ready"] = True
+        return evidence
+    if parallel_work_plan.get("mode") != "subagents":
+        raise DirectiveError("parallel_work_plan has an unknown mode")
+
+    planned = [row.get("name")
+               for row in parallel_work_plan.get("subagents", [])]
+    if (not planned or any(not isinstance(name, str) for name in planned)
+            or len(set(planned)) != len(planned)):
+        raise DirectiveError(
+            "parallel_work_plan has invalid planned Subagent names")
+    returned = []
+    records = []
+    index = 0
+    for planned_name in planned:
+        if index >= len(lines):
+            raise DirectiveError(
+                "IMPLEMENTER_HANDOFF lacks Subagent return '"
+                + planned_name + "'")
+        heading = SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(lines[index])
+        if heading is None:
+            raise DirectiveError(
+                "subagent evidence requires the exact heading #### "
+                "Subagent return `name`")
+        name = heading.group(1)
+        returned.append(name)
+        index += 1
+        fields = {}
+        for expected_field in ("Returned artifact", "Acceptance", "Evidence"):
+            if index >= len(lines):
+                raise DirectiveError(
+                    "Subagent return '" + name + "' is missing field '"
+                    + expected_field + "'")
+            match = SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index])
+            if match is None or match.group(1) != expected_field:
+                raise DirectiveError(
+                    "Subagent return '" + name + "' requires exactly the "
+                    "ordered fields Returned artifact, Acceptance, Evidence")
+            fields[expected_field] = match.group(2).strip()
+            index += 1
+        if fields["Acceptance"] not in ("`pass`", "`blocked`"):
+            raise DirectiveError(
+                "Subagent return '" + name
+                + "' Acceptance must be exactly `pass` or `blocked`")
+        evidence_context = "IMPLEMENTER_HANDOFF subagent evidence"
+        _parallel_payload(
+            "Returned artifact", fields["Returned artifact"],
+            context=evidence_context)
+        _parallel_payload(
+            "Evidence", fields["Evidence"], context=evidence_context)
+        records.append({
+            "name": name,
+            "returned_artifact": fields["Returned artifact"],
+            "acceptance": fields["Acceptance"][1:-1],
+            "evidence": fields["Evidence"],
+        })
+    if index != len(lines):
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF subagent evidence contains an unplanned or "
+            "duplicate return")
+    if returned != planned:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF Subagent returns must match the planned "
+            "names and order; planned " + repr(planned)
+            + ", returned " + repr(returned))
+    return {
+        "mode": "subagents",
+        "returns": records,
+        "completion_ready": all(
+            record["acceptance"] == "pass" for record in records),
+    }
+
+
+def extract_implementer_subagent_evidence(handoff_text):
+    """Extract the one bounded subagent-evidence region from a handoff."""
+    if not isinstance(handoff_text, str):
+        raise DirectiveError("IMPLEMENTER_HANDOFF must be a native string")
+    normalized = handoff_text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    headers = [index for index, line in enumerate(lines)
+               if line.startswith("### IMPLEMENTER_HANDOFF:")]
+    if len(headers) != 1:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF requires exactly one handoff heading")
+    markers = [index for index, line in enumerate(lines)
+               if line == IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER]
+    if len(markers) != 1:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF requires exactly one marker row "
+            + IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER)
+    header_index = headers[0]
+    marker_index = markers[0]
+    if header_index >= marker_index:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF heading and Subagent work marker are "
+            "reordered")
+    fields = []
+    for index, line in enumerate(lines):
+        match = IMPLEMENTER_HANDOFF_FIELD_RE.fullmatch(line)
+        if match is not None:
+            fields.append((index, match.group(1)))
+    subagent_fields = [index for index, name in fields
+                       if name == "Subagent work"]
+    if subagent_fields != [marker_index]:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF requires one exact marker-only Subagent "
+            "work field")
+    end_fields = [index for index, name in fields
+                  if name == IMPLEMENTER_SUBAGENT_EVIDENCE_END_FIELD]
+    if len(end_fields) != 1:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF requires exactly one "
+            "- **Blockers/findings:** field after subagent evidence")
+    end_index = end_fields[0]
+    if marker_index >= end_index:
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF subagent marker and Blockers/findings "
+            "field are reordered")
+    following_fields = [(index, name) for index, name in fields
+                        if index > marker_index]
+    if not following_fields or following_fields[0] != (
+            end_index, IMPLEMENTER_SUBAGENT_EVIDENCE_END_FIELD):
+        next_name = ("none" if not following_fields
+                     else following_fields[0][1])
+        raise DirectiveError(
+            "Blockers/findings must be the next exact handoff field after "
+            "subagent evidence; found " + next_name)
+    fragment = "\n".join(lines[marker_index + 1:end_index]).strip("\n")
+    if not fragment.strip():
+        raise DirectiveError(
+            "IMPLEMENTER_HANDOFF Subagent work marker has no structured "
+            "evidence")
+    return fragment
+
+
+def extract_blocked_implementer_capability_evidence(handoff_text):
+    """Return the exact launch failure saved by one blocked handoff.
+
+    This parser deliberately does not use the later Architect plan. The prior
+    handoff is the evidence source: it must contain one or more unique,
+    well-formed Subagent returns, at least one blocked return, and then the
+    three canonical capability-failure rows as the final rows of its bounded
+    Subagent-work fragment.
+    """
+    evidence = extract_implementer_subagent_evidence(
+        handoff_text=handoff_text)
+    has_blocked_return = any(
+        line.strip() == "- Acceptance: `blocked`"
+        for line in _binding_markdown_text(text=evidence).split("\n"))
+    structural = _binding_markdown_text(text=evidence)
+    lines = [line.strip() for line in structural.split("\n")
+             if line.strip()]
+    records = []
+    names = set()
+    index = 0
+    while index < len(lines):
+        heading = SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(lines[index])
+        if heading is None:
+            break
+        name = heading.group(1)
+        if name in names:
+            raise DirectiveError(
+                "blocked IMPLEMENTER_HANDOFF repeats Subagent return '"
+                + name + "'")
+        names.add(name)
+        index += 1
+        fields = {}
+        for expected_field in ("Returned artifact", "Acceptance", "Evidence"):
+            if index >= len(lines):
+                raise DirectiveError(
+                    "Subagent return '" + name + "' is missing field '"
+                    + expected_field + "'")
+            match = SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index])
+            if match is None or match.group(1) != expected_field:
+                raise DirectiveError(
+                    "Subagent return '" + name + "' requires exactly the "
+                    "ordered fields Returned artifact, Acceptance, Evidence")
+            fields[expected_field] = match.group(2).strip()
+            index += 1
+        if fields["Acceptance"] not in ("`pass`", "`blocked`"):
+            raise DirectiveError(
+                "Subagent return '" + name
+                + "' Acceptance must be exactly `pass` or `blocked`")
+        _parallel_payload(
+            "Returned artifact", fields["Returned artifact"],
+            context="blocked IMPLEMENTER_HANDOFF subagent evidence")
+        _parallel_payload(
+            "Evidence", fields["Evidence"],
+            context="blocked IMPLEMENTER_HANDOFF subagent evidence")
+        records.append({
+            "name": name,
+            "returned_artifact": fields["Returned artifact"],
+            "acceptance": fields["Acceptance"][1:-1],
+            "evidence": fields["Evidence"],
+        })
+    if not records:
+        raise DirectiveError(
+            "blocked IMPLEMENTER_HANDOFF requires at least one well-formed "
+            "Subagent return before its capability failure rows")
+    if not any(record["acceptance"] == "blocked" for record in records):
+        raise DirectiveError(
+            "blocked IMPLEMENTER_HANDOFF capability evidence requires at "
+            "least one blocked Subagent return")
+    capability = _capability_exception(lines=lines[index:])
+    return {
+        "returns": records,
+        "capability_checked": capability["capability_checked"],
+        "attempted_operation": capability["attempted_operation"],
+        "raw_failure": capability["raw_failure"],
+    }
+
+
+def validate_implementer_handoff_subagent_evidence(parallel_work_plan,
+                                                    handoff_text):
+    """Extract and validate one full handoff against its Architect plan."""
+    evidence = extract_implementer_subagent_evidence(
+        handoff_text=handoff_text)
+    has_blocked_return = any(
+        line.strip() == "- Acceptance: `blocked`"
+        for line in _binding_markdown_text(text=evidence).split("\n"))
+    ordinary = None
+    ordinary_error = None
+    try:
+        ordinary = validate_implementer_subagent_evidence(
+            parallel_work_plan=parallel_work_plan, text=evidence)
+    except DirectiveError as exc:
+        ordinary_error = exc
+    if ordinary is not None and ordinary.get("completion_ready"):
+        return ordinary
+    if parallel_work_plan.get("mode") != "subagents":
+        if ordinary_error is not None:
+            raise ordinary_error
+        return ordinary
+    try:
+        blocked = extract_blocked_implementer_capability_evidence(
+            handoff_text=handoff_text)
+    except DirectiveError as capability_error:
+        if ordinary is not None or has_blocked_return:
+            raise DirectiveError(
+                "a blocked IMPLEMENTER_HANDOFF must end its Subagent work "
+                "with exact Capability checked, Attempted operation, and "
+                "Raw failure rows") from capability_error
+        raise ordinary_error
+    planned = [row.get("name")
+               for row in parallel_work_plan.get("subagents", [])]
+    returned = [record["name"] for record in blocked["returns"]]
+    if returned != planned:
+        raise DirectiveError(
+            "blocked IMPLEMENTER_HANDOFF Subagent returns must match "
+            "the planned names and order; planned " + repr(planned)
+            + ", returned " + repr(returned))
+    return {
+        "mode": "subagents",
+        "returns": blocked["returns"],
+        "completion_ready": False,
+        "capability_failure": {
+            key: blocked[key] for key in (
+                "capability_checked", "attempted_operation", "raw_failure")
+        },
+    }
 
 
 def _require_redteam_severity_assessment(body, expected_user_severity=None):
@@ -1420,8 +2105,16 @@ def validate_directive_text(role, text, expected_max=0,
         result["execution_checkout"] = execution_checkout
         result["role_plan"] = _require_architect_role_plan(
             body=bodies["Role plan"])
+        result["parallel_work_plan"] = _require_parallel_subagent_plan(
+            body=bodies["Parallel work plan"])
         _require_locator(bodies=bodies, heading="Tests to write")
-        _require_evidence_destination(text=text, packet_title=title)
+        evidence_body = _require_evidence_destination(
+            text=text, packet_title=title)
+        if result["parallel_work_plan"]["mode"] == "capability-unavailable":
+            result["capability_checkpoint"] = (
+                _require_prior_capability_checkpoint(
+                evidence_body=evidence_body,
+                parallel_work_plan=result["parallel_work_plan"]))
     else:
         _require_locator(bodies=bodies, heading="Regression test")
         result["discovery_severity_assessment"] = (
@@ -1450,6 +2143,10 @@ def validate_directive_text(role, text, expected_max=0,
             "section 'Acceptance checklist' must contain a Markdown checkbox "
             "with a visible alphanumeric condition")
     _require_commands(body=bodies["Validation commands"])
+    if role == "architect":
+        _require_integrator_validation_command(
+            parallel_work_plan=result["parallel_work_plan"],
+            validation_commands_body=bodies["Validation commands"])
     guard = _require_ticket_change_guard(
         bodies=bodies,
         expected_max=expected_max,

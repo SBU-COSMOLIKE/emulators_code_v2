@@ -57,8 +57,8 @@ def load_daemon(source=None):
     return module
 
 
-def install_test_sol_topology_proof(daemon):
-    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+def install_test_agent_topology_proof(daemon):
+    """Install explicit synthetic role proofs in a scratch daemon.
 
     Arguments:
       daemon = the freshly loaded scratch daemon module.
@@ -66,18 +66,30 @@ def install_test_sol_topology_proof(daemon):
     Returns:
       None.
     """
-    expected_proof = object()
+    agents = ("fable", "opus", "sol")
+    expected_topology = {agent: object() for agent in agents}
+    expected_persistent_state = {agent: object() for agent in agents}
 
-    def validate_test_topology():
-        return expected_proof
+    def validate_test_topology(agent):
+        return expected_topology[agent]
 
     def revalidate_test_topology(proof):
-        if proof is not expected_proof:
-            raise AssertionError("scratch Sol topology proof changed")
-        return expected_proof
+        if proof not in expected_topology.values():
+            raise AssertionError("scratch agent topology proof changed")
+        return proof
 
-    daemon.validate_live_sol_dispatch_topology = validate_test_topology
-    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+    def capture_test_persistent_state(agent):
+        return expected_persistent_state[agent]
+
+    def recheck_test_persistent_state(proof):
+        if proof not in expected_persistent_state.values():
+            raise AssertionError("scratch persistent role state changed")
+        return proof
+
+    daemon.validate_live_agent_dispatch_topology = validate_test_topology
+    daemon.revalidate_agent_dispatch_topology = revalidate_test_topology
+    daemon.capture_persistent_role_state = capture_test_persistent_state
+    daemon.recheck_persistent_role_state = recheck_test_persistent_state
 
 
 @contextlib.contextmanager
@@ -150,7 +162,20 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None,
             lambda starting_commit, accepted_commit:
             starting_commit == BASE_COMMIT
             and accepted_commit == ACCEPTED_COMMIT)
-        install_test_sol_topology_proof(daemon=daemon)
+        # The scratch suite uses synthetic commit names.  Ticket admission
+        # still has to see the cycle suffix as the exact current ``main``
+        # commit, but it must not consult the caller's real Git checkout.
+        daemon._exact_git_object = (
+            lambda arguments, label: BASE_COMMIT
+            if arguments == ["rev-parse", "--verify",
+                             "refs/heads/main^{commit}"]
+            else ACCEPTED_COMMIT)
+        install_test_agent_topology_proof(daemon=daemon)
+        daemon.create_audit_snapshot = (
+            lambda cycle_id, commit, agent:
+            str(root / ("audit-" + agent)))
+        daemon.remove_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
         # These are side effects of a successful publication, not the policy
         # under test.  Stubbing them also makes a refusal's zero-call property
         # explicit in the dedicated arm below.
@@ -371,32 +396,38 @@ def arm_refusal_is_zero_write():
     return all(checks)
 
 
-def arm_second_implementer_emergency_boundaries():
-    """Only 2 Critical bugs or 11 High bugs unlock the extra Implementer."""
+def arm_sol_is_always_advisory_and_severity_neutral():
+    """Backlog severity never changes Sol's fixed Red Team role."""
     checks = []
     cases = [
-        ("one-critical", {"critical_count": 1}, False),
-        ("two-critical", {"critical_count": 2}, True),
-        ("ten-high-bugs", {"open_count": 10}, False),
-        ("eleven-high-bugs", {"open_count": 11}, True),
-        ("many-high-features", {"high_feature_count": 25}, False),
-        ("low-and-medium", {"medium_count": 25, "low_count": 25}, False),
+        ("no-open-ticket", {}),
+        ("one-critical", {"critical_count": 1}),
+        ("many-critical", {"critical_count": 12}),
+        ("many-high-bugs", {"open_count": 25}),
+        ("many-high-features", {"high_feature_count": 25}),
+        ("low-and-medium", {"medium_count": 25, "low_count": 25}),
     ]
     assignment = (
-        TICKET_HEADER + "closure\n\n### ARCHITECT_HANDOFF\n"
+        TICKET_HEADER + "closure\n\n"
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: scratch-high-bug-fix-1@" + BASE_COMMIT + "\n"
+        "MAILBOX-MODE: second-implementer\n\n"
+        "### ARCHITECT_HANDOFF\n"
         "OpenAI Sol — this is a role as second Implementer for this unit.\n"
-        "Implement the assigned emergency fix.\n")
-    for label, arguments, expected in cases:
+        "Implement the assigned fix.\n")
+    for label, arguments in cases:
         with scratch_daemon(**arguments) as (daemon, _, _, _):
             counts = daemon.backlog_severity_counts()
-            emergency = daemon.second_implementer_emergency(counts=counts)
-            refusal = daemon.second_implementer_emergency_refusal(
-                message=assignment, counts=counts)
-            passed = (emergency is expected
-                      and ((refusal is None) is expected))
+            passed = (
+                daemon.mailbox_role_for_dispatch(
+                    agent="sol", message=assignment) == "red-team"
+                and daemon.redteam_closure_problem(
+                    message=assignment) is not None
+                and not hasattr(
+                    daemon, "second_" + "implementer_mode_refusal"))
             checks.append(passed)
-            print(label + " emergency=" + str(emergency)
-                  + " refusal=" + repr(refusal))
+            print(label + " counts=" + repr(counts)
+                  + " explicit-only=" + str(passed))
     return all(checks)
 
 
@@ -958,8 +989,8 @@ def one_watch_pass(daemon, value):
     daemon.acquire_dispatch_lock = lambda mode: sentinel
     daemon.release_dispatch_lock = lambda lock_file: None
 
-    def record_process(dry_run, fix_only=False):
-        calls.append((dry_run, fix_only))
+    def record_process(dry_run, fix_only=False, skip_redteam=False):
+        calls.append((dry_run, fix_only, skip_redteam))
         return None
 
     daemon.process_backlog = record_process
@@ -982,7 +1013,7 @@ def arm_truthy_values_and_watch_scope():
             helper_value = daemon.truthy_fix_only(value)
             rc, output, error, calls = one_watch_pass(daemon, value)
             passed = (helper_value is True and rc == 0 and error == ""
-                      and calls == [(False, True)]
+                      and calls == [(False, True, False)]
                       and "fix-only watch active" in output
                       and "do not add tickets for newly found problems or "
                       "new backlog lines"
@@ -1247,12 +1278,15 @@ def arm_help_and_readme_parity():
             break
         candidates.append(readme[body_start:end])
         position = end + 3
+    normalized_help = " ".join(help_output.split())
     passed = (rc == 0 and error == "" and candidates == [help_output]
               and "--send {architect}" in help_output
               and "--ping {architect}" in help_output
               and "--ticket-kind" not in help_output
               and "--severity {high,medium,low}" in help_output
               and "--fix-only" in help_output
+              and "--sol_as_implementer" not in help_output
+              and "one cycle is always one ticket" in normalized_help
               and all(word in help_output for word in ("1", "true", "yes")))
     print("help parity candidates=" + str(len(candidates))
           + " passed=" + str(passed))
@@ -1264,6 +1298,21 @@ def replace_exact(source, old, new):
     if source.count(old) != 1:
         return None
     return source.replace(old, new, 1)
+
+
+def replace_once_in_function(source, function_name, old, new):
+    """Replace one exact site inside one named production function."""
+    start = source.find("def " + function_name + "(")
+    end = source.find("\ndef ", start + 1)
+    if start < 0:
+        return None
+    if end < 0:
+        end = len(source)
+    function_source = source[start:end]
+    mutant_function = replace_exact(function_source, old, new)
+    if mutant_function is None:
+        return None
+    return source[:start] + mutant_function + source[end:]
 
 
 def mutate_later_header(source):
@@ -1346,29 +1395,22 @@ def probe_threshold_comparator(source):
         discovery_scope="bounded") is not None
 
 
-def probe_critical_emergency_strict(source):
-    """One Critical bug is insufficient and two are an emergency."""
+def probe_sol_route_remains_redteam(source):
+    """The removed assignment shape cannot change Sol's saved role."""
     daemon = load_daemon(source=source)
-    base = {
-        "critical": 1,
-        "high_bug_fix": 0,
-    }
-    two = dict(base, critical=2)
-    return (not daemon.second_implementer_emergency(counts=base)
-            and daemon.second_implementer_emergency(counts=two))
-
-
-def probe_high_emergency_strict_and_typed(source):
-    """Only eleven High bug fixes, not High features, are an emergency."""
-    daemon = load_daemon(source=source)
-    ten_bugs = {"critical": 0, "high_bug_fix": 10,
-                "high_new_functionality": 0}
-    eleven_bugs = dict(ten_bugs, high_bug_fix=11)
-    features = dict(ten_bugs, high_bug_fix=0,
-                    high_new_functionality=50)
-    return (not daemon.second_implementer_emergency(counts=ten_bugs)
-            and daemon.second_implementer_emergency(counts=eleven_bugs)
-            and not daemon.second_implementer_emergency(counts=features))
+    assignment = (
+        TICKET_HEADER + "closure\n\n"
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: scratch-high-bug-fix-1@" + BASE_COMMIT + "\n"
+        "MAILBOX-MODE: second-implementer\n\n"
+        "OpenAI Sol — this is a role as second Implementer for this unit.\n"
+        "Implement the assigned fix.\n")
+    return (
+        daemon.mailbox_role_for_dispatch(
+            agent="sol", message=assignment) == "red-team"
+        and daemon.redteam_closure_problem(message=assignment) is not None
+        and not hasattr(
+            daemon, "second_" + "implementer_mode_refusal"))
 
 
 def probe_truthy_whitespace(source):
@@ -1495,7 +1537,8 @@ def probe_watch_propagation(source):
     """main() passes the parsed boolean into the watch backlog pass."""
     with scratch_daemon(source=source) as (daemon, _, _, _):
         rc, _, error, calls = one_watch_pass(daemon, "true")
-        return rc == 0 and error == "" and calls == [(False, True)]
+        return (rc == 0 and error == ""
+                and calls == [(False, True, False)])
 
 
 def probe_live_watch_binding(source):
@@ -1558,20 +1601,14 @@ def arm_source_mutations():
             probe_threshold_comparator,
         ),
         (
-            "Critical emergency > becomes >=",
+            "Sol route changed from Red Team to Implementer",
             lambda text: replace_exact(
                 text,
-                '        > SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD',
-                '        >= SECOND_IMPLEMENTER_CRITICAL_EMERGENCY_THRESHOLD'),
-            probe_critical_emergency_strict,
-        ),
-        (
-            "High emergency > becomes >=",
-            lambda text: replace_exact(
-                text,
-                '        > SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)',
-                '        >= SECOND_IMPLEMENTER_HIGH_EMERGENCY_THRESHOLD)'),
-            probe_high_emergency_strict_and_typed,
+                '    if agent == "sol":\n'
+                '        return "red-team"\n',
+                '    if agent == "sol":\n'
+                '        return "implementer"\n'),
+            probe_sol_route_remains_redteam,
         ),
         (
             "truthy strip removed",
@@ -1686,26 +1723,49 @@ def arm_source_mutations():
         ),
         (
             "main drops fix-only",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
-                "process_backlog(dry_run=False, fix_only=True)",
-                "process_backlog(dry_run=False, fix_only=False)"),
+                "main",
+                "backlog_outcome = process_backlog(\n"
+                "                        dry_run=False, fix_only=fix_only,\n"
+                "                        skip_redteam=skip_redteam)",
+                "backlog_outcome = process_backlog(\n"
+                "                        dry_run=False, fix_only=False,\n"
+                "                        skip_redteam=skip_redteam)"),
             probe_watch_propagation,
         ),
         (
             "process drops fix-only",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
-                "paths=paths, dry_run=dry_run, fix_only=fix_only)",
-                "paths=paths, dry_run=dry_run, fix_only=False)"),
+                "process_backlog",
+                "consumed = drain_lane(\n"
+                "                    paths=paths, dry_run=dry_run, "
+                "fix_only=fix_only)",
+                "consumed = drain_lane(\n"
+                "                    paths=paths, dry_run=dry_run, "
+                "fix_only=False)"),
             probe_pipeline_enforcement,
         ),
         (
             "lane drops fix-only",
-            lambda text: replace_exact(
+            lambda text: replace_once_in_function(
                 text,
-                "dispatch(path=path, dry_run=dry_run, fix_only=fix_only)",
-                "dispatch(path=path, dry_run=dry_run, fix_only=False)"),
+                "drain_lane",
+                "consumed = dispatch(\n"
+                "                    path=path, dry_run=dry_run, "
+                "fix_only=fix_only,\n"
+                "                    new_reservation_cycle="
+                "new_reservation_cycle,\n"
+                "                    architect_admission="
+                "architect_admission)",
+                "consumed = dispatch(\n"
+                "                    path=path, dry_run=dry_run, "
+                "fix_only=False,\n"
+                "                    new_reservation_cycle="
+                "new_reservation_cycle,\n"
+                "                    architect_admission="
+                "architect_admission)"),
             probe_pipeline_enforcement,
         ),
     ]
@@ -1731,8 +1791,8 @@ def main():
     arms = [
         ("threshold/header", arm_threshold_edges_and_exact_header),
         ("refusal zero-write", arm_refusal_is_zero_write),
-        ("second-Implementer emergency",
-         arm_second_implementer_emergency_boundaries),
+        ("Sol remains advisory",
+         arm_sol_is_always_advisory_and_severity_neutral),
         ("classification", arm_classification_is_explicit_and_fail_closed),
         ("inherited fix-only", arm_inherited_fix_only_send),
         ("live-watch binding", arm_live_watch_binds_external_send),
