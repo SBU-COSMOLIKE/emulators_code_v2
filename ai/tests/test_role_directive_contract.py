@@ -989,9 +989,10 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn(
             "- PARKED **LOW — EDGE CASE** **BUG FIX** — "
             "[Plain human title](#unique-anchor)", contract)
+        conventions_normalized = " ".join(self.conventions.split())
         self.assertIn("never selected automatically", self.conventions)
         self.assertIn("explicit user request naming that exact parked ticket",
-                      self.conventions)
+                      conventions_normalized)
         self.assertIn(
             "`PRIORITY` is exactly `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`",
             contract)
