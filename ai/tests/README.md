@@ -217,6 +217,7 @@ redshift-by-wavenumber surface.
 | --- | --- |
 | `test_background_grid_contract.py` | Do training setup and the Cobaya adapter accept the same background quantities and physical units? |
 | `test_cmb_checkpoint_axis.py` | Can each saved CMB spectrum column be matched to the correct multipole `ell` value before any spectrum is loaded? |
+| `test_cmb_covariance_publication.py` | Can a completed CMB covariance receive its public filename without replacing an earlier result or exposing an interrupted write? |
 | `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
 | `test_dataset_locator.py` | Can a familiar parameter-chain filename find the current complete dataset without changing that filename after every publication? |
 | `test_dataset_publication.py` | Can readers see only one complete, unchanged generated dataset while resume or append work uses separate writable copies? |
@@ -271,6 +272,35 @@ four CMB spectra `TT`, `TE`, `EE`, and `PP`.
   gap, or a changed order must stop before the first spectrum is read.
 - **Why it matters:** without this check, a valid number in one spectrum
   column could be interpreted as the power at the wrong multipole.
+
+#### Publishing one completed CMB covariance
+
+`test_cmb_covariance_publication.py` checks the final file-writing part of the
+CMB covariance command. It uses tiny NumPy archives and does not run CAMB or
+train an emulator. Run it from the repository root with:
+
+```bash
+python3 -m unittest ai.tests.test_cmb_covariance_publication
+```
+
+- **Example used:** the candidate archive contains multipoles `2, 3, 4`, three
+  temperature uncertainties, and a short record of how it was made. An earlier
+  archive and a file created late by a second writer use visibly different
+  values, so the test can tell which bytes survived.
+- **What the test does:** it completes one normal publication, then separately
+  stops the write, file synchronization, archive readback, and final-name step.
+  Another case creates a competing archive after readback. The command-line
+  case places an archive at the requested name while naming a missing YAML file.
+- **Pass means:** a normal run publishes the exact member names, shapes, data
+  types, and values. Every stopped run removes its private temporary file. An
+  archive that already owns the requested name remains byte-for-byte unchanged,
+  and the command refuses it before trying to read YAML or start CAMB.
+- **A refusal it proves:** neither an ordinary rerun nor a file that appears
+  while the calculation is running may be replaced. A write, synchronization,
+  readback, or final-name failure may not leave a partial archive at the name
+  used by readers.
+- **Why it matters:** calculating a CMB covariance can be expensive. A rerun or
+  interrupted save must not destroy the preceding usable scientific result.
 
 #### Parameter names used while selecting training rows
 

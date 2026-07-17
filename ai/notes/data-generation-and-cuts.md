@@ -103,17 +103,65 @@ drivers own only family physics and family-specific files:
 the script's own names, including `omegabh2` and `omegach2`, and contains plain
 resolved numbers.
 
+<a id="cmb-covariance-publication-transactional-output"></a>
 ### CMB covariance publication
 
-The CMB covariance archive is a generated scientific dataset, not an emulator
-artifact. `compute_cmb_covariance.py` must write a complete temporary zipped
-NumPy archive (`.npz`), synchronize it, validate it, and only then rename it
-into the final location. An existing destination must always refuse before
-either file changes.
+#### Rule
 
-A fault-injection check interrupts each publication boundary and requires the
-preceding valid archive to remain byte-identical and readable. A second run at
-an existing destination refuses before changing that file.
+The CMB covariance archive is a generated scientific dataset, not an emulator
+artifact. `compute_cmb_covariance.py` must refuse when any path entry already
+owns the requested final name. This includes a regular file, a directory, a
+symlink to an existing target, and a dangling symlink whose target is missing.
+The command performs this check before it reads the YAML configuration or asks
+CAMB to calculate a spectrum, so a rerun cannot spend computation or alter an
+existing destination.
+
+Publication uses one hidden, uniquely named staging file in the final file's
+directory. After writing the zipped NumPy archive (`.npz`), the producer
+synchronizes the staging file with `fsync`. It then opens that staging file
+with `numpy.load(..., allow_pickle=False)` and reads every member. The member
+names, dtypes, shapes, and values must exactly match the arrays supplied for
+publication; missing, additional, reordered-by-substitution, or changed
+members refuse publication.
+
+Only a validated staging file may claim the final name. The producer uses an
+atomic create-if-absent operation, so a file or link created by another
+process after the early destination check wins unchanged. It never uses an
+overwriting replacement for this final step. After the final name is created,
+the producer synchronizes the containing directory so the new directory entry
+reaches the documented durability boundary. It removes its staging file after
+success and after every handled failure, including a write fault, a file-sync
+fault, invalid readback, a late competing destination, or a directory-sync
+fault.
+
+#### Why
+
+A covariance calculation can take substantial time, and downstream code
+treats the final filename as a complete scientific result. Same-directory
+staging and non-overwriting final-name creation ensure that readers see either
+no result or one fully checked archive. They never see a partial archive, and
+a concurrent producer never loses the result that reached the final name
+first.
+
+#### Acceptance evidence
+
+The gate claim `cmb-covariance-publication.transactional-output` receives GO
+only when all of the following checks pass:
+
+- a successful publication reads back the exact member-name set and the exact
+  dtype, shape, and value of every member with `allow_pickle=False`;
+- an existing file and a dangling-link destination both refuse before YAML
+  parsing, CAMB evaluation, or staging-file creation;
+- faults at archive writing, staging-file synchronization, exact readback,
+  final-name creation, and directory synchronization leave no trusted partial
+  result and no staging file;
+- a destination created after readback remains byte-for-byte unchanged, while
+  the losing staging file is removed; and
+- mutations that permit pickle loading, skip one member comparison, overwrite
+  the final name, omit either synchronization step, or retain a staging file
+  make the claim fail.
+
+### Generator evaluation boundaries
 
 The background generator evaluates each point with the standard Cobaya
 `model.logposterior(point, cached=False)` lifecycle. Other generators may keep

@@ -148,6 +148,8 @@ import json
 import math
 import os
 import sys
+import tempfile
+import zipfile
 
 import numpy as np
 
@@ -176,6 +178,189 @@ LCDM_EXPANSION_KEYS = ("H0", "thetastar", "cosmomc_theta")
 LCDM_REQUIRED_KEYS = ("ns", "omegabh2", "omegach2", "tau", "mnu",
                       "omk", "w", "wa")
 PSD_ROUNDING_ULPS = 32.0
+
+
+class CovariancePublicationCommittedError(RuntimeError):
+  """Report uncertain directory durability after a complete final appears."""
+
+
+def require_new_covariance_path(output_path):
+  """Refuse an output name that already exists, including a broken link.
+
+  Arguments:
+    output_path = final ``.npz`` path readers will use.
+
+  Returns:
+    the path converted with ``os.fspath`` when that name is unused.
+
+  Raises:
+    FileExistsError before any covariance work when the final name already
+    refers to a file, directory, link, or broken link.
+  """
+  path = os.fspath(output_path)
+  if os.path.lexists(path):
+    raise FileExistsError(
+      "refusing to replace existing CMB covariance archive: " + path
+      + "; choose a new --output name or move the existing file explicitly")
+  return path
+
+
+def _sync_directory(directory):
+  """Synchronize publication-name changes on POSIX filesystems."""
+  if os.name == "nt":
+    return
+  flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+  descriptor = os.open(directory, flags)
+  try:
+    os.fsync(descriptor)
+  finally:
+    os.close(descriptor)
+
+
+def _retry_directory_sync(directory):
+  """Retry one transient directory-sync failure before reporting it."""
+  last_error = None
+  for _ in range(2):
+    try:
+      _sync_directory(directory)
+      return
+    except OSError as error:
+      last_error = error
+  raise last_error
+
+
+def _remove_staging_path(path):
+  """Remove one owned staging name, retrying one transient failure."""
+  last_error = None
+  for _ in range(2):
+    try:
+      os.unlink(path)
+      return None
+    except FileNotFoundError:
+      return None
+    except OSError as error:
+      last_error = error
+  return last_error
+
+
+def _warn_staging_cleanup(path, error, published):
+  """Explain a staging-file cleanup failure without hiding commit state."""
+  if published:
+    prefix = ("warning: the complete CMB covariance archive has its final "
+              "name, but its private staging name could not be removed: ")
+  else:
+    prefix = ("warning: CMB covariance publication failed before the final "
+              "name was created, and its private staging file could not be "
+              "removed: ")
+  print(prefix + path + ": " + str(error), file=sys.stderr)
+
+
+def _validate_covariance_archive(path, arrays):
+  """Reopen one temporary archive and compare every saved member exactly."""
+  expected_names = tuple(arrays)
+  try:
+    with np.load(path, allow_pickle=False) as archive:
+      observed_names = tuple(archive.files)
+      if (len(observed_names) != len(expected_names)
+          or set(observed_names) != set(expected_names)):
+        raise ValueError(
+          "temporary CMB covariance archive has members "
+          + repr(observed_names) + "; expected " + repr(expected_names))
+      for name in expected_names:
+        expected = np.asarray(arrays[name])
+        observed = np.asarray(archive[name])
+        if observed.dtype != expected.dtype:
+          raise ValueError(
+            "temporary CMB covariance member " + repr(name)
+            + " has dtype " + str(observed.dtype) + "; expected "
+            + str(expected.dtype))
+        if observed.shape != expected.shape:
+          raise ValueError(
+            "temporary CMB covariance member " + repr(name)
+            + " has shape " + repr(observed.shape) + "; expected "
+            + repr(expected.shape))
+        if not np.array_equal(observed, expected):
+          raise ValueError(
+            "temporary CMB covariance member " + repr(name)
+            + " changed while it was written")
+  except (OSError, ValueError, KeyError, EOFError,
+          zipfile.BadZipFile) as error:
+    raise RuntimeError(
+      "temporary CMB covariance archive did not pass readback validation: "
+      + str(error)) from error
+
+
+def publish_covariance_archive(output_path, arrays):
+  """Publish one complete covariance archive without replacing another.
+
+  The temporary file lives beside the final file, so a hard link can give the
+  validated bytes their final name in one filesystem operation.  Unlike
+  ``os.replace``, the link operation refuses a destination that appeared
+  after the first availability check.
+
+  Arguments:
+    output_path = final ``.npz`` path readers will use.
+    arrays      = mapping passed to ``numpy.savez``.
+
+  Returns:
+    the final path after a synchronized, exact readback succeeds.
+  """
+  path = require_new_covariance_path(output_path)
+  directory = os.path.dirname(os.path.abspath(path))
+  directory_was_present = os.path.isdir(directory)
+  os.makedirs(directory, exist_ok=True)
+  if not directory_was_present:
+    parent = os.path.dirname(directory) or os.curdir
+    _retry_directory_sync(parent)
+  descriptor, temporary_path = tempfile.mkstemp(
+    prefix="." + os.path.basename(path) + ".",
+    suffix=".tmp",
+    dir=directory)
+  published = False
+  commit_sync_error = None
+  try:
+    try:
+      stream = os.fdopen(descriptor, "wb")
+    except BaseException:
+      os.close(descriptor)
+      raise
+    with stream:
+      np.savez(stream, **arrays)
+      stream.flush()
+      os.fsync(stream.fileno())
+    _validate_covariance_archive(temporary_path, arrays)
+    try:
+      os.link(temporary_path, path)
+    except FileExistsError as error:
+      raise FileExistsError(
+        "refusing to replace CMB covariance archive created during this run: "
+        + path) from error
+    published = True
+    try:
+      _retry_directory_sync(directory)
+    except OSError as error:
+      commit_sync_error = error
+  finally:
+    if os.path.lexists(temporary_path):
+      cleanup_error = _remove_staging_path(temporary_path)
+      if cleanup_error is not None:
+        _warn_staging_cleanup(
+          temporary_path, cleanup_error, published=published)
+    if published:
+      try:
+        _retry_directory_sync(directory)
+        commit_sync_error = None
+      except OSError as error:
+        if commit_sync_error is None:
+          print("warning: CMB covariance is complete at " + path
+                + " but cleanup synchronization could not be confirmed: "
+                + str(error), file=sys.stderr)
+  if commit_sync_error is not None:
+    raise CovariancePublicationCommittedError(
+      "a complete CMB covariance archive now exists at " + path
+      + ", but directory synchronization could not be confirmed; inspect "
+      "that file and do not retry the same output name") from commit_sync_error
+  return path
 
 
 def _finite_real(value, label):
@@ -1088,17 +1273,24 @@ def main():
                            "fiducial LCDM) + cov_args")
   parser.add_argument("--output", dest="output", type=str,
                       required=True,
-                      help="output name root; writes "
-                           "<root>/chains/<output>.npz")
+                      help="new output name root; creates "
+                           "<root>/chains/<output>.npz and refuses an "
+                           "existing destination")
   # strict parse: reject a misspelled flag instead of silently ignoring it.
   args = parser.parse_args()
-
-  import yaml as pyyaml
 
   root_env = os.environ.get("ROOTDIR")
   if not root_env:
     raise RuntimeError("ROOTDIR environment variable is not set")
   root = root_env.rstrip("/") + "/" + args.root.strip("/")
+  out_path = root + "/chains/" + args.output + ".npz"
+  # Refuse before YAML loading or the expensive CAMB solve.  The publication
+  # helper checks again after computation so a file created concurrently is
+  # also preserved.
+  require_new_covariance_path(out_path)
+
+  import yaml as pyyaml
+
   yaml_path = root + "/" + args.fileroot.strip("/") + "/" + args.yaml
   with open(yaml_path) as fh:
     info = pyyaml.safe_load(fh)
@@ -1226,9 +1418,7 @@ def main():
   require_finite_arrays(out)
   out["provenance"] = json.dumps(provenance)
 
-  os.makedirs(root + "/chains", exist_ok=True)
-  out_path = root + "/chains/" + args.output + ".npz"
-  np.savez(out_path, **out)
+  publish_covariance_archive(out_path, out)
   print("covariance written -> " + out_path)
   print("  Gaussian sigmas: tt/te/ee/pp over l = 2.." + str(lmax)
         + ("  + dense NG blocks (3 per-spectrum + 3 cross)"

@@ -2052,6 +2052,27 @@ def gate_generator_checkpoint_refusal(ctx):
            + " (ai/gates/checks/generator_checkpoint_refusal.py)")
 
 
+def gate_cmb_covariance_publication(ctx):
+  """cmb-covariance-publication: an existing result is never replaced.
+
+  The CPU child uses tiny NumPy archives instead of running CAMB. It checks a
+  successful write and injects failures while the archive is written,
+  synchronized, reopened, and given its final name. An earlier archive and a
+  file created by a second writer must remain byte-for-byte unchanged, and the
+  command must notice an occupied output name before it reads YAML or starts a
+  cosmology calculation.
+  """
+  rc, out = ctx.run_check(
+    "ai/gates/checks/cmb_covariance_publication.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="cmb-covariance-publication child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/cmb_covariance_publication.py)")
+
+
 def gate_dataset_publication(ctx):
   """dataset-publication: generators and training share one saved generation.
 
@@ -2691,6 +2712,29 @@ BOARD = [
                "compute_data_vectors/dataset_generator_mps.py",
                "emulator/fixed_facts.py",
                "emulator/parameter_table.py"),
+         inputs=()),
+       needs=()),
+  Gate(id="cmb-covariance-publication",
+       spec_code="CME-C",
+       title="CMB covariance publication preserves every earlier result",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="tiny CPU-only NumPy archives prove that the CMB covariance "
+            "command refuses an occupied output name before YAML or CAMB, "
+            "writes and synchronizes a private archive, reopens every member, "
+            "and publishes only the checked result. Injected write, sync, "
+            "readback, and final-name failures leave no partial public file; "
+            "an earlier archive or a late competing file remains unchanged",
+       evidence=(Assertion(
+                   "cmb-covariance-publication.transactional-output",
+                   "data-generation-and-cuts.md#cmb-covariance-publication-"
+                   "transactional-output"),),
+       run=gate_cmb_covariance_publication,
+       manifest=Manifest(
+         code=("compute_data_vectors/compute_cmb_covariance.py",
+               "ai/tests/test_cmb_covariance_publication.py",
+               "ai/gates/checks/cmb_covariance_publication.py",
+               "ai/gates/checks/redteam_covariance_params_witness.py"),
          inputs=()),
        needs=()),
   Gate(id="dataset-publication",

@@ -718,11 +718,18 @@ cd "$ROOTDIR"
   --output cmb_covariance
 ```
 
-This writes or replaces:
+The requested output name must be unused. Before the program reads the YAML or
+starts CAMB, it checks for:
 
 ```text
 $ROOTDIR/projects/cmb/chains/cmb_covariance.npz
 ```
+
+If that path already exists, the command stops without changing it. Choose a
+fresh value for `--output`, or move the earlier file explicitly before running
+the calculation again. The program writes a new covariance under a private
+temporary name, synchronizes and reopens it, and only then gives the completed
+archive the public name shown above.
 
 Gaussian mode performs one fiducial CAMB calculation. It writes the
 multipole coordinates, per-spectrum standard deviations, Gaussian

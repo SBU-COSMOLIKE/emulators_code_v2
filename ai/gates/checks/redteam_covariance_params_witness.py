@@ -257,7 +257,8 @@ def run_instrumented_main(info, fiducial_fixture=finite_fiducial_spectra,
 
   The real entry point is used, but its CAMB solve and Gaussian arithmetic are
   replaced with finite fixtures. ``json.dumps`` is instrumented before it
-  serializes provenance, and ``np.savez`` is instrumented before publication.
+  serializes provenance, and the transactional publisher is instrumented at
+  the final path-and-member boundary.
 
   Arguments:
     info             = complete candidate producer configuration.
@@ -272,7 +273,7 @@ def run_instrumented_main(info, fiducial_fixture=finite_fiducial_spectra,
   original_gaussian = covariance.gaussian_blocks
   original_noise = covariance.noise_spectrum
   original_dumps = covariance.json.dumps
-  original_savez = covariance.np.savez
+  original_publish = covariance.publish_covariance_archive
   original_argv = sys.argv
   original_rootdir = os.environ.get("ROOTDIR")
   original_yaml = sys.modules.get("yaml")
@@ -301,10 +302,11 @@ def run_instrumented_main(info, fiducial_fixture=finite_fiducial_spectra,
     captures["persisted"] = value["fiducial_params"]
     return original_dumps(value, *args, **kwargs)
 
-  def capture_savez(path, **arrays):
+  def capture_publish(path, arrays):
     """Capture publication without writing the instrumented fixture."""
     captures["output_path"] = path
-    captures["output"] = arrays
+    captures["output"] = dict(arrays)
+    return path
 
   with tempfile.TemporaryDirectory() as temp_dir:
     config_dir = Path(temp_dir) / "project" / "config"
@@ -317,7 +319,7 @@ def run_instrumented_main(info, fiducial_fixture=finite_fiducial_spectra,
       covariance.gaussian_blocks = gaussian_fixture
       covariance.noise_spectrum = fake_noise_spectrum
       covariance.json.dumps = capture_dumps
-      covariance.np.savez = capture_savez
+      covariance.publish_covariance_archive = capture_publish
       sys.modules["yaml"] = fake_yaml
       os.environ["ROOTDIR"] = temp_dir
       sys.argv = [
@@ -337,7 +339,7 @@ def run_instrumented_main(info, fiducial_fixture=finite_fiducial_spectra,
       covariance.gaussian_blocks = original_gaussian
       covariance.noise_spectrum = original_noise
       covariance.json.dumps = original_dumps
-      covariance.np.savez = original_savez
+      covariance.publish_covariance_archive = original_publish
       sys.argv = original_argv
       if original_yaml is None:
         del sys.modules["yaml"]
