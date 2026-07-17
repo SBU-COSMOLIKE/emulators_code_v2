@@ -166,6 +166,11 @@ biographical commentary. A current limitation may remain only as:
 2. the consequence for the user; and
 3. the action the user should take.
 
+README and explanatory Python prose present one coherent current system. They
+do not label a passage `hard user rule`, attribute policy to a user, or stack a
+new correction beside the older rule. The shared contract in
+`readme-go-no-go.md` owns the complete wording and subject-matter exceptions.
+
 Parentheses contain only a short local definition, symbol, unit, or acronym.
 If removing a parenthetical changes an essential instruction, promote that
 content to a sentence, table row, or diagram label. Review parentheticals over
@@ -1265,6 +1270,12 @@ Each section uses short paragraphs or bullets. Define an unfamiliar term at
 first use. Do not paste a backlog ticket, an audit transcript, or one long
 wall of text. Recovery lines added by the mailbox program may follow the four
 human sections, but they never replace or interrupt them.
+
+The subject and all four body sections describe the saved current behavior.
+They do not narrate who requested it, when a policy was added, or which ticket,
+audit wave, review round, rollout phase, model, or earlier commit produced it.
+Scientific, runtime, algorithmic, and compatibility subject matter follows the
+narrow exception in `ai/notes/readme-go-no-go.md`.
 
 Before accepting, landing, or pushing the commit, the Architect reviews the
 exact full hash and records:

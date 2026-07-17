@@ -29,16 +29,19 @@ A permanent-note change receives GO only when every statement below is true:
    will be updated in place instead of receiving a chronological addendum.
 3. The source of truth is available in current code, a current configuration,
    a scientific definition, a reproducible validation command, or an explicit
-   user rule.
+   user rule. An explicit instruction can justify the change, but the finished
+   prose states the accepted repository rule without attributing it to the
+   user.
 4. Temporary ticket state, its place in the current work list, role
    conversation, and review chronology remain in local working records.
 5. The planned wording is neutral. The wording addresses **the user**, **the
    reader**, **the Architect**, **the Implementer**, or **the Red Team** only
    when the role matters. The wording never points to a named individual.
-6. A historical milestone is included only when the milestone explains a
-   current design choice or prevents a known failed design from being repeated.
-   The milestone is named by capability, not by date, saved repository
-   version, review wave, or overnight narrative.
+6. The text does not narrate how a policy accumulated. When an earlier
+   technical design must be mentioned to explain a current refusal or prevent
+   that design from returning, the note states the present boundary, the
+   forbidden design, and the technical reason without dates, ticket order,
+   role verdicts, waves, rounds, or policy-patch language.
 7. The planned explanation serves both a future development model and a
    physics undergraduate. An unfamiliar repository term is defined where it
    appears, and a broad rule is followed by a real repository example when an
@@ -73,13 +76,20 @@ The final permanent-note change receives GO only when all of these checks pass:
   alone.
 - Detail is preserved when the detail can prevent a future regression. Large
   notes are acceptable. Diary entries are not.
-- The text contains no date or timestamp, no named person, no gendered
-  pronoun, and no personal preference attributed to a particular user. The
-  anti-AI contract may quote a first- or second-person phrase only to prohibit
-  that phrase.
+- The text contains no development date, policy-provenance timestamp, named
+  person, gendered pronoun, or personal preference attributed to a particular
+  user. A date is allowed only when it is part of scientific, release,
+  citation, input, or public-interface subject matter and the review records
+  why removing it would make the statement incomplete or false. The anti-AI
+  contract may quote a first- or second-person phrase only to prohibit that
+  phrase.
 - The text contains no ordinal audit-wave labels, role-verdict labels,
-  temporary review status, personal-awake narratives, numbered run history,
-  or source-control archaeology terminology.
+  temporary review status, personal-awake narratives, numbered review-run
+  history used as a development diary, or source-control archaeology
+  terminology.
+- Related sections describe one coherent current system. They contain no
+  dated correction, `hard user rule`, generic-user attribution, review round,
+  or later paragraph that repairs an older policy paragraph left in place.
 - Open work is not inferred from the permanent note. The local backlog and
   executable gates determine current work and current evidence.
 - The plain-language, neutral-audience, and anti-AI requirements in
@@ -93,7 +103,7 @@ Any failed check gives NO-GO. Rewrite the note before accepting the change.
 
 ### Required shape for technical findings
 
-When a former audit finding contains durable knowledge, rewrite the finding in
+When an audit finding contains durable knowledge, rewrite the finding in
 this order:
 
 1. **Rule:** the behavior the library must provide.

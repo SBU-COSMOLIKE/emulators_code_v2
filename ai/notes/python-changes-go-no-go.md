@@ -71,8 +71,44 @@ Use neutral audience nouns:
   role matters.
 
 Do not use a person's name, personal pronouns, attributed personal quotations,
-dates, ticket chronology, or diary narration to justify a style rule. State
-the rule and the reason directly.
+development dates, ticket chronology, or diary narration in explanatory
+Python prose. State the current behavior and its reason directly.
+
+### Explain current code, not the policy patches that produced it
+
+Comments, docstrings, command help, diagnostics, error text, and explanatory
+strings tell the reader what the current code does and why that behavior is
+necessary. They do not preserve the sequence of requests or reviews that led
+to the code.
+
+When behavior changes, replace the old explanation in place. Do not add a
+dated correction, `hard user rule`, ticket number, audit wave, review round,
+model name, or sentence such as `this now does X`. Keep the lasting reason for
+the behavior and remove the development chronology.
+
+NO-GO:
+
+```python
+# Hard user rule from the latest review: now reject a dirty worktree.
+```
+
+GO:
+
+```python
+# Refuse a dirty worktree so uncommitted user files cannot enter the landing.
+```
+
+A date remains valid when the program reads or calculates that date, when a
+scientific dataset or publication is identified by year, or when a public
+compatibility interface contains the date. Words such as `history`, `phase`,
+and `previous` remain valid when they name real runtime data or algorithmic
+order. They receive NO-GO when they merely narrate how a policy accumulated.
+
+The Architect reviews the complete Python symbol and its related module prose.
+GO requires one compatible current explanation, not an old comment followed by
+a later exception. The directive lists every chronology-like match and either
+removes it or records the concrete scientific, runtime, algorithmic, or
+compatibility reason it must remain.
 
 ## Architect review before dispatch
 
@@ -388,7 +424,9 @@ Any condition below requires NO-GO:
 - validation happens after mutation, publication, or expensive setup without
   a proven need;
 - an error silently falls back, coerces, or hides the correction;
-- explanatory text is personal, dated, historical, vague, or undefined;
+- explanatory text is personal, development-dated, vague, undefined, narrates
+  policy or review history, or uses chronology without a scientific, runtime,
+  algorithmic, or compatibility need;
 - an applicable acceptance row lacks raw evidence;
 - the Implementer or Red Team edited this contract or another permanent note.
 

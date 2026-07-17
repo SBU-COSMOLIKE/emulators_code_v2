@@ -48,10 +48,10 @@ reading the file from the beginning. Each section must therefore explain the
 terms it needs at the place where it uses them.
 
 Architect-authored permanent-note prose follows this contract's local
-definition, repository-example, neutral-audience, and anti-AI requirements.
-README-only structure and visual rows do not apply to a permanent topic note.
-This writing rule does not give the Implementer or Red Team permission to edit
-any permanent note.
+definition, repository-example, neutral-audience, coherent-current-system, and
+anti-AI requirements. README-only structure and visual rows do not apply to a
+permanent topic note. This writing rule does not give the Implementer or Red
+Team permission to edit any permanent note.
 
 Git commit messages created by the AI-development workflow are reader-facing
 Markdown on GitHub. They follow every applicable prose rule in this contract,
@@ -65,6 +65,59 @@ saved change**, owns how that approved message is preserved during landing.
 Only the Architect issues `GO` or `NO-GO`. The Implementer supplies the
 change and its evidence. The Red Team may identify a problem and propose a
 repair. Neither role replaces the Architect's final review.
+
+## Describe one coherent current system
+
+README files, permanent notes, commit explanations, and explanatory Python
+prose describe how the library works now. When a rule changes, rewrite the
+owning explanation in place. Do not append a dated correction or leave the old
+rule beside the new one.
+
+The reader needs the current rule, its reason, one concrete example when the
+reason is broad, and any present limitation. The reader does not need to know
+which request, review, model, ticket, or development session introduced it.
+Git keeps earlier tracked wording. The local backlog keeps unfinished work and
+temporary review history.
+
+These forms receive `NO-GO` when they narrate policy development:
+
+- a calendar date or timestamp attached to a rule;
+- `hard user rule`, `the user requested`, or an attributed personal
+  preference;
+- `new rule`, `the rule now says`, `formerly`, `previously`, `after the last
+  review`, or `as of`;
+- ticket numbers, audit waves, review rounds, rollout phases, model names, or
+  commit identifiers used to explain why prose exists; and
+- a chronological addendum that corrects an earlier paragraph instead of
+  replacing it.
+
+For example, this is `NO-GO`:
+
+```text
+Hard user rule, YYYY-MM-DD: the watcher now refuses a force push.
+```
+
+Write the current rule directly:
+
+```text
+The watcher refuses every force push because replacing saved Git history can
+discard accepted work.
+```
+
+Dates and chronological words are allowed only when time is part of the
+subject itself. Examples include a scientific data release named by year, a
+publication citation, a user input that is a date, or an algorithm whose
+ordered phases are current behavior. The Architect records why each such use
+is necessary. A training phase is not policy-patch history; `phase added in
+review round 3` is.
+
+`GO` requires one consistent current explanation after the edit. A reader must
+not encounter an old rule, a later correction, and a third paragraph that
+reconciles them. The Architect searches the complete changed file and related
+owner sections for policy dates, `hard user rule`, ticket or review labels,
+and chronology phrases, then reads every match in context. A blind word ban is
+not sufficient because words such as `history` and `phase` also have valid
+technical meanings.
 
 ## The Architect reads this file twice
 
@@ -328,6 +381,7 @@ The Architect answers these questions before dispatch.
 | Reader outcome | Names the exact question the changed section will answer and the next action the reader can take | Says only “improve,” “clarify,” “document,” or another subjective goal |
 | Placement | Names the README location or the exact Python comment, docstring, help, or diagnostic location and explains why it belongs there | Leaves placement, heading order, comment location, or docstring scope to the Implementer |
 | Source of truth | Names the exact code, shipped file, command, or current policy that supports each behavior | Relies on memory, chat, an old README statement, or a temporary audit note |
+| Coherent current account | Names the superseded passage that will be replaced and the one current rule that will remain; lists any necessary scientific date or real algorithmic phase | Adds a correction, date, “hard user rule,” ticket reference, review round, or policy-patch paragraph beside older prose |
 | Vocabulary | Lists the non-physics technical words the passage needs and gives a plain definition or replacement for each | Assumes that a later section, glossary, or software background will rescue an undefined term |
 | Abstraction examples | Identifies every new broad idea and supplies one or two real repository examples that will make the idea concrete | Says only “add an example,” leaves the Implementer to invent one, or permits a broad title or definition with no real case |
 | Neighbor distinction | For similarly named folders or tools, supplies one real example from each and states the visible difference | Defines the names with circular wording or says one is the other “in code” |
@@ -356,6 +410,7 @@ best judgment.”
 | Parentheses | Parentheses contain a short definition, symbol, unit, or acronym | Removing a parenthetical would remove an essential rule or a second argument |
 | Neutral audience | Prose uses roles such as **user**, **Architect**, or **maintainer** only when the role matters | Prose encodes a named person's preferences, pronouns, ownership, or development diary |
 | Current state | The README or Python prose says what the library or symbol does now and what the reader should do now | It narrates migration history, ticket history, rejected designs, intermediate commits, or old paths |
+| Coherent system | Related sections tell one compatible current story and place each rule in one owner location | The reader must reconstruct the rule from dated patches, successive corrections, duplicated policy statements, or “hard user rule” labels |
 | Complete command | The reader knows prerequisites, working folder, command, expected result, and whether the command changes files; command help names required values and defaults | A command appears without enough context to run or interpret it safely |
 | Current limitation | A limitation states its present scope, consequence, and user action | It explains when the limitation was found or promises an unimplemented repair |
 
