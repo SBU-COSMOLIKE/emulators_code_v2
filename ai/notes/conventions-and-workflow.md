@@ -1191,6 +1191,48 @@ then-current `main` parent, creates `L` with that one parent, and saves `L` on
 a private crash-recovery reference before touching `main`. It refuses an empty
 or conflicting squash.
 
+### Protected branch history is never rewritten
+
+The **protected target branch** is currently `main`; the present daemon has no
+option that changes it. If a supported option later lets the user choose a
+different target branch, that exact branch must receive every protection in
+this section before the option may ship. A branch name mentioned only in prose
+does not change the protected target.
+
+Protecting the complete history of that branch is a paramount goal and a hard
+Architect rule. No AI role, subagent, daemon, recovery path, suggested manual
+command, or application programming interface (API) call may force-push or
+replace its history. This prohibition includes:
+
+- `git push --force`, `git push -f`, and `git push --force-with-lease`;
+- a push refspec beginning with `+`;
+- deleting and recreating the remote branch;
+- moving the protected local branch backward with `reset` or `update-ref`;
+- rebasing, amending, filtering, or otherwise replacing commits already in the
+  protected branch's history; and
+- using a hosting-service option or API field that permits a non-fast-forward
+  update.
+
+`--force-with-lease` is still a force push. Knowing the expected remote commit
+does not make history replacement acceptable.
+
+Choosing a target branch or granting landing or push authority never grants
+authority to force-push or replace that branch's history.
+
+The protected branch may move only by fast-forward: its new commit must contain
+its exact previous commit in its history. A normal push must meet the same
+condition on the remote branch. If the local branch, remote branch, expected
+parent, or verification state differs, the operation refuses and preserves
+the commits for inspection. A remote refusal becomes visible push debt; it is
+never repaired by rewriting history.
+
+This rule outranks ticket closure, cycle completion, automation recovery,
+conflict convenience, and an attempt to clear push debt. The Architect issues
+`NO-GO` to any plan, candidate, recovery instruction, or manual command that
+could rewrite the protected branch. The safe response is to stop, show the
+divergence, and prepare a new descendant commit only after the user chooses how
+the histories should be reconciled without force.
+
 ### Commit messages explain the saved change
 
 GitHub displays a commit subject and body as Markdown. Every commit message

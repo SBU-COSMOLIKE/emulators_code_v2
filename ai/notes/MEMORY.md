@@ -202,6 +202,18 @@ reopening permanently bars that ticket from another `REOPEN`. The required
 fields in each role-to-role instruction are defined in
 `.claude/FABLE_ROLE.md` and `.codex/REDTEAM_ROLE.md`.
 
+Force pushes are never allowed. The protected target is currently `main`; the
+daemon has no target-branch option. Any future supported user-selected target
+must inherit this complete rule before that option ships. The protected branch
+may advance only by fast-forward locally and remotely. The Architect must
+reject force flags, leading-`+` refspecs, branch deletion and recreation,
+backward reference moves, and any reset, rebase, amend, filter, or
+hosting-service operation that replaces protected history. Divergence stops
+the operation and remains visible for the user; preserving history is more
+important than closing a ticket, finishing a cycle, recovering automation, or
+clearing push debt. `conventions-and-workflow.md`, section **Protected branch
+history is never rewritten**, owns the complete rule.
+
 Permanent-note changes use a separate Architect-only administration turn;
 they are never folded into an Implementer ticket or a Red Team review. From a
 bound Architect turn, the Architect queues that work with
