@@ -1015,19 +1015,19 @@ recompute the summary.
 
 ## Syren parameter aliases must agree
 
-**Reason.** `syren_params_from` in `emulator/syren_base.py` accepts the alias
-pairs `As_1e9`/`As` and `w`/`w0`. Here `w` and `w0` are names for the
-present-day dark-energy equation-of-state value, `wa` is its evolution
-coefficient, and `w0pwa` represents `w0 + wa`. Silently selecting the first
-name without
-comparing the second can make the network and analytic base describe different
-cosmologies. The generator passes its complete Cobaya `to_input` mapping. The
-adapter passes the inputs routed to `calculate(**params)`, which includes only
-the names the theory requests or supports. A dynamic bridge such as
-`wa = w0pwa - w` reaches `calculate` only when the theory requests `wa`.
-Acceptance cases must model those routed inputs. The shipped EMUL2 evaluation
-configuration supplies both amplitude names, so dual-alias input is a public
-configuration shape.
+**Reason.** The Syren starting formulas read two equivalent amplitude names,
+`As_1e9` and `As`, and several equivalent dark-energy coordinate forms. Here
+`w` and `w0` name the present-day dark-energy equation-of-state value, `wa`
+describes its time evolution, and `w0pwa` means `w0 + wa`. Silently choosing
+one repeated value can make the network and analytic starting formula describe
+different cosmologies.
+
+The generator receives Cobaya's complete calculated input mapping. The
+matter-power adapter asks Cobaya for the saved present-day name and calculated
+`wa`, then rebuilds all four dark-energy names before prediction. Acceptance
+cases must use those real routed inputs. The shipped EMUL2 evaluation
+configuration supplies both amplitude names, so dual-amplitude input is also
+a public configuration shape.
 
 The numerical failure remains finite and can evade downstream checks. For
 `{As_1e9: 2.1, As: 9e-9}`, silently choosing `As_1e9` changes the analytic
@@ -1038,45 +1038,61 @@ law-correction artifact is especially vulnerable because the network reads
 the artifact's stored parameter names while the analytic base could follow a
 separate alias-precedence rule.
 
-**Rule.** Keep one Syren implementation:
+**Rule.** Keep one Syren input path:
 
-1. `syren_params_from` remains the one shared generator/adapter
-   authority; alias pairs become an explicit consistency boundary.
+1. `resolve_dark_energy_coordinates` in `emulator/syren_base.py` is the shared
+   authority for `w`, `w0`, `wa`, and `w0pwa`. `syren_params_from` remains the
+   one entry point for the seven Syren arguments and delegates the last two
+   values to that resolver. The complete law and completion rules live in
+   `ai/notes/families-background-mps.md`.
 2. `As_1e9` alone and `As` alone are accepted. When both are present, require
    `As_1e9 == 1e9 * As` within a documented float-representation tolerance.
    Otherwise raise an error that names both values and the conversion.
-3. `w` alone and `w0` alone are accepted. When both are present, require
-   numerical equality under the same representation policy and name both
-   values in a mismatch error.
-4. Canonicalize only after the consistency proof; never silently
-   prefer one conflicting value.
-5. Preserve the Lambda-cold-dark-matter (LCDM) rule. When neither `w` nor `w0`
-   is present, use canonical `w0 = -1` as a model fact rather than a
-   configuration default. An absent `wa` uses the canonical value `0`.
-6. Do not duplicate the value-schema contract. The generator validates values
-   when a sample enters the generation path, and the adapter validates values
-   received from Cobaya. This rule owns only the cross-alias equality that
-   individual-value validation cannot establish.
-7. Requirement construction must not require a redundant amplitude alias. A
-   second alias supplied deliberately for another component is verified, not
-   ignored.
-8. On failure, `emul_mps.calculate` leaves no `Pk_grid`, interpolator, or
-   derived state keys. The generator rejects the sample before
-   writing any raw/base payload row.
-9. Documentation defines the aliases definitionally (As_1e9 = 10^9
-   As; w and w0 are two names for one present-day equation-of-state
-   value); "prefers" wording is removed as a correctness policy.
+3. `w` and `w0` are two names for one present-day value. Either name may be
+   used when the same input also supplies `wa` or `w0pwa`, or when the explicit
+   saved law supplies the missing coordinate. When both aliases are present,
+   require them to agree and name both values in a mismatch error.
+4. `w0pwa` means `w0 + wa`. A complete transformed input supplies a
+   present-day alias and `w0pwa`; the resolver derives `wa`. If `wa` is also
+   present, require the supplied and derived values to agree.
+5. Incomplete coordinates never select a law. `w0wa-cpl` supplies no missing
+   value. `constant-w` supplies `wa = 0` only after a present-day value is
+   supplied. `cosmological-constant` supplies `w0 = -1, wa = 0` and checks
+   every repeated value against that pair.
+6. Canonicalize only after every repeated value agrees. Never prefer one
+   conflicting alias or silently replace missing evolution information with
+   zero.
+7. Do not duplicate the individual-value contract. The generator validates
+   values when a sample enters generation, and the adapter validates values
+   received from Cobaya. This rule owns relationships among aliases and
+   transformed coordinates.
+8. Requirement construction does not request a redundant amplitude alias. For
+   time-varying dark energy, the adapter requests the present-day alias and
+   calculated `wa`, not dropped `w0pwa`, then rebuilds every saved spelling
+   before prediction.
+9. On failure, `emul_mps.calculate` leaves no `Pk_grid`, interpolator, or
+   derived state key. The generator refuses the sample before writing a raw or
+   starting-surface row.
+10. Documentation defines `As_1e9 = 10^9 As`, defines `w` and `w0` as two
+    names for one present-day value, and defines `w0pwa = w0 + wa`. It never
+    describes correctness as one alias being "preferred."
 
-**Acceptance evidence.** `As_1e9`-only and `As`-only controls resolve to the
-same canonical amplitude and reproduce the reference baseline. Consistent
-dual amplitude names pass; inconsistent names refuse before `base_pklin` or
-`base_boost`. Equivalent cases cover `w` and `w0`. A mutation that restores
-first-alias precedence must fail both conflict legs. An adapter conflict leaves
-no partial `Pk` state, and a generator conflict refuses before `_dv_write`
-publishes a raw or baseline row. The shipped `As_1e9`-to-`As` bridge remains a
-valid control. NumPy baseline checks run on CPU; adapter and generator
-integration checks under `ai/gates/checks/` run with Torch in the required
-GPU-capable environment.
+**Dark-energy acceptance evidence.** Direct `(w or w0, wa)` and transformed
+`(w or w0, w0pwa)` inputs produce the same nonzero-`wa` pair. Conflicting
+aliases or sums, a time-varying input missing one coordinate, and an incomplete
+input with no explicit saved law refuse before generator or adapter output.
+Explicit constant-`w` and cosmological-constant controls supply only their
+documented values. The real-Cobaya check sends `w = -0.9, wa = 0.2` to the
+adapter from sampled `w = -0.9, w0pwa = -0.7`, and generation and serving give
+Syren the same pair. An adapter refusal leaves no partial power result, and a
+generator refusal leaves no raw or starting-surface row.
+
+**Amplitude-alias work still required.** The amplitude rule above remains
+mandatory, but the current `syren_params_from` does not yet compare both names
+when `As_1e9` and `As` are supplied together. That behavior must not be
+reported as accepted until focused generator and adapter tests prove that
+consistent names pass and inconsistent names refuse before either Syren
+formula runs.
 
 ## Geometry scales remain valid after conversion to the storage dtype
 

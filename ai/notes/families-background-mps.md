@@ -596,30 +596,74 @@ guidance.
 
 ### Canonical dark-energy coordinates
 
+#### Names and saved laws
+
+`w` and `w0` are two names for the present-day dark-energy equation-of-state
+value. `wa` describes its change with cosmic time. `w0pwa` is the sum
+`w0 + wa`. For example, `w = -0.9` and `w0pwa = -0.7` describe `wa = 0.2`.
+
+The saved scientific record uses exactly three laws:
+
+| Saved law | Dark-energy inputs that may vary |
+| --- | --- |
+| `w0wa-cpl` | `[w, wa]` |
+| `constant-w` | `[w]` |
+| `cosmological-constant` | `[]` |
+
 #### Rule
 
-One resolver shared by generator and adapter accepts either explicit
-`(w0, wa)` or `(w0pwa, w0)` and derives `wa = w0pwa - w0`. The `w`/`w0`
-alias equality check runs first. If all three values are present,
-`w0pwa == w0 + wa` within the documented representation tolerance. An absent
-`wa` never defaults to zero when `w0pwa` is present. The resolved coordinate
-law is artifact identity. LCDM absence is legal only as an explicit persisted
-fact.
+`resolve_dark_energy_coordinates` in `emulator/syren_base.py` owns the
+conversion. It accepts `(w or w0, wa)` and `(w or w0, w0pwa)`. If `w` and
+`w0` are both present, it compares them before any missing-coordinate check.
+If `w0pwa` is present beside `wa`, it requires
+`w0pwa == w0 + wa`.
 
-The shipped example must either route a complete nonzero-`wa` point correctly
-or refuse with migration guidance. Merely removing a dropped-coordinate marker
-without fixing the resolver is forbidden because it converts a startup error
-into silent wrong science.
+All repeated forms use zero relative tolerance and absolute tolerance
+`4 * numpy.finfo(numpy.float32).eps`. `w0wa-cpl` supplies no missing value.
+`constant-w` supplies `wa = 0` only after a present-day value is supplied as
+`w`, `w0`, or `w0pwa`. `cosmological-constant` supplies `w0 = -1, wa = 0`
+and checks every repeated supplied value. Missing values never choose a law.
+
+The generator determines the law from Cobaya's `input_params()`,
+`constant_params()`, `sampled_params()`, and `input_dependencies`. A
+calculated `wa` varies when any parameter used to calculate it is sampled.
+Theory defaults never turn that sampled coordinate into a fixed fact. The MPS
+generator saves the physical law once during setup and passes that exact law
+to every Syren starting surface it calculates.
+
+The matter-power adapter reads the saved law before asking Cobaya for
+parameters. It never asks Cobaya to provide dropped `w0pwa`; it asks for the
+present-day value and calculated `wa`, then rebuilds `w`, `w0`, `wa`, and
+`w0pwa` before either predictor or Syren runs. A saved file whose input names
+include `w0pwa` but whose law says `constant-w` is internally inconsistent and
+is refused with instructions to regenerate the data and retrain.
+
+Fixed-fact comparison uses the same physical names. A fixed live `w0` may
+match saved `w`; a model that samples `w` or calculated `wa` cannot borrow
+`w = -1, wa = 0` from a theory default. If Cobaya's sampled-parameter or
+calculated-dependency information cannot be read, only values returned by
+`constant_params()` may be treated as fixed.
+
+The shipped `EXAMPLE_EMUL2_EVALUATE.yaml` uses `w = -0.9` and
+`w0pwa = -0.7`. Cobaya calculates `wa = 0.2`; generation and serving must
+give Syren the same pair `(-0.9, 0.2)`.
 
 #### Acceptance evidence
 
-- Explicit and transformed coordinates produce one base tuple.
-- Consistent all-three values pass; inconsistent values refuse.
-- Missing information refuses before prediction.
-- A real Cobaya route spies the generator and serving Syren tuples and requires
-  equality at nonzero `wa`.
-- Restoring “missing wa means zero” reproduces a finite multi-percent spectrum
-  error and must fail.
+- `test_syren_dark_energy_coordinates.py` proves that direct and transformed
+  forms agree under the one stated tolerance and that conflicting, malformed,
+  or incomplete forms refuse.
+- `test_generator_dark_energy_facts.py` proves that sampled `w` and `w0pwa`
+  make calculated `wa` vary and save the `w0wa-cpl` law with inputs `[w, wa]`.
+- `test_mps_generator_dark_energy_binding.py` proves that setup obtains the
+  law once and every generated Syren starting surface reuses it.
+- `test_mps_dark_energy_adapter.py` proves that the adapter requests physical
+  coordinates and rebuilds saved names before either prediction begins.
+- `test_dark_energy_vertical_identity.py` proves that fixed aliases agree and
+  sampled coordinates cannot borrow constant theory defaults.
+- `test_mps_dark_energy_real_cobaya.py` samples `w = -0.9` and
+  `w0pwa = -0.7` through real Cobaya and requires both generator and adapter
+  to give Syren `(-0.9, 0.2)`.
 
 ### Sigma-eight
 
