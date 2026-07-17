@@ -53,12 +53,14 @@ README-only structure and visual rows do not apply to a permanent topic note.
 This writing rule does not give the Implementer or Red Team permission to edit
 any permanent note.
 
-Git commit messages created by the AI-development workflow use this contract's
-cold-reader, local-definition, concrete-example, manageable-length,
-current-state, neutral-audience, and anti-AI requirements. README layout,
-visual, link, and rendering checks do not apply. The required commit subject
-and body are owned by `ai/notes/conventions-and-workflow.md`, section **Commit
-messages explain the saved change**.
+Git commit messages created by the AI-development workflow are reader-facing
+Markdown on GitHub. They follow every applicable prose rule in this contract,
+including plain local definitions, examples before broad ideas, short
+paragraphs, one stable name for each object, current-state wording, a neutral
+audience, and the anti-AI checks. README tables of contents, diagrams, links,
+and page-layout checks do not apply. This file owns the exact writing format.
+`ai/notes/conventions-and-workflow.md`, section **Commit messages explain the
+saved change**, owns how that approved message is preserved during landing.
 
 Only the Architect issues `GO` or `NO-GO`. The Implementer supplies the
 change and its evidence. The Red Team may identify a problem and propose a
@@ -140,12 +142,30 @@ Adapt these traits to the README's subject:
   phone-sized width.
 - Keep one stable name for each object. A glossary may support later lookup,
   but it may not be required reading before the first action.
+- When a tool exists to solve a constraint that its name does not reveal, open
+  with that concrete constraint, when the tool helps, and when it is
+  unnecessary. Do this before introducing internal roles, folders, or options.
+  This is an explanation, not a broad claim that the tool is important.
+- Carry one small representative task through its first complete result. For
+  each command, state where it runs, whether it changes files, the visible
+  successful or refused result, and the next action. Do not switch to an
+  unrelated example before the first task finishes.
+- Teach the required route before optional roles, modes, and recovery paths.
+  Introduce an optional choice where the reader makes it, and state both what
+  the choice changes and what remains required.
+- Keep the main README focused on the shortest safe route. Link to a specialist
+  README for long command references or recovery detail instead of duplicating
+  them, but give enough context that the link text and destination make sense.
 
 `GO` requires the directive and final review to name the first useful result,
 the order in which new terms appear, the real examples used for new
 abstractions, and the main-guide or appendix placement decision. Include
 narrow-screen evidence when a sequence diagram is useful. When no appendix or
 sequence diagram is needed, record that reason instead of manufacturing one.
+`GO` also requires the directive and final review to name the concrete problem
+the tool solves, when it helps, whether it is optional, the one task carried
+through its first complete result, and the step where each optional choice
+becomes relevant.
 `NO-GO` applies when the opening begins with a vocabulary list or complete
 internal topology, postpones definitions to a glossary, places several actions
 in one section, uses harder language in an appendix, or requires horizontal
@@ -180,6 +200,78 @@ state the callable's real inputs, outputs, shapes, units, side effects, and
 errors. Command help and diagnostics tell the user what happened and what to
 do next. If an explanation teaches a general workflow rather than one nearby
 symbol, put it in the README and keep only a short pointer in Python.
+
+## Commit messages use the same reader standard
+
+A commit message is the short explanation shown beside a saved Git change on
+GitHub. A reader should not need the backlog, a role transcript, or the file
+diff to learn why the change exists. The Architect reviews the complete
+message as prose, not only the first line.
+
+Every AI-authored commit uses one plain-language subject followed by these
+four Markdown headings in this order:
+
+```markdown
+Concrete subject that names the saved behavior
+
+## Why this change was needed
+
+[The observable problem, with an unfamiliar term defined where it appears.]
+
+## What this commit changes
+
+[The saved behavior, introduced through a concrete repository example.]
+
+## What remains unchanged
+
+[The behavior this commit does not change or support.]
+
+## Checks run
+
+- `exact command or manual check` — [visible result]
+```
+
+The subject names the saved behavior, not the development process. Internal
+ticket numbers, dates, role names, branch names, and generic verbs such as
+`Update`, `Improve`, or `Fix issue` receive `NO-GO`. Each body section uses
+short paragraphs or bullets. A check names the exact command or manual check
+and the result a reviewer saw; `tests passed` without both receives `NO-GO`.
+
+One commit should explain one specific change. Independent changes belong in
+separate commits. When two edits must land together to preserve one behavior,
+the first body section explains that relationship in plain language.
+
+For example, a commit that prevents failed physics rows from reaching model
+training can use this message:
+
+```markdown
+Keep failed generator rows out of training data
+
+## Why this change was needed
+
+A failed physics calculation could leave a placeholder row. The training
+loader could treat that row as a valid sample.
+
+## What this commit changes
+
+The loader reads the saved list of failed row numbers and removes each named
+row before choosing training samples.
+
+## What remains unchanged
+
+Tables created by the scalar-data program keep their existing behavior.
+
+## Checks run
+
+- `conda run -n cosmology python -m unittest ai.tests.test_failed_row_staging`
+  — 8 tests ran and the final result was `OK`.
+```
+
+`GO` requires the Architect to read the exact subject and body as Markdown,
+confirm all four headings and their order, and apply the same vocabulary,
+examples, paragraph-length, neutral-audience, and anti-AI rows used for a
+README. Recovery lines added by the mailbox program may follow the four
+sections. They do not replace or interrupt them.
 
 ## Permanent notes are outside every implementation and Red Team unit
 

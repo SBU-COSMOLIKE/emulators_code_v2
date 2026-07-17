@@ -1200,24 +1200,44 @@ landing, and permanent-note commits are examples, not the complete scope. A
 message receives `GO` only when a reader can understand the saved change
 without opening the diff.
 
-The subject names the concrete change in plain language. For example, `Bind
-saved emulator weights to their scientific record` tells the reader what the
-commit does. A subject does not contain an internal ticket number, date, wave
-name, role label, branch name, or undefined project jargon. Generic subjects
-such as `Update files`, `Land unit 8`, and `Fix issue` receive `NO-GO`.
+The subject names the concrete saved behavior in plain language. For example,
+`Keep each calculation result with its assigned dataset row` tells the reader
+what the commit does without requiring an internal name. A subject does not
+contain an internal ticket number, date, wave name, role label, branch name,
+undefined acronym, schema number, or project jargon. Generic subjects such as
+`Update files`, `Land unit 8`, and `Fix issue` receive `NO-GO`.
 
-The body uses short Markdown paragraphs or bullets to explain:
+Every AI-authored commit message follows the subject with the exact four-part
+Markdown body defined in `ai/notes/readme-go-no-go.md`:
 
-- the problem a user or maintainer could observe;
-- what changed and the important boundary left unchanged; and
-- the exact evidence that was run and its visible result.
+1. **Why this change was needed** begins with behavior a user or maintainer
+   could observe and states its consequence.
+2. **What this commit changes** names the saved behavior and gives a concrete
+   repository example before any broad rule.
+3. **What remains unchanged** names behavior this commit does not change or
+   support. It is not an empty ceremonial heading.
+4. **Checks run** gives each exact command or check and its visible result. An
+   important check that was not run is named together with the reason.
 
-Define an unfamiliar term at first use. When a broad idea is needed, give a
-concrete repository example before the general rule. Do not paste a backlog
-ticket, an audit transcript, or one long wall of text. Machine-required
-trailers may follow the human explanation, but they never replace it. The
-Architect applies the **Git commit message** row in
-`ai/notes/readme-go-no-go.md` before accepting the commit.
+Each section uses short paragraphs or bullets. Define an unfamiliar term at
+first use. Do not paste a backlog ticket, an audit transcript, or one long
+wall of text. Recovery lines added by the mailbox program may follow the four
+human sections, but they never replace or interrupt them.
+
+Before accepting, landing, or pushing the commit, the Architect reviews the
+exact full hash and records:
+
+- the subject and a cold-reader paraphrase of the saved behavior;
+- every unfamiliar term and the local definition or replacement used;
+- the concrete example that introduces each broad idea;
+- the important behavior the commit does not change or support;
+- the four Markdown headings and their order; and
+- the exact checks and visible results.
+
+The verdict is `NO-GO` when a physics undergraduate must open the diff,
+backlog, or an internal note to understand the message; when evidence says
+only `tests pass`; when a heading is empty; or when any applicable prose or
+anti-AI row in `ai/notes/readme-go-no-go.md` fails.
 
 The Architect reviews the exact candidate commit `C`, including its subject
 and body. Architect GO names the full hash of `C`, so it also binds that
