@@ -68,12 +68,55 @@ artifact carries, the cosmology held fixed (fixed_facts) and the sampled
 region (input_domain).
 """
 
+import math
+import numbers
+
 import torch
 
 # the scientific record and its three comparison laws. The module is
 # torch-free, so importing it here costs the predictor nothing.
 from . import fixed_facts
 from .results import rebuild_emulator
+
+
+def _require_prediction_tensor(value, *, stage, shape, where):
+  """Validate one tensor at a named public-prediction boundary.
+
+  A later operation can hide an earlier failure.  For example, a decoder may
+  replace a constant model coordinate with its saved center, making a NaN in
+  the model output disappear.  Each stage is therefore checked before the
+  next stage runs, not only at the final NumPy return.
+
+  Arguments:
+    value = object produced by the prediction stage.
+    stage = short human-readable stage name used in a refusal.
+    shape = exact tuple of dimensions required at this stage.
+    where = saved artifact root, so a refusal identifies the file.
+
+  Returns:
+    value unchanged after validation.
+
+  Raises:
+    TypeError when value is not a real floating-point Torch tensor.
+    ValueError when its shape differs or any entry is NaN or infinity.
+  """
+  expected = tuple(int(x) for x in shape)
+  if not torch.is_tensor(value) or not torch.is_floating_point(value):
+    raise TypeError(
+      where + ": public prediction stage " + repr(stage)
+      + " must return a real floating-point Torch tensor, got "
+      + type(value).__name__ + ".")
+  if tuple(value.shape) != expected:
+    raise ValueError(
+      where + ": public prediction stage " + repr(stage)
+      + " must have exact shape " + repr(expected) + ", got "
+      + repr(tuple(value.shape)) + ".")
+  if not bool(torch.isfinite(value).all()):
+    raise ValueError(
+      where + ": public prediction stage " + repr(stage)
+      + " produced NaN or infinity; the value is refused before the next "
+      "stage can hide or publish it.")
+  return value
 
 
 def _select_composition(composition_mode, pce_base, transfer_base):
@@ -370,7 +413,21 @@ class EmulatorPredictor:
     self._support = fixed_facts.compile_support(blocks=self.record,
                                                 where=self._where)
 
-    self.names      = list(self.pgeom.names)
+    self.names = list(self.pgeom.names)
+    recipe = info["model_recipe"]
+    self._input_dim = int(recipe["input_dim"])
+    self._decoded_dim = int(self.geom.dest_idx.numel())
+    model_output_dim = int(recipe["output_dim"])
+    if model_output_dim != self._decoded_dim:
+      raise ValueError(
+        self._where + ": model_recipe output_dim="
+        + repr(model_output_dim) + " disagrees with the saved output "
+        "geometry width " + repr(self._decoded_dim) + ".")
+    if recipe["ia"] is None:
+      self._model_output_shape = (1, model_output_dim)
+    else:
+      n_templates = int(recipe["kwargs"]["n_templates"])
+      self._model_output_shape = (1, n_templates, model_output_dim)
     # scalar (derived-parameter) emulator: predict returns a
     # {name: value} dict, not a data vector, so skip the dv-geometry
     # accounting (section_sizes / probe) and the physical-dv decoder that a
@@ -992,6 +1049,42 @@ class EmulatorPredictor:
     return torch.as_tensor(row, dtype=self._dtype,
                            device=self.device).reshape(1, -1)
 
+  def _validate_ordered_values(self, values):
+    """Require one finite real scalar for every saved parameter name.
+
+    Python and NumPy real scalar types are accepted.  Booleans are refused
+    explicitly because they are integers in Python and would otherwise enter
+    whitening as 0 or 1.  Arrays, tensors, strings, NaN, and infinity are also
+    refused before the physical-support comparison or any tensor conversion.
+
+    Arguments:
+      values = candidate values already placed in ``self.names`` order.
+
+    Returns:
+      a plain list with the same scalar objects and order.
+    """
+    row = list(values)
+    if len(row) != len(self.names):
+      raise ValueError(
+        "predict() got " + str(len(row)) + " values but the emulator needs "
+        + str(len(self.names)) + " (" + repr(self.names) + ")")
+    for name, value in zip(self.names, row):
+      if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(
+          "predict() parameter " + repr(name)
+          + " must be a finite real scalar, not a Boolean, array, tensor, "
+          "string, or other object; got " + repr(value) + " (type "
+          + type(value).__name__ + ").")
+      try:
+        finite = math.isfinite(float(value))
+      except (OverflowError, TypeError, ValueError):
+        finite = False
+      if not finite:
+        raise ValueError(
+          "predict() parameter " + repr(name)
+          + " must be finite; got " + repr(value) + ".")
+    return row
+
   def predict(self, params):
     """Predict the physical data vector at the configured dv_return shape.
 
@@ -1041,7 +1134,7 @@ class EmulatorPredictor:
       ValueError from the domain law, naming the coordinate, the region this
       artifact was trained over, and the value it was asked about.
     """
-    values = self._ordered_values(params)
+    values = self._validate_ordered_values(self._ordered_values(params))
     # the point, in the emulator's own order, for the domain law: the values are
     # named by construction here, whichever form the caller handed in.
     point = {}
@@ -1049,16 +1142,34 @@ class EmulatorPredictor:
       point[self.names[i]] = values[i]
     fixed_facts.check_support(compiled=self._support, point=point)
 
-    x     = self._as_row_trusted(values=values)
-    x_enc = self.pgeom.encode(x)
+    x = _require_prediction_tensor(
+      self._as_row_trusted(values=values),
+      stage="raw parameter row",
+      shape=(1, len(self.names)),
+      where=self._where)
+    x_enc = _require_prediction_tensor(
+      self.pgeom.encode(x),
+      stage="parameter encoding",
+      shape=(1, self._input_dim),
+      where=self._where)
     with torch.no_grad():
       pred = self.model(x_enc)
+    pred = _require_prediction_tensor(
+      pred,
+      stage="model evaluation",
+      shape=self._model_output_shape,
+      where=self._where)
+    decoded = _require_prediction_tensor(
+      self._decode(pred, x_enc),
+      stage="physical decoding",
+      shape=(1, self._decoded_dim),
+      where=self._where)
     # scalar (derived-parameter) emulator: destandardize the outputs
     # (the decoder built at init: geom.decode alone, or the NPCE base + net
     # recombine) and return a {name: value} dict, not a data vector; there
     # is no mask to unsqueeze through and no section to slice.
     if self._scalar:
-      out = self._decode(pred, x_enc)[0]
+      out = decoded[0]
       result = {}
       for i, nm in enumerate(self.output_names):
         result[nm] = float(out[i])
@@ -1067,7 +1178,7 @@ class EmulatorPredictor:
     # target law (e.g. exp(y) - offset) and returns the physical
     # function keyed by its quantity tag, with the stored grid beside it.
     if self._grid:
-      row = self._decode(pred, x_enc)[0].detach().cpu().numpy()
+      row = decoded[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               self.quantity: row}
     # grid2d emulator: decode destandardizes to LAW SPACE (the
@@ -1076,7 +1187,7 @@ class EmulatorPredictor:
     if self._grid2d:
       nz = int(self.z.numel())
       nk = int(self.k.numel())
-      surface = self._decode(pred, x_enc)[0].detach().cpu().numpy()
+      surface = decoded[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               "k": self.k.detach().cpu().numpy(),
               self.quantity: surface.reshape(nz, nk)}
@@ -1084,14 +1195,25 @@ class EmulatorPredictor:
     # returns physical C_ell on the stored multipole grid. This family has
     # no mask to scatter through and no data-vector section to slice.
     if self._cmb:
-      cl = self._decode(pred, x_enc)         # (1, n_ell) physical C_ell
-      return cl[0].detach().cpu().numpy()
-    dv_kept = self._decode(pred, x_enc)      # (1, n_keep) kept-entry
-    dv_full = self.geom.unsqueeze(dv_kept)   # (1, total_size), 0 off dest_idx
+      return decoded[0].detach().cpu().numpy()
+    dv_full = _require_prediction_tensor(
+      self.geom.unsqueeze(decoded),
+      stage="data-vector scattering",
+      shape=(1, self.total_size),
+      where=self._where)
     if self.dv_return == "3x2pt":
       out = dv_full[0]
+      expected_width = self.total_size
     else:
       out = self._section(dv_full)
+      expected_width = sum(
+        self.section_sizes[block_id]
+        for block_id in self.geom.PROBE_BLOCKS[self.probe])
+    out = _require_prediction_tensor(
+      out,
+      stage="returned data vector",
+      shape=(expected_width,),
+      where=self._where)
     return out.detach().cpu().numpy()
 
   def _section(self, dv_full):

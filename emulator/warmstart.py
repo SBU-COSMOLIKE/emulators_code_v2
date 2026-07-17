@@ -409,11 +409,9 @@ def load_source(
       "transfer_base group); chaining a transfer over a transfer is out of "
       "scope (no chaining)")
   if src_resc is None:
-    # a missing attr is not the same failure as a wrong value: the training
-    # drivers stamp rescale in the run-identity attrs, but an artifact saved
-    # by another path (e.g. a check script) may predate the stamp. No
-    # fallback to "none" here. An artifact that does not record its rescale
-    # is ambiguous (the never-trust-defaults rule).
+    # Public rebuild already requires native rescale="none". Keep this local
+    # invariant explicit so a future internal reader split cannot make a
+    # missing transform fact look like the default on the warm-start path.
     raise ValueError(
       "finetune source records no 'rescale' root attr in " + root + ".h5; "
       "the artifact was saved by a path that skipped the run-identity "

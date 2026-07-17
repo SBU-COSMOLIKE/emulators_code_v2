@@ -754,7 +754,7 @@ def check_train_and_predict(tmp, device):
                   composition_mode="plain", transfer_refined=False,
                   resolved_pce=None, resolved_transfer=None,
                   facts_yaml=exp.train_set["facts_yaml"],
-                  attrs={"outputs": OUT_NAME})
+                  attrs={"outputs": OUT_NAME, "rescale": "none"})
 
     # Rebuild and predict at a test point.  The emulated omegamh2 must track the
     # analytic value (the map is exact, so a trained emulator is close).

@@ -1020,7 +1020,10 @@ def save_emulator(path_root,
         config_resolved_yaml        |   the rest remains provenance / consumed
                                     |   history for later recipe-totality work
       train_args_yaml               | not read (provenance)
-      attrs entries, created,       | not read (provenance): run identity,
+      root rescale attr             | _read_public_rescale requires native
+                                    |   "none" before geometry/model rebuild;
+                                    |   transformed artifacts lack an inverse
+      other attrs entries, created, | not read (provenance): run identity,
         torch_version, git_commit   |   timestamp, and build marks
     (legend: "<root>" = path_root; "cls" = a "module.QualName" string
      naming the class to reconstruct; state_dict = PyTorch's name -> tensor
@@ -1508,6 +1511,40 @@ def _read_native_enum(attrs, key, *, allowed, where):
   return value
 
 
+def _read_public_rescale(attrs, *, where):
+  """Read the only target transform schema 3 can invert for prediction.
+
+  Training may save ``rescaled`` or ``residual`` products for diagnostics,
+  but schema 3 does not store the parameter-dependent information needed to
+  reverse those transforms when serving a new point.  Public rebuild therefore
+  requires an explicit native HDF5 string ``rescale='none'``.  Missing metadata
+  is not interpreted as the default.
+
+  Arguments:
+    attrs = root HDF5 attribute mapping.
+    where = artifact path used in the refusal.
+
+  Returns:
+    the native string ``"none"``.
+
+  Raises:
+    KeyError when the attribute is absent; ValueError when its storage type or
+    value is unsupported.  Both explain why the inverse is unavailable.
+  """
+  reason = (
+    " Public prediction supports only the explicit native string "
+    "rescale='none'. Schema 3 does not store the parameter-dependent inverse "
+    "transform required by 'rescaled' or 'residual' artifacts. Re-save or "
+    "retrain the deployable artifact with rescale='none'.")
+  try:
+    return _read_native_enum(
+      attrs, "rescale", allowed=("none",), where=where)
+  except KeyError as error:
+    raise KeyError(str(error.args[0]) + reason) from error
+  except ValueError as error:
+    raise ValueError(str(error) + reason) from error
+
+
 def _read_artifact_composition(f, where):
   """Read and validate the artifact's authoritative composition facts.
 
@@ -1911,10 +1948,12 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        an NPCE base (h5 pce group), else None;
       "pce_form"     = the NPCE recombination form (residual / ratio) stored
                        on the pce group, else None;
-      "model_recipe", "config_resolved", and "rescale" = warm-start metadata
-                       copied from this same authenticated HDF5 handle, so a
-                       caller never has to reopen the pathname and risk mixing
-                       two publications.
+      "model_recipe" and "config_resolved" = warm-start metadata copied from
+                       this same authenticated HDF5 handle, so a caller never
+                       has to reopen the pathname and risk mixing publications;
+      "rescale"      = the required native string "none". Public rebuild
+                       refuses every transformed form because schema 3 lacks
+                       the parameter-dependent inverse.
 
   Raises:
     ValueError when a pending marker exists; when either file lacks its native
@@ -1925,8 +1964,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
     one this code does not know, or breaks any law of the scientific record;
     ValueError when the rebuilt input geometry disagrees with that record's
     sampled-parameter order or a Grid2D mask differs from its declaration;
-    KeyError naming a missing current schema-v3 Grid2D mask declaration or any
-    missing recipe / geometry / pce key (never a code-default fallback).
+    KeyError naming a missing rescale fact, current schema-v3 Grid2D mask
+    declaration, or recipe / geometry / pce key (never a code-default
+    fallback); ValueError when rescale is not native "none" because public
+    inference cannot reconstruct a parameter-dependent inverse transform.
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -2018,11 +2059,12 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # torch.load can reinterpret a damaged NPCE/transfer artifact as plain.
     composition_mode, transfer_refined = _read_artifact_composition(
       f=f, where=path_root + ".h5")
+    saved_rescale = _read_public_rescale(
+      f.attrs, where=path_root + ".h5")
     if "model_recipe" not in f:
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
     resolved_config = yaml.safe_load(f["config_resolved_yaml"][()])
-    saved_rescale = f.attrs.get("rescale")
     pgeom = _rebuild_geometry(f["param_geometry"], "param_geometry group")
     # The HDF5 blocks and their copied sidecar text prove that the scientific
     # record is internally consistent, but both copies can be rewritten

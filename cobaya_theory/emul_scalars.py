@@ -256,12 +256,18 @@ class emul_scalars(Theory):
           True; each provided name is cached at state[name] (so get_param
           serves it) and, when want_derived, at state["derived"][name].
         """
+        pending = {}
         for predictor in self.predictors:
             outputs = predictor.predict(params)   # {name: value}
             for name, value in outputs.items():
-                state[name] = value
-                if want_derived and "derived" in state:
-                    state["derived"][name] = value
+                pending[name] = value
+        # Publish only after every predictor has passed its finite/type/shape
+        # checks.  If a later artifact refuses, this sampled point must not
+        # leave earlier scalar outputs behind in Cobaya's state.
+        for name, value in pending.items():
+            state[name] = value
+            if want_derived and "derived" in state:
+                state["derived"][name] = value
         return True
 
     def get_param(self, param):

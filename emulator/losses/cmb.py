@@ -33,6 +33,25 @@ import torch
 from .core import CosmolikeChi2
 
 
+def _require_finite_cmb_tensor(value, *, stage, shape):
+  """Require one exact, finite floating tensor in the CMB amplitude law."""
+  expected = tuple(int(x) for x in shape)
+  if not torch.is_tensor(value) or not torch.is_floating_point(value):
+    raise TypeError(
+      "CMB amplitude-law stage " + repr(stage)
+      + " must be a real floating-point Torch tensor, got "
+      + type(value).__name__ + ".")
+  if tuple(value.shape) != expected:
+    raise ValueError(
+      "CMB amplitude-law stage " + repr(stage) + " must have exact shape "
+      + repr(expected) + ", got " + repr(tuple(value.shape)) + ".")
+  if not bool(torch.isfinite(value).all()):
+    raise ValueError(
+      "CMB amplitude-law stage " + repr(stage)
+      + " contains NaN or infinity.")
+  return value
+
+
 class ResidualRoughness:
   """
   Band-explicit high-pass penalty on the whitened residual.
@@ -400,11 +419,38 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     Returns:
       f = (B, 1) amplitude factor on the params' device.
     """
-    phys = self.param_geometry.decode(params_whitened)
+    if not torch.is_tensor(params_whitened) or params_whitened.ndim != 2:
+      raise ValueError(
+        "CMB amplitude-law encoded parameters must be a rank-two Torch "
+        "tensor with one row per cosmology; got "
+        + repr(getattr(params_whitened, "shape", None)) + ".")
+    batch = int(params_whitened.shape[0])
+    width = len(self.param_geometry.names)
+    params_whitened = _require_finite_cmb_tensor(
+      params_whitened,
+      stage="encoded parameters",
+      shape=(batch, width))
+    phys = _require_finite_cmb_tensor(
+      self.param_geometry.decode(params_whitened),
+      stage="decoded physical parameters",
+      shape=(batch, width))
     a_s  = phys[:, self.as_idx]
     tau  = phys[:, self.tau_idx]
+    if not bool((a_s > 0.0).all()):
+      raise ValueError(
+        "CMB amplitude-law parameter " + repr(self.as_name)
+        + " must be strictly positive for every row; got "
+        + repr(a_s.detach().cpu().tolist()) + ".")
     f    = (self.as_ref / a_s) * torch.exp(2.0 * (tau - self.tau_ref))
-    return f.reshape(-1, 1)
+    f = _require_finite_cmb_tensor(
+      f.reshape(-1, 1),
+      stage="amplitude factor",
+      shape=(batch, 1))
+    if not bool((f > 0.0).all()):
+      raise ValueError(
+        "CMB amplitude factor must be strictly positive for every row; got "
+        + repr(f.detach().cpu().reshape(-1).tolist()) + ".")
+    return f
 
   def encode(self, dv, params_whitened):
     """Raw C_ell -> amplitude-rescaled, centered, whitened target.
@@ -421,7 +467,19 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     """
     geo = self.geom
     f = self._factor(params_whitened)
-    return geo.whiten(geo.squeeze(dv) * f - geo.center)
+    batch = int(f.shape[0])
+    dv = _require_finite_cmb_tensor(
+      dv,
+      stage="physical spectrum before scaling",
+      shape=(batch, int(geo.dest_idx.numel())))
+    scaled = _require_finite_cmb_tensor(
+      geo.squeeze(dv) * f,
+      stage="physical spectrum after scaling",
+      shape=(batch, int(geo.dest_idx.numel())))
+    return _require_finite_cmb_tensor(
+      geo.whiten(scaled - geo.center),
+      stage="encoded spectrum",
+      shape=(batch, int(geo.dest_idx.numel())))
 
   def decode(self, pred, params_whitened):
     """Network output -> physical C_ell (inverse of encode, divides f).
@@ -438,7 +496,19 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     """
     geo = self.geom
     f = self._factor(params_whitened)
-    return (geo.unwhiten(pred) + geo.center) / f
+    batch = int(f.shape[0])
+    pred = _require_finite_cmb_tensor(
+      pred,
+      stage="model spectrum before inverse scaling",
+      shape=(batch, int(geo.dest_idx.numel())))
+    numerator = _require_finite_cmb_tensor(
+      geo.unwhiten(pred) + geo.center,
+      stage="physical spectrum before inverse scaling",
+      shape=(batch, int(geo.dest_idx.numel())))
+    return _require_finite_cmb_tensor(
+      numerator / f,
+      stage="physical spectrum after inverse scaling",
+      shape=(batch, int(geo.dest_idx.numel())))
 
   def chi2(self, pred, target, params_whitened=None, full=False):
     """Per-sample chi2 in the PHYSICAL (factor-corrected) metric.

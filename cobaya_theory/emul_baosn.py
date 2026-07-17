@@ -69,6 +69,26 @@ _PROVIDES = ("Hubble",
              "angular_diameter_distance_2")
 
 
+def _require_finite_background_vector(value, *, name, length, positive=False):
+    """Return one exact finite background vector or refuse publication."""
+    array = np.asarray(value)
+    expected = (int(length),)
+    if array.shape != expected:
+        raise ValueError(
+            "emul_baosn: " + name + " must have exact shape "
+            + repr(expected) + ", got " + repr(array.shape))
+    if not np.isfinite(array).all():
+        raise ValueError(
+            "emul_baosn: " + name + " contains NaN or infinity; no "
+            "background result was cached")
+    if positive and not (array > 0.0).all():
+        raise ValueError(
+            "emul_baosn: " + name
+            + " must be strictly positive before the c/H calculation; "
+            "no background result was cached")
+    return array
+
+
 class emul_baosn(Theory):
     """Cobaya Theory serving the expansion history from grid emulators.
 
@@ -333,13 +353,35 @@ class emul_baosn(Theory):
           D_M interpolator.
         """
         out_h = self.p_h.predict(params)      # {"z": grid, "Hubble": row}
-        itp = distance_interpolators(z_grid=out_h["z"],
-                                     h_grid=out_h["Hubble"])
+        z_h = _require_finite_background_vector(
+            out_h["z"], name="the Hubble redshift grid",
+            length=len(out_h["z"]))
+        h = _require_finite_background_vector(
+            out_h["Hubble"], name="the predicted Hubble row",
+            length=len(z_h), positive=True)
+        itp = distance_interpolators(z_grid=z_h, h_grid=h)
+        # c/H and the cumulative integral are new arithmetic performed by this
+        # adapter.  Validate them before caching the interpolators; finite model
+        # output alone cannot prevent overflow after a reciprocal or integral.
+        for name in ("H", "chi", "da", "dl"):
+            axis = np.asarray(itp[name].x)
+            _require_finite_background_vector(
+                itp[name](axis), name="the derived " + name + " grid",
+                length=len(axis))
         out_dm = self.p_dm.predict(params)    # {"z": grid, "D_M": row}
-        dm_itp = interpolate.interp1d(out_dm["z"], out_dm["D_M"],
+        z_dm = _require_finite_background_vector(
+            out_dm["z"], name="the D_M redshift grid",
+            length=len(out_dm["z"]))
+        d_m = _require_finite_background_vector(
+            out_dm["D_M"], name="the predicted D_M row",
+            length=len(z_dm))
+        dm_itp = interpolate.interp1d(z_dm, d_m,
                                       kind='cubic',
                                       assume_sorted=True,
                                       fill_value="extrapolate")
+        _require_finite_background_vector(
+            dm_itp(z_dm), name="the D_M interpolation grid",
+            length=len(z_dm))
         state["baosn"] = {"itp": itp, "dm_itp": dm_itp}
         return True
 

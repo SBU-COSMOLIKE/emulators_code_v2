@@ -749,6 +749,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
+| `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
 | `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
 
 #### Scientific records required before training and saving
@@ -874,6 +875,36 @@ input parameter order inside one saved emulator.
   the geometry and must stop before model weights are requested.
 - **Why it matters:** otherwise the model can receive valid finite numbers in
   the wrong parameter order and return a scientifically incorrect prediction.
+
+#### Invalid values stopped during a public prediction
+
+`test_public_prediction_validation.py` checks the path used after a saved
+emulator is opened and asked for a new prediction. It also checks the final
+background, scalar, and matter-power calculations performed by the Cobaya
+adapters before those results become visible to the sampler.
+
+- **Example used:** a two-parameter toy emulator produces a two-number model
+  result and scatters it into a three-number public data vector. Separate
+  cases place `NaN`, infinity, or the wrong array shape in the input encoding,
+  model result, physical decoder, or final scatter operation.
+- **What the test does:** it asks the public predictor to process each damaged
+  value and requires the error to name the first failed stage. It also opens
+  small saved-attribute stand-ins, exercises the CMB amplitude calculation,
+  and runs background, scalar, and matter-power adapters with one deliberately
+  invalid intermediate result.
+- **Pass means:** ordinary Python and NumPy real numbers still predict
+  normally. Every supported emulator family returns its expected public
+  shape. A saved result can be served only when it explicitly records that no
+  unavailable target transformation must be reversed. An adapter publishes
+  nothing when one of its later calculations fails.
+- **A refusal it proves:** Booleans, text, arrays in place of scalar
+  parameters, nonfinite values, broadcastable but wrong matter-power shapes,
+  a nonpositive Hubble rate, an invalid CMB amplitude factor, and transformed
+  saved targets all stop before a partial scientific result is cached.
+- **Why it matters:** a later decoder can sometimes replace or hide a bad
+  model coordinate, and NumPy can silently broadcast a row across a surface.
+  Checking only the final array could therefore turn an invalid intermediate
+  calculation into a finite-looking but scientifically wrong result.
 
 ## AI workflow and policy test inventory
 

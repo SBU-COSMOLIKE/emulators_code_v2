@@ -54,8 +54,8 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
       data=np.asarray(names, dtype=object),
       dtype=string_dtype)
 
-  def _write_artifact(self, path_root, rewritten_names=None):
-    """Write a schema-v3 artifact and optionally rewrite both record copies."""
+  def _write_artifact(self, path_root, rewritten_names=None, rescale="none"):
+    """Write a schema-v3 artifact with a caller-selected rescale fact."""
     string_dtype = h5py.string_dtype(encoding="utf-8")
     artifact_id = "1" * 32
     emul_path = path_root + ".emul"
@@ -68,6 +68,8 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
       artifact.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
       artifact.attrs["composition_mode"] = "plain"
       artifact.attrs["transfer_refined"] = False
+      if rescale is not None:
+        artifact.attrs["rescale"] = rescale
       artifact.attrs["artifact_id"] = artifact_id
       artifact.attrs["checkpoint_sha256"] = checkpoint_sha256
       artifact.create_dataset(
@@ -150,6 +152,53 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
           "load",
           side_effect=_ModelLoadReached("matching record passed")):
         with self.assertRaisesRegex(_ModelLoadReached, "matching record passed"):
+          results.rebuild_emulator(
+            path_root=path_root,
+            device=torch.device("cpu"),
+            compile_model=False)
+
+  def test_public_rebuild_refuses_invalid_rescale_before_construction(self):
+    """The public reader, not merely its helper, enforces the transform."""
+    cases = (("missing", None), ("rescaled", "rescaled"),
+             ("residual", "residual"), ("boolean", True),
+             ("byte-string", b"none"))
+    with tempfile.TemporaryDirectory() as temp_dir:
+      for label, value in cases:
+        with self.subTest(label=label):
+          path_root = os.path.join(temp_dir, label)
+          self._write_artifact(path_root=path_root, rescale=value)
+          with mock.patch.object(
+              _GeometryFixture,
+              "from_state",
+              side_effect=AssertionError("geometry construction reached")) \
+              as construct_geometry, mock.patch.object(
+                results.torch,
+                "load",
+                side_effect=AssertionError("model load reached")) \
+              as load_weights:
+            with self.assertRaisesRegex(
+                (KeyError, ValueError), "rescale.*inverse transform"):
+              results.rebuild_emulator(
+                path_root=path_root,
+                device=torch.device("cpu"),
+                compile_model=False)
+            construct_geometry.assert_not_called()
+            load_weights.assert_not_called()
+
+  def test_bypassing_rescale_reader_reaches_the_model_load(self):
+    """Negative control: the public call is what blocks transformed files."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+      path_root = os.path.join(temp_dir, "bypassed-rescale")
+      self._write_artifact(path_root=path_root, rescale="rescaled")
+      with mock.patch.object(
+          results,
+          "_read_public_rescale",
+          return_value="rescaled"), mock.patch.object(
+            results.torch,
+            "load",
+            side_effect=_ModelLoadReached("rescale guard was bypassed")):
+        with self.assertRaisesRegex(
+            _ModelLoadReached, "rescale guard was bypassed"):
           results.rebuild_emulator(
             path_root=path_root,
             device=torch.device("cpu"),

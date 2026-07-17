@@ -35,6 +35,8 @@ linear scales (applied on the syren path, where the base construction
 needs it — a law-none boost learned the raw low-k boost directly).
 """
 
+import math
+import numbers
 import os
 import sys
 
@@ -61,6 +63,40 @@ _ALLOWED_EXTRA_ARGS = ("device", "emulators", "compile")
 # pinned to 1 (linear scales), with a sharpness-n exponential turn-on.
 _BLEND_K_T = 0.005   # [1/Mpc]
 _BLEND_N   = 2.0     # 1 = pure exponential, larger = sharper transition
+
+
+def _require_finite_syren_parameter(params, name):
+    """Return one finite real Syren input without Boolean coercion."""
+    if name not in params:
+        raise KeyError("emul_mps: missing Syren parameter " + repr(name))
+    value = params[name]
+    try:
+        finite = math.isfinite(float(value))
+    except (OverflowError, TypeError, ValueError):
+        finite = False
+    if (isinstance(value, (bool, np.bool_))
+            or not isinstance(value, numbers.Real) or not finite):
+        raise ValueError(
+            "emul_mps: Syren parameter " + repr(name)
+            + " must be a finite real scalar and not a Boolean; got "
+            + repr(value))
+    return value
+
+
+def _require_mps_surface(value, *, name, shape, positive=False):
+    """Require one exact finite matter-power surface before composition."""
+    array = np.asarray(value)
+    expected = tuple(int(x) for x in shape)
+    if array.shape != expected:
+        raise ValueError(
+            "emul_mps: " + name + " must have exact shape "
+            + repr(expected) + ", got " + repr(array.shape)
+            + "; broadcasting a row or column is not a valid grid")
+    if not np.isfinite(array).all():
+        return None
+    if positive and not (array > 0.0).all():
+        return None
+    return array
 
 
 ########## Taken from cobaya/theories/cosmo/boltzmannbase.py ############
@@ -401,56 +437,118 @@ class emul_mps(Theory):
           dict); False to reject the point on a bad spectrum.
         """
         z, k = self._z, self._k
-        out_lin = self.p_lin.predict(params)["pklin"]     # (nz, nk)
+        surface_shape = (len(z), len(k))
+        out_lin = _require_mps_surface(
+            self.p_lin.predict(params)["pklin"],
+            name="the linear-emulator output", shape=surface_shape)
+        if out_lin is None:
+            self.log.debug("non-finite linear-emulator output at "
+                           f"params={params} — rejecting point.")
+            return False
         need_base = (self.p_lin.law != "none"
                      or self.p_boost.law != "none")
         if need_base:
+            amplitude_name = "As_1e9" if "As_1e9" in params else "As"
+            for name in (amplitude_name, "ns", "H0", "omegab", "omegam"):
+                _require_finite_syren_parameter(params, name)
+            if "w" in params:
+                _require_finite_syren_parameter(params, "w")
+            elif "w0" in params:
+                _require_finite_syren_parameter(params, "w0")
+            if "wa" in params:
+                _require_finite_syren_parameter(params, "wa")
             (as_1e9, ns, H0, Ob, Om,
              w0, wa) = syren_base.syren_params_from(params)
         if self.p_lin.law == "syren_linear":
-            base = syren_base.base_pklin(k_mpc=k, z=z, As_1e9=as_1e9,
-                                         ns=ns, H0=H0, Ob=Ob, Om=Om,
-                                         w0=w0, wa=wa)
-            pk_lin = np.exp(out_lin) * base
+            base = _require_mps_surface(
+                syren_base.base_pklin(k_mpc=k, z=z, As_1e9=as_1e9,
+                                      ns=ns, H0=H0, Ob=Ob, Om=Om,
+                                      w0=w0, wa=wa),
+                name="the Syren linear base", shape=surface_shape,
+                positive=True)
+            if base is None:
+                self.log.debug("non-finite or non-positive Syren linear base "
+                               f"at params={params} — rejecting point.")
+                return False
+            with np.errstate(over="ignore", invalid="ignore"):
+                pk_lin = np.exp(out_lin) * base
         else:
             pk_lin = out_lin
-        if not (np.isfinite(pk_lin).all() and (pk_lin > 0).all()):
+        pk_lin = _require_mps_surface(
+            pk_lin, name="the assembled linear spectrum",
+            shape=surface_shape, positive=True)
+        if pk_lin is None:
             self.log.debug("non-finite or non-positive P_lin at "
                            f"params={params} — rejecting point.")
             return False
 
-        out_b = self.p_boost.predict(params)["boost"]     # (nz, nk)
+        out_b = _require_mps_surface(
+            self.p_boost.predict(params)["boost"],
+            name="the boost-emulator output", shape=surface_shape)
+        if out_b is None:
+            self.log.debug("non-finite boost-emulator output at "
+                           f"params={params} — rejecting point.")
+            return False
         if self.p_boost.law == "syren_halofit":
-            b_base = syren_base.base_boost(k_mpc=k, z=z,
-                                           pk_lin_mpc=pk_lin,
-                                           As_1e9=as_1e9, ns=ns, H0=H0,
-                                           Ob=Ob, Om=Om, w0=w0, wa=wa)
-            boost = np.exp(out_b) * b_base
+            b_base = _require_mps_surface(
+                syren_base.base_boost(k_mpc=k, z=z,
+                                      pk_lin_mpc=pk_lin,
+                                      As_1e9=as_1e9, ns=ns, H0=H0,
+                                      Ob=Ob, Om=Om, w0=w0, wa=wa),
+                name="the Syren nonlinear-boost base", shape=surface_shape,
+                positive=True)
+            if b_base is None:
+                self.log.debug("non-finite or non-positive Syren boost base "
+                               f"at params={params} — rejecting point.")
+                return False
+            with np.errstate(over="ignore", invalid="ignore"):
+                boost = np.exp(out_b) * b_base
             # the legacy low-k blend (verbatim constants): pin the
             # boost to exactly 1 on linear scales.
             weight = 1.0 - np.exp(-(k / _BLEND_K_T) ** _BLEND_N)
             boost = 1.0 + (boost - 1.0) * weight[None, :]
         else:
             boost = out_b
-        if not (np.isfinite(boost).all() and (boost > 0).all()):
+        boost = _require_mps_surface(
+            boost, name="the assembled nonlinear boost",
+            shape=surface_shape, positive=True)
+        if boost is None:
             self.log.debug("non-finite or non-positive boost at "
                            f"params={params} — rejecting point.")
             return False
 
-        pk_nl = boost * pk_lin
+        with np.errstate(over="ignore", invalid="ignore"):
+            pk_nl_raw = boost * pk_lin
+        pk_nl = _require_mps_surface(
+            pk_nl_raw, name="the assembled nonlinear spectrum",
+            shape=surface_shape, positive=True)
+        if pk_nl is None:
+            self.log.debug("non-finite or non-positive P_nl at "
+                           f"params={params} — rejecting point.")
+            return False
 
-        state[("Pk_grid", True, "delta_tot", "delta_tot")] = (k, z, pk_nl)
-        state[("Pk_grid", False, "delta_tot", "delta_tot")] = (k, z,
-                                                               pk_lin)
-        state["Pk_grid"] = {"k": k,
-                            "z": z,
-                            "Pk": pk_lin}
-
+        derived = None
         if want_derived:
             derived = {}
             if "sigma8" in self.output_params:
-                derived["sigma8"] = self._compute_sigma8(
+                sigma8 = self._compute_sigma8(
                     pk_lin, k, z, z_eval=0.0)
+                if (isinstance(sigma8, (bool, np.bool_))
+                        or not isinstance(sigma8, numbers.Real)
+                        or not math.isfinite(float(sigma8))
+                        or float(sigma8) <= 0.0):
+                    self.log.debug("non-finite or non-positive sigma8 at "
+                                   f"params={params} — rejecting point.")
+                    return False
+                derived["sigma8"] = float(sigma8)
+
+        # Nothing reaches Cobaya's state until both emulators, both analytic
+        # bases, the composed spectra, and the optional derived scalar pass.
+        state[("Pk_grid", True, "delta_tot", "delta_tot")] = (k, z, pk_nl)
+        state[("Pk_grid", False, "delta_tot", "delta_tot")] = (k, z,
+                                                               pk_lin)
+        state["Pk_grid"] = {"k": k, "z": z, "Pk": pk_lin}
+        if derived is not None:
             state["derived"] = derived
         return True
 
