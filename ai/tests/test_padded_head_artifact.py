@@ -284,14 +284,11 @@ class PaddedHeadArtifactTests(unittest.TestCase):
           _rebuild(root)
       load_state.assert_not_called()
 
-  def test_save_refuses_mismatched_geometry_without_changing_valid_pair(self):
-    """A second save cannot replace a valid pair with incompatible layout."""
+  def test_save_refuses_mismatched_geometry_before_creating_any_file(self):
+    """A fresh save cannot publish an incompatible structured-head layout."""
     with tempfile.TemporaryDirectory(prefix="padded-head-save-mismatch-") \
         as temp:
       root = Path(temp) / "saved"
-      _save_fixture(root)
-      checkpoint_before = _checkpoint_path(root).read_bytes()
-      record_before = _record_path(root).read_bytes()
       names_before = set(Path(temp).iterdir())
       different_geometry = _output_geometry(
         positions=(0, 1, 3, 5),
@@ -306,11 +303,9 @@ class PaddedHeadArtifactTests(unittest.TestCase):
           _save_fixture(root, saved_geometry=different_geometry)
 
       reserve.assert_not_called()
-      self.assertEqual(_checkpoint_path(root).read_bytes(), checkpoint_before)
-      self.assertEqual(_record_path(root).read_bytes(), record_before)
+      self.assertFalse(_checkpoint_path(root).exists())
+      self.assertFalse(_record_path(root).exists())
       self.assertEqual(set(Path(temp).iterdir()), names_before)
-      rebuilt, _, _, _ = _rebuild(root)
-      self.assertIsInstance(rebuilt, ResCNN)
 
   def test_save_refuses_missing_model_mask_before_creating_files(self):
     """A structured model without its mask cannot begin publication."""

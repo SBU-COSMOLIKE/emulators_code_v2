@@ -266,7 +266,8 @@ filename pattern. Use a readable family-and-product prefix plus a stable short
 digest of the consumed model and training configuration and the exact
 staged-selection identity, which already binds both training and validation
 generations, cuts, split rule, and row order. The identity distinguishes
-plain, NPCE, fine-tune, and transfer
+the executed analytic-rescaling loss mode and distinguishes plain, NPCE,
+fine-tune, and transfer
 runs, including their source binding. Save and diagnostic products from one
 run share that identity. An existing destination always refuses before either
 file changes.
@@ -277,12 +278,25 @@ resolved values and passes one root to diagnostics and `save_emulator`.
 pair publication and output identity are both required: transactionality by
 itself could safely replace the wrong artifact.
 
-**Acceptance evidence.** Each of these pairs must produce distinct roots or
-refuse before publication: `TT` versus `EE`; Hubble versus `D_M`; `pklin`
-versus `boost`; `xi` versus `gammat` at one temperature; two scalar output
-sets; two activations; plain versus NPCE; plain versus fine-tune; two transfer
-sources; and different split or dataset manifests. An exact-root
-preexistence check must prove that both existing files survive unchanged.
+<a id="artifact-output-identity-scientific-identity"></a>
+**Acceptance evidence: scientific identity.** Each of these pairs must produce
+distinct roots: `TT` versus `EE`; two covariance-array inputs for the same CMB
+spectrum; Hubble versus `D_M`; `pklin` versus `boost`;
+the `cs`, `ggl`, and `gc` probes; ordered scalar output sets; two activations
+or model constructor arguments; `none`, `rescaled`, and `residual` loss
+modes; plain versus NPCE; two authenticated
+fine-tune or transfer sources; two transfer forms; and different dataset
+generations or staged row orders. Native mapping insertion order must not
+change the result. Moving unchanged source files must not change the result,
+because member digests and authenticated source-pair fields replace raw paths.
+A production run without both source pins and both staged selections must
+refuse rather than use the direct-library fixture fallback.
+
+<a id="artifact-output-identity-existing-root-refusal"></a>
+**Acceptance evidence: occupied roots.** A complete artifact pair, either
+single existing member, a symbolic-link destination, and an interrupted-pair
+marker must each cause refusal before temporary-file staging. Every file or
+link already present at that root must remain byte-for-byte unchanged.
 
 **Safety boundary.** Production training must not write several products of
 one family back to back unless output identity distinguishes the products and

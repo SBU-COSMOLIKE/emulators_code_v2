@@ -77,7 +77,7 @@ predict with a neural network
 compare the prediction with validation data
            |
            v
-save <root>.emul and <root>.h5
+save <family>-<product>-<digest>.emul and the matching .h5
 ```
 
 **Validation data** are rows kept out of the weight updates and used to check
@@ -86,6 +86,14 @@ how the fitted model behaves on examples it did not train on.
 The `.emul` file stores the fitted PyTorch weights. The matching `.h5` file
 stores the instructions needed to rebuild the model, the coordinate
 conversions, and the scientific labels. Keep the two files together.
+
+The readable part of the name identifies the output, such as `cmb-tt` or
+`scalar-h0-omegam`. The digest identifies the completed model settings, exact
+selected rows, and any saved model reused by the run. Two different scientific
+products therefore cannot share a result name merely because they use the same
+network and row count. Saving also refuses every name that already has a
+`.emul`, `.h5`, symbolic link, or interrupted-save marker; it never replaces
+the earlier bytes.
 
 ### 3. Where should the reader go next? <a id="main-next-guide"></a>
 

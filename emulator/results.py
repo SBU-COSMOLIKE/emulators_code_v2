@@ -42,6 +42,9 @@ import torch
 import yaml
 
 from . import fixed_facts
+from .output_identity import build_output_identity
+from .output_identity import require_same_output_identity
+from .output_identity import validate_saved_output_identity
 
 
 _GRID2D_CLASS = "emulator.geometries.grid2d.Grid2DGeometry"
@@ -54,6 +57,8 @@ _TRANSFER_FORMS = ("gain", "sum")
 _TRANSFER_SPACES = ("physical", "whitened")
 _ARTIFACT_ID_ATTR = "artifact_id"
 _CHECKPOINT_SHA256_ATTR = "checkpoint_sha256"
+_OUTPUT_IDENTITY_SHA256_ATTR = "output_identity_sha256"
+_OUTPUT_IDENTITY_DATASET = "output_identity_json"
 _CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
 _PAIR_PENDING_SUFFIX = ".pair-pending"
 
@@ -184,6 +189,34 @@ def _validate_artifact_binding(attrs, checkpoint, *, h5_where, emul_where):
   return h5_artifact_id, actual_digest
 
 
+def _read_output_identity(artifact, *, where):
+  """Read one new identity record while allowing earlier schema-3 artifacts."""
+  has_digest = _OUTPUT_IDENTITY_SHA256_ATTR in artifact.attrs
+  has_record = _OUTPUT_IDENTITY_DATASET in artifact
+  if has_digest != has_record:
+    raise ValueError(
+      where + " has only one output-identity member; restore the intact pair "
+      "or re-save it with the current writer")
+  if not has_digest:
+    # Schema 3 existed before filename identity.  Those artifacts remain
+    # readable, but a new production run cannot use their absent declaration
+    # as evidence for a filename or source binding.
+    return None, None
+  digest = _read_native_hex_attr(
+    artifact.attrs,
+    _OUTPUT_IDENTITY_SHA256_ATTR,
+    length=64,
+    where=where)
+  value = artifact[_OUTPUT_IDENTITY_DATASET][()]
+  if isinstance(value, bytes):
+    try:
+      value = value.decode("ascii")
+    except UnicodeDecodeError as exc:
+      raise ValueError(where + " output identity is not ASCII JSON") from exc
+  subject = validate_saved_output_identity(value, digest)
+  return digest, subject
+
+
 def _load_tensor_state_dict(checkpoint, *, device, where):
   """Load only a plain name-to-tensor state dict from an open checkpoint."""
   checkpoint.seek(0)
@@ -217,6 +250,23 @@ def _output_directory(path):
   return os.path.dirname(os.path.abspath(path))
 
 
+def _artifact_destination_paths(path_root):
+  """Return the two final members and the in-progress publication marker."""
+  root = os.fspath(path_root)
+  return (root + ".emul", root + ".h5", root + _PAIR_PENDING_SUFFIX)
+
+
+def _refuse_existing_artifact_root(path_root):
+  """Protect every byte already associated with one output name root."""
+  occupied = [path for path in _artifact_destination_paths(path_root)
+              if os.path.lexists(path)]
+  if occupied:
+    raise FileExistsError(
+      os.fspath(path_root) + " is already occupied by " + repr(occupied)
+      + ". A training run never replaces an existing emulator. Choose a "
+      "different --save name, or move the complete earlier result first.")
+
+
 def _fsync_file(path):
   """Ask the operating system to finish writing one staged regular file."""
   with open(path, "rb") as stream:
@@ -237,17 +287,6 @@ def _unlink_if_present(path):
   try:
     os.unlink(path)
   except FileNotFoundError:
-    pass
-
-
-def _discard_if_present(path):
-  """Best-effort cleanup after a transaction has already committed."""
-  try:
-    _unlink_if_present(path)
-  except OSError:
-    # A transaction recovery link is not part of the published pair. Once the
-    # marker has disappeared and the new pair is live, failure to remove this
-    # extra recovery copy cannot turn a successful save into a failure.
     pass
 
 
@@ -294,9 +333,10 @@ def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
                            artifact_id):
   """Publish two checked stages while readers are blocked by one marker.
 
-  Ordinary exceptions restore the preceding pair.  A process kill or another
-  ``BaseException`` may interrupt the two final renames; the marker is left in
-  place, so rebuild refuses that root rather than accepting a hybrid pair.
+  This function is reached only for a previously unused root. Ordinary
+  exceptions remove any new final member. A process kill or another
+  ``BaseException`` may interrupt the two final renames; the marker remains,
+  so rebuild refuses that root rather than accepting a partial pair.
   """
   artifact_id = _require_lower_hex(
     artifact_id, length=32, where="publication artifact identifier")
@@ -333,9 +373,9 @@ def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
 
   create_marker()
 
-  # The preceding-pair snapshot belongs inside the marker lock. A writer that
-  # inspected an empty root before taking the marker could otherwise erase a
-  # complete pair published by the writer that acquired the marker first.
+  # Repeat the empty-root check inside the marker lock. A writer that inspected
+  # an empty root before taking the marker may otherwise erase the complete
+  # pair published by the writer that acquired the marker first.
   try:
     old_emul = os.path.lexists(emul_path)
     old_h5 = os.path.lexists(h5_path)
@@ -344,6 +384,16 @@ def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
         os.path.splitext(emul_path)[0]
         + " already has only one artifact member; rebuild refuses incomplete "
         "roots, so recover or remove that root before saving it again")
+    if old_emul:
+      # The ordinary preflight ran before staging.  Repeating the refusal
+      # after this writer owns the marker closes the race in which another
+      # process publishes a complete pair between that check and this lock.
+      # The earlier writer wins; a later writer never turns a name collision
+      # into a scientifically silent replacement.
+      raise FileExistsError(
+        os.path.splitext(emul_path)[0]
+        + " became occupied before publication. The completed earlier pair "
+        "was not changed; choose another output name.")
   except Exception:
     try:
       os.unlink(marker)
@@ -354,23 +404,7 @@ def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
         "could not remove its refusal marker " + marker) from cleanup_error
     raise
 
-  rollback_emul = emul_path + "." + artifact_id + ".rollback"
-  rollback_h5 = h5_path + "." + artifact_id + ".rollback"
-  entries = ((emul_path, rollback_emul, old_emul),
-             (h5_path, rollback_h5, old_h5))
-
-  def restore_preceding_pair():
-    for final_path, rollback_path, existed in entries:
-      if existed and os.path.lexists(rollback_path):
-        os.replace(rollback_path, final_path)
-      elif not existed and os.path.lexists(final_path):
-        os.unlink(final_path)
-    _fsync_directory(directory)
-
   try:
-    if old_emul:
-      os.link(emul_path, rollback_emul)
-      os.link(h5_path, rollback_h5)
     os.replace(staged_emul, emul_path)
     os.replace(staged_h5, h5_path)
     _fsync_directory(directory)
@@ -388,21 +422,15 @@ def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
       pass
   except Exception:
     try:
-      restore_preceding_pair()
+      _unlink_if_present(emul_path)
+      _unlink_if_present(h5_path)
       _unlink_if_present(marker)
       _fsync_directory(directory)
-    except Exception as rollback_error:
+    except Exception as cleanup_error:
       raise RuntimeError(
-        "artifact publication failed and automatic rollback also failed; "
-        + marker + " remains the refusal marker") from rollback_error
-    else:
-      _unlink_if_present(rollback_emul)
-      _unlink_if_present(rollback_h5)
+        "artifact publication failed and cleanup also failed; "
+        + marker + " remains the refusal marker") from cleanup_error
     raise
-
-  # Cleanup happens after the commit and cannot make the new pair invalid.
-  _discard_if_present(rollback_emul)
-  _discard_if_present(rollback_h5)
 
 
 def _grid2d_const_mask_digest(const_mask):
@@ -959,7 +987,9 @@ def save_emulator(path_root,
                   composition_mode,
                   transfer_refined,
                   resolved_pce,
-                  resolved_transfer):
+                  resolved_transfer,
+                  resolved_rescale=None,
+                  output_identity=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -1162,6 +1192,14 @@ def save_emulator(path_root,
                      carries drifted_state.
     resolved_pce   = consumed pce mapping for NPCE, else None.
     resolved_transfer = consumed transfer mapping for transfer, else None.
+    resolved_rescale = the executed analytic-rescaling mode: ``none``,
+                     ``rescaled``, or ``residual``. Production callers that
+                     supply an output identity must supply this fact too.
+    output_identity = optional mapping returned by
+                     ``build_output_identity``. Production drivers pass it so
+                     the checked save root and diagnostic name use the exact
+                     same identity. Low-level fixture saves may omit it; this
+                     function still derives and records their identity.
 
   Returns:
     (emul_path, h5_path), the two files written.
@@ -1181,8 +1219,10 @@ def save_emulator(path_root,
     ValueError when the composition facts, payload, and consumed records
     disagree; when facts_yaml or either resolved recipe is missing; when the
     sidecar breaks a law in fixed_facts.validate; when the whitening geometry
-    and the sidecar disagree on the sampled parameters; or when a structured
-    model's fixed padding layout disagrees with its output geometry.
+    and the sidecar disagree on the sampled parameters; when a production
+    filename does not match its supplied output identity; when the destination
+    root already exists; or when a structured model's fixed padding layout
+    disagrees with its output geometry.
     These required-input checks run before model.state_dict and before any
     temporary, marker, or final output is created. Staging or ordinary
     publication failures leave a preceding valid pair unchanged.
@@ -1197,6 +1237,7 @@ def save_emulator(path_root,
     _TRANSFER_REFINED_ATTR,
     _ARTIFACT_ID_ATTR,
     _CHECKPOINT_SHA256_ATTR,
+    _OUTPUT_IDENTITY_SHA256_ATTR,
   }
   if attrs is not None and reserved_attrs.intersection(attrs):
     forged = sorted(reserved_attrs.intersection(attrs))
@@ -1204,6 +1245,11 @@ def save_emulator(path_root,
       "save_emulator: attrs cannot set reserved key(s) " + repr(forged)
       + ". Remove them; save_emulator derives these declarations from the "
       "executed run.")
+
+  # A completed name is immutable.  This first check is intentionally before
+  # serializer imports, model-state inspection, or temporary-file allocation.
+  # The publication lock repeats it later to close a concurrent-writer race.
+  _refuse_existing_artifact_root(path_root)
 
   # A public reader accepts only the current schema, so a new training run must
   # never emit a schema-less or older saved emulator. Refuse missing facts or
@@ -1260,6 +1306,36 @@ def save_emulator(path_root,
     resolved_pce=resolved_pce,
     resolved_transfer=resolved_transfer,
     where=path_root)
+
+  if output_identity is not None and resolved_rescale is None:
+    raise ValueError(
+      path_root + ": save_emulator needs resolved_rescale when an output "
+      "identity is supplied; pass the exact mode used by the loss")
+  identity_rescale = "none" if resolved_rescale is None else resolved_rescale
+  if output_identity is not None and (
+      type(attrs) is not dict or attrs.get("rescale") != resolved_rescale):
+    raise ValueError(
+      path_root + ": resolved_rescale disagrees with the rescale value saved "
+      "in attrs; pass the exact executed mode through both records")
+
+  derived_output_identity = build_output_identity(
+    data=config.get("data", {}),
+    resolved_train=resolved_train,
+    resolved_model=resolved_model,
+    resolved_rescale=identity_rescale,
+    composition_mode=composition_mode,
+    transfer_refined=transfer_refined,
+    resolved_pce=resolved_pce,
+    resolved_transfer=resolved_transfer,
+    require_published_selection=False)
+  if output_identity is not None:
+    require_same_output_identity(output_identity, derived_output_identity)
+    required_suffix = "_" + derived_output_identity["tag"]
+    if not os.path.basename(os.fspath(path_root)).endswith(required_suffix):
+      raise ValueError(
+        os.fspath(path_root) + " does not end with the executed output "
+        "identity " + repr(required_suffix)
+        + "; use the same identity object for the saved pair and diagnostic")
 
   # New artifacts have one schema.  Legacy files remain a reader/migration
   # concern; there is deliberately no writer flag that can create another.
@@ -1488,6 +1564,13 @@ def save_emulator(path_root,
         "model_recipe",
         data=yaml.safe_dump(resolved_model, sort_keys=False),
         dtype=str_dt)
+    # One path-independent record produced both the filename suffix and this
+    # saved declaration.  Rebuild checks the full canonical record against its
+    # digest; a short filename suffix is only a readable abbreviation.
+    f.create_dataset(
+      _OUTPUT_IDENTITY_DATASET,
+      data=derived_output_identity["canonical_json"],
+      dtype=str_dt)
 
     # run identity + provenance as root attributes. str() guards the
     # str subclasses h5py rejects (torch.__version__ is one: numpy
@@ -1500,6 +1583,7 @@ def save_emulator(path_root,
     f.attrs[_TRANSFER_REFINED_ATTR] = transfer_refined
     f.attrs[_ARTIFACT_ID_ATTR] = artifact_id
     f.attrs[_CHECKPOINT_SHA256_ATTR] = checkpoint_sha256
+    f.attrs[_OUTPUT_IDENTITY_SHA256_ATTR] = derived_output_identity["sha256"]
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
     # the version decided at the top of this function, written once, here. It
@@ -1525,6 +1609,7 @@ def save_emulator(path_root,
         _validate_artifact_binding(
           staged_record.attrs, checkpoint,
           h5_where=staged_h5, emul_where=staged_emul)
+        _read_output_identity(staged_record, where=staged_h5)
       staged_state = _load_tensor_state_dict(
         checkpoint, device=torch.device("cpu"), where=staged_emul)
     if tuple(staged_state) != tuple(sd) or any(
@@ -2136,9 +2221,11 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # This is the first metadata read.  It proves that the already-open
     # checkpoint is exactly the member named by the HDF5 record before recipe
     # parsing, geometry construction, model construction, or torch.load.
-    _validate_artifact_binding(
+    artifact_id, checkpoint_sha256 = _validate_artifact_binding(
       f.attrs, checkpoint,
       h5_where=path_root + ".h5", emul_where=path_root + ".emul")
+    output_identity_sha256, output_identity = _read_output_identity(
+      f, where=path_root + ".h5")
     # the schema version and the scientific record, through the one shared
     # reader. It refuses a version this code does not know, and a file that
     # announces none, before any other value is read. The blocks it returns are
@@ -2310,6 +2397,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # rebuilt emulator instead of sending the consumer back to the file.
     "fixed_facts":    record[fixed_facts.FIXED_FACTS_GROUP],
     "input_domain":   record[fixed_facts.INPUT_DOMAIN_GROUP],
+    # These values came from the exact already-open pair validated above.
+    # Warm-start and transfer provenance retain them before any source path can
+    # later be replaced with different bytes.
+    "artifact_id": artifact_id,
+    "checkpoint_sha256": checkpoint_sha256,
+    "output_identity_sha256": output_identity_sha256,
+    "output_identity": output_identity,
     "composition_mode": composition_mode,
     "transfer_refined": transfer_refined,
     "ia":             _need(recipe, "ia", "model_recipe"),

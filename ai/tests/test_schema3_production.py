@@ -376,7 +376,7 @@ class Schema3ProductionTests(unittest.TestCase):
       self.assertEqual(staged["facts_yaml"], approved)
 
   def test_early_refusal_preserves_an_existing_valid_pair(self):
-    """A failed replacement cannot alter either member or create a marker."""
+    """An occupied root refuses before invalid new input can change it."""
     with tempfile.TemporaryDirectory(prefix="schema3-preserve-pair-") as tmp:
       root = Path(tmp) / "artifact"
       save_fixture(path_root=root,
@@ -385,7 +385,7 @@ class Schema3ProductionTests(unittest.TestCase):
       before = ((Path(str(root) + ".emul").read_bytes()),
                 (Path(str(root) + ".h5").read_bytes()))
 
-      with self.assertRaisesRegex(ValueError, r"requires.*\.facts\.yaml"):
+      with self.assertRaisesRegex(FileExistsError, r"already occupied"):
         _save_attempt(
           root,
           facts_yaml=None,

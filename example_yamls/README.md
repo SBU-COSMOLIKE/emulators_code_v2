@@ -559,8 +559,9 @@ ranges, and run the matching `<family>_sweep_hyperparam_emulator.py` or
 Both start from a saved `.emul` and `.h5` pair.
 
 Fine-tuning continues changing the numbers learned by the saved model. Its
-source goes in `train_args.finetune.from`. Remove `train_args.model` because
-the source supplies the model's structure.
+source goes in `train_args.finetune.from`. Copy the filename root printed by
+the completed training command, without the `.emul` or `.h5` extension.
+Remove `train_args.model` because the source supplies the model's structure.
 
 Ordinary transfer keeps the saved base fixed and trains another model as a
 correction. Its source goes in the top-level `transfer.from` setting. Keep
@@ -574,7 +575,7 @@ is required; `0.0` deliberately removes that pull.
 
 ```yaml
 transfer:
-  from: projects/lsst_y1/emulators/lcdm_run/emulator_resmlp_t256_ntrain250000
+  from: projects/lsst_y1/chains/emulator_cosmolike-cs-0123456789abcdef0123456789abcdef
   form: gain
   space: physical
   refine:

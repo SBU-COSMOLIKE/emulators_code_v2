@@ -23,10 +23,14 @@ import h5py
 import numpy as np
 import torch
 
-from ai.gates.checks.compile_recipe import save_fixture
+from ai.gates.checks.compile_recipe import model_recipe, save_fixture
 from emulator import results
 from emulator import warmstart
 from emulator.designs.plain import ResMLP
+from emulator.output_identity import (
+  build_output_identity,
+  validate_saved_output_identity,
+)
 
 
 _ARTIFACT_ID_ATTR = "artifact_id"
@@ -78,12 +82,40 @@ def _pair_bytes(root):
           _record_path(root).read_bytes())
 
 
-def _save(root, variant="default"):
+def _directory_snapshot(directory):
+  """Record every regular-file byte and symbolic-link target in a folder."""
+  snapshot = {}
+  for path in Path(directory).iterdir():
+    if path.is_symlink():
+      snapshot[path.name] = ("symlink", os.readlink(path))
+    elif path.is_file():
+      snapshot[path.name] = ("file", path.read_bytes())
+    else:
+      snapshot[path.name] = ("other",)
+  return snapshot
+
+
+def _save(root, variant="default", output_identity=None):
   """Save one complete current-schema fixture with deterministic weights."""
   save_fixture(
     path_root=Path(root),
     compile_mode=variant,
-    case_label="artifact-pair-" + variant)
+    case_label="artifact-pair-" + variant,
+    output_identity=output_identity)
+
+
+def _fixture_output_identity(variant="default"):
+  """Build the identity that the shared compile-recipe fixture executes."""
+  return build_output_identity(
+    data={},
+    resolved_train={"nepochs": 1},
+    resolved_model=model_recipe(variant),
+    resolved_rescale="none",
+    composition_mode="plain",
+    transfer_refined=False,
+    resolved_pce=None,
+    resolved_transfer=None,
+    require_published_selection=False)
 
 
 def _rebuild(root):
@@ -117,6 +149,18 @@ class _UnsafePickleValue:
 class ArtifactPairTests(unittest.TestCase):
   """Exercise successful publication, tampering, and interrupted publication."""
 
+  def assert_save_refuses_before_staging(self, root):
+    """Require an occupied name to survive unchanged without a temporary file."""
+    before = _directory_snapshot(Path(root).parent)
+    with mock.patch.object(
+        results, "_new_staging_path",
+        side_effect=AssertionError("staging must not begin")) as reserve_stage:
+      with self.assertRaisesRegex(
+          FileExistsError, "already occupied|never replaces"):
+        _save(root, "reduce-overhead")
+    reserve_stage.assert_not_called()
+    self.assertEqual(_directory_snapshot(Path(root).parent), before)
+
   def test_valid_pair_binds_exact_checkpoint_and_rebuilds(self):
     """A normal save publishes matching native identifiers and loads again."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-valid-") as temp:
@@ -126,6 +170,8 @@ class ArtifactPairTests(unittest.TestCase):
       with h5py.File(_record_path(root), "r") as record:
         artifact_id = record.attrs[_ARTIFACT_ID_ATTR]
         checkpoint_sha256 = record.attrs[_CHECKPOINT_SHA256_ATTR]
+        output_sha256 = record.attrs["output_identity_sha256"]
+        output_json = record["output_identity_json"][()].decode("utf-8")
 
       self.assertIs(type(artifact_id), str)
       self.assertEqual(len(artifact_id), 32)
@@ -136,6 +182,9 @@ class ArtifactPairTests(unittest.TestCase):
       self.assertEqual(len(checkpoint_sha256), 64)
       self.assertTrue(set(checkpoint_sha256) <= _LOWER_HEX)
       self.assertEqual(checkpoint_sha256, _sha256(_checkpoint_path(root)))
+      saved_output = validate_saved_output_identity(
+        output_json, output_sha256)
+      self.assertEqual(saved_output["family"], "cosmolike")
 
       direct_state = torch.load(_checkpoint_path(root), weights_only=True)
       self.assertIs(type(direct_state), dict)
@@ -148,6 +197,67 @@ class ArtifactPairTests(unittest.TestCase):
       self.assertEqual(pgeom.names, ["p0", "p1"])
       self.assertEqual(geometry.names, ["derived"])
       self.assertEqual(info["composition_mode"], "plain")
+      self.assertEqual(info["output_identity_sha256"], output_sha256)
+      self.assertEqual(info["output_identity"], saved_output)
+
+  def test_supplied_identity_requires_the_exact_filename_before_staging(self):
+    """A driver cannot save one identity under an unrelated output root."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-name-binding-") \
+        as temp:
+      identity = _fixture_output_identity()
+      wrong_root = Path(temp) / "saved-under-wrong-name"
+      with mock.patch.object(
+          results, "_new_staging_path",
+          side_effect=AssertionError("staging must not begin")) as reserve:
+        with self.assertRaisesRegex(ValueError, "does not end with"):
+          _save(wrong_root, output_identity=identity)
+      reserve.assert_not_called()
+      self.assertEqual(list(Path(temp).iterdir()), [])
+
+      correct_root = Path(temp) / ("saved_" + identity["tag"])
+      _save(correct_root, output_identity=identity)
+      _, _, _, info = _rebuild(correct_root)
+      self.assertEqual(info["output_identity_sha256"], identity["sha256"])
+
+  def test_supplied_identity_refuses_a_different_saved_rescale_fact(self):
+    """The filename loss mode and HDF5 loss mode cannot contradict."""
+    identity = _fixture_output_identity()
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-rescale-") as temp:
+      root = Path(temp) / ("saved_" + identity["tag"])
+      with self.assertRaisesRegex(ValueError, "resolved_rescale disagrees"):
+        save_fixture(
+          path_root=root,
+          compile_mode="default",
+          case_label="rescale-mismatch",
+          output_identity=identity,
+          resolved_rescale="rescaled",
+          recorded_rescale="none")
+      self.assertEqual(list(Path(temp).iterdir()), [])
+
+  def test_changed_saved_output_identity_refuses_before_checkpoint_load(self):
+    """A changed canonical identity cannot retain the saved digest."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-identity-tamper-") \
+        as temp:
+      root = Path(temp) / "saved"
+      _save(root)
+      with h5py.File(_record_path(root), "r+") as record:
+        value = record["output_identity_json"][()].decode("utf-8")
+        changed = value.replace(
+          '"family":"cosmolike"', '"family":"changed"')
+        self.assertNotEqual(changed, value)
+        del record["output_identity_json"]
+        record.create_dataset(
+          "output_identity_json",
+          data=changed,
+          dtype=h5py.string_dtype(encoding="utf-8"))
+
+      with mock.patch.object(
+          results.torch, "load",
+          side_effect=AssertionError("torch.load must not be reached")) \
+          as load_checkpoint:
+        with self.assertRaisesRegex(ValueError, "digest does not match"):
+          _rebuild(root)
+      load_checkpoint.assert_not_called()
 
   def test_warmstart_uses_metadata_from_the_authenticated_open(self):
     """Warm-start does not reopen a pathname after rebuilding its model."""
@@ -300,30 +410,79 @@ class ArtifactPairTests(unittest.TestCase):
           load_checkpoint.assert_not_called()
           construct_model.assert_not_called()
 
-  def test_hdf5_stage_failure_keeps_previous_pair(self):
-    """A failed second save never writes either final destination directly."""
-    with tempfile.TemporaryDirectory(prefix="artifact-pair-hdf5-") as temp:
+  def test_complete_root_refuses_before_staging_and_keeps_exact_bytes(self):
+    """A public save cannot replace an earlier complete emulator pair."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-complete-") as temp:
       root = Path(temp) / "saved"
       _save(root, "default")
       before = _pair_bytes(root)
+
+      self.assert_save_refuses_before_staging(root)
+
+      self.assertEqual(_pair_bytes(root), before)
+      _rebuild(root)
+
+  def test_partial_roots_refuse_before_staging_and_keep_exact_bytes(self):
+    """Either lone pair member reserves the name instead of being replaced."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-partial-") as temp:
+      for suffix, payload in ((".emul", b"lone checkpoint\x00\xff"),
+                              (".h5", b"lone record\x00\xfe")):
+        with self.subTest(suffix=suffix):
+          root = Path(temp) / ("saved-" + suffix[1:])
+          Path(str(root) + suffix).write_bytes(payload)
+
+          self.assert_save_refuses_before_staging(root)
+
+          self.assertEqual(Path(str(root) + suffix).read_bytes(), payload)
+
+  def test_symlink_roots_refuse_before_staging_and_keep_link_and_target(self):
+    """A symbolic link reserves either final name, including its target bytes."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-symlink-") as temp:
+      for suffix in (".emul", ".h5"):
+        with self.subTest(suffix=suffix):
+          root = Path(temp) / ("saved-" + suffix[1:])
+          target = Path(temp) / ("target-" + suffix[1:])
+          payload = ("target bytes for " + suffix).encode("ascii")
+          target.write_bytes(payload)
+          link = Path(str(root) + suffix)
+          os.symlink(target.name, link)
+
+          self.assert_save_refuses_before_staging(root)
+
+          self.assertTrue(link.is_symlink())
+          self.assertEqual(os.readlink(link), target.name)
+          self.assertEqual(target.read_bytes(), payload)
+
+  def test_pending_root_refuses_before_staging_and_keeps_marker_bytes(self):
+    """An interrupted-publication marker reserves its output name by itself."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-pending-") as temp:
+      root = Path(temp) / "saved"
+      marker_bytes = b"writer identity that must survive\n"
+      _pending_path(root).write_bytes(marker_bytes)
+
+      self.assert_save_refuses_before_staging(root)
+
+      self.assertEqual(_pending_path(root).read_bytes(), marker_bytes)
+
+  def test_fresh_root_hdf5_stage_failure_removes_every_stage(self):
+    """A failed HDF5 write on a new name leaves no public or temporary file."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-hdf5-") as temp:
+      root = Path(temp) / "saved"
+      before = _directory_snapshot(temp)
 
       with mock.patch.object(
           h5py, "File",
           side_effect=OSError("injected staged HDF5 failure")):
         with self.assertRaisesRegex(OSError, "staged HDF5 failure"):
-          _save(root, "reduce-overhead")
+          _save(root, "default")
 
-      self.assertEqual(_pair_bytes(root), before)
-      _rebuild(root)
-      self.assertFalse(_pending_path(root).exists())
+      self.assertEqual(_directory_snapshot(temp), before)
 
-  def test_second_stage_allocation_failure_removes_first_stage(self):
-    """Failure to reserve the HDF5 stage does not leak the weight stage."""
+  def test_fresh_root_second_stage_allocation_failure_removes_first_stage(self):
+    """Failure to reserve the HDF5 stage removes the reserved weight stage."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-allocate-") as temp:
       root = Path(temp) / "saved"
-      _save(root, "default")
-      before = _pair_bytes(root)
-      before_names = set(os.listdir(temp))
+      before = _directory_snapshot(temp)
       real_new_staging_path = results._new_staging_path
       calls = 0
 
@@ -337,43 +496,15 @@ class ArtifactPairTests(unittest.TestCase):
       with mock.patch.object(
           results, "_new_staging_path", fail_second_allocation):
         with self.assertRaisesRegex(OSError, "stage-allocation failure"):
-          _save(root, "reduce-overhead")
+          _save(root, "default")
 
       self.assertEqual(calls, 2)
-      self.assertEqual(set(os.listdir(temp)), before_names)
-      self.assertEqual(_pair_bytes(root), before)
-      _rebuild(root)
-
-  def test_post_commit_cleanup_failure_does_not_report_save_failure(self):
-    """A hidden rollback-link cleanup error cannot undo a committed pair."""
-    with tempfile.TemporaryDirectory(prefix="artifact-pair-cleanup-") as temp:
-      root = Path(temp) / "saved"
-      _save(root, "default")
-      before = _pair_bytes(root)
-      real_unlink = os.unlink
-      refused_cleanup = False
-
-      def fail_rollback_cleanup(path, *args, **kwargs):
-        nonlocal refused_cleanup
-        if os.fspath(path).endswith(".rollback"):
-          refused_cleanup = True
-          raise OSError("injected rollback-link cleanup failure")
-        return real_unlink(path, *args, **kwargs)
-
-      with mock.patch.object(results.os, "unlink", fail_rollback_cleanup):
-        _save(root, "reduce-overhead")
-
-      self.assertTrue(refused_cleanup)
-      self.assertNotEqual(_pair_bytes(root), before)
-      self.assertFalse(_pending_path(root).exists())
-      _rebuild(root)
+      self.assertEqual(_directory_snapshot(temp), before)
 
   def test_marker_sync_failure_keeps_the_committed_new_pair(self):
     """A failed post-commit sync does not roll back over a later writer."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-marker-sync-") as temp:
       root = Path(temp) / "saved"
-      _save(root, "default")
-      before = _pair_bytes(root)
       real_fsync_directory = results._fsync_directory
       injected = False
       later_marker_text = "marker owned by a later writer\n"
@@ -389,64 +520,50 @@ class ArtifactPairTests(unittest.TestCase):
 
       with mock.patch.object(
           results, "_fsync_directory", fail_after_marker_removal):
-        _save(root, "reduce-overhead")
+        _save(root, "default")
 
       self.assertTrue(injected)
-      self.assertNotEqual(_pair_bytes(root), before)
+      self.assertTrue(_checkpoint_path(root).is_file())
+      self.assertTrue(_record_path(root).is_file())
       self.assertEqual(
         _pending_path(root).read_text(encoding="utf-8"), later_marker_text)
       _pending_path(root).unlink()
       _rebuild(root)
 
-  def test_empty_root_interleaving_restores_the_first_committed_pair(self):
-    """A later writer snapshots the pair only after acquiring the marker."""
+  def test_concurrent_first_writer_wins_and_later_writer_keeps_winner_bytes(self):
+    """A writer that fills a fresh root first cannot be replaced by its rival."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-interleave-") as temp:
       root = Path(temp) / "saved"
       marker = os.fspath(_pending_path(root))
-      final_record = os.fspath(_record_path(root))
       real_open = os.open
-      real_replace = os.replace
-      first_writer_committed = False
-      second_rename_failed = False
       interleaved = False
-      first_pair = None
+      winner_pair = None
 
       def commit_first_writer_before_marker(path, flags, *args, **kwargs):
-        nonlocal interleaved, first_writer_committed, first_pair
+        nonlocal interleaved, winner_pair
         if os.fspath(path) == marker and not interleaved:
           interleaved = True
           _save(root, "reduce-overhead")
-          first_pair = _pair_bytes(root)
-          first_writer_committed = True
+          winner_pair = _pair_bytes(root)
         return real_open(path, flags, *args, **kwargs)
 
-      def fail_later_writer_record(source, destination, *args, **kwargs):
-        nonlocal second_rename_failed
-        if (first_writer_committed
-            and os.fspath(destination) == final_record
-            and not second_rename_failed):
-          second_rename_failed = True
-          raise OSError("injected later-writer HDF5 rename failure")
-        return real_replace(source, destination, *args, **kwargs)
-
-      with mock.patch.object(results.os, "open", commit_first_writer_before_marker), \
-          mock.patch.object(results.os, "replace", fail_later_writer_record):
-        with self.assertRaisesRegex(OSError, "later-writer HDF5 rename"):
+      with mock.patch.object(results.os, "open", commit_first_writer_before_marker):
+        with self.assertRaisesRegex(FileExistsError, "became occupied"):
           _save(root, "default")
 
       self.assertTrue(interleaved)
-      self.assertTrue(first_writer_committed)
-      self.assertTrue(second_rename_failed)
-      self.assertEqual(_pair_bytes(root), first_pair)
+      self.assertIsNotNone(winner_pair)
+      self.assertEqual(_pair_bytes(root), winner_pair)
       self.assertFalse(_pending_path(root).exists())
+      self.assertEqual(
+        set(os.listdir(temp)), {"saved.emul", "saved.h5"})
       _rebuild(root)
 
-  def test_second_final_rename_failure_restores_previous_pair(self):
-    """An ordinary HDF5 commit-rename error rolls both final files back."""
+  def test_fresh_root_second_final_rename_failure_removes_partial_pair(self):
+    """An ordinary HDF5 rename error restores a fresh root to empty."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-rename-") as temp:
       root = Path(temp) / "saved"
-      _save(root, "default")
-      before = _pair_bytes(root)
+      before = _directory_snapshot(temp)
       final_record = os.fspath(_record_path(root))
       real_replace = os.replace
       injected = False
@@ -460,18 +577,15 @@ class ArtifactPairTests(unittest.TestCase):
 
       with mock.patch.object(results.os, "replace", fail_record_commit):
         with self.assertRaisesRegex(OSError, "final HDF5 rename failure"):
-          _save(root, "reduce-overhead")
+          _save(root, "default")
 
       self.assertTrue(injected)
-      self.assertEqual(_pair_bytes(root), before)
-      _rebuild(root)
-      self.assertFalse(_pending_path(root).exists())
+      self.assertEqual(_directory_snapshot(temp), before)
 
-  def test_keyboard_interrupt_between_renames_leaves_refusal_marker(self):
-    """An abrupt stop is visible and the mixed root cannot be rebuilt."""
+  def test_fresh_root_keyboard_interrupt_leaves_refusal_marker(self):
+    """An abrupt stop leaves a marker, so the lone checkpoint cannot load."""
     with tempfile.TemporaryDirectory(prefix="artifact-pair-interrupt-") as temp:
       root = Path(temp) / "saved"
-      _save(root, "default")
       final_record = os.fspath(_record_path(root))
       real_replace = os.replace
       interrupted = False
@@ -486,10 +600,14 @@ class ArtifactPairTests(unittest.TestCase):
       with mock.patch.object(results.os, "replace", interrupt_record_commit):
         with self.assertRaisesRegex(
             KeyboardInterrupt, "stop between final renames"):
-          _save(root, "reduce-overhead")
+          _save(root, "default")
 
       self.assertTrue(interrupted)
+      self.assertTrue(_checkpoint_path(root).is_file())
+      self.assertFalse(_record_path(root).exists())
       self.assertTrue(_pending_path(root).is_file())
+      self.assertEqual(
+        set(os.listdir(temp)), {"saved.emul", "saved.pair-pending"})
       with mock.patch.object(
           results.torch, "load",
           side_effect=AssertionError("torch.load must not be reached")) \

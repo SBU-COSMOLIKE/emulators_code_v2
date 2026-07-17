@@ -3201,9 +3201,10 @@ class EmulatorExperiment:
     exp = cls(data=cfg["data"], train_args=ta,
               model_cls=models[(name, ia)],
               raw_train_args=cfg["train_args"], **kwargs)
-    # the composed display name (run_tag / the banner / file names):
-    # the architecture, suffixed by the IA design when one is layered
-    # (resmlp_nla, rescnn_nla). exp.ia drives the factored-design
+    # The short model display name used in the training banner: the
+    # architecture, suffixed by the IA design when one is layered
+    # (resmlp_nla, rescnn_nla). Saved filenames use the separate completed-run
+    # identity built after staging. exp.ia drives the factored-design
     # lookups (IA_DESIGNS); exp.arch gates head-block filtering in
     # build_specs (which reads model_cls.head_block, the class's own
     # head-knowledge; None on direct construction translates every block).
@@ -4554,6 +4555,13 @@ class EmulatorExperiment:
       ell   = np.asarray(cov["ell"], dtype="int64")
       sigma = np.asarray(cov["sigma_" + spectrum], dtype="float64")
       fid   = np.asarray(cov["cl_" + spectrum], dtype="float64")
+      # The local covariance filename is not a scientific identity. Bind the
+      # exact three arrays consumed by this experiment so a different noise or
+      # fiducial calculation receives a different saved-output name, while an
+      # unchanged file moved to another folder retains its name.
+      from .output_identity import digest_cmb_covariance_inputs
+      self.data["cmb"]["_covariance_input_sha256"] = (
+        digest_cmb_covariance_inputs(ell, sigma, fid))
       dv    = train_set["dv"]
       idx   = train_set["idx"]
       if int(dv.shape[1]) != int(ell.size):
@@ -5573,8 +5581,11 @@ class EmulatorExperiment:
 
     # fine-tune warm start: record the resolved finetune block in the consumed
     # config (persist-resolved-values), so the saved run states its source with
-    # the path and compile_mode materialized. run_emulator does not see the
-    # finetune block, so it is added here, the one place that resolved both.
+    # the path, exact authenticated source pair, and compile_mode materialized.
+    # A later publication may reuse the same path, so the path alone is not a
+    # stable statement of which source bytes this run consumed. run_emulator
+    # does not see the finetune block, so it is added here, the one place that
+    # resolved both.
     if self._finetune is not None:
       ft = train_args.get("finetune", {})
       if "compile_mode" in ft:
@@ -5582,9 +5593,11 @@ class EmulatorExperiment:
       else:
         compile_mode = self._finetune.compile_mode
       self.resolved_train["finetune"] = {
-        "from":         self._finetune.root,
-        "compile_mode": compile_mode,
-        "extra_names":  " ".join(self._finetune_extra_names),
+        "from":                     self._finetune.root,
+        "source_artifact_id":       self._finetune.artifact_id,
+        "source_checkpoint_sha256": self._finetune.checkpoint_sha256,
+        "compile_mode":             compile_mode,
+        "extra_names":              " ".join(self._finetune_extra_names),
       }
     # NPCE: retain the resolved block separately from the generic training
     # recipe so save_emulator can bind the authoritative composition fact to
@@ -5593,13 +5606,16 @@ class EmulatorExperiment:
     if self.pce_opts is not None:
       self.resolved_train["pce"] = dict(self.pce_opts)
     # transfer: record the resolved transfer block (form + the materialized
-    # space), so the saved run states what it composed (persist-resolved-values).
+    # space) and the exact authenticated base pair, so the saved run states
+    # what it composed even if the path is reused later.
     if self._transfer_base is not None:
       self.resolved_train["transfer"] = {
-        "from":        self._transfer_base.root,
-        "form":        self._transfer_form,
-        "space":       self._transfer_space,
-        "extra_names": " ".join(self._transfer_extra_names),
+        "from":                     self._transfer_base.root,
+        "source_artifact_id":       self._transfer_base.artifact_id,
+        "source_checkpoint_sha256": self._transfer_base.checkpoint_sha256,
+        "form":                     self._transfer_form,
+        "space":                    self._transfer_space,
+        "extra_names":              " ".join(self._transfer_extra_names),
       }
       # the resolved refine block (materialized), present only on a refined run.
       if self._transfer_refine is not None:

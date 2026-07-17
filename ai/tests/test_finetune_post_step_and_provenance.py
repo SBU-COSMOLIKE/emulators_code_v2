@@ -9,6 +9,7 @@ import ast
 from pathlib import Path
 import types
 import unittest
+from unittest import mock
 
 import torch
 
@@ -43,6 +44,30 @@ def _call_lines(function, dotted_name):
     if name == dotted_name:
       lines.append(node.lineno)
   return sorted(lines)
+
+
+def _resolved_record(tree, record_name):
+  """Return a resolved_train record's literal key-to-expression mapping."""
+  for node in ast.walk(tree):
+    if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+      continue
+    for target in node.targets:
+      if not isinstance(target, ast.Subscript):
+        continue
+      if not isinstance(target.value, ast.Attribute):
+        continue
+      if not (isinstance(target.value.value, ast.Name)
+              and target.value.value.id == "self"
+              and target.value.attr == "resolved_train"):
+        continue
+      key = target.slice
+      if isinstance(key, ast.Constant) and key.value == record_name:
+        return {
+          literal.value: ast.unparse(value)
+          for literal, value in zip(node.value.keys, node.value.values)
+          if isinstance(literal, ast.Constant)
+        }
+  raise AssertionError("missing resolved_train record " + repr(record_name))
 
 
 class FinetunePostStepAndProvenanceTests(unittest.TestCase):
@@ -83,7 +108,10 @@ class FinetunePostStepAndProvenanceTests(unittest.TestCase):
     self.assertEqual(average[0].item(), 3.0)
 
   def test_shared_provenance_assembler(self):
-    source = types.SimpleNamespace(root="/saved/source")
+    source = types.SimpleNamespace(
+      root="/saved/source",
+      artifact_id="1" * 32,
+      checkpoint_sha256="2" * 64)
     attrs = warmstart.finetune_provenance_attrs(
       source=source,
       extra_names=["w0", "wa"])
@@ -91,6 +119,8 @@ class FinetunePostStepAndProvenanceTests(unittest.TestCase):
       attrs,
       {
         "finetuned_from": "/saved/source",
+        "finetune_source_artifact_id": "1" * 32,
+        "finetune_source_checkpoint_sha256": "2" * 64,
         "finetune_extra_names": "w0 wa",
       })
     self.assertEqual(
@@ -98,6 +128,62 @@ class FinetunePostStepAndProvenanceTests(unittest.TestCase):
         source=None,
         extra_names=None),
       {})
+
+  def test_shared_provenance_refuses_a_path_without_pair_identity(self):
+    source = types.SimpleNamespace(root="/saved/source")
+    with self.assertRaisesRegex(ValueError, "artifact_id"):
+      warmstart.finetune_provenance_attrs(
+        source=source,
+        extra_names=[])
+
+    source.artifact_id = "1" * 32
+    with self.assertRaisesRegex(ValueError, "checkpoint_sha256"):
+      warmstart.finetune_provenance_attrs(
+        source=source,
+        extra_names=[])
+
+  def test_load_source_retains_the_authenticated_pair_from_rebuild(self):
+    class ParamGeometry:
+      pass
+
+    artifact_id = "a" * 32
+    checkpoint_sha256 = "b" * 64
+    info = {
+      "artifact_id": artifact_id,
+      "checkpoint_sha256": checkpoint_sha256,
+      "ia": None,
+      "composition_mode": "plain",
+      "model_recipe": {
+        "cls": "torch.nn.Linear",
+        "compile_mode": None,
+      },
+      "rescale": "none",
+      "config_resolved": {"data": {}},
+    }
+    rebuilt = (object(), ParamGeometry(), object(), info)
+    with mock.patch.object(warmstart, "rebuild_emulator",
+                           return_value=rebuilt):
+      source = warmstart.load_source(
+        root="/saved/source",
+        device=torch.device("cpu"))
+
+    self.assertIs(source.artifact_id, artifact_id)
+    self.assertIs(source.checkpoint_sha256, checkpoint_sha256)
+
+  def test_resolved_finetune_and_transfer_bind_the_exact_source_pair(self):
+    _, tree = _parsed_file("emulator/experiment.py")
+    finetune = _resolved_record(tree, "finetune")
+    transfer = _resolved_record(tree, "transfer")
+
+    for record, source_name in (
+        (finetune, "self._finetune"),
+        (transfer, "self._transfer_base")):
+      with self.subTest(source=source_name):
+        self.assertEqual(
+          record["source_artifact_id"], source_name + ".artifact_id")
+        self.assertEqual(
+          record["source_checkpoint_sha256"],
+          source_name + ".checkpoint_sha256")
 
   def test_both_training_drivers_call_shared_assembler(self):
     for relative_path in (

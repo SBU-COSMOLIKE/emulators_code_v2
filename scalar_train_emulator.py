@@ -52,8 +52,11 @@ runs do not overwrite each other.
 #
 #- `--save` (default `emulator`): name root for the trained-emulator files,
 #  written under --root/chains with the run tag appended:
-#  <save>_<model>_ntrain<N>.emul (weights) + .h5 (the input ParamGeometry,
-#  the output ScalarGeometry, histories, resolved config). rebuild_emulator
+#  <save>_scalar-<outputs>-<digest>.emul (weights) + .h5 (the input
+#  ParamGeometry, the output ScalarGeometry, histories, resolved config).
+#  The ordered output names are readable; the digest also distinguishes the
+#  completed configuration, selected rows, and source artifact.
+#  rebuild_emulator
 #  (emulator/results.py) reconstructs the inference-ready model from the h5
 #  alone (schema 3), and its info["scalar"] flag routes EmulatorPredictor
 #  to the scalar branch.
@@ -64,7 +67,8 @@ runs do not overwrite each other.
 #
 #- `--diagnostic` (optional): the name root of a multipage diagnostics PDF,
 #  written under --root/chains with the run tag appended (like --save), e.g.
-#  `--diagnostic diagnostic` -> diagnostic_resmlp_ntrain100000.pdf. Pages:
+#  `--diagnostic diagnostic` -> diagnostic_scalar-h0-omegam-<digest>.pdf.
+#  Pages:
 #  the shared chi2 diagnostics (training history, coverage vs training
 #  sparsity, the local-linear data floor, the hard-direction regression,
 #  the parameter triangle + PCA planes) plus the scalar family pages
@@ -89,30 +93,34 @@ import os
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
+from emulator.output_identity import build_experiment_output_identity
 from emulator.results import executed_composition, save_emulator
 from emulator.warmstart import finetune_provenance_attrs
 
 
-def run_tag(cfg, exp):
+def run_tag(cfg, exp, output_identity=None):
   """
   The run's identity tag for output filenames.
 
-  <model>_ntrain<N>: the resolved model name (exp.arch, the YAML
-  train_args.model.name) and the N_train actually staged. Unlike the
-  cosmic-shear driver there is no training-temperature tag: a scalar
-  training set is a parameter chain with no _cs_<T> file-name marker.
-  Appended to the --save name root so runs do not overwrite each other.
+  The tag contains ``scalar`` and the ordered output names followed by a short
+  digest of the completed model, training instructions, staged rows,
+  composition, and authenticated fine-tune source.  It is derived from
+  resolved values rather than a data filename.
 
   Arguments:
-    cfg = the resolved config mapping (unused beyond the interface parity
-          with the cosmic-shear driver's run_tag; kept for symmetry).
-    exp = the staged EmulatorExperiment (reads exp.arch + exp.train_set).
+    cfg = retained for interface parity with the shared data-vector driver.
+    exp = the completed EmulatorExperiment.
+    output_identity = optional identity already built for this run. The main
+          driver passes the same object to the saved pair and diagnostic.
 
   Returns:
-    the tag string, e.g. "resmlp_ntrain100000".
+    a tag such as
+    ``scalar-h0-omegam-0123456789abcdef0123456789abcdef``.
   """
-  return "_".join([str(exp.arch or "resmlp").lower(),
-                   f"ntrain{exp.train_set['idx'].shape[0]}"])
+  del cfg
+  if output_identity is None:
+    output_identity = build_experiment_output_identity(exp)
+  return output_identity["tag"]
 
 
 def main():
@@ -135,7 +143,8 @@ def main():
                       dest="save",
                       help="name root for the trained-emulator files, "
                            "written under --root/chains with the run tag "
-                           "appended: <save>_<model>_ntrain<N>.emul (the "
+                           "appended: <save>_scalar-<outputs>-<digest>.emul "
+                           "(the "
                            "weights) + .h5 (geometries, histories, config)",
                       type=str,
                       default="emulator")
@@ -151,8 +160,8 @@ def main():
                       dest="diagnostic",
                       help="if set, save a multipage diagnostics PDF "
                            "under --root/chains, named with the run tag "
-                           "(diagnostic -> diagnostic_resmlp_"
-                           "ntrain100000.pdf): the shared chi2 pages "
+                           "(diagnostic -> diagnostic_scalar-h0-"
+                           "omegam-<digest>.pdf): the shared chi2 pages "
                            "plus the scalar truth/residual pages",
                       type=str,
                       default=None)
@@ -197,7 +206,9 @@ def main():
   # <save>_<tag>.emul = the best-epoch weights (torch state_dict, cpu);
   # <save>_<tag>.h5   = the input ParamGeometry + output ScalarGeometry (both
   # from_state-ready), the per-epoch histories, and the full resolved config.
-  save_root = cocoa_output(chains, f"{args.save}_{run_tag(cfg, exp)}")
+  output_identity = build_experiment_output_identity(exp)
+  identity_tag = run_tag(cfg, exp, output_identity=output_identity)
+  save_root = cocoa_output(chains, f"{args.save}_{identity_tag}")
   # run-identity root attrs (no train_dv / val_dv: a scalar run reads only
   # parameter .txt files, so it records their basenames and its outputs).
   # rescale is recorded as the resolved "none": a scalar run has no analytic
@@ -253,6 +264,8 @@ def main():
     resolved_pce=(dict(exp.pce_opts)
                   if exp.pce_opts is not None else None),
     resolved_transfer=None,
+    resolved_rescale=exp.rescale,
+    output_identity=output_identity,
     # The generator's required scientific record, carried here verbatim from
     # the staged training source. Indexing is intentional: staging cannot
     # produce a train set without this record, and a missing key is a broken
@@ -266,7 +279,7 @@ def main():
     # --diagnostic is a name root: the run tag is appended so runs do not
     # overwrite each other (the cosmic-shear driver's convention).
     stem, ext = os.path.splitext(args.diagnostic)
-    diag_name = f"{stem}_{run_tag(cfg, exp)}{ext or '.pdf'}"
+    diag_name = f"{stem}_{identity_tag}{ext or '.pdf'}"
     diag_path = cocoa_output(chains, diag_name)
     # headless output: pick a non-interactive matplotlib backend before
     # pyplot is imported (emulator.plotting imports it at load).

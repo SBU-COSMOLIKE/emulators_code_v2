@@ -272,6 +272,12 @@ The `.emul` file holds the best saved model weights. The `.h5` file records the
 input parameter names, output coordinates, numerical conversions, training
 history, and settings needed to load the model correctly.
 
+The base filename begins with the output family and product, such as
+`emulator_cmb-tt-...`. Its final 32 hexadecimal characters identify the exact
+completed configuration, selected training and validation rows, and any saved
+model reused by the run. A run never replaces an existing pair. If the name is
+already present, preserve that result and choose a different `--save` root.
+
 - To serve it inside Cobaya, copy the theory pattern from
   [FAQ A1.3](#run-the-saved-emulator-in-a-cobaya-mcmc).
 - To call it directly from Python, use

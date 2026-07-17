@@ -273,11 +273,29 @@ class FailedRowStagingTests(unittest.TestCase):
   def test_saved_emulator_keeps_the_staged_source_identity(self):
     """Both saved config records retain the exact selection fingerprint."""
     experiment = EmulatorExperiment.__new__(EmulatorExperiment)
+    def complete_pin(label, character):
+      """Return the authenticated generation fields a real resolver supplies."""
+      return {
+        "schema": 1,
+        "slot_id": "slot-" + label,
+        "slot": {"family": "cosmolike", "schema": 1},
+        "generation": "generation-" + label,
+        "active_sha256": character * 64,
+        "manifest_sha256": chr(ord(character) + 1) * 64,
+        "identity": {"probe": "cs"},
+        "members": {
+          "parameters.chain": {
+            "size": 120,
+            "sha256": chr(ord(character) + 2) * 64,
+          },
+        },
+      }
+
     experiment.data = {
       "_dataset_sources": {
         "schema": 1,
-        "train": {"generation": "generation-a"},
-        "validation": {"generation": "generation-b"},
+        "train": complete_pin("train", "1"),
+        "validation": complete_pin("validation", "4"),
       },
       "param_cuts": {},
       "split_seed": 19,
@@ -291,6 +309,7 @@ class FailedRowStagingTests(unittest.TestCase):
       "dv": np.zeros((3, 1), dtype=np.float32),
     }
     experiment._record_staged_selection("train", source)
+    experiment._record_staged_selection("validation", source)
     expected = dict(
       experiment.data["_dataset_sources"]["train"]["selection"])
 
