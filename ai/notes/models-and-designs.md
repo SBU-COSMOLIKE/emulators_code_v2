@@ -513,7 +513,9 @@ shape modes are not low-degree polynomials. NPCE is supported infrastructure,
 not an established way to lower the sample-efficiency floor. The fit uses low
 degree to limit Runge oscillation, retains only modes with acceptable
 leave-one-out (LOO) error near the default `loo_max` of 0.05, stops early, and
-uses NumPy least-angle regression (LARS) on the CPU with closed-form LOO.
+uses a greedy residual-correlation search on the CPU with closed-form
+PRESS/LOO. The function retains its historical `select_lars_loo` name, but it
+does not execute the least-angle-regression path algorithm.
 
 Scalar, CMB, one-dimensional grid, and two-dimensional grid families wrap
 `emulator/losses/pce.py::PCEResidualDiagChi2`, a subclass of
@@ -561,11 +563,14 @@ base fit inside each sweep worker require separate executable witnesses.
   candidate and pinned single-training drivers. There is no separate `ai/gates/checks/`
   child.
 - metric: per-leg.  The executable legs use exact process-exit predicates,
-  literal or regular-expression selected-text checks, and for the sweep a
-  lower-bound count of matching result lines plus a staging-banner check.  The
-  conditional golden leg compares selected log lines after removing their
-  trailing wall-clock field; it is not a raw-byte comparison, and the helper
-  does not require either selected-line list to be nonempty.
+  literal or regular-expression selected-text checks. The sweep requires
+  exactly one result for each requested size, the exact configured threshold,
+  and a finite fraction in `[0, 1]`, plus a staging-banner check. An explicit
+  worker-failure line, malformed result, duplicate size, missing size, or
+  unexpected size fails the leg. The conditional golden leg compares selected
+  log lines after removing their trailing wall-clock field; it is not a
+  raw-byte comparison, and the helper does not require either selected-line
+  list to be nonempty.
 - legs: 9, named `npce-training.golden-selected-text-equality`,
   `npce-training.residual-config-exit-zero`,
   `npce-training.residual-pce-text-present`,
@@ -619,8 +624,9 @@ captured output contains `exclusive`, matched without regard to letter case.
 
 <a id="npce-training-sweep-result-lines-and-pce-banner"></a>
 `npce-training.sweep-result-lines-and-pce-banner` — the requested two-point
-sweep exits with status zero, prints at least two result lines containing both
-`N_train` and `f(>0.2)`, and prints a line beginning `pce: form`.
+sweep exits with status zero, prints exactly one finite result in `[0, 1]` for
+each of training sizes one thousand and two thousand at the exact threshold
+`f(>0.2)`, and prints a line beginning `pce: form`.
 
 <a id="npce-training-rebuild-vs-base"></a>
 `npce-training.rebuild-vs-base` requires the wrapper to run and compare a saved
@@ -631,8 +637,17 @@ instruction does not establish artifact equivalence.
 
 **Rule.** Every retained PCE mode must have finite leave-one-out error below
 `loo_max`. No-mode selection refuses the fit instead of retaining a fallback.
-Support indices are unique, and selection stops when every candidate is
-active.
+Support indices are unique, and selection stops when every usable candidate is
+active. The score is strict: equality with `loo_max` does not pass.
+
+Final acceptance describes the base that will actually be saved. The design
+uses the saved float32 input bounds and converts training inputs to the same
+float32 format used while serving. Coefficients are rounded to float32 before
+scoring, and residual prediction uses the same dense float32 matrix
+multiplication as serving. After retained modes are assembled, the complete
+multi-column coefficient matrix is scored jointly. A joint failure is removed
+and the narrower matrix is checked again. The fit refuses only if no mode
+remains.
 
 **Reason.** A no-mode fallback in
 `emulator/designs/pce.py::PCEEmulator.from_training` could retain mode zero
@@ -643,15 +658,28 @@ candidate set can leave every score at `-1`; another `argmax` could select
 column zero and append a duplicate support index. Either behavior invalidates
 the claim that the PCE base passed its selection rule.
 
-**Implementation boundary.** Remove the no-mode fallback. A refusal names the
-best attempted LOO, the threshold, and the modes tried. Every recorded or
-retained LOO must be finite. `X_white` and `Y_white` must be finite, two
-dimensional, row-aligned, nonempty in width, and large enough for the fit.
-`select_lars_loo` stops when all candidates are active, caps terms at the
-candidate count, and never duplicates support. `best_beta` and support must
-exist and be finite before return. The fit report derives from retained modes
-that actually satisfy the predicate. `pce.loo_max` requires an explicit
+**Implementation boundary.** The no-mode fallback is forbidden. A refusal
+names the best attempted LOO, the threshold, and the modes tried. Every
+recorded or retained LOO must be finite. `X_white` and `Y_white` must be
+finite, two dimensional, row-aligned, nonempty in width, and large enough for
+the fit. Raw target variance must be finite and positive; an epsilon may not
+turn a constant mode into evidence. Leverage must be finite in `[0, 1)` and
+may not be clipped to manufacture a denominator.
+
+`select_lars_loo` stops when all usable candidates are active, ignores an
+unused exact-zero candidate column, caps active terms at the usable candidate
+count and at `n_samples - 1`, and never duplicates support. The constant
+candidate must remain usable. `best_beta` and support must exist, align, and be
+finite before return. The fit report derives from retained modes that satisfy
+the final joint saved-format predicate. `pce.loo_max` requires an explicit
 finiteness check because a comparison with NaN does not enforce positivity.
+
+The PCE artifact state remains the six arrays `lo`, `hi`, `multi_index`, `C`,
+`Vk`, and `Ybar`; it does not persist historical LOO scores. New fits are
+certified before publication, and their resolved PCE configuration records the
+requested threshold. An older six-array artifact cannot be retroactively
+certified from those arrays alone and should be retrained when its origin
+predates strict saved-format acceptance.
 
 **Code ownership.** `emulator/designs/pce.py::PCEEmulator.from_training` owns
 the retained-mode decision and calls
@@ -663,9 +691,16 @@ configuration value, including finite `loo_max` validation.
 LOO below threshold. A strict-threshold fixture refuses with `no mode passed`
 and writes no artifact. NaN or infinity in inputs, targets, LOO values, or
 `loo_max` causes refusal. `max_terms > n_candidates` terminates with unique
-support, and one- or two-column candidate sets cannot duplicate index zero.
-A valid PCE preserves save/rebuild behavior. Production NPCE training requires
-this complete acceptance set.
+support, an active count never reaches the number of training rows, and one-
+or two-column candidate sets cannot duplicate index zero. A large-offset input
+witness proves that pre-round bounds cannot certify a different saved design.
+Large-coefficient witnesses prove that promoted float64 multiplication and
+separate per-mode products cannot hide float32 cancellation. When one mode
+fails only in the final joint matrix, that mode is removed, the narrower matrix
+is rechecked, and a different passing mode remains. A valid PCE preserves the
+six-array state and real artifact save/rebuild behavior. The training-size
+sweep requires exactly one finite result for each requested size. Production
+NPCE training requires this complete acceptance set.
 
 ## Composition spine
 
