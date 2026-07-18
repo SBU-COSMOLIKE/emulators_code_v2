@@ -1036,8 +1036,13 @@ A request left in `inflight/` means that the role started but the watcher
 could not confirm the final result. Later work that needs the same AI folder
 waits so that two jobs never edit uncertain files at the same time.
 
-`--dispatch-timeout MINUTES` sets the longest running time and defaults to 60
-minutes. At the limit, the watcher stops the AI program, saves a timeout record
+An Implementer that reaches 90 minutes pauses after a completed tool action.
+It saves a clean progress commit and asks the Architect whether the approach
+should continue, become smaller, or be replaced. This pause is still part of
+the same ticket and cycle. Work resumes only after the Architect answers.
+
+`--dispatch-timeout MINUTES` sets a later emergency limit and defaults to 120
+minutes. At that limit, the watcher stops the AI program, saves a timeout record
 under `ai/notes/mailbox/.dispatch-history/`, and tries to move the request to
 `failed/`.
 

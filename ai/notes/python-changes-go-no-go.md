@@ -74,7 +74,7 @@ check would fix the named bug. A large production diff needs a concrete
 explanation of why the smaller direct design is unsafe. Without that
 explanation and explicit user approval, the ticket must be split or simplified.
 
-Tests under `ai/tests/` and checks under `ai/gates/checks/` may be longer than
+Tests under `ai/tests/` and gates under `ai/gates/` may be longer than
 the production fix because they show valid and invalid examples. They must
 still be readable, but their useful examples are not evidence that production
 code should also grow.
@@ -85,7 +85,7 @@ and understandable line by line. Prefer deleting duplicated machinery, using
 an existing function, or adding one local check over creating a new subsystem.
 
 For one bug, count added characters plus deleted characters outside
-`ai/tests/` and `ai/gates/checks/`. More than 1,500 characters creates a strong
+`ai/tests/` and `ai/gates/`. More than 1,500 characters creates a strong
 presumption of NO-GO. It is not an automatic rejection: the Architect may
 accept the change only when the directive explains specifically why a smaller
 direct repair would be unsafe and why the ticket cannot be split into complete

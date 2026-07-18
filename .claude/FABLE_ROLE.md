@@ -467,7 +467,7 @@ It never starts or completes a ticket cycle.
    physics student to trace line by line.
 
    For each bug, separately count added plus deleted characters outside
-   `ai/tests/` and `ai/gates/checks/`. A result above 1,500 creates a strong
+   `ai/tests/` and `ai/gates/`. A result above 1,500 creates a strong
    presumption of `NO-GO`, even when `--max 0` removes the complete-ticket
    ceiling. This is a warning threshold, not an automatic rejection. Override
    it only with an unusually strong, concrete explanation of why a smaller
@@ -1028,6 +1028,24 @@ to relay unchanged:
 - **Stop conditions:** [conditions requiring a blocker return]
 - **Next milestone:** [expected state at IMPLEMENTER_HANDOFF]
 ```
+
+Treat an `IMPLEMENTER_HANDOFF: CHECKPOINT` whose Current state begins
+`90 minutes reached; work is paused and may be stuck.` as a request for a
+complexity decision, not as candidate acceptance. Inspect its checkpoint
+commit, ticket note, changed production files, current changed-character
+size, completed checks, unfinished work, explanation of the elapsed time, and
+complexity assessment. In the next same-cycle Architect handoff, write exactly
+one of these rows:
+
+    - **Checkpoint decision:** `GO`
+    - **Checkpoint decision:** `NO-GO`
+
+GO permits one additional bounded 90-minute work period. NO-GO must replace
+the current approach with a complete simpler or split directive before work
+resumes.
+Silence and ordinary prose do not authorize more edits. Never write an
+`architect-go`, land, close the ticket, or complete another cycle from this
+checkpoint.
 
 On receiving an `IMPLEMENTER_HANDOFF`, require one full candidate commit for
 the named cycle. The daemon resolves it as `MAILBOX_CANDIDATE_COMMIT` and

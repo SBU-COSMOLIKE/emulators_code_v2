@@ -426,6 +426,19 @@ binding instruction explicitly says the thread is TERMINAL and no reply is
 owed; that turn ends without a block. Ambiguity requires the block. The block
 below is the required shape:
 
+After 90 minutes of work on one ticket, stop at the next safe point and make
+no further implementation edit. Let already-launched helpers finish, save the
+coherent partial work in a clean checkpoint commit, and update the ticket
+note. Title the handoff `### IMPLEMENTER_HANDOFF: CHECKPOINT` and begin its
+Current state with `90 minutes reached; work is paused and may be stuck.` In
+the existing fields, name the changed production files, current
+changed-character size, completed checks, unfinished work, why the work took
+this long, and a brief complexity assessment. Ask the Architect for a
+checkpoint GO/NO-GO. Do not resume until that decision arrives. A GO permits
+one additional bounded 90-minute work period; a NO-GO requires a simpler,
+split, or replacement approach. This checkpoint commit is not an accepted
+candidate, a landing, or a completed cycle.
+
 ```
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
 

@@ -61,6 +61,30 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("- `repo/path::test-name`:", self.architect)
         self.assertIn("--max RUNTIME_N", self.architect)
 
+    def test_ninety_minute_checkpoint_requires_architect_decision(self):
+        """Long implementation work pauses before complexity keeps growing."""
+        implementer = " ".join(self.implementer.split())
+        architect = " ".join(self.architect.split())
+
+        self.assertIn("After 90 minutes of work on one ticket", implementer)
+        self.assertIn(
+            "90 minutes reached; work is paused and may be stuck", implementer)
+        for fact in (
+                "changed production files", "current changed-character size",
+                "completed checks", "unfinished work",
+                "why the work took this long", "complexity assessment"):
+            with self.subTest(implementer_fact=fact):
+                self.assertIn(fact, implementer)
+        self.assertIn("Do not resume until that decision arrives", implementer)
+        self.assertIn("not an accepted candidate", implementer)
+
+        self.assertIn("- **Checkpoint decision:** `GO`", architect)
+        self.assertIn("- **Checkpoint decision:** `NO-GO`", architect)
+        self.assertIn("one additional bounded 90-minute work period", architect)
+        self.assertIn("Silence and ordinary prose do not authorize", architect)
+        self.assertIn("Never write an `architect-go`", architect)
+        self.assertIn("complete another cycle", architect)
+
     def test_architect_prefers_simple_bounded_repairs_over_bloat(self):
         """A harmless remainder may be parked instead of bloating source."""
         for name, source in (
@@ -74,6 +98,17 @@ class RoleDirectiveContractTests(unittest.TestCase):
                         "probable failure", "wrong primary",
                         "data loss", "broken core operation"):
                     self.assertIn(forbidden_remainder, normalized)
+
+    def test_size_warning_excludes_both_complete_test_areas(self):
+        """Tests and gates are evidence, not mature production code."""
+        for source in (
+                self.architect, self.architect_command,
+                self.python_contract):
+            normalized = " ".join(source.split())
+            self.assertIn(
+                "outside `ai/tests/` and `ai/gates/`", normalized)
+            self.assertNotIn(
+                "outside `ai/tests/` and `ai/gates/checks/`", normalized)
 
     def test_architect_does_not_build_frameworks_to_babysit_users(self):
         """Simple checks stop before symbolic parameter interpretation."""

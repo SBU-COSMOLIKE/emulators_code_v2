@@ -633,12 +633,19 @@ text formats, unsaved files, and other counting details.
 | Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max` |
 | Sol effort | `--sol-effort` | `xhigh` |
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + advisory Sol Red Team |
-| AI job timeout | `--dispatch-timeout` | 60 minutes |
+| Implementer complexity review | automatic | pause after 90 minutes |
+| AI job emergency timeout | `--dispatch-timeout` | 120 minutes |
 | Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
 | Discovery policy | `--fix-only` | off |
+
+The 90-minute review and the 120-minute timeout solve different problems. The
+review waits for a tool action to finish, asks the Implementer for a concise
+progress handoff, and keeps the same ticket open. The timeout is a later
+fallback for an AI program that no longer responds; it stops that process and
+moves the request to `failed/` when the move can be confirmed.
 
 Model selection and effort are independent. Choosing Sonnet does not silently
 lower the Implementer effort.
@@ -763,7 +770,7 @@ options:
                         stop a running role after this many minutes and try to
                         move its request file to failed/; if the result or
                         move cannot be verified, the file may remain in
-                        inflight/ for inspection (default: 60)
+                        inflight/ for inspection (default: 120)
   --claude-context TOKENS
                         ask Claude to replace older Architect and Implementer
                         conversation text with a shorter summary when it

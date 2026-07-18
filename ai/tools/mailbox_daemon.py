@@ -61,8 +61,8 @@ Usage:
     python ai/tools/mailbox_daemon.py --watch --architect-model opus \
                                            --implementer-model sonnet
                                                     # choose Claude models by role
-    python ai/tools/mailbox_daemon.py --watch --dispatch-timeout 90
-                                                    # allow longer turns
+    python ai/tools/mailbox_daemon.py --watch --dispatch-timeout 180
+                                                    # extend emergency limit
     python ai/tools/mailbox_daemon.py --watch --claude-context 400000 \
                                            --sol-context 300000
                                                     # context budgets: a turn
@@ -233,9 +233,10 @@ CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
 # message parked in failed/ for inspection. The guard exists because a
 # claude turn once printed "Execution error" and then hung, holding its
 # lane for 21 minutes until a human Ctrl-C'd the watch (2026-07-14).
-# Long legitimate turns exist (a big review can run 20+ minutes), so
-# the default is generous; raise it per launch with --dispatch-timeout.
-DISPATCH_TIMEOUT_MINUTES = 60
+# A long Implementer turn first pauses for an Architect complexity review.
+# The later hard timeout remains a fallback for a CLI that stops responding.
+IMPLEMENTER_REVIEW_MINUTES = 90
+DISPATCH_TIMEOUT_MINUTES = 120
 MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
 MAX_TIMEOUT_HISTORY_BYTES = 262144
 MAX_TIMEOUT_HISTORY_EVENTS = 1000
@@ -3136,6 +3137,20 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
     return commands
 
 
+def implementer_checkpoint_settings(python, hook_path):
+    """Return the Claude hook that requests one safe 90-minute pause."""
+    hook = {
+        "type": "command",
+        "command": python,
+        "args": [hook_path],
+        "timeout": 5,
+    }
+    return {"hooks": {
+        "PostToolBatch": [{"hooks": [hook]}],
+        "Stop": [{"hooks": [hook]}],
+    }}
+
+
 # main() rebuilds this from the command-line flags; the module-level
 # value keeps imports and direct function calls working at the defaults.
 AGENT_COMMANDS = build_agent_commands(
@@ -3227,6 +3242,8 @@ ARCHITECT_DIRECTIVE_LINE_RE = re.compile(
 IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
     r"^- \*\*Candidate commit:\*\* `?([0-9a-f]{40})`?$",
     re.MULTILINE)
+IMPLEMENTER_CHECKPOINT_HEADING = (
+    "### IMPLEMENTER_HANDOFF: CHECKPOINT")
 FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
 FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
@@ -3235,6 +3252,10 @@ MAX_CHARACTERS_ENVIRONMENT = "MAILBOX_MAX_CHARACTERS"
 DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
 DISCOVERY_SCOPE_ENVIRONMENT = "MAILBOX_DISCOVERY_SCOPE"
 MAILBOX_ROLE_ENVIRONMENT = "MAILBOX_ROLE"
+IMPLEMENTER_CHECKPOINT_DEADLINE_ENVIRONMENT = (
+    "MAILBOX_IMPLEMENTER_CHECKPOINT_DEADLINE")
+IMPLEMENTER_CHECKPOINT_STATE_ENVIRONMENT = (
+    "MAILBOX_IMPLEMENTER_CHECKPOINT_STATE")
 
 # The demand report shows the size of saved, active Implementer candidates.
 # It is read-only: every candidate already has its same-cycle Architect route,
@@ -3579,6 +3600,7 @@ def agent_preamble(agent, message=None):
     if agent == "fable":
         barred_notice = ""
         checkpoint_notice = ""
+        checkpoint_audit = False
         if message is not None and message.startswith(MAILBOX_RETURN_HEADER):
             cycle_id, _, result, _, problem = _redteam_review_receipt(
                 message=message)
@@ -3594,7 +3616,16 @@ def agent_preamble(agent, message=None):
         if message is not None and message.startswith(MAILBOX_FLOW_HEADER):
             cycle_id, _mode, body, problem = _ticket_flow_envelope(
                 message=message)
-            if (problem is None
+            checkpoint_audit = (
+                problem is None and is_implementer_time_checkpoint(body))
+            if checkpoint_audit:
+                checkpoint_notice = (
+                    "90-MINUTE IMPLEMENTER CHECKPOINT: inspect the saved "
+                    "candidate, then send one revised same-cycle handoff "
+                    "to the Implementer with exactly one **Checkpoint "
+                    "decision:** `GO` or `NO-GO` row. This turn cannot land "
+                    "the checkpoint candidate.\n\n")
+            elif (problem is None
                     and "### IMPLEMENTER_HANDOFF:" in body
                     and "- Acceptance: `blocked`" in body):
                 checkpoint_notice = (
@@ -3606,8 +3637,9 @@ def agent_preamble(agent, message=None):
                     "- Source handoff SHA-256: `"
                     + hashlib.sha256(body.encode("utf-8")).hexdigest()
                     + "`\n\n")
+        landing = "" if checkpoint_audit else ARCHITECT_LANDING_PREAMBLE
         return (barred_notice + checkpoint_notice + ARCHITECT_ROLE_PREAMBLE
-                + ARCHITECT_LANDING_PREAMBLE)
+                + landing)
     if agent == "opus":
         return (IMPLEMENTER_ROLE_PREAMBLE
                 + "AUTHORITATIVE IMPLEMENTER ROLE FILE:\n    "
@@ -4332,6 +4364,22 @@ def _ticket_flow_envelope(message):
     if re.search(reserved, body) is not None:
         return None, None, message, "duplicate ticket-cycle flow header"
     return match.group(1), match.group(2), body, None
+
+
+def is_implementer_time_checkpoint(body):
+    """Return whether a handoff asks for the 90-minute review."""
+    if not isinstance(body, str):
+        return False
+    lines = body.splitlines()
+    return bool(lines) and lines[0] == IMPLEMENTER_CHECKPOINT_HEADING
+
+
+def checkpoint_handoff_problem(message):
+    """Refuse an ordinary handoff after the 90-minute hook has fired."""
+    _, _, body, problem = _ticket_flow_envelope(message=message)
+    if problem is None and is_implementer_time_checkpoint(body):
+        return None
+    return "the 90-minute hook fired without its checkpoint handoff"
 
 
 def _ticket_architect_admission(message):
@@ -6671,8 +6719,13 @@ def dispatch_under_main_checkout_lock(
     saved_architect_severity = None
     saved_architect_scope = None
     flow_mode = None
+    architect_checkpoint_audit = False
     if message.startswith(MAILBOX_FLOW_HEADER):
-        _, flow_mode, _, flow_problem = _ticket_flow_envelope(message=message)
+        _, flow_mode, flow_body, flow_problem = _ticket_flow_envelope(
+            message=message)
+        architect_checkpoint_audit = (
+            agent == "fable" and flow_problem is None
+            and is_implementer_time_checkpoint(flow_body))
         if flow_problem is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": "
@@ -6930,7 +6983,21 @@ def dispatch_under_main_checkout_lock(
     # mailbox body, and the body remains the prompt's exact suffix. The
     # Architect route receives decision authority. The parent daemon owns the
     # exact local landing after that process exits.
-    command = AGENT_COMMANDS[agent] + [
+    os.makedirs(RELAY_DIR, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
+    checkpoint_state_path = None
+    command_prefix = list(AGENT_COMMANDS[agent])
+    if agent == "opus":
+        checkpoint_state_path = log_path + "." + name + ".checkpoint"
+        settings = implementer_checkpoint_settings(
+            python=sys.executable,
+            hook_path=os.path.join(
+                AGENT_CWD["fable"], "ai", "tools",
+                "implementer_checkpoint_hook.py"))
+        command_prefix += [
+            "--settings", json.dumps(settings, separators=(",", ":"))]
+    command = command_prefix + [
         banner + agent_preamble(agent=agent, message=message)
         + architect_admission_prompt(token=architect_admission)
         + PREAMBLE + message]
@@ -6955,9 +7022,6 @@ def dispatch_under_main_checkout_lock(
     # elapsed time always moves, and the log size moves whenever the agent
     # emits anything. A buffered subprocess.run() here once left the
     # terminal silent for an entire multi-minute turn.
-    os.makedirs(RELAY_DIR, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
     started = time.time()
     proc = None
     launch_error = None
@@ -6978,6 +7042,17 @@ def dispatch_under_main_checkout_lock(
         env[DISCOVERY_SCOPE_ENVIRONMENT] = effective_discovery_scope
         env[MAILBOX_ROLE_ENVIRONMENT] = mailbox_role_for_dispatch(
             agent=agent, message=message)
+        if agent == "opus":
+            if os.path.lexists(checkpoint_state_path):
+                launch_error = OSError(
+                    "Implementer checkpoint marker already exists")
+            env[IMPLEMENTER_CHECKPOINT_DEADLINE_ENVIRONMENT] = repr(
+                time.monotonic() + IMPLEMENTER_REVIEW_MINUTES * 60.0)
+            env[IMPLEMENTER_CHECKPOINT_STATE_ENVIRONMENT] = (
+                checkpoint_state_path)
+        else:
+            env.pop(IMPLEMENTER_CHECKPOINT_DEADLINE_ENVIRONMENT, None)
+            env.pop(IMPLEMENTER_CHECKPOINT_STATE_ENVIRONMENT, None)
         if architect_admission is not None:
             env["MAILBOX_ARCHITECT_ADMISSION"] = architect_admission
         else:
@@ -7010,6 +7085,8 @@ def dispatch_under_main_checkout_lock(
         else:
             env.pop(SKIP_REDTEAM_ENVIRONMENT, None)
         try:
+            if launch_error is not None:
+                raise launch_error
             if agent in {"fable", "opus", "sol"}:
                 revalidate_agent_dispatch_topology(
                     proof=agent_topology_proof)
@@ -7202,6 +7279,21 @@ def dispatch_under_main_checkout_lock(
                 evidence_problem = str(exc)
                 implementer_completion_ready = None
             if (evidence_problem is None
+                    and os.path.exists(checkpoint_state_path)):
+                try:
+                    returned_message = read_cycle_message(
+                        path=implementer_return)
+                except (OSError, ValueError,
+                        TicketCycleStateError) as exc:
+                    evidence_problem = str(exc)
+                else:
+                    evidence_problem = checkpoint_handoff_problem(
+                        message=returned_message)
+                if evidence_problem is not None:
+                    invalid_returns = ([implementer_return]
+                                       if implementer_return else [])
+                    implementer_completion_ready = None
+            if (evidence_problem is None
                     and implementer_completion_ready is False
                     and (returned_candidate != implementer_starting_head
                          or _clean_worktree_status(
@@ -7307,6 +7399,9 @@ def dispatch_under_main_checkout_lock(
         go_path, invalid_go_paths, go_problem = matching_new_architect_go(
             cycle_id=audit_cycle_id, candidate_commit=audit_commit,
             mode=flow_mode, before_inodes=architect_go_before)
+        if architect_checkpoint_audit and go_path is not None:
+            invalid_go_paths = [go_path]
+            go_problem = "a progress checkpoint cannot receive landing GO"
         if go_problem is not None:
             for invalid_path in invalid_go_paths:
                 park_failed_message(dispatch_path=invalid_path)
