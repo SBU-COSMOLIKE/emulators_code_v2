@@ -315,7 +315,7 @@ def arm_symlink_fifo_and_shared_probe_are_safe():
 
 
 def arm_advisory_send_and_ping_succeed():
-    """The warning never blocks atomic send publication or the ping CLI."""
+    """Send warns, while the direct provider check needs no watcher."""
     with scratch_daemon() as (daemon, _, mailbox):
         outcome, output = captured_send(
             daemon, dry_run=False, text="exact body")
@@ -323,22 +323,30 @@ def arm_advisory_send_and_ping_succeed():
         send_ok = (outcome and len(paths) == 1
                    and pathlib.Path(paths[0]).read_bytes() == b"exact body\n"
                    and warning_lines(output) == [OWN_WARNING + str(mailbox)])
-    with scratch_daemon() as (daemon, _, mailbox):
+    with scratch_daemon() as (daemon, root, mailbox):
+        checks = []
+        daemon.check_provider_connectivity = (
+            lambda **kwargs: checks.append(kwargs) or True)
+        before = sorted(str(path.relative_to(root))
+                        for path in root.rglob("*"))
         previous_argv = sys.argv
-        sys.argv = [str(DAEMON_PATH), "--ping", "architect"]
+        sys.argv = [str(DAEMON_PATH), "--ping"]
         stream = io.StringIO()
         try:
             with contextlib.redirect_stdout(stream):
                 rc = daemon.main()
         finally:
             sys.argv = previous_argv
-        paths = daemon.pending_messages()
-        ping_ok = (rc == 0 and len(paths) == 1
-                   and pathlib.Path(paths[0]).read_text(
-                       encoding="utf-8").startswith(
-                           "RELAY CONFIRMATION PING for architect.")
-                   and warning_lines(stream.getvalue())
-                   == [OWN_WARNING + str(mailbox)])
+        ping_ok = (
+            rc == 0 and checks == [{
+                "architect_model": daemon.DEFAULT_ARCHITECT_MODEL,
+                "include_sol": True,
+                "dry_run": False,
+            }]
+            and sorted(str(path.relative_to(root))
+                       for path in root.rglob("*")) == before
+            and daemon.pending_messages() == []
+            and warning_lines(stream.getvalue()) == [])
     print("advisory send_ok=" + str(send_ok)
           + " ping_ok=" + str(ping_ok))
     return send_ok and ping_ok

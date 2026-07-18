@@ -153,6 +153,15 @@ def scratch_daemon(source=None):
             lambda starting_commit, accepted_commit:
             starting_commit == BASE_COMMIT
             and accepted_commit == ACCEPTED_COMMIT)
+        original_exact_git_object = daemon._exact_git_object
+
+        def scratch_exact_git_object(arguments, label):
+            if arguments == [
+                    "rev-parse", "--verify", "refs/heads/main^{commit}"]:
+                return BASE_COMMIT
+            return original_exact_git_object(arguments=arguments, label=label)
+
+        daemon._exact_git_object = scratch_exact_git_object
         daemon.require_architect_landing_locked = (
             lambda cycle_id, landing_commit, ticket_state:
             CANDIDATE_COMMIT)
@@ -590,13 +599,12 @@ def arm_completion_barrier_ignores_deferred_sol(source=None):
 
 
 def arm_cli_contract(source=None):
-    """Role options are watch-only and positive cycles work without review."""
+    """Two-role watches and Claude-only connection checks are explicit."""
     invalid = [
         ["--skip-redteam"],
         ["--once", "--skip-redteam"],
         ["--dry-run", "--skip-redteam"],
         ["--send", "architect", "--unit", "body", "--skip-redteam"],
-        ["--ping", "architect", "--skip-redteam"],
     ]
     rejected = True
     for arguments in invalid:
@@ -604,7 +612,20 @@ def arm_cli_contract(source=None):
                                                 _ledger):
             rc, output, _errors, _error = call_main(daemon, arguments)
             rejected = rejected and rc == 1 and (
-                "--skip-redteam is valid only with --watch" in output)
+                "--skip-redteam is valid only with --watch or --ping"
+                in output)
+
+    with scratch_daemon(source=source) as (daemon, _root, _mailbox,
+                                           _ledger):
+        checked = []
+        daemon.check_provider_connectivity = (
+            lambda **kwargs: checked.append(kwargs) or True)
+        rc, _output, errors, error = call_main(
+            daemon, ["--ping", "--skip-redteam"])
+        ping_accepted = (
+            rc == 0 and error is None and errors == ""
+            and len(checked) == 1
+            and checked[0]["include_sol"] is False)
 
     accepted = True
     for arguments in [
@@ -649,7 +670,8 @@ def arm_cli_contract(source=None):
         in normalized_help
         and "one cycle is always one ticket"
         in normalized_help)
-    passed = rejected and accepted and positive_cycle and help_ok
+    passed = (rejected and ping_accepted and accepted
+              and positive_cycle and help_ok)
     print("two-role CLI contract=" + str(passed))
     return passed
 

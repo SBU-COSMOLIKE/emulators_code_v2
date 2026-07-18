@@ -330,7 +330,7 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
     def test_cli_scope_environment_and_run_defaults_fail_closed(self):
         invalid_commands = (
             ["--severity", "high"],
-            ["--ping", "architect", "--severity", "high"],
+            ["--ping", "--severity", "high"],
             ["--send", "fable", "--unit", "work", "--severity", "high"],
             ["--send", "sol", "--unit", "close", "--ticket-kind",
              "closure", "--severity", "high"],

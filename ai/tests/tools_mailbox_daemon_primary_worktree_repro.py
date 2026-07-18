@@ -478,7 +478,7 @@ def load_scratch_daemon(worktree):
 
 
 def arm_all_live_actions_bootstrap(source=None):
-    """Every live action provisions all role trees without touching root."""
+    """Every mailbox action provisions all role trees without touching root."""
     cases = [
         ("once", ["--once"]),
         ("watch", ["--watch", "--cycle", "0"]),
@@ -486,7 +486,6 @@ def arm_all_live_actions_bootstrap(source=None):
                   "Coordinate the committed scratch unit."]),
         ("severity", ["--send", "architect", "--severity", "high",
                       "--unit", "Coordinate the named review."]),
-        ("ping", ["--ping", "architect"]),
     ]
     results = []
     for label, arguments in cases:
@@ -497,7 +496,7 @@ def arm_all_live_actions_bootstrap(source=None):
             implementer = default_implementer(root)
             sol = default_sol(root)
             acted_in_primary = True
-            if label in ("send", "severity", "ping"):
+            if label in ("send", "severity"):
                 acted_in_primary = (
                     len(pending_markdown(primary)) == 1
                     and pending_markdown(root) == [])
@@ -577,7 +576,7 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
         ("preview", ["--dry-run"], 0),
         ("preview-send", ["--dry-run", "--send", "architect",
                           "--unit", "scratch preview"], 0),
-        ("preview-ping", ["--dry-run", "--ping", "architect"], 0),
+        ("preview-ping", ["--dry-run", "--ping"], 0),
         ("two-actions", ["--watch", "--once"], 1),
         ("missing-unit", ["--send", "architect"], 1),
         ("unclassified-sol", ["--send", "sol", "--unit", "scratch"], 1),

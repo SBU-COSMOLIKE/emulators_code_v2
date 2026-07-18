@@ -291,7 +291,7 @@ def arm_invalid_values_and_actions(source=None):
          "--max is valid only with --watch or --once"),
         (["--send", "architect", "--unit", "scratch", "--max", "7"], 1,
          "--max is valid only with --watch or --once"),
-        (["--ping", "architect", "--max", "7"], 1,
+        (["--ping", "--max", "7"], 1,
          "--max is valid only with --watch or --once"),
     ]
     observations = []

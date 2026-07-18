@@ -483,8 +483,10 @@ also prove that Sol has a dedicated worktree.
 Command-line interface (CLI) validation happens before worktree provisioning.
 The CLI is the set of options accepted by the terminal command. Help, preview
 with no action, invalid combinations, and dry-run create no branch, worktree,
-state, or lock. Live actions are `--watch`, `--once`, `--send architect`, and
-`--ping architect`.
+state, or lock. Mailbox actions are `--watch`, `--once`, and
+`--send architect`. The separate `--ping` check makes one small direct request
+to Claude and Sol without writing a mailbox file; `--ping --skip-redteam`
+checks Claude alone.
 
 On a clean clone, establish the primary worktree with one valid live action
 before writing an uncommitted source note. A new worktree starts from

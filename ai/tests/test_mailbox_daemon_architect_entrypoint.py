@@ -46,34 +46,31 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertFalse(list(mailbox.glob("*-to-opus.md")))
             self.assertFalse(list(mailbox.glob("*-to-sol.md")))
 
-    def test_ping_architect_queues_one_fable_architect_ping(self):
+    def test_bare_ping_checks_providers_without_queuing_role_work(self):
         with mock.patch.dict(os.environ, {}, clear=True), \
                 scratch_daemon(create_mailbox=False) as (
-                    daemon, _, mailbox, _):
-            rc, output, error = run_main(
-                daemon, ["--ping", "architect"])
+                    daemon, root, mailbox, _):
+            check = mock.Mock(return_value=True)
+            daemon.check_provider_connectivity = check
+            before = tree_snapshot(root)
 
-            pending = [pathlib.Path(path)
-                       for path in daemon.pending_messages()]
+            rc, output, error = run_main(daemon, ["--ping"])
+
             self.assertEqual(rc, 0, output + error)
             self.assertEqual(error, "")
-            self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0].parent, mailbox)
-            self.assertEqual(pending[0].name, "0001-to-fable.md")
-            self.assertEqual(
-                read_text_exact(pending[0]),
-                daemon.transport_ping_text(agent="architect"))
-            self.assertIn("PING for architect", read_text_exact(pending[0]))
-            self.assertNotIn("PING for fable", read_text_exact(pending[0]))
+            self.assertEqual(tree_snapshot(root), before)
+            self.assertFalse(mailbox.exists())
+            check.assert_called_once_with(
+                architect_model=daemon.DEFAULT_ARCHITECT_MODEL,
+                include_sol=True, dry_run=False)
 
     def test_removed_public_targets_and_ticket_kind_are_zero_write_errors(self):
         commands = []
-        for action in ("--send", "--ping"):
-            for old_target in ("fable", "opus", "sol"):
-                command = [action, old_target]
-                if action == "--send":
-                    command.extend(["--unit", "must not queue"])
-                commands.append(command)
+        for old_target in ("fable", "opus", "sol"):
+            commands.append(
+                ["--send", old_target, "--unit", "must not queue"])
+        for old_target in ("architect", "fable", "opus", "sol"):
+            commands.append(["--ping", old_target])
         commands.extend((
             ["--send", "architect", "--unit", "must not queue",
              "--ticket-kind", "closure"],
@@ -86,11 +83,14 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                     mock.patch.dict(os.environ, {}, clear=True), \
                     scratch_daemon(create_mailbox=False) as (
                         daemon, root, mailbox, _):
+                provider_check = mock.Mock(return_value=True)
+                daemon.check_provider_connectivity = provider_check
                 before = tree_snapshot(root)
                 rc, output, error = run_main(daemon, arguments)
                 self.assertNotEqual(rc, 0, output + error)
                 self.assertEqual(tree_snapshot(root), before)
                 self.assertFalse(mailbox.exists())
+                provider_check.assert_not_called()
 
     def test_architect_send_saves_each_requested_severity(self):
         for supplied, expected in (
@@ -144,20 +144,21 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertIn("coordinate one ticket", launches[0]["command"][-1])
             self.assertTrue((mailbox / "done" / path.name).is_file())
 
-    def test_help_names_architect_as_the_only_public_target(self):
+    def test_help_separates_architect_send_from_provider_ping(self):
         with scratch_daemon(create_mailbox=False) as (daemon, _, _, _):
             rc, output, error = run_main(daemon, ["--help"])
         help_text = output + error
         normalized_help = " ".join(help_text.split())
         self.assertEqual(rc, 0)
         self.assertIn("--send {architect}", help_text)
-        self.assertIn("--ping {architect}", help_text)
+        self.assertIn("--ping", help_text)
+        self.assertNotIn("--ping {architect}", help_text)
         self.assertIn(
             "save the user's ticket request for the Architect", help_text)
         self.assertIn(
-            "save a connection-check message for the Architect", help_text)
+            "make one small live request to Claude and Sol", help_text)
         self.assertIn(
-            "not sent to another role", normalized_help)
+            "add --skip-redteam to check only Claude", normalized_help)
         self.assertNotIn("--ticket-kind", help_text)
         for old_form in (
                 "--send fable", "--send opus", "--send sol",
@@ -211,19 +212,6 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                         return False
             return True
 
-        def old_pings_refuse(candidate):
-            for target in ("fable", "opus", "sol"):
-                with mock.patch.dict(os.environ, {}, clear=True), \
-                        scratch_daemon(
-                            create_mailbox=False, source=candidate) as (
-                                daemon, root, mailbox, _):
-                    before = tree_snapshot(root)
-                    rc, _, _ = run_main(daemon, ["--ping", target])
-                    if (rc == 0 or tree_snapshot(root) != before
-                            or mailbox.exists()):
-                        return False
-            return True
-
         def architect_send_uses_fable(candidate):
             with mock.patch.dict(os.environ, {}, clear=True), \
                     scratch_daemon(
@@ -232,17 +220,6 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 rc, _, _ = run_main(
                     daemon,
                     ["--send", "architect", "--unit", "one request"])
-                pending = [pathlib.Path(path)
-                           for path in daemon.pending_messages()]
-                return (rc == 0 and len(pending) == 1
-                        and pending[0].name == "0001-to-fable.md")
-
-        def architect_ping_uses_fable(candidate):
-            with mock.patch.dict(os.environ, {}, clear=True), \
-                    scratch_daemon(
-                        create_mailbox=False, source=candidate) as (
-                            daemon, _, _, _):
-                rc, _, _ = run_main(daemon, ["--ping", "architect"])
                 pending = [pathlib.Path(path)
                            for path in daemon.pending_messages()]
                 return (rc == 0 and len(pending) == 1
@@ -257,15 +234,6 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 '                        choices=["architect", "fable", '
                 '"opus", "sol"],\n',
                 old_sends_refuse,
-            ),
-            (
-                "public ping choices widened",
-                '    parser.add_argument("--ping", metavar="{architect}",\n'
-                '                        choices=["architect"],\n',
-                '    parser.add_argument("--ping", metavar="{architect}",\n'
-                '                        choices=["architect", "fable", '
-                '"opus", "sol"],\n',
-                old_pings_refuse,
             ),
             (
                 "architect send mapped to Implementer",
@@ -284,18 +252,6 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 '            agent="opus",\n'
                 '            text=request,\n',
                 architect_send_uses_fable,
-            ),
-            (
-                "architect ping mapped to Implementer",
-                '    if args.ping:\n'
-                '        ping_text = transport_ping_text(agent="architect")\n'
-                '        queued = send(\n'
-                '            agent="fable",\n',
-                '    if args.ping:\n'
-                '        ping_text = transport_ping_text(agent="architect")\n'
-                '        queued = send(\n'
-                '            agent="opus",\n',
-                architect_ping_uses_fable,
             ),
         )
 

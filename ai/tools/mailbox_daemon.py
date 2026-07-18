@@ -28,12 +28,13 @@ What stays manual, on purpose:
     it never authors source code or permanent notes;
   - every dispatch's full CLI output is archived under ai/notes/relay/.
 
-Every live action converges on three persisted role worktrees. The first valid
+Every live mailbox action converges on three persisted role worktrees. The first valid
 action creates or safely adopts the Architect primary, the Implementer, and
 Sol checkouts; later actions validate every saved Git identity and re-exec
 this file from the Architect primary. The roles share the Architect's notes
 directory, but never a mutable code checkout or index. Ordinary agent turns
 never start in the user's main checkout.
+`--ping` instead uses an empty temporary directory and creates no mailbox work.
 AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
 `claude -p` runs one headless turn against the subscription; the session
 needs enough tool permission to work unattended (set via the harness
@@ -43,6 +44,9 @@ Usage:
     python ai/tools/mailbox_daemon.py --help           # all options + defaults
     python ai/tools/mailbox_daemon.py --dry-run        # show what would run
     python ai/tools/mailbox_daemon.py --once           # process backlog, exit
+    python ai/tools/mailbox_daemon.py --ping           # check Claude + Sol
+    python ai/tools/mailbox_daemon.py --ping --skip-redteam
+                                                    # check Claude only
     python ai/tools/mailbox_daemon.py --clean-all      # discard all local AI
                                                     # worktrees and branches
     python ai/tools/mailbox_daemon.py --watch          # poll every 20 s
@@ -84,6 +88,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -194,6 +199,11 @@ DEFAULT_SOL_EFFORT = "xhigh"
 # `claude --model` can override them per invocation.
 DEFAULT_ARCHITECT_MODEL = "claude-fable-5"
 DEFAULT_IMPLEMENTER_MODEL = "claude-opus-4-8"
+SOL_MODEL = "gpt-5.6-sol"
+
+CLAUDE_EXECUTABLE = "/Users/vivianmiranda/.local/bin/claude"
+CODEX_EXECUTABLE = "/Applications/ChatGPT.app/Contents/Resources/codex"
+PROVIDER_PING_TIMEOUT_SECONDS = 120
 
 # Context budgets per dispatched turn (USER 2026-07-14: no bot runs
 # with a context window above X tokens, where X is a command-line key
@@ -3202,11 +3212,11 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
         # is the logged-in v2.1.208 install (diagnosed 2026-07-14).
-        "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+        "fable": [CLAUDE_EXECUTABLE, "-p",
                   "--model", architect_model,
                   "--effort", fable_effort,
                   "--permission-mode", "acceptEdits"],
-        "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+        "opus": [CLAUDE_EXECUTABLE, "-p",
                  "--model", implementer_model,
                  "--effort", opus_effort,
                  "--permission-mode", "acceptEdits"],
@@ -3220,9 +3230,9 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
         # unattended mailbox turn never needs the speed. Pinned here
         # because the user's global ~/.codex/config.toml says "priority"
         # -- a dispatch must not inherit that default.
-        "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
+        "sol": [CODEX_EXECUTABLE,
                 "exec",
-                "--model", "gpt-5.6-sol",
+                "--model", SOL_MODEL,
                 "-c", "model_reasoning_effort=" + sol_effort,
                 "-c", "service_tier=standard",
                 "-c", ("model_auto_compact_token_limit="
@@ -3232,6 +3242,85 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                 "--add-dir", shared_notes],
     }
     return commands
+
+
+def _provider_ping_prompt(marker):
+    """Ask for one exact reply without assigning repository work."""
+    return ("This is a connection test. Do not use tools, read files, or "
+            "explain. Reply with exactly this one line:\n" + marker)
+
+
+def _provider_answered(command, marker, directory, response_path=None):
+    """Return whether one live provider produced the requested reply."""
+    try:
+        result = subprocess.run(
+            command, cwd=directory, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+            timeout=PROVIDER_PING_TIMEOUT_SECONDS)
+        if result.returncode != 0:
+            return False
+        if response_path is None:
+            answer = result.stdout.decode("utf-8").strip()
+        else:
+            with open(response_path, encoding="utf-8") as stream:
+                answer = stream.read().strip()
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        return False
+    return answer == marker
+
+
+def check_provider_connectivity(architect_model, include_sol, dry_run=False):
+    """Check the configured Claude service and optionally the Sol service."""
+    nonce = secrets.token_hex(16)
+    if dry_run:
+        print("[dry-run] would check Claude model " + architect_model + ".")
+        if include_sol:
+            print("[dry-run] would check Sol model " + SOL_MODEL + ".")
+        else:
+            print("Sol: skipped by --skip-redteam.")
+        return True
+
+    with tempfile.TemporaryDirectory(prefix="cocoa-flow-ping-") as directory:
+        claude_marker = "COCOA-FLOW-PONG-CLAUDE-" + nonce
+        claude_command = [
+            CLAUDE_EXECUTABLE, "-p", "--model", architect_model,
+            "--effort", "low", "--permission-mode", "plan",
+            "--tools", "", "--safe-mode", "--no-session-persistence",
+            "--output-format", "text", _provider_ping_prompt(claude_marker),
+        ]
+        claude_ok = _provider_answered(
+            claude_command, claude_marker, directory)
+        print("Claude: " + ("online and answered the connection test."
+                            if claude_ok else "unavailable."))
+        if include_sol:
+            sol_marker = "COCOA-FLOW-PONG-SOL-" + nonce
+            sol_output = os.path.join(directory, "sol-response.txt")
+            sol_command = [
+                CODEX_EXECUTABLE, "exec", "--model", SOL_MODEL,
+                "-c", "model_reasoning_effort=none",
+                "-c", "service_tier=standard", "--sandbox", "read-only",
+                "--cd", directory, "--skip-git-repo-check", "--ephemeral",
+                "--ignore-rules", "--ignore-user-config",
+                "--output-last-message", sol_output,
+                _provider_ping_prompt(sol_marker),
+            ]
+            sol_ok = _provider_answered(
+                sol_command, sol_marker, directory, sol_output)
+            print("Sol: " + ("online and answered the connection test."
+                              if sol_ok else "unavailable."))
+        else:
+            print("Sol: skipped by --skip-redteam.")
+
+    if claude_ok and (not include_sol or sol_ok):
+        checked = "Claude and Sol" if include_sol else "Claude"
+        print("connection check passed: " + checked + " responded.")
+        return True
+    print("connection check failed; check login and service availability.")
+    if not claude_ok:
+        print("Claude login: " + CLAUDE_EXECUTABLE + " auth status")
+    if include_sol and not sol_ok:
+        print("Sol login: " + CODEX_EXECUTABLE + " login status")
+    return False
 
 
 def implementer_checkpoint_settings(python, hook_path):
@@ -12115,7 +12204,7 @@ def main():
                         help="with --watch, start Architect and Implementer "
                              "jobs but no Red Team job; Red Team messages "
                              "remain waiting for a later watch without this "
-                             "option")
+                             "option; with --ping, check Claude but not Sol")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
                         help="with --watch, tell roles to finish work already "
@@ -12128,11 +12217,10 @@ def main():
                         choices=["architect"],
                         help="save the user's ticket request for the "
                              "Architect and exit")
-    parser.add_argument("--ping", metavar="{architect}",
-                        choices=["architect"],
-                        help="save a connection-check message for the "
-                             "Architect; its reply is saved in a -to-user.md "
-                             "file and is not sent to another role")
+    parser.add_argument(
+        "--ping", action="store_true",
+        help="make one small live request to Claude and Sol, require both "
+             "to answer, and exit; add --skip-redteam to check only Claude")
     parser.add_argument("--unit", default="",
                         help="the user's request text for --send architect; "
                              "include the path to its source note in "
@@ -12199,7 +12287,7 @@ def main():
     if args.fix_only is not None:
         conflicting_action = (
             not args.watch or args.once or args.send is not None
-            or args.ping is not None or args.dry_run)
+            or args.ping or args.dry_run)
         if conflicting_action:
             print("--fix-only is valid only with --watch by itself")
             return 1
@@ -12209,16 +12297,16 @@ def main():
     if args.max_characters is not None:
         conflicting_action = (
             not (args.watch or args.once)
-            or args.send is not None or args.ping is not None)
+            or args.send is not None or args.ping)
         if conflicting_action:
             print("--max is valid only with --watch or --once")
             return 1
     if args.skip_redteam:
         conflicting_action = (
-            not args.watch or args.once or args.send is not None
-            or args.ping is not None or args.dry_run)
+            not (args.watch or args.ping) or args.once
+            or args.send is not None)
         if conflicting_action:
-            print("--skip-redteam is valid only with --watch")
+            print("--skip-redteam is valid only with --watch or --ping")
             return 1
     if args.severity is not None:
         severity_run = args.watch or args.once
@@ -12235,7 +12323,7 @@ def main():
         bool(args.watch),
         bool(args.clean_all),
         args.send is not None,
-        args.ping is not None,
+        bool(args.ping),
     ))
     if primary_actions > 1:
         print("choose only one primary action: --once, --watch, --clean-all, "
@@ -12259,6 +12347,12 @@ def main():
             print("clean-all error: " + str(exc))
             return 1
         return 0
+
+    if args.ping:
+        return 0 if check_provider_connectivity(
+            architect_model=args.architect_model,
+            include_sol=not args.skip_redteam,
+            dry_run=args.dry_run) else 1
 
     selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
     severity_action = args.watch or args.once or args.send == "architect"
@@ -12358,14 +12452,6 @@ def main():
                   "Red Team ends when the daemon records local landing L; "
                   "finish every role job already starting or running before "
                   "exit")
-
-    if args.ping:
-        ping_text = transport_ping_text(agent="architect")
-        queued = send(
-            agent="fable",
-            text=ping_text,
-            dry_run=args.dry_run)
-        return 0 if queued else 1
 
     if args.send:
         request = architect_user_request_payload(

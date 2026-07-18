@@ -176,6 +176,8 @@ For a first run, remember this shorter rule:
 - `--help`, `mailbox_daemon.py --dry-run`, and
   `handoff_router.py --status` only print information.
 - `--send` saves a request file.
+- `--ping` spends one very small model request per checked service but does
+  not write a mailbox file or start a ticket.
 - `--watch` and `--once` may create AI work folders, start roles, move request
   files, and write workflow records.
 - `--clean-all` permanently discards the extra local work folders and local
@@ -195,7 +197,8 @@ For a first run, remember this shorter rule:
 | `ticket_change_guard.py --base FULL_COMMIT --architect-audit --candidate FULL_COMMIT --max NUMBER` | No | Architect check: counts the same ticket against the exact saved candidate named after `--candidate`. Later commits and unsaved work do not become part of this measurement. |
 | `backlog_bundle.py pack --dry-run` | No | Lists the proposed package without writing it. |
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
-| `mailbox_daemon.py --send architect` or `--ping architect` | Yes | This is the user's only role target. The command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered Architect mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
+| `mailbox_daemon.py --send architect` | Yes | Saves one numbered request for the Architect. The command may create or reuse the AI work folders first. |
+| `mailbox_daemon.py --ping` | No repository change; uses AI credits | Makes one small live request to Claude and one to Sol, then prints whether each service answered. Add `--skip-redteam` to check Claude without contacting Sol. |
 | `mailbox_daemon.py --once` or `--watch` | Yes | May create or reuse AI work folders, start roles, move mailbox files, and write relay or saved workflow records. |
 | `mailbox_daemon.py --clean-all` | Yes—destructive | Removes every extra local CoCoA-Flow worktree and every matching local AI branch, even when that AI folder contains unfinished or unmerged work. It does not alter remote branches, tags, or stashes. |
 | `handoff_router.py --architect-notes-admin "SUMMARY"` | Yes | Architect-only internal operation. From an already bound Architect process, queues one later permanent-note admin self-route. It refuses from a normal user, Implementer, or Red Team process and cannot be combined with another router operation. |
@@ -340,16 +343,36 @@ recorded. Success here writes the user's request to the Architect. The
 Architect later writes the internal `to-sol` request beginning with
 `MAILBOX-TICKET: closure`.
 
-### Check whether the Architect can receive and reply
+### Check whether Claude and Sol can answer
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --ping architect
+python3 ai/tools/mailbox_daemon.py --ping
 ```
 
-This sends a small test message rather than a work assignment. Success prints
-`queued PATH` and writes one numbered `to-fable` Architect test request. The
-reply is addressed `to-user`. The watcher leaves it for a human and does not
-send it to another role.
+This makes one small, no-tool request to the configured Claude Architect model
+and one read-only request to Sol. It checks the installed programs, current
+login, selected models, and service response at that moment. It does not write
+a mailbox message or start a ticket. Each request uses a small amount of the
+corresponding account's allowance.
+
+A successful run ends with:
+
+```text
+Claude: online and answered the connection test.
+Sol: online and answered the connection test.
+connection check passed: Claude and Sol responded.
+```
+
+When a run will not use Red Team, check only Claude:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping --skip-redteam
+```
+
+That form never starts Sol. A failed check returns a nonzero status and prints
+the login-status command for the affected service. The check has a two-minute
+limit for each service and still checks Sol when Claude fails, so one command
+reports both results.
 
 ## Choose the minimum discovery severity
 
@@ -728,9 +751,8 @@ The current transcript is kept here for offline reading and regression checks.
 ```
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all] [--watch]
                          [--cycle count] [--max characters] [--skip-redteam]
-                         [--fix-only value] [--send {architect}]
-                         [--ping {architect}] [--unit UNIT]
-                         [--severity {high,medium,low}]
+                         [--fix-only value] [--send {architect}] [--ping]
+                         [--unit UNIT] [--severity {high,medium,low}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
@@ -768,7 +790,8 @@ options:
   --skip-redteam, --no-red-team
                         with --watch, start Architect and Implementer jobs but
                         no Red Team job; Red Team messages remain waiting for
-                        a later watch without this option
+                        a later watch without this option; with --ping, check
+                        Claude but not Sol
   --fix-only value      with --watch, tell roles to finish work already
                         recorded in ai/notes/backlog.md and refuse new Red
                         Team discovery messages; this option does not create
@@ -776,9 +799,9 @@ options:
                         1, true, or yes in any capitalization
   --send {architect}    save the user's ticket request for the Architect and
                         exit
-  --ping {architect}    save a connection-check message for the Architect; its
-                        reply is saved in a -to-user.md file and is not sent
-                        to another role
+  --ping                make one small live request to Claude and Sol, require
+                        both to answer, and exit; add --skip-redteam to check
+                        only Claude
   --unit UNIT           the user's request text for --send architect; include
                         the path to its source note in ai/notes/
   --severity {high,medium,low}
@@ -836,17 +859,17 @@ options:
   enabled roles have no waiting messages and no backlog line begins `- OPEN`.
 - `--max` accepts digits from 0 through 9 and is valid with `--watch` or
   `--once`. Omitting it or writing `--max 0` sets no character limit.
-- `--skip-redteam` and `--no-red-team` are two names for the same watch-only
-  setting.
+- `--skip-redteam` and `--no-red-team` are two names for the same setting.
+  With `--watch`, they disable Red Team. With `--ping`, they omit the Sol
+  connection check.
 - Positive cycle limits work with both role setups. In a two-role watch, the
   daemon's recorded local landing completes that one-ticket cycle.
 - A two-role watch preserves waiting internal Sol files and refuses new
   role-to-role Sol files until that watcher stops and releases its saved
   two-role rule.
 - `--unit` is required with `--send`.
-- The only public send and ping target is `architect`. The `fable`, `opus`,
-  and `sol` addresses are for role-to-role files created after the Architect
-  decides what should happen.
+- The only public send target is `architect`. The connection check has no role
+  target: write `--ping`, not `--ping architect` or `--ping sol`.
 - `--severity` accepts `high`, `medium`, or `low`. It is valid with `--watch`,
   `--once`, or `--send architect`. An Architect send saves the choice in its
   request file. Omitting it saves `medium`.

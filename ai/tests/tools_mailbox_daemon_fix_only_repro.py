@@ -1041,7 +1041,7 @@ def arm_truthy_values_and_watch_scope():
         ["--once", "--fix-only", "true"],
         ["--dry-run", "--fix-only", "true"],
         ["--send", "architect", "--unit", "body", "--fix-only", "true"],
-        ["--ping", "architect", "--fix-only", "true"],
+        ["--ping", "--fix-only", "true"],
         ["--watch", "--send", "architect", "--unit", "body",
          "--fix-only", "true"],
     ]
@@ -1065,9 +1065,9 @@ def arm_truthy_values_and_watch_scope():
     primary_conflicts = [
         ["--once", "--watch"],
         ["--watch", "--send", "architect", "--unit", "body"],
-        ["--once", "--ping", "architect"],
+        ["--once", "--ping"],
         ["--send", "architect", "--unit", "body",
-         "--ping", "architect"],
+         "--ping"],
     ]
     for argv in primary_conflicts:
         with scratch_daemon(create_mailbox=False) as (
@@ -1281,7 +1281,8 @@ def arm_help_and_readme_parity():
     normalized_help = " ".join(help_output.split())
     passed = (rc == 0 and error == "" and candidates == [help_output]
               and "--send {architect}" in help_output
-              and "--ping {architect}" in help_output
+              and "--ping" in help_output
+              and "--ping {architect}" not in help_output
               and "--ticket-kind" not in help_output
               and "--severity {high,medium,low}" in help_output
               and "--fix-only" in help_output

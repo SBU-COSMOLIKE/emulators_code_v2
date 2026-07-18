@@ -1061,9 +1061,11 @@ flowchart TD
 ```
 
 Messages ending in `-to-user.md` are replies for a person to read. The watcher
-never starts an AI role from those files. The public ping targets the
-Architect. Implementer and Red Team ticket results return internally to the
-Architect instead of starting a separate user conversation.
+never starts an AI role from those files. The separate
+[`--ping` connection check](tools/README.md#check-whether-claude-and-sol-can-answer)
+contacts the configured services directly and creates no mailbox message.
+Implementer and Red Team ticket results return internally to the Architect
+instead of starting a separate user conversation.
 
 ### FAQ A2. What if the watcher cannot tell whether a message finished safely? <a id="faq-a2-unverified-outcome"></a>
 
