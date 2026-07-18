@@ -98,6 +98,9 @@ INTEGRATOR_FIELD_RE = re.compile(
     r"^- (Integration|Final validation):[ \t]+(.+)$")
 PARALLEL_LAUNCH_ROW = (
     "- Launch: `required before implementation edits`")
+SUBAGENTS_REQUIRED_HEADING = "#### Subagents required"
+SUBAGENTS_NOT_REQUIRED_HEADING = "#### Subagents not required"
+SUBAGENTS_NOT_REQUIRED_REASON_RE = re.compile(r"^- Reason:[ \t]+(.+)$")
 CAPABILITY_EXCEPTION_ROWS = (
     ("Capability checked",
      re.compile(r"^- Capability checked: `([^`\n]+)`$")),
@@ -1210,13 +1213,42 @@ def _capability_exception(lines):
     }
 
 
-def _require_parallel_subagent_plan(body):
-    """Parse mandatory, non-overlapping delegation and integration steps.
+def _subagents_not_required(lines, context="section 'Parallel work plan'"):
+    """Parse one Architect-owned decision that a helper adds no value."""
+    if len(lines) != 2 or lines[0] != SUBAGENTS_NOT_REQUIRED_HEADING:
+        raise DirectiveError(
+            context + " must contain exactly the heading "
+            + SUBAGENTS_NOT_REQUIRED_HEADING + " and one Reason row")
+    match = SUBAGENTS_NOT_REQUIRED_REASON_RE.fullmatch(lines[1])
+    if match is None:
+        raise DirectiveError(
+            context + " must place the Architect's explanation in one exact "
+            "- Reason: row")
+    reason = match.group(1).strip()
+    _parallel_payload("Reason", reason, context=context)
+    no_independent_result = re.search(
+        r"\b(?:no|not|without|cannot)\b[^.!?\n]{0,120}\bindependent\b",
+        reason, re.IGNORECASE)
+    if (no_independent_result is None
+            or re.search(
+                r"\b(?:repeat|duplicate|overlap|same|indivisible|separate|"
+                r"non-overlapping)\w*\b", reason, re.IGNORECASE) is None):
+        raise DirectiveError(
+            context + " Reason must explain why a separate helper would not "
+            "produce independent, non-overlapping work or evidence")
+    return {
+        "mode": "not-required",
+        "reason": reason,
+        "subagents": [],
+    }
 
-    The schema is deliberately strict.  It gives a less-capable Implementer
-    one launch instruction, one bounded contract per subagent, and one exact
-    integration contract.  Prose that merely mentions an integrator or says
-    that parallel work may be useful is not executable and is refused.
+
+def _require_parallel_subagent_plan(body):
+    """Parse the Architect's explicit helper decision.
+
+    The Architect either provides bounded helper work or explains why a
+    separate helper would only duplicate this ticket.  The Implementer cannot
+    choose or rewrite that decision.
     """
     structural = _binding_markdown_text(text=body)
     lines = [line.strip() for line in structural.split("\n") if line.strip()]
@@ -1226,15 +1258,22 @@ def _require_parallel_subagent_plan(body):
             "plan")
     if lines[0].startswith("- Capability checked:"):
         return _capability_exception(lines=lines)
-    if lines[0] != PARALLEL_LAUNCH_ROW:
+    if lines[0] == SUBAGENTS_NOT_REQUIRED_HEADING:
+        return _subagents_not_required(lines=lines)
+    if lines[0] != SUBAGENTS_REQUIRED_HEADING:
         raise DirectiveError(
-            "section 'Parallel work plan' must start with the exact launch "
-            "row " + PARALLEL_LAUNCH_ROW)
+            "section 'Parallel work plan' must start with "
+            + SUBAGENTS_REQUIRED_HEADING + " or "
+            + SUBAGENTS_NOT_REQUIRED_HEADING)
+    if len(lines) < 2 or lines[1] != PARALLEL_LAUNCH_ROW:
+        raise DirectiveError(
+            "section 'Parallel work plan' with required subagents must place "
+            "the exact launch row after its heading: " + PARALLEL_LAUNCH_ROW)
 
     subagents = []
     names = set()
     edit_owners = {}
-    index = 1
+    index = 2
     expected_fields = (
         "Mode", "Ownership", "Task", "Return", "Acceptance", "Stop")
     while index < len(lines) and lines[index] != "#### Integrator":
@@ -1441,6 +1480,15 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
         # the exact prior blocked cycle/SHA checkpoint.  Repeating the same
         # capability failure is therefore the mechanically authorized
         # no-helper fallback, not another request to loop back to Architect.
+        evidence["completion_ready"] = True
+        return evidence
+    if parallel_work_plan.get("mode") == "not-required":
+        evidence = _subagents_not_required(
+            lines=lines, context="IMPLEMENTER_HANDOFF subagent evidence")
+        if evidence["reason"] != parallel_work_plan.get("reason"):
+            raise DirectiveError(
+                "IMPLEMENTER_HANDOFF must repeat the Architect's Subagents "
+                "not required Reason exactly")
         evidence["completion_ready"] = True
         return evidence
     if parallel_work_plan.get("mode") != "subagents":

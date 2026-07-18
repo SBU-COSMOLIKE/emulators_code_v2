@@ -261,28 +261,29 @@ archive, or mailbox write. A detailed Architect directive includes:
 - exact validation commands;
 - stop conditions; and
 - non-overlapping ownership when work is divided; and
-- a subagent plan for independent reproduction, implementation, test,
-  documentation, or review work.
+- the Architect's decision to require bounded subagents or explain why a
+  separate helper would add no independent value.
 
 The instruction must be complete enough for a simple Implementer to execute
 without inventing design decisions. A design-sensitive gap is a blocker. The
 Implementer reports the exact missing fact and waits for a revised Architect
 directive.
 
-The Implementer delegates independent bounded parts to subagents when the
-selected runtime supports them. The Implementer then integrates their work,
-reviews every changed file, and runs the final validation. A small or focused
-ticket is not an exception: a subagent can independently reproduce the bug,
-check the regression, or inspect the evidence while the Implementer edits.
-Only a runtime with no subagent support excuses delegation. In that case, the
-Implementer records the concrete capability failure and raw evidence. It
-never claims that delegation occurred when it did not.
+Only the Architect decides whether subagents add independent value. When a
+ticket can be divided into an independent reproduction, implementation, test,
+documentation, or audit job, the Architect requires those bounded helpers.
+The Implementer then integrates their work, reviews every changed file, and
+runs the final validation. When a separate helper would only repeat the same
+indivisible work or evidence, the Architect records that reason instead. The
+Implementer repeats the exact reason and cannot create or rewrite the waiver.
+Cost, convenience, or “small ticket” alone is not a sufficient reason.
 
 `handoff_contract.py` rejects an informal sentence such as “use helpers where
-useful.” The Architect writes one executable contract per helper. For
-example, a mailbox-parser ticket can contain:
+useful.” The Architect chooses one of two visible forms. For example, a
+mailbox-parser ticket with independent work can contain:
 
 ```markdown
+#### Subagents required
 - Launch: `required before implementation edits`
 #### Subagent `failure-reproducer`
 - Mode: `read-only`
@@ -296,13 +297,21 @@ example, a mailbox-parser ticket can contain:
 - Final validation: Run `python3 -m unittest ai.tests.test_handoff_contract` and require exit zero.
 ```
 
+For one parser branch whose edit and assertion cannot be divided without
+duplicating the same inspection, the Architect can instead write:
+
+```markdown
+#### Subagents not required
+- Reason: The complete edit and its assertion share one parser branch; a separate helper would repeat the same inspection without producing independent evidence.
+```
+
 An editing helper uses `Mode: edit` and owns exact, backticked
 `repo/path::symbol` entries. One editing helper owns the whole file; two
 helpers may not claim different symbols in the same file because their edits
 could still collide.
 
-The first directive always contains named helper jobs. A capability exception
-is never guessed in advance. If the Implementer attempts the named launch and
+For a required plan, a capability exception is never guessed in advance. If
+the Implementer attempts the named launch and
 the runtime rejects it before editing, the Implementer marks that helper
 `blocked` in the same-cycle `IMPLEMENTER_HANDOFF`. As the final rows inside
 that handoff's `Subagent work` evidence, the Implementer records the exact
@@ -328,8 +337,7 @@ The relay verifies both binding rows and all three copied failure values
 against the saved handoff before the Architect's revised plan can run. A
 missing, paraphrased, normalized, or invented value refuses the exception.
 The Architect revalidates and sends that revised same-cycle directive. A
-speculative or stale-cycle exception fails validation. “The ticket is small”
-and “the work is indivisible” are not exceptions. A truthful `blocked` helper
+speculative or stale-cycle exception fails validation. A truthful `blocked` helper
 return may be used for this checkpoint, but unresolved blocked work cannot
 support final `GO`; every helper in the final ordinary plan must return
 `pass`.

@@ -503,14 +503,17 @@ It never starts or completes a ticket cycle.
    subsystem that exists only to remove a responsibility the user can
    reasonably carry.
 
-2b. **Plan bounded Implementer subagents (hard user rule).** Every
-   implementation directive must use its `Parallel work plan` to split the
-   ticket into bounded parts and must direct the Implementer to launch those
-   subagents when the runtime supports them.
-   Good boundaries include reproducing the failure and collecting evidence,
-   editing production code, writing regression tests, and preparing scoped
-   documentation or audit evidence. Name each subtask, its exact files or
-   symbols, its expected return, and the Integrator. Give different subagents
+2b. **Decide whether Implementer subagents add independent value (hard user
+   rule).** Every implementation directive must choose exactly one `Parallel
+   work plan` form: `Subagents required` or `Subagents not required`. Only the
+   Architect makes this choice. Require helpers when they can provide an
+   independent reproduction, implementation, test, documentation, or audit
+   result. If no useful independent split exists, explain concretely why a
+   separate helper would repeat the same work or evidence. Cost, convenience,
+   or the words “small ticket” alone are not a sufficient reason.
+
+   For `Subagents required`, name each subtask, its exact files or symbols, its
+   expected return, and the Integrator. Give different subagents
    non-overlapping file ownership; no subagent may decide architecture, widen
    scope, edit the permanent notes or backlog, or land a commit.
 
@@ -519,17 +522,16 @@ It never starts or completes a ticket cycle.
    roles or receive separate Git lanes. Architect and Red Team subagents are
    read-only.
 
-   Require the Implementer to launch every planned helper before making any
+   When subagents are required, require the Implementer to launch every planned
+   helper before making any
    Integrator-owned implementation edit. Independent helpers with
    non-overlapping ownership run concurrently. After all required returns
    arrive, the Implementer inspects and integrates every return, resolves any
    conflict against this directive, and only then must personally run the
    final combined validation commands.
    Delegation shortens elapsed time; it never divides responsibility or turns
-   a subagent's claim into proof. Even a small source edit can delegate its
-   independent reproduction or regression review. The first directive always
-   contains named subagent jobs; never declare the capability unavailable in
-   advance. If the first actual subagent launch fails before any Implementer
+   a subagent's claim into proof. Never declare the capability unavailable in
+   advance. If a required first subagent launch fails before any Implementer
    edit, require a same-cycle `blocked` checkpoint. The exact
    `IMPLEMENTER_HANDOFF` must place the planned return evidence under
    `- **Subagent work:**`, mark the rejected helper `blocked`, and end that
@@ -555,8 +557,10 @@ It never starts or completes a ticket cycle.
    claim that work was parallel, or serial execution merely because it was
    convenient.
 
-   Before final `GO`, compare the Implementer's structured subagent-return
-   evidence with every exact name in the validated plan. Each planned return
+   Before final `GO`, compare the Implementer's structured helper evidence with
+   the validated plan. A `Subagents not required` handoff must repeat the exact
+   Architect-authored reason and may not contain helper returns. For required
+   helpers, each planned return
    must name its artifact, say `pass` or `blocked`, and preserve concrete
    evidence. An unplanned, missing, duplicate, or renamed return is `NO-GO`.
    `blocked` is an honest checkpoint, not passing evidence: an unresolved
@@ -954,9 +958,10 @@ Always list all eleven permanent note paths and
 [List contradictions or missing facts that require Architect adjudication.]
 
 ### Parallel work plan
-Use this exact structure for every planned helper. Repeat the Subagent block
-for each non-overlapping job:
+Choose exactly one of the next two forms. When helpers add independent value,
+use this structure and repeat the Subagent block for each non-overlapping job:
 
+#### Subagents required
 - Launch: `required before implementation edits`
 #### Subagent `descriptive-name`
 - Mode: `read-only` or `edit`
@@ -969,7 +974,14 @@ for each non-overlapping job:
 - Integration: [how the Implementer reviews every subagent return and combines non-overlapping work]
 - Final validation: [an exact backticked command and required result after integration]
 
-If and only if the runtime exposes no subagent launch capability, replace the
+When a separate helper would only repeat the same indivisible work or evidence,
+use exactly this structure:
+
+#### Subagents not required
+- Reason: [a concrete Architect-authored explanation of why a separate helper would not produce independent, non-overlapping work or evidence]
+
+If and only if a required first launch proves that the runtime exposes no
+subagent launch capability, replace the
 whole plan above with exactly these three evidence rows:
 
 - Capability checked: `exact.launch.operation`
@@ -1223,20 +1235,8 @@ permits admission beyond `--cycle`. A ruling only you can issue, such as a
 scope question or design adjudication, is a lane blocker; resolve it before it
 idles the Implementer.
 
-Two further user rules (2026-07-14) on the same doctrine:
+One further rule follows the same doctrine:
 
-- **Require bounded subagent fan-outs in every Implementer handoff.** Each
-  directive names the independent work, non-overlapping ownership, expected
-  returns, integration owner, and final combined checks. Require the
-  Implementer to use those subagents whenever the runtime supports them,
-  including independent reproduction or regression review for a small edit.
-  Every helper launches before the Integrator makes an Integrator-owned edit.
-  Independent non-overlapping jobs run concurrently; every required return is
-  integrated before the Implementer personally runs the final checks.
-  Only a runtime with no subagent capability is an exception, and its failure
-  is recorded. Invented delegation is forbidden. The Architect audit and the
-  Implementer's responsibility for the integrated result never move to a
-  subagent.
 - **Audit C; let the parent daemon create L.** Main history stays coarse: one
   distinct squash landing per accepted fix, carrying the fix, its tests, and
   any required tracked documentation together. The local audit record remains

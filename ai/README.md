@@ -446,13 +446,17 @@ on code. The Architect decides the implementation before coding. Red Team
 must give the same level of detail when it proposes a repair.
 
 A **helper** is a short-lived AI session that handles one small job named in
-the plan.
+the plan. The Architect first decides whether a separate helper can add an
+independent result.
 
 ```mermaid
 flowchart TD
-    A["Architect finishes the design"] --> H["Plan assigns each helper a job and files"]
-    H --> S["Implementer starts every helper"]
+    A["Architect finishes the design"] --> D{"Can a helper add independent evidence?"}
+    D -->|"Yes"| H["Plan assigns each required helper a job and files"]
+    D -->|"No"| N["Plan explains why a helper would only repeat the work"]
+    H --> S["Implementer starts every required helper"]
     S --> I["Implementer uses reports and edits assigned files"]
+    N --> I
     I --> V["Implementer runs the final tests"]
 ```
 
@@ -495,13 +499,14 @@ The user does not write that internal format. The
 [handoff checker guide](tools/README.md#check-a-handoff-directive) explains
 the exact internal fields and commands when they are needed.
 
-#### Helpers follow the Architect's division of work
+#### The Architect decides whether helpers add value
 
 The mailbox tools use **subagent** as their internal name for a helper. A
 helper receives one specific job and the files it may read or edit. It is not
 another mailbox role and does not decide how to divide the work.
 
-For a mailbox-parser repair, the plan might assign these jobs:
+For a mailbox-parser repair with independent work, the plan might assign these
+jobs:
 
 - one helper reproduces the failure and returns the exact command and output;
 - another reads the existing regression tests and identifies the missing
@@ -509,17 +514,20 @@ For a mailbox-parser repair, the plan might assign these jobs:
 - the Implementer reads both reports, uses the relevant results, edits its
   assigned files, and runs the final tests.
 
-This delegation is required in every directive, including a small source
-edit. The Implementer starts every planned helper before making the source
-edit assigned to the Implementer. Helpers may run at the same time only when
-they will not edit the same file. The Implementer waits for every required
+When the Architect requires helpers, the Implementer starts every planned
+helper before making its own source edit. Helpers may run at the same time only
+when they will not edit the same file. The Implementer waits for every required
 report, checks and combines the accepted work, and runs the final commands.
+
+Some tickets have no useful split. For example, one sentence and its existing
+assertion may require the same short inspection. The Architect can record that
+a helper would only repeat the work without adding independent evidence. The
+Implementer must repeat that exact reason and cannot choose this exception.
 
 #### If the first helper cannot start
 
-If the first helper cannot start, the Implementer stops before editing and
-asks the Architect for a revised plan. “This ticket is small” is not an
-exception. The
+If the first required helper cannot start, the Implementer stops before editing
+and asks the Architect for a revised plan. The
 [exact helper-failure record](tools/README.md#which-tool-do-i-use)
 explains how the tools preserve the original error and check the revised plan.
 

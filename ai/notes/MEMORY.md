@@ -210,12 +210,16 @@ When another slot remains,
 the Implementer may code the next admitted ticket while the Architect audits
 an earlier immutable candidate C and the Red Team reviews an earlier
 daemon-recorded landing L. Only the Implementer lane edits source code.
-Severity never selects roles. Every Architect implementation directive
-assigns bounded subagent work. The Implementer attempts every named launch
-before an Integrator-owned edit, runs independent non-overlapping work at the
-same time, integrates every return, and personally runs the combined
-validation. Only an actual pre-edit runtime rejection can begin the bound
-same-cycle capability-exception path. High and Critical ratings require
+Severity never selects roles. Every Architect implementation directive says
+either `Subagents required` or `Subagents not required`. Only the Architect
+chooses. A no-helper plan gives a concrete reason why another session would
+repeat the same work without independent evidence; the Implementer repeats
+that reason exactly and cannot invent a waiver. For a required plan, the
+Implementer attempts every named launch before an Integrator-owned edit, runs
+independent non-overlapping work at the same time, integrates every return,
+and personally runs the combined validation. Only an actual pre-edit runtime
+rejection can begin the bound same-cycle capability-exception path. High and
+Critical ratings require
 explicit comparisons with the next lower severity, and an Architect NO-GO to
 reopening permanently bars that ticket from another `REOPEN`. The required
 fields in each role-to-role instruction are defined in

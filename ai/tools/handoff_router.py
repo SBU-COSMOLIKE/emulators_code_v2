@@ -1179,7 +1179,8 @@ def main():
         "short return; append the full result under the sibling evidence "
         "heading first). In that block, use the exact marker row "
         + IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER + ", put every structured "
-        "Subagent return below it in planned order, and make "
+        "Subagent return below it in planned order or repeat the exact "
+        "Subagents not required heading and Reason, and make "
         "- **Blockers/findings:** the next bold handoff field.\n\n"
         "### ENDS\n")
     implementer_name = "Opus"

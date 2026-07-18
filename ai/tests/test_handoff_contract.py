@@ -31,6 +31,13 @@ BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 WORKTREE = "/repo/.claude/worktrees/mailbox-primary"
 CHECKPOINT_CYCLE = "scratch-ticket@" + BASE_COMMIT
 CHECKPOINT_SHA256 = "a" * 64
+NO_HELPER_REASON = (
+    "The complete edit and its assertion share one small parser branch; a "
+    "separate helper would repeat the same inspection without producing "
+    "independent evidence.")
+NO_HELPER_PLAN = (
+    "#### Subagents not required\n- Reason: " + NO_HELPER_REASON)
+NO_HELPER_EVIDENCE = NO_HELPER_PLAN
 
 
 ARCHITECT_BODIES = {
@@ -74,6 +81,7 @@ ARCHITECT_BODIES = {
     "Stop and ask if": (
         "Stop if the named symbol is absent or another writer owns the file."),
     "Parallel work plan": (
+        "#### Subagents required\n"
         "- Launch: `required before implementation edits`\n"
         "#### Subagent `failure-reproducer`\n"
         "- Mode: `read-only`\n"
@@ -307,6 +315,56 @@ class HandoffContractTests(unittest.TestCase):
                         text=packet(
                             role="architect",
                             bodies={"Parallel work plan": plan}))
+
+    def test_architect_may_explain_why_subagents_add_no_independent_value(self):
+        plan = validate_directive_text(
+            role="architect",
+            text=packet(
+                role="architect",
+                bodies={"Parallel work plan": NO_HELPER_PLAN}))[
+                    "parallel_work_plan"]
+        self.assertEqual(plan, {
+            "mode": "not-required",
+            "reason": NO_HELPER_REASON,
+            "subagents": [],
+        })
+
+        returned = validate_implementer_subagent_evidence(
+            plan, NO_HELPER_EVIDENCE)
+        self.assertTrue(returned["completion_ready"])
+        self.assertEqual(returned["reason"], NO_HELPER_REASON)
+
+        invalid_plans = (
+            "#### Subagents not required",
+            "#### Subagents not required\n- Reason: The ticket is small.",
+            "#### Subagents not required\n- Reason: "
+            "No helper is needed because this is convenient serial work.",
+            "#### Subagents not required\n- Reason: The source edit and an "
+            "independent test are separate useful tasks that produce distinct "
+            "evidence and should be assigned to different helpers.",
+            NO_HELPER_PLAN + "\n#### Subagent `unplanned-reviewer`",
+        )
+        for invalid in invalid_plans:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(DirectiveError):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Parallel work plan": invalid}))
+
+        with self.assertRaisesRegex(DirectiveError, "repeat.*Reason exactly"):
+            validate_implementer_subagent_evidence(
+                plan,
+                NO_HELPER_EVIDENCE.replace(
+                    "same inspection", "same source inspection"))
+        with self.assertRaises(DirectiveError):
+            validate_implementer_subagent_evidence(
+                plan,
+                "#### Subagent return `unplanned-reviewer`\n"
+                "- Returned artifact: A separate focused review report.\n"
+                "- Acceptance: `pass`\n"
+                "- Evidence: The named command exited zero with full output.")
 
     def test_subagent_blocks_require_exact_fields_and_real_ownership(self):
         valid = ARCHITECT_BODIES["Parallel work plan"]

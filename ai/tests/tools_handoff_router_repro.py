@@ -26,6 +26,8 @@ HANDOFF_CONTRACT_SOURCE = AI_ROOT / "tools" / "handoff_contract.py"
 if str(AI_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(AI_ROOT.parent))
 
+from ai.tests.test_handoff_contract import NO_HELPER_EVIDENCE
+from ai.tests.test_handoff_contract import NO_HELPER_PLAN
 from ai.tests.test_handoff_contract import packet
 
 
@@ -510,6 +512,16 @@ def arm_subagent_evidence_validation():
             and len(valid["gates"]) == 1
             and valid["released"])
 
+        no_helper = route(
+            implementer_handoff(evidence=NO_HELPER_EVIDENCE),
+            parallel_work_plan=NO_HELPER_PLAN)
+        exact_no_helper_reaches_checks = (
+            no_helper["rc"] == 0
+            and len(no_helper["copied"]) == 2
+            and [row[1] for row in no_helper["archived"]] == ["implementer"]
+            and len(no_helper["gates"]) == 1
+            and no_helper["released"])
+
         blocked = route(implementer_handoff(
             evidence=blocked_subagent_evidence()))
         blocked_is_checkpoint_only = (
@@ -637,6 +649,11 @@ def arm_subagent_evidence_validation():
             route(
                 weak_capability,
                 parallel_work_plan=CAPABILITY_UNAVAILABLE_PLAN),
+            route(
+                implementer_handoff(
+                    evidence=NO_HELPER_EVIDENCE.replace(
+                        "same inspection", "same source inspection")),
+                parallel_work_plan=NO_HELPER_PLAN),
         ]
         refusals_stop_before_archive = all(
             result["rc"] == 1
@@ -654,6 +671,8 @@ def arm_subagent_evidence_validation():
         print("ARM subagent evidence validation")
         print("  valid planned returns reach archive and checks:",
               valid_reaches_checks)
+        print("  exact no-helper reason reaches archive and checks:",
+              exact_no_helper_reaches_checks)
         print("  blocked return reaches Architect checkpoint only:",
               blocked_is_checkpoint_only)
         print("  checkpoint mutations and same-base cross-note reuse refuse:",
@@ -661,6 +680,7 @@ def arm_subagent_evidence_validation():
         print("  missing/extra/mismatched/weak evidence stops before archive:",
               refusals_stop_before_archive)
         assert valid_reaches_checks
+        assert exact_no_helper_reaches_checks
         assert blocked_is_checkpoint_only
         assert checkpoint_binding_refusals
         assert refusals_stop_before_archive

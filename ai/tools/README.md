@@ -891,7 +891,7 @@ Here, `path::name` means the file followed by the function, class, section, or
 test to inspect. The real note uses locations for its own ticket; it does not
 copy this example for unrelated work.
 
-#### Require bounded helper work
+#### Record whether helpers add value
 
 A **subagent** is a short-lived helper given one small task.
 It is not another mailbox role. One helper might reproduce a parser error
@@ -899,12 +899,17 @@ while another checks one named function. The plan says what each helper
 returns and when it must stop. An Integrator step tells the Implementer how to
 combine and check those returns.
 
-The manual relay compares the planned helper names with the Implementer's
-`Subagent work` evidence. Missing, renamed, reordered, or extra helper results
-are refused. The Architect still reads that evidence and makes the decision.
-The Implementer may not skip this attempt merely because the edit is small.
+Only the Architect decides whether helpers add independent value. A required
+plan names each bounded job. A no-helper plan contains one concrete reason why
+a separate session would repeat the same work without independent evidence.
+The Implementer cannot invent or rewrite that reason.
 
-If the first helper cannot start before editing begins, the evidence ends with
+The manual relay compares a required plan's helper names with the Implementer's
+`Subagent work` evidence. Missing, renamed, reordered, or extra helper results
+are refused. For a no-helper plan, it requires the exact saved reason instead.
+The Architect still reads that evidence and makes the decision.
+
+If the first required helper cannot start before editing begins, the evidence ends with
 the fields `Capability checked`, `Attempted operation`, and `Raw failure` in
 these exact rows:
 

@@ -194,10 +194,12 @@ restores ticket worktrees.
    Architect alone decides `NO-GO`, a new ticket split, or a request for a
    higher user-approved limit.
 
-1b. **Use the directive's bounded subagent plan.** Every ticket must attempt
-   the plan. You must launch every helper named in `Parallel work plan` before
-   making any Integrator-owned implementation edit; delegation is mandatory,
-   not a suggestion. Typical independent parts are a
+1b. **Obey the directive's helper decision.** Only the Architect decides
+   whether subagents add independent value. A `Subagents not required` plan
+   must be copied exactly into the handoff; do not add helpers, rewrite its
+   reason, or invent this waiver yourself. A `Subagents required` plan is
+   mandatory: launch every named helper before making any Integrator-owned
+   implementation edit. Typical independent parts are a
    failure reproducer and evidence capture, production-code edits, regression
    tests, and scoped documentation or audit evidence. An editing subagent is
    part of the Implementer lane; it does not become another mailbox role or
@@ -212,9 +214,8 @@ restores ticket worktrees.
    reconcile it with the binding directive, and integrate compatible work.
    Only after integration do you personally run the final combined validation
    commands. A subagent report is not proof and does not
-   transfer responsibility. Even a small source edit has an independent
-   reproduction, regression review, or evidence task to delegate. If the
-   runtime rejects the first actual subagent launch before any implementation
+   transfer responsibility. If the runtime rejects the first required
+   subagent launch before any implementation
    edit, make no implementation edit. Return a same-cycle checkpoint. Inside
    that exact `IMPLEMENTER_HANDOFF`, place the `Subagent work` evidence under
    its exact `- **Subagent work:**` marker. Report the planned return blocks
@@ -239,7 +240,7 @@ restores ticket worktrees.
    capability-exception directive by copying the three SHA-bound rows.
    Proceed without helpers only after receiving that revision. Never accept a
    speculative exception. Never claim delegation that did not happen, and
-   never keep independent work serial merely for convenience.
+   never keep required independent work serial merely for convenience.
 
    A `blocked` helper return is a checkpoint and cannot support final `GO`.
    The final candidate handoff must report `pass` for every helper in the
@@ -467,7 +468,13 @@ mark the rejected helper `blocked` and append these three exact final rows:
 
 If the Architect later records the validated capability exception, omit the
 Subagent return blocks and repeat only the same three SHA-bound rows here.
-Never reconstruct, improve, or invent their text.]
+Never reconstruct, improve, or invent their text.
+
+If the Architect selected no helpers, replace all return blocks with the exact
+two lines from the directive:
+
+#### Subagents not required
+- Reason: [the unchanged Architect-authored reason]
 
 - **Blockers/findings:** [unexpected behavior, limitations, surprises]
 - **Notes entry updated:** [ai/notes/<name>.md — resume state appended]

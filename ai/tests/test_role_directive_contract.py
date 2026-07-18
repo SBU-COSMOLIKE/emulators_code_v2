@@ -166,15 +166,17 @@ class RoleDirectiveContractTests(unittest.TestCase):
             mailbox_daemon.public_architect_sol_outcome_problem(
                 message=sol, expected_token=token))
 
-    def test_implementer_always_attempts_the_planned_subagents(self):
+    def test_architect_selects_and_implementer_obeys_the_helper_plan(self):
         architect = " ".join(self.architect.split())
         implementer = " ".join(self.implementer.split())
         architect_command = " ".join(self.architect_command.split())
         implementer_command = " ".join(self.implementer_command.split())
 
-        self.assertIn("Plan bounded Implementer subagents", architect)
-        self.assertIn("reproducing the failure and collecting evidence",
-                      architect)
+        self.assertIn("Decide whether Implementer subagents add independent "
+                      "value", architect)
+        self.assertIn("Subagents required", architect)
+        self.assertIn("Subagents not required", architect)
+        self.assertIn("Only the Architect makes this choice", architect)
         self.assertIn("non-overlapping file ownership", architect)
         self.assertIn("personally run the final combined validation commands",
                       architect)
@@ -186,7 +188,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       "validation commands", architect)
         self.assertIn("Only then may a runtime with no subagent support",
                       architect)
-        self.assertIn("The first directive always contains named subagent jobs",
+        self.assertIn("must repeat the exact Architect-authored reason",
                       architect)
         self.assertIn("Prior Implementer subagent launch failure", architect)
         self.assertIn("full source cycle and SHA-256", architect)
@@ -194,10 +196,15 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       architect)
         self.assertIn("fabricated delegation", architect)
 
-        self.assertIn("Use the directive's bounded subagent plan", implementer)
+        self.assertIn("Obey the directive's helper decision", implementer)
+        self.assertIn("do not add helpers, rewrite its reason, or invent this "
+                      "waiver yourself", implementer)
+        self.assertIn(
+            "- Reason: [the unchanged Architect-authored reason]\n",
+            self.implementer)
         self.assertIn("You remain the Integrator", implementer)
-        self.assertIn("must launch every helper named in `Parallel work plan` before "
-                      "making any Integrator-owned implementation edit",
+        self.assertIn("launch every named helper before making any Integrator-"
+                      "owned implementation edit",
                       implementer)
         self.assertIn("run independent helper jobs concurrently", implementer)
         self.assertIn("Only after integration do you personally run the final "
@@ -214,20 +221,19 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("An unplanned, missing, duplicate, or renamed return is "
                       "`NO-GO`", architect)
 
-        self.assertIn("Every implementation directive must give the "
-                      "Implementer a bounded subagent plan", architect_command)
-        self.assertIn("Require the Implementer to launch that plan",
-                      architect_command)
+        self.assertIn("Every implementation directive must record whether "
+                      "subagents add independent value", architect_command)
+        self.assertIn("Only the Architect makes this choice", architect_command)
         self.assertIn("Never predeclare the runtime incapable",
                       architect_command)
-        self.assertIn("mandatory even for a small edit", implementer_command)
-        self.assertIn("Every valid directive contains a bounded `Parallel "
-                      "work plan`", implementer_command)
-        self.assertIn("You must attempt every exact named Subagent block",
+        self.assertIn("Every valid directive contains the Architect's helper "
+                      "decision", implementer_command)
+        self.assertIn("you must attempt every exact named Subagent block",
                       implementer_command)
         self.assertIn("- **Subagent work:**", implementer_command)
         self.assertIn("- Launch: `required before implementation edits`",
                       self.conventions)
+        self.assertIn("#### Subagents not required", self.conventions)
         self.assertIn("#### Subagent `failure-reproducer`", self.conventions)
         self.assertIn("- Capability checked:", self.conventions)
         self.assertIn("- Source cycle:", self.conventions)
@@ -236,7 +242,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.conventions)
         self.assertIn("prior same-cycle IMPLEMENTER_HANDOFF checkpoint",
                       self.conventions)
-        self.assertIn("The ticket is small", self.conventions)
+        self.assertIn("small ticket", self.conventions)
 
     def test_first_failed_subagent_launch_is_exact_and_sha_bound(self):
         architect = " ".join(self.architect.split())
@@ -790,10 +796,10 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.ai_readme)
         self.assertIn("Haiku, an open-source model", self.ai_readme)
         self.assertIn("internal name for a helper", self.ai_readme)
-        self.assertIn("This delegation is required", self.ai_readme)
+        self.assertIn("The Architect decides whether helpers add value",
+                      self.ai_readme)
         self.assertIn("It is not another mailbox role", self.tools_readme)
-        self.assertIn("may not skip this attempt merely because the edit is "
-                      "small",
+        self.assertIn("The Implementer cannot invent or rewrite that reason",
                       " ".join(self.tools_readme.split()))
         self.assertIn("Use your best judgment", self.ai_readme)
         self.assertIn("Only the Architect decides whether to use it",
@@ -1527,22 +1533,23 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("refusal rather than a reset", tools_readme)
         self.assertIn("never resets or overwrites an unsafe lane", architect)
 
-    def test_subagent_fanout_has_no_small_or_convenience_exception(self):
+    def test_subagent_discretion_is_architect_only_and_reasoned(self):
         architect = " ".join(self.architect.split())
         implementer = " ".join(self.implementer.split())
         implementer_command = " ".join(self.implementer_command.split())
 
-        self.assertIn("Every implementation directive", architect)
-        self.assertIn("launch every planned helper before making any "
-                      "Integrator-owned implementation edit", architect)
-        self.assertIn("Even a small source edit", architect)
-        self.assertIn("serial execution merely because it was convenient",
+        self.assertIn("Only the Architect makes this choice", architect)
+        self.assertIn("Cost, convenience, or the words “small ticket” alone",
                       architect)
-        self.assertIn("Every ticket must attempt the plan", implementer)
-        self.assertIn("delegation is mandatory, not a suggestion", implementer)
-        self.assertIn("The ticket is small", implementer_command)
-        self.assertIn("serial work is convenient", implementer_command)
-        self.assertIn("real failed launch", implementer_command)
+        self.assertIn("When subagents are required", architect)
+        self.assertIn("A `Subagents not required` plan must be copied exactly",
+                      implementer)
+        self.assertIn("do not add helpers, rewrite its reason, or invent this "
+                      "waiver yourself", implementer)
+        self.assertIn("Do not add a helper, rewrite the reason, or create this "
+                      "waiver yourself", implementer_command)
+        self.assertIn("Only a runtime with no subagent capability",
+                      implementer_command)
 
 
 if __name__ == "__main__":

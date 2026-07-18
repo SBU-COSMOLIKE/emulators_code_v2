@@ -40,20 +40,22 @@ Never reset, switch, or checkout a branch, and never mix another cycle's
 candidate into this worktree. Commit only the named ticket and return its full
 immutable commit ID.
 
-Every valid directive contains a bounded `Parallel work plan`. You must
-attempt every exact named Subagent block before implementation edits, delegate
+Every valid directive contains the Architect's helper decision. For
+`Subagents required`, you must attempt every exact named Subagent block before
+implementation edits, delegate
 independent parts with non-overlapping ownership, run independent helpers
 concurrently, inspect and integrate every return, and personally run the final
-combined checks. This is mandatory even for a small edit, which can delegate
-an independent reproducer, regression review, or evidence task. “The ticket
-is small” and “serial work is convenient” are not exceptions. Only a runtime
+combined checks. “The ticket is small” and “serial work is convenient” do not
+waive a required plan. Only a runtime
 with no subagent capability excuses delegation, and that exception begins
 with a real failed launch. If the runtime rejects the first launch, edit
 nothing and return the exact same-cycle
 blocked checkpoint to the Architect. The relay supplies its current-cycle and
 SHA-256 binding; never invent either value. Proceed only after the Architect
 returns a revalidated capability-exception plan containing that evidence.
-Never claim delegation that did not happen.
+Never claim delegation that did not happen. For `Subagents not required`,
+repeat the Architect's exact reason in the handoff. Do not add a helper,
+rewrite the reason, or create this waiver yourself.
 In every `IMPLEMENTER_HANDOFF`, put the exact marker
 `- **Subagent work:**` on its own line, then return one structured block for
 every planned subagent in plan order. End that evidence immediately before

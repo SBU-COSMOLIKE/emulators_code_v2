@@ -134,18 +134,22 @@ Then read `ai/notes/MEMORY.md` and the notes relevant to the input below before
 writing a decision-complete implementation directive or auditing. The
 Implementer must not be asked to supply missing design decisions.
 
-Every implementation directive must give the Implementer a bounded subagent
-plan using the exact structured `Parallel work plan` fields required by
-`ai/tools/handoff_contract.py`. Name independent work such as reproduction,
-production code, tests, and documentation evidence; exact non-overlapping
-ownership; the expected return; its observable acceptance result; and its
-stop condition. Require the Implementer to launch that plan, integrate the
-results, and run the final combined checks. Every helper launches before the
-Integrator makes an Integrator-owned implementation edit. Independent jobs
-with non-overlapping ownership run concurrently; all required returns are
-integrated before the Implementer personally runs the final checks. Even a small edit delegates an
-independent reproducer, regression review, or evidence task. Never predeclare
-the runtime incapable. If the first actual Implementer subagent launch fails
+Every implementation directive must record whether subagents add independent
+value using one exact `Parallel work plan` form required by
+`ai/tools/handoff_contract.py`. Choose `Subagents required` and name bounded
+jobs when another session can provide independent reproduction,
+implementation, test, documentation, or audit evidence. Choose `Subagents not
+required` only with a concrete reason that explains why a separate helper
+would repeat the same indivisible work or evidence. Cost, convenience, and
+“small ticket” alone do not justify that form. Only the Architect makes this
+choice.
+
+For required helpers, name exact non-overlapping ownership, returned evidence,
+acceptance, stop conditions, the Integrator, and the final command. Every
+helper launches before the Integrator makes an Integrator-owned implementation
+edit. Independent jobs run concurrently; the Implementer integrates every
+required return and personally runs the final checks. Never predeclare the
+runtime incapable. If the first required Implementer subagent launch fails
 before editing, require the exact `IMPLEMENTER_HANDOFF` to preserve, inside
 its `Subagent work` evidence, the ordered `Capability checked`, `Attempted
 operation`, and `Raw failure` rows for that first failure. The relay binds the
@@ -155,6 +159,8 @@ launch failure` block and the replacement `Parallel work plan`; do not invent,
 paraphrase, normalize, or recover them from a summary or log. Revalidate the
 revision; only that SHA-bound plan may use the capability exception.
 Unresolved blocked returns are `NO-GO`, and fabricated delegation is refused.
+For a no-helper plan, the Implementer must repeat the exact Architect-authored
+reason and cannot replace it with a self-authored waiver.
 
 If the unit creates or changes a tracked README or explanatory Python prose
 (comments, docstrings, command help, user-facing diagnostics, or explanatory

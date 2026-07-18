@@ -4,9 +4,9 @@
   <title id="title">Architect-led AI development with advisory Red Team review</title>
   <desc id="description">A vertical workflow shows the Architect planning a
   ticket, the Implementer making the change, and the Architect auditing it.
-  Every Implementer ticket launches its planned bounded helpers before the
-  Integrator edits, then the Integrator inspects their returns and personally
-  runs the combined validation. The eleven permanent notes use a separate
+  The Architect decides whether bounded helpers add independent value. When
+  required, the Integrator launches them before editing, inspects their
+  returns, and personally runs the combined validation. The eleven permanent notes use a separate
   Architect-only P landing through the parent daemon, with no ticket cycle or
   Red Team review.
   Architect GO returns a decision bound to immutable candidate C; NO-GO
@@ -129,7 +129,7 @@
     [I] IMPLEMENTER FOLLOWS THE PLAN
   </text>
   <text x="500" y="726" text-anchor="middle" class="body">
-    Launch planned helpers first • integrate every required return
+    Follow the helper decision • integrate every required return
   </text>
   <text x="500" y="754" text-anchor="middle" class="small">
     Integrator personally runs final checks; helpers do not decide.

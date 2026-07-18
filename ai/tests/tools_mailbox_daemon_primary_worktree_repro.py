@@ -4345,6 +4345,8 @@ def arm_timed_checkpoint_refusals(source=None):
 
 def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
     """Blocked evidence relays to Fable but cannot freeze or advance work."""
+    from ai.tests.test_handoff_contract import NO_HELPER_EVIDENCE
+    from ai.tests.test_handoff_contract import NO_HELPER_PLAN
     from ai.tests.test_handoff_contract import packet
 
     class PopenProxy:
@@ -4694,11 +4696,41 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
             and fallback_commit != base
             and outbound[0].exists())
 
+        note.write_text(
+            packet(
+                role="architect",
+                bodies={"Execution checkout": checkout,
+                        "Parallel work plan": NO_HELPER_PLAN}),
+            encoding="utf-8", newline="")
+        no_helper_contract = daemon.prepare_implementer_evidence_contract(
+            message=revised_message)
+        no_helper_handoff = (
+            "### IMPLEMENTER_HANDOFF: COMPLETE\n\n"
+            "- **Current state:** The indivisible edit is complete.\n"
+            "- **Subagent work:**\n" + NO_HELPER_EVIDENCE + "\n"
+            "- **Blockers/findings:** No remaining blocker.\n"
+            "- **Action required:** Architect audit of candidate.\n")
+        exact_no_helper = no_helper_contract["contract"].\
+            validate_implementer_handoff_subagent_evidence(
+                parallel_work_plan=no_helper_contract["parallel_work_plan"],
+                handoff_text=no_helper_handoff)["completion_ready"]
+        changed_no_helper_refused = False
+        try:
+            no_helper_contract["contract"].\
+                validate_implementer_handoff_subagent_evidence(
+                    parallel_work_plan=(
+                        no_helper_contract["parallel_work_plan"]),
+                    handoff_text=no_helper_handoff.replace(
+                        "same inspection", "same source inspection"))
+        except no_helper_contract["contract"].DirectiveError:
+            changed_no_helper_refused = True
+
         passed = (
             checkpoint_only and correct_binding and checkpoint_bytes_match
             and all(missing_row_refusals)
             and all(mismatch_refusals.values())
-            and stale_refused and wrong_sha_refused and fallback_completed)
+            and stale_refused and wrong_sha_refused and fallback_completed
+            and exact_no_helper and changed_no_helper_refused)
         print("blocked checkpoint cannot freeze candidate=" + str(passed))
         if not passed:
             print("blocked checkpoint checks=" + repr({
@@ -4713,6 +4745,8 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
                 "untracked-refused": untracked_refused,
                 "committed-refused": committed_refused,
                 "fallback-completed": fallback_completed,
+                "exact-no-helper": exact_no_helper,
+                "changed-no-helper-refused": changed_no_helper_refused,
                 "record-calls": calls}))
         return passed
 
