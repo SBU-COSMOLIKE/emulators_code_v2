@@ -49,7 +49,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 
-from .artifact_recipe import set_runtime_compile_mode
+from .model_recipe import set_runtime_compile_mode
 from .batching import build_loaders
 from .designs.plain import ResMLP
 from .designs.blocks import Affine, BinLinear

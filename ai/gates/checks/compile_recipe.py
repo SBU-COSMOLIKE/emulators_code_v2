@@ -30,7 +30,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from emulator import fixed_facts
 from emulator.activations import make_activation
-from emulator.artifact_recipe import set_runtime_compile_mode
+from emulator.model_recipe import set_runtime_compile_mode
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.geometries.parameter import ParamGeometry

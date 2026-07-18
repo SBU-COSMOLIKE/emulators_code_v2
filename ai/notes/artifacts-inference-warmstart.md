@@ -156,8 +156,10 @@ saved model remains in use.
   name checks before it opens a large data-vector file.
 - **One current writer format.** `save_emulator` requires the producer's exact
   scientific-record text plus plain mappings for the resolved training and
-  model instructions. It checks the model-recipe keys and native value types
-  that `rebuild_emulator` immediately reads. These checks run before
+  model instructions. It checks that the recipe has every required field and
+  uses known class, activation, normalization, and compile names. The trusted
+  constructors and factories check their own numerical values later. The
+  structural checks run before
   `model.state_dict`, temporary-file creation, pair markers, or replacement of
   an existing artifact. Every successful new save writes schema 3. There is no
   flag that writes schema 1, schema 2, or a file without a schema.
@@ -165,14 +167,16 @@ saved model remains in use.
   is not permission for training to invent scientific metadata. The run stops
   with the generator's regeneration instruction.
 - **A complete recipe is checked before imports.**
-  `emulator/artifact_recipe.py` contains a closed description of all six
+  `emulator/model_recipe.py` contains a closed description of all six
   supported model classes and their exact constructor fields. Its validator
-  uses plain, non-executing Python values and imports no model, geometry, activation,
-  normalization, or Torch implementation. A missing field, an unknown field,
-  or an incomplete activation description therefore refuses before saved text
-  can select a Python class. The same validator covers an embedded transfer
-  base. Explicit `head_act: null` means “inherit the trunk activation”; a
-  missing `head_act` has no such meaning and refuses.
+  uses plain, non-executing Python values and imports no model, geometry,
+  activation, normalization, or Torch implementation. A missing field, an
+  unknown field, or an incomplete activation description therefore refuses
+  before saved text can select a Python class. Numerical limits remain with
+  the real constructor or factory that uses the value. The same structural
+  validator covers an embedded transfer base. Explicit `head_act: null` means
+  “inherit the trunk activation”; a missing `head_act` has no such meaning and
+  refuses.
 - **The saved recipe must describe the live object.** Each supported model
   constructor attaches the canonical recipe for the object it actually made.
   Before publication, `save_emulator` compares that live recipe with the
@@ -214,11 +218,11 @@ saved model remains in use.
 - Acceptance evidence: save -> rebuild -> bitwise-equal prediction,
   plus a drift test that monkeypatches a sharp code default
   (`make_activation` `n_gates` 3 -> 7) and requires the rebuilt prediction to
-  remain unchanged. `ai/tests/test_artifact_recipe_totality.py` removes each
+  remain unchanged. `ai/tests/test_model_recipe.py` removes each
   required recipe field in turn, distinguishes explicit null from absence,
   compares the registry with all six live constructor signatures, and proves
-  that the production validator imports only the standard-library `math`
-  module. Adding a model constructor field without adding its saved
+  that the production validator imports no executable model code. Adding a
+  model constructor field without adding its saved
   representation must fail that census. Hard-coded duplicates such as
   `compile_mode`, and read-side keys such as `eval_bs` that no writer persists,
   are forbidden drift channels.
@@ -803,7 +807,7 @@ GPU-capable environment must rerun both identity gates after a fixture change.
 
 - Save/rebuild and schema ownership: `emulator/results.py` and
   `emulator/fixed_facts.py`.
-- Model-recipe ownership: `emulator/artifact_recipe.py`.
+- Model-recipe ownership: `emulator/model_recipe.py`.
 - Ordered training-pass construction and history reconciliation:
   `emulator/training.py::run_emulator` and
   `emulator/results.py::validate_training_recipe_and_histories`.
@@ -1527,15 +1531,15 @@ artifact corruption.
    constructor default cannot reopen a fallback. The same rule governs
    `block_opts` and every optional lookup on the rebuild path.
 5. Embedded transfer-base recipes validate under the same schema.
-6. The live root model and live transfer base each expose their canonical
-   runtime recipe. Publication requires exact equality between those recipes
+6. The live root model and live transfer base each expose their constructor
+   recipe. Publication requires exact equality between those recipes
    and the corresponding claimed recipes.
 7. Recipe dimensions agree with class-specific geometry facts before any
    model, geometry, activation, normalization, or Torch implementation is
    imported.
 8. Complete artifacts stay byte-identical in prediction.
 
-**Implementation boundary.** `emulator/artifact_recipe.py` owns the closed
+**Implementation boundary.** `emulator/model_recipe.py` owns the closed
 six-class schema and performs the import-free check. `emulator/results.py`
 calls that validator for the root recipe and each embedded transfer-base
 recipe before construction or weight loading.

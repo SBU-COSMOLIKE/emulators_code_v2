@@ -196,7 +196,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
           results, "_new_staging_path",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(
-            ValueError, "runtime recipe does not exactly match"):
+            ValueError, "constructor recipe does not exactly match"):
           _save_attempt(root, recipe=recipe, model=_tiny_model("tanh"))
       staging.assert_not_called()
 
@@ -214,7 +214,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
           results, "_new_staging_path",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(
-            ValueError, "runtime recipe.*type must be one of"):
+            ValueError, "constructor recipe does not exactly match"):
           _save_attempt(root, recipe=recipe, model=model)
       staging.assert_not_called()
 
@@ -269,7 +269,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
     }
     with tempfile.TemporaryDirectory(prefix="recipe-live-transfer-") as temp:
       with self.assertRaisesRegex(
-          ValueError, "live transfer base.*runtime recipe"):
+          ValueError, "live transfer base.*constructor recipe"):
         _save_attempt(
           Path(temp) / "artifact", model=_tiny_model(),
           transfer_base=transfer_base)

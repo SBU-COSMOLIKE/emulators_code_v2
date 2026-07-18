@@ -42,9 +42,9 @@ import torch
 import yaml
 
 from . import fixed_facts
-from .artifact_recipe import require_runtime_model_recipe
-from .artifact_recipe import set_runtime_compile_mode
-from .artifact_recipe import validate_model_recipe
+from .model_recipe import check_model_matches_recipe
+from .model_recipe import set_runtime_compile_mode
+from .model_recipe import validate_model_recipe
 from .output_identity import build_output_identity
 from .output_identity import digest_tensor_state
 from .output_identity import require_same_output_identity
@@ -1228,12 +1228,6 @@ def _validate_executed_composition(
   return composition_mode, transfer_refined
 
 
-def _validate_model_recipe_for_save(recipe, where):
-  """Apply the closed, import-free model recipe contract before saving."""
-  return validate_model_recipe(
-    recipe, where=where + ": resolved_model")
-
-
 _TRAINING_PASS_KEYS = (
   "role", "model_phase", "epochs", "history_start", "history_stop",
   "learning_rate", "warmup_epochs", "optimizer", "scheduler", "loss",
@@ -2311,7 +2305,8 @@ def save_emulator(path_root,
         + type(recipe).__name__
         + ". Pass the resolved configuration mapping without converting it "
         "to a list, tuple, or YAML string.")
-  _validate_model_recipe_for_save(resolved_model, where=path_root)
+  validate_model_recipe(
+    resolved_model, where=path_root + ": resolved_model")
   _validate_live_recipe_geometry_widths(
     resolved_model, param_geometry, geometry, path_root)
 
@@ -2423,14 +2418,14 @@ def save_emulator(path_root,
   # have received their own diagnostics, but before weight inspection or any
   # staging-file allocation.  A transfer base carries its live source module
   # for the same independent binding; the module itself is not serialized.
-  require_runtime_model_recipe(
+  check_model_matches_recipe(
     model, resolved_model, where=path_root + ": live model")
   if composition_mode == "transfer":
     if "model" not in transfer_base:
       raise KeyError(
         path_root + ": transfer_base is missing 'model'; pass the live "
-        "authenticated source model so its runtime recipe can be checked")
-    require_runtime_model_recipe(
+        "source model so its constructor recipe can be checked")
+    check_model_matches_recipe(
       transfer_base["model"], transfer_recipe,
       where=path_root + ": live transfer base")
     _validate_live_transfer_state(
@@ -3511,7 +3506,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
             **kwargs).to(device)
     cm = _need(rc, "compile_mode", "model_recipe")
     set_runtime_compile_mode(m, cm)
-    require_runtime_model_recipe(
+    check_model_matches_recipe(
       m, rc, where=path_root + ": rebuilt live model")
     if needs_geom:
       for name in ("pad_idx", "pad_valid"):

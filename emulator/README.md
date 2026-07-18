@@ -135,7 +135,7 @@ The supporting files have narrower jobs:
 | `experiment.py` | check the YAML choices and assemble one run |
 | `cocoa.py` | resolve project, YAML, and output paths |
 | `warmstart.py` | prepare fine-tuning and transfer from a saved model |
-| `artifact_recipe.py` | check complete model-building instructions before importing a model class |
+| `model_recipe.py` | check complete model-building instructions before importing a model class |
 | `results.py`, `inference.py` | save, reload, and evaluate an emulator |
 | `plotting.py`, `diagnostics.py` | calculate checks and make their figures |
 | `scheduling.py`, `family_drivers.py`, `studies/` | divide multi-run searches among devices and record each search |
@@ -179,18 +179,23 @@ The `.h5` file stores the information needed to rebuild the predictor:
 - The **composition mode** states whether the neural-network output stands
   alone or is combined with a saved polynomial or transfer base.
 
-The recipe is checked as ordinary data before Python imports the named model
-class. Missing and explicit-null values are different. For example,
-`head_act: null` says to inherit the trunk activation, while a missing
-`head_act` gives no rebuilding instruction and is refused.
+`model_recipe.py` checks the recipe as ordinary data before Python imports the
+named model class. It requires every saved field and accepts only known model,
+activation, and normalization names. Missing and explicit-null values are
+different. For example, `head_act: null` says to inherit the trunk activation,
+while a missing `head_act` gives no rebuilding instruction and is refused.
 
-`artifact_recipe.py` checks the model recipe. `results.py` writes and checks
-the recipe, saved geometries and composition mode. The test file
-`ai/tests/test_artifact_recipe_totality.py` removes required constructor
-fields and covers all six supported model classes.
-`ai/tests/test_artifact_recipe_preflight.py` checks the saved records before
-model loading. A valid save-and-rebuild check must still reproduce the
-original prediction.
+The trusted model constructors and activation factories then check numerical
+rules such as positive widths and valid kernel sizes. Saving also compares the
+recipe recorded by the live model with the recipe supplied by the experiment.
+Reopening loads the learned tensors strictly, so missing, extra, or
+wrong-shaped tensors are refused.
+
+`results.py` writes and checks the recipe, saved geometries, and composition
+mode. `ai/tests/test_model_recipe.py` covers complete recipes for all six
+supported model classes. `ai/tests/test_artifact_recipe_preflight.py` checks
+that damaged saved descriptions stop before model loading. A valid
+save-and-rebuild check must still reproduce the original prediction.
 
 ---
 

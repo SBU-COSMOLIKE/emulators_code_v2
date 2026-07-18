@@ -27,7 +27,7 @@ import torch.nn as nn
 
 from ..activations import (
   activation_factory_recipe, activation_fcn, require_live_head_activation)
-from ..artifact_recipe import build_runtime_model_recipe
+from ..model_recipe import record_model_recipe
 from ..validation import (
   require_exact_bool, require_exact_int, require_nonzero_float32)
 from .plain import DesignSpec
@@ -121,7 +121,7 @@ class TemplateMLP(DesignSpec, nn.Module):
     super().__init__()
     if block_opts is None:
       block_opts = {}
-    self.emul_runtime_recipe = build_runtime_model_recipe(
+    self.model_recipe = record_model_recipe(
       class_path=type(self).__module__ + "." + type(self).__qualname__,
       name="resmlp", ia=_template_ia_name(n_amps, n_templates),
       input_dim=input_dim, output_dim=output_dim, needs_geom=False,
@@ -428,7 +428,7 @@ class TemplateResCNN(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(
       cnn_act, "TemplateResCNN head activation")
-    self.emul_runtime_recipe = build_runtime_model_recipe(
+    self.model_recipe = record_model_recipe(
       class_path=type(self).__module__ + "." + type(self).__qualname__,
       name="rescnn", ia=_template_ia_name(n_amps, n_templates),
       input_dim=input_dim, output_dim=output_dim, needs_geom=True,
@@ -882,7 +882,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     require_live_head_activation(
       trf_act, "TemplateResTRF head activation")
-    self.emul_runtime_recipe = build_runtime_model_recipe(
+    self.model_recipe = record_model_recipe(
       class_path=type(self).__module__ + "." + type(self).__qualname__,
       name="restrf", ia=_template_ia_name(n_amps, n_templates),
       input_dim=input_dim, output_dim=output_dim, needs_geom=True,

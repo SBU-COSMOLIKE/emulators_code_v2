@@ -918,7 +918,7 @@ transfer-refinement pass.
   pass record explains which training decision produced each part of that
   sequence and lets a later reader reproduce the work.
 
-This test is different from `test_artifact_recipe_totality.py` below. The
+This test is different from `test_model_recipe.py` below. The
 training-pass test answers **what optimization work ran**. For example, it
 records that the trunk used two epochs at learning rate `0.008`. The artifact
 recipe test answers **which model must be constructed to read the learned
@@ -981,7 +981,7 @@ files belong together and constructing the model needed for new predictions.
 | File | Question answered |
 | --- | --- |
 | `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, saved geometry, composition record, training-pass record, or history before model weights, saved Python classes, or checkpoint tensors can be used? |
-| `test_artifact_recipe_totality.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
+| `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
@@ -1001,7 +1001,7 @@ files belong together and constructing the model needed for new predictions.
 
 #### Complete instructions for rebuilding a model
 
-`test_artifact_recipe_totality.py` checks the model recipe used when learned
+`test_model_recipe.py` checks the model recipe used when learned
 weights are reopened. The recipe contains the model class and exact
 constructor choices. The saved parameter and output geometries separately
 record the coordinate conversions, including an analytic target law when the
@@ -1011,19 +1011,19 @@ used alone or combined with a polynomial or transfer base.
 - **Example used:** the test constructs complete recipes for ResMLP, ResCNN,
   and ResTRF models and for their three intrinsic-alignment counterparts. A
   ResCNN example explicitly states its kernel width, groups, block counts,
-  activation, normalization, optional head activation, and whether geometry
-  is required.
-- **What the test does:** it removes each required field in turn, adds unknown
-  fields, and tries values that disagree with the selected model class. It
-  also compares the registered constructor fields with the real Python
-  constructor signatures. The production validator is inspected to confirm
-  that it can check the recipe before importing model or geometry modules.
+  activation, normalization, optional head activation, and geometry choice.
+- **What the test does:** it removes required fields, adds unknown fields, and
+  tries unknown model, activation, and normalization names. It also confirms
+  that these plain saved descriptions are checked before the named model
+  module is imported.
 - **Pass means:** all six supported designs accept a complete recipe. An
-  explicit `null` head activation remains different from a missing field.
-- **A refusal it proves:** a missing kernel width, an extra future setting, a
-  Boolean where an integer gate count is required, an unknown model class, or
-  an intrinsic-alignment shape that does not match its named design stops
-  before reconstruction chooses a default.
+  explicit `null` head activation remains different from a missing field. The
+  live model's own recipe must equal the saved recipe, and its tensors must
+  load with exactly the expected names and shapes.
+- **A refusal it proves:** a missing kernel width, an extra future setting, or
+  an unknown model or factory name stops before reconstruction chooses a
+  default. Numerical ranges are checked later by the trusted constructor or
+  factory that owns each rule.
 - **Why it matters:** software defaults can change after an emulator is
   trained. If a saved recipe omits one constructor choice, the same weights
   may later be placed in a model with a different meaning even though every

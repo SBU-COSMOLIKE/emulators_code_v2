@@ -1,4 +1,4 @@
-"""Focused checks for complete, import-free artifact model recipes."""
+"""Focused checks for complete, import-free model recipes."""
 
 import ast
 import copy
@@ -7,7 +7,7 @@ import inspect
 from pathlib import Path
 import unittest
 
-from emulator import artifact_recipe
+from emulator import model_recipe
 
 
 def _recipe(class_path="emulator.designs.plain.ResCNN", ia=None):
@@ -109,23 +109,23 @@ def _live_model(recipe):
     **kwargs)
 
 
-class ArtifactRecipeTotalityTests(unittest.TestCase):
+class ModelRecipeTests(unittest.TestCase):
   """Require every supported reconstruction choice before imports."""
 
   def test_all_six_complete_recipes_pass(self):
-    for class_path in artifact_recipe.MODEL_RECIPE_CLASSES:
+    for class_path in model_recipe.MODEL_RECIPE_CLASSES:
       with self.subTest(class_path=class_path):
         recipe = _recipe(class_path)
         self.assertIs(
-          artifact_recipe.validate_model_recipe(recipe), recipe)
+          model_recipe.validate_model_recipe(recipe), recipe)
 
   def test_all_six_live_constructors_attach_the_exact_recipe(self):
-    for class_path in artifact_recipe.MODEL_RECIPE_CLASSES:
+    for class_path in model_recipe.MODEL_RECIPE_CLASSES:
       recipe = _recipe(class_path)
       recipe["kwargs"]["block_opts"]["n_layers"] = 3
       with self.subTest(class_path=class_path):
         model = _live_model(recipe)
-        self.assertEqual(model.emul_runtime_recipe, recipe)
+        self.assertEqual(model.model_recipe, recipe)
         blocks = [
           module for module in model.modules()
           if type(module).__name__ == "ResBlock"]
@@ -134,34 +134,34 @@ class ArtifactRecipeTotalityTests(unittest.TestCase):
 
   def test_every_top_level_key_is_required_and_unknown_keys_refuse(self):
     original = _recipe()
-    for key in artifact_recipe.MODEL_RECIPE_TOP_LEVEL_KEYS:
+    for key in model_recipe.MODEL_RECIPE_TOP_LEVEL_KEYS:
       changed = copy.deepcopy(original)
       del changed[key]
       with self.subTest(missing=key), self.assertRaisesRegex(
           ValueError, "missing.*" + key):
-        artifact_recipe.validate_model_recipe(changed)
+        model_recipe.validate_model_recipe(changed)
     changed = copy.deepcopy(original)
     changed["future_default"] = True
     with self.assertRaisesRegex(ValueError, "unknown.*future_default"):
-      artifact_recipe.validate_model_recipe(changed)
+      model_recipe.validate_model_recipe(changed)
 
   def test_every_constructor_kwarg_is_required_for_every_class(self):
-    for class_path in artifact_recipe.MODEL_RECIPE_CLASSES:
+    for class_path in model_recipe.MODEL_RECIPE_CLASSES:
       original = _recipe(class_path)
       for key in tuple(original["kwargs"]):
         changed = copy.deepcopy(original)
         del changed["kwargs"][key]
         with self.subTest(class_path=class_path, missing=key), \
             self.assertRaisesRegex(ValueError, "missing.*" + key):
-          artifact_recipe.validate_model_recipe(changed)
+          model_recipe.validate_model_recipe(changed)
 
   def test_explicit_null_head_activation_differs_from_absence(self):
     recipe = _recipe()
     self.assertIsNone(recipe["kwargs"]["head_act"])
-    artifact_recipe.validate_model_recipe(recipe)
+    model_recipe.validate_model_recipe(recipe)
     del recipe["kwargs"]["head_act"]
     with self.assertRaisesRegex(ValueError, "missing.*head_act"):
-      artifact_recipe.validate_model_recipe(recipe)
+      model_recipe.validate_model_recipe(recipe)
 
   def test_unknown_constructor_and_nested_factory_keys_refuse(self):
     mutations = []
@@ -177,16 +177,13 @@ class ArtifactRecipeTotalityTests(unittest.TestCase):
     for changed, key in mutations:
       with self.subTest(location=key), self.assertRaisesRegex(
           ValueError, "unknown.*" + key):
-        artifact_recipe.validate_model_recipe(changed)
+        model_recipe.validate_model_recipe(changed)
 
-  def test_factory_specs_require_native_complete_values(self):
+  def test_factory_specs_require_complete_fields_and_known_identifiers(self):
     mutations = []
     missing_gate = _recipe()
     del missing_gate["kwargs"]["block_opts"]["act"]["n_gates"]
     mutations.append((missing_gate, ValueError, "n_gates"))
-    bool_gate = _recipe()
-    bool_gate["kwargs"]["block_opts"]["act"]["n_gates"] = True
-    mutations.append((bool_gate, TypeError, "native integer"))
     unknown_activation = _recipe()
     unknown_activation["kwargs"]["block_opts"]["act"]["type"] = "mystery"
     mutations.append((unknown_activation, ValueError, "one of"))
@@ -196,13 +193,10 @@ class ArtifactRecipeTotalityTests(unittest.TestCase):
     missing_depth = _recipe()
     del missing_depth["kwargs"]["block_opts"]["n_layers"]
     mutations.append((missing_depth, ValueError, "n_layers"))
-    bool_depth = _recipe()
-    bool_depth["kwargs"]["block_opts"]["n_layers"] = True
-    mutations.append((bool_depth, TypeError, "native integer"))
     for changed, error_type, message in mutations:
       with self.subTest(message=message), self.assertRaisesRegex(
           error_type, message):
-        artifact_recipe.validate_model_recipe(changed)
+        model_recipe.validate_model_recipe(changed)
 
   def test_class_identity_fields_must_agree(self):
     wrong_name = _recipe()
@@ -220,24 +214,24 @@ class ArtifactRecipeTotalityTests(unittest.TestCase):
         (unknown_class, "not a supported")):
       with self.subTest(message=message), self.assertRaisesRegex(
           ValueError, message):
-        artifact_recipe.validate_model_recipe(changed)
+        model_recipe.validate_model_recipe(changed)
 
-  def test_factored_shapes_are_bound_to_the_named_design(self):
+  def test_live_recipe_exposes_a_custom_intrinsic_alignment_shape(self):
+    """A caller cannot label a custom template shape as ordinary NLA."""
     recipe = _recipe("emulator.designs.ia.TemplateMLP", ia="nla")
     recipe["kwargs"]["n_templates"] = 10
-    with self.assertRaisesRegex(ValueError, "factored shape"):
-      artifact_recipe.validate_model_recipe(recipe)
-    artifact_recipe.validate_model_recipe(
-      _recipe("emulator.designs.ia.TemplateMLP", ia="tatt"))
+    model = _live_model(recipe)
+    with self.assertRaisesRegex(ValueError, "constructor recipe"):
+      model_recipe.check_model_matches_recipe(model, recipe)
 
   def test_recipe_validation_does_not_mutate_the_input(self):
     recipe = _recipe()
     before = copy.deepcopy(recipe)
-    artifact_recipe.validate_model_recipe(recipe)
+    model_recipe.validate_model_recipe(recipe)
     self.assertEqual(recipe, before)
 
   def test_production_validator_imports_no_model_or_geometry_modules(self):
-    source_path = Path(artifact_recipe.__file__)
+    source_path = Path(model_recipe.__file__)
     tree = ast.parse(source_path.read_text(encoding="utf-8"))
     imports = []
     for node in ast.walk(tree):
@@ -245,19 +239,19 @@ class ArtifactRecipeTotalityTests(unittest.TestCase):
         imports.extend(alias.name for alias in node.names)
       elif isinstance(node, ast.ImportFrom):
         imports.append(node.module)
-    self.assertEqual(imports, ["math"])
+    self.assertEqual(imports, [])
 
   def test_registry_census_matches_all_six_constructor_signatures(self):
-    for class_path in artifact_recipe.MODEL_RECIPE_CLASSES:
+    for class_path in model_recipe.MODEL_RECIPE_CLASSES:
       module_name, _, class_name = class_path.rpartition(".")
       model_class = getattr(importlib.import_module(module_name), class_name)
-      observed = tuple(
+      observed = {
         name for name in inspect.signature(model_class.__init__).parameters
-        if name != "self")
+        if name not in {"self", "input_dim", "output_dim", "geom"}}
       with self.subTest(class_path=class_path):
         self.assertEqual(
           observed,
-          artifact_recipe.expected_constructor_parameters(class_path))
+          set(model_recipe.expected_recipe_kwargs(class_path)))
 
   def test_resblock_constructor_census_includes_persisted_depth(self):
     from emulator.designs.blocks import ResBlock
