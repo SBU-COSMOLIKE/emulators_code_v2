@@ -456,6 +456,11 @@ of the checked-out emulator repository:
 | Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 | Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
 
+Claude-owned branches always begin with `claude/`; Sol-owned branches always
+begin with `codex/`. The older `worktree-agent-*` form is reserved only so the
+explicit user command `--clean-all` can recognize and remove it. Ordinary
+recovery never invokes that destructive command or discards a worktree.
+
 The Architect, Implementer, and Sol use three different Git worktrees and
 branches. Changing a model option never selects a different worktree. Only
 the Implementer lane edits tracked source. The Architect audits a detached

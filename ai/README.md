@@ -173,6 +173,18 @@ it refuses instead of guessing which mailbox is correct. Preserve every path
 it names and follow the
 [tool recovery guide](tools/README.md#appendix-e--how-do-i-troubleshoot-a-run).
 
+If none of the old AI work needs to be kept, CoCoA-Flow also provides an
+explicit destructive reset:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --clean-all
+```
+
+This command discards every extra local CoCoA-Flow work folder and branch,
+including unfinished AI edits. It never runs automatically. Read
+[Remove every AI work folder](tools/README.md#remove-every-ai-work-folder)
+before using it; a later `--once` creates fresh role folders.
+
 ### 3. Write the source note
 
 A **source note** is the Markdown file that records the requested behavior,

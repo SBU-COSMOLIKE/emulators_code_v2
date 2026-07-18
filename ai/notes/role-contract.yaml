@@ -68,5 +68,11 @@
     "dispatch_timeout_default_minutes": 120,
     "implementer_review_minutes": 90
   },
-  "schema_version": 1
+  "schema_version": 1,
+  "worktrees": {
+    "claude_branch_prefix": "claude/",
+    "cleanup_action": "--clean-all",
+    "legacy_cleanup_prefix": "worktree-agent-",
+    "sol_branch_prefix": "codex/"
+  }
 }

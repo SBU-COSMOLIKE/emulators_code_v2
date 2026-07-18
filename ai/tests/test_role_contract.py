@@ -42,6 +42,12 @@ class RoleContractTests(unittest.TestCase):
         validate_role_contract(loaded)
         self.assertEqual(
             loaded["evidence"]["protected_policy_review_rounds"], 1)
+        self.assertEqual(loaded["worktrees"], {
+            "claude_branch_prefix": "claude/",
+            "cleanup_action": "--clean-all",
+            "legacy_cleanup_prefix": "worktree-agent-",
+            "sol_branch_prefix": "codex/",
+        })
         mailbox_daemon.validate_role_contract_bindings(loaded)
 
     def test_duplicate_key_refuses(self):
@@ -91,6 +97,12 @@ class RoleContractTests(unittest.TestCase):
                 drifted["runtime"][name] = value
                 with self.assertRaises(RoleContractError):
                     mailbox_daemon.validate_role_contract_bindings(drifted)
+
+    def test_daemon_refuses_worktree_namespace_drift(self):
+        drifted = copy.deepcopy(ROLE_CONTRACT)
+        drifted["worktrees"]["sol_branch_prefix"] = "worktree-agent-"
+        with self.assertRaises(RoleContractError):
+            mailbox_daemon.validate_role_contract_bindings(drifted)
 
 
 if __name__ == "__main__":

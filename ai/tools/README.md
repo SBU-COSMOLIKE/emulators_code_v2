@@ -15,12 +15,13 @@ start them, what they change, and what result to expect.
 1. [Which tool do I use?](#which-tool-do-i-use)
 2. [Where do I run these commands?](#where-do-i-run-these-commands)
 3. [Which commands only inspect, and which commands change files?](#which-commands-only-inspect-and-which-commands-change-files)
-4. [Send or check a request](#send-or-check-a-request)
-5. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
-6. [Fix-only watches](#fix-only-watches)
-7. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
-8. [Runtime controls](#runtime-controls)
-9. [Exact command reference](#exact-command-reference)
+4. [Remove every AI work folder](#remove-every-ai-work-folder)
+5. [Send or check a request](#send-or-check-a-request)
+6. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
+7. [Fix-only watches](#fix-only-watches)
+8. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
+9. [Runtime controls](#runtime-controls)
+10. [Exact command reference](#exact-command-reference)
 
 ### Common questions raised by developers
 
@@ -177,6 +178,8 @@ For a first run, remember this shorter rule:
 - `--send` saves a request file.
 - `--watch` and `--once` may create AI work folders, start roles, move request
   files, and write workflow records.
+- `--clean-all` permanently discards the extra local work folders and local
+  branches created for AI roles.
 
 <details><summary>Show the complete command safety table</summary>
 
@@ -194,6 +197,7 @@ For a first run, remember this shorter rule:
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
 | `mailbox_daemon.py --send architect` or `--ping architect` | Yes | This is the user's only role target. The command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered Architect mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
 | `mailbox_daemon.py --once` or `--watch` | Yes | May create or reuse AI work folders, start roles, move mailbox files, and write relay or saved workflow records. |
+| `mailbox_daemon.py --clean-all` | Yes—destructive | Removes every extra local CoCoA-Flow worktree and every matching local AI branch, even when that AI folder contains unfinished or unmerged work. It does not alter remote branches, tags, or stashes. |
 | `handoff_router.py --architect-notes-admin "SUMMARY"` | Yes | Architect-only internal operation. From an already bound Architect process, queues one later permanent-note admin self-route. It refuses from a normal user, Implementer, or Red Team process and cannot be combined with another router operation. |
 | `backlog_guard.py initialize --architect-ack` or `backlog_guard.py seal --previous-sha256 SHA256 --architect-ack` | Yes | Writes the ignored backlog fingerprint record. These manual forms are Architect-only. |
 | `handoff_router.py --note NOTE` | Yes | Changes the clipboard, writes local relay records, and runs the selected shell commands. It does not launch a web session for you. |
@@ -211,6 +215,34 @@ A first mailbox command that writes files may create three extra Git-managed
 project folders, one for each role.
 The [role guide](../README.md#appendix-f--what-is-the-worktree-topology)
 explains what each folder is for.
+
+## Remove every AI work folder
+
+Run this command from the user's main repository folder only when no old AI
+work needs to be kept:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --clean-all
+```
+
+The command refuses while a mailbox watcher is running. It permanently
+removes:
+
+- every extra AI worktree, including its uncommitted files and unmerged
+  commits; and
+- local `claude/*`, `codex/*`, and old `worktree-agent-*` branches.
+
+There is no backup or second question. The user's current folder, non-AI
+branches and worktrees, remote branch records, tags, and stashes remain.
+
+Cleanup never runs automatically. After it finishes, `--once` creates fresh
+role folders:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --once
+```
+
+New Claude worktrees use `claude/*` branches. New Sol worktrees use `codex/*`.
 
 ## Send or check a request
 
@@ -694,8 +726,8 @@ The current transcript is kept here for offline reading and regression checks.
 <summary>Current <code>mailbox_daemon.py --help</code> transcript</summary>
 
 ```
-usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
-                         [--max characters] [--skip-redteam]
+usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all] [--watch]
+                         [--cycle count] [--max characters] [--skip-redteam]
                          [--fix-only value] [--send {architect}]
                          [--ping {architect}] [--unit UNIT]
                          [--severity {high,medium,low}]
@@ -714,6 +746,10 @@ options:
                         handle, but do not start a role or write a message
                         file
   --once                start every request that is waiting now, then exit
+  --clean-all           permanently discard every local AI worktree and local
+                        claude/*, codex/*, or legacy worktree-agent-* branch;
+                        dirty files and unmerged commits in those worktrees
+                        are lost
   --watch               check the mailbox every 20 seconds and start waiting
                         requests
   --cycle count         with --watch, stop after this many completed ticket
@@ -789,8 +825,11 @@ options:
 
 ### Action rules
 
-- Choose only one of `--once`, `--watch`, `--send`, and `--ping` in one
-  command.
+- Choose only one of `--once`, `--watch`, `--clean-all`, `--send`, and
+  `--ping` in one command.
+- `--clean-all` cannot be combined with `--dry-run`. The explicit flag is the
+  user's instruction to discard all local AI work, including dirty or
+  unmerged work.
 - `--cycle` accepts an integer from 0 through 1,000,000 and is valid only with
   `--watch`.
 - Omitting `--cycle` watches indefinitely. `--cycle 0` instead waits until the

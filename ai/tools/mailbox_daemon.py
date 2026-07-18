@@ -43,6 +43,8 @@ Usage:
     python ai/tools/mailbox_daemon.py --help           # all options + defaults
     python ai/tools/mailbox_daemon.py --dry-run        # show what would run
     python ai/tools/mailbox_daemon.py --once           # process backlog, exit
+    python ai/tools/mailbox_daemon.py --clean-all      # discard all local AI
+                                                    # worktrees and branches
     python ai/tools/mailbox_daemon.py --watch          # poll every 20 s
     python ai/tools/mailbox_daemon.py --watch --cycle 2
                                                     # stop safely after 2 cycles
@@ -82,6 +84,7 @@ import json
 import math
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -354,6 +357,11 @@ def validate_role_contract_bindings(contract=None):
             "role_files": [".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md"],
             "guard_files": ["ai/tools/permanent_note_guard.py",
                             ROLE_CONTRACT_TOOL_RELATIVE_PATH]},
+        "worktrees": {
+            "claude_branch_prefix": "claude/",
+            "cleanup_action": "--clean-all",
+            "legacy_cleanup_prefix": "worktree-agent-",
+            "sol_branch_prefix": "codex/"},
     }
     for section, value in expected.items():
         if contract[section] != value:
@@ -391,6 +399,11 @@ SOL_WORKTREE_NAME = "mailbox-sol"
 SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
+AI_BRANCH_PREFIXES = (
+    "refs/heads/claude/",
+    "refs/heads/codex/",
+    "refs/heads/worktree-agent-",
+)
 MAILBOX_TOPOLOGY_VERSION = 3
 MAILBOX_PROTOCOL_VERSION = 5
 MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
@@ -11973,6 +11986,84 @@ def send_architect_notes_admin(text, dry_run=False):
         release_mailbox_sequence_lock(lock_file=lock_file)
 
 
+def _is_ai_branch(branch):
+    """Return whether a local branch belongs to an AI-only namespace."""
+    return (type(branch) is str
+            and branch.startswith(AI_BRANCH_PREFIXES))
+
+
+def clean_all_ai_worktrees(repository_root, current_worktree):
+    """Discard local AI worktrees and branches after an explicit request."""
+    repository = os.path.abspath(repository_root)
+    if os.path.realpath(current_worktree) != os.path.realpath(repository):
+        raise PrimaryWorktreeError(
+            "run --clean-all from the user's main repository folder")
+    lock_file = _open_primary_lock(repository)
+    try:
+        managed_root = _managed_primary_root(repository, create=True)
+        records = registered_worktrees(repository)
+        root_record = _record_at_path(records, repository)
+        if root_record is None or _is_ai_branch(root_record.get("branch")):
+            raise PrimaryWorktreeError(
+                "the user's repository folder must use a non-AI branch")
+        for record in records:
+            reasons = coordination_transport_evidence(record["path"])
+            if any("live " in reason for reason in reasons):
+                raise PrimaryWorktreeError(
+                    "stop the live mailbox watcher or sender before "
+                    "--clean-all: " + record["path"])
+        print("WARNING: --clean-all permanently discards dirty files and "
+              "unmerged commits in local AI worktrees.", flush=True)
+        _run_git(repository, ["worktree", "prune"])
+        records = registered_worktrees(repository)
+        preserved = set()
+        for record in sorted(records, key=lambda item: item["path"]):
+            path = os.path.abspath(record["path"])
+            if _path_key(path) == _path_key(repository):
+                continue
+            managed_child = os.path.dirname(path) == managed_root
+            ai_branch = _is_ai_branch(record.get("branch"))
+            if not ai_branch and "branch" in record:
+                if managed_child:
+                    preserved.add(_path_key(path))
+                continue
+            if not ai_branch and not managed_child:
+                continue
+            branch = record.get("branch", "detached audit")
+            print("discarding AI worktree " + path + " (" + branch + ")",
+                  flush=True)
+            _run_git(repository, ["worktree", "remove", "--force",
+                                  "--force", path])
+        _run_git(repository, ["worktree", "prune"])
+        with os.scandir(managed_root) as entries:
+            stale_paths = sorted(entry.path for entry in entries)
+        for path in stale_paths:
+            if (os.path.basename(path) == PRIMARY_LOCK_NAME
+                    or _path_key(path) in preserved):
+                continue
+            print("discarding stale AI path " + path, flush=True)
+            info = os.lstat(path)
+            if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                shutil.rmtree(path)
+            else:
+                os.unlink(path)
+        output = _run_git(repository, [
+            "for-each-ref", "--format=%(refname)", "refs/heads/"])
+        branches = [ref for ref in output.stdout.decode("utf-8").splitlines()
+                    if _is_ai_branch(ref)]
+        for ref in sorted(branches):
+            print("deleting local AI branch "
+                  + ref[len("refs/heads/"):], flush=True)
+            _run_git(repository, ["update-ref", "-d", ref])
+            if _branch_exists(repository, ref):
+                raise PrimaryWorktreeError(
+                    "could not delete local AI branch " + ref)
+        print("clean-all finished; main and non-AI branches were not "
+              "changed.", flush=True)
+    finally:
+        _release_primary_lock(lock_file=lock_file)
+
+
 def main():
     # both are rebound below from the parsed command line; Python wants
     # the global declaration before the first mention of either name.
@@ -11993,6 +12084,11 @@ def main():
     parser.add_argument("--once", action="store_true",
                         help="start every request that is waiting now, "
                              "then exit")
+    parser.add_argument(
+        "--clean-all", action="store_true",
+        help="permanently discard every local AI worktree and local "
+             "claude/*, codex/*, or legacy worktree-agent-* branch; "
+             "dirty files and unmerged commits in those worktrees are lost")
     parser.add_argument("--watch", action="store_true",
                         help="check the mailbox every 20 seconds and start "
                              "waiting requests")
@@ -12137,16 +12233,32 @@ def main():
     primary_actions = sum((
         bool(args.once),
         bool(args.watch),
+        bool(args.clean_all),
         args.send is not None,
         args.ping is not None,
     ))
     if primary_actions > 1:
-        print("choose only one primary action: --once, --watch, --send, "
-              "or --ping")
+        print("choose only one primary action: --once, --watch, --clean-all, "
+              "--send, or --ping")
         return 1
     if args.watch and args.dry_run:
         print("--dry-run is finite and cannot be combined with --watch")
         return 1
+    if args.clean_all and args.dry_run:
+        print("--clean-all is already an explicit destructive action and "
+              "cannot be combined with --dry-run")
+        return 1
+
+    # Cleanup must run before primary selection: ambiguous old mailbox stores
+    # are one reason a user needs this explicit destructive reset.
+    if args.clean_all:
+        try:
+            clean_all_ai_worktrees(
+                repository_root=REPO_ROOT, current_worktree=WORKTREE)
+        except (OSError, PrimaryWorktreeError) as exc:
+            print("clean-all error: " + str(exc))
+            return 1
+        return 0
 
     selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
     severity_action = args.watch or args.once or args.send == "architect"

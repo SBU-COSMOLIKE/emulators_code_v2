@@ -47,7 +47,7 @@ def _path(value, where):
 def validate_role_contract(value):
     """Require the complete version-one contract and return it unchanged."""
     top = ("schema_version", "roles", "candidate", "landing", "backlog",
-           "evidence", "runtime", "protected_paths")
+           "evidence", "runtime", "protected_paths", "worktrees")
     _keys(value, top, "role contract")
     if type(value["schema_version"]) is not int or value["schema_version"] != 1:
         raise RoleContractError("schema_version must be 1")
@@ -72,6 +72,8 @@ def validate_role_contract(value):
                     "dispatch_timeout_default_minutes"),
         "protected_paths": ("contract", "permanent_notes", "role_files",
                             "guard_files"),
+        "worktrees": ("claude_branch_prefix", "cleanup_action",
+                      "legacy_cleanup_prefix", "sol_branch_prefix"),
     }
     for name, keys in sections.items():
         _keys(value[name], keys, name)
@@ -94,6 +96,12 @@ def validate_role_contract(value):
         _type(value["runtime"][name], int, "runtime." + name)
         if value["runtime"][name] <= 0:
             raise RoleContractError("runtime." + name + " must be positive")
+
+    for name in ("claude_branch_prefix", "cleanup_action",
+                 "legacy_cleanup_prefix", "sol_branch_prefix"):
+        _type(value["worktrees"][name], str, "worktrees." + name)
+        if not value["worktrees"][name]:
+            raise RoleContractError("worktrees." + name + " must not be empty")
 
     protected = value["protected_paths"]
     _path(protected["contract"], "protected_paths.contract")
