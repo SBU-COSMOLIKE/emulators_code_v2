@@ -168,35 +168,29 @@ explain how the common model and training code uses those blocks.
 
 ### Appendix A3. How does a saved emulator rebuild without guessing? <a id="faq-package-a3-saved-rebuild"></a>
 
-The `.h5` file stores two different kinds of rebuilding information:
+The `.h5` file stores the information needed to rebuild the predictor:
 
 - The **model recipe** records the exact model class and every constructor
   value used to build it. A constructor is the set of values supplied when a
   Python model object is created.
-- The **compatibility manifest** records versioned meanings for the selected
-  model, activations, normalization, input and output conversions, composition
-  mode, intrinsic-alignment (IA) design, and analytic target law. Composition
-  says whether the neural output stands alone or corrects a saved base. The
-  analytic law names any formula applied to targets outside the network.
+- The saved **geometries** record how model inputs and outputs are converted.
+  When an analytic formula is part of an output, its law is stored with the
+  output geometry.
+- The **composition mode** states whether the neural-network output stands
+  alone or is combined with a saved polynomial or transfer base.
 
 The recipe is checked as ordinary data before Python imports the named model
 class. Missing and explicit-null values are different. For example,
 `head_act: null` says to inherit the trunk activation, while a missing
 `head_act` gives no rebuilding instruction and is refused.
 
-The manifest catches a different problem. A class may keep the same name and
-tensor shapes while its calculation changes. Each registered calculation has
-a semantic identifier, which is a short versioned label for its meaning. A
-saved identifier that differs from the current registered identifier is
-refused before weights are loaded.
-
-`artifact_recipe.py` owns the lists of allowed choices, and `results.py` writes
-and checks them. The test file
-`ai/tests/test_artifact_recipe_totality.py` removes required fields, changes
-semantic identifiers, and covers all six supported model classes.
-`ai/tests/test_artifact_recipe_preflight.py` checks those records in real
-saved files before model loading. A valid save-and-rebuild check must still
-reproduce the original prediction.
+`artifact_recipe.py` checks the model recipe. `results.py` writes and checks
+the recipe, saved geometries and composition mode. The test file
+`ai/tests/test_artifact_recipe_totality.py` removes required constructor
+fields and covers all six supported model classes.
+`ai/tests/test_artifact_recipe_preflight.py` checks the saved records before
+model loading. A valid save-and-rebuild check must still reproduce the
+original prediction.
 
 ---
 

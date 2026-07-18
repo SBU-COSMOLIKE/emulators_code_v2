@@ -138,12 +138,10 @@ saved model remains in use.
 - The HDF5 record contains the raw `config_yaml` and `train_args_yaml` as
   provenance; `config_resolved_yaml`, which includes the resolved training and
   data blocks; the staged-selection identity for both training and validation;
-  and the `model_recipe` and `compatibility_manifest` datasets. The model
-  recipe names one supported class and records every constructor value used by
-  that class. The compatibility manifest records versioned meanings for the
-  selected model, activations, normalization, geometries, composition, IA
-  coefficients, and analytic target law. The file also stores parameter and
-  data-vector geometry state; polynomial-chaos-expansion (`pce`) or
+  and the `model_recipe` dataset. The model recipe names one supported class
+  and records every constructor value used by that class. The file separately
+  stores the parameter and data-vector geometry state, analytic-law name, and
+  composition mode; polynomial-chaos-expansion (`pce`) or
   transfer-base state when applicable; training histories; and root attributes
   for `schema_version=3`, the Git commit, the Torch version, `rescale`, and
   family-specific facts.
@@ -805,8 +803,7 @@ GPU-capable environment must rerun both identity gates after a fixture change.
 
 - Save/rebuild and schema ownership: `emulator/results.py` and
   `emulator/fixed_facts.py`.
-- Model-recipe and semantic-implementation registry ownership:
-  `emulator/artifact_recipe.py`.
+- Model-recipe ownership: `emulator/artifact_recipe.py`.
 - Ordered training-pass construction and history reconciliation:
   `emulator/training.py::run_emulator` and
   `emulator/results.py::validate_training_recipe_and_histories`.
@@ -818,48 +815,29 @@ GPU-capable environment must rerun both identity gates after a fixture change.
   `finetune-identity`, `finetune-smoke`, `transfer-identity`,
   `transfer-smoke`, and `geo-paths`.
 
-## Artifacts bind the implementation that gives weights meaning
+## What a saved recipe does not prove
 
-**Reason.** `save_emulator` records `git_commit` as best-effort provenance,
-with an `"unknown"` fallback, but repository identity alone does not bind the
-implementation that interprets the weights. A recipe stores class names and
-constructor values; importing a different implementation under the same name
-can change behavior while strict weight loading still succeeds. In the Syren
-law path, training learns `r = log(P / P_base_A)`. Serving the same weights
-with `P_base_B` returns `P * (P_base_B / P_base_A)`. Vendoring prevents an
-uncontrolled package upgrade but does not identify the formula version used
-to generate the targets.
+**Reason.** A model recipe records a class name and its constructor values.
+Those facts are enough to rebuild the supported model, but they cannot prove
+that the Python implementation behind a stable name has never changed. A
+manually maintained label such as `model:...:v1` would only repeat another
+name unless every scientific code change updated it correctly.
 
-**Rule.** Persist a compatibility manifest for every implementation that gives
-the weights meaning. A **semantic identifier** is a versioned label for the
-behavior of one registered implementation. The exact manifest records the
-model design, trunk and head activations, normalization, parameter and output
-geometries, composition decoder, IA coefficient design, and analytic target
-law. The allowed composition values are `plain`, `npce`, and `transfer`; the
-allowed IA values are `none`, `nla`, and `tatt`. Analytic-law values are also
-closed and include `none`, CMB's `as_exp2tau_ref`, Grid's `log_offset`, and the
-two Grid2D Syren laws.
+**Rule.** Save the concrete facts the prediction uses: model recipe, geometry
+state, analytic-law name, composition mode, scientific fixed facts, and Git
+commit provenance. Do not add a second compatibility registry that copies
+those facts and claims to authenticate implementation behavior. If a model or
+analytic formula changes incompatibly, update its direct saved format or
+regenerate the artifact rather than relying on a manually bumped label.
 
-For example, a Grid2D model trained against `syren_linear` records that law and
-its semantic identifier. Loading the same weights as `syren_halofit`, or under
-a changed identifier, refuses even when every tensor shape still matches.
-`none` is stored as an explicit value; an absent law is not interpreted as
-`none`.
+`git_commit` remains provenance rather than an execution lock. A user who
+loads an artifact with edited local model or formula code is responsible for
+checking that provenance and regenerating scientific results when needed.
 
-`emulator/artifact_recipe.py` owns the closed registries and builds and checks
-the plain, non-executing manifest. `emulator/results.py` writes the root manifest and, for a
-transfer artifact, a second manifest for the embedded plain base. Rebuild
-checks every required identifier before importing the model or loading its
-weights. `git_commit` remains unvalidated provenance; changing an unrelated
-repository file does not change implementation compatibility.
-
-**Acceptance evidence.** `ai/tests/test_artifact_recipe_totality.py` exercises
-every registered composition, IA design, and analytic law; refuses missing,
-unknown, and inconsistent values; and changes each semantic identifier to
-prove that validation catches the mismatch.
-`ai/tests/test_artifact_recipe_preflight.py` requires the same manifest in the
-HDF5 record and in an embedded transfer base. Removing a manifest key or
-changing only a registered identifier must refuse before prediction.
+**Acceptance evidence.** New root and transfer artifacts contain no duplicate
+compatibility-manifest dataset. Complete model recipes still reject missing or
+unknown constructor fields, geometry and composition facts remain explicit,
+and ordinary and transfer save-to-rebuild predictions remain unchanged.
 
 ## Artifact composition is declared, not inferred
 

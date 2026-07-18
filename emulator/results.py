@@ -42,10 +42,8 @@ import torch
 import yaml
 
 from . import fixed_facts
-from .artifact_recipe import build_compatibility_manifest
 from .artifact_recipe import require_runtime_model_recipe
 from .artifact_recipe import set_runtime_compile_mode
-from .artifact_recipe import validate_compatibility_manifest
 from .artifact_recipe import validate_model_recipe
 from .output_identity import build_output_identity
 from .output_identity import digest_tensor_state
@@ -67,32 +65,8 @@ _OUTPUT_IDENTITY_SHA256_ATTR = "output_identity_sha256"
 _OUTPUT_IDENTITY_DATASET = "output_identity_json"
 _CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
 _PAIR_PENDING_SUFFIX = ".pair-pending"
-_COMPATIBILITY_MANIFEST_DATASET = "compatibility_manifest"
 _TRANSFER_STATE_SHA256_ATTR = "state_sha256"
 _TRANSFER_DRIFTED_STATE_SHA256_ATTR = "drifted_state_sha256"
-
-
-def _class_path(value):
-  """Return the fully qualified class name recorded for one live object."""
-  return type(value).__module__ + "." + type(value).__qualname__
-
-
-def _analytic_law_for_geometry(value, class_path, where):
-  """Read the explicit analytic target law from families that define one."""
-  law_families = {
-    "emulator.geometries.cmb.CmbDiagonalGeometry",
-    "emulator.geometries.grid.GridGeometry",
-    "emulator.geometries.grid2d.Grid2DGeometry",
-  }
-  if class_path not in law_families:
-    return "none"
-  if not hasattr(value, "law"):
-    raise ValueError(
-      where + " has no resolved analytic law; save refuses to infer a default")
-  law = value.law
-  if type(law) is not str or not law:
-    raise TypeError(where + ".law must be nonempty native text")
-  return law
 
 
 def _validate_live_recipe_geometry_widths(
@@ -897,8 +871,8 @@ def _grid2d_const_mask_digest(const_mask):
 
   This is deliberately a NARROW single-surface integrity check. The digest is
   unkeyed and stored in the same HDF5 file, so an editor that rewrites both the
-  mask and its declaration can still make them agree. Whole-file identity is a
-  separate manifest concern; this helper does not claim to provide it.
+  mask and its declaration can still make them agree. Artifact-pair identity
+  is a separate concern; this helper does not claim to provide it.
 
   Arguments:
     const_mask = one-dimensional uint8 numpy array or CPU tensor.
@@ -1618,24 +1592,6 @@ def _saved_geometry_class(group, where):
   return value
 
 
-def _saved_analytic_law(group, class_path, where):
-  """Read the stored target law before the geometry's from_state can run."""
-  law_families = {
-    "emulator.geometries.cmb.CmbDiagonalGeometry",
-    "emulator.geometries.grid.GridGeometry",
-    "emulator.geometries.grid2d.Grid2DGeometry",
-  }
-  if class_path not in law_families:
-    return "none"
-  if "law" not in group.attrs:
-    raise KeyError(
-      where + " is missing its analytic 'law'; no code default is used")
-  law = group.attrs["law"]
-  if type(law) is not str or not law:
-    raise TypeError(where + " analytic 'law' must be nonempty native text")
-  return law
-
-
 def validate_training_recipe_and_histories(
     resolved_train, histories, *, composition_mode, transfer_refined,
     model_recipe, where="training record"):
@@ -2136,8 +2092,8 @@ def save_emulator(path_root,
     _need / _read_artifact_composition helpers, which raise a named error when
     the key is absent instead of substituting a value. The few rows marked
     "not read (provenance)" are written on purpose as a paper trail. The
-    model recipe, semantic manifest, executed pass plan, histories, and output
-    identity are all checked before executable reconstruction begins.
+    model recipe, executed pass plan, histories, and output identity are all
+    checked before executable reconstruction begins.
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
@@ -2381,25 +2337,8 @@ def save_emulator(path_root,
        resolved_train, resolved_transfer, transfer_base,
        transfer_refined=transfer_refined, where=path_root)
 
-  # Validate both model descriptions as inert data, then bind them to the
-  # exact implementations selected by this run.  These checks precede
-  # model.state_dict and temporary-file creation.  A transfer base is a plain
-  # embedded emulator; the outer transfer decoder belongs only to the main
-  # correction recipe.
-  parameter_geometry_cls = _class_path(param_geometry)
-  output_geometry_cls = _class_path(geometry)
-  analytic_law = _analytic_law_for_geometry(
-    geometry, output_geometry_cls, path_root + " output geometry")
-  compatibility_manifest = build_compatibility_manifest(
-    resolved_model,
-    parameter_geometry_cls=parameter_geometry_cls,
-    output_geometry_cls=output_geometry_cls,
-    composition_mode=composition_mode,
-    ia_design=("none" if resolved_model["ia"] is None
-               else resolved_model["ia"]),
-    analytic_law=analytic_law)
-
-  transfer_compatibility_manifest = None
+  # Validate the embedded base recipe before reading its model state.  The
+  # outer transfer decoder belongs only to the main correction recipe.
   if composition_mode == "transfer":
     for key in ("recipe", "param_geometry", "dv_geometry"):
       if key not in transfer_base:
@@ -2412,19 +2351,6 @@ def save_emulator(path_root,
     _validate_live_recipe_geometry_widths(
       transfer_recipe, transfer_base["param_geometry"],
       transfer_base["dv_geometry"], path_root + ": transfer_base")
-    transfer_parameter_cls = _class_path(transfer_base["param_geometry"])
-    transfer_output_cls = _class_path(transfer_base["dv_geometry"])
-    transfer_law = _analytic_law_for_geometry(
-      transfer_base["dv_geometry"], transfer_output_cls,
-      path_root + " transfer_base output geometry")
-    transfer_compatibility_manifest = build_compatibility_manifest(
-      transfer_recipe,
-      parameter_geometry_cls=transfer_parameter_cls,
-      output_geometry_cls=transfer_output_cls,
-      composition_mode="plain",
-      ia_design=("none" if transfer_recipe["ia"] is None
-                 else transfer_recipe["ia"]),
-      analytic_law=transfer_law)
 
   history_arrays = _runtime_history_arrays(
     histories, where=path_root + ": histories")
@@ -2463,8 +2389,6 @@ def save_emulator(path_root,
     transfer_refined=transfer_refined,
     resolved_pce=resolved_pce,
     resolved_transfer=resolved_transfer,
-    compatibility_manifest=compatibility_manifest,
-    transfer_compatibility_manifest=transfer_compatibility_manifest,
     require_published_selection=False)
   if output_identity is not None:
     require_same_output_identity(output_identity, derived_output_identity)
@@ -2634,11 +2558,6 @@ def save_emulator(path_root,
                         data=yaml.safe_dump(transfer_base["recipe"],
                                             sort_keys=False),
                         dtype=str_dt)
-      tb.create_dataset(
-        _COMPATIBILITY_MANIFEST_DATASET,
-        data=yaml.safe_dump(
-          transfer_compatibility_manifest, sort_keys=False),
-        dtype=str_dt)
       # the base weights as a name -> tensor subgroup (state dict keys carry
       # dots, not h5 "/" separators, so each is one dataset).
       state_grp = tb.create_group("state")
@@ -2725,10 +2644,6 @@ def save_emulator(path_root,
       f.create_dataset(
         "model_recipe",
         data=yaml.safe_dump(resolved_model, sort_keys=False),
-        dtype=str_dt)
-      f.create_dataset(
-        _COMPATIBILITY_MANIFEST_DATASET,
-        data=yaml.safe_dump(compatibility_manifest, sort_keys=False),
         dtype=str_dt)
     # One path-independent record produced both the filename suffix and this
     # saved declaration.  Rebuild checks the full canonical record against its
@@ -3399,10 +3314,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
       f=f, where=path_root + ".h5")
     saved_rescale = _read_public_rescale(
       f.attrs, where=path_root + ".h5")
-    # Everything below this line is still inert metadata.  Complete model
-    # recipes, implementation identities, and the executed pass/history
-    # record must agree before a geometry module, model module, from_state, or
-    # tensor checkpoint is allowed to run.
+    # Everything below this line is still inert metadata.  The complete model
+    # recipe and executed pass/history record must agree before a geometry
+    # module, model module, from_state, or tensor checkpoint is allowed to run.
     recipe = _read_yaml_mapping_dataset(
       f, "model_recipe", path_root + ".h5")
     validate_model_recipe(recipe, where=path_root + ".h5 model_recipe")
@@ -3422,29 +3336,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
       transfer_refined=transfer_refined,
       model_recipe=recipe,
       where=path_root + ".h5")
-    parameter_geometry_cls = _saved_geometry_class(
-      f["param_geometry"], path_root + ".h5 param_geometry")
-    output_geometry_cls = _saved_geometry_class(
-      f["dv_geometry"], path_root + ".h5 dv_geometry")
-    analytic_law = _saved_analytic_law(
-      f["dv_geometry"], output_geometry_cls,
-      path_root + ".h5 dv_geometry")
-    compatibility_manifest = _read_yaml_mapping_dataset(
-      f, _COMPATIBILITY_MANIFEST_DATASET, path_root + ".h5")
-    validate_compatibility_manifest(
-      compatibility_manifest, recipe,
-      parameter_geometry_cls=parameter_geometry_cls,
-      output_geometry_cls=output_geometry_cls,
-      composition_mode=composition_mode,
-      ia_design=("none" if recipe["ia"] is None else recipe["ia"]),
-      analytic_law=analytic_law,
-      where=path_root + ".h5 compatibility_manifest")
 
     tb = None
     tb_recipe = None
-    tb_parameter_geometry_cls = None
-    tb_output_geometry_cls = None
-    tb_manifest = None
     if composition_mode == "transfer":
       tb = f["transfer_base"]
       tb_recipe = _read_yaml_mapping_dataset(
@@ -3454,25 +3348,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       _validate_saved_recipe_geometry_widths(
         tb_recipe, tb["param_geometry"], tb["dv_geometry"],
         path_root + ".h5 transfer_base")
-      tb_parameter_geometry_cls = _saved_geometry_class(
-        tb["param_geometry"],
-        path_root + ".h5 transfer_base param_geometry")
-      tb_output_geometry_cls = _saved_geometry_class(
-        tb["dv_geometry"], path_root + ".h5 transfer_base dv_geometry")
-      tb_analytic_law = _saved_analytic_law(
-        tb["dv_geometry"], tb_output_geometry_cls,
-        path_root + ".h5 transfer_base dv_geometry")
-      tb_manifest = _read_yaml_mapping_dataset(
-        tb, _COMPATIBILITY_MANIFEST_DATASET,
-        path_root + ".h5 transfer_base")
-      validate_compatibility_manifest(
-        tb_manifest, tb_recipe,
-        parameter_geometry_cls=tb_parameter_geometry_cls,
-        output_geometry_cls=tb_output_geometry_cls,
-        composition_mode="plain",
-        ia_design=("none" if tb_recipe["ia"] is None else tb_recipe["ia"]),
-        analytic_law=tb_analytic_law,
-        where=path_root + ".h5 transfer_base compatibility_manifest")
       resolved_transfer = resolved_config["transfer"]
       _validate_embedded_transfer_state(
         tb, resolved_transfer, transfer_refined=transfer_refined,
@@ -3502,8 +3377,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       transfer_refined=transfer_refined,
       resolved_pce=resolved_config.get("pce"),
       resolved_transfer=resolved_config.get("transfer"),
-      compatibility_manifest=compatibility_manifest,
-      transfer_compatibility_manifest=tb_manifest,
       require_published_selection=False)
     rebuilt_subject = validate_saved_output_identity(
       rebuilt_identity["canonical_json"], rebuilt_identity["sha256"])
@@ -3511,8 +3384,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
         or rebuilt_subject != output_identity:
       raise ValueError(
         path_root + ".h5 output identity disagrees with its saved data, "
-        "recipes, compatibility manifests, tensor-state declarations, "
-        "rescale, or composition record")
+        "recipes, tensor-state declarations, rescale, or composition record")
 
     # The trusted local factories and registered geometry implementations are
     # imported only after all saved strings above have passed their closed

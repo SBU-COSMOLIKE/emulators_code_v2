@@ -2336,11 +2336,6 @@ class EmulatorExperiment:
     # and stored by train(). None until those run.
     self.resolved_model = None
     self.resolved_train = None
-    # Semantic implementation records are materialized only after training
-    # has produced the complete model recipe.  The filename identity and the
-    # artifact writer then consume the same records.
-    self._compatibility_manifest = None
-    self._transfer_compatibility_manifest = None
     # scalar (derived-parameter) emulator: the emulated output names
     # and the run-mode flag, set by from_config. None / False on a data-vector
     # run, which every scalar branch below guards on (absent = byte-identical).
@@ -5645,31 +5640,6 @@ class EmulatorExperiment:
             dict(self._transfer_base.model.state_dict()),
             where="transfer refined base state")
 
-    # Bind the selected implementation semantics into the same identity that
-    # names diagnostics and the saved pair.  save_emulator independently
-    # rebuilds both manifests from the live objects before accepting them.
-    from .output_identity import build_live_compatibility_manifest
-
-    if self.pce_opts is not None:
-      composition_mode = "npce"
-    elif self._transfer_base is not None:
-      composition_mode = "transfer"
-    else:
-      composition_mode = "plain"
-    self._compatibility_manifest = build_live_compatibility_manifest(
-      self.resolved_model,
-      parameter_geometry=self.pgeom,
-      output_geometry=self.geom,
-      composition_mode=composition_mode,
-      where="completed experiment")
-    self._transfer_compatibility_manifest = None
-    if self._transfer_base is not None:
-      self._transfer_compatibility_manifest = build_live_compatibility_manifest(
-        self._transfer_base.recipe,
-        parameter_geometry=self._transfer_base.pgeom,
-        output_geometry=self._transfer_base.geom,
-        composition_mode="plain",
-        where="completed experiment transfer base")
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)
 

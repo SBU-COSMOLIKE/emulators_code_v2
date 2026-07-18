@@ -217,41 +217,6 @@ def digest_tensor_state(state, *, where="tensor state"):
   return digest.hexdigest()
 
 
-def build_live_compatibility_manifest(
-    recipe, *, parameter_geometry, output_geometry, composition_mode,
-    where="completed experiment"):
-  """Build the semantic manifest from the live objects a run consumed."""
-  from .artifact_recipe import build_compatibility_manifest
-
-  parameter_class = (
-    type(parameter_geometry).__module__ + "."
-    + type(parameter_geometry).__qualname__)
-  output_class = (
-    type(output_geometry).__module__ + "."
-    + type(output_geometry).__qualname__)
-  law_families = {
-    "emulator.geometries.cmb.CmbDiagonalGeometry",
-    "emulator.geometries.grid.GridGeometry",
-    "emulator.geometries.grid2d.Grid2DGeometry",
-  }
-  if output_class in law_families:
-    if not hasattr(output_geometry, "law"):
-      raise ValueError(
-        where + " output geometry has no resolved analytic law")
-    analytic_law = output_geometry.law
-    if type(analytic_law) is not str or not analytic_law:
-      raise TypeError(where + " output geometry law must be native text")
-  else:
-    analytic_law = "none"
-  return build_compatibility_manifest(
-    recipe,
-    parameter_geometry_cls=parameter_class,
-    output_geometry_cls=output_class,
-    composition_mode=composition_mode,
-    ia_design=("none" if recipe["ia"] is None else recipe["ia"]),
-    analytic_law=analytic_law)
-
-
 def _family_product(data, *, require_executed_inputs):
   """Return a readable family, product, and path-free scientific descriptor."""
   source_identity = _source_identity(data) or {}
@@ -429,8 +394,6 @@ def build_output_identity(
     transfer_refined,
     resolved_pce,
     resolved_transfer,
-    compatibility_manifest,
-    transfer_compatibility_manifest,
     require_published_selection=False):
   """Return the shared, versioned identity for one completed training run.
 
@@ -450,16 +413,6 @@ def build_output_identity(
       "output identity composition_mode must be plain, npce, or transfer")
   if type(transfer_refined) is not bool:
     raise TypeError("output identity transfer_refined must be a native bool")
-  if type(compatibility_manifest) is not dict:
-    raise TypeError("output identity compatibility_manifest must be a mapping")
-  if composition_mode == "transfer":
-    if type(transfer_compatibility_manifest) is not dict:
-      raise TypeError(
-        "transfer output identity needs a transfer compatibility manifest")
-  elif transfer_compatibility_manifest is not None:
-    raise ValueError(
-      "plain and NPCE output identities forbid a transfer compatibility "
-      "manifest")
 
   family, product, product_record = _family_product(
     data, require_executed_inputs=require_published_selection)
@@ -482,10 +435,6 @@ def build_output_identity(
       "transfer_refined": transfer_refined,
       "pce": resolved_pce,
       "transfer": path_free_transfer,
-    },
-    "compatibility": {
-      "root": compatibility_manifest,
-      "transfer_base": transfer_compatibility_manifest,
     },
   }
   canonical = _canonical_json(subject)
@@ -522,14 +471,6 @@ def build_experiment_output_identity(experiment):
     composition_mode = "plain"
   transfer_refined = (
     getattr(experiment, "_transfer_pretrained_base", None) is not None)
-  compatibility_manifest = getattr(
-    experiment, "_compatibility_manifest", None)
-  transfer_compatibility_manifest = getattr(
-    experiment, "_transfer_compatibility_manifest", None)
-  if type(compatibility_manifest) is not dict:
-    raise ValueError(
-      "completed experiment has no compatibility manifest; run training "
-      "through EmulatorExperiment before naming its outputs")
   return build_output_identity(
     data=getattr(experiment, "data", None),
     resolved_train=resolved_train,
@@ -541,8 +482,6 @@ def build_experiment_output_identity(experiment):
     resolved_transfer=(resolved_train.get("transfer")
                        if transfer_base is not None
                        and type(resolved_train) is dict else None),
-    compatibility_manifest=compatibility_manifest,
-    transfer_compatibility_manifest=transfer_compatibility_manifest,
     require_published_selection=True)
 
 

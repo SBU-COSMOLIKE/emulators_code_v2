@@ -374,6 +374,25 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
     imports.assert_not_called()
     load.assert_not_called()
 
+  def test_current_recipe_only_artifacts_rebuild_without_manifests(self):
+    """Plain and transfer saves need no duplicate compatibility record."""
+    with tempfile.TemporaryDirectory(prefix="recipe-only-artifacts-") as temp:
+      roots = (
+        self._saved_fixture(Path(temp) / "plain"),
+        self._saved_transfer_fixture(Path(temp) / "transfer"),
+      )
+      for root in roots:
+        with self.subTest(root=root.name):
+          with h5py.File(str(root) + ".h5", "r") as artifact:
+            self.assertNotIn("compatibility_manifest", artifact)
+            if "transfer_base" in artifact:
+              self.assertNotIn(
+                "compatibility_manifest", artifact["transfer_base"])
+          model, _, _, _ = results.rebuild_emulator(
+            path_root=str(root), device=torch.device("cpu"),
+            compile_model=False)
+          self.assertIsInstance(model, torch.nn.Module)
+
   def test_rebuild_refuses_recipe_before_dynamic_import_or_tensor_load(self):
     with tempfile.TemporaryDirectory(prefix="recipe-read-main-") as temp:
       root = self._saved_fixture(temp)
@@ -576,15 +595,6 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
         _rewrite_yaml(transfer, "model_recipe", recipe)
       self._assert_rebuild_refuses_without_execution(
         root, "transfer_base model_recipe.*missing.*n_blocks")
-
-  def test_rebuild_refuses_manifest_semantic_forgery_before_execution(self):
-    with tempfile.TemporaryDirectory(prefix="recipe-read-manifest-") as temp:
-      root = self._saved_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        manifest = _read_yaml(artifact, "compatibility_manifest")
-        manifest["model"]["semantic_id"] = "model:forged:v1"
-        _rewrite_yaml(artifact, "compatibility_manifest", manifest)
-      self._assert_rebuild_refuses_without_execution(root, "semantic_id")
 
   def test_rebuild_refuses_valid_recipe_drift_from_output_identity(self):
     with tempfile.TemporaryDirectory(prefix="recipe-read-identity-") as temp:

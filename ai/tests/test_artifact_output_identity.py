@@ -165,11 +165,6 @@ def _arguments(*, data=None):
     "transfer_refined": False,
     "resolved_pce": None,
     "resolved_transfer": None,
-    "compatibility_manifest": {
-      "schema": 1,
-      "model": {"semantic_id": "fixture-model:v1"},
-    },
-    "transfer_compatibility_manifest": None,
     "require_published_selection": True,
   }
 
@@ -178,12 +173,6 @@ def _build(**changes):
   """Build one identity after replacing selected top-level arguments."""
   arguments = _arguments()
   arguments.update(changes)
-  if (arguments["composition_mode"] == "transfer"
-      and arguments["transfer_compatibility_manifest"] is None):
-    arguments["transfer_compatibility_manifest"] = {
-      "schema": 1,
-      "model": {"semantic_id": "fixture-transfer-model:v1"},
-    }
   return build_output_identity(**arguments)
 
 
@@ -244,17 +233,6 @@ class CanonicalIdentityTests(unittest.TestCase):
     observed["tag"] = "scalar-other-" + expected["sha256"][:16]
     with self.assertRaisesRegex(ValueError, "disagrees.*tag"):
       require_same_output_identity(expected, observed)
-
-  def test_compatibility_manifest_semantics_change_the_identity(self):
-    """Two implementation contracts cannot collide under one output name."""
-    baseline = _build()
-    changed_manifest = {
-      "schema": 1,
-      "model": {"semantic_id": "fixture-model:v2"},
-    }
-    changed = _build(compatibility_manifest=changed_manifest)
-    self.assertNotEqual(baseline["sha256"], changed["sha256"])
-
 
 class ScientificProductIdentityTests(unittest.TestCase):
   """Check the product pairs that previously shared readable filenames."""
@@ -622,11 +600,6 @@ class ExperimentAndDriverWiringTests(unittest.TestCase):
       pce_opts=None,
       _transfer_base=None,
       _transfer_pretrained_base=None,
-      _compatibility_manifest={
-        "schema": 1,
-        "model": {"semantic_id": "fixture-model:v1"},
-      },
-      _transfer_compatibility_manifest=None,
     )
 
   def test_experiment_wrapper_requires_final_pins_and_selects_plain_npce(self):

@@ -4458,9 +4458,9 @@ current two-file publication still lacks pair binding.  A same-shaped weight
 file can be mixed with the wrong HDF5 recipe because neither file carries a
 shared payload identity.  Keep the two files together under one immutable
 root, refuse partial copies and run a save/rebuild prediction comparison after
-moving them.  The stored recipe also lacks a complete identity for every
-executable law, so retain the source commit used to train and rebuild the
-artifact.
+moving them.  The HDF5 record keeps the model recipe, saved geometries and
+analytic law, and composition mode.  Retain the source commit when reproducing
+the exact software version matters.
 
 \begin{figure*}[t]
 \centering

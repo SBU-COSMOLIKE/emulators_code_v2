@@ -980,8 +980,8 @@ files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
-| `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, training-pass record, history, or compatibility record before model weights, saved Python classes, or checkpoint tensors can be used? |
-| `test_artifact_recipe_totality.py` | Does a model recipe name every constructor and scientific-interpretation choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
+| `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, saved geometry, composition record, training-pass record, or history before model weights, saved Python classes, or checkpoint tensors can be used? |
+| `test_artifact_recipe_totality.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
@@ -1001,11 +1001,12 @@ files belong together and constructing the model needed for new predictions.
 
 #### Complete instructions for rebuilding a model
 
-`test_artifact_recipe_totality.py` checks the model recipe and compatibility
-manifest used when learned weights are reopened. A model recipe contains the
-exact constructor choices. The compatibility manifest states what important
-pieces mean, including the output geometry, neural/base composition rule,
-intrinsic-alignment design, and analytic target law.
+`test_artifact_recipe_totality.py` checks the model recipe used when learned
+weights are reopened. The recipe contains the model class and exact
+constructor choices. The saved parameter and output geometries separately
+record the coordinate conversions, including an analytic target law when the
+output uses one. The saved composition mode says whether the neural output is
+used alone or combined with a polynomial or transfer base.
 
 - **Example used:** the test constructs complete recipes for ResMLP, ResCNN,
   and ResTRF models and for their three intrinsic-alignment counterparts. A
@@ -1013,19 +1014,16 @@ intrinsic-alignment design, and analytic target law.
   activation, normalization, optional head activation, and whether geometry
   is required.
 - **What the test does:** it removes each required field in turn, adds unknown
-  fields, changes the claimed model identity, and tries incompatible
-  scientific facts. It also compares the registered constructor fields with
-  the real Python constructor signatures. The production validator is
-  inspected to confirm that it can check the recipe before importing model or
-  geometry modules.
+  fields, and tries values that disagree with the selected model class. It
+  also compares the registered constructor fields with the real Python
+  constructor signatures. The production validator is inspected to confirm
+  that it can check the recipe before importing model or geometry modules.
 - **Pass means:** all six supported designs accept a complete recipe. An
   explicit `null` head activation remains different from a missing field.
-  Each compatibility component receives the exact registered identity that
-  matches the model and scientific facts.
 - **A refusal it proves:** a missing kernel width, an extra future setting, a
-  Boolean where an integer gate count is required, an unknown model class, an
-  intrinsic-alignment shape that does not match its named design, or a forged
-  compatibility identity stops before reconstruction chooses a default.
+  Boolean where an integer gate count is required, an unknown model class, or
+  an intrinsic-alignment shape that does not match its named design stops
+  before reconstruction chooses a default.
 - **Why it matters:** software defaults can change after an emulator is
   trained. If a saved recipe omits one constructor choice, the same weights
   may later be placed in a model with a different meaning even though every
@@ -1046,19 +1044,19 @@ saved Python class, construct a geometry, or load checkpoint tensors.
 
 - **Example used:** a complete one-epoch ResMLP artifact is saved, then one
   copy loses a required model field, another receives a gap in its recorded
-  history interval, and another receives a forged compatibility identity.
+  history interval, and another receives a model recipe that no longer agrees
+  with its saved output identity.
 - **What the test does:** it places sentinels on weight access, dynamic Python
   import, and checkpoint loading. Each damaged file must report its metadata
   problem while every sentinel remains untouched.
 - **Pass means:** saving refuses incomplete main and transfer recipes before
   staging a file or reading `model.state_dict`. Reopening first reconciles the
-  model recipe, semantic manifest, ordered training passes, epoch histories,
-  and saved output identity; only a consistent record reaches executable
-  reconstruction.
-- **A refusal it proves:** a missing constructor field, forged semantic
-  identity, changed valid recipe, history gap, invalid pass order, wrong epoch
-  total, or short history array cannot be hidden by a checkpoint that still
-  has plausible tensor shapes.
+  model recipe, saved geometry and analytic law, composition mode, ordered
+  training passes, epoch histories, and saved output identity; only a
+  consistent record reaches executable reconstruction.
+- **A refusal it proves:** a missing constructor field, changed valid recipe,
+  history gap, invalid pass order, wrong epoch total, or short history array
+  cannot be hidden by a checkpoint that still has plausible tensor shapes.
 - **Why it matters:** imported code and learned tensors can perform work. A
   damaged plain record must be rejected before either surface can influence
   how the file is interpreted.
