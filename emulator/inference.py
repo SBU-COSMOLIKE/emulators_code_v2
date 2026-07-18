@@ -21,31 +21,28 @@ matter-power grid      a dictionary containing ``z``, ``k``, and the named
                        law-space surface; the adapter applies the stored base
 =====================  ======================================================
 
-A saved emulator also carries the science it was born under: the cosmology its
-dataset was generated with held fixed, and the region of parameter space the
-generator sampled. ``EmulatorPredictor`` retains that record and exposes the
-three questions a consumer must be able to ask of it, one method each:
+A saved emulator also carries fixed settings and the region sampled during
+dataset generation. ``EmulatorPredictor`` exposes three separate checks:
 
 =====================  ======================================================
 method                 the question it answers
 =====================  ======================================================
-``check_belongs_to``   does this emulator belong to the cosmology now being
-                       sampled? (the artifact against the chain)
+``check_fixed_values`` do directly named fixed settings disagree? (the
+                       artifact against the chain's named constants)
 ``check_pairs_with``   do these two emulators belong to each other? (one
                        artifact against another)
 ``check_may_serve``    may this emulator be asked about this point? (the
                        training region against one point)
 =====================  ======================================================
 
-The laws those methods run, and the refusals they raise, live in
-``emulator/fixed_facts.py``. This module owns only the site at which they are
-asked: the artifact this predictor rebuilt, and the identity to name when one
-of them refuses.
+The first check is deliberately limited. Cobaya may rename or derive a
+parameter, so matching or missing names cannot prove two parameterizations are
+scientifically equivalent. Custom parameterizations remain the user's
+responsibility.
 
-Two of the three are asked once, at the start of a chain, by whoever assembles
-the emulators being served; the module-level ``check_artifacts_belong_to`` and
-``check_artifacts_pair_up`` below are that site, shared by the five cobaya
-adapters so that the five of them do not become five authors of one refusal.
+Two checks run once when a chain starts. The module-level
+``check_artifacts_fixed_values`` and ``check_artifacts_pair_up`` functions are
+shared by all five Cobaya adapters.
 The third — the training region against one point — is asked by ``predict``
 itself, on every call, because a point outside the region is answered
 confidently and wrongly by a network that cannot know it is extrapolating.
@@ -188,58 +185,36 @@ def _is_named_pair(params):
   return isinstance(first, str)
 
 
-def check_artifacts_belong_to(predictors, provider, adapter):
-  """Vertical law at the cobaya site: every served artifact against the chain.
+def check_artifacts_fixed_values(predictors, provider):
+  """Refuse directly named fixed values that obviously disagree.
 
-  A cobaya adapter is handed its provider once, when the chain is set up, and
-  the provider carries the resolved model — the same object the dataset
-  generator read when it wrote the record. So the question "does this emulator
-  belong to the cosmology being sampled?" can be asked exactly once per chain,
-  before the first point is evaluated, rather than once per point: the facts
-  cannot change while a chain runs.
-
-  This is the site, shared by all five adapters. A copy of it in each adapter
-  would be five authors of one refusal, and the refusal is the product here: a
-  chain that would have silently answered about the wrong universe stops instead
-  and says which coordinate it stopped on.
+  Cobaya can rename or derive parameters, so this check is intentionally
+  limited to constants exposed under the same name. A missing model, an
+  unavailable constants mapping, or a missing name leaves responsibility
+  with the user instead of pretending to prove cosmological equivalence.
 
   Arguments:
-    predictors = the EmulatorPredictors this adapter is serving.
-    provider   = the cobaya Provider the adapter was initialized with. It is
-                 duck-typed: the only surface read is ``.model``, the resolved
-                 global model cobaya built.
-    adapter    = the adapter's own name, named in the API-drift refusal.
+    predictors = the saved emulators served by one adapter.
+    provider   = the Cobaya provider supplied to that adapter.
 
   Returns:
-    None. The function is called for its refusals.
+    None.
 
   Raises:
-    ValueError when the provider cannot hand over the model (a cobaya whose
-    Provider no longer carries it), or when any served artifact was generated
-    under a cosmology this chain is not sampling.
+    ValueError when a directly named fixed value disagrees.
   """
   model = getattr(provider, "model", None)
-  if model is None:
-    # The alternative to refusing here is skipping the law, and a law that
-    # skips itself when it cannot run is not a law: the chain would sample on,
-    # and the emulator it was never allowed to serve would answer every point.
-    try:
-      import cobaya
-      version = getattr(cobaya, "__version__", "unknown")
-    except ImportError:
-      version = "not importable"
-    raise ValueError(
-      adapter + ": the cobaya provider handed to this theory carries no "
-      ".model, so the cosmology being sampled cannot be read and the saved "
-      "emulators cannot be shown to belong to it. This adapter needs the "
-      "resolved global model, which cobaya's Provider has stored as .model "
-      "since 3.x; the cobaya found here is version " + repr(version) + ". "
-      "The check is not skipped, because an emulator generated under a "
-      "different cosmology answers every point confidently and wrongly.")
-
-  resolved = fixed_facts.resolved_constants(model=model)
+  parameterization = getattr(model, "parameterization", None)
+  if parameterization is None:
+    return
+  try:
+    known_constants = parameterization.constant_params()
+  except Exception:
+    return
+  if not hasattr(known_constants, "keys"):
+    return
   for predictor in predictors:
-    predictor.check_belongs_to(resolved_model=resolved)
+    predictor.check_fixed_values(known_constants=known_constants)
 
 
 def check_artifacts_pair_up(predictors):
@@ -560,60 +535,35 @@ class EmulatorPredictor:
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
 
-  # ----- the three questions a consumer must be able to ask this artifact ----
+  # ---------------------- checks made before prediction ----------------------
   #
-  # They are three different questions, and answering one does not answer any
-  # other. An emulator can belong to the cosmology being sampled and still be
-  # asked about a point it never saw. Two emulators can be a matched pair and
-  # both belong to the wrong universe. A point can sit inside one emulator's
-  # region and outside its partner's. Each method below asks exactly one of the
-  # three, at the one site that knows which artifact is being asked about.
+  # These checks answer separate, limited questions. A direct fixed-value
+  # match does not prove that custom parameterizations are equivalent. A
+  # matched artifact pair can still be asked about a point outside its stored
+  # support. Each method states only the comparison it performs.
   #
-  # The laws are in emulator/fixed_facts.py and stay there: this class owns the
-  # SITE of a comparison, that module owns the LAW and the words it refuses in.
-  # A refusal restated here would be a second author of the same sentence, and
-  # two authors of one sentence are how the two copies drift apart.
+  # The comparison functions and their error messages remain in
+  # emulator/fixed_facts.py.
 
-  def check_belongs_to(self, resolved_model):
-    """Vertical: does this emulator belong to the cosmology being sampled?
+  def check_fixed_values(self, known_constants):
+    """Refuse fixed values that use the same name and disagree.
 
-    The emulator's dataset was generated with some coordinates held fixed: a
-    neutrino mass, an equation of state, a curvature. They are not inputs of
-    the network. They are properties of the universe it learned, and they are
-    not visible in anything it returns. A chain that holds any of them at a
-    different value is asking a question about a different universe, and this
-    emulator will answer it: confidently, in the right shape, with the right
-    sign, and wrong.
-
-    Why this is not the other two questions. It compares ONE artifact against
-    the chain that wants to use it, and it reads only the coordinates the
-    artifact HELD FIXED. The horizontal question (check_pairs_with) compares
-    two artifacts against each other and never looks at the chain at all. The
-    domain question (check_may_serve) compares one point against the region
-    this artifact was trained over, and never looks at what was held fixed. An
-    emulator that passes this law can still be asked about a point far outside
-    the region it saw.
+    Renamed, derived, missing, and transformed parameters are not interpreted
+    here. The user remains responsible for those custom parameterizations.
 
     Arguments:
-      resolved_model = the cosmology being sampled, as a plain mapping from
-                       coordinate name to value, RESOLVED rather than
-                       requested: a default the YAML left unstated has been
-                       materialized by the time the model object exists, and it
-                       is the materialized value the chain actually samples.
-                       The consumer resolves it (from cobaya, from a script)
-                       and hands it in; neither this module nor fixed_facts
-                       imports cobaya.
+      known_constants = the current model's directly named constants.
 
     Returns:
-      None. The method is called for its refusal.
+      None.
 
     Raises:
-      ValueError naming the coordinate that disagrees, the value this artifact
-      was generated with, the value being sampled, and what to do about it.
+      ValueError when one directly named fixed value disagrees.
     """
-    fixed_facts.check_vertical(blocks=self.record,
-                               resolved_model=resolved_model,
-                               where=self._where)
+    fixed_facts.check_fixed_values(
+      blocks=self.record,
+      known_constants=known_constants,
+      where=self._where)
 
   def check_pairs_with(self, other):
     """Horizontal: do these two emulators belong to each other?
@@ -626,13 +576,8 @@ class EmulatorPredictor:
     and still drew different points, so comparing their facts cannot tell them
     apart. The dataset identity can, and the law compares it first.
 
-    Why this is not the other two questions. It compares two artifacts against
-    EACH OTHER, and the chain never enters it: a pair can match each other
-    exactly and both belong to a universe nobody is sampling, which is what
-    check_belongs_to is for. Nor does it say anything about where the pair may
-    be evaluated: two emulators from one dump agree here and may still have
-    been sampled over different regions, which is what served_support_with is
-    for.
+    This comparison does not inspect the chain's parameterization or the point
+    being evaluated. Those are separate checks.
 
     Arguments:
       other = the other EmulatorPredictor, the one this artifact would be

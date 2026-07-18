@@ -271,46 +271,16 @@ def _theory_components(model):
 
 
 def resolved_constants(model):
-  """Read every value the resolved Cobaya model pins to a constant.
+  """Read named constants and theory settings used by dataset generation.
 
-  The YAML is the request; the model is the fact. A default the YAML left
-  unstated has been materialized by the time get_model returns, and it is that
-  materialized value the dataset was generated under. Two sources are read, in
-  this order:
-
-    the params block   parameterization.constant_params(): every parameter the
-                       run wrote as a number (or as value: <number>). A
-                       parameter given as a function of other parameters is not
-                       a constant, and is deliberately absent here: its value
-                       changes with the sample, so it is not a fixed fact.
-    the theory block   each theory component's extra_args: the settings the run
-                       hands the Boltzmann code directly.
-
-  The params block wins a name both blocks state, because it is the model's own
-  parameterization of the cosmology. Between two theory components that state
-  one name (a configuration nothing in this program produces), the first
-  component the model lists wins.
-
-  Every lookup is wrapped: a cobaya that does not expose one of these surfaces
-  leaves the facts it would have supplied unresolved, and they are published as
-  "n/a" rather than crashing a run whose data vectors are already computed.
-
-  There is one reader, and it lives here rather than in the generator, because
-  the generator is not its only caller. The producer reads the model to WRITE
-  the record; each cobaya adapter reads the model to CHECK an artifact's record
-  against the cosmology the chain is sampling. Those two must read the model the
-  same way, down to which block wins a name both blocks state. A second copy of
-  this function would be a second author of the same scientific fact, and two
-  authors of one fact are how the two halves of that fact drift apart.
+  Parameter constants override settings with the same name from a theory
+  component. The function does not interpret aliases or derived parameters.
 
   Arguments:
-    model = the resolved Cobaya model (cobaya.model.get_model's return value),
-            duck-typed rather than imported.
+    model = the resolved Cobaya model.
 
   Returns:
-    a mapping of name to plain value, holding every constant the model states.
-    It is a superset of the coordinates the record reports on; the caller reads
-    the names it needs.
+    A plain mapping of the named values that can be read.
   """
   pinned = {}
   for component in _theory_components(model=model):
@@ -325,148 +295,7 @@ def resolved_constants(model):
     constants = {}
   for key in constants:
     pinned[key] = _plain_fact(value=constants[key])
-  _add_canonical_dark_energy_constants(
-    model=model, pinned=pinned, parameter_constants=constants)
   return pinned
-
-
-def _parameter_name_set(value):
-  """Return public Cobaya parameter names, or an empty set if unavailable."""
-  if hasattr(value, "keys"):
-    names = list(value.keys())
-  elif isinstance(value, (list, tuple, set, frozenset)):
-    names = list(value)
-  else:
-    return set()
-  if any(type(name) is not str for name in names):
-    return set()
-  return set(names)
-
-
-def _add_canonical_dark_energy_constants(
-    model, pinned, parameter_constants):
-  """Add fixed ``w`` and ``wa`` values without hiding sampled coordinates.
-
-  Cobaya may call the present-day value ``w0`` and may calculate ``wa`` from
-  ``w0pwa = w0 + wa``.  Artifacts store only the physical names ``w`` and
-  ``wa``.  The vertical identity check therefore needs the live model in that
-  same vocabulary.  A coordinate that changes with a sampled parameter is
-  deliberately not added: a chain that varies a value cannot serve an
-  artifact that held it fixed.
-
-  When the model states no dark-energy coordinate, its explicit resolved
-  physical form is the cosmological constant ``(-1, 0)``.  A model that
-  samples either physical coordinate never receives that completion.
-  """
-  parameterization = getattr(model, "parameterization", None)
-  sampled = set()
-  sampled_known = False
-  if parameterization is not None:
-    try:
-      sampled_value = parameterization.sampled_params()
-      sampled = _parameter_name_set(sampled_value)
-      sampled_known = (hasattr(sampled_value, "keys") or isinstance(
-        sampled_value, (list, tuple, set, frozenset)))
-    except Exception:
-      sampled = set()
-  varying = set(sampled)
-  dependencies = getattr(parameterization, "input_dependencies", {})
-  dependencies_known = hasattr(dependencies, "items")
-  if dependencies_known:
-    for name, required in dependencies.items():
-      if (type(name) is str
-          and isinstance(required, (list, tuple, set, frozenset))
-          and set(required).intersection(sampled)):
-        varying.add(name)
-
-  w_varies = bool(varying.intersection(("w", "w0")))
-  wa_varies = bool(varying.intersection(("wa", "w0pwa")))
-  if w_varies:
-    pinned.pop("w", None)
-    pinned.pop("w0", None)
-  if wa_varies:
-    pinned.pop("wa", None)
-    pinned.pop("w0pwa", None)
-  if w_varies and wa_varies:
-    return
-
-  # Import lazily so the fixed-facts schema remains readable without loading
-  # the analytic matter-power formulas.  This is the same resolver used by
-  # dataset generation and the Cobaya adapter; vertical comparison does not
-  # invent a third coordinate rule.
-  from emulator.syren_base import resolve_dark_energy_coordinates
-
-  raw = {
-    name: pinned[name]
-    for name in ("w", "w0", "wa", "w0pwa")
-    if name in pinned
-  }
-  if not sampled_known or not dependencies_known:
-    # Older or synthetic model doubles may not expose the public surfaces that
-    # distinguish an absent constant from a sampled value.  Canonicalize only
-    # coordinates they explicitly fixed; never supply LCDM/constant-w defaults
-    # when that distinction cannot be proved.
-    # Theory components commonly expose their own default w/wa values even
-    # when the global parameterization samples those coordinates.  When the
-    # public sampled/dependency surface is unreadable, only values proven to
-    # come from parameterization.constant_params() remain trustworthy.
-    for name in ("w", "w0", "wa", "w0pwa"):
-      pinned.pop(name, None)
-    raw = {
-      name: _plain_fact(value=parameter_constants[name])
-      for name in ("w", "w0", "wa", "w0pwa")
-      if name in parameter_constants
-    }
-    pinned.update(raw)
-    if "w" not in raw and "w0" not in raw:
-      return
-    probe = dict(raw)
-    has_separate_wa = "wa" in probe or "w0pwa" in probe
-    if not has_separate_wa:
-      probe["wa"] = 0.0
-    w0, wa = resolve_dark_energy_coordinates(
-      probe, where="resolved model explicit dark-energy constants")
-    pinned["w"] = w0
-    if has_separate_wa:
-      pinned["wa"] = wa
-    return
-  if not w_varies:
-    if "w" not in raw and "w0" not in raw:
-      if raw:
-        raise ValueError(
-          "the resolved model fixes " + repr(sorted(raw))
-          + " but does not fix w or w0, so its canonical dark-energy "
-          "coordinates cannot be determined")
-      raw["w"] = -1.0
-    # When wa varies, a temporary zero lets the shared resolver validate the
-    # w/w0 aliases only.  The returned wa is ignored and never published as a
-    # live constant.
-    if wa_varies:
-      alias_probe = dict(raw)
-      alias_probe.pop("w0pwa", None)
-      alias_probe["wa"] = 0.0
-      w0, _ = resolve_dark_energy_coordinates(
-        alias_probe, where="resolved model dark-energy aliases")
-      pinned["w"] = w0
-
-  if not wa_varies:
-    if w_varies:
-      # A fixed wa can be checked without pretending the sampled present-day
-      # value is fixed.  A missing wa is the explicit constant-w value zero.
-      if "wa" in raw:
-        _, wa = resolve_dark_energy_coordinates(
-          {"w": -1.0, "wa": raw["wa"]},
-          where="resolved model fixed wa")
-      else:
-        wa = 0.0
-      pinned["wa"] = wa
-    else:
-      if "wa" not in raw and "w0pwa" not in raw:
-        raw["wa"] = 0.0
-      w0, wa = resolve_dark_energy_coordinates(
-        raw, where="resolved model dark-energy constants")
-      pinned["w"] = w0
-      pinned["wa"] = wa
 
 
 def format_value(value):
@@ -1270,15 +1099,11 @@ def domain_bounds(blocks, name):
 
 
 # ---------------------------------------------------------------------------
-# The three comparison laws.
+# The three saved-record comparisons.
 #
-# Three different questions, and conflating them is how the consumers of these
-# artifacts ended up comparing parameter-axis names and calling it a cosmology
-# check:
-#
-#   VERTICAL    does this artifact belong to the cosmology being sampled?
-#               every coordinate the artifact HELD FIXED must equal the value
-#               the sampling cosmology resolved for it. An equality law.
+#   FIXED VALUE compare concrete values that the artifact and model expose
+#               under the same name. Custom parameterizations remain the
+#               user's responsibility.
 #
 #   HORIZONTAL  do these two artifacts belong to each other?
 #               same dataset, same cosmology, same sampled coordinates. An
@@ -1290,9 +1115,6 @@ def domain_bounds(blocks, name):
 #               two, never the union. The only law that may intersect, which is
 #               exactly why it cannot live in a block compared by equality.
 #
-# Every refusal names the artifact's value, the value it was asked about, and
-# what to do about it. A message that says "incompatible artifact" and stops is
-# not a refusal, it is a shrug.
 # ---------------------------------------------------------------------------
 
 
@@ -1320,83 +1142,38 @@ def _same_fact(left, right):
   return left == right
 
 
-def check_vertical(blocks, resolved_model, where):
-  """Does this artifact belong to the cosmology being sampled?
+def check_fixed_values(blocks, known_constants, where):
+  """Refuse an obvious mismatch between directly named fixed values.
 
-  The artifact was generated with some coordinates held fixed: a neutrino mass,
-  an equation of state, a curvature. Those are not free parameters of the
-  emulator, they are properties of the universe it learned. If the chain now
-  being sampled holds any of them at a different value, the emulator is
-  answering about a different universe, and it will answer confidently.
-
-  The law reads the coordinates the ARTIFACT pinned and asks the sampling
-  cosmology what it says about each. It never reads the emulator's input names:
-  a parameter the emulator takes as input is validated by the domain law
-  instead, and an artifact that pins nothing pins nothing. Comparing the input
-  axes and calling it a cosmology check is the exact confusion this law exists
-  to end.
-
-  A synthetic record (a gate's test double) pins every coordinate at "n/a" and
-  therefore fails this law against any real model, which is the correct answer:
-  a test double must never be served to a likelihood.
+  Cobaya permits arbitrary renamed and derived parameters. This function
+  therefore compares only concrete values that the artifact and current
+  model expose under the same name. Missing names remain the user's
+  responsibility and are not evidence of a mismatch.
 
   Arguments:
-    blocks         = the artifact's two blocks, as validate accepts them.
-    resolved_model = the RESOLVED global model as a plain mapping, coordinate
-                     name -> value. Resolved, not requested: a default the YAML
-                     left unstated has been materialized by the time the model
-                     exists, and it is the materialized value the chain is
-                     actually being sampled under. The consumer resolves it and
-                     hands it in; this module never imports cobaya.
-    where          = the artifact's identity, named in any refusal.
+    blocks          = the artifact record, as accepted by ``validate``.
+    known_constants = the current model's directly named constant values.
+    where           = the artifact name used in a refusal.
 
   Returns:
-    None. The function is called for its refusals.
+    None.
 
   Raises:
-    ValueError naming the coordinate, the artifact's value, the sampled value,
-    and the remediation.
+    ValueError when both records name one fixed value and disagree.
   """
-  facts = blocks[FIXED_FACTS_GROUP]
-  held = facts["cosmology_fixed"]
+  held = blocks[FIXED_FACTS_GROUP]["cosmology_fixed"]
   for name in sorted(held):
     artifact_value = held[name]
-    if artifact_value == NOT_APPLICABLE and name in ("w", "wa"):
-      law = facts["dark_energy_law"]
-      if law == "cosmological-constant":
-        artifact_value = -1.0 if name == "w" else 0.0
-      elif law == "constant-w" and name == "wa":
-        artifact_value = 0.0
-    if name not in resolved_model:
-      raise ValueError(
-        where + " was generated with " + name + " held fixed at "
-        + repr(artifact_value) + ", but the cosmology being sampled does not "
-        "say what " + name + " is, so the two cannot be compared and the "
-        "emulator cannot be shown to belong here. Resolve " + name + " in the "
-        "model being sampled, or serve an emulator that was generated without "
-        "it pinned.")
-    sampled_value = resolved_model[name]
-    if name in ("w", "wa") \
-        and isinstance(artifact_value, (int, float)) \
-        and not isinstance(artifact_value, bool) \
-        and isinstance(sampled_value, (int, float)) \
-        and not isinstance(sampled_value, bool):
-      import math
-      from emulator.syren_base import DARK_ENERGY_COORDINATE_ATOL
-      same = math.isclose(
-        float(artifact_value), float(sampled_value),
-        rel_tol=0.0, abs_tol=DARK_ENERGY_COORDINATE_ATOL)
-    else:
-      same = _same_fact(artifact_value, sampled_value)
-    if not same:
-      raise ValueError(
-        where + " was generated with " + name + " held fixed at "
-        + repr(artifact_value) + ", but the cosmology being sampled has "
-        + name + " = " + repr(sampled_value) + ". The emulator was never shown "
-        "that universe, so every answer it gives here would be confident and "
-        "wrong, and nothing about the numbers would look unusual. Serve an "
-        "emulator generated under this cosmology, or sample the cosmology this "
-        "emulator was generated under.")
+    if artifact_value == NOT_APPLICABLE or name not in known_constants:
+      continue
+    model_value = known_constants[name]
+    if _same_fact(artifact_value, model_value):
+      continue
+    raise ValueError(
+      where + " records " + name + " = " + repr(artifact_value)
+      + ", but the current model records " + name + " = "
+      + repr(model_value) + ". Use an emulator generated with that fixed "
+      "value, or correct the model configuration.")
 
 
 def check_horizontal(blocks_a, blocks_b, where_a, where_b):

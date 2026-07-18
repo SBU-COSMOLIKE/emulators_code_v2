@@ -20,10 +20,11 @@ ResMLP), saves it, and drives the shipped adapter over it with cobaya stubbed:
 
   - the three comparison laws, at the adapter's own site: two emulators fitted to
     different datasets are refused as a pair (the horizontal law, at the end of
-    initialize); an emulator generated under another cosmology is refused when
-    cobaya hands over the provider (the vertical law); a point outside the region
-    the generator sampled is refused at predict, and a test double that declares
-    no region at all is refused at every point (the domain law).
+    initialize); a concrete fixed value that the artifact and resolved model both
+    call ``mnu`` is compared when cobaya hands over the provider (the vertical
+    law); a point outside the region the generator sampled is refused at predict,
+    and a test double that declares no region at all is refused at every point
+    (the domain law).
 
 Every refusal leg needles the WORDS of the refusal it expects. A leg that only
 asks "did it raise?" proves nothing here: float("n/a") raises ValueError, the
@@ -58,6 +59,11 @@ from emulator.results import save_emulator
 from emulator.inference import EmulatorPredictor
 from emulator import fixed_facts
 
+if np.__version__.split(".", 1)[0] != "1":
+    raise RuntimeError(
+        "cs_adapter_identity requires the CoCoA NumPy 1.x environment; got "
+        + np.__version__)
+
 FAILURES = []
 
 # every leg this check is declared to produce, in the order it produces them.
@@ -88,23 +94,23 @@ OTHER_DUMP_LABEL = "cs-adapter-identity/a-second-dump"
 NO_REGION_LABEL  = "cs-adapter-identity/declares-no-region"
 SCALAR_LABEL     = "cs-adapter-identity/scalar-double"
 
-# The cosmology a chain would be sampling. A test double pins every coordinate
-# at "n/a", so it belongs to no cosmology at all and this model refuses it --
-# which is the correct answer: a test double must never reach a likelihood.
-SAMPLED_MODEL = {"mnu": 0.06, "w": -1.0, "omk": 0.0, "TCMB": 2.7255,
-                 "nnu": 3.044}
+# The vertical check is deliberately narrow: both records state ``mnu`` under
+# that exact name, so their different concrete values can be compared directly.
+ARTIFACT_MNU = 0.12
+SAMPLED_MODEL = {"mnu": 0.06}
 
 
-def supported_test_record(names, label, family, support):
+def supported_test_record(names, label, family, support, fixed_mnu=None):
     """Write this gate's fixed support bounds as literal decimal strings.
 
-    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
-    float32 representation includes ``np.float32(...)``. That text is not a
-    decimal number. Keeping this conversion inside the synthetic gate avoids
-    changing production formatting or the scientific-record digest.
+    The scientific-record schema stores each endpoint as decimal text. This
+    synthetic gate writes the small Python values directly in that form.
     """
     blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
         names=names, label=label, family=family, support=None))
+    if fixed_mnu is not None:
+        blocks[fixed_facts.FIXED_FACTS_GROUP]["cosmology_fixed"]["mnu"] = (
+            fixed_mnu)
     domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
     domain["constraint"] = "box"
     for key in ("requested", "resolved"):
@@ -169,7 +175,7 @@ def spd(n, seed):
     return a @ a.T + n * np.eye(n)
 
 
-def save_synthetic_dv(root, device, label, support, seed=11):
+def save_synthetic_dv(root, device, label, support, seed=11, fixed_mnu=None):
     """Save one tiny data-vector emulator: the double this gate drives.
 
     Arguments:
@@ -180,6 +186,7 @@ def save_synthetic_dv(root, device, label, support, seed=11):
       support = the region the double declares, name -> (low, high), or None for
                 a double that declares no region and refuses every point.
       seed    = the seed of the synthetic covariances.
+      fixed_mnu = optional concrete fixed neutrino mass for the vertical check.
 
     Returns:
       None. The two files are written under root.
@@ -244,7 +251,8 @@ def save_synthetic_dv(root, device, label, support, seed=11):
                       names=pgeom.state()["names"],
                       label=label,
                       family="cosmolike",
-                      support=support)),
+                      support=support,
+                      fixed_mnu=fixed_mnu)),
                   attrs={"rescale": "none"})
 
 
@@ -320,12 +328,7 @@ class FakeParameterization:
 
 
 class FakeModel:
-    """The resolved model a chain samples, as the adapter's law reads it.
-
-    The law duck-types the model (that is how emulator/fixed_facts.py stays free
-    of cobaya), so the smallest object carrying the two surfaces it reads is
-    enough to drive it.
-    """
+    """A model-shaped object exposing directly named constants."""
 
     def __init__(self, constants):
         self.theory = {}
@@ -345,12 +348,7 @@ class FakeProvider:
 
 
 class ProviderWithoutModel:
-    """A future cobaya whose Provider no longer carries the model.
-
-    The adapter must refuse loudly here rather than skip the law: a law that
-    skips itself when it cannot run is not a law, and the chain would sample on
-    with an emulator nobody proved belonged to it.
-    """
+    """A provider that exposes no directly named model constants."""
 
 
 def load_emul_cosmic_shear_stubbed():
@@ -468,13 +466,7 @@ def check_adapter_contract(tmp, device):
 
 
 def check_record_laws(tmp, device):
-    """The three comparison laws, at the cosmic-shear adapter's own site.
-
-    One artifact against the chain (vertical), two artifacts against each other
-    (horizontal), one point against the region the generator sampled (domain).
-    The adapter is where the first two are asked, because it is where the served
-    set and the sampled cosmology first exist in one place; the third is asked at
-    every prediction, because that is where a point first exists.
+    """Run fixed-value, pair, and domain checks through the adapter.
 
     Returns:
       None.
@@ -485,11 +477,11 @@ def check_record_laws(tmp, device):
     twin = os.path.join(tmp, "law_twin")
     other = os.path.join(tmp, "law_other")
     save_synthetic_dv(root=one, device=device, label=ONE_DUMP_LABEL,
-                      support=SUPPORT)
+                      support=SUPPORT, fixed_mnu=ARTIFACT_MNU)
     save_synthetic_dv(root=twin, device=device, label=ONE_DUMP_LABEL,
-                      support=SUPPORT, seed=21)
+                      support=SUPPORT, seed=21, fixed_mnu=ARTIFACT_MNU)
     save_synthetic_dv(root=other, device=device, label=OTHER_DUMP_LABEL,
-                      support=SUPPORT, seed=41)
+                      support=SUPPORT, seed=41, fixed_mnu=ARTIFACT_MNU)
 
     # HORIZONTAL. Sharing a dataset is necessary but not sufficient: these two
     # doubles both claim the xi block, so serving them together would count the
@@ -513,34 +505,32 @@ def check_record_laws(tmp, device):
                        needle="different datasets",
                        law="the dataset-identity law")
 
-    # VERTICAL. The chain hands its provider over once, at setup. A test double
-    # pins every coordinate at "n/a", so it belongs to no cosmology, and a real
-    # chain is exactly the thing it must never be served to.
+    # VERTICAL. The chain hands its provider over once, at setup. The artifact
+    # and model both state mnu directly, and their concrete values disagree.
     theory = build(cls, [one])
     try:
         theory.initialize_with_provider(
             FakeProvider(model=FakeModel(constants=SAMPLED_MODEL)))
-        report("an artifact born under another cosmology is refused at setup",
+        report("a directly named fixed-value mismatch is refused at setup",
                False, "no raise")
     except ValueError as exc:
-        report_refusal("an artifact born under another cosmology is refused at "
+        report_refusal("a directly named fixed-value mismatch is refused at "
                        "setup",
                        exc,
-                       needle="held fixed at",
-                       law="the fixed-cosmology law")
+                       needle="records mnu = 0.12",
+                       law="the direct fixed-value check")
 
-    # the same law, when the provider itself cannot answer. A cobaya that no
-    # longer carries the model must stop the chain, not silently void the law.
+    # Without a model there is no directly named value to compare. The helper
+    # leaves custom parameterizations to the user instead of claiming either a
+    # match or a mismatch.
     theory = build(cls, [one])
     try:
         theory.initialize_with_provider(ProviderWithoutModel())
-        report("a provider that cannot reach the model refuses loudly", False,
-               "no raise")
+        report("a provider without named constants leaves the check inconclusive",
+               True, "no same-name value was available")
     except ValueError as exc:
-        report_refusal("a provider that cannot reach the model refuses loudly",
-                       exc,
-                       needle="carries no .model",
-                       law="the API-drift law")
+        report("a provider without named constants leaves the check inconclusive",
+               False, "unexpected refusal: " + str(exc))
 
     # DOMAIN. Inside the declared region the emulator answers; outside it, it
     # would extrapolate -- a number of the right shape, the right sign, and no

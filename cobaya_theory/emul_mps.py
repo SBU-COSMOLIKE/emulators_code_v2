@@ -48,9 +48,11 @@ from cobaya.log import LoggedError, get_logger
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so
 # the training package `emulator` imports (the emul_cosmic_shear prepend).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from emulator.inference import EmulatorPredictor          # noqa: E402
-from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
-                                check_artifacts_pair_up)
+from emulator.inference import (                               # noqa: E402
+    EmulatorPredictor,
+    check_artifacts_fixed_values,
+    check_artifacts_pair_up,
+)
 from cobaya_theory._adapter_contract import (                   # noqa: E402
     exact_bool,
     pick_device,
@@ -508,40 +510,11 @@ class emul_mps(Theory):
         check_artifacts_pair_up(predictors=[self.p_lin, self.p_boost])
 
     def initialize_with_provider(self, provider):
-        """Prove both served emulators were generated for THIS cosmology.
-
-        Cobaya hands a theory its provider exactly once, when the chain is set
-        up, and the provider carries the resolved model -- the same object the
-        dataset generator read when it wrote the record these two emulators
-        were fitted to. So the question is asked once, here, before the first
-        sampled point, and never again per point: the facts a chain holds fixed
-        (the physics it is not sampling) cannot change while it runs.
-
-        It matters because an emulator generated under a different cosmology
-        does not fail. It answers every point, confidently, and every answer is
-        wrong. Here the wrongness is doubly hidden: the boost multiplies the
-        linear spectrum point for point, so a P(k, z) built under fixed physics
-        this chain is not assuming (a different neutrino mass, say, which
-        suppresses small-scale power) comes out perfectly smooth and positive,
-        passes every finiteness check in calculate, and lands in CosmoLike as a
-        clean spectrum with the wrong amplitude -- which is precisely the
-        quantity the survey is measuring.
-
-        Arguments:
-          provider = the cobaya Provider, carrying the resolved global model.
-
-        Returns:
-          None. The method is called for its refusal.
-
-        Raises:
-          ValueError when the provider cannot hand over the model, or when a
-          served artifact was generated under a cosmology this chain is not
-          sampling.
-        """
+        """Register the provider and compare directly named fixed values."""
         super().initialize_with_provider(provider)
-        check_artifacts_belong_to(predictors=[self.p_lin, self.p_boost],
-                                  provider=provider,
-                                  adapter="emul_mps")
+        check_artifacts_fixed_values(
+            predictors=[self.p_lin, self.p_boost],
+            provider=provider)
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""

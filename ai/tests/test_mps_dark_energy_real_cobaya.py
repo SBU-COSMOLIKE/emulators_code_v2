@@ -37,7 +37,7 @@ def _load_adapter_without_neural_network_runtime():
   """
   inference = types.ModuleType("emulator.inference")
   inference.EmulatorPredictor = object
-  inference.check_artifacts_belong_to = lambda **kwargs: None
+  inference.check_artifacts_fixed_values = lambda **kwargs: None
   inference.check_artifacts_pair_up = lambda **kwargs: None
 
   contract = types.ModuleType("cobaya_theory._adapter_contract")

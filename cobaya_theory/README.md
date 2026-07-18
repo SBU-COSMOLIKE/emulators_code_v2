@@ -776,13 +776,18 @@ whether that YAML connects all requested quantities.
 Keep the setup-only log, one-point output, and validation plots with the run.
 They answer different questions.
 
+The fixed-value startup check is intentionally limited. It compares a saved
+fixed value with the resolved model only when both use the same parameter name;
+it does not prove that renamed, derived, or transformed parameters describe the
+same cosmology. Verify that equivalence when using a custom parameterization.
+
 ## FAQ D2. What should I do when startup fails? <a id="faq-d2"></a>
 
 | Message or symptom | Likely meaning | First action |
 | --- | --- | --- |
 | A `.h5` or `.emul` file is missing | The YAML root is wrong or one partner was moved | Check both files beside the exact root |
 | The saved emulator belongs in another adapter | The file predicts another physical family | Return to the chooser table |
-| Saved settings do not match the Cobaya model | Files and current fixed cosmology disagree | Use files trained for this model or correct the YAML |
+| A directly named saved setting does not match the Cobaya model | The file and resolved model give different fixed values for the same name | Use files trained for this model or correct the YAML |
 | A parameter is not provided | A saved input name cannot reach the adapter | Compare saved names with `params` and calculated names |
 | A value lies outside the sampled generator region | The requested point exceeds the saved `input_domain` bounds | Correct the point or generate data over the needed region, then retrain |
 | Requested spectrum or multipole is unavailable | A cosmic-microwave-background file or stored $\ell$ range is missing | Add the correct spectrum or reduce the request |
@@ -818,7 +823,8 @@ Move to an MCMC only after all of these are true:
 - the saved sampled generator region contains the planned priors;
 - the training and validation rows retained after `param_cuts` cover the
   planned priors closely enough to test that region;
-- units, parameter names, and fixed cosmology agree;
+- units and parameter names agree, directly named fixed values match, and any
+  custom renamed or derived parameters have been checked by the user;
 - background-expansion runs are flat; a matter-power run that requests
   `sigma8` supplies `H0`, contains an exact `z = 0` row, and passes the
   adapter's wavenumber-tail and resolution checks;

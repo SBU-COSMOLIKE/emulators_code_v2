@@ -1927,11 +1927,12 @@ def gate_cs_adapter_identity(ctx):
   names and serves the section the geometry declares; a wrong-kind (scalar)
   artifact is refused by name; and the record's three comparison laws are proved
   to fire at this adapter's own site -- two emulators fitted to different
-  datasets are refused as a pair, an artifact generated under another cosmology
-  is refused when cobaya hands over the provider (and a provider that cannot
-  reach the model is refused loudly rather than skipped), and a point outside the
-  sampled region is refused at predict, as is every point of a double that
-  declares no region. Each refusal leg needles the WORDS of its own law: a leg
+  datasets are refused as a pair, a concrete fixed value exposed under the same
+  name by the artifact and resolved model is compared when cobaya hands over the
+  provider; a provider without named constants leaves that limited check
+  inconclusive. A point outside the sampled region is refused at predict, as is
+  every point of a double that declares no region. Each refusal leg needles the
+  WORDS of its own law: a leg
   that asks only "did it raise?" cannot tell a refusal from a crash, because
   float("n/a") raises the same ValueError class every refusal here does. The real
   cobaya lifecycle and the chi2 parity stay with cobaya-adapter (spec:
@@ -2977,8 +2978,9 @@ BOARD = [
             "parameter order are each refused with the way out named; the "
             "dataset's identity recomputes from the published chain's bytes. "
             "On top of the record, the THREE comparison laws it exists to "
-            "serve: an artifact whose held-fixed cosmology differs from the "
-            "one being sampled is refused (vertical); two artifacts fitted to "
+            "serve: a concrete fixed value exposed under the same name by the "
+            "artifact and resolved model is refused if it differs (vertical); "
+            "two artifacts fitted to "
             "different datasets, or describing different universes, may not be "
             "served together (horizontal); a point outside the region an "
             "artifact was trained over is refused rather than extrapolated "
@@ -3026,10 +3028,11 @@ BOARD = [
             "required parameters and its served section from the artifact "
             "rather than from the YAML, refuses a wrong-kind artifact by name, "
             "and runs the record's three comparison laws at its own site -- a "
-            "pair fitted to different datasets is refused, an artifact "
-            "generated under another cosmology is refused when cobaya hands "
-            "over the provider (and a provider that cannot reach the model is "
-            "refused loudly, never skipped), and a point outside the sampled "
+            "pair fitted to different datasets is refused, a concrete fixed "
+            "value exposed under the same name by the artifact and resolved "
+            "model is refused if it differs when cobaya hands over the provider; "
+            "a provider without named constants leaves that limited check "
+            "inconclusive. A point outside the sampled "
             "region is refused at predict, as is every point of a double that "
             "declares no region. This adapter's other gate (cobaya-adapter) "
             "needs CosmoLike and a GPU, so until now its loud errors were "

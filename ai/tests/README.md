@@ -728,11 +728,11 @@ leave the saved matter-power workflow.
   names needed by a saved predictor before either learned model or analytic
   base runs. A saved file that lists `w0pwa` as an input but calls its law
   constant-`w` is refused with instructions to regenerate it.
-- `test_dark_energy_vertical_identity.py` checks fixed cosmologies. For
-  example, an artifact that saved `w=-0.9` matches a live model that calls the
-  same constant `w0=-0.9`. A chain that samples `w` and `w0pwa` does not borrow
-  `w=-1, wa=0` from theory defaults and therefore cannot serve an LCDM-fixed
-  artifact.
+- `test_dark_energy_vertical_identity.py` checks the narrow fixed-value
+  comparison used at serving time. It compares concrete values only when the
+  artifact and live model use the same coordinate name. Renamed, derived, or
+  transformed coordinates remain the responsibility of the custom Cobaya
+  parameterization.
 
 `test_mps_dark_energy_real_cobaya.py` joins these pieces with Cobaya's real
 parameter engine. It samples `w0pwa=-0.7` and `w=-0.9`, so the calculated value
@@ -985,7 +985,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
-| `test_dark_energy_vertical_identity.py` | Can a saved fixed `w` be compared with a live model that calls the same value `w0`, without accepting a chain that actually samples dark energy? |
+| `test_dark_energy_vertical_identity.py` | Does serving compare a concrete fixed value when the artifact and live model expose it under the same name, without interpreting custom aliases or transformations? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
 | `test_mps_dark_energy_adapter.py` | Does the matter-power adapter ask Cobaya for physical `w, wa`, reconstruct saved coordinate names, and stop conflicts before either predictor runs? |
 | `test_mps_dark_energy_real_cobaya.py` | Does real Cobaya turn dropped sampled `w0pwa` into a nonzero calculated `wa` and give the data generator and adapter the same Syren coordinates? |
