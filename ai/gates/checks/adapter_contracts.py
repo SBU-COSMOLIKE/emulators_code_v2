@@ -43,6 +43,7 @@ LEGS = (
       test_cobaya_adapter_contracts.ScalarAndCmbContractTests,
       test_cobaya_adapter_contracts.LiveCobayaScalarRoutingTests,
       test_cobaya_adapter_contracts.ReturnedOwnershipTests,
+      test_cobaya_adapter_contracts.MatterPowerServingDomainTests,
       test_cobaya_adapter_contracts.MatterPowerDependencyTests,
       test_cobaya_adapter_contracts.BackgroundDependencyTests,
     ),

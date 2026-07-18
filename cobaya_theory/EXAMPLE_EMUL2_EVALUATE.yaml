@@ -201,6 +201,7 @@ theory:
     stop_at_error: True
     extra_args:
       device: 'cuda'
+      allow_k_extrapolation: true
       # the two matter-power artifacts (replace the legacy emulmps keras
       # pair): pklin corrects the syren linear formula, boost corrects
       # syren-halofit; P_nl = P_lin * B is assembled in the adapter

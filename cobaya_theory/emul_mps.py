@@ -64,7 +64,8 @@ from emulator import syren_base                           # noqa: E402
 # The only extra_args the schema-v2 convention accepts (the legacy
 # model_file / metadata_file / nl_* / use_syren / param_order keys are
 # retired: the h5 recipe + the stored grids/laws replace them).
-_ALLOWED_EXTRA_ARGS = ("device", "emulators", "compile")
+_ALLOWED_EXTRA_ARGS = (
+    "device", "emulators", "compile", "allow_k_extrapolation")
 
 # the legacy low-k blend constants (verbatim): below k_t the boost is
 # pinned to 1 (linear scales), with a sharpness-n exponential turn-on.
@@ -143,6 +144,13 @@ def _require_mps_surface(value, *, name, shape, positive=False):
     if positive and not (array > 0.0).all():
         return None
     return array
+
+
+def _valid_mps_axis(axis, *, positive=False):
+    """Check a spline axis."""
+    return (axis.ndim == 1 and len(axis) >= 4 and np.isfinite(axis).all()
+            and np.all(axis[1:] > axis[:-1])
+            and (not positive or (axis > 0).all()))
 
 
 def _saved_dark_energy_value(fixed, name):
@@ -264,20 +272,32 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
     def __init__(self, z, k, P_or_logP, extrap_kmin=None, extrap_kmax=None, logP=False,
                  logsign=1):
         self.islog = logP
-        z, k = (np.atleast_1d(x) for x in [z, k])
-        if len(z) < 4:
-            raise ValueError('Require at least four redshifts for Pk interpolation.'
-                             'Consider using Pk_grid if you just need a small number'
-                             'of specific redshifts (doing 1D splines in k yourself).')
-        z, k, P_or_logP = np.array(z), np.array(k), np.array(P_or_logP)
-        i_z = np.argsort(z)
-        i_k = np.argsort(k)
+        z, k, P_or_logP = np.asarray(z), np.asarray(k), np.asarray(P_or_logP)
+        if (z.ndim != 1 or k.ndim != 1
+                or P_or_logP.shape != (len(z), len(k))):
+            raise ValueError("Pk needs 1-D axes and a matching surface")
         self.logsign = logsign
-        self.z, self.k, P_or_logP = z[i_z], k[i_k], P_or_logP[i_z, :][:, i_k]
+        if (not _valid_mps_axis(z)
+                or not _valid_mps_axis(k, positive=True)
+                or not np.isfinite(P_or_logP).all()):
+            raise ValueError(
+                "Pk needs finite ordered axes, finite surface, and positive k")
+        self.z, self.k = z, k
+        for name, bound in (("extrap_kmin", extrap_kmin),
+                            ("extrap_kmax", extrap_kmax)):
+            if bound is not None and (
+                    isinstance(bound, (bool, np.bool_))
+                    or not isinstance(bound, numbers.Real)
+                    or not math.isfinite(float(bound)) or bound <= 0):
+                raise ValueError(name + " must be a finite positive number")
+        if extrap_kmin is not None and extrap_kmin >= self.k[0]:
+            raise ValueError("extrap_kmin must be below saved k range")
+        if extrap_kmax is not None and extrap_kmax <= self.k[-1]:
+            raise ValueError("extrap_kmax must be above saved k range")
         self.zmin, self.zmax = self.z[0], self.z[-1]
         self.extrap_kmin, self.extrap_kmax = extrap_kmin, extrap_kmax
         logk = np.log(self.k)
-        if extrap_kmin and extrap_kmin < self.input_kmin:
+        if extrap_kmin is not None:
             if not logP:
                 raise ValueError('extrap_kmin must use logP')
             logk = np.hstack(
@@ -290,7 +310,7 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
             logPnew[:, 0] = logPnew[:, 2] - delta
             logPnew[:, 1] = logPnew[:, 2] - delta * 0.9
             P_or_logP = logPnew
-        if extrap_kmax and extrap_kmax > self.input_kmax:
+        if extrap_kmax is not None:
             if not logP:
                 raise ValueError('extrap_kmax must use logP')
             logk = np.hstack(
@@ -327,22 +347,28 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
 
     def check_ranges(self, z, k):
         z = np.atleast_1d(z).flatten()
+        if not z.size or not np.isfinite(z).all():
+            raise LoggedError(get_logger(self.__class__.__name__),
+                              "z query must be nonempty and finite")
         min_z, max_z = min(z), max(z)
-        if min_z < self.zmin and not np.allclose(min_z, self.zmin):
+        if min_z < self.zmin:
             raise LoggedError(get_logger(self.__class__.__name__),
                               f"Not possible to extrapolate to z={min(z)} "
                               f"(minimum z computed is {self.zmin}).")
-        if max_z > self.zmax and not np.allclose(max_z, self.zmax):
+        if max_z > self.zmax:
             raise LoggedError(get_logger(self.__class__.__name__),
                               f"Not possible to extrapolate to z={max(z)} "
                               f"(maximum z computed is {self.zmax}).")
         k = np.atleast_1d(k).flatten()
+        if not k.size or not np.isfinite(k).all() or not (k > 0).all():
+            raise LoggedError(get_logger(self.__class__.__name__),
+                              "k query must be nonempty, finite, and positive")
         min_k, max_k = min(k), max(k)
-        if min_k < self.kmin and not np.allclose(min_k, self.kmin):
+        if min_k < self.kmin:
             raise LoggedError(get_logger(self.__class__.__name__),
                               f"Not possible to extrapolate to k={min(k)} 1/Mpc "
                               f"(minimum k possible is {self.kmin} 1/Mpc).")
-        if max_k > self.kmax and not np.allclose(max_k, self.kmax):
+        if max_k > self.kmax:
             raise LoggedError(get_logger(self.__class__.__name__),
                               f"Not possible to extrapolate to k={max(k)} 1/Mpc "
                               f"(maximum k possible is {self.kmax} 1/Mpc).")
@@ -389,6 +415,7 @@ class emul_mps(Theory):
 
     renames = {}
     extra_args = {}
+    _allow_k_extrapolation = True
 
     def initialize(self):
         """Build the two predictors; check grids, laws, requirements."""
@@ -400,6 +427,9 @@ class emul_mps(Theory):
             self.extra_args, adapter="emul_mps", exact_count=2)
         compile_model = exact_bool(
             self.extra_args, "compile", adapter="emul_mps")
+        self._allow_k_extrapolation = exact_bool(
+            self.extra_args, "allow_k_extrapolation", adapter="emul_mps",
+            default=True)
 
         by_quantity = {}
         req = {}
@@ -483,6 +513,10 @@ class emul_mps(Theory):
                 + repr((z2.shape, k2.shape)) + " or differing values); "
                 "the pair must come from one generator run + one "
                 "k_stride")
+        for name, axis in (("z", z1), ("k", k1)):
+            if not _valid_mps_axis(axis, positive=(name == "k")):
+                raise ValueError(
+                    "emul_mps: invalid saved " + name + " axis")
         self._z = z1
         self._k = k1
 
@@ -752,6 +786,9 @@ class emul_mps(Theory):
                     "values; using linear interpolation.")
         extrapolating = ((extrap_kmax and extrap_kmax > k[-1])
                          or (extrap_kmin and extrap_kmin < k[0]))
+        if extrapolating and not self._allow_k_extrapolation:
+            raise LoggedError(
+                self.log, "allow_k_extrapolation is false")
         if log_p:
             pk_for_interp = np.log(sign * pk)
         elif extrapolating:

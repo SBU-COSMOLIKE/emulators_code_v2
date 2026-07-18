@@ -428,6 +428,7 @@ theory:
     stop_at_error: true
     extra_args:
       device: cpu
+      allow_k_extrapolation: true
       emulators:
         - projects/lsst_y1/emulators/run_12/emul_v2
 ```
@@ -548,6 +549,10 @@ The two saved surfaces must have exactly the same stored $z$ and $k$ grids.
 Syren supplies starting matter-power formulas that these emulators correct.
 The intended EMUL2 pair uses the `syren_linear` formula for `pklin` and
 `syren_halofit` for `boost`.
+
+`allow_k_extrapolation` defaults to `true` and permits requested
+$\log k$-$\log P$ tails. Set it to `false` to refuse them. Redshift never
+extrapolates beyond the saved $z$ interval.
 
 ## FAQ B8. What is the difference between `--test`, evaluate, and MCMC? <a id="faq-b8"></a>
 

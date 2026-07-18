@@ -766,6 +766,140 @@ class ReturnedOwnershipTests(unittest.TestCase):
     np.testing.assert_array_equal(second.k, original_k)
 
 
+class MatterPowerServingDomainTests(unittest.TestCase):
+  """Check the public k and z limits before a spectrum is interpolated."""
+
+  @classmethod
+  def setUpClass(cls):
+    cls.module = _load_adapter(
+      "emul_mps.py", "adapter_contract_mps_serving_domain")
+    cls.z = np.array([0.0, 0.5, 1.0, 2.0])
+    cls.k = np.array([1.0, 2.0, 4.0, 8.0])
+    cls.power = (1.0 + cls.z[:, None]) * cls.k[None, :] ** 2
+
+  def _adapter(self, allow=None):
+    """Return an adapter whose exact P(k,z) is known at both k tails."""
+    adapter = self.module.emul_mps()
+    adapter.log = _Logger()
+    adapter._z = np.array(self.z, copy=True)
+    adapter._k = np.array(self.k, copy=True)
+    if allow is not None:
+      adapter._allow_k_extrapolation = allow
+    adapter.current_state = {
+      ("Pk_grid", False, "delta_tot", "delta_tot"):
+        (np.array(self.k, copy=True), np.array(self.z, copy=True),
+         np.array(self.power, copy=True)),
+    }
+    return adapter
+
+  def test_malformed_axes_and_surface_refuse_before_scipy(self):
+    """Bad saved coordinates stop before FITPACK or a logarithm is called."""
+    good_log_power = np.log(self.power)
+    cases = (
+      (self.z[:3], self.k, good_log_power[:3], "axes|points"),
+      (self.z, self.k[:3], good_log_power[:, :3], "axes|points"),
+      (np.array([[0.0, 0.5, 1.0, 2.0]]), self.k,
+       good_log_power, "axes|points"),
+      (np.array([0.0, 1.0, 0.5, 2.0]), self.k,
+       good_log_power, "axes"),
+      (np.array([0.0, 0.5, 0.5, 2.0]), self.k,
+       good_log_power, "axes"),
+      (np.array([0.0, 0.5, np.nan, 2.0]), self.k,
+       good_log_power, "axes|surface"),
+      (self.z, np.array([[1.0, 2.0, 4.0, 8.0]]),
+       good_log_power, "axes|points"),
+      (self.z, np.array([1.0, 4.0, 2.0, 8.0]),
+       good_log_power, "axes"),
+      (self.z, np.array([0.0, 2.0, 4.0, 8.0]),
+       good_log_power, "axes|surface"),
+      (self.z, np.array([1.0, 2.0, 2.0, 8.0]),
+       good_log_power, "axes"),
+      (self.z, np.array([1.0, 2.0, 4.0, np.inf]),
+       good_log_power, "axes|surface"),
+      (self.z, self.k, good_log_power[:, :3], "surface"),
+      (self.z, self.k,
+       np.where(np.indices(good_log_power.shape)[0] == 0,
+                np.nan, good_log_power), "surface"),
+    )
+    for z, k, surface, message in cases:
+      with self.subTest(message=message, z=repr(z), k=repr(k)):
+        with self.assertRaisesRegex(ValueError, message):
+          self.module.PowerSpectrumInterpolator(z, k, surface, logP=True)
+
+  def test_saved_axis_rule_refuses_unsorted_values(self):
+    """The rule used for both saved grids rejects invalid coordinates."""
+    self.assertFalse(self.module._valid_mps_axis(
+      np.array([0.0, 1.0, 0.5, 2.0])))
+    self.assertFalse(self.module._valid_mps_axis(
+      np.array([1.0, 0.0, 4.0, 8.0]), positive=True))
+
+  def test_malformed_queries_refuse_before_log_and_z_never_extrapolates(self):
+    """NaN, empty, or nonpositive queries cannot slip into spline calls."""
+    interpolators = (
+      self._adapter(allow=False).get_Pk_interpolator(nonlinear=False),
+      self._adapter().get_Pk_interpolator(
+        nonlinear=False, extrap_kmin=0.5, extrap_kmax=16.0),
+    )
+    malformed = (
+      (np.array([]), 2.0),
+      (np.nan, 2.0),
+      (0.5, np.array([])),
+      (0.5, np.nan),
+      (0.5, 0.0),
+      (0.5, -1.0),
+    )
+    for interpolator in interpolators:
+      for z, k in malformed:
+        with self.subTest(z=repr(z), k=repr(k)):
+          with self.assertRaisesRegex(
+              (ValueError, _LoggedError), "nonempty|finite|positive"):
+            interpolator.P(z, k)
+      for z in (-1.0e-9, 2.000000001, -0.1, 2.1):
+        with self.subTest(z=z):
+          with self.assertRaisesRegex(_LoggedError, "z="):
+            interpolator.P(z, 2.0)
+
+  def test_k_extrapolation_option_and_known_answer(self):
+    """The default permits explicit log-log tails; false refuses them."""
+    for option, expected in (({}, True),
+                             ({"allow_k_extrapolation": False}, False)):
+      adapter = self.module.emul_mps()
+      adapter.extra_args = {
+        "device": "cpu", "emulators": ["/missing/linear", "/missing/boost"],
+        "compile": False, **option}
+      with self.assertRaisesRegex(ValueError, "cannot be opened"):
+        adapter.initialize()
+      self.assertIs(adapter._allow_k_extrapolation, expected)
+
+    default = self._adapter()
+    wide = default.get_Pk_interpolator(
+      nonlinear=False, extrap_kmin=0.5, extrap_kmax=16.0)
+    self.assertAlmostEqual(float(wide.P(1.0, 0.5)), 0.5, places=11)
+    self.assertAlmostEqual(float(wide.P(1.0, 16.0)), 512.0, places=9)
+
+    closed = self._adapter(allow=False)
+    with self.assertRaisesRegex(_LoggedError, "allow_k_extrapolation"):
+      closed.get_Pk_interpolator(
+        nonlinear=False, extrap_kmin=0.5, extrap_kmax=16.0)
+    closed_range = closed.get_Pk_interpolator(nonlinear=False)
+    for k in (0.999999999, 8.000000001):
+      with self.assertRaisesRegex(_LoggedError, "k="):
+        closed_range.P(1.0, k)
+
+    for bounds in ({"extrap_kmin": 2.0}, {"extrap_kmax": 4.0}):
+      with self.assertRaisesRegex(ValueError, "saved k range"):
+        default.get_Pk_interpolator(nonlinear=False, **bounds)
+
+    open_inside = default.get_Pk_interpolator(nonlinear=False)
+    closed_inside = closed.get_Pk_interpolator(nonlinear=False)
+    for z, k in ((1.0, 4.0), (0.5, np.sqrt(8.0))):
+      with self.subTest(z=z, k=k):
+        expected = (1.0 + z) * k ** 2
+        self.assertAlmostEqual(float(open_inside.P(z, k)), expected,
+                               places=10)
+        self.assertAlmostEqual(float(closed_inside.P(z, k)), expected,
+                               places=10)
+
 class MatterPowerDependencyTests(unittest.TestCase):
   """Check that a stored amplitude name is not duplicated for Syren."""
 
