@@ -3244,6 +3244,10 @@ IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
     re.MULTILINE)
 IMPLEMENTER_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: CHECKPOINT")
+IMPLEMENTER_CHECKPOINT_CURRENT_STATE = (
+    "- **Current state:** 90 minutes reached; work is paused and may be "
+    "stuck.")
+IMPLEMENTER_CHECKPOINT_DECISION_PREFIX = "- **Checkpoint decision:**"
 FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
 FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
@@ -3566,6 +3570,17 @@ PREAMBLE = (
     "user's checkout, or push as part of landing a ticket.\n\n"
     "--- MESSAGE ---\n")
 
+CHECKPOINT_LANDING_START = "After Architect GO,"
+CHECKPOINT_LANDING_END = "Every work outbound addressed to Sol"
+CHECKPOINT_PREAMBLE = (
+    PREAMBLE[:PREAMBLE.index(CHECKPOINT_LANDING_START)]
+    + PREAMBLE[PREAMBLE.index(CHECKPOINT_LANDING_END):])
+
+
+def common_preamble_for_dispatch(checkpoint_audit):
+    """Omit ordinary landing instructions during a checkpoint review."""
+    return CHECKPOINT_PREAMBLE if checkpoint_audit else PREAMBLE
+
 ARCHITECT_LANDING_PREAMBLE = (
     "ARCHITECT DECISION GRANT:\n"
     "When this audit records GO, write the exact architect-go request named\n"
@@ -3865,12 +3880,70 @@ def matching_new_architect_go(cycle_id, candidate_commit, mode,
             continue
         fresh.append(path)
     if problems:
-        return None, problem_paths, "; ".join(problems)
+        return (None, list(dict.fromkeys(problem_paths + fresh)),
+                "; ".join(problems))
     if len(fresh) > 1:
         return (None, fresh,
                 "expected at most one new exact Architect GO; found "
                 + str(len(fresh)))
     return (fresh[0] if fresh else None), [], None
+
+
+def checkpoint_architect_handoff_problem(message, cycle_id, mode):
+    """Return why a revised checkpoint handoff is not authorized."""
+    returned_cycle, returned_mode, body, problem = (
+        _ticket_flow_envelope(message=message))
+    if problem is not None:
+        return problem
+    if returned_cycle != cycle_id:
+        return "checkpoint handoff changed MAILBOX-CYCLE"
+    if returned_mode != mode:
+        return "checkpoint handoff changed MAILBOX-MODE"
+    decision_rows = [
+        line for line in body.splitlines()
+        if line.startswith(IMPLEMENTER_CHECKPOINT_DECISION_PREFIX)]
+    accepted_rows = {
+        IMPLEMENTER_CHECKPOINT_DECISION_PREFIX + " `GO`",
+        IMPLEMENTER_CHECKPOINT_DECISION_PREFIX + " `NO-GO`",
+    }
+    if len(decision_rows) != 1 or decision_rows[0] not in accepted_rows:
+        return "checkpoint handoff requires exactly one GO or NO-GO row"
+    return None
+
+
+def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
+    """Require one fresh explicit checkpoint decision for the same ticket."""
+    fresh = []
+    invalid = []
+    problems = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-opus.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError) as exc:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + str(exc))
+            continue
+        problem = checkpoint_architect_handoff_problem(
+            message=message, cycle_id=cycle_id, mode=mode)
+        if os.path.dirname(path) != MAILBOX:
+            problem = (
+                "checkpoint handoff was not published in the mailbox root")
+        if problem is not None:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + problem)
+        else:
+            fresh.append(path)
+    if problems:
+        return None, list(dict.fromkeys(invalid + fresh)), "; ".join(problems)
+    if len(fresh) != 1:
+        return (None, fresh,
+                "expected exactly one new checkpoint handoff to the "
+                "Implementer; found " + str(len(fresh)))
+    return fresh[0], [], None
 
 
 def matching_new_architect_notes_go(base_commit, notes_commit,
@@ -4366,20 +4439,37 @@ def _ticket_flow_envelope(message):
     return match.group(1), match.group(2), body, None
 
 
-def is_implementer_time_checkpoint(body):
-    """Return whether a handoff asks for the 90-minute review."""
+def is_implementer_checkpoint_request(body):
+    """Return whether a handoff uses the timed-checkpoint heading."""
     if not isinstance(body, str):
         return False
     lines = body.splitlines()
     return bool(lines) and lines[0] == IMPLEMENTER_CHECKPOINT_HEADING
 
 
+def is_implementer_time_checkpoint(body):
+    """Return whether a timed checkpoint begins with its fixed state."""
+    if not is_implementer_checkpoint_request(body):
+        return False
+    first_field = next(
+        (line for line in body.splitlines()[1:] if line), "")
+    return first_field == IMPLEMENTER_CHECKPOINT_CURRENT_STATE
+
+
 def checkpoint_handoff_problem(message):
     """Refuse an ordinary handoff after the 90-minute hook has fired."""
     _, _, body, problem = _ticket_flow_envelope(message=message)
-    if problem is None and is_implementer_time_checkpoint(body):
-        return None
-    return "the 90-minute hook fired without its checkpoint handoff"
+    if problem is not None or not is_implementer_checkpoint_request(body):
+        return "the 90-minute hook fired without its checkpoint handoff"
+    current_state_rows = [
+        line for line in body.splitlines()
+        if line.startswith("- **Current state:**")]
+    if (not is_implementer_time_checkpoint(body)
+            or len(current_state_rows) != 1
+            or current_state_rows[0]
+            != IMPLEMENTER_CHECKPOINT_CURRENT_STATE):
+        return "the checkpoint needs its exact 90-minute Current state"
+    return None
 
 
 def _ticket_architect_admission(message):
@@ -6723,9 +6813,13 @@ def dispatch_under_main_checkout_lock(
     if message.startswith(MAILBOX_FLOW_HEADER):
         _, flow_mode, flow_body, flow_problem = _ticket_flow_envelope(
             message=message)
-        architect_checkpoint_audit = (
+        checkpoint_request = (
             agent == "fable" and flow_problem is None
-            and is_implementer_time_checkpoint(flow_body))
+            and is_implementer_checkpoint_request(flow_body))
+        checkpoint_problem = (checkpoint_handoff_problem(message=message)
+                              if checkpoint_request else None)
+        architect_checkpoint_audit = (
+            checkpoint_request and checkpoint_problem is None)
         if flow_problem is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": "
@@ -6742,6 +6836,8 @@ def dispatch_under_main_checkout_lock(
                       + " belongs to another watch role")
         else:
             reason = None
+        if reason is None and checkpoint_problem is not None:
+            reason = checkpoint_problem
         if reason is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason)
@@ -6936,7 +7032,9 @@ def dispatch_under_main_checkout_lock(
     try:
         if agent == "fable":
             architect_go_before = daemon_message_inode_snapshot()
-            if notes_admin_turn:
+            if architect_checkpoint_audit:
+                architect_opus_before = opus_message_inode_snapshot()
+            elif notes_admin_turn:
                 admin_opus_before = opus_message_inode_snapshot()
             elif architect_admission is not None:
                 architect_opus_before = opus_message_inode_snapshot()
@@ -6997,10 +7095,12 @@ def dispatch_under_main_checkout_lock(
                 "implementer_checkpoint_hook.py"))
         command_prefix += [
             "--settings", json.dumps(settings, separators=(",", ":"))]
+    common_preamble = common_preamble_for_dispatch(
+        checkpoint_audit=architect_checkpoint_audit)
     command = command_prefix + [
         banner + agent_preamble(agent=agent, message=message)
         + architect_admission_prompt(token=architect_admission)
-        + PREAMBLE + message]
+        + common_preamble + message]
 
     if notes_admin_turn:
         try:
@@ -7289,6 +7389,11 @@ def dispatch_under_main_checkout_lock(
                 else:
                     evidence_problem = checkpoint_handoff_problem(
                         message=returned_message)
+                if (evidence_problem is None
+                        and returned_candidate == implementer_starting_head):
+                    evidence_problem = (
+                        "the 90-minute checkpoint needs a new clean "
+                        "checkpoint commit")
                 if evidence_problem is not None:
                     invalid_returns = ([implementer_return]
                                        if implementer_return else [])
@@ -7399,9 +7504,22 @@ def dispatch_under_main_checkout_lock(
         go_path, invalid_go_paths, go_problem = matching_new_architect_go(
             cycle_id=audit_cycle_id, candidate_commit=audit_commit,
             mode=flow_mode, before_inodes=architect_go_before)
-        if architect_checkpoint_audit and go_path is not None:
-            invalid_go_paths = [go_path]
-            go_problem = "a progress checkpoint cannot receive landing GO"
+        if architect_checkpoint_audit:
+            handoff_path, invalid_handoffs, handoff_problem = (
+                matching_new_checkpoint_handoff(
+                    cycle_id=audit_cycle_id, mode=flow_mode,
+                    before_inodes=architect_opus_before))
+            checkpoint_outputs = invalid_handoffs
+            if handoff_path is not None:
+                checkpoint_outputs.append(handoff_path)
+            if go_path is not None:
+                invalid_go_paths.append(go_path)
+                go_problem = "a progress checkpoint cannot receive landing GO"
+            if go_problem is None and handoff_problem is not None:
+                go_problem = handoff_problem
+            if go_problem is not None:
+                invalid_go_paths = list(dict.fromkeys(
+                    invalid_go_paths + checkpoint_outputs))
         if go_problem is not None:
             for invalid_path in invalid_go_paths:
                 park_failed_message(dispatch_path=invalid_path)

@@ -68,6 +68,30 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             self.assertEqual(second, (0, "", ""))
             self.assertEqual(state.read_bytes(), b"triggered\n")
 
+    def test_executable_stop_hook_blocks_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            environment = os.environ.copy()
+            environment[checkpoint.DEADLINE_ENVIRONMENT] = "0"
+            environment[checkpoint.STATE_ENVIRONMENT] = str(state)
+            payload = json.dumps({"hook_event_name": "Stop"})
+            command = [sys.executable, str(HOOK_PATH)]
+
+            first = subprocess.run(
+                command, input=payload, capture_output=True, text=True,
+                env=environment, check=False)
+            second = subprocess.run(
+                command, input=payload, capture_output=True, text=True,
+                env=environment, check=False)
+
+            self.assertEqual(first.returncode, 0)
+            self.assertEqual(first.stderr, "")
+            self.assertEqual(json.loads(first.stdout)["decision"], "block")
+            self.assertEqual(second.returncode, 0)
+            self.assertEqual(second.stdout, "")
+            self.assertEqual(second.stderr, "")
+            self.assertEqual(state.read_bytes(), b"triggered\n")
+
     def test_a_revised_implementer_turn_gets_a_fresh_period(self):
         with tempfile.TemporaryDirectory() as folder:
             first_state = Path(folder) / "first.state"
@@ -150,16 +174,82 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             agent="fable", message=checkpoint_message)
         ordinary_preamble = daemon.agent_preamble(
             agent="fable", message=ordinary_message)
+        checkpoint_prompt = (
+            checkpoint_preamble + daemon.common_preamble_for_dispatch(True)
+            + checkpoint_message)
+        ordinary_prompt = (
+            ordinary_preamble + daemon.common_preamble_for_dispatch(False)
+            + ordinary_message)
 
         self.assertIn("90-MINUTE IMPLEMENTER CHECKPOINT",
                       checkpoint_preamble)
         self.assertNotIn(daemon.ARCHITECT_LANDING_PREAMBLE,
-                         checkpoint_preamble)
+                         checkpoint_prompt)
+        self.assertNotIn("After Architect GO", checkpoint_prompt)
+        self.assertNotIn("MAILBOX-RETURN: architect-go", checkpoint_prompt)
         self.assertIn(daemon.ARCHITECT_LANDING_PREAMBLE, ordinary_preamble)
+        self.assertIn("After Architect GO", ordinary_prompt)
+        self.assertIn("MAILBOX-RETURN: architect-go", ordinary_prompt)
         self.assertIsNone(daemon.checkpoint_handoff_problem(
             checkpoint_message))
         self.assertIn("90-minute hook", daemon.checkpoint_handoff_problem(
             ordinary_message))
+
+        malformed = checkpoint_message.replace(
+            daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE,
+            "- **Current state:** progress exists.")
+        _, _, malformed_body, problem = daemon._ticket_flow_envelope(
+            message=malformed)
+        self.assertIsNone(problem)
+        self.assertFalse(daemon.is_implementer_time_checkpoint(
+            malformed_body))
+        self.assertIn("exact 90-minute Current state",
+                      daemon.checkpoint_handoff_problem(malformed))
+        contradictory = (
+            checkpoint_message
+            + "- **Current state:** Work is complete after all.\n")
+        self.assertIn("exact 90-minute Current state",
+                      daemon.checkpoint_handoff_problem(contradictory))
+        suffixed = checkpoint_message.replace(
+            daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE,
+            daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE
+            + " Work is actually complete.")
+        self.assertIn("exact 90-minute Current state",
+                      daemon.checkpoint_handoff_problem(suffixed))
+
+    def test_checkpoint_decision_binds_the_revised_handoff(self):
+        cycle = "open-example@" + "a" * 40
+
+        def handoff(decisions, returned_cycle=cycle, mode="normal"):
+            rows = "\n".join(
+                "- **Checkpoint decision:** `" + decision + "`"
+                for decision in decisions)
+            return (
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: "
+                + returned_cycle + "\nMAILBOX-MODE: " + mode + "\n\n"
+                + "### ARCHITECT_HANDOFF: IMPLEMENTATION\n\n" + rows + "\n")
+
+        for decision in ("GO", "NO-GO"):
+            with self.subTest(decision=decision):
+                self.assertIsNone(
+                    daemon.checkpoint_architect_handoff_problem(
+                        message=handoff([decision]), cycle_id=cycle,
+                        mode="normal"))
+
+        cases = {
+            "missing": handoff([]),
+            "duplicate": handoff(["GO", "NO-GO"]),
+            "valid plus malformed": (
+                handoff(["GO"])
+                + "- **Checkpoint decision:** maybe\n"),
+            "wrong cycle": handoff(["GO"], "other-ticket@" + "b" * 40),
+            "wrong mode": handoff(["GO"], mode="two-role"),
+        }
+        for label, message in cases.items():
+            with self.subTest(invalid=label):
+                self.assertIsNotNone(
+                    daemon.checkpoint_architect_handoff_problem(
+                        message=message, cycle_id=cycle, mode="normal"))
 
     def test_daemon_installs_only_the_two_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(

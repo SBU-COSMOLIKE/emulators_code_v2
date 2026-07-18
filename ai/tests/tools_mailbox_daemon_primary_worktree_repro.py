@@ -3969,6 +3969,108 @@ def arm_timed_checkpoint_refusals(source=None):
         if not branch_checks[-1]:
             print("timed ordinary-return checks=" + repr(ordinary_checks))
 
+    # A checkpoint must preserve its partial work in a new clean commit.
+    # Otherwise no immutable candidate exists for the Architect to inspect,
+    # and the decision boundary would be skipped.
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
+        cycle = "timed-no-commit@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — "
+            "[Timed no-commit checkpoint](#timed-no-commit)\n\n"
+            "<a id=\"timed-no-commit\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+        checkout = (
+            "- Worktree: `" + str(implementer) + "`\n"
+            "- Branch: `claude/mailbox-implementer`\n"
+            "- Base: `" + base + "`")
+        note = primary / "ai" / "notes" / "timed-spec.md"
+        note.write_text(
+            packet(role="architect", bodies={"Execution checkout": checkout}),
+            encoding="utf-8", newline="")
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        mailbox.mkdir(parents=True, exist_ok=True)
+        inbound = mailbox / "0003-to-opus.md"
+        inbound.write_text(
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "- **Directive:** [ai/notes/timed-spec.md, section "
+            "Implementation directive]\n",
+            encoding="utf-8", newline="")
+        child = primary / "ai" / "notes" / "relay" / \
+            "timed-no-commit-child.py"
+        child_source = (
+            "import os\n"
+            "from pathlib import Path\n"
+            "import subprocess\n\n"
+            "worktree = Path(os.environ['MAILBOX_EXECUTION_WORKTREE'])\n"
+            "shared_notes = Path(os.environ['MAILBOX_SHARED_NOTES'])\n"
+            "candidate = subprocess.check_output("
+            "['git', 'rev-parse', 'HEAD'], cwd=worktree, text=True).strip()\n"
+            "Path(os.environ['MAILBOX_IMPLEMENTER_CHECKPOINT_STATE'])."
+            "write_text('triggered\\n', encoding='utf-8', newline='')\n"
+            "body = " + repr(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "### IMPLEMENTER_HANDOFF: CHECKPOINT\n\n"
+                "- **Current state:** 90 minutes reached; work is paused "
+                "and may be stuck.\n"
+                "- **Candidate commit:** `{candidate}`\n"
+                "- **Subagent work:**\n" + evidence + "\n"
+                "- **Blockers/findings:** Partial work needs review.\n"
+                "- **Action required:** Architect checkpoint decision.\n")
+            + "\n"
+            "message = body.format(candidate=candidate)\n"
+            "target = shared_notes / 'mailbox' / '0004-to-fable.md'\n"
+            "target.write_text(message, encoding='utf-8', newline='')\n")
+        write_exact(child, child_source.encode("utf-8"))
+        daemon.AGENT_COMMANDS = {
+            "fable": ["unused-fable"],
+            "opus": [sys.executable, str(child)],
+            "sol": ["unused-sol"],
+        }
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = daemon.dispatch(path=str(inbound), dry_run=False)
+        state = daemon.read_ticket_cycle_state()["active"].get(cycle)
+        candidate_ref = daemon.cycle_candidate_ref(cycle_id=cycle)
+        no_commit_checks = {
+            "refused": result is False,
+            "exact-reason": (
+                "checkpoint needs a new clean checkpoint commit"
+                in output.getvalue()),
+            "request-failed": (
+                (mailbox / "failed" / inbound.name).is_file()),
+            "return-failed": (
+                (mailbox / "failed" / "0004-to-fable.md").is_file()),
+            "candidate-state-empty": (
+                daemon.read_candidate_state()["cycles"].get(cycle) is None),
+            "candidate-ref-absent": git(
+                root, "rev-parse", "--verify", candidate_ref,
+                check=False).returncode != 0,
+            "ticket-still-implementation": (
+                state is not None and state["phase"] == "implementation"
+                and state["commit"] is None),
+            "implementer-head-unchanged": (
+                git(implementer, "rev-parse", "HEAD").stdout.strip() == base),
+            "main-unchanged": (
+                git(root, "rev-parse", "HEAD").stdout.strip() == base),
+        }
+        branch_checks.append(all(no_commit_checks.values()))
+        if not branch_checks[-1]:
+            print("timed no-commit checks=" + repr(no_commit_checks))
+
     # A real checkpoint is advice to pause and reassess. Even if the
     # Architect child publishes a syntactically valid GO, no landing begins.
     with scratch_repository(source=source) as root:
@@ -4007,7 +4109,7 @@ def arm_timed_checkpoint_refusals(source=None):
         inbound = mailbox / "0003-to-fable.md"
         inbound.write_text(
             flow + daemon.IMPLEMENTER_CHECKPOINT_HEADING + "\n\n"
-            "- **Current state:** The 90-minute checkpoint is ready.\n"
+            + daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE + "\n"
             "- **Candidate commit:** `" + candidate + "`\n"
             "- **Action required:** Architect complexity review.\n",
             encoding="utf-8", newline="")
@@ -4021,6 +4123,11 @@ def arm_timed_checkpoint_refusals(source=None):
             "mailbox = Path(os.environ['MAILBOX_SHARED_NOTES']) / 'mailbox'\n"
             "(mailbox / '0004-to-daemon.md').write_text("
             + repr(go_payload)
+            + ", encoding='utf-8', newline='')\n"
+            "(mailbox / '0005-to-opus.md').write_text("
+            + repr(
+                flow + "### ARCHITECT_HANDOFF: IMPLEMENTATION\n\n"
+                "- **Checkpoint decision:** `GO`\n")
             + ", encoding='utf-8', newline='')\n")
         write_exact(child, child_source.encode("utf-8"))
         daemon.AGENT_COMMANDS = {
@@ -4043,6 +4150,8 @@ def arm_timed_checkpoint_refusals(source=None):
                 (mailbox / "failed" / inbound.name).is_file()),
             "go-failed": (
                 (mailbox / "failed" / "0004-to-daemon.md").is_file()),
+            "handoff-failed": (
+                (mailbox / "failed" / "0005-to-opus.md").is_file()),
             "nothing-done": not list((mailbox / "done").glob("*.md")),
             "ticket-still-implementation": (
                 state is not None and state["phase"] == "implementation"
@@ -4062,7 +4171,135 @@ def arm_timed_checkpoint_refusals(source=None):
         if not branch_checks[-1]:
             print("timed checkpoint GO checks=" + repr(checkpoint_checks))
 
-    passed = branch_checks == [True, True]
+        # A later Architect turn that sends only one explicit decision is
+        # accepted, archived, and leaves the revised Implementer handoff
+        # queued inside the same ticket.
+        positive_inbound = mailbox / "0006-to-fable.md"
+        positive_inbound.write_text(
+            flow + daemon.IMPLEMENTER_CHECKPOINT_HEADING + "\n\n"
+            + daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE + "\n"
+            "- **Candidate commit:** `" + candidate + "`\n"
+            "- **Action required:** Architect complexity review.\n",
+            encoding="utf-8", newline="")
+        positive_child = primary / "ai" / "notes" / "relay" / \
+            "timed-checkpoint-positive-child.py"
+        positive_source = (
+            "import os\n"
+            "import sys\n"
+            "from pathlib import Path\n\n"
+            "if 'MAILBOX-RETURN: architect-go' in sys.argv[1]:\n"
+            "    raise SystemExit('checkpoint prompt still grants landing')\n"
+            "mailbox = Path(os.environ['MAILBOX_SHARED_NOTES']) / 'mailbox'\n"
+            "(mailbox / '0007-to-opus.md').write_text("
+            + repr(
+                flow + "### ARCHITECT_HANDOFF: IMPLEMENTATION\n\n"
+                "- **Checkpoint decision:** `NO-GO`\n")
+            + ", encoding='utf-8', newline='')\n")
+        write_exact(positive_child, positive_source.encode("utf-8"))
+        daemon.AGENT_COMMANDS["fable"] = [
+            sys.executable, str(positive_child)]
+        positive_output = io.StringIO()
+        with contextlib.redirect_stdout(positive_output):
+            positive_result = daemon.dispatch(
+                path=str(positive_inbound), dry_run=False)
+        positive_state = daemon.read_ticket_cycle_state()["active"].get(cycle)
+        positive_candidate = daemon.read_candidate_state()["cycles"].get(
+            cycle)
+        positive_checks = {
+            "accepted": positive_result is True,
+            "request-done": (
+                (mailbox / "done" / positive_inbound.name).is_file()),
+            "handoff-queued": (
+                (mailbox / "0007-to-opus.md").is_file()),
+            "handoff-not-failed": not (
+                mailbox / "failed" / "0007-to-opus.md").exists(),
+            "ticket-still-implementation": (
+                positive_state is not None
+                and positive_state["phase"] == "implementation"
+                and positive_state["commit"] is None),
+            "candidate-still-preserved": (
+                positive_candidate is not None
+                and positive_candidate["commit"] == candidate),
+            "main-still-unchanged": (
+                git(root, "rev-parse", "HEAD").stdout.strip() == base),
+            "no-landing-go": not list(mailbox.glob("*-to-daemon.md")),
+        }
+        branch_checks.append(all(positive_checks.values()))
+        if not branch_checks[-1]:
+            print("timed checkpoint decision checks=" + repr(positive_checks))
+
+        missing_inbound = mailbox / "0008-to-fable.md"
+        missing_inbound.write_text(
+            flow + daemon.IMPLEMENTER_CHECKPOINT_HEADING + "\n\n"
+            + daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE + "\n"
+            "- **Candidate commit:** `" + candidate + "`\n"
+            "- **Action required:** Architect complexity review.\n",
+            encoding="utf-8", newline="")
+        empty_child = primary / "ai" / "notes" / "relay" / \
+            "timed-checkpoint-empty-child.py"
+        write_exact(empty_child, b"pass\n")
+        daemon.AGENT_COMMANDS["fable"] = [sys.executable, str(empty_child)]
+        missing_output = io.StringIO()
+        with contextlib.redirect_stdout(missing_output):
+            missing_result = daemon.dispatch(
+                path=str(missing_inbound), dry_run=False)
+        missing_checks = {
+            "refused": missing_result is False,
+            "exact-reason": (
+                "expected exactly one new checkpoint handoff"
+                in missing_output.getvalue()),
+            "request-failed": (
+                (mailbox / "failed" / missing_inbound.name).is_file()),
+            "prior-handoff-preserved": (
+                (mailbox / "0007-to-opus.md").is_file()),
+            "main-unchanged": (
+                git(root, "rev-parse", "HEAD").stdout.strip() == base),
+        }
+        branch_checks.append(all(missing_checks.values()))
+        if not branch_checks[-1]:
+            print("timed missing-decision checks=" + repr(missing_checks))
+
+        malformed_inbound = mailbox / "0009-to-fable.md"
+        malformed_inbound.write_text(
+            flow + daemon.IMPLEMENTER_CHECKPOINT_HEADING + "\n\n"
+            + daemon.IMPLEMENTER_CHECKPOINT_CURRENT_STATE + "\n"
+            "- **Current state:** progress exists.\n"
+            "- **Candidate commit:** `" + candidate + "`\n",
+            encoding="utf-8", newline="")
+        launched = primary / "ai" / "notes" / "relay" / \
+            "malformed-checkpoint-launched"
+        malformed_child = primary / "ai" / "notes" / "relay" / \
+            "malformed-checkpoint-child.py"
+        write_exact(
+            malformed_child,
+            ("from pathlib import Path\nPath("
+             + repr(str(launched))
+             + ").write_text('launched\\n')\n").encode("utf-8"))
+        daemon.AGENT_COMMANDS["fable"] = [
+            sys.executable, str(malformed_child)]
+        malformed_output = io.StringIO()
+        with contextlib.redirect_stdout(malformed_output):
+            malformed_result = daemon.dispatch(
+                path=str(malformed_inbound), dry_run=False)
+        malformed_checks = {
+            "refused": malformed_result is False,
+            "exact-reason": (
+                "exact 90-minute Current state"
+                in malformed_output.getvalue()),
+            "request-failed": (
+                (mailbox / "failed" / malformed_inbound.name).is_file()),
+            "child-not-launched": not launched.exists(),
+            "candidate-still-preserved": (
+                daemon.read_candidate_state()["cycles"][cycle]["commit"]
+                == candidate),
+            "main-unchanged": (
+                git(root, "rev-parse", "HEAD").stdout.strip() == base),
+        }
+        branch_checks.append(all(malformed_checks.values()))
+        if not branch_checks[-1]:
+            print("timed malformed-state checks=" + repr(malformed_checks))
+
+    passed = branch_checks == [True, True, True, True, True, True]
     print("timed checkpoint refusal boundaries=" + str(passed))
     return passed
 
@@ -4767,9 +5004,44 @@ def mutation_cases(source):
         '                    and os.path.exists(checkpoint_state_path)):\n',
         '            if False:  # mutation: timed return is not checked\n',
         arm_timed_checkpoint_refusals)
+    add("checkpoint without a new commit accepted",
+        '                if (evidence_problem is None\n'
+        '                        and returned_candidate == '
+        'implementer_starting_head):\n'
+        '                    evidence_problem = (\n'
+        '                        "the 90-minute checkpoint needs a new clean "\n'
+        '                        "checkpoint commit")\n',
+        '                if False:  # mutation: unchanged HEAD accepted\n'
+        '                    evidence_problem = "unreachable"\n',
+        arm_timed_checkpoint_refusals)
+    add("contradictory checkpoint state reaches Architect",
+        '        checkpoint_problem = (checkpoint_handoff_problem('
+        'message=message)\n'
+        '                              if checkpoint_request else None)\n',
+        '        checkpoint_problem = None  # mutation: state not checked\n',
+        arm_timed_checkpoint_refusals)
     add("progress checkpoint accepts landing GO",
-        '        if architect_checkpoint_audit and go_path is not None:\n',
-        '        if False:  # mutation: checkpoint GO is accepted\n',
+        '            if go_path is not None:\n'
+        '                invalid_go_paths.append(go_path)\n'
+        '                go_problem = "a progress checkpoint cannot '
+        'receive landing GO"\n',
+        '            if False:  # mutation: checkpoint GO is accepted\n'
+        '                invalid_go_paths.append(go_path)\n'
+        '                go_problem = "a progress checkpoint cannot '
+        'receive landing GO"\n',
+        arm_timed_checkpoint_refusals)
+    add("checkpoint decision handoff is optional",
+        '            handoff_path, invalid_handoffs, handoff_problem = (\n'
+        '                matching_new_checkpoint_handoff(\n'
+        '                    cycle_id=audit_cycle_id, mode=flow_mode,\n'
+        '                    before_inodes=architect_opus_before))\n',
+        '            handoff_path, invalid_handoffs, handoff_problem = (\n'
+        '                None, [], None)  # mutation: no decision required\n',
+        arm_timed_checkpoint_refusals)
+    add("checkpoint prompt restores ordinary landing instructions",
+        '    common_preamble = common_preamble_for_dispatch(\n'
+        '        checkpoint_audit=architect_checkpoint_audit)\n',
+        '    common_preamble = PREAMBLE  # mutation: checkpoint may land\n',
         arm_timed_checkpoint_refusals)
     add("stale capability cycle accepted",
         '                or checkpoint.get("cycle") != cycle_id):',
