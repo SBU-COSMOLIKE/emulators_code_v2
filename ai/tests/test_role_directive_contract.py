@@ -109,6 +109,8 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 "outside `ai/tests/` and `ai/gates/`", normalized)
             self.assertNotIn(
                 "outside `ai/tests/` and `ai/gates/checks/`", normalized)
+            self.assertIn("4,000", normalized)
+            self.assertNotIn("1,500", normalized)
 
     def test_architect_does_not_build_frameworks_to_babysit_users(self):
         """Simple checks stop before symbolic parameter interpretation."""

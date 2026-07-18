@@ -112,7 +112,7 @@ and understandable line by line. Prefer deleting duplicated machinery, using
 an existing function, or adding one local check over creating a new subsystem.
 
 For one bug, count added characters plus deleted characters outside
-`ai/tests/` and `ai/gates/`. More than 1,500 characters creates a strong
+`ai/tests/` and `ai/gates/`. More than 4,000 characters creates a strong
 presumption of NO-GO. It is not an automatic rejection: the Architect may
 accept the change only when the directive explains specifically why a smaller
 direct repair would be unsafe and why the ticket cannot be split into complete

@@ -472,7 +472,7 @@ It never starts or completes a ticket cycle.
    physics student to trace line by line.
 
    For each bug, separately count added plus deleted characters outside
-   `ai/tests/` and `ai/gates/`. A result above 1,500 creates a strong
+   `ai/tests/` and `ai/gates/`. A result above 4,000 creates a strong
    presumption of `NO-GO`, even when `--max 0` removes the complete-ticket
    ceiling. This is a warning threshold, not an automatic rejection. Override
    it only with an unusually strong, concrete explanation of why a smaller

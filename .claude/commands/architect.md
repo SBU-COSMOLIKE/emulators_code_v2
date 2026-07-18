@@ -27,7 +27,7 @@ Judge production separately from evidence: `ai/tests/` and `ai/gates/` may
 contain many clear examples, while changes under
 `emulator/`, `compute_data_vectors/`, and `cobaya_theory/` must stay small and
 readable line by line.
-For one bug, more than 1,500 added-plus-deleted characters outside
+For one bug, more than 4,000 added-plus-deleted characters outside
 `ai/tests/` and `ai/gates/` creates a strong NO-GO presumption. Override
 the warning only when the directive explains why a smaller direct repair is
 unsafe and why the work cannot be split into complete independent tickets.
