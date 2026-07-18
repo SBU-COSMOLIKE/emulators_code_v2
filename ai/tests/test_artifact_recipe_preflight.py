@@ -616,48 +616,6 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
       self._assert_rebuild_refuses_without_execution(
         root, "missing the required output-identity pair")
 
-  def test_rebuild_refuses_mutated_embedded_transfer_state(self):
-    """Embedded base tensors must still match their saved state digest."""
-    with tempfile.TemporaryDirectory(prefix="recipe-read-transfer-state-") as temp:
-      root = self._saved_transfer_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        state = artifact["transfer_base/state"]
-        name = next(iter(state))
-        changed = np.asarray(state[name][()]).copy()
-        changed.reshape(-1)[0] += 1.0
-        state[name][...] = changed
-      self._assert_rebuild_refuses_without_execution(
-        root, "embedded state digest disagrees")
-
-  def test_refined_transfer_drifted_state_has_an_independent_digest(self):
-    """Changing only refined base tensors invalidates the refined binding."""
-    with tempfile.TemporaryDirectory(prefix="recipe-refined-state-") as temp:
-      path = Path(temp) / "states.h5"
-      pretrained = {"weight": np.asarray([1.0, 2.0], dtype=np.float32)}
-      drifted = {"weight": np.asarray([1.5, 2.5], dtype=np.float32)}
-      with h5py.File(path, "w") as artifact:
-        transfer = artifact.create_group("transfer_base")
-        state = transfer.create_group("state")
-        state.create_dataset("weight", data=pretrained["weight"])
-        drifted_group = transfer.create_group("drifted_state")
-        drifted_group.create_dataset("weight", data=drifted["weight"])
-        state_digest = results.digest_tensor_state(pretrained)
-        drifted_digest = results.digest_tensor_state(drifted)
-        transfer.attrs["state_sha256"] = state_digest
-        transfer.attrs["drifted_state_sha256"] = drifted_digest
-        resolved = {
-          "embedded_state_sha256": state_digest,
-          "embedded_drifted_state_sha256": drifted_digest,
-        }
-        results._validate_embedded_transfer_state(
-          transfer, resolved, transfer_refined=True,
-          where="refined transfer fixture")
-        drifted_group["weight"][0] = 9.0
-        with self.assertRaisesRegex(ValueError, "drifted state digest"):
-          results._validate_embedded_transfer_state(
-            transfer, resolved, transfer_refined=True,
-            where="refined transfer fixture")
-
   def test_rebuild_refuses_pass_gap_before_execution(self):
     with tempfile.TemporaryDirectory(prefix="recipe-read-pass-gap-") as temp:
       root = self._saved_fixture(temp)

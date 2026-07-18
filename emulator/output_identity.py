@@ -30,7 +30,6 @@ _DIGEST_DOMAIN = b"emulators-code-v2-output-identity-v1\x00"
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _SLUG_PART_RE = re.compile(r"[^a-z0-9]+")
-_STATE_DIGEST_DOMAIN = b"emulators-code-v2-tensor-state-v1\x00"
 
 
 def _plain_value(value, *, where):
@@ -164,56 +163,6 @@ def digest_cmb_covariance_inputs(ell, sigma, fiducial_cl):
     digest.update(encoded_name)
     digest.update(int(values.size).to_bytes(8, "big"))
     digest.update(values.tobytes(order="C"))
-  return digest.hexdigest()
-
-
-def digest_tensor_state(state, *, where="tensor state"):
-  """Fingerprint every named tensor in one embedded model state.
-
-  The digest includes each name, dtype, shape, and byte sequence in sorted
-  name order.  It accepts ordinary NumPy arrays as well as PyTorch tensors so
-  the writer can hash live weights and the reader can independently hash the
-  same arrays directly from HDF5 before importing a model implementation.
-  """
-  if type(state) is not dict:
-    raise TypeError(where + " must be a plain name-to-tensor mapping")
-  digest = hashlib.sha256(_STATE_DIGEST_DOMAIN)
-  for name in sorted(state):
-    if type(name) is not str or not name:
-      raise TypeError(where + " keys must be nonempty native strings")
-    value = state[name]
-    detach = getattr(value, "detach", None)
-    if callable(detach):
-      value = detach()
-      cpu = getattr(value, "cpu", None)
-      if not callable(cpu):
-        raise TypeError(where + "." + name + " cannot be moved to the CPU")
-      value = cpu()
-      numpy_method = getattr(value, "numpy", None)
-      if not callable(numpy_method):
-        raise TypeError(where + "." + name + " is not a tensor array")
-      value = numpy_method()
-    try:
-      array = np.asarray(value)
-    except Exception as exc:
-      raise TypeError(where + "." + name + " is not a tensor array") from exc
-    if array.dtype.hasobject:
-      raise TypeError(where + "." + name + " has an object dtype")
-    # HDF5 returns native-endian arrays.  Converting multibyte values to
-    # little endian makes the same state portable across host byte orders.
-    dtype = array.dtype
-    if dtype.itemsize > 1:
-      dtype = dtype.newbyteorder("<")
-      array = array.astype(dtype, copy=False)
-    array = np.ascontiguousarray(array)
-    record = json.dumps(
-      {"dtype": array.dtype.str, "name": name, "shape": list(array.shape)},
-      ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("ascii")
-    raw = array.tobytes(order="C")
-    digest.update(len(record).to_bytes(8, "big"))
-    digest.update(record)
-    digest.update(len(raw).to_bytes(8, "big"))
-    digest.update(raw)
   return digest.hexdigest()
 
 

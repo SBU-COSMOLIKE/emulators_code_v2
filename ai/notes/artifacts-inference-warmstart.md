@@ -768,14 +768,17 @@ anchor strength, including `0.0`. A refined artifact keeps pretrained
 reference weights `W_0` in `transfer_base` and prediction weights in
 `drifted_state`. The states must permit exact drift recomputation.
 
-The embedded tensor maps also bind the source used by the live run. A frozen
-transfer must embed exactly the live frozen base state. A refined transfer
-must embed the exact pretrained reference state and the exact live drifted
-prediction state. Empty states, missing or extra tensor names, changed shapes
-or dtypes, and altered tensor values refuse before a file is staged. The
-resolved transfer record names the authenticated source artifact identifier
-and source-checkpoint SHA-256 digest; moving the source path does not change
-the run identity, but choosing different source bytes does.
+The training driver gives the writer the live frozen base, or both the cloned
+pretrained base and the live drifted base after refinement. Rebuilding selects
+`state` or `drifted_state` from the explicit refinement fact and loads that
+mapping strictly into the registered base model. Missing, unexpected, or
+wrong-shaped tensors therefore refuse. The file does not hash the embedded
+mapping again or copy that hash into configuration records. A same-shaped
+value edit inside the HDF5 file is user responsibility.
+
+The resolved transfer record still names the authenticated source artifact
+identifier and source-checkpoint SHA-256 digest. Moving the source path does
+not change the run identity, but choosing a different source pair does.
 
 The four supported training modes are from-scratch training, anchored warm
 start, frozen-base transfer, and anchored joint refinement. The decoupled

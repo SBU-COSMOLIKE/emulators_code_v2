@@ -46,7 +46,6 @@ from .model_recipe import check_model_matches_recipe
 from .model_recipe import set_runtime_compile_mode
 from .model_recipe import validate_model_recipe
 from .output_identity import build_output_identity
-from .output_identity import digest_tensor_state
 from .output_identity import require_same_output_identity
 from .output_identity import validate_saved_output_identity
 
@@ -65,8 +64,6 @@ _OUTPUT_IDENTITY_SHA256_ATTR = "output_identity_sha256"
 _OUTPUT_IDENTITY_DATASET = "output_identity_json"
 _CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
 _PAIR_PENDING_SUFFIX = ".pair-pending"
-_TRANSFER_STATE_SHA256_ATTR = "state_sha256"
-_TRANSFER_DRIFTED_STATE_SHA256_ATTR = "drifted_state_sha256"
 
 
 def _validate_live_recipe_geometry_widths(
@@ -439,211 +436,6 @@ def _read_output_identity(artifact, *, where):
       raise ValueError(where + " output identity is not ASCII JSON") from exc
   subject = validate_saved_output_identity(value, digest)
   return digest, subject
-
-
-def _bind_transfer_state_digests(
-    resolved_train, resolved_transfer, transfer_base, *, transfer_refined,
-    where):
-  """Bind the exact embedded base tensors to both resolved transfer records."""
-  state_structure = _tensor_state_structure(
-    transfer_base["state"], where=where + " transfer_base.state")
-  state_sha256 = digest_tensor_state(
-    dict(transfer_base["state"]), where=where + " transfer_base.state")
-  drifted = transfer_base.get("drifted_state")
-  drifted_sha256 = None
-  if transfer_refined:
-    drifted_structure = _tensor_state_structure(
-      drifted, where=where + " transfer_base.drifted_state")
-    _require_matching_state_structure(
-      state_structure, drifted_structure,
-      reference_where=where + " transfer_base.state",
-      candidate_where=where + " transfer_base.drifted_state")
-    drifted_sha256 = digest_tensor_state(
-      dict(drifted), where=where + " transfer_base.drifted_state")
-
-  bound_transfer = dict(resolved_transfer)
-  declarations = ((_TRANSFER_STATE_SHA256_ATTR, state_sha256),)
-  if transfer_refined:
-    declarations += (
-      (_TRANSFER_DRIFTED_STATE_SHA256_ATTR, drifted_sha256),)
-  for key, observed in declarations:
-    public_key = "embedded_" + key
-    if public_key in bound_transfer:
-      declared = _require_lower_hex(
-        bound_transfer[public_key], length=64,
-        where=where + " resolved_transfer." + public_key)
-      if declared != observed:
-        raise ValueError(
-          where + ": resolved_transfer." + public_key
-          + " disagrees with the embedded tensor state")
-    bound_transfer[public_key] = observed
-  if not transfer_refined and "embedded_drifted_state_sha256" in \
-      bound_transfer:
-    raise ValueError(
-      where + ": frozen transfer forbids embedded_drifted_state_sha256")
-
-  bound_train = dict(resolved_train)
-  nested = bound_train.get("transfer")
-  if nested is not None:
-    if type(nested) is not dict:
-      raise TypeError(where + ": resolved_train.transfer must be a mapping")
-    nested = dict(nested)
-    for key in ("embedded_state_sha256",
-                "embedded_drifted_state_sha256"):
-      if key not in bound_transfer:
-        if key in nested:
-          raise ValueError(where + ": frozen transfer forbids " + key)
-        continue
-      if key in nested and nested[key] != bound_transfer[key]:
-        raise ValueError(
-          where + ": resolved_train.transfer." + key
-          + " disagrees with resolved_transfer")
-      nested[key] = bound_transfer[key]
-    bound_train["transfer"] = nested
-  return bound_train, bound_transfer, state_sha256, drifted_sha256
-
-
-def _tensor_state_structure(state, *, where):
-  """Describe one nonempty live tensor mapping without copying its values."""
-  if not isinstance(state, dict):
-    raise TypeError(where + " must be a name-to-tensor mapping")
-  if not state:
-    raise ValueError(where + " must be a nonempty tensor-state mapping")
-  structure = {}
-  for name, value in state.items():
-    if type(name) is not str or not name:
-      raise TypeError(where + " keys must be nonempty native strings")
-    if not torch.is_tensor(value):
-      raise TypeError(where + "." + name + " must be a PyTorch tensor")
-    structure[name] = (tuple(value.shape), value.dtype)
-  return structure
-
-
-def _require_matching_state_structure(
-    reference, candidate, *, reference_where, candidate_where):
-  """Require two state descriptions to name tensors of the same kind."""
-  reference_names = set(reference)
-  candidate_names = set(candidate)
-  if reference_names != candidate_names:
-    missing = sorted(reference_names - candidate_names)
-    unexpected = sorted(candidate_names - reference_names)
-    raise ValueError(
-      candidate_where + " has different tensor names from " + reference_where
-      + "; missing=" + repr(missing) + ", unexpected=" + repr(unexpected))
-  for name in sorted(reference):
-    if reference[name] != candidate[name]:
-      raise ValueError(
-        candidate_where + "." + name + " has shape/dtype "
-        + repr(candidate[name]) + " but " + reference_where + "." + name
-        + " has " + repr(reference[name]))
-
-
-def _validate_live_transfer_state(
-    transfer_base, *, transfer_refined, state_sha256, drifted_sha256, where):
-  """Bind embedded transfer tensors to the live base used by this save."""
-  pretrained_where = where + " transfer_base.state"
-  live_where = where + " live transfer base state"
-  pretrained = transfer_base["state"]
-  pretrained_structure = _tensor_state_structure(
-    pretrained, where=pretrained_where)
-  live = dict(transfer_base["model"].state_dict())
-  live_structure = _tensor_state_structure(live, where=live_where)
-
-  if transfer_refined:
-    drifted_where = where + " transfer_base.drifted_state"
-    drifted = transfer_base["drifted_state"]
-    drifted_structure = _tensor_state_structure(
-      drifted, where=drifted_where)
-    _require_matching_state_structure(
-      pretrained_structure, drifted_structure,
-      reference_where=pretrained_where, candidate_where=drifted_where)
-    _require_matching_state_structure(
-      drifted_structure, live_structure,
-      reference_where=drifted_where, candidate_where=live_where)
-    live_sha256 = digest_tensor_state(live, where=live_where)
-    if live_sha256 != drifted_sha256:
-      raise ValueError(
-        where + ": transfer_base.drifted_state does not equal the live "
-        "refined transfer model state")
-  else:
-    _require_matching_state_structure(
-      pretrained_structure, live_structure,
-      reference_where=pretrained_where, candidate_where=live_where)
-    live_sha256 = digest_tensor_state(live, where=live_where)
-    if live_sha256 != state_sha256:
-      raise ValueError(
-        where + ": transfer_base.state does not equal the live frozen "
-        "transfer model state")
-
-
-def _h5_state_structure(group, *, where):
-  """Describe one nonempty HDF5 tensor group without importing model code."""
-  if not hasattr(group, "items"):
-    raise TypeError(where + " must be an HDF5 group")
-  members = tuple(group.items())
-  if not members:
-    raise ValueError(where + " must contain at least one tensor dataset")
-  structure = {}
-  for name, value in members:
-    if not hasattr(value, "shape") or hasattr(value, "keys"):
-      raise TypeError(where + "." + name + " must be an HDF5 dataset")
-    structure[name] = (tuple(value.shape), np.dtype(value.dtype).str)
-  return structure
-
-
-def _h5_state_digest(group, *, where):
-  """Hash one HDF5 state subgroup without importing executable code."""
-  _h5_state_structure(group, where=where)
-  state = {}
-  for name, value in group.items():
-    state[name] = value[()]
-  return digest_tensor_state(state, where=where)
-
-
-def _validate_embedded_transfer_state(
-    transfer_group, resolved_transfer, *, transfer_refined, where):
-  """Verify saved base tensors against metadata before any model import."""
-  state_structure = _h5_state_structure(
-    transfer_group["state"], where=where + ".state")
-  state_sha256 = _h5_state_digest(
-    transfer_group["state"], where=where + ".state")
-  declared_state = _require_lower_hex(
-    resolved_transfer.get("embedded_state_sha256"), length=64,
-    where=where + " resolved_transfer.embedded_state_sha256")
-  saved_state = _read_native_hex_attr(
-    transfer_group.attrs, _TRANSFER_STATE_SHA256_ATTR,
-    length=64, where=where)
-  if state_sha256 != declared_state or state_sha256 != saved_state:
-    raise ValueError(
-      where + " embedded state digest disagrees with its tensor datasets")
-
-  drifted_sha256 = None
-  has_drifted_attr = _TRANSFER_DRIFTED_STATE_SHA256_ATTR in transfer_group.attrs
-  if transfer_refined:
-    drifted_structure = _h5_state_structure(
-      transfer_group["drifted_state"], where=where + ".drifted_state")
-    _require_matching_state_structure(
-      state_structure, drifted_structure,
-      reference_where=where + ".state",
-      candidate_where=where + ".drifted_state")
-    drifted_sha256 = _h5_state_digest(
-      transfer_group["drifted_state"], where=where + ".drifted_state")
-    declared_drifted = _require_lower_hex(
-      resolved_transfer.get("embedded_drifted_state_sha256"), length=64,
-      where=where + " resolved_transfer.embedded_drifted_state_sha256")
-    if not has_drifted_attr:
-      raise ValueError(where + " is missing drifted_state_sha256")
-    saved_drifted = _read_native_hex_attr(
-      transfer_group.attrs, _TRANSFER_DRIFTED_STATE_SHA256_ATTR,
-      length=64, where=where)
-    if drifted_sha256 != declared_drifted \
-        or drifted_sha256 != saved_drifted:
-      raise ValueError(
-        where + " drifted state digest disagrees with its tensor datasets")
-  elif has_drifted_attr or "embedded_drifted_state_sha256" in \
-      resolved_transfer:
-    raise ValueError(where + " frozen transfer has a drifted-state digest")
-  return state_sha256, drifted_sha256
 
 
 def _load_tensor_state_dict(checkpoint, *, device, where):
@@ -2324,14 +2116,6 @@ def save_emulator(path_root,
     resolved_transfer=resolved_transfer,
     where=path_root)
 
-  transfer_state_sha256 = None
-  transfer_drifted_state_sha256 = None
-  if composition_mode == "transfer":
-    (resolved_train, resolved_transfer, transfer_state_sha256,
-     transfer_drifted_state_sha256) = _bind_transfer_state_digests(
-       resolved_train, resolved_transfer, transfer_base,
-       transfer_refined=transfer_refined, where=path_root)
-
   # Validate the embedded base recipe before reading its model state.  The
   # outer transfer decoder belongs only to the main correction recipe.
   if composition_mode == "transfer":
@@ -2428,12 +2212,6 @@ def save_emulator(path_root,
     check_model_matches_recipe(
       transfer_base["model"], transfer_recipe,
       where=path_root + ": live transfer base")
-    _validate_live_transfer_state(
-      transfer_base,
-      transfer_refined=transfer_refined,
-      state_sha256=transfer_state_sha256,
-      drifted_sha256=transfer_drifted_state_sha256,
-      where=path_root)
 
   # --- stage <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -2580,7 +2358,6 @@ def save_emulator(path_root,
         where="transfer_base dv_geometry")
       tb.attrs["form"]  = transfer_base["form"]
       tb.attrs["space"] = transfer_base["space"]
-      tb.attrs[_TRANSFER_STATE_SHA256_ATTR] = transfer_state_sha256
       # a refined run (transfer.refine): the DRIFTED base weights, kept
       # separate from the pretrained state above (which stays the anchor
       # reference + provenance). The predictor
@@ -2588,8 +2365,6 @@ def save_emulator(path_root,
       # two-way consistent with the group (rebuild refuses either half alone).
       drifted = transfer_base.get("drifted_state")
       if drifted is not None:
-        tb.attrs[_TRANSFER_DRIFTED_STATE_SHA256_ATTR] = (
-          transfer_drifted_state_sha256)
         drift_grp = tb.create_group("drifted_state")
         for k, v in drifted.items():
           drift_grp.create_dataset(k, data=v.detach().cpu().numpy())
@@ -3343,22 +3118,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       _validate_saved_recipe_geometry_widths(
         tb_recipe, tb["param_geometry"], tb["dv_geometry"],
         path_root + ".h5 transfer_base")
-      resolved_transfer = resolved_config["transfer"]
-      _validate_embedded_transfer_state(
-        tb, resolved_transfer, transfer_refined=transfer_refined,
-        where=path_root + ".h5 transfer_base")
-      nested_transfer = resolved_config["train_args"].get("transfer")
-      if nested_transfer is not None:
-        if type(nested_transfer) is not dict:
-          raise TypeError(
-            path_root + ".h5 train_args.transfer must be a mapping")
-        for key in ("embedded_state_sha256",
-                    "embedded_drifted_state_sha256"):
-          if nested_transfer.get(key) != resolved_transfer.get(key):
-            raise ValueError(
-              path_root + ".h5 train_args.transfer." + key
-              + " disagrees with the resolved transfer record")
-
     identity_data = resolved_config.get("data")
     if type(identity_data) is not dict:
       raise TypeError(
@@ -3379,7 +3138,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
         or rebuilt_subject != output_identity:
       raise ValueError(
         path_root + ".h5 output identity disagrees with its saved data, "
-        "recipes, tensor-state declarations, rescale, or composition record")
+        "recipes, rescale, or composition record")
 
     # The trusted local factories and registered geometry implementations are
     # imported only after all saved strings above have passed their closed

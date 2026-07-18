@@ -258,9 +258,8 @@ The immutable resolved record contains at least:
 - device, autocast dtype, and gradient-scaler policy;
 - EMA horizon and schedule;
 - PCE, fine-tune, or transfer composition and source identity;
-- effective training rows and dropped global tail;
-- study or sweep identity; and
-- the common pristine source-state digest for repeated transfer work.
+- effective training rows and dropped global tail; and
+- study or sweep identity.
 
 Console status lines, artifact metadata, table headers, figure labels, worker
 arguments, and tuning reports read this record. Raw optional CLI fields never

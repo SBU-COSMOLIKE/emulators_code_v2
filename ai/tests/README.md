@@ -983,7 +983,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, saved geometry, composition record, training-pass record, or history before model weights, saved Python classes, or checkpoint tensors can be used? |
 | `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
-| `test_artifact_transfer_state_contract.py` | Does a transfer artifact embed the same base-model weights that the live transfer calculation used, and does it refuse empty or structurally incompatible weight sets before writing or importing model code? |
+| `test_artifact_transfer_state_contract.py` | Does a transfer artifact store its base weights without duplicate state hashes, and does ordinary strict model loading refuse missing, extra, or wrong-shaped tensors? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
 | `test_dark_energy_vertical_identity.py` | Does serving compare a concrete fixed value when the artifact and live model expose it under the same name, without interpreting custom aliases or transformations? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
@@ -1067,32 +1067,32 @@ the saved optimization record is formed. The preflight test proves that the
 real save and rebuild paths apply both rules early enough to prevent a damaged
 artifact from executing first.
 
-#### Binding transfer weights to the model that produced the prediction
+#### Loading the saved transfer model strictly
 
-`test_artifact_transfer_state_contract.py` checks the base-model weights
-stored inside a transfer artifact. A frozen transfer run uses the pretrained
-base. A refined transfer run keeps that pretrained state for provenance but
-uses a second, drifted state after refinement.
+`test_artifact_transfer_state_contract.py` checks the base-model tensors
+stored inside a transfer artifact. A frozen run stores one base state. A
+refined run also stores `drifted_state`, and the separate transfer lifecycle
+gate proves that prediction selects those refined weights.
 
-- **Example used:** a tiny ResMLP supplies a live state with several named
-  tensors. One case changes a single tensor value without changing its name,
-  shape, or data type. Other cases remove a tensor, change its data type, or
-  delete every tensor from the saved HDF5 group.
-- **What the test does:** it compares the complete live base-model state with
-  the state selected for prediction. It also checks the pretrained and
-  drifted states have identical names, shapes, and data types. Sentinels prove
-  that an invalid saved group stops before dynamic import or checkpoint load.
-- **Pass means:** frozen transfer stores the exact live pretrained state.
-  Refined transfer may preserve different pretrained values, but its drifted
-  state must exactly equal the live refined model. Every state is nonempty.
-- **A refusal it proves:** an empty mapping, one altered tensor, a missing
-  tensor name, or a shape/data-type mismatch stops before artifact staging.
-  Schema 3 also refuses a transformed target mode because public prediction
-  cannot invert it; an explicit `rescale: none` remains the valid control.
-- **Why it matters:** a correct recipe cannot identify which numerical weights
-  were actually used. Without this independent comparison, the result file
-  could faithfully rebuild a different base model from the one that produced
-  the transfer prediction.
+- **Example used:** the test saves a tiny transfer model, then makes three
+  separate damaged copies. One copy loses a tensor, one gains an unexpected
+  tensor, and one changes a tensor's shape.
+- **What the test does:** it reopens each copy through the public reader and
+  reaches PyTorch's ordinary strict state loading. It also confirms that a new
+  transfer file contains no duplicate state-digest attributes or configuration
+  fields.
+- **Pass means:** the complete saved state rebuilds normally, while each
+  damaged tensor layout is refused by the model that must consume it.
+- **A refusal it proves:** missing, extra, and wrong-shaped tensors cannot be
+  placed into the registered base model. A same-shaped value edit is not
+  detected by this check and remains the user's responsibility.
+- **Why it matters:** one direct loading rule is easier to audit than hashing
+  the same embedded tensors several times and copying those hashes into the
+  same result file.
+
+The remaining tests in this file cover target scaling. Schema 3 refuses a
+transformed target mode because public prediction cannot invert it;
+`rescale: none` is the valid control.
 
 #### Scientific output names distinguish completed runs
 

@@ -5616,12 +5616,6 @@ class EmulatorExperiment:
     # space) and the exact authenticated base pair, so the saved run states
     # what it composed even if the path is reused later.
     if self._transfer_base is not None:
-      from .output_identity import digest_tensor_state
-
-      pretrained_state = (
-        self._transfer_pretrained_base
-        if self._transfer_pretrained_base is not None
-        else self._transfer_base.model.state_dict())
       self.resolved_train["transfer"] = {
         "from":                     self._transfer_base.root,
         "source_artifact_id":       self._transfer_base.artifact_id,
@@ -5629,16 +5623,10 @@ class EmulatorExperiment:
         "form":                     self._transfer_form,
         "space":                    self._transfer_space,
         "extra_names":              " ".join(self._transfer_extra_names),
-        "embedded_state_sha256": digest_tensor_state(
-          dict(pretrained_state), where="transfer pretrained base state"),
       }
       # the resolved refine block (materialized), present only on a refined run.
       if self._transfer_refine is not None:
         self.resolved_train["transfer"]["refine"] = dict(self._transfer_refine)
-        self.resolved_train["transfer"][
-          "embedded_drifted_state_sha256"] = digest_tensor_state(
-            dict(self._transfer_base.model.state_dict()),
-            where="transfer refined base state")
 
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)
