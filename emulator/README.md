@@ -487,18 +487,20 @@ head history rows   [2, 5)
 total_epochs        5
 ```
 
-The brackets mean that row 0 is included and row 2 begins the next pass. The
-rows must be contiguous, and every per-epoch training curve must contain five
-rows. A four-row curve or a head pass placed before its trunk is refused
-before the model is rebuilt.
+The brackets mean that row 0 is included and row 2 begins the next pass.
+`training.py` creates this ordered record so a later reader can understand
+which settings produced each part of a training curve.
 
-`training.py` creates the ordered pass records. `results.py` compares them
-with the saved curves before the files receive their final saved names and
-again when reopening an artifact. `ai/tests/test_training_pass_recipe.py`
-checks ordinary, two-phase,
-and transfer-refinement examples.
-`ai/tests/test_artifact_recipe_preflight.py` deliberately damages the order
-and row counts and requires refusal before model loading.
+This record is provenance, not an instruction for prediction. Before saving,
+`results.py` performs one simple check: the loss and validation curves must be
+finite arrays with compatible shapes. Reopening an emulator does not read the
+history group or interpret the pass plan; it needs the model recipe,
+geometries, composition facts, and learned weights instead.
+
+`ai/tests/test_training_pass_recipe.py` checks the record produced by ordinary,
+two-phase, and transfer-refinement training. The preflight test checks the
+writer's array-shape refusal and proves that a saved model still reopens after
+its optional history group is removed.
 
 ---
 

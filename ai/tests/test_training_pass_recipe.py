@@ -12,10 +12,6 @@ from unittest import mock
 import numpy as np
 import torch
 
-from ai.gates.checks.artifact_fixtures import one_pass_training_recipe
-from ai.gates.checks.artifact_fixtures import transfer_refined_training_recipe
-from ai.gates.checks.compile_recipe import model_recipe
-from emulator import results
 from emulator import training
 
 
@@ -257,20 +253,6 @@ class TrainingPassRecipeTests(unittest.TestCase):
     self.assertIs(
       recipe["passes"][0]["optimizer"]["constructor"]["fused"], True)
 
-  def test_produced_recipe_passes_the_strict_validator_without_defaults(self):
-    output = self._run(loss=None, nepochs=2)
-    recipe = output[-1]
-    histories = {
-      "train_losses": np.asarray(output[1]),
-      "val_medians": np.asarray(output[2]),
-      "val_means": np.asarray(output[3]),
-      "val_fracs": np.stack([row.numpy() for row in output[4]]),
-      "thresholds": np.asarray(recipe["thresholds"]),
-    }
-    results.validate_training_recipe_and_histories(
-      recipe, histories, composition_mode="plain", transfer_refined=False,
-      model_recipe={"compile_mode": "default"}, where="produced recipe")
-
   def test_pass_records_initial_group_rates_before_scheduler_mutation(self):
     def decayed_loop(**kwargs):
       for group in kwargs["optimizer"].param_groups:
@@ -283,75 +265,6 @@ class TrainingPassRecipeTests(unittest.TestCase):
       group["learning_rate"]
       for group in recipe["passes"][0]["optimizer"]["groups"]}
     self.assertEqual(group_rates, {0.004})
-
-
-class TrainingRecipeValidationTests(unittest.TestCase):
-  """Reject incomplete or contradictory recipes before executable loading."""
-
-  @staticmethod
-  def _histories(epochs):
-    return {
-      "train_losses": np.zeros(epochs),
-      "val_medians": np.zeros(epochs),
-      "val_means": np.zeros(epochs),
-      "val_fracs": np.zeros((epochs, 1)),
-      "thresholds": np.array([1.0]),
-    }
-
-  def _validate(self, recipe, *, transfer=False):
-    compile_mode = recipe["execution"]["configured_compile_mode"]
-    return results.validate_training_recipe_and_histories(
-      recipe, self._histories(recipe["total_epochs"]),
-      composition_mode="transfer" if transfer else "plain",
-      transfer_refined=transfer, model_recipe=model_recipe(compile_mode),
-      where="test recipe")
-
-  def test_complete_fixture_passes_the_closed_recipe_census(self):
-    recipe = one_pass_training_recipe()
-    self._validate(recipe)
-
-  def test_missing_and_unknown_top_level_fields_are_rejected(self):
-    for mutation, message in (
-        (lambda recipe: recipe.pop("bs"), "missing.*bs"),
-        (lambda recipe: recipe.update({"future_default": 1}),
-         "unknown.*future_default")):
-      with self.subTest(message=message):
-        recipe = one_pass_training_recipe()
-        mutation(recipe)
-        with self.assertRaisesRegex(ValueError, message):
-          self._validate(recipe)
-
-  def test_pass_semantics_reject_values_that_cannot_describe_execution(self):
-    cases = (
-      (lambda item: item.update({"learning_rate": -1.0}),
-       "learning_rate must be positive"),
-      (lambda item: item.update({"warmup_epochs": 0.5}),
-       "warmup_epochs.*nonnegative native integer"),
-      (lambda item: item.update({"steps_per_epoch": 0}),
-       "steps_per_epoch.*positive native integer"),
-      (lambda item: item.update({"loss": {}}), "loss.*missing"),
-      (lambda item: item.update({"anchor": {}}), "anchor.*missing"),
-      (lambda item: item.update({"trim": {}}), "trim.*missing"),
-    )
-    for mutation, message in cases:
-      with self.subTest(message=message):
-        recipe = one_pass_training_recipe()
-        mutation(recipe["passes"][0])
-        with self.assertRaisesRegex((TypeError, ValueError), message):
-          self._validate(recipe)
-
-  def test_transfer_refine_outer_step_is_always_eager(self):
-    recipe = transfer_refined_training_recipe(compile_mode="default")
-    recipe["passes"][-1]["step_compile_mode"] = "default"
-    with self.assertRaisesRegex(ValueError, "step_compile_mode must be null"):
-      self._validate(recipe, transfer=True)
-
-  def test_optimizer_effective_extra_must_match_each_pass(self):
-    recipe = one_pass_training_recipe()
-    recipe["optimizer"]["extras"] = {"fused": True}
-    recipe["optimizer"]["constructor"]["fused"] = True
-    with self.assertRaisesRegex(ValueError, "effective.*fused"):
-      self._validate(recipe)
 
 
 if __name__ == "__main__":

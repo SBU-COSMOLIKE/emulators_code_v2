@@ -6,7 +6,6 @@ tests place sentinels at model-state access, dynamic import, and checkpoint
 loading so a failure in the required ordering is visible immediately.
 """
 
-import copy
 import importlib
 from pathlib import Path
 import tempfile
@@ -90,7 +89,7 @@ def _data_vector_geometry(width=4):
 
 def _save_attempt(
     root, *, recipe=None, histories=None, transfer_base=None, model=None,
-    param_geometry=None, geometry=None):
+    param_geometry=None, geometry=None, resolved_train=None):
   """Call the production writer with a weight-access sentinel."""
   if param_geometry is None or geometry is None:
     default_param_geometry, default_geometry = _geometries()
@@ -104,6 +103,8 @@ def _save_attempt(
     histories = _histories()
   if model is None:
     model = _StateDictMustNotRun()
+  if resolved_train is None:
+    resolved_train = one_pass_training_recipe(thresholds=(1.0,))
   transfer = transfer_base is not None
   return results.save_emulator(
     path_root=str(root),
@@ -112,7 +113,7 @@ def _save_attempt(
     geometry=geometry,
     config={"data": {}, "train_args": {"nepochs": 1}},
     histories=histories,
-    resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
+    resolved_train=resolved_train,
     resolved_model=recipe,
     transfer_base=transfer_base,
     facts_yaml=fixed_facts.synthetic_sidecar(
@@ -180,11 +181,18 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
       with self.assertRaisesRegex(ValueError, "missing.*block_opts"):
         _save_attempt(Path(temp) / "artifact", transfer_base=transfer_base)
 
-  def test_save_refuses_history_length_before_weights(self):
+  def test_save_refuses_incompatible_history_curves_before_weights(self):
     histories = _histories()
     histories["val_means"] = []
     with tempfile.TemporaryDirectory(prefix="recipe-save-history-") as temp:
-      with self.assertRaisesRegex(ValueError, "val_means.*exactly 1"):
+      with self.assertRaisesRegex(ValueError, "common nonzero length"):
+        _save_attempt(Path(temp) / "artifact", histories=histories)
+
+  def test_save_refuses_nonfinite_history_before_weights(self):
+    histories = _histories()
+    histories["val_fracs"] = [torch.tensor([float("nan")])]
+    with tempfile.TemporaryDirectory(prefix="recipe-save-history-finite-") as temp:
+      with self.assertRaisesRegex(ValueError, "val_fracs.*finite numbers"):
         _save_attempt(Path(temp) / "artifact", histories=histories)
 
   def test_save_refuses_tanh_model_described_as_relu_before_staging(self):
@@ -616,44 +624,26 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
       self._assert_rebuild_refuses_without_execution(
         root, "missing the required output-identity pair")
 
-  def test_rebuild_refuses_pass_gap_before_execution(self):
-    with tempfile.TemporaryDirectory(prefix="recipe-read-pass-gap-") as temp:
+  def test_rebuild_does_not_read_training_history(self):
+    """Deleting provenance curves cannot change model reconstruction."""
+    with tempfile.TemporaryDirectory(prefix="recipe-read-no-history-") as temp:
       root = self._saved_fixture(temp)
       with h5py.File(str(root) + ".h5", "r+") as artifact:
-        resolved = _read_yaml(artifact, "config_resolved_yaml")
-        resolved["train_args"]["passes"][0]["history_start"] = 1
-        resolved["train_args"]["passes"][0]["history_stop"] = 2
-        _rewrite_yaml(artifact, "config_resolved_yaml", resolved)
-      self._assert_rebuild_refuses_without_execution(root, "contiguous")
+        del artifact["history"]
+      model, _, _, _ = results.rebuild_emulator(
+        path_root=str(root), device=torch.device("cpu"), compile_model=False)
+      self.assertIsInstance(model, torch.nn.Module)
 
-  def test_rebuild_refuses_pass_order_and_total_before_execution(self):
-    with tempfile.TemporaryDirectory(prefix="recipe-read-pass-order-") as temp:
-      root = self._saved_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        resolved = _read_yaml(artifact, "config_resolved_yaml")
-        train = resolved["train_args"]
-        changed = copy.deepcopy(train["passes"][0])
-        changed["role"] = "head"
-        changed["model_phase"] = "head"
-        train["passes"] = [changed]
-        _rewrite_yaml(artifact, "config_resolved_yaml", resolved)
-      self._assert_rebuild_refuses_without_execution(root, "invalid order")
-
-      root = self._saved_fixture(Path(temp) / "second")
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        resolved = _read_yaml(artifact, "config_resolved_yaml")
-        resolved["train_args"]["total_epochs"] = 2
-        _rewrite_yaml(artifact, "config_resolved_yaml", resolved)
-      self._assert_rebuild_refuses_without_execution(root, "total_epochs")
-
-  def test_rebuild_refuses_history_row_mismatch_before_execution(self):
-    with tempfile.TemporaryDirectory(prefix="recipe-read-history-") as temp:
-      root = self._saved_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        del artifact["history"]["val_means"]
-        artifact["history"].create_dataset("val_means", data=[])
-      self._assert_rebuild_refuses_without_execution(
-        root, "val_means.*exactly 1")
+  def test_rebuild_keeps_unknown_training_fields_as_provenance(self):
+    """Future training descriptions do not become reconstruction grammar."""
+    training_record = {"future_training_policy": {"label": "opaque"}}
+    with tempfile.TemporaryDirectory(prefix="recipe-read-opaque-training-") as temp:
+      root = Path(temp) / "artifact"
+      _save_attempt(
+        root, model=_tiny_model(), resolved_train=training_record)
+      _, _, _, info = results.rebuild_emulator(
+        path_root=str(root), device=torch.device("cpu"), compile_model=False)
+      self.assertEqual(info["config_resolved"]["train_args"], training_record)
 
 
 if __name__ == "__main__":

@@ -1020,35 +1020,17 @@ def _validate_executed_composition(
   return composition_mode, transfer_refined
 
 
-_TRAINING_PASS_KEYS = (
-  "role", "model_phase", "epochs", "history_start", "history_stop",
-  "learning_rate", "warmup_epochs", "optimizer", "scheduler", "loss",
-  "trim", "focus", "clip", "rewind", "ema", "train_chunk_rows",
-  "steps_per_epoch", "step_compile_mode", "anchor",
-)
-_TRAINING_RECIPE_KEYS = (
-  "recipe_schema", "bs", "nepochs", "seed", "thresholds", "use_amp",
-  "amp_dtype", "scaler_policy", "clip", "rewind", "trunk_epochs",
-  "freeze_trunk", "loss", "ema", "lr", "optimizer", "scheduler",
-  "trim", "focus", "trunk", "head", "passes", "total_epochs",
-  "execution", "eval_bs", "device",
-)
-_TRAINING_RECIPE_OPTIONAL_KEYS = ("finetune", "pce", "transfer")
-_TRAINING_HISTORY_KEYS = (
+_HISTORY_KEYS = (
   "train_losses", "val_medians", "val_means", "val_fracs", "thresholds",
 )
-_TRAINING_COMPILE_MODES = (None, "default", "reduce-overhead")
-_TRAINING_SCHEDULE_SHAPES = ("const", "linear", "cosine", "step")
-_TRAINING_LOSS_MODES = (
-  "chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
 
 
-def _plain_exact_mapping(value, expected, where):
-  """Require one native mapping with no missing or future-default fields."""
-  if type(value) is not dict:
+def _history_arrays_for_save(histories, where):
+  """Prepare five compatible history arrays for publication."""
+  if type(histories) is not dict:
     raise TypeError(where + " must be a plain mapping")
-  missing = sorted(set(expected) - set(value))
-  unknown = sorted(set(value) - set(expected))
+  missing = sorted(set(_HISTORY_KEYS) - set(histories))
+  unknown = sorted(set(histories) - set(_HISTORY_KEYS))
   if missing or unknown:
     details = []
     if missing:
@@ -1056,295 +1038,45 @@ def _plain_exact_mapping(value, expected, where):
     if unknown:
       details.append("unknown " + repr(unknown))
     raise ValueError(where + " has " + " and ".join(details))
-  return value
 
-
-def _native_nonnegative_int(value, where):
-  if type(value) is not int or value < 0:
-    raise TypeError(where + " must be a nonnegative native integer")
-  return value
-
-
-def _finite_native_number(value, where):
-  if type(value) not in (int, float) or not np.isfinite(float(value)):
-    raise TypeError(where + " must be a finite native number")
-  return float(value)
-
-
-def _positive_native_int(value, where):
-  if type(value) is not int or value < 1:
-    raise TypeError(where + " must be a positive native integer")
-  return value
-
-
-def _plain_recipe_tree(value, where):
-  """Require finite YAML data without accepting executable Python objects."""
-  if value is None or type(value) in (bool, int, str):
-    return value
-  if type(value) is float:
-    if not np.isfinite(value):
-      raise ValueError(where + " must be finite")
-    return value
-  if type(value) is list:
-    return [_plain_recipe_tree(item, where + "[]") for item in value]
-  if type(value) is dict:
-    out = {}
-    for key, item in value.items():
-      if type(key) is not str:
-        raise TypeError(where + " keys must be native text")
-      out[key] = _plain_recipe_tree(item, where + "." + key)
-    return out
-  raise TypeError(
-    where + " must contain only plain YAML values, got "
-    + type(value).__name__)
-
-
-def _validate_anneal_recipe(value, where):
-  """Validate the exact three fields used by a loss or EMA ramp."""
-  value = _plain_exact_mapping(
-    value, ("hold_epochs", "anneal_epochs", "shape"), where)
-  _native_nonnegative_int(value["hold_epochs"], where + ".hold_epochs")
-  _positive_native_int(value["anneal_epochs"], where + ".anneal_epochs")
-  if type(value["shape"]) is not str \
-      or value["shape"] not in _TRAINING_SCHEDULE_SHAPES:
-    raise ValueError(
-      where + ".shape must be one of " + repr(_TRAINING_SCHEDULE_SHAPES))
-  return value
-
-
-def _validate_schedule_recipe(value, where, *, focus):
-  """Validate one complete trim or focal-weight schedule."""
-  expected = ("shape", "start", "end", "hold_epochs", "anneal_epochs")
-  if focus:
-    expected += ("kappa",)
-  value = _plain_exact_mapping(value, expected, where)
-  shape = value["shape"]
-  if type(shape) is not str or shape not in _TRAINING_SCHEDULE_SHAPES:
-    raise ValueError(
-      where + ".shape must be one of " + repr(_TRAINING_SCHEDULE_SHAPES))
-  start = _finite_native_number(value["start"], where + ".start")
-  end = _finite_native_number(value["end"], where + ".end")
-  hold = _native_nonnegative_int(
-    value["hold_epochs"], where + ".hold_epochs")
-  span = _positive_native_int(
-    value["anneal_epochs"], where + ".anneal_epochs")
-  if shape == "const" and (end != start or hold != 0 or span != 1):
-    raise ValueError(
-      where + " constant schedule must record end=start, hold_epochs=0, "
-      "and anneal_epochs=1")
-  if focus:
-    kappa = _finite_native_number(value["kappa"], where + ".kappa")
-    if kappa <= 0.0:
-      raise ValueError(where + ".kappa must be positive")
-  else:
-    if not 0.0 <= start < 1.0 or not 0.0 <= end < 1.0:
-      raise ValueError(where + ".start and .end must lie in [0, 1)")
-  return value
-
-
-def _validate_loss_recipe(value, where):
-  """Validate the exact resolved loss, including inactive null fields."""
-  value = _plain_exact_mapping(
-    value, ("mode", "berhu", "roughness"), where)
-  mode = value["mode"]
-  if type(mode) is not str or mode not in _TRAINING_LOSS_MODES:
-    raise ValueError(where + ".mode must be one of "
-                     + repr(_TRAINING_LOSS_MODES))
-  berhu = value["berhu"]
-  if mode in ("berhu", "berhu_capped"):
-    berhu = _plain_exact_mapping(
-      berhu, ("knot", "cap", "anneal"), where + ".berhu")
-    knot = _finite_native_number(berhu["knot"], where + ".berhu.knot")
-    cap = _finite_native_number(berhu["cap"], where + ".berhu.cap")
-    if knot <= 0.0 or cap <= 0.0 or knot >= cap:
-      raise ValueError(where + ".berhu requires 0 < knot < cap")
-    if berhu["anneal"] is not None:
-      _validate_anneal_recipe(berhu["anneal"], where + ".berhu.anneal")
-  elif berhu is not None:
-    raise ValueError(where + ".berhu must be null for a non-berhu loss")
-  roughness = value["roughness"]
-  if roughness is not None:
-    roughness = _plain_exact_mapping(
-      roughness, ("lam", "period_cut"), where + ".roughness")
-    lam = _finite_native_number(
-      roughness["lam"], where + ".roughness.lam")
-    period_cut = _finite_native_number(
-      roughness["period_cut"], where + ".roughness.period_cut")
-    if lam <= 0.0 or period_cut < 5.0:
-      raise ValueError(
-        where + ".roughness requires lam > 0 and period_cut >= 5")
-  return value
-
-
-def _validate_ema_recipe(value, where):
-  """Validate the exact optional moving-average policy."""
-  if value is None:
-    return None
-  value = _plain_exact_mapping(
-    value, ("horizon_epochs", "anneal"), where)
-  horizon = _finite_native_number(
-    value["horizon_epochs"], where + ".horizon_epochs")
-  if horizon <= 0.0:
-    raise ValueError(where + ".horizon_epochs must be positive")
-  if value["anneal"] is not None:
-    _validate_anneal_recipe(value["anneal"], where + ".anneal")
-  return value
-
-
-def _validate_optimizer_recipe(value, where, *, pass_record):
-  """Validate one optimizer declaration and its executed parameter groups."""
-  expected = (("cls", "constructor", "groups") if pass_record
-              else ("cls", "weight_decay", "extras", "constructor"))
-  value = _plain_exact_mapping(value, expected, where)
-  if type(value["cls"]) is not str or not value["cls"]:
-    raise TypeError(where + ".cls must be nonempty native text")
-  constructor = value["constructor"]
-  if type(constructor) is not dict or not constructor:
-    raise ValueError(where + ".constructor must be a nonempty plain mapping")
-  _plain_recipe_tree(constructor, where + ".constructor")
-  if "lr" not in constructor:
-    raise ValueError(where + ".constructor must state the injected lr")
-  constructor_lr = _finite_native_number(
-    constructor["lr"], where + ".constructor.lr")
-  if constructor_lr <= 0.0:
-    raise ValueError(where + ".constructor.lr must be positive")
-  if not pass_record:
-    decay = _finite_native_number(
-      value["weight_decay"], where + ".weight_decay")
-    if decay < 0.0:
-      raise ValueError(where + ".weight_decay must be nonnegative")
-    if type(value["extras"]) is not dict:
-      raise TypeError(where + ".extras must be a plain mapping")
-    _plain_recipe_tree(value["extras"], where + ".extras")
-    for key, extra in value["extras"].items():
-      if key not in constructor or constructor[key] != extra:
-        raise ValueError(
-          where + ".constructor disagrees with effective extra " + repr(key))
-    return value
-
-  groups = value["groups"]
-  if type(groups) is not list or not groups:
-    raise ValueError(where + ".groups must be a nonempty plain list")
-  parameter_count = 0
-  for index, group in enumerate(groups):
-    group_where = where + ".groups[" + str(index) + "]"
-    group = _plain_exact_mapping(
-      group, ("learning_rate", "weight_decay", "parameter_count"),
-      group_where)
-    learning_rate = _finite_native_number(
-      group["learning_rate"], group_where + ".learning_rate")
-    weight_decay = _finite_native_number(
-      group["weight_decay"], group_where + ".weight_decay")
-    count = _native_nonnegative_int(
-      group["parameter_count"], group_where + ".parameter_count")
-    if learning_rate <= 0.0 or weight_decay < 0.0:
-      raise ValueError(
-        group_where + " requires learning_rate > 0 and weight_decay >= 0")
-    parameter_count += count
-  if parameter_count < 1:
-    raise ValueError(where + ".groups must own at least one parameter")
-  return value
-
-
-def _validate_scheduler_recipe(value, where):
-  """Validate the exact scheduler class and its materialized kwargs."""
-  value = _plain_exact_mapping(value, ("cls", "kwargs"), where)
-  if type(value["cls"]) is not str or not value["cls"]:
-    raise TypeError(where + ".cls must be nonempty native text")
-  if type(value["kwargs"]) is not dict:
-    raise TypeError(where + ".kwargs must be a plain mapping")
-  _plain_recipe_tree(value["kwargs"], where + ".kwargs")
-  return value
-
-
-def _validate_anchor_recipe(value, where, role):
-  """Validate the only two post-step anchor records the loop can execute."""
-  if value is None:
-    if role == "transfer_refine":
-      raise ValueError(where + " is required for transfer_refine")
-    return None
-  if role == "transfer_refine":
-    expected = (
-      "kind", "lambda", "masked", "base_lr_scale", "base_learning_rate")
-    required_kind = "transfer_base_l2sp"
-  else:
-    expected = ("kind", "lambda", "masked")
-    required_kind = "finetune_l2sp"
-  value = _plain_exact_mapping(value, expected, where)
-  if value["kind"] != required_kind:
-    raise ValueError(where + ".kind must be " + repr(required_kind))
-  strength = _finite_native_number(value["lambda"], where + ".lambda")
-  if strength < 0.0:
-    raise ValueError(where + ".lambda must be nonnegative")
-  if type(value["masked"]) is not bool:
-    raise TypeError(where + ".masked must be a native boolean")
-  if role == "transfer_refine":
-    scale = _finite_native_number(
-      value["base_lr_scale"], where + ".base_lr_scale")
-    base_lr = _finite_native_number(
-      value["base_learning_rate"], where + ".base_learning_rate")
-    if scale <= 0.0 or base_lr <= 0.0 or value["masked"]:
-      raise ValueError(
-        where + " transfer anchor requires positive base rates and masked=false")
-  return value
-
-
-def _validate_phase_provenance(value, where):
-  """Validate the optional raw phase override retained beside pass facts."""
-  if value is None:
-    return None
-  if type(value) is not dict:
-    raise TypeError(where + " must be a plain mapping or null")
-  allowed = {
-    "lr", "scheduler", "loss", "trim", "focus", "clip", "rewind", "ema"}
-  unknown = sorted(set(value) - allowed)
-  if unknown:
-    raise ValueError(where + " has unknown " + repr(unknown))
-  _plain_recipe_tree(value, where)
-  return value
-
-
-def _runtime_history_arrays(histories, where):
-  """Convert the five runtime history fields without changing their meaning."""
-  histories = _plain_exact_mapping(
-    histories, _TRAINING_HISTORY_KEYS, where)
-
-  def _array(value):
+  def as_finite_array(value, label):
     if torch.is_tensor(value):
       value = value.detach().cpu().numpy()
-    return np.asarray(value)
+    array = np.asarray(value)
+    if not np.issubdtype(array.dtype, np.number) \
+        or not bool(np.all(np.isfinite(array))):
+      raise ValueError(where + "." + label + " must contain finite numbers")
+    return array
 
-  arrays = {}
-  for key in ("train_losses", "val_medians", "val_means", "thresholds"):
-    arrays[key] = _array(histories[key])
-  fractions = histories["val_fracs"]
-  if not isinstance(fractions, (list, tuple)) or not fractions:
+  arrays = {
+    name: as_finite_array(histories[name], name)
+    for name in ("train_losses", "val_medians", "val_means", "thresholds")
+  }
+  curves = ("train_losses", "val_medians", "val_means")
+  for name in curves:
+    if arrays[name].ndim != 1:
+      raise ValueError(where + "." + name + " must be one-dimensional")
+  epochs = arrays["train_losses"].size
+  if epochs < 1 or any(arrays[name].size != epochs for name in curves):
+    raise ValueError(where + " curves must have one common nonzero length")
+  if arrays["thresholds"].ndim != 1 or arrays["thresholds"].size < 1:
+    raise ValueError(where + ".thresholds must be one-dimensional and nonempty")
+
+  rows = histories["val_fracs"]
+  if not isinstance(rows, (list, tuple)) or not rows:
     raise ValueError(where + ".val_fracs must contain one row per epoch")
-  rows = [_array(row) for row in fractions]
+  fraction_rows = [as_finite_array(row, "val_fracs") for row in rows]
   try:
-    arrays["val_fracs"] = np.stack(rows)
+    arrays["val_fracs"] = np.stack(fraction_rows)
   except ValueError as exc:
     raise ValueError(
       where + ".val_fracs rows must have one common threshold width") from exc
+  expected = (epochs, arrays["thresholds"].size)
+  if arrays["val_fracs"].shape != expected:
+    raise ValueError(
+      where + ".val_fracs must have shape " + repr(expected)
+      + ", got " + repr(arrays["val_fracs"].shape))
   return arrays
-
-
-def _saved_history_arrays(history_group, where):
-  """Read plain NumPy history values before tensor or model construction."""
-  if not hasattr(history_group, "keys"):
-    raise TypeError(where + " must be an HDF5 group")
-  observed = tuple(history_group.keys())
-  missing = sorted(set(_TRAINING_HISTORY_KEYS) - set(observed))
-  unknown = sorted(set(observed) - set(_TRAINING_HISTORY_KEYS))
-  if missing or unknown:
-    details = []
-    if missing:
-      details.append("missing " + repr(missing))
-    if unknown:
-      details.append("unknown " + repr(unknown))
-    raise ValueError(where + " has " + " and ".join(details))
-  return {key: np.asarray(history_group[key][()])
-          for key in _TRAINING_HISTORY_KEYS}
 
 
 def _read_yaml_mapping_dataset(container, name, where):
@@ -1376,312 +1108,6 @@ def _saved_geometry_class(group, where):
   if type(value) is not str or not value:
     raise TypeError(where + " 'cls' must be nonempty native text")
   return value
-
-
-def validate_training_recipe_and_histories(
-    resolved_train, histories, *, composition_mode, transfer_refined,
-    model_recipe, where="training record"):
-  """Check that the saved pass plan and all epoch histories describe one run.
-
-  ``histories`` is an already inert mapping of five NumPy arrays.  The
-  function imports and constructs nothing.  It therefore runs before
-  ``model.state_dict`` on save and before geometry imports or ``torch.load``
-  on rebuild.
-  """
-  if type(resolved_train) is not dict:
-    raise TypeError(where + ".resolved_train must be a plain mapping")
-  required = set(_TRAINING_RECIPE_KEYS)
-  allowed = required | set(_TRAINING_RECIPE_OPTIONAL_KEYS)
-  missing = sorted(required - set(resolved_train))
-  unknown = sorted(set(resolved_train) - allowed)
-  if missing or unknown:
-    details = []
-    if missing:
-      details.append("missing " + repr(missing))
-    if unknown:
-      details.append("unknown " + repr(unknown))
-    raise ValueError(
-      where + ".resolved_train has " + " and ".join(details)
-      + "; re-run training to save the complete executed plan")
-  if type(resolved_train["recipe_schema"]) is not int \
-      or resolved_train["recipe_schema"] != 1:
-    raise ValueError(where + ".resolved_train.recipe_schema must be 1")
-
-  train_where = where + ".resolved_train"
-  bs = _positive_native_int(resolved_train["bs"], train_where + ".bs")
-  nepochs = _positive_native_int(
-    resolved_train["nepochs"], where + ".resolved_train.nepochs")
-  if type(resolved_train["seed"]) is not int:
-    raise TypeError(train_where + ".seed must be a native integer")
-  total_epochs = _positive_native_int(
-    resolved_train["total_epochs"],
-    where + ".resolved_train.total_epochs")
-  if type(resolved_train["use_amp"]) is not bool:
-    raise TypeError(train_where + ".use_amp must be a native boolean")
-  if resolved_train["amp_dtype"] not in (
-      "torch.float16", "torch.bfloat16"):
-    raise ValueError(
-      train_where + ".amp_dtype must be torch.float16 or torch.bfloat16")
-  if resolved_train["scaler_policy"] != "unscaled":
-    raise ValueError(train_where + ".scaler_policy must be 'unscaled'")
-  clip = _finite_native_number(
-    resolved_train["clip"], train_where + ".clip")
-  if clip < 0.0:
-    raise ValueError(train_where + ".clip must be nonnegative")
-  if type(resolved_train["rewind"]) is not bool:
-    raise TypeError(train_where + ".rewind must be a native boolean")
-  trunk_epochs = _native_nonnegative_int(
-    resolved_train["trunk_epochs"], train_where + ".trunk_epochs")
-  if trunk_epochs >= nepochs and trunk_epochs != 0:
-    raise ValueError(train_where + ".trunk_epochs must be 0 or below nepochs")
-  if type(resolved_train["freeze_trunk"]) is not bool:
-    raise TypeError(train_where + ".freeze_trunk must be a native boolean")
-
-  _validate_loss_recipe(resolved_train["loss"], train_where + ".loss")
-  _validate_ema_recipe(resolved_train["ema"], train_where + ".ema")
-  _validate_schedule_recipe(
-    resolved_train["trim"], train_where + ".trim", focus=False)
-  _validate_schedule_recipe(
-    resolved_train["focus"], train_where + ".focus", focus=True)
-  _validate_phase_provenance(
-    resolved_train["trunk"], train_where + ".trunk")
-  _validate_phase_provenance(
-    resolved_train["head"], train_where + ".head")
-
-  lr_record = _plain_exact_mapping(
-    resolved_train["lr"],
-    ("lr_base", "bs_base", "warmup_epochs", "lr"), train_where + ".lr")
-  lr_base = _finite_native_number(lr_record["lr_base"],
-                                  train_where + ".lr.lr_base")
-  bs_base = _finite_native_number(lr_record["bs_base"],
-                                  train_where + ".lr.bs_base")
-  _native_nonnegative_int(
-    lr_record["warmup_epochs"], train_where + ".lr.warmup_epochs")
-  resolved_lr = _finite_native_number(lr_record["lr"], train_where + ".lr.lr")
-  if lr_base <= 0.0 or bs_base <= 0.0 or resolved_lr <= 0.0:
-    raise ValueError(train_where + ".lr values must be positive")
-  expected_lr = lr_base * (bs / bs_base) ** 0.5
-  if not np.isclose(resolved_lr, expected_lr, rtol=1.0e-13, atol=0.0):
-    raise ValueError(train_where + ".lr.lr disagrees with the batch-size rule")
-
-  top_optimizer = _validate_optimizer_recipe(
-    resolved_train["optimizer"], train_where + ".optimizer",
-    pass_record=False)
-  if not np.isclose(
-      float(top_optimizer["constructor"]["lr"]), resolved_lr,
-      rtol=1.0e-13, atol=0.0):
-    raise ValueError(train_where + ".optimizer.constructor.lr disagrees with lr")
-  top_scheduler = _validate_scheduler_recipe(
-    resolved_train["scheduler"], train_where + ".scheduler")
-
-  eval_bs = _positive_native_int(
-    resolved_train["eval_bs"], train_where + ".eval_bs")
-  if eval_bs < 1:
-    raise ValueError(train_where + ".eval_bs must be positive")
-  if type(resolved_train["device"]) is not str \
-      or not resolved_train["device"]:
-    raise TypeError(train_where + ".device must be nonempty native text")
-  for optional in _TRAINING_RECIPE_OPTIONAL_KEYS:
-    if optional in resolved_train:
-      if type(resolved_train[optional]) is not dict:
-        raise TypeError(train_where + "." + optional + " must be a mapping")
-      _plain_recipe_tree(
-        resolved_train[optional], train_where + "." + optional)
-
-  thresholds = resolved_train["thresholds"]
-  if type(thresholds) is not list or not thresholds:
-    raise TypeError(
-      where + ".resolved_train.thresholds must be a nonempty plain list")
-  threshold_values = np.asarray([
-    _finite_native_number(value,
-                          where + ".resolved_train.thresholds["
-                          + str(index) + "]")
-    for index, value in enumerate(thresholds)
-  ])
-  if bool(np.any(threshold_values < 0.0)):
-    raise ValueError(train_where + ".thresholds must be nonnegative")
-
-  execution = _plain_exact_mapping(
-    resolved_train["execution"],
-    ("configured_compile_mode", "applied_compile_mode"),
-    where + ".resolved_train.execution")
-  for key in ("configured_compile_mode", "applied_compile_mode"):
-    value = execution[key]
-    if value not in _TRAINING_COMPILE_MODES or (
-        value is not None and type(value) is not str):
-      raise ValueError(
-        where + ".resolved_train.execution." + key + " must be one of "
-        + repr(_TRAINING_COMPILE_MODES))
-  if execution["configured_compile_mode"] != model_recipe["compile_mode"]:
-    raise ValueError(
-      where + ": configured compile mode disagrees with model_recipe")
-
-  passes = resolved_train["passes"]
-  if type(passes) is not list or not passes:
-    raise TypeError(
-      where + ".resolved_train.passes must be a nonempty plain list")
-  expected_start = 0
-  main_epochs = 0
-  roles = []
-  allowed_phases = {
-    "single": ("single",),
-    "trunk": ("trunk",),
-    "head": ("head", "joint"),
-    "transfer_refine": ("joint",),
-  }
-  for index, pass_record in enumerate(passes):
-    pass_where = where + ".resolved_train.passes[" + str(index) + "]"
-    pass_record = _plain_exact_mapping(
-      pass_record, _TRAINING_PASS_KEYS, pass_where)
-    role = pass_record["role"]
-    phase = pass_record["model_phase"]
-    if type(role) is not str or role not in allowed_phases:
-      raise ValueError(
-        pass_where + ".role must be single, trunk, head, or transfer_refine")
-    if type(phase) is not str or phase not in allowed_phases[role]:
-      raise ValueError(
-        pass_where + ".model_phase is incompatible with role=" + repr(role))
-    epochs = _positive_native_int(
-      pass_record["epochs"], pass_where + ".epochs")
-    start = _native_nonnegative_int(
-      pass_record["history_start"], pass_where + ".history_start")
-    stop = _native_nonnegative_int(
-      pass_record["history_stop"], pass_where + ".history_stop")
-    if start != expected_start or stop != start + epochs:
-      raise ValueError(
-        pass_where + " must cover the next contiguous history slice ["
-        + str(expected_start) + ", " + str(expected_start + epochs) + ")")
-    expected_start = stop
-    roles.append(role)
-    if role != "transfer_refine":
-      main_epochs += epochs
-
-    pass_lr = _finite_native_number(
-      pass_record["learning_rate"], pass_where + ".learning_rate")
-    if pass_lr <= 0.0:
-      raise ValueError(pass_where + ".learning_rate must be positive")
-    _native_nonnegative_int(
-      pass_record["warmup_epochs"], pass_where + ".warmup_epochs")
-    _positive_native_int(
-      pass_record["train_chunk_rows"], pass_where + ".train_chunk_rows")
-    _positive_native_int(
-      pass_record["steps_per_epoch"], pass_where + ".steps_per_epoch")
-    pass_clip = _finite_native_number(
-      pass_record["clip"], pass_where + ".clip")
-    if pass_clip < 0.0:
-      raise ValueError(pass_where + ".clip must be nonnegative")
-    if type(pass_record["rewind"]) is not bool:
-      raise TypeError(pass_where + ".rewind must be a native boolean")
-    pass_optimizer = _validate_optimizer_recipe(
-      pass_record["optimizer"], pass_where + ".optimizer", pass_record=True)
-    if pass_optimizer["cls"] != top_optimizer["cls"]:
-      raise ValueError(pass_where + ".optimizer.cls disagrees with the run")
-    if not np.isclose(
-        float(pass_optimizer["constructor"]["lr"]), pass_lr,
-        rtol=1.0e-13, atol=0.0):
-      raise ValueError(
-        pass_where + ".optimizer.constructor.lr disagrees with pass lr")
-    for key, value in top_optimizer["extras"].items():
-      if pass_optimizer["constructor"].get(key) != value:
-        raise ValueError(
-          pass_where + ".optimizer.constructor disagrees with effective "
-          + repr(key))
-    if not any(np.isclose(
-        float(group["learning_rate"]), pass_lr,
-        rtol=1.0e-13, atol=0.0)
-        for group in pass_optimizer["groups"]):
-      raise ValueError(
-        pass_where + ".optimizer.groups has no full-rate parameter group")
-    scheduler = _validate_scheduler_recipe(
-      pass_record["scheduler"], pass_where + ".scheduler")
-    if scheduler["cls"] != top_scheduler["cls"]:
-      raise ValueError(pass_where + ".scheduler.cls disagrees with the run")
-    _validate_loss_recipe(pass_record["loss"], pass_where + ".loss")
-    _validate_schedule_recipe(
-      pass_record["trim"], pass_where + ".trim", focus=False)
-    _validate_schedule_recipe(
-      pass_record["focus"], pass_where + ".focus", focus=True)
-    _validate_ema_recipe(pass_record["ema"], pass_where + ".ema")
-    _validate_anchor_recipe(
-      pass_record["anchor"], pass_where + ".anchor", role)
-    step_mode = pass_record["step_compile_mode"]
-    if step_mode not in _TRAINING_COMPILE_MODES or (
-        step_mode is not None and type(step_mode) is not str):
-      raise ValueError(
-        pass_where + ".step_compile_mode must be one of "
-        + repr(_TRAINING_COMPILE_MODES))
-    if role == "transfer_refine" and step_mode is not None:
-      raise ValueError(pass_where + ".step_compile_mode must be null")
-    if role != "transfer_refine" \
-        and step_mode != execution["applied_compile_mode"]:
-      raise ValueError(
-        pass_where + ".step_compile_mode disagrees with execution")
-
-  if roles not in (["single"], ["trunk", "head"],
-                    ["single", "transfer_refine"],
-                    ["trunk", "head", "transfer_refine"]):
-    raise ValueError(where + ".resolved_train.passes has invalid order "
-                     + repr(roles))
-  if trunk_epochs == 0 and roles[0] != "single":
-    raise ValueError(train_where + ".trunk_epochs=0 requires a single pass")
-  if trunk_epochs > 0:
-    if roles[:2] != ["trunk", "head"] \
-        or passes[0]["epochs"] != trunk_epochs:
-      raise ValueError(
-        train_where + ".trunk_epochs disagrees with trunk/head passes")
-    expected_head_phase = (
-      "head" if resolved_train["freeze_trunk"] else "joint")
-    if passes[1]["model_phase"] != expected_head_phase:
-      raise ValueError(
-        train_where + ".freeze_trunk disagrees with the head pass")
-  have_refine = bool(roles and roles[-1] == "transfer_refine")
-  if have_refine != bool(transfer_refined) \
-      or have_refine != (composition_mode == "transfer" and transfer_refined):
-    raise ValueError(
-      where + ": transfer-refine pass disagrees with composition facts")
-  if main_epochs != nepochs:
-    raise ValueError(
-      where + ": non-refine pass epochs=" + str(main_epochs)
-      + " disagree with resolved_train.nepochs=" + str(nepochs))
-  if expected_start != total_epochs:
-    raise ValueError(
-      where + ": pass history stops at " + str(expected_start)
-      + " but total_epochs=" + str(total_epochs))
-
-  histories = _plain_exact_mapping(
-    histories, _TRAINING_HISTORY_KEYS, where + ".history")
-  for key in ("train_losses", "val_medians", "val_means"):
-    values = np.asarray(histories[key])
-    if values.ndim != 1 or values.shape[0] != total_epochs:
-      raise ValueError(
-        where + ".history." + key + " must have exactly "
-        + str(total_epochs) + " epoch values")
-    if not np.issubdtype(values.dtype, np.number) \
-        or not bool(np.all(np.isfinite(values))):
-      raise ValueError(where + ".history." + key + " must be finite numbers")
-  fractions = np.asarray(histories["val_fracs"])
-  expected_fraction_shape = (total_epochs, len(thresholds))
-  if fractions.shape != expected_fraction_shape:
-    raise ValueError(
-      where + ".history.val_fracs must have shape "
-      + repr(expected_fraction_shape) + ", got " + repr(fractions.shape))
-  if not np.issubdtype(fractions.dtype, np.number) \
-      or not bool(np.all(np.isfinite(fractions))):
-    raise ValueError(where + ".history.val_fracs must be finite numbers")
-  saved_thresholds = np.asarray(histories["thresholds"])
-  if saved_thresholds.ndim != 1 \
-      or saved_thresholds.shape != threshold_values.shape:
-    raise ValueError(
-      where + ".history.thresholds shape disagrees with resolved_train")
-  if not np.issubdtype(saved_thresholds.dtype, np.number) \
-      or not bool(np.all(np.isfinite(saved_thresholds))):
-    raise ValueError(where + ".history.thresholds must be finite numbers")
-  expected_thresholds = threshold_values.astype(
-    saved_thresholds.dtype, copy=False)
-  if not np.array_equal(saved_thresholds, expected_thresholds):
-    raise ValueError(
-      where + ".history.thresholds values disagree with resolved_train")
-  return histories
 
 
 def _saved_head_layout(geometry, recipe, where):
@@ -1878,8 +1304,9 @@ def save_emulator(path_root,
     _need / _read_artifact_composition helpers, which raise a named error when
     the key is absent instead of substituting a value. The few rows marked
     "not read (provenance)" are written on purpose as a paper trail. The
-    model recipe, executed pass plan, histories, and output identity are all
-    checked before executable reconstruction begins.
+    model recipe and output identity are checked before executable
+    reconstruction begins. Training plans and histories describe how the run
+    was made; they do not control how its learned model is reopened.
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
@@ -1930,14 +1357,13 @@ def save_emulator(path_root,
                                     |   the two blocks reach the caller as
                                     |   info["fixed_facts"] and
                                     |   info["input_domain"]
-      history/ group (train_losses, | read as inert arrays; lengths,
-        val_medians, val_means,     |   threshold columns, and threshold
-        val_fracs, thresholds)      |   values must match the pass plan
+      history/ group (train_losses, | not read (provenance); the writer checks
+        val_medians, val_means,     |   that the five finite arrays have
+        val_fracs, thresholds)      |   compatible shapes before publication
       config_yaml,                  | composition declarations are checked;
-        config_resolved_yaml        |   resolved training passes are checked
-                                    |   against history, while data, model,
-                                    |   rescale, and composition facts must
-                                    |   reproduce the saved output identity
+        config_resolved_yaml        |   data, model, rescale, composition, and
+                                    |   the opaque resolved training record
+                                    |   must reproduce the output identity
       train_args_yaml               | not read (provenance)
       root rescale attr             | _read_public_rescale requires native
                                     |   "none" before geometry/model rebuild;
@@ -2131,14 +1557,8 @@ def save_emulator(path_root,
       transfer_recipe, transfer_base["param_geometry"],
       transfer_base["dv_geometry"], path_root + ": transfer_base")
 
-  history_arrays = _runtime_history_arrays(
+  history_arrays = _history_arrays_for_save(
     histories, where=path_root + ": histories")
-  validate_training_recipe_and_histories(
-    resolved_train, history_arrays,
-    composition_mode=composition_mode,
-    transfer_refined=transfer_refined,
-    model_recipe=resolved_model,
-    where=path_root)
 
   if type(attrs) is not dict or "rescale" not in attrs:
     raise ValueError(
@@ -3084,9 +2504,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
       f=f, where=path_root + ".h5")
     saved_rescale = _read_public_rescale(
       f.attrs, where=path_root + ".h5")
-    # Everything below this line is still inert metadata.  The complete model
-    # recipe and executed pass/history record must agree before a geometry
-    # module, model module, from_state, or tensor checkpoint is allowed to run.
+    # Everything below this line is still inert metadata. The model recipe and
+    # geometry dimensions must agree before a saved class can be imported.
+    # Training histories remain provenance and are not needed for prediction.
     recipe = _read_yaml_mapping_dataset(
       f, "model_recipe", path_root + ".h5")
     validate_model_recipe(recipe, where=path_root + ".h5 model_recipe")
@@ -3097,16 +2517,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
     if "train_args" not in resolved_config:
       raise KeyError(
         path_root + ".h5 config_resolved_yaml is missing 'train_args'")
-    history_arrays = _saved_history_arrays(
-      f["history"] if "history" in f else None,
-      where=path_root + ".h5 history")
-    validate_training_recipe_and_histories(
-      resolved_config["train_args"], history_arrays,
-      composition_mode=composition_mode,
-      transfer_refined=transfer_refined,
-      model_recipe=recipe,
-      where=path_root + ".h5")
-
     tb = None
     tb_recipe = None
     if composition_mode == "transfer":

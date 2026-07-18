@@ -980,7 +980,7 @@ files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
-| `test_artifact_recipe_preflight.py` | Does saving or reopening stop on a damaged model recipe, saved geometry, composition record, training-pass record, or history before model weights, saved Python classes, or checkpoint tensors can be used? |
+| `test_artifact_recipe_preflight.py` | Does saving stop before reading model weights when the model recipe is incomplete or the five history arrays have incompatible shapes? When reopening, does a damaged reconstruction input—such as the model recipe, saved geometry, composition record, or output identity—stop before saved Python classes or checkpoint tensors are used? The same test proves that removing the optional history group does not prevent reconstruction. |
 | `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact store its base weights without duplicate state hashes, and does ordinary strict model loading refuse missing, extra, or wrong-shaped tensors? |
@@ -1042,30 +1042,32 @@ saved or reopened. Here, **preflight** means reading and checking the plain
 saved descriptions before the library may inspect model weights, import a
 saved Python class, construct a geometry, or load checkpoint tensors.
 
-- **Example used:** a complete one-epoch ResMLP artifact is saved, then one
-  copy loses a required model field, another receives a gap in its recorded
-  history interval, and another receives a model recipe that no longer agrees
-  with its saved output identity.
+- **Example used:** a complete one-epoch ResMLP artifact is saved. One copy
+  loses a required model field. Another receives a model recipe that no longer
+  agrees with its saved output identity. A third copy loses the entire optional
+  history group.
 - **What the test does:** it places sentinels on weight access, dynamic Python
   import, and checkpoint loading. Each damaged file must report its metadata
   problem while every sentinel remains untouched.
 - **Pass means:** saving refuses incomplete main and transfer recipes before
-  staging a file or reading `model.state_dict`. Reopening first reconciles the
-  model recipe, saved geometry and analytic law, composition mode, ordered
-  training passes, epoch histories, and saved output identity; only a
-  consistent record reaches executable reconstruction.
+  staging a file or reading `model.state_dict`. It also refuses nonfinite or
+  incompatible training-history arrays. Reopening checks the model recipe,
+  saved geometry and analytic law, composition mode, and output identity. It
+  does not interpret the pass description or history curves.
 - **A refusal it proves:** a missing constructor field, changed valid recipe,
-  history gap, invalid pass order, wrong epoch total, or short history array
-  cannot be hidden by a checkpoint that still has plausible tensor shapes.
+  malformed saved geometry, or incompatible history arrays cannot be hidden by
+  a checkpoint that still has plausible tensor shapes. Removing the history
+  after publication does not prevent the learned model from reopening because
+  those curves are a record for readers, not reconstruction instructions.
 - **Why it matters:** imported code and learned tensors can perform work. A
   damaged plain record must be rejected before either surface can influence
   how the file is interpreted.
 
-This integration test joins the two narrower checks above. The totality test
-defines which model fields are required. The training-pass test defines how
-the saved optimization record is formed. The preflight test proves that the
-real save and rebuild paths apply both rules early enough to prevent a damaged
-artifact from executing first.
+This integration test joins the two narrower checks above without mixing their
+jobs. The model-recipe test defines the fields needed to rebuild the network.
+The training-pass test explains how training produced the weights. The
+preflight test proves that reconstruction checks its actual inputs early, while
+leaving the historical training record out of the prediction path.
 
 #### Loading the saved transfer model strictly
 

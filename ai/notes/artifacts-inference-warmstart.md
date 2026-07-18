@@ -811,9 +811,8 @@ GPU-capable environment must rerun both identity gates after a fixture change.
 - Save/rebuild and schema ownership: `emulator/results.py` and
   `emulator/fixed_facts.py`.
 - Model-recipe ownership: `emulator/model_recipe.py`.
-- Ordered training-pass construction and history reconciliation:
-  `emulator/training.py::run_emulator` and
-  `emulator/results.py::validate_training_recipe_and_histories`.
+- Ordered training-pass construction: `emulator/training.py::run_emulator`.
+- Save-time history shape checks: `emulator/results.py::_history_arrays_for_save`.
 - Public prediction ownership: `emulator/inference.py`.
 - Fine-tune and transfer-source ownership: `emulator/warmstart.py`.
 - Transfer composition ownership: `emulator/losses/transfer.py`.
@@ -944,16 +943,17 @@ warmup, scheduler class and resolved keyword arguments, fully resolved loss,
 trimming, focus, clipping, rewind, and EMA settings. Transfer refinement has a
 separate pass entry with every inherited effective value. Persist run-level
 roughness separately when one value configures the loss object for the whole
-run. Persist `total_epochs` and require that value to equal every history
-dataset's row count. Keep the raw YAML separately as provenance. Loading and
-reporting read the resolved pass record and never rerun inheritance logic.
+run. Persist `total_epochs` and the five history arrays. Keep the raw YAML
+separately as provenance. The artifact writer checks only that the history
+arrays are finite and have compatible shapes. Prediction does not reconstruct
+training: reopening treats the pass plan and history arrays as provenance.
 
 **Implementation boundary.** The shared training configuration resolver owns
 the complete pass records in `emulator/training.py::run_emulator`. The artifact
-writer persists those records and `total_epochs`.
-`emulator/results.py::validate_training_recipe_and_histories` checks their
-order, composition role, history slices, and arrays before publication and
-before reconstruction.
+writer persists those records and `total_epochs` without becoming a second
+training-policy engine. `emulator/results.py::_history_arrays_for_save` performs
+the narrow publication check on array finiteness and shape. Reconstruction
+does not read the `history` group or validate pass grammar.
 
 A two-phase run with two trunk epochs and three head epochs records contiguous
 history slices `[0, 2)` and `[2, 5)`, followed by `total_epochs: 5`. Four saved
@@ -967,9 +967,10 @@ null; omitted BerHu knots appear as consumed numeric values; trunk and head
 overrides produce two complete pass records; a null EMA setting records that
 EMA is disabled for that phase; refinement becomes a third complete record;
 and each pass names its exact history slice.
-`ai/tests/test_artifact_recipe_preflight.py` forges a gap, a reordered role, a
-wrong `total_epochs`, and histories with the wrong row count; each case must
-fail before publication or model construction.
+`ai/tests/test_artifact_recipe_preflight.py` proves that incompatible or
+nonfinite histories fail before publication. It also removes the entire
+history group from a valid saved artifact and requires model reconstruction to
+succeed, proving that historical curves are not prediction inputs.
 
 ### Transfer-refine drift measures trainable parameters only
 
