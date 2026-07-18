@@ -272,6 +272,34 @@ class GeneratorDarkEnergyFactsTests(unittest.TestCase):
     self.assertEqual(facts["cosmology_fixed"]["w"], -1.0)
     self.assertEqual(facts["cosmology_fixed"]["wa"], 0.0)
 
+  def test_missing_coordinates_publish_lcdm_defaults(self):
+    """An implicit LCDM model records both physical fixed values."""
+    parameterization = FakeParameterization(
+      inputs={}, constants={}, sampled={"H0": np.nan}, dependencies={})
+
+    facts = _facts(
+      self.core_class, parameterization, sampled=("H0",), pinned={})
+
+    self.assertEqual(facts["dark_energy_law"], "cosmological-constant")
+    self.assertEqual(
+      facts["cosmology_fixed"],
+      {"w": -1.0, "wa": 0.0,
+       "mnu": "n/a", "omk": "n/a", "TCMB": "n/a", "nnu": "n/a"})
+
+  def test_fixed_w_publishes_constant_w_with_zero_wa(self):
+    """A fixed present value records the implicit constant-w evolution."""
+    parameterization = FakeParameterization(
+      inputs={"w": -0.9}, constants={"w": -0.9},
+      sampled={"H0": np.nan}, dependencies={})
+
+    facts = _facts(
+      self.core_class, parameterization, sampled=("H0",),
+      pinned={"w": -0.9})
+
+    self.assertEqual(facts["dark_energy_law"], "constant-w")
+    self.assertEqual(facts["cosmology_fixed"]["w"], -0.9)
+    self.assertEqual(facts["cosmology_fixed"]["wa"], 0.0)
+
   def test_inconsistent_fixed_transformation_refuses(self):
     """A sidecar cannot silently choose one of two incompatible values."""
     parameterization = FakeParameterization(

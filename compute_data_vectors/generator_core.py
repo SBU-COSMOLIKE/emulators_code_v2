@@ -602,6 +602,11 @@ def _dark_energy_publication_facts(parameterization, pinned):
   if "wa" in varying_names or "w0pwa" in varying_names:
     varying.add("wa")
 
+  if "w" not in varying and present is None:
+    present = -1.0
+  if "wa" not in varying and wa is None:
+    wa = 0.0
+
   fixed = {}
   if "w" not in varying and present is not None:
     fixed["w"] = present
@@ -2083,25 +2088,17 @@ class GeneratorCore:
   # the dataset's scientific record (schema: emulator/fixed_facts.py)
   #-----------------------------------------------------------------------------
   def _resolved_constants(self):
-    """
-    Read every value the resolved Cobaya model pins to a constant.
+    """Read named constants and theory settings for the dataset record.
 
-    The reading itself belongs to emulator/fixed_facts.py, and this method is
-    one of its callers. The generator is not the only code that has to read the
-    model this way: each cobaya adapter reads the same model, at the start of a
-    chain, to check a saved emulator's record against the cosmology now being
-    sampled. The producer WRITES the fixed facts, the adapters CHECK them, and
-    the two must read them identically — down to which block wins a name that
-    both the params block and a theory component state. A copy of the reader
-    living here would be a second author of that fact.
+    The shared reader preserves the names exposed by Cobaya. Family-specific
+    code interprets physical aliases when that interpretation is required for
+    generation.
 
     Arguments:
       none.
 
     Returns:
-      a mapping of name to plain value, holding every constant the model states.
-      It is a superset of the coordinates the record reports on; the caller reads
-      the names it needs.
+      A mapping from each readable name to its plain value.
     """
     return fixed_facts.resolved_constants(model=self.model)
 
