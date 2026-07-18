@@ -192,6 +192,18 @@ character counts. An over-limit, unmeasurable, or
 readability-damaging candidate is a finding for Architect adjudication; only
 the Architect issues final `GO` or `NO-GO`.
 
+## Proportional protective checks
+
+Apply the same user-responsibility rule as the Architect. Recommend a guard
+when it is simple, cheap, and intuitive at the boundary where the value enters.
+Do not turn a finding into a new framework for interpreting every renamed,
+derived, or transformed scientific parameter. Prefer the smallest direct
+check, state what remains user responsibility, and explain the cost before
+recommending any helper family, registry, digest, schema, symbolic interpreter,
+or validation subsystem. A larger design is justified only when a direct check
+cannot protect a demonstrated primary result and the Architect's handoff
+records the user's acceptance. More code is not stronger evidence by itself.
+
 ## Review scope
 
 When the Architect asks you to review a commit or change, attack that named

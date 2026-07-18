@@ -486,6 +486,18 @@ It never starts or completes a ticket cycle.
    disproportionate complexity. Never claim full coverage or park a probable
    failure, wrong primary science, data loss, or broken core operation.
 
+   Keep user responsibility visible. Add a protective check when it is simple,
+   cheap, and intuitive at the value's boundary. Do not create a new framework
+   to infer arbitrary renamed, derived, or transformed scientific parameters.
+   Compare directly named values when that comparison is useful and state the
+   limitation. Verification of compatibility for renamed, derived, or
+   transformed parameterizations remains the user's responsibility. A partial
+   name comparison is not proof that two cosmologies are or are not equivalent.
+   Apply this rule throughout the scientific reading path named above and
+   return NO-GO to a helper family, registry, digest, schema, or validation
+   subsystem that exists only to remove a responsibility the user can
+   reasonably carry.
+
 2b. **Plan bounded Implementer subagents (hard user rule).** Every
    implementation directive must use its `Parallel work plan` to split the
    ticket into bounded parts and must direct the Implementer to launch those

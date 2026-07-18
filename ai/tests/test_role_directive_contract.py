@@ -75,6 +75,22 @@ class RoleDirectiveContractTests(unittest.TestCase):
                         "data loss", "broken core operation"):
                     self.assertIn(forbidden_remainder, normalized)
 
+    def test_architect_does_not_build_frameworks_to_babysit_users(self):
+        """Simple checks stop before symbolic parameter interpretation."""
+        for name, source in (
+                ("Architect role", self.architect),
+                ("Python contract", self.python_contract),
+                ("Red Team role", self.redteam)):
+            with self.subTest(source=name):
+                normalized = " ".join(source.split())
+                self.assertIn("simple, cheap, and intuitive", normalized)
+                self.assertIn("renamed, derived, or transformed", normalized)
+                self.assertIn("user responsibility", normalized.lower())
+        architect = " ".join(self.architect.split())
+        self.assertIn("partial name comparison is not proof", architect)
+        self.assertIn("scientific reading path", architect)
+        self.assertIn("scientific reading path", self.python_contract)
+
     def test_public_admission_has_three_exact_architect_outcomes(self):
         """The real Architect is taught every daemon-accepted outcome."""
         token = "0001-to-fable.md@" + "a" * 64
