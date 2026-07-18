@@ -21,7 +21,8 @@ class ProtectedPolicyReviewTests(unittest.TestCase):
         self.assertEqual(
             set(daemon.ARCHITECT_PROTECTED_POLICY_PATHS)
             - set(daemon.ARCHITECT_PERMANENT_NOTE_PATHS),
-            {".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md",
+            {".claude/FABLE_ROLE.md", ".claude/OPUS_ROLE.md",
+             ".codex/REDTEAM_ROLE.md",
              "ai/notes/role-contract.yaml"})
         self.assertTrue(
             set(daemon.ARCHITECT_PROTECTED_POLICY_PATHS).issubset(

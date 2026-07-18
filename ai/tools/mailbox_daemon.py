@@ -296,16 +296,45 @@ ARCHITECT_PERMANENT_NOTE_PATHS = (
     "ai/notes/readme-go-no-go.md",
 )
 ROLE_CONTRACT_RELATIVE_PATH = "ai/notes/role-contract.yaml"
+PERMANENT_NOTE_GUARD_RELATIVE_PATH = "ai/tools/permanent_note_guard.py"
 ROLE_CONTRACT_TOOL_RELATIVE_PATH = "ai/tools/role_contract.py"
+ARCHITECT_ROLE_PATHS = (
+    ".claude/FABLE_ROLE.md",
+    ".claude/OPUS_ROLE.md",
+    ".codex/REDTEAM_ROLE.md",
+)
+ARCHITECT_GUARD_PATHS_BY_NAME = {
+    "permanent_note_guard": PERMANENT_NOTE_GUARD_RELATIVE_PATH,
+    "role_contract_reader": ROLE_CONTRACT_TOOL_RELATIVE_PATH,
+}
+ARCHITECT_GUARD_PATHS = tuple(ARCHITECT_GUARD_PATHS_BY_NAME.values())
+ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME = {
+    "backlog_bundle": "ai/tools/backlog_bundle.py",
+    "backlog_guard": "ai/tools/backlog_guard.py",
+    "handoff_contract": "ai/tools/handoff_contract.py",
+    "handoff_router": "ai/tools/handoff_router.py",
+    "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
+    "mailbox_daemon": "ai/tools/mailbox_daemon.py",
+    "ticket_change_guard": "ai/tools/ticket_change_guard.py",
+}
+ARCHITECT_TRUSTED_TOOL_PATHS = (
+    ARCHITECT_GUARD_PATHS
+    + tuple(ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME.values()))
 ARCHITECT_PROTECTED_POLICY_PATHS = (
     ARCHITECT_PERMANENT_NOTE_PATHS
-    + (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md",
-       ROLE_CONTRACT_RELATIVE_PATH)
-)
+    + ARCHITECT_ROLE_PATHS + (ROLE_CONTRACT_RELATIVE_PATH,))
 ARCHITECT_PROTECTED_TRACKED_PATHS = (
-    ARCHITECT_PROTECTED_POLICY_PATHS
-    + ("ai/tools/permanent_note_guard.py", ROLE_CONTRACT_TOOL_RELATIVE_PATH)
+    ARCHITECT_PROTECTED_POLICY_PATHS + ARCHITECT_GUARD_PATHS)
+ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES = (
+    "CLAUDE.md", ".gitattributes", ".gitignore", ".gitmodules",
+    "ai/notes/backlog.md", "ai/notes/.backlog-guard.json",
+    "ai/notes/.backlog-guard.lock",
 )
+ARCHITECT_CANDIDATE_FORBIDDEN_FILES = frozenset(
+    ARCHITECT_PROTECTED_TRACKED_PATHS
+    + ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES)
+ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES = (
+    ".claude/", ".codex/", "ai/notes/mailbox/", "ai/notes/relay/")
 
 ROLE_PERMISSIONS = {
     "architect": {
@@ -347,6 +376,8 @@ def validate_role_contract_bindings(contract=None):
             os.path.join(WORKTREE, ROLE_CONTRACT_RELATIVE_PATH))
     else:
         tool.validate_role_contract(contract)
+    runtime_backlog = os.path.relpath(BACKLOG_LEDGER, WORKTREE).replace(
+        os.sep, "/")
     expected = {
         "roles": ROLE_PERMISSIONS,
         "candidate": {"creator": "implementer", "immutable": True,
@@ -354,9 +385,12 @@ def validate_role_contract_bindings(contract=None):
         "landing": {"creator": "daemon", "parent_count": 1,
                     "force_push_allowed": False,
                     "audited_delta_required": True},
-        "backlog": {"editor": "architect"},
+        "backlog": {"editor": "architect", "path": runtime_backlog},
         "evidence": {"red_team_advisory": True,
                      "protected_policy_review_rounds": 1},
+        "limits": {
+            "protected_policy_file_bytes": MAX_PROTECTED_NOTE_BYTES,
+            "role_contract_bytes": tool.MAX_CONTRACT_BYTES},
         "runtime": {
             "implementer_review_minutes": IMPLEMENTER_REVIEW_MINUTES,
             "dispatch_timeout_default_minutes":
@@ -364,19 +398,59 @@ def validate_role_contract_bindings(contract=None):
         "protected_paths": {
             "contract": ROLE_CONTRACT_RELATIVE_PATH,
             "permanent_notes": list(ARCHITECT_PERMANENT_NOTE_PATHS),
-            "role_files": [".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md"],
-            "guard_files": ["ai/tools/permanent_note_guard.py",
-                            ROLE_CONTRACT_TOOL_RELATIVE_PATH]},
+            "role_files": list(ARCHITECT_ROLE_PATHS),
+            "guard_files": dict(ARCHITECT_GUARD_PATHS_BY_NAME),
+            "trusted_tools": dict(ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME),
+            "candidate_forbidden_files": list(
+                ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES),
+            "candidate_forbidden_prefixes": list(
+                ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES)},
         "worktrees": {
-            "claude_branch_prefix": "claude/",
-            "cleanup_action": "--clean-all",
-            "legacy_cleanup_prefix": "worktree-agent-",
-            "sol_branch_prefix": "codex/"},
+            "architect_branch": PRIMARY_BRANCH,
+            "architect_name": PRIMARY_WORKTREE_NAME,
+            "claude_branch_prefix": CLAUDE_BRANCH_PREFIX,
+            "cleanup_action": CLEANUP_ACTION,
+            "implementer_branch": IMPLEMENTER_BRANCH,
+            "implementer_name": IMPLEMENTER_WORKTREE_NAME,
+            "legacy_cleanup_prefix": LEGACY_CLEANUP_PREFIX,
+            "sol_branch": SOL_BRANCH,
+            "sol_branch_prefix": SOL_BRANCH_PREFIX,
+            "sol_name": SOL_WORKTREE_NAME,
+            "topology": PRIMARY_TOPOLOGY_MARKER},
     }
     for section, value in expected.items():
         if contract[section] != value:
             raise tool.RoleContractError(
                 section + " disagrees with the live mailbox controls")
+    protected = contract["protected_paths"]
+    effective_forbidden = frozenset(
+        protected["permanent_notes"] + protected["role_files"]
+        + list(protected["guard_files"].values())
+        + protected["candidate_forbidden_files"]
+        + [protected["contract"]])
+    if effective_forbidden != ARCHITECT_CANDIDATE_FORBIDDEN_FILES:
+        raise tool.RoleContractError(
+            "candidate forbidden files disagree with live admission")
+    configured_tools = frozenset(
+        list(protected["guard_files"].values())
+        + list(protected["trusted_tools"].values()))
+    if configured_tools != frozenset(ARCHITECT_TRUSTED_TOOL_PATHS):
+        raise tool.RoleContractError(
+            "trusted tools disagree with live dispatch checks")
+    expected_branch_refs = tuple(
+        "refs/heads/" + prefix for prefix in (
+            CLAUDE_BRANCH_PREFIX, SOL_BRANCH_PREFIX,
+            LEGACY_CLEANUP_PREFIX))
+    if AI_BRANCH_PREFIXES != expected_branch_refs:
+        raise tool.RoleContractError(
+            "cleanup branch prefixes disagree with the role contract")
+    runtime_transport = {
+        os.path.relpath(path, WORKTREE).replace(os.sep, "/") + "/"
+        for path in (MAILBOX, RELAY_DIR)}
+    if not runtime_transport.issubset(
+            set(ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES)):
+        raise tool.RoleContractError(
+            "mailbox paths are not protected from candidates")
     return contract
 
 
@@ -409,10 +483,14 @@ SOL_WORKTREE_NAME = "mailbox-sol"
 SOL_BRANCH = "refs/heads/codex/mailbox-sol"
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
+CLAUDE_BRANCH_PREFIX = "claude/"
+SOL_BRANCH_PREFIX = "codex/"
+LEGACY_CLEANUP_PREFIX = "worktree-agent-"
+CLEANUP_ACTION = "--clean-all"
 AI_BRANCH_PREFIXES = (
-    "refs/heads/claude/",
-    "refs/heads/codex/",
-    "refs/heads/worktree-agent-",
+    "refs/heads/" + CLAUDE_BRANCH_PREFIX,
+    "refs/heads/" + SOL_BRANCH_PREFIX,
+    "refs/heads/" + LEGACY_CLEANUP_PREFIX,
 )
 MAILBOX_TOPOLOGY_VERSION = 3
 MAILBOX_PROTOCOL_VERSION = 5
@@ -2064,22 +2142,15 @@ def validate_authoritative_role_files(primary_path):
             raise PrimaryWorktreeError(label + " is redirected: " + path)
         directory_proof.append((label, path, identity))
 
-    authoritative_files = (
-        ("role", os.path.join(
-            primary, ".claude", "FABLE_ROLE.md")),
-        ("role", os.path.join(
-            primary, ".codex", "REDTEAM_ROLE.md")),
-        ("role", os.path.join(
-            primary, ".claude", "OPUS_ROLE.md")),
-        ("ticket tool", os.path.join(
-            primary, "ai", "tools", "handoff_contract.py")),
-        ("ticket tool", os.path.join(
-            primary, "ai", "tools", "ticket_change_guard.py")),
-        ("role contract reader", os.path.join(
-            primary, "ai", "tools", "role_contract.py")),
-        ("role contract", os.path.join(
-            primary, "ai", "notes", "role-contract.yaml")),
-    )
+    authoritative_files = tuple(
+        ("role", os.path.join(primary, *path.split("/")))
+        for path in ARCHITECT_ROLE_PATHS)
+    authoritative_files += tuple(
+        ("trusted tool", os.path.join(primary, *path.split("/")))
+        for path in ARCHITECT_TRUSTED_TOOL_PATHS)
+    authoritative_files += ((
+        "role contract",
+        os.path.join(primary, *ROLE_CONTRACT_RELATIVE_PATH.split("/"))),)
     file_proof = []
     for kind, path in authoritative_files:
         try:
@@ -3431,7 +3502,8 @@ IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
 IMPLEMENTER_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: CHECKPOINT")
 IMPLEMENTER_CHECKPOINT_CURRENT_STATE = (
-    "- **Current state:** 90 minutes reached; work is paused and may be "
+    f"- **Current state:** {IMPLEMENTER_REVIEW_MINUTES} minutes reached; "
+    "work is paused and may be "
     "stuck.")
 IMPLEMENTER_CHECKPOINT_DECISION_PREFIX = "- **Checkpoint decision:**"
 FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
@@ -6490,8 +6562,7 @@ def revalidate_protected_policy_admin_topology(proof):
     """Allow only Architect-owned policy files to change in an admin turn."""
     if not isinstance(proof, dict):
         return revalidate_agent_dispatch_topology(proof=proof)
-    mutable = (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md",
-               ROLE_CONTRACT_RELATIVE_PATH)
+    mutable = ARCHITECT_ROLE_PATHS + (ROLE_CONTRACT_RELATIVE_PATH,)
     recheck_agent_dispatch_directories(proof=proof, mutable_paths=mutable)
     current = validate_live_agent_dispatch_topology(agent=proof["agent"])
     recheck_agent_dispatch_directories(
@@ -8429,6 +8500,15 @@ def prepare_implementer_cycle_checkout(cycle_id):
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
+def candidate_forbidden_paths(changed_paths):
+    """Return candidate paths reserved for the Architect or Git control."""
+    return {
+        path for path in changed_paths
+        if (path in ARCHITECT_CANDIDATE_FORBIDDEN_FILES
+            or any(path.startswith(prefix)
+                   for prefix in ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES))}
+
+
 def record_implementer_candidate(cycle_id, starting_head):
     """Atomically preserve a successful clean Opus commit for its cycle."""
     worktree = AGENT_CWD["opus"]
@@ -8453,7 +8533,7 @@ def record_implementer_candidate(cycle_id, starting_head):
     except UnicodeDecodeError as exc:
         raise TicketCycleStateError(
             "Implementer candidate contains a non-UTF-8 path") from exc
-    forbidden = changed_paths.intersection(ARCHITECT_PROTECTED_TRACKED_PATHS)
+    forbidden = candidate_forbidden_paths(changed_paths)
     if forbidden:
         raise TicketCycleStateError(
             "Implementer candidate changes Architect-protected policy: "
@@ -9426,9 +9506,9 @@ def _permanent_note_commit_paths(base_commit, notes_commit):
             or not set(paths).issubset(set(
                 ARCHITECT_PROTECTED_POLICY_PATHS))):
         raise TicketCycleStateError(
-            "protected-policy commit must modify only the Architect role, "
-            "Red Team role, protected YAML contract, or exact eleven "
-            "permanent notes")
+            "protected-policy commit must modify only a role file, the "
+            "protected YAML contract, or one of the exact eleven permanent "
+            "notes")
     return tuple(paths)
 
 
@@ -12174,7 +12254,7 @@ def main():
                         help="start every request that is waiting now, "
                              "then exit")
     parser.add_argument(
-        "--clean-all", action="store_true",
+        CLEANUP_ACTION, action="store_true",
         help="permanently discard every local AI worktree and local "
              "claude/*, codex/*, or legacy worktree-agent-* branch; "
              "dirty files and unmerged commits in those worktrees are lost")

@@ -34,6 +34,12 @@ PERMANENT_NOTE_GUARD_PATH = AI_ROOT / "tools" / "permanent_note_guard.py"
 ROLE_CONTRACT_TOOL_PATH = AI_ROOT / "tools" / "role_contract.py"
 ROLE_CONTRACT_PATH = AI_ROOT / "notes" / "role-contract.yaml"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
+OTHER_TRUSTED_TOOLS = (
+    "backlog_bundle.py",
+    "backlog_guard.py",
+    "handoff_router.py",
+    "implementer_checkpoint_hook.py",
+)
 PERMANENT_NOTES = (
     "MEMORY.md",
     "project-and-history.md",
@@ -192,6 +198,9 @@ def scratch_repository(source=None):
         write_exact(
             root / "ai" / "tools" / "role_contract.py",
             ROLE_CONTRACT_TOOL_PATH.read_bytes())
+        for tool_name in OTHER_TRUSTED_TOOLS:
+            write_exact(root / "ai" / "tools" / tool_name,
+                        (AI_ROOT / "tools" / tool_name).read_bytes())
         write_exact(
             root / "ai" / "notes" / "role-contract.yaml",
             ROLE_CONTRACT_PATH.read_bytes())
@@ -224,6 +233,7 @@ def scratch_repository(source=None):
             "ai/tools/ticket_change_guard.py",
             "ai/tools/permanent_note_guard.py",
             "ai/tools/role_contract.py",
+            *["ai/tools/" + name for name in OTHER_TRUSTED_TOOLS],
             "ai/notes/role-contract.yaml")
         git(root, "add", *[
             "ai/notes/" + note_name for note_name in PERMANENT_NOTES])

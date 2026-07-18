@@ -15,6 +15,7 @@ from ai.tools.permanent_note_guard import PERMANENT_NOTES as GUARD_NOTES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "ai" / "tools" / "permanent_note_guard.py"
+SOURCE_READER = REPO_ROOT / "ai" / "tools" / "role_contract.py"
 SOURCE_ROLE_CONTRACT = REPO_ROOT / "ai" / "notes" / "role-contract.yaml"
 ROLE_CONTRACT = "ai/notes/role-contract.yaml"
 PERMANENT_NOTES = (
@@ -65,12 +66,14 @@ def scratch_repository():
         guard = repo / "ai" / "tools" / "permanent_note_guard.py"
         guard.parent.mkdir(parents=True)
         shutil.copy2(SOURCE, guard)
+        shutil.copy2(SOURCE_READER, guard.parent / "role_contract.py")
         for index, path_text in enumerate(PERMANENT_NOTES):
             write(repo, path_text, "# Permanent note " + str(index) + "\n")
         contract = repo / ROLE_CONTRACT
         contract.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(SOURCE_ROLE_CONTRACT, contract)
-        run_git(repo, "add", "ai/tools/permanent_note_guard.py")
+        run_git(repo, "add", "ai/tools/permanent_note_guard.py",
+                "ai/tools/role_contract.py")
         run_git(repo, "add", *PERMANENT_NOTES, ROLE_CONTRACT)
         run_git(repo, "commit", "-q", "-m", "guard base")
         base = run_git(repo, "rev-parse", "HEAD")
@@ -161,8 +164,11 @@ class PermanentNoteGuardTests(unittest.TestCase):
                         write(repo, ROLE_CONTRACT, original)
                         run_git(repo, "add", ROLE_CONTRACT)
                 result = run_guard(repo, guard, base)
-                self.assertEqual(result.returncode, 2)
-                self.assertIn(state, result.stderr)
+                self.assertNotEqual(result.returncode, 0)
+                if state == "working tree":
+                    self.assertIn("canonical formatting", result.stderr)
+                else:
+                    self.assertIn(state, result.stderr)
                 self.assertNotIn("PERMANENT-NOTE-GUARD PASS", result.stdout)
 
     def test_extra_tracked_note_refuses_but_untracked_ticket_is_allowed(self):
@@ -187,6 +193,16 @@ class PermanentNoteGuardTests(unittest.TestCase):
             abbreviated = run_guard(repo, guard, base[:12])
             self.assertEqual(abbreviated.returncode, 2)
             self.assertIn("full lowercase Git commit hash", abbreviated.stderr)
+
+    def test_changed_contract_reader_refuses(self):
+        with scratch_repository() as (repo, guard, base):
+            reader = repo / "ai/tools/role_contract.py"
+            reader.write_text(
+                reader.read_text(encoding="utf-8") + "\n# accidental edit\n",
+                encoding="utf-8")
+            result = run_guard(repo, guard, base)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("role_contract.py differs", result.stderr)
 
     def test_symlink_note_refuses(self):
         with scratch_repository() as (repo, guard, base):

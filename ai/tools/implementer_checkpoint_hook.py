@@ -14,17 +14,25 @@ from pathlib import Path
 import sys
 import time
 
+try:
+    from ai.tools.role_contract import ROLE_CONTRACT
+except ImportError:  # Direct execution from ai/tools/.
+    from role_contract import ROLE_CONTRACT
 
 DEADLINE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_DEADLINE"
 STATE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_STATE"
 SUPPORTED_EVENTS = {"PostToolBatch", "Stop"}
+CHECKPOINT_MINUTES = ROLE_CONTRACT["runtime"]["implementer_review_minutes"]
 CHECKPOINT_INSTRUCTION = (
-    "The Implementer has worked for 90 minutes, may be stuck, and must "
+    f"The Implementer has worked for {CHECKPOINT_MINUTES} minutes, may be "
+    "stuck, and must "
     "pause now. "
     "Make no further implementation edit. Let launched helpers finish, make "
     "one clean checkpoint commit, update the ticket note, and write `### "
-    "IMPLEMENTER_HANDOFF: CHECKPOINT`. Begin Current state with `90 minutes "
-    "reached; work is paused and may be stuck.` Then briefly report changed "
+    "IMPLEMENTER_HANDOFF: CHECKPOINT`. Begin Current state with "
+    f"`{CHECKPOINT_MINUTES} minutes reached; work is paused and may be "
+    "stuck.` Then briefly "
+    "report changed "
     "production files, added plus deleted characters, completed checks, "
     "unfinished work, why the work took this long, and whether the design "
     "has become too complicated. Wait for the Architect's decision before "
@@ -57,7 +65,8 @@ def checkpoint_result(*, event, now, deadline, state_path):
     try:
         first = _claim_once(state_path)
     except OSError as error:
-        message = "cannot record the 90-minute checkpoint: " + str(error)
+        message = ("cannot record the " + str(CHECKPOINT_MINUTES)
+                   + "-minute checkpoint: " + str(error))
         return 2, "", message + "\n"
     if not first:
         return 0, "", ""
@@ -89,7 +98,8 @@ def main():
             raise ValueError("the checkpoint state path is not absolute")
     except (AttributeError, json.JSONDecodeError, KeyError, TypeError,
             ValueError) as error:
-        print("invalid 90-minute checkpoint hook input: " + str(error),
+        print("invalid " + str(CHECKPOINT_MINUTES)
+              + "-minute checkpoint hook input: " + str(error),
               file=sys.stderr)
         return 2
 

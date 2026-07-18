@@ -26,27 +26,25 @@ import subprocess
 import sys
 import unicodedata
 
+try:
+    from ai.tools.role_contract import ROLE_CONTRACT
+except ImportError:  # Direct execution from ai/tools/.
+    from role_contract import ROLE_CONTRACT
 
-GUARD_PATH = "ai/tools/permanent_note_guard.py"
-NOTES_ROOT = PurePosixPath("ai/notes")
-PERMANENT_NOTES = (
-    "ai/notes/MEMORY.md",
-    "ai/notes/artifacts-inference-warmstart.md",
-    "ai/notes/conventions-and-workflow.md",
-    "ai/notes/data-generation-and-cuts.md",
-    "ai/notes/families-background-mps.md",
-    "ai/notes/families-scalar-cmb.md",
-    "ai/notes/models-and-designs.md",
-    "ai/notes/project-and-history.md",
-    "ai/notes/readme-go-no-go.md",
-    "ai/notes/training-stack.md",
-    "ai/notes/python-changes-go-no-go.md",
+_BOOTSTRAP_GUARD_PATHS = (
+    "ai/tools/permanent_note_guard.py",
+    "ai/tools/role_contract.py",
 )
-ROLE_CONTRACT_PATH = "ai/notes/role-contract.yaml"
+_PATHS = ROLE_CONTRACT["protected_paths"]
+GUARD_PATHS = tuple(_PATHS["guard_files"].values())
+GUARD_PATH = _PATHS["guard_files"]["permanent_note_guard"]
+ROLE_CONTRACT_PATH = _PATHS["contract"]
+NOTES_ROOT = PurePosixPath(ROLE_CONTRACT_PATH).parent
+PERMANENT_NOTES = tuple(_PATHS["permanent_notes"])
 PROTECTED_POLICY_FILES = PERMANENT_NOTES + (ROLE_CONTRACT_PATH,)
 
 FULL_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-MAX_FILE_BYTES = 4 * 1024 * 1024
+MAX_FILE_BYTES = ROLE_CONTRACT["limits"]["protected_policy_file_bytes"]
 
 
 class GuardError(RuntimeError):
@@ -300,19 +298,23 @@ def _require_same(path, expected, observed, state):
 
 
 def _require_guard_unchanged(repo, base):
-    """Catch an incidental edit to this guard before trusting its result."""
-    expected = _git_bytes(repo, base, GUARD_PATH)
-    head = _git_bytes(repo, "HEAD", GUARD_PATH)
-    staged = _git_bytes(repo, "", GUARD_PATH)
-    working = _working_bytes(repo, GUARD_PATH)
-    _require_same(GUARD_PATH, expected, head, "current HEAD")
-    _require_same(GUARD_PATH, expected, staged, "Git staging area")
-    _require_same(GUARD_PATH, expected, working, "working tree")
+    """Catch an incidental edit to either trusted guard before using it."""
+    for path in _BOOTSTRAP_GUARD_PATHS:
+        expected = _git_bytes(repo, base, path)
+        head = _git_bytes(repo, "HEAD", path)
+        staged = _git_bytes(repo, "", path)
+        working = _working_bytes(repo, path)
+        _require_same(path, expected, head, "current HEAD")
+        _require_same(path, expected, staged, "Git staging area")
+        _require_same(path, expected, working, "working tree")
 
 
 def verify(repo, base):
     """Verify all protected states and return the base SHA-256 rows."""
     _require_guard_unchanged(repo=repo, base=base)
+    if frozenset(GUARD_PATHS) != frozenset(_BOOTSTRAP_GUARD_PATHS):
+        raise GuardError(
+            "role contract disagrees with its two protected guards")
     _require_exact_note_set(_base_paths(repo, base), "base commit")
     _require_exact_note_set(_head_paths(repo), "current HEAD")
     _require_exact_note_set(_index_paths(repo), "Git staging area")

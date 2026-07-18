@@ -24,6 +24,10 @@ import subprocess
 import sys
 import unicodedata
 
+try:
+    from ai.tools.role_contract import ROLE_CONTRACT
+except ImportError:  # Direct execution from ai/tools/.
+    from role_contract import ROLE_CONTRACT
 
 MAX_NOTE_BYTES = 2 * 1024 * 1024
 CONTRACT_REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -268,7 +272,8 @@ REDTEAM_SEVERITY_ROWS = (
 DISCOVERY_SEVERITIES = ("high", "medium", "low")
 DEFAULT_DISCOVERY_SEVERITY = "medium"
 DISCOVERY_SEVERITY_ENVIRONMENT = "MAILBOX_DISCOVERY_SEVERITY"
-TICKET_CHANGE_GUARD = "ai/tools/ticket_change_guard.py"
+TICKET_CHANGE_GUARD = ROLE_CONTRACT["protected_paths"]["trusted_tools"][
+    "ticket_change_guard"]
 
 
 class DirectiveError(ValueError):

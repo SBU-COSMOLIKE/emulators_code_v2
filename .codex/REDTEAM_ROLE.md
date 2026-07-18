@@ -444,7 +444,8 @@ pass is not an ordinary post-landing closure review.
 
 Only the Architect may edit the eleven permanent notes,
 `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, or
-`.codex/REDTEAM_ROLE.md`, and only through protected-policy administration;
+`.claude/OPUS_ROLE.md`, or `.codex/REDTEAM_ROLE.md`, and only through
+protected-policy administration;
 only the parent daemon may land the clean one-parent P after checking its exact
 parent B.
 `MAILBOX-ADMIN: permanent-notes` remains an Architect-only self-route.

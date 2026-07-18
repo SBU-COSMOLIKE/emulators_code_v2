@@ -1,6 +1,7 @@
 {
   "backlog": {
-    "editor": "architect"
+    "editor": "architect",
+    "path": "ai/notes/backlog.md"
   },
   "candidate": {
     "creator": "implementer",
@@ -17,12 +18,31 @@
     "force_push_allowed": false,
     "parent_count": 1
   },
+  "limits": {
+    "protected_policy_file_bytes": 4194304,
+    "role_contract_bytes": 65536
+  },
   "protected_paths": {
-    "contract": "ai/notes/role-contract.yaml",
-    "guard_files": [
-      "ai/tools/permanent_note_guard.py",
-      "ai/tools/role_contract.py"
+    "candidate_forbidden_files": [
+      "CLAUDE.md",
+      ".gitattributes",
+      ".gitignore",
+      ".gitmodules",
+      "ai/notes/backlog.md",
+      "ai/notes/.backlog-guard.json",
+      "ai/notes/.backlog-guard.lock"
     ],
+    "candidate_forbidden_prefixes": [
+      ".claude/",
+      ".codex/",
+      "ai/notes/mailbox/",
+      "ai/notes/relay/"
+    ],
+    "contract": "ai/notes/role-contract.yaml",
+    "guard_files": {
+      "permanent_note_guard": "ai/tools/permanent_note_guard.py",
+      "role_contract_reader": "ai/tools/role_contract.py"
+    },
     "permanent_notes": [
       "ai/notes/MEMORY.md",
       "ai/notes/project-and-history.md",
@@ -38,8 +58,18 @@
     ],
     "role_files": [
       ".claude/FABLE_ROLE.md",
+      ".claude/OPUS_ROLE.md",
       ".codex/REDTEAM_ROLE.md"
-    ]
+    ],
+    "trusted_tools": {
+      "backlog_bundle": "ai/tools/backlog_bundle.py",
+      "backlog_guard": "ai/tools/backlog_guard.py",
+      "handoff_contract": "ai/tools/handoff_contract.py",
+      "handoff_router": "ai/tools/handoff_router.py",
+      "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
+      "mailbox_daemon": "ai/tools/mailbox_daemon.py",
+      "ticket_change_guard": "ai/tools/ticket_change_guard.py"
+    }
   },
   "roles": {
     "architect": {
@@ -68,11 +98,18 @@
     "dispatch_timeout_default_minutes": 120,
     "implementer_review_minutes": 90
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "worktrees": {
+    "architect_branch": "refs/heads/claude/mailbox-primary",
+    "architect_name": "mailbox-primary",
     "claude_branch_prefix": "claude/",
     "cleanup_action": "--clean-all",
+    "implementer_branch": "refs/heads/claude/mailbox-implementer",
+    "implementer_name": "mailbox-implementer",
     "legacy_cleanup_prefix": "worktree-agent-",
-    "sol_branch_prefix": "codex/"
+    "sol_branch": "refs/heads/codex/mailbox-sol",
+    "sol_branch_prefix": "codex/",
+    "sol_name": "mailbox-sol",
+    "topology": "separate-role-worktrees-v1"
   }
 }

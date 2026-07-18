@@ -6,8 +6,8 @@ from pathlib import Path, PurePosixPath
 import stat
 
 
-ROLE_CONTRACT_PATH = "ai/notes/role-contract.yaml"
-MAX_CONTRACT_BYTES = 64 * 1024
+_BOOTSTRAP_CONTRACT_PATH = "ai/notes/role-contract.yaml"
+_BOOTSTRAP_CONTRACT_BYTES = 64 * 1024
 
 
 class RoleContractError(ValueError):
@@ -44,13 +44,27 @@ def _path(value, where):
         raise RoleContractError(where + " must be a repository-relative path")
 
 
+def _path_list(value, where):
+    _type(value, list, where)
+    if not value or len(value) != len(set(value)):
+        raise RoleContractError(where + " must be a nonempty unique list")
+    for index, item in enumerate(value):
+        _path(item, where + "[" + str(index) + "]")
+
+
+def _path_map(value, names, where):
+    _keys(value, names, where)
+    for name in names:
+        _path(value[name], where + "." + name)
+
+
 def validate_role_contract(value):
-    """Require the complete version-one contract and return it unchanged."""
+    """Require the complete protected contract and return it unchanged."""
     top = ("schema_version", "roles", "candidate", "landing", "backlog",
-           "evidence", "runtime", "protected_paths", "worktrees")
+           "evidence", "limits", "runtime", "protected_paths", "worktrees")
     _keys(value, top, "role contract")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
-        raise RoleContractError("schema_version must be 1")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 2:
+        raise RoleContractError("schema_version must be 2")
 
     roles = value["roles"]
     _keys(roles, ("architect", "implementer", "red_team"), "roles")
@@ -66,14 +80,20 @@ def validate_role_contract(value):
         "candidate": ("creator", "immutable", "full_hash_required"),
         "landing": ("creator", "parent_count", "force_push_allowed",
                     "audited_delta_required"),
-        "backlog": ("editor",),
+        "backlog": ("editor", "path"),
         "evidence": ("red_team_advisory", "protected_policy_review_rounds"),
+        "limits": ("protected_policy_file_bytes", "role_contract_bytes"),
         "runtime": ("implementer_review_minutes",
                     "dispatch_timeout_default_minutes"),
-        "protected_paths": ("contract", "permanent_notes", "role_files",
-                            "guard_files"),
-        "worktrees": ("claude_branch_prefix", "cleanup_action",
-                      "legacy_cleanup_prefix", "sol_branch_prefix"),
+        "protected_paths": ("candidate_forbidden_files",
+                            "candidate_forbidden_prefixes", "contract",
+                            "guard_files", "permanent_notes", "role_files",
+                            "trusted_tools"),
+        "worktrees": ("architect_branch", "architect_name",
+                      "claude_branch_prefix", "cleanup_action",
+                      "implementer_branch", "implementer_name",
+                      "legacy_cleanup_prefix", "sol_branch",
+                      "sol_branch_prefix", "sol_name", "topology"),
     }
     for name, keys in sections.items():
         _keys(value[name], keys, name)
@@ -87,45 +107,85 @@ def validate_role_contract(value):
     for name in ("force_push_allowed", "audited_delta_required"):
         _type(value["landing"][name], bool, "landing." + name)
     _type(value["backlog"]["editor"], str, "backlog.editor")
+    _path(value["backlog"]["path"], "backlog.path")
     _type(value["evidence"]["red_team_advisory"], bool,
           "evidence.red_team_advisory")
     _type(value["evidence"]["protected_policy_review_rounds"], int,
           "evidence.protected_policy_review_rounds")
+    for name in ("protected_policy_file_bytes", "role_contract_bytes"):
+        _type(value["limits"][name], int, "limits." + name)
+        if value["limits"][name] <= 0:
+            raise RoleContractError("limits." + name + " must be positive")
+    if value["limits"]["role_contract_bytes"] != _BOOTSTRAP_CONTRACT_BYTES:
+        raise RoleContractError(
+            "limits.role_contract_bytes must match the protected reader cap")
     for name in ("implementer_review_minutes",
                  "dispatch_timeout_default_minutes"):
         _type(value["runtime"][name], int, "runtime." + name)
         if value["runtime"][name] <= 0:
             raise RoleContractError("runtime." + name + " must be positive")
 
-    for name in ("claude_branch_prefix", "cleanup_action",
-                 "legacy_cleanup_prefix", "sol_branch_prefix"):
+    for name in ("architect_branch", "architect_name", "claude_branch_prefix",
+                 "cleanup_action", "implementer_branch", "implementer_name",
+                 "legacy_cleanup_prefix", "sol_branch", "sol_branch_prefix",
+                 "sol_name", "topology"):
         _type(value["worktrees"][name], str, "worktrees." + name)
         if not value["worktrees"][name]:
             raise RoleContractError("worktrees." + name + " must not be empty")
 
     protected = value["protected_paths"]
     _path(protected["contract"], "protected_paths.contract")
-    for group in ("permanent_notes", "role_files", "guard_files"):
-        _type(protected[group], list, "protected_paths." + group)
-        if not protected[group] or len(protected[group]) != len(set(protected[group])):
-            raise RoleContractError("protected_paths." + group
-                                    + " must be a nonempty unique list")
-        for index, item in enumerate(protected[group]):
-            _path(item, "protected_paths." + group + "[" + str(index) + "]")
+    if protected["contract"] != _BOOTSTRAP_CONTRACT_PATH:
+        raise RoleContractError(
+            "protected_paths.contract must match the protected reader path")
+    for group in ("candidate_forbidden_files", "permanent_notes", "role_files"):
+        _path_list(protected[group], "protected_paths." + group)
+    _type(protected["candidate_forbidden_prefixes"], list,
+          "protected_paths.candidate_forbidden_prefixes")
+    prefixes = protected["candidate_forbidden_prefixes"]
+    if not prefixes or len(prefixes) != len(set(prefixes)):
+        raise RoleContractError(
+            "protected_paths.candidate_forbidden_prefixes must be unique")
+    for index, prefix in enumerate(prefixes):
+        where = "protected_paths.candidate_forbidden_prefixes[" + str(index) + "]"
+        _type(prefix, str, where)
+        if not prefix.endswith("/"):
+            raise RoleContractError(where + " must end with /")
+        _path(prefix[:-1], where)
+    _path_map(protected["guard_files"],
+              ("permanent_note_guard", "role_contract_reader"),
+              "protected_paths.guard_files")
+    _path_map(protected["trusted_tools"],
+              ("backlog_bundle", "backlog_guard", "handoff_contract",
+               "handoff_router", "implementer_checkpoint", "mailbox_daemon",
+               "ticket_change_guard"),
+              "protected_paths.trusted_tools")
+    tool_paths = (list(protected["guard_files"].values())
+                  + list(protected["trusted_tools"].values()))
+    if len(tool_paths) != len(set(tool_paths)):
+        raise RoleContractError("protected tool paths must be unique")
+    notes_root = PurePosixPath(protected["contract"]).parent
+    for note in protected["permanent_notes"]:
+        path = PurePosixPath(note)
+        if path.parent != notes_root or path.suffix.casefold() != ".md":
+            raise RoleContractError(
+                "permanent notes must be Markdown files beside the contract")
     return value
 
 
 def load_role_contract(path=None):
     """Read one canonical JSON-compatible YAML contract from a regular file."""
     if path is None:
-        path = Path(__file__).resolve().parents[1] / "notes" / "role-contract.yaml"
+        path = Path(__file__).resolve().parents[2] / _BOOTSTRAP_CONTRACT_PATH
     else:
         path = Path(path)
     info = path.lstat()
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise RoleContractError("role contract must be a regular file")
+    if info.st_size > _BOOTSTRAP_CONTRACT_BYTES:
+        raise RoleContractError("role contract is too large")
     data = path.read_bytes()
-    if len(data) > MAX_CONTRACT_BYTES:
+    if len(data) > _BOOTSTRAP_CONTRACT_BYTES:
         raise RoleContractError("role contract is too large")
     try:
         text = data.decode("utf-8", errors="strict")
@@ -140,3 +200,5 @@ def load_role_contract(path=None):
 
 
 ROLE_CONTRACT = load_role_contract()
+ROLE_CONTRACT_PATH = ROLE_CONTRACT["protected_paths"]["contract"]
+MAX_CONTRACT_BYTES = ROLE_CONTRACT["limits"]["role_contract_bytes"]

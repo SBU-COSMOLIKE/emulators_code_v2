@@ -614,8 +614,8 @@ It never starts or completes a ticket cycle.
 
 ### Narrow protected-policy landing (not a ticket)
 
-The eleven permanent notes, `ai/notes/role-contract.yaml`, and the Architect
-and Red Team role files use one separate landing path. Only the Architect may
+The eleven permanent notes, `ai/notes/role-contract.yaml`, and all three role
+files use one separate landing path. Only the Architect may
 edit them, through protected-policy administration. The YAML is the machine
 source of truth for stable role, timing, and landing facts. This is not
 permission to edit source code, tests, ordinary tracked documentation, the
@@ -640,7 +640,7 @@ Use two exact full Git commits:
   policy update. P has exactly one parent, that parent is B, and the complete
   B-to-P change touches only the eleven permanent notes,
   `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, or
-  `.codex/REDTEAM_ROLE.md`.
+  `.claude/OPUS_ROLE.md`, or `.codex/REDTEAM_ROLE.md`.
 
 The route is available only while no ordinary ticket is active. That means no
 ticket reservation or running role, no outstanding candidate or landing

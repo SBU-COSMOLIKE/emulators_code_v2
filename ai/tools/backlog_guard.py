@@ -23,8 +23,12 @@ import stat
 import sys
 import uuid
 
+try:
+    from ai.tools.role_contract import ROLE_CONTRACT
+except ImportError:  # Direct execution from ai/tools/.
+    from role_contract import ROLE_CONTRACT
 
-BACKLOG_RELATIVE_PATH = Path("ai/notes/backlog.md")
+BACKLOG_RELATIVE_PATH = Path(ROLE_CONTRACT["backlog"]["path"])
 STATE_FILENAME = ".backlog-guard.json"
 LOCK_FILENAME = ".backlog-guard.lock"
 STATE_VERSION = 1

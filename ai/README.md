@@ -609,8 +609,9 @@ those eleven notes separately in the Architect coordination branch. The
 Implementer and Red Team do not inherit that authority.
 
 `ai/notes/role-contract.yaml` is a separate protected machine contract. It
-records stable role permissions, timing limits, and landing rules in a form
-the tools can check. It is not a twelfth permanent Markdown note. Only the
+records stable role permissions, timing limits, role worktrees, and the files
+an Implementer may not change. The tools check these values before work
+starts. It is not a twelfth permanent Markdown note. Only the
 Architect may edit it, through protected-policy administration; the
 Implementer and Red Team may read it but never change it.
 
@@ -622,8 +623,9 @@ two versions.
 
 ### How a protected rule reaches `main`
 
-The eleven permanent notes explain durable project rules. The Architect and
-Red Team role files define those two roles. `ai/notes/role-contract.yaml` is
+The eleven permanent notes explain durable project rules. The Architect,
+Implementer, and Red Team role files define the three roles.
+`ai/notes/role-contract.yaml` is
 the machine-readable source of truth for stable role, timing, and landing
 facts. Only the Architect may edit these files, through protected-policy
 administration. The Implementer and Red Team may report a problem, but they
@@ -1412,7 +1414,7 @@ using different mailboxes or placing an agent in the user's main folder.
 ### FAQ H1. How does the Architect update a protected rule? <a id="faq-h1-permanent-note-update"></a>
 
 Only the Architect may edit the eleven permanent notes,
-`ai/notes/role-contract.yaml`, or the Architect and Red Team role files, and
+`ai/notes/role-contract.yaml`, or the three role files, and
 only through protected-policy administration. The YAML is the machine-readable
 source of truth for stable role, timing, and landing facts. The Implementer and
 Red Team may point out a missing or incorrect rule, but they do not change or
@@ -1450,7 +1452,7 @@ The process uses two saved project versions:
 
 - B is the exact local `main` version before the Architect starts.
 - P is the Architect's clean saved update. P follows directly after B and
-  changes only the eleven notes, `ai/notes/role-contract.yaml`, or the two
+  changes only the eleven notes, `ai/notes/role-contract.yaml`, or the three
   protected role files.
 
 P has one parent: B. In Git, this means P was saved directly after B rather

@@ -25,6 +25,7 @@ import tempfile
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = AI_ROOT / "tools" / "backlog_bundle.py"
+SOURCE_ROLE_READER = AI_ROOT / "tools" / "role_contract.py"
 SOURCE_ROLE_CONTRACT = AI_ROOT / "notes" / "role-contract.yaml"
 ORIGIN = "git@github.com:ExampleOrg/ExampleRepo.git"
 ROLE_CONTRACT = "ai/notes/role-contract.yaml"
@@ -79,7 +80,12 @@ def load_tool(path, name):
     """Import the copied production tool under a unique scratch name."""
     spec = importlib.util.spec_from_file_location(name, str(path))
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, str(path.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+        sys.modules.pop("role_contract", None)
     return module
 
 
@@ -91,6 +97,8 @@ def scratch_repository(label):
         tool_path = repo / "ai" / "tools" / "backlog_bundle.py"
         tool_path.parent.mkdir(parents=True)
         shutil.copy2(str(SOURCE), str(tool_path))
+        shutil.copy2(str(SOURCE_ROLE_READER),
+                     str(tool_path.parent / "role_contract.py"))
 
         run_git(repo, "init", "-q", "-b", "main")
         run_git(repo, "config", "user.name", "Scratch Bundle Test")
@@ -113,6 +121,7 @@ def scratch_repository(label):
         write_bytes(repo, ROLE_CONTRACT, SOURCE_ROLE_CONTRACT.read_bytes())
 
         run_git(repo, "add", ".gitignore", "ai/tools/backlog_bundle.py",
+                "ai/tools/role_contract.py",
                 *PERMANENT_NOTES, ROLE_CONTRACT)
         run_git(repo, "commit", "-q", "-m", "scratch permanent base")
 

@@ -1031,7 +1031,7 @@ approve the ticket.
 #### Land an Architect-only protected-rule update
 
 Only the Architect may edit and commit the eleven permanent notes,
-`ai/notes/role-contract.yaml`, and the Architect and Red Team role files, and
+`ai/notes/role-contract.yaml`, and the three role files, and
 only through protected-policy administration. The YAML is the protected
 machine source of truth for stable role, timing, and landing facts. This work
 is separate from an Implementer ticket and consumes no cycle slot.

@@ -23,33 +23,25 @@ import tempfile
 import unicodedata
 from urllib.parse import urlsplit
 
+try:
+    from ai.tools.role_contract import ROLE_CONTRACT
+except ImportError:  # Direct execution from ai/tools/.
+    from role_contract import ROLE_CONTRACT
 
 FORMAT_NAME = "cocoa-backlog-handoff"
 FORMAT_VERSION = 1
 ARCHIVE_ROOT = "backlog-handoff-v1"
 MANIFEST_MEMBER = ARCHIVE_ROOT + "/manifest.json"
 PAYLOAD_PREFIX = ARCHIVE_ROOT + "/payload/"
-BACKLOG_PATH = "ai/notes/backlog.md"
+BACKLOG_PATH = ROLE_CONTRACT["backlog"]["path"]
 SUPPORT_ROOT = "ai/notes/backlog-support"
 DEFAULT_BUNDLE_ROOT = "ai/backlog-bundles"
 DEFAULT_IMPORT_ROOT = "ai/backlog-imports"
 
-# These are the only durable Markdown notes. The bundle never substitutes
-# worktree bytes for protected knowledge from the recorded base commit.
-PERMANENT_NOTES = frozenset({
-    "ai/notes/MEMORY.md",
-    "ai/notes/artifacts-inference-warmstart.md",
-    "ai/notes/conventions-and-workflow.md",
-    "ai/notes/data-generation-and-cuts.md",
-    "ai/notes/families-background-mps.md",
-    "ai/notes/families-scalar-cmb.md",
-    "ai/notes/models-and-designs.md",
-    "ai/notes/project-and-history.md",
-    "ai/notes/readme-go-no-go.md",
-    "ai/notes/training-stack.md",
-    "ai/notes/python-changes-go-no-go.md",
-})
-ROLE_CONTRACT_PATH = "ai/notes/role-contract.yaml"
+# The contract supplies the only durable Markdown-note census.
+PERMANENT_NOTES = frozenset(
+    ROLE_CONTRACT["protected_paths"]["permanent_notes"])
+ROLE_CONTRACT_PATH = ROLE_CONTRACT["protected_paths"]["contract"]
 PROTECTED_KNOWLEDGE = PERMANENT_NOTES | {ROLE_CONTRACT_PATH}
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
