@@ -1961,8 +1961,53 @@ def _bootstrap_primary_ahead_notes_authority(primary_path, base_commit,
     return True
 
 
-def bootstrap_sync_primary_from_landing_authority(primary_path):
-    """Advance stale clean primary only from an exact durable L/P request."""
+def clean_user_main_matches(target):
+    """
+    Return whether the user checkout proves one ordinary main update.
+
+    The repository's top folder belongs to the user. A clean checkout attached
+    to `main` may therefore authorize its own exact commit without an internal
+    ticket landing receipt.
+
+    Arguments:
+      target = the full commit currently stored in `refs/heads/main`.
+
+    Returns:
+      True only when invoked from the user checkout while it is clean,
+      attached to `main`, and checked out at `target`.
+    """
+    branch = _run_git(
+        repository_root=REPO_ROOT,
+        arguments=["symbolic-ref", "-q", "HEAD"], check=False)
+    try:
+        branch_name = branch.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
+        return False
+    return (os.path.realpath(WORKTREE) == os.path.realpath(REPO_ROOT)
+            and branch.returncode == 0
+            and branch_name == "refs/heads/main"
+            and worktree_head(worktree=REPO_ROOT) == target
+            and not _tracked_worktree_changes(worktree=REPO_ROOT))
+
+
+def bootstrap_sync_primary_from_main_authority(primary_path):
+    """
+    Advance a stale clean Architect worktree to an accepted main commit.
+
+    An internal landing receipt proves a watcher-created commit. When no
+    ticket is active, the clean user-owned main checkout may instead prove an
+    ordinary user commit or pull.
+
+    Arguments:
+      primary_path = the saved Architect worktree.
+
+    Returns:
+      True when the Architect worktree advances; otherwise False.
+
+    Raises:
+      PrimaryWorktreeError if the worktree is dirty, divergent, or lacks
+      either form of authority.
+    """
     current_main = _run_git(
         repository_root=REPO_ROOT,
         arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"])
@@ -2081,10 +2126,14 @@ def bootstrap_sync_primary_from_landing_authority(primary_path):
             "stale Architect primary has an invalid root landing request: "
             + "; ".join(root_problems))
     if not authorities:
-        raise PrimaryWorktreeError(
-            "main is ahead of the Architect primary without an exact root, "
-            "archived, or inflight Architect landing request for that "
-            "commit")
+        if (ticket_state["active"] or candidate_state["cycles"]
+                or not clean_user_main_matches(target=target)):
+            raise PrimaryWorktreeError(
+                "main is ahead of the Architect primary without an exact "
+                "landing request or one clean user-owned main update")
+        authority_label = "clean user main update"
+    else:
+        authority_label = "daemon-recorded landing"
     result = _run_git(
         repository_root=primary_path,
         arguments=["merge", "--ff-only", target], check=False)
@@ -2092,9 +2141,9 @@ def bootstrap_sync_primary_from_landing_authority(primary_path):
             or worktree_head(worktree=primary_path) != target
             or _clean_worktree_status(worktree=primary_path)):
         raise PrimaryWorktreeError(
-            "durable landing authority could not fast-forward the clean "
+            "accepted main authority could not fast-forward the clean "
             "Architect primary")
-    print("advanced saved Architect primary to daemon-recorded landing "
+    print("advanced saved Architect primary to " + authority_label + " "
           + target, flush=True)
     return True
 
@@ -2636,7 +2685,7 @@ def ensure_primary_execution(live_action, dry_run):
                     repository_root=REPO_ROOT, current_worktree=WORKTREE)
             state = _upgrade_primary_topology_state(
                 state=state, repository_root=REPO_ROOT)
-            bootstrap_sync_primary_from_landing_authority(
+            bootstrap_sync_primary_from_main_authority(
                 primary_path=state["path"])
             _require_primary_daemon_topology_support(
                 primary_path=state["path"])
@@ -2659,6 +2708,8 @@ def ensure_primary_execution(live_action, dry_run):
         primary_path=state["path"],
         implementer_path=implementer_state["path"],
         sol_path=sol_state["path"])
+    running_in_primary = (
+        os.path.realpath(WORKTREE) == os.path.realpath(state["path"]))
     if live_action:
         ACTIVE_TOPOLOGY = {
             "primary_state": paths["state"],
@@ -2670,7 +2721,26 @@ def ensure_primary_execution(live_action, dry_run):
             "sol_path": os.path.abspath(sol_state["path"]),
             "shared_notes": shared_notes,
         }
-    if os.path.realpath(WORKTREE) == os.path.realpath(state["path"]):
+    if live_action and running_in_primary:
+        main_result = _run_git(
+            repository_root=REPO_ROOT,
+            arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"])
+        try:
+            main_commit = main_result.stdout.decode(
+                "ascii", errors="strict").strip()
+            role_heads = {
+                worktree_head(worktree=path)
+                for path in (state["path"], implementer_state["path"],
+                             sol_state["path"])
+            }
+            if (worktree_head(worktree=state["path"]) == main_commit
+                    and role_heads != {main_commit}):
+                sync_all_clean_role_baselines(target=main_commit)
+        except (UnicodeDecodeError, OSError, TicketCycleStateError) as exc:
+            raise PrimaryWorktreeError(
+                "cannot align idle AI worktrees with current main: "
+                + str(exc)) from exc
+    if running_in_primary:
         return state
     daemon = os.path.join(state["path"], "ai", "tools",
                           "mailbox_daemon.py")

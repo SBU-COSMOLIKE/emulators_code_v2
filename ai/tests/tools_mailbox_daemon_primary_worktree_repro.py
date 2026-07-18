@@ -673,6 +673,125 @@ def arm_reuse_and_cross_checkout_converge(source=None):
                 check=False)
 
 
+def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
+    """Accept a clean user commit, but refuse an Implementer-only ref move.
+
+    The first scratch repository reproduces the ordinary user workflow. The
+    user commits through the checkout attached to ``main`` and then starts the
+    daemon again. All three idle AI worktrees must advance to that exact
+    commit without changing the user's checkout or the saved topology files.
+
+    The second repository moves only the ``main`` branch reference to a commit
+    authored in the Implementer worktree. The user's checkout still contains
+    the older files and is therefore visibly inconsistent with ``main``. The
+    daemon must refuse that state without treating it as user authorization or
+    modifying any checkout.
+
+    Arguments:
+      source = optional mailbox-daemon source used by mutation witnesses.
+
+    Returns:
+      ``True`` only when the clean user commit is adopted and the ref-only
+      Implementer commit is preserved but refused.
+    """
+    outcomes = []
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        saved_states = {
+            "primary": file_identity(state_path(root)),
+            "implementer": file_identity(implementer_state_path(root)),
+            "sol": file_identity(sol_state_path(root)),
+        }
+
+        marker = root / "user-main-update.txt"
+        marker.write_text(
+            "committed by the user checkout\n", encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "user advances main")
+        user_commit = git(root, "rev-parse", "HEAD").stdout.strip()
+        user_checkout = root_checkout_identity(root)
+
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        role_worktrees = (primary, implementer, sol)
+        accepted = (
+            rc == 0 and stderr == ""
+            and user_checkout[0] == "refs/heads/main"
+            and user_checkout[2] == ""
+            and root_checkout_identity(root) == user_checkout
+            and all(git(
+                worktree, "rev-parse", "HEAD").stdout.strip() == user_commit
+                    for worktree in role_worktrees)
+            and all(git(
+                worktree, "status", "--porcelain=v1",
+                "--untracked-files=all").stdout == ""
+                    for worktree in role_worktrees)
+            and all((worktree / marker.name).read_bytes()
+                    == b"committed by the user checkout\n"
+                    for worktree in role_worktrees)
+            and file_identity(state_path(root)) == saved_states["primary"]
+            and file_identity(implementer_state_path(root))
+            == saved_states["implementer"]
+            and file_identity(sol_state_path(root)) == saved_states["sol"])
+        outcomes.append(accepted)
+        print("clean user-main commit advances idle roles=" + str(accepted))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
+        saved_states = {
+            "primary": file_identity(state_path(root)),
+            "implementer": file_identity(implementer_state_path(root)),
+            "sol": file_identity(sol_state_path(root)),
+        }
+
+        rogue = implementer / "unaudited-implementer-change.txt"
+        rogue.write_text(
+            "not authorized by the user checkout\n",
+            encoding="utf-8", newline="")
+        git(implementer, "add", rogue.name)
+        git(implementer, "commit", "-m", "unaudited Implementer commit")
+        rogue_commit = git(
+            implementer, "rev-parse", "HEAD").stdout.strip()
+        rogue_identity = file_identity(rogue)
+        git(root, "update-ref", "refs/heads/main", rogue_commit, base)
+        user_checkout = root_checkout_identity(root)
+
+        rc, stdout, stderr = invoke(root, ["--once"])
+        refused = (
+            rc != 0 and stderr == ""
+            and "primary worktree error:" in stdout
+            and user_checkout[0] == "refs/heads/main"
+            and user_checkout[1] == rogue_commit
+            and user_checkout[2] != ""
+            and root_checkout_identity(root) == user_checkout
+            and git(primary, "rev-parse", "HEAD").stdout.strip() == base
+            and git(sol, "rev-parse", "HEAD").stdout.strip() == base
+            and git(implementer, "rev-parse", "HEAD").stdout.strip()
+            == rogue_commit
+            and file_identity(rogue) == rogue_identity
+            and git(root, "rev-parse", "refs/heads/main").stdout.strip()
+            == rogue_commit
+            and file_identity(state_path(root)) == saved_states["primary"]
+            and file_identity(implementer_state_path(root))
+            == saved_states["implementer"]
+            and file_identity(sol_state_path(root)) == saved_states["sol"])
+        outcomes.append(refused)
+        print("Implementer-only main ref move refused=" + str(refused))
+
+    return outcomes == [True, True]
+
+
 def arm_interrupted_implementer_bootstrap_is_exactly_resumable(source=None):
     """A registered exact Implementer tree is recovered when state is absent."""
     with scratch_repository(source=source) as root:
@@ -5442,6 +5561,8 @@ def main():
          arm_stale_primary_protocol_refuses),
         ("zero-write inspection", arm_help_dry_run_and_invalid_are_zero_write),
         ("cross-checkout reuse", arm_reuse_and_cross_checkout_converge),
+        ("clean user-main authority",
+         arm_clean_user_main_advances_only_from_clean_checkout),
         ("interrupted Implementer bootstrap",
          arm_interrupted_implementer_bootstrap_is_exactly_resumable),
         ("existing coordinator adoption",
