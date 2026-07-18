@@ -51,7 +51,7 @@ rules still apply when an AI role makes a change.
 5. [Choose which discoveries may become tickets](#choose-which-discoveries-may-become-tickets)
 6. [Close or reopen a ticket](#close-or-reopen-a-ticket)
 7. [Notes, tests, and gates](#notes-tests-and-gates)
-8. [Fix-only watches](#fix-only-watches)
+8. [Fix-only maintenance](#fix-only-watches)
 9. [Choose and run a command-line tool](tools/README.md)
 
 ### Common questions raised by developers
@@ -993,25 +993,43 @@ python3 ai/gates/run_board.py --gate ID
 Hardware-only rows may be recorded explicitly. They are never silently
 treated as passing.
 
-## Fix-only watches
+<a id="fix-only-watches"></a>
+## Fix-only maintenance
 
-Use fix-only mode when the current backlog is already large and the run should
-finish known work instead of searching for more:
+Fix-only maintenance uses two commands. First, save one general request:
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --watch --fix-only yes
+python3 ai/tools/mailbox_daemon.py --send architect --fix-only true
 ```
 
-Here, **closure** means finishing work that is already recorded. **Discovery**
-means asking the Architect to have Sol search for a new problem.
+This starts no AI role. It accepts no `--unit` or `--severity`.
 
-Existing closure work remains eligible, while new Sol discovery is refused.
-Even `--severity low` cannot override fix-only mode.
-The watcher does not turn backlog lines into mailbox requests. Give the item
-to the Architect, who writes the instructions for the roles.
-The [tool guide](tools/README.md#fix-only-watches) explains the accepted values,
-how another terminal learns the same rule, stored-message checks, and
-combinations with cycle and two-role options.
+Then start the watcher with those choices:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --fix-only true \
+  --severity high --cycle 5 --max 10000
+```
+
+The watcher owns the choices:
+
+- `--severity high` allows Critical and High bug fixes;
+- `--cycle 5` allows at most five tickets, with one ticket per cycle; and
+- `--max 10000` limits each ticket to 10,000 added plus deleted characters.
+
+`medium` also allows Medium bugs; `low` also allows Low bugs. New
+functionality, discovery, and parked Low edge cases remain excluded.
+
+After the Architect sends one Implementer plan, the daemon saves the same
+request again. It waits behind the current ticket, then asks for the next
+eligible bug. A reached cycle limit leaves it for a later fix-only watch.
+
+Use a positive `--cycle` limit when Open feature tickets remain. `--cycle 0`
+waits for every Open backlog item, including features that fix-only mode does
+not select.
+
+Model options and `--skip-redteam` also belong on the watcher. The
+[tool guide](tools/README.md#fix-only-watches) explains the exact behavior.
 
 ## Choose and run a command-line tool
 

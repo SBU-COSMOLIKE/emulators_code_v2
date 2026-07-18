@@ -1652,8 +1652,9 @@ def arm_source_mutations():
         (
             "fix-only discovery allowed",
             lambda text: replace_exact(
-                text, 'if fix_only and ticket_kind != "closure":',
-                'if False and ticket_kind != "closure":'),
+                text,
+                'if fix_only and ticket_kind not in {"closure", "policy"}:',
+                'if False and ticket_kind not in {"closure", "policy"}:'),
             probe_fix_only_discovery_refusal,
         ),
         (

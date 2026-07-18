@@ -3553,6 +3553,10 @@ MAILBOX_RETURN_HEADER = "MAILBOX-RETURN: "
 MAILBOX_RESULT_HEADER = "MAILBOX-RESULT: "
 MAILBOX_MODE_HEADER = "MAILBOX-MODE: "
 MAILBOX_DECISION_HEADER = "MAILBOX-DECISION: "
+ARCHITECT_FIX_ONLY_REQUEST = (
+    "MAILBOX-MAINTENANCE: existing-bug-fixes\n\n"
+    "Select the next Open BUG FIX allowed by watch severity. Exclude "
+    "features, discovery, and Low edge cases. Send one plan or no-ticket.\n")
 PUBLIC_ARCHITECT_NO_TICKET_RETURN = "architect-no-ticket"
 PUBLIC_ARCHITECT_NO_TICKET_DECISION = "NO TICKET"
 REDTEAM_REVIEW_RESULTS = ("NO CHANGE", "REOPEN")
@@ -5342,6 +5346,8 @@ def redteam_review_receipt_payload(review_cycle, review_commit, result,
 
 def architect_user_request_payload(text, discovery_severity=None):
     """Build the persisted public envelope addressed only to Architect."""
+    if text == ARCHITECT_FIX_ONLY_REQUEST:
+        return text
     if discovery_severity is None:
         discovery_severity = DEFAULT_DISCOVERY_SEVERITY
     discovery_scope = architect_request_scope(text=text)
@@ -5958,7 +5964,7 @@ def report_discovery_severity(fix_only=False, skip_redteam=False):
     """Print the default saved on new discovery tickets for this run."""
     line = "discovery severity default: " + DISCOVERY_SEVERITY
     if fix_only:
-        line = line + " (inactive while fix-only forbids discovery)"
+        line = "minimum bug-fix severity: " + DISCOVERY_SEVERITY
     elif skip_redteam:
         line = line + " (inactive while the Sol route is disabled)"
     else:
@@ -7240,8 +7246,9 @@ def dispatch_under_main_checkout_lock(
             return False
         effective_discovery_severity = saved_architect_severity
         effective_discovery_scope = saved_architect_scope
-    if (architect_admission is not None
-            and (agent != "fable" or saved_architect_severity is None)):
+    maintenance_request = message == ARCHITECT_FIX_ONLY_REQUEST
+    if (architect_admission is not None and (agent != "fable" or not (
+            saved_architect_severity is not None or maintenance_request))):
         parked = park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": saved Architect admission does not "
               "name this exact public request; "
@@ -8068,6 +8075,9 @@ def dispatch_under_main_checkout_lock(
                       + outcome_kind + "; exact output "
                       + os.path.basename(outcome_path)
                       + " remains queued for its recipient.")
+            if maintenance_request and fresh_opus:
+                send(agent="fable", text=ARCHITECT_FIX_ONLY_REQUEST,
+                     dry_run=False)
             if fresh_daemon and architect_admission is None:
                 for invalid_path in fresh_daemon:
                     park_failed_message(dispatch_path=invalid_path)
@@ -10104,7 +10114,7 @@ def implementer_reservation_preflight_problem(path, message):
 
 
 def reserve_architect_ticket_before_claim(path, skip_redteam=False):
-    """Durably charge one valid public request before Architect launch.
+    """Durably charge one ticket-selecting request before Architect launch.
 
     The exact request basename and SHA-256 stay charged until the same turn's
     first Implementer handoff carries their admission token.  This closes the
@@ -10112,7 +10122,7 @@ def reserve_architect_ticket_before_claim(path, skip_redteam=False):
     either one had reached the Implementer lane.
     """
     controller = _ACTIVE_WATCH_RENDEZVOUS
-    if controller is None or controller.ticket_cycle_limit_value() is None:
+    if controller is None:
         return None, None
     name = os.path.basename(path)
     match = PENDING_MESSAGE_RE.fullmatch(name)
@@ -10122,12 +10132,17 @@ def reserve_architect_ticket_before_claim(path, skip_redteam=False):
         message = read_cycle_message(path=path)
     except (OSError, ValueError, TicketCycleStateError):
         return None, None
-    if (not message.startswith(SOL_SEVERITY_HEADER)
+    maintenance = message == ARCHITECT_FIX_ONLY_REQUEST
+    finite = controller.ticket_cycle_limit_value() is not None
+    if not finite and not maintenance:
+        return None, None
+    if (not maintenance
+            and (not message.startswith(SOL_SEVERITY_HEADER)
             or architect_user_request_problem(message=message) is not None
             or placeholder_in(
                 message=architect_user_request_body(message=message))
             is not None
-            or "\x00" in message):
+            or "\x00" in message)):
         return None, None
     digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
     topology = canonical_ticket_cycle_topology(
@@ -10169,7 +10184,7 @@ def reserve_architect_ticket_before_claim(path, skip_redteam=False):
                     "pending; no newer ticket may be admitted", None)
         used = finite_cycle_capacity_used(
             state=state, skip_redteam=skip_redteam)
-        if used >= controller.ticket_cycle_limit_value():
+        if (finite and used >= controller.ticket_cycle_limit_value()):
             return ("the finite watch has already reserved all "
                     + str(controller.ticket_cycle_limit_value())
                     + " ticket cycle(s)", None)
@@ -10250,6 +10265,21 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
     """
     all_consumed = True
     for path in paths:
+        try:
+            maintenance = (read_cycle_message(path=path)
+                           == ARCHITECT_FIX_ONLY_REQUEST)
+        except (OSError, ValueError, TicketCycleStateError):
+            maintenance = False
+        if (maintenance
+                and (not fix_only
+                     or active_ticket_cycle_count(skip_redteam=skip_redteam)
+                     or any(candidate.endswith("-to-opus.md")
+                            for candidate in pending_messages()))):
+            if not fix_only:
+                print("deferred " + os.path.basename(path)
+                      + ": needs a --fix-only watcher; left queued.")
+            all_consumed = False
+            continue
         notes_admin = False
         try:
             notes_admin = regular_file_has_prefix(
@@ -12357,10 +12387,9 @@ def main():
                              "option; with --ping, check Claude but not Sol")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
-                        help="with --watch, tell roles to finish work already "
-                             "recorded in ai/notes/backlog.md and refuse new "
-                             "Red Team discovery messages; this option does "
-                             "not create mailbox requests from backlog text; "
+                        help="with --send architect, save a backlog-repair "
+                             "request; with --watch, run existing bug fixes "
+                             "at the watcher's severity; "
                              "the value accepts 1, true, or yes in any "
                              "capitalization")
     parser.add_argument("--send", metavar="{architect}",
@@ -12433,13 +12462,15 @@ def main():
                              "it reaches this many tokens (default: "
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
+    maintenance_send = (
+        args.send == "architect" and args.fix_only is True)
 
     if args.fix_only is not None:
         conflicting_action = (
-            not args.watch or args.once or args.send is not None
-            or args.ping or args.dry_run)
+            not (args.watch or maintenance_send) or args.once or args.ping
+            or (args.watch and args.dry_run))
         if conflicting_action:
-            print("--fix-only is valid only with --watch by itself")
+            print("--fix-only needs --watch or --send architect")
             return 1
     if args.cycle is not None and not args.watch:
         print("--cycle is valid only with --watch")
@@ -12460,13 +12491,13 @@ def main():
             return 1
     if args.severity is not None:
         severity_run = args.watch or args.once
-        severity_send = args.send == "architect"
+        severity_send = args.send == "architect" and not maintenance_send
         if not (severity_run or severity_send):
             print("--severity is valid only with --watch, --once, or "
                   "--send architect")
             return 1
-    if args.send is not None and not args.unit:
-        print("--send architect needs --unit with the user's request text")
+    if args.send is not None and bool(args.unit) == maintenance_send:
+        print("ordinary --send needs --unit; fix-only --send forbids it")
         return 1
     primary_actions = sum((
         bool(args.once),
@@ -12605,7 +12636,8 @@ def main():
 
     if args.send:
         request = architect_user_request_payload(
-            text=args.unit,
+            text=(ARCHITECT_FIX_ONLY_REQUEST if maintenance_send
+                  else args.unit),
             discovery_severity=selected_discovery_severity)
         queued = send(
             agent="fable",

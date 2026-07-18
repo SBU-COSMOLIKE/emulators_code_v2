@@ -1,12 +1,16 @@
 """Focused tests for the Architect-only public mailbox entry point."""
 
+import contextlib
+import io
 import os
 import pathlib
+import sys
 import unittest
 from unittest import mock
 
 from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_dispatch
 from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_send
+from ai.tests.tools_mailbox_daemon_fix_only_repro import BASE_COMMIT
 from ai.tests.tools_mailbox_daemon_fix_only_repro import DAEMON_PATH
 from ai.tests.tools_mailbox_daemon_fix_only_repro import read_text_exact
 from ai.tests.tools_mailbox_daemon_fix_only_repro import run_main
@@ -16,6 +20,31 @@ from ai.tests.tools_mailbox_daemon_fix_only_repro import tree_snapshot
 
 SEVERITY_HEADER = "MAILBOX-SEVERITY: "
 SCOPE_HEADER = "MAILBOX-SCOPE: "
+
+
+def install_maintenance_architect_child(daemon, mailbox, plan_count):
+    """Use a real tiny child process that publishes Implementer plans."""
+    daemon.capture_persistent_role_state = (
+        lambda agent: {"base": BASE_COMMIT, "agent": agent})
+    daemon.recheck_persistent_role_state = lambda proof: proof
+    daemon.worktree_head = lambda worktree: BASE_COMMIT
+    daemon._validate_current_protected_primary_state = (
+        lambda primary_worktree: None)
+    cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+    child = (
+        "import os, pathlib, sys\n"
+        "mailbox = pathlib.Path(sys.argv[1])\n"
+        "count = int(sys.argv[2])\n"
+        "token = os.environ['MAILBOX_ARCHITECT_ADMISSION']\n"
+        "for index in range(count):\n"
+        "    body = ('MAILBOX-FLOW: ticket\\nMAILBOX-CYCLE: "
+        + cycle
+        + "\\nMAILBOX-MODE: normal\\n\\nMAILBOX-ADMISSION: ' "
+        "+ token + '\\nImplement the selected bug.\\n')\n"
+        "    path = mailbox / ('%04d-to-opus.md' % (index + 2))\n"
+        "    path.write_text(body, encoding='utf-8', newline='')\n")
+    daemon.AGENT_COMMANDS["fable"] = [
+        sys.executable, "-c", child, str(mailbox), str(plan_count)]
 
 
 class MailboxArchitectEntrypointTests(unittest.TestCase):
@@ -45,6 +74,155 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 + SCOPE_HEADER + "bounded\n\n" + request + "\n")
             self.assertFalse(list(mailbox.glob("*-to-opus.md")))
             self.assertFalse(list(mailbox.glob("*-to-sol.md")))
+
+    def test_fix_only_send_saves_one_policy_free_maintenance_request(self):
+        with scratch_daemon(create_mailbox=False) as (daemon, _, _, _):
+            rc, output, error = run_main(
+                daemon, ["--send", "architect", "--fix-only", "true"])
+            pending = [pathlib.Path(path)
+                       for path in daemon.pending_messages()]
+
+            self.assertEqual(rc, 0, output + error)
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(read_text_exact(pending[0]),
+                             daemon.ARCHITECT_FIX_ONLY_REQUEST)
+            self.assertNotIn(SEVERITY_HEADER, read_text_exact(pending[0]))
+
+    def test_fix_only_send_rejects_policy_that_belongs_on_watcher(self):
+        for extra in (["--severity", "high"], ["--unit", "one ticket"]):
+            with self.subTest(extra=extra), \
+                    scratch_daemon(create_mailbox=False) as (
+                        daemon, root, mailbox, _):
+                before = tree_snapshot(root)
+                rc, output, error = run_main(
+                    daemon,
+                    ["--send", "architect", "--fix-only", "true"] + extra)
+                self.assertNotEqual(rc, 0, output + error)
+                self.assertEqual(tree_snapshot(root), before)
+                self.assertFalse(mailbox.exists())
+
+    def test_fix_only_request_waits_behind_its_implementer_ticket(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            (mailbox / "0002-to-opus.md").write_text(
+                "ticket already assigned\n", encoding="utf-8", newline="")
+
+            outcome = daemon.drain_lane(
+                paths=[str(request)], dry_run=False, fix_only=True)
+
+            self.assertFalse(outcome)
+            self.assertEqual(read_text_exact(request),
+                             daemon.ARCHITECT_FIX_ONLY_REQUEST)
+            self.assertFalse((mailbox / "inflight" / request.name).exists())
+
+    def test_fix_only_request_reserves_the_finite_ticket_slot(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            maintenance = mailbox / "0001-to-fable.md"
+            maintenance.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            ordinary = mailbox / "0002-to-fable.md"
+            ordinary.write_text(
+                daemon.architect_user_request_payload("another ticket"),
+                encoding="utf-8", newline="")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                deferred, token = daemon.reserve_architect_ticket_before_claim(
+                    path=str(maintenance), skip_redteam=False)
+                later_deferred, later_token = (
+                    daemon.reserve_architect_ticket_before_claim(
+                        path=str(ordinary), skip_redteam=False))
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertIsNone(deferred)
+            self.assertIsNotNone(token)
+            self.assertIsNotNone(later_deferred)
+            self.assertIsNone(later_token)
+
+    def test_fix_only_plan_creates_one_waiting_continuation(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            install_maintenance_architect_child(
+                daemon=daemon, mailbox=mailbox, plan_count=1)
+            controller = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False, fix_only=True)
+                pending = [pathlib.Path(path)
+                           for path in daemon.pending_messages()]
+                continuation = next(
+                    path for path in pending
+                    if path.name.endswith("-to-fable.md"))
+
+                audit = mailbox / "0004-to-fable.md"
+                audit.write_text(
+                    "MAILBOX-FLOW: ticket\n"
+                    "MAILBOX-CYCLE: scratch-high-bug-fix-1@"
+                    + BASE_COMMIT
+                    + "\nMAILBOX-MODE: normal\n\nAudit this candidate.\n",
+                    encoding="utf-8", newline="")
+                stream = io.StringIO()
+                with contextlib.redirect_stdout(stream):
+                    daemon.drain_lane(
+                        paths=[str(continuation), str(audit)],
+                        dry_run=True, fix_only=True)
+
+                state = daemon.read_ticket_cycle_state()
+                state["active"] = {}
+                daemon.write_ticket_cycle_state(state=state)
+                controller.ticket_cycle_returned()
+                daemon.drain_lane(
+                    paths=[str(continuation)],
+                    dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertTrue(outcome)
+            self.assertEqual(
+                sum(path.name.endswith("-to-opus.md") for path in pending),
+                1)
+            self.assertEqual(
+                sum(path.name.endswith("-to-fable.md") for path in pending),
+                1)
+            self.assertIn(
+                "[dry-run] would dispatch 0004-to-fable.md ->",
+                stream.getvalue())
+            self.assertTrue(continuation.is_file())
+
+    def test_fix_only_request_refuses_two_implementer_plans(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            install_maintenance_architect_child(
+                daemon=daemon, mailbox=mailbox, plan_count=2)
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous()
+            try:
+                outcome = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertFalse(outcome)
+            self.assertFalse(list(mailbox.glob("*-to-fable.md")))
+            self.assertFalse(list(mailbox.glob("*-to-opus.md")))
+            self.assertEqual(
+                len(list((mailbox / "failed").glob("*-to-opus.md"))), 2)
 
     def test_bare_ping_checks_providers_without_queuing_role_work(self):
         with mock.patch.dict(os.environ, {}, clear=True), \
@@ -237,17 +415,9 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             ),
             (
                 "architect send mapped to Implementer",
-                '    if args.send:\n'
-                '        request = architect_user_request_payload(\n'
-                '            text=args.unit,\n'
-                '            discovery_severity=selected_discovery_severity)\n'
                 '        queued = send(\n'
                 '            agent="fable",\n'
                 '            text=request,\n',
-                '    if args.send:\n'
-                '        request = architect_user_request_payload(\n'
-                '            text=args.unit,\n'
-                '            discovery_severity=selected_discovery_severity)\n'
                 '        queued = send(\n'
                 '            agent="opus",\n'
                 '            text=request,\n',

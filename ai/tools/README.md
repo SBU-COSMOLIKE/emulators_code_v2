@@ -18,7 +18,7 @@ start them, what they change, and what result to expect.
 4. [Remove every AI work folder](#remove-every-ai-work-folder)
 5. [Send or check a request](#send-or-check-a-request)
 6. [Choose the minimum discovery severity](#choose-the-minimum-discovery-severity)
-7. [Fix-only watches](#fix-only-watches)
+7. [Fix-only maintenance](#fix-only-watches)
 8. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
 9. [Runtime controls](#runtime-controls)
 10. [Exact command reference](#exact-command-reference)
@@ -532,47 +532,48 @@ Fix-only mode and `--skip-redteam` still take priority. A new discovery is
 also refused while ten or more Critical, High, and Medium tickets are Open;
 finish accepted non-Low work first.
 
-## Fix-only watches
+<a id="fix-only-watches"></a>
+## Fix-only maintenance
 
-Use fix-only mode when the backlog already contains many items and the run
-should finish known work instead of finding more:
-
-```bash
-python3 ai/tools/mailbox_daemon.py --watch --fix-only yes
-```
-
-The value also accepts `1` or `true`, in any capitalization.
-
-Here, **closure** means finishing work that is already recorded. **Discovery**
-means asking the Architect to have Sol search for a new problem.
-
-Severity does not weaken this rule. Even `--severity low` cannot create a
-discovery while fix-only mode is active.
-
-The watcher does not turn a line in `ai/notes/backlog.md` into a mailbox
-request. Give the recorded item to the Architect; the Architect writes the
-instructions and starts the internal handoffs.
-
-When the Sol role is enabled, fix-only mode behaves as follows:
-
-- existing closure work remains eligible;
-- new Sol discovery is refused;
-- the watcher saves this rule for that mailbox, so a send from another
-  terminal follows it too;
-- the watcher checks a waiting Sol file's saved `closure` or `discovery` label
-  again before launch;
-- an invalid waiting Sol message moves to `failed/` instead of being guessed
-  from prose.
-
-Fix-only can be combined with a two-role setup or a cycle limit:
+Fix-only maintenance uses two commands. First, save one general request:
 
 ```bash
-python3 ai/tools/mailbox_daemon.py --watch --fix-only yes --cycle 2
-python3 ai/tools/mailbox_daemon.py --watch --fix-only yes --skip-redteam --cycle 0
+python3 ai/tools/mailbox_daemon.py --send architect --fix-only true
 ```
 
-In the second command, the two-role setting disables Sol. Every waiting Sol
-file remains untouched until a later watch enables Sol again.
+This command starts no AI role and accepts neither `--unit` nor `--severity`.
+
+Start that watcher separately:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --fix-only true \
+  --severity high --cycle 5 --max 10000
+```
+
+The watcher owns the run settings:
+
+- `--severity high` allows Critical and High bug fixes;
+- `--severity medium` also allows Medium bug fixes;
+- `--severity low` also allows Low bug fixes;
+- `--cycle 5` permits at most five completed tickets; and
+- `--max 10000` limits each ticket's added plus deleted characters.
+
+Only `BUG FIX` entries qualify. New functionality, new Red Team discovery,
+and parked `LOW — EDGE CASE` work do not. The Architect must select the first
+eligible Open bug in backlog order.
+
+After the Architect sends an Implementer plan, the daemon saves the same
+general request again. It waits while that ticket is being implemented,
+audited, or reviewed, then asks the Architect for the next eligible bug.
+
+A positive `--cycle` value is a cap. When the cap is reached, the next general
+request remains queued for a later fix-only watch. Use a positive value when
+Open feature tickets remain: `--cycle 0` waits for every Open backlog item,
+including features that fix-only mode does not select.
+
+Both a watch without `--fix-only true` and `--once` leave the request
+untouched.
+Add `--skip-redteam` to use only Architect and Implementer.
 
 ## Limit the size of one ticket
 
@@ -792,11 +793,10 @@ options:
                         no Red Team job; Red Team messages remain waiting for
                         a later watch without this option; with --ping, check
                         Claude but not Sol
-  --fix-only value      with --watch, tell roles to finish work already
-                        recorded in ai/notes/backlog.md and refuse new Red
-                        Team discovery messages; this option does not create
-                        mailbox requests from backlog text; the value accepts
-                        1, true, or yes in any capitalization
+  --fix-only value      with --send architect, save a backlog-repair request;
+                        with --watch, run existing bug fixes at the watcher's
+                        severity; the value accepts 1, true, or yes in any
+                        capitalization
   --send {architect}    save the user's ticket request for the Architect and
                         exit
   --ping                make one small live request to Claude and Sol, require
@@ -867,12 +867,13 @@ options:
 - A two-role watch preserves waiting internal Sol files and refuses new
   role-to-role Sol files until that watcher stops and releases its saved
   two-role rule.
-- `--unit` is required with `--send`.
+- `--unit` is required for an ordinary Architect send. The exact
+  `--send architect --fix-only true` shorthand forbids `--unit`.
 - The only public send target is `architect`. The connection check has no role
   target: write `--ping`, not `--ping architect` or `--ping sol`.
-- `--severity` accepts `high`, `medium`, or `low`. It is valid with `--watch`,
-  `--once`, or `--send architect`. An Architect send saves the choice in its
-  request file. Omitting it saves `medium`.
+- `--severity` accepts `high`, `medium`, or `low`. An ordinary Architect send
+  may save it for a discovery request. The fix-only shorthand forbids it;
+  the later watcher supplies the maintenance threshold.
 - `--dispatch-timeout`, `--claude-context`, and `--sol-context` accept integers
   from 1 through 1,000,000.
 - For actions that exit on their own, `--dry-run` prints the proposed action
@@ -1372,7 +1373,7 @@ individual AI messages.
 | `--watch --cycle 1` | Finish one ticket; with Red Team enabled, wait for that ticket's review before exiting |
 | `--watch --cycle 2` | Exit safely after two completed cycles, even if more work is waiting |
 | `--watch --cycle 3` | Permit three tickets to overlap, but never start a fourth |
-| `--watch --cycle 0` | Finish requests already saved for roles included in this run, including each required Red Team return, and then exit |
+| `--watch --cycle 0` | Finish saved requests and their required reviews; exit after no backlog item remains Open |
 | `--watch --skip-redteam --cycle 2` | Finish two Architect-and-Implementer tickets; leave Red Team messages for a later run |
 
 The 20-second `safe to Ctrl-C` countdown is separate. It gives a person a
@@ -1411,6 +1412,11 @@ handle that request must also update its backlog entry when the work is
 genuinely finished. Zero means “finish every saved request for a role included
 in this run.” It does not skip Red Team unless the user selected a run without
 Red Team.
+
+Fix-only maintenance has one explicit exception: after the user sends its
+general maintenance request, the daemon repeats that same request after each
+Implementer handoff. It does not invent the ticket text; the Architect still
+chooses the next eligible bug and writes its plan.
 
 Just before a zero-cycle exit, the watcher briefly prevents `--send` from
 saving another message. It checks that the backlog is an ordinary readable
