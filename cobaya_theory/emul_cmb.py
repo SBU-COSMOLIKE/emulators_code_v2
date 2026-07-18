@@ -248,11 +248,55 @@ class emul_cmb(Theory):
           multipole range} for every loaded spectrum.
         """
         cl = {"ell": np.arange(self._lmax_global + 1)}
+        source_dtypes = {}
         for predictor in self.predictors:
             spec = predictor.spectrum
+            prediction = np.asarray(predictor.predict(params))
             row = np.zeros(self._lmax_global + 1, dtype=np.float64)
-            row[self._ell_arrays[spec]] = predictor.predict(params)
+            row[self._ell_arrays[spec]] = prediction
             cl[spec] = row
+            source_dtypes[spec] = prediction.dtype
+
+        # Check the complete local result before making it visible to Cobaya.
+        for spec, ells in self._ell_arrays.items():
+            values = cl[spec][ells]
+            bad = np.flatnonzero(~np.isfinite(values))
+            if bad.size:
+                ell = int(ells[bad[0]])
+                raise ValueError(
+                    "emul_cmb: predicted " + spec + " is not finite at "
+                    "ell=" + str(ell))
+            if spec in ("tt", "ee", "pp"):
+                bad = np.flatnonzero(values < 0)
+                if bad.size:
+                    ell = int(ells[bad[0]])
+                    raise ValueError(
+                        "emul_cmb: predicted " + spec
+                        + " is negative at ell=" + str(ell)
+                        + "; TT, EE, and PP must be nonnegative")
+
+        if all(spec in cl for spec in ("tt", "te", "ee")):
+            common = np.intersect1d(
+                self._ell_arrays["tt"], self._ell_arrays["te"],
+                assume_unique=True)
+            common = np.intersect1d(
+                common, self._ell_arrays["ee"], assume_unique=True)
+            dtype = np.result_type(
+                source_dtypes["tt"], source_dtypes["te"],
+                source_dtypes["ee"], np.float32)
+            tt = cl["tt"][common].astype(dtype, copy=False)
+            te = cl["te"][common].astype(dtype, copy=False)
+            ee = cl["ee"][common].astype(dtype, copy=False)
+            covariance_bound = np.sqrt(tt) * np.sqrt(ee)
+            limit = np.nextafter(
+                covariance_bound, np.full_like(covariance_bound, np.inf))
+            bad = np.flatnonzero(np.abs(te) > limit)
+            if bad.size:
+                ell = int(common[bad[0]])
+                raise ValueError(
+                    "emul_cmb: predicted TT, TE, and EE cannot form a "
+                    "physical covariance at ell=" + str(ell)
+                    + "; abs(TE) exceeds sqrt(TT*EE)")
         state["Cl"] = cl
         return True
 

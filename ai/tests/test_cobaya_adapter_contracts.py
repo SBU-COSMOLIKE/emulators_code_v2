@@ -332,6 +332,103 @@ class ScalarAndCmbContractTests(unittest.TestCase):
       "emul_scalars.py", "adapter_contract_scalar_publication")
     cls.cmb = _load_adapter("emul_cmb.py", "adapter_contract_cmb_requests")
 
+  def _cmb_adapter(self, spectra, ell_arrays=None):
+    """Build the public CMB calculation around two-point spectrum fixtures."""
+    predictors = []
+    stored_ells = {}
+    for spectrum, values in spectra.items():
+      output = np.asarray(values)
+      predictors.append(types.SimpleNamespace(
+        spectrum=spectrum,
+        predict=lambda params, value=output: np.array(value, copy=True)))
+      stored_ells[spectrum] = np.array(
+        [2, 3] if ell_arrays is None else ell_arrays[spectrum])
+    adapter = self.cmb.emul_cmb()
+    adapter.predictors = predictors
+    adapter._ell_arrays = stored_ells
+    adapter._lmax_global = max(int(ells[-1]) for ells in stored_ells.values())
+    return adapter
+
+  def _assert_cmb_refusal_keeps_state(self, spectra):
+    """Require one invalid spectrum set to leave the caller's state alone."""
+    adapter = self._cmb_adapter(spectra)
+    state = {"kept": "unchanged"}
+    with self.assertRaises(ValueError):
+      adapter.calculate(state, want_derived=True, p0=0.1)
+    self.assertEqual(state, {"kept": "unchanged"})
+
+  def test_cmb_signed_te_on_the_psd_boundary_is_published(self):
+    """Both TE signs may reach the covariance boundary after float32 rounding."""
+    tt = np.float32(0.1)
+    ee = np.float32(0.2)
+    rounded_boundary = np.float32(np.sqrt(tt * ee))
+    direct_boundary = np.float32(np.sqrt(tt) * np.sqrt(ee))
+    self.assertGreater(rounded_boundary, direct_boundary)
+    self.assertEqual(
+      rounded_boundary, np.nextafter(direct_boundary, np.float32(np.inf)))
+    spectra = {
+      "tt": np.array([tt, 4.0], dtype=np.float32),
+      "ee": np.array([ee, 9.0], dtype=np.float32),
+      "te": np.array([-rounded_boundary, 6.0], dtype=np.float32),
+      "pp": np.array([0.0, 1.0], dtype=np.float32),
+    }
+    state = {}
+    self.assertTrue(self._cmb_adapter(spectra).calculate(state, p0=0.1))
+    np.testing.assert_array_equal(state["Cl"]["te"][2:], spectra["te"])
+
+  def test_cmb_nonfinite_spectrum_leaves_state_unchanged(self):
+    """NaN and infinity in any served spectrum refuse before publication."""
+    good = {"tt": [1.0, 1.0], "ee": [1.0, 1.0],
+            "te": [0.0, 0.0], "pp": [0.0, 1.0]}
+    for spectrum in ("tt", "ee", "te", "pp"):
+      for value in (np.nan, np.inf, -np.inf):
+        with self.subTest(spectrum=spectrum, value=value):
+          spectra = {name: list(values) for name, values in good.items()}
+          spectra[spectrum][1] = value
+          self._assert_cmb_refusal_keeps_state(spectra)
+
+  def test_cmb_negative_tt_ee_or_pp_leaves_state_unchanged(self):
+    """Negative TT, EE, or PP cannot become a public CMB prediction."""
+    for spectrum in ("tt", "ee", "pp"):
+      with self.subTest(spectrum=spectrum):
+        spectra = {
+          "tt": [1.0, 1.0], "ee": [1.0, 1.0],
+          "te": [0.0, 0.0], "pp": [0.0, 1.0],
+        }
+        spectra[spectrum][1] = -1.0
+        self._assert_cmb_refusal_keeps_state(spectra)
+
+  def test_cmb_te_beyond_the_psd_bound_leaves_state_unchanged(self):
+    """A cross-spectrum larger than sqrt(TT*EE) refuses atomically."""
+    cases = (
+      {"tt": [1.0, 1.0], "ee": [1.0, 1.0], "te": [0.0, 2.0]},
+      {"tt": [1e-300, 1e-300], "ee": [1e-300, 1e-300],
+       "te": [0.0, 1e-200]},
+      {"tt": [1e308, 1e308], "ee": [1e308, 1e308],
+       "te": [0.0, 1.7e308]},
+    )
+    for spectra in cases:
+      with self.subTest(spectra=spectra):
+        self._assert_cmb_refusal_keeps_state(spectra)
+
+  def test_cmb_psd_check_uses_only_shared_stored_multipoles(self):
+    """A missing auto-spectrum does not turn padding into physical data."""
+    spectra = {
+      "tt": [1.0, 1.0],
+      "te": [2.0, 1.0, 2.0],
+      "ee": [1.0, 1.0],
+    }
+    ell_arrays = {
+      "tt": [2, 3],
+      "te": [2, 3, 4],
+      "ee": [3, 4],
+    }
+    state = {}
+    adapter = self._cmb_adapter(spectra, ell_arrays=ell_arrays)
+    self.assertTrue(adapter.calculate(state, p0=0.1))
+    self.assertEqual(
+      state["Cl"]["te"].tolist(), [0.0, 0.0, 2.0, 1.0, 2.0])
+
   def test_scalar_calculate_uses_its_validated_publication_names(self):
     """Only the adapter's validated names enter Cobaya's derived mapping."""
     first = types.SimpleNamespace(

@@ -650,6 +650,11 @@ The adapter returns raw $C_\ell$ values. It does not apply the common
 $\ell(\ell+1)/(2\pi)$ plotting factor or convert units. TT, TE, and EE
 files loaded together must record the same units; PP is dimensionless.
 
+Before storing a result, the adapter refuses a nonfinite spectrum or a
+negative TT, EE, or PP value. Where TT, TE, and EE share a multipole, they must
+satisfy $(C_\ell^{TE})^2 \le C_\ell^{TT}C_\ell^{EE}$. TE may have either
+sign. A refusal leaves Cobaya's sampled-point state unchanged.
+
 A likelihood cannot request a missing spectrum or a multipole above the
 stored maximum. Its requested maximum must be an integer in the stored range;
 a Boolean, decimal number, or quoted number is refused instead of being
