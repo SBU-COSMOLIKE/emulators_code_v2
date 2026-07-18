@@ -638,11 +638,11 @@ present-day value and calculated `wa`, then rebuilds `w`, `w0`, `wa`, and
 include `w0pwa` but whose law says `constant-w` is internally inconsistent and
 is refused with instructions to regenerate the data and retrain.
 
-Fixed-fact comparison uses the same physical names. A fixed live `w0` may
-match saved `w`; a model that samples `w` or calculated `wa` cannot borrow
-`w = -1, wa = 0` from a theory default. If Cobaya's sampled-parameter or
-calculated-dependency information cannot be read, only values returned by
-`constant_params()` may be treated as fixed.
+Runtime fixed-fact comparison is intentionally narrower. It compares only a
+concrete artifact value and a value from Cobaya's `constant_params()` when
+both use the exact same name. It does not guess that `w0` means saved `w` or
+interpret a calculated coordinate. The user must verify a custom renamed or
+derived parameterization.
 
 The shipped `EXAMPLE_EMUL2_EVALUATE.yaml` uses `w = -0.9` and
 `w0pwa = -0.7`. Cobaya calculates `wa = 0.2`; generation and serving must
@@ -659,8 +659,9 @@ give Syren the same pair `(-0.9, 0.2)`.
   law once and every generated Syren starting surface reuses it.
 - `test_mps_dark_energy_adapter.py` proves that the adapter requests physical
   coordinates and rebuilds saved names before either prediction begins.
-- `test_dark_energy_vertical_identity.py` proves that fixed aliases agree and
-  sampled coordinates cannot borrow constant theory defaults.
+- `test_dark_energy_vertical_identity.py` proves direct same-name agreement
+  and disagreement, and proves that missing, renamed, and unavailable values
+  remain explicitly unchecked.
 - `test_mps_dark_energy_real_cobaya.py` samples `w = -0.9` and
   `w0pwa = -0.7` through real Cobaya and requires both generator and adapter
   to give Syren `(-0.9, 0.2)`.

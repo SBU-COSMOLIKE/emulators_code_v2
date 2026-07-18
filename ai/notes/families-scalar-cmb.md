@@ -909,6 +909,7 @@ available to the separate covariance producer.
   answer.
 - Pure schema witnesses do not replace a real-CAMB reference run.
 - Exact multipole width does not prove multipole identity; the stored axis does.
-- Persisted fixed facts do not replace runtime comparison with the resolved
-  global model.
+- Persisted fixed facts receive a basic runtime comparison only when the
+  artifact and model expose a concrete constant under the same name. Custom
+  renamed or derived parameterizations remain the user's responsibility.
 - A process exit or prior log never substitutes for current value assertions.

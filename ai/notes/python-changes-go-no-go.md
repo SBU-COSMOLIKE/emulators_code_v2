@@ -104,6 +104,28 @@ user request naming that exact ticket authorizes the Architect to activate it
 as Low work. Do not use this rule to park a probable failure, wrong primary
 scientific result, data loss, or broken core operation.
 
+### Keep user responsibility visible
+
+Add a protective check when it is simple, cheap, and intuitive at the boundary
+where the value enters. Do not build a new framework to anticipate every way a
+user could express an equivalent scientific choice. Arbitrary renamed,
+derived, or transformed parameters are the user's responsibility unless the
+library already has a small, explicit rule for that exact representation.
+
+A best-effort check states what it actually compares. Missing names never prove
+that two cosmologies disagree, and matching names never prove that arbitrary
+parameterizations are scientifically equivalent. Prefer a direct comparison
+of values both sides name over symbolic interpretation, duplicated model
+resolution, or another saved identity layer. When the library cannot establish
+the fact simply, document the limitation and leave the scientific choice with
+the user. Do not claim that an incomplete comparison is a proof.
+
+The Architect applies this rule throughout the scientific reading path named
+above. A plan that adds a helper family, registry, digest, schema, or validation
+subsystem for compatibility the user can verify from configuration receives
+NO-GO unless a direct check cannot protect a demonstrated primary result and
+the user explicitly accepts the additional design.
+
 ### Refuse unsupported dependency versions
 
 Do not add compatibility branches for a dependency version outside the

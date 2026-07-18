@@ -1361,15 +1361,15 @@ and bounds while differing in chain, payload, axes, failure state, or
 continuation state, so no single member can identify the complete dataset.
 
 <a id="fixed-facts-schema-vertical-law-enforced"></a>
-`fixed-facts-schema.vertical-law-enforced` verifies compatibility between one
-artifact and the resolved Cobaya model used for inference. Every coordinate
-held fixed during training must equal the corresponding resolved model value.
-A missing model value is a refusal because compatibility cannot be established.
-The comparison reads the artifact's fixed coordinates, not its sampled input
-names. The check refuses an artifact generated at `w = -1.0` when the resolved
-model uses `w = -0.9`, and the error names both values and the corrective
-action. A synthetic record containing `n/a` is also refused before likelihood
-evaluation.
+`fixed-facts-schema.vertical-law-enforced` provides a basic fixed-value check.
+When the artifact and Cobaya's constant-parameter mapping expose a concrete
+value under the same name, those values must agree. The error names both
+values and the corrective action.
+
+Missing, renamed, derived, and `n/a` values are left unchecked. Cobaya permits
+arbitrary reparameterizations, so this name comparison cannot prove that two
+cosmologies are equivalent. Compatibility of a custom parameterization remains
+the user's responsibility.
 
 <a id="fixed-facts-schema-horizontal-law-enforced"></a>
 `fixed-facts-schema.horizontal-law-enforced` verifies that artifacts combined
@@ -1395,23 +1395,22 @@ compared by equality.
 
 <a id="fixed-facts-schema-comparison-laws-are-load-bearing"></a>
 `fixed-facts-schema.comparison-laws-are-load-bearing` requires targeted
-negative controls. The checks must fail when a missing resolved coordinate is
-accepted, `dataset_id` comparison is removed, undeclared support is accepted,
-an outside point is accepted, or support union replaces intersection. The
-unmodified implementation must pass the corresponding valid controls.
+negative controls. The checks must fail when `dataset_id` comparison is
+removed, undeclared support is accepted, an outside point is accepted, or
+support union replaces intersection. Direct fixed-value match, mismatch,
+missing-name, renamed-name, and `n/a` controls state the deliberately limited
+runtime behavior. The unmodified implementation must pass every valid control.
 
 <a id="fixed-facts-schema-resolved-model-read-once"></a>
-`fixed-facts-schema.resolved-model-read-once` requires the producer and every
-Cobaya adapter to call `fixed_facts.resolved_constants(model)`. The resolver
+`fixed-facts-schema.resolved-model-read-once` requires dataset generation to
+call `fixed_facts.resolved_constants(model)`. The reader
 uses this precedence: theory-component `extra_args` supply initial values; the
 parameter block overrides duplicate names; and the first theory component
-supplies names duplicated across components. Boolean values remain Booleans,
-and numeric values become floats. If the model cannot be inspected, the
-resolver returns no constants and the record stores `n/a`; compatibility
-checks later refuse that record rather than treating it as verified. The check
-uses a small model-shaped object that supplies the required attributes and
-methods without inheriting from the production model class; it needs only
-NumPy.
+supplies names duplicated across components. It preserves the concrete names
+Cobaya exposes and does not invent aliases. Boolean values remain Booleans,
+and numeric values become floats. If the model cannot be inspected, unreadable
+values remain absent and the record stores `n/a`. The check uses a small
+model-shaped object and needs only NumPy.
 
 <a id="cs-adapter-identity-adapter-contract"></a>
 `cs-adapter-identity.adapter-contract` proves the cosmic-shear adapter reads its
@@ -1428,11 +1427,12 @@ gate may claim the other's capability boundary or evidence.
 `cs-adapter-identity.record-laws-refuse` requires the cosmic-shear adapter to
 enforce all three comparison laws at their owning boundaries. After
 configuration validation, initialization refuses artifacts from different
-datasets. When Cobaya supplies the provider, the adapter checks artifact
-constants against the resolved model once per chain and refuses a provider
-that cannot expose the model. Before encoding each point, `predict` refuses
-values outside stored support and records with undeclared support. Each
-assertion checks law-specific error text so an unrelated `ValueError`,
+datasets. When Cobaya supplies the provider, the adapter compares directly
+named artifact constants with directly named model constants. An unavailable
+or renamed value is inconclusive rather than a refusal. Before encoding each
+point, `predict` refuses values outside stored support and records with
+undeclared support. Each assertion checks law-specific error text so an
+unrelated `ValueError`,
 including one raised by `float("n/a")`, cannot satisfy the test.
 
 <a id="artifact-readback-typed-bool"></a>
