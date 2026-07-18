@@ -149,15 +149,17 @@ class NameListParameterization(FakeParameterization):
     return list(self._sampled)
 
 
-def _facts(core_class, parameterization, *, sampled, pinned=None):
+def _facts(core_class, parameterization, *, sampled, pinned=None,
+           family="mps"):
   """Run the real publication method on one inert standard-family model."""
   core = object.__new__(core_class)
   core.model = SimpleNamespace(parameterization=parameterization)
   core.sampled_params = list(sampled)
   core.dataset_route = {
-    "family": "mps",
+    "family": family,
     "family_variant": "standard",
-    "generator": "dataset_generator_mps",
+    "generator": ("dataset_generator_background"
+                  if family == "grid" else "dataset_generator_mps"),
   }
   resolved = dict(pinned or {})
   core._resolved_constants = lambda: dict(resolved)
@@ -299,6 +301,52 @@ class GeneratorDarkEnergyFactsTests(unittest.TestCase):
     self.assertEqual(facts["dark_energy_law"], "constant-w")
     self.assertEqual(facts["cosmology_fixed"]["w"], -0.9)
     self.assertEqual(facts["cosmology_fixed"]["wa"], 0.0)
+
+  def test_background_generation_refuses_sampled_or_fixed_curvature(self):
+    """The flat distance family cannot publish a curved-universe dataset."""
+    cases = (
+      (
+        "sampled",
+        FakeParameterization(
+          inputs={"omk": np.nan}, constants={},
+          sampled={"H0": np.nan, "omk": np.nan}, dependencies={}),
+        ("H0", "omk"),
+        {},
+      ),
+      (
+        "fixed",
+        FakeParameterization(
+          inputs={"omk": 0.01}, constants={"omk": 0.01},
+          sampled={"H0": np.nan}, dependencies={}),
+        ("H0",),
+        {"omk": 0.01},
+      ),
+    )
+    for name, parameterization, sampled, pinned in cases:
+      with self.subTest(curvature=name):
+        with self.assertRaisesRegex(ValueError, "[Ff]lat"):
+          _facts(
+            self.core_class,
+            parameterization,
+            sampled=sampled,
+            pinned=pinned,
+            family="grid",
+          )
+
+  def test_background_generation_accepts_fixed_zero_curvature(self):
+    """A directly named omk=0 remains an honest flat background run."""
+    parameterization = FakeParameterization(
+      inputs={"omk": 0.0}, constants={"omk": 0.0},
+      sampled={"H0": np.nan}, dependencies={})
+    facts = _facts(
+      self.core_class,
+      parameterization,
+      sampled=("H0",),
+      pinned={"omk": 0.0},
+      family="grid",
+    )
+    self.assertIs(facts["flat_only"], True)
+    self.assertEqual(facts["cosmology_fixed"]["omk"], 0.0)
 
   def test_inconsistent_fixed_transformation_refuses(self):
     """A sidecar cannot silently choose one of two incompatible values."""

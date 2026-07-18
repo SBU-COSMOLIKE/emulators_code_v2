@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import sys
 import types
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -12,6 +13,7 @@ import numpy as np
 import torch
 
 from emulator.experiment import validate_grid
+from emulator.background import distance_interpolators
 from emulator.geometries.grid import (
   BACKGROUND_QUANTITY_UNITS,
   GridGeometry,
@@ -45,7 +47,7 @@ def _grid_config(quantity, units, law="none", offset=None):
 
 def _training_rows():
   """Return positive, nonconstant rows for a two-point redshift grid."""
-  redshifts = np.array([0.1, 0.2], dtype="float64")
+  redshifts = np.array([0.0, 0.2], dtype="float64")
   targets = np.array(
     [
       [70.0, 72.0],
@@ -55,6 +57,13 @@ def _training_rows():
     dtype="float64",
   )
   return redshifts, targets
+
+
+def _targets_for_grid(redshifts):
+  """Return three nonconstant training rows with the requested width."""
+  columns = np.arange(len(redshifts), dtype="float64")
+  return np.vstack((70.0 + columns, 71.0 + 2.0 * columns,
+                    72.0 + 3.0 * columns))
 
 
 def _load_adapter_module():
@@ -68,6 +77,9 @@ def _load_adapter_module():
 
     def initialize(self):
       return None
+
+    def initialize_with_provider(self, provider):
+      self.provider = provider
 
   theory_module.Theory = _Theory
   module_path = ROOT / "cobaya_theory" / "emul_baosn.py"
@@ -205,6 +217,49 @@ class BackgroundGridContractTests(unittest.TestCase):
             offset=offset,
           )
 
+  def test_geometry_rejects_invalid_hubble_redshift_grids(self):
+    """Training and artifact rebuilds refuse axes that cannot be integrated."""
+    bad_grids = (
+      ("nonfinite", np.array([0.0, 0.1, math.nan])),
+      ("negative", np.array([0.0, -0.1, 0.2])),
+      ("duplicate", np.array([0.0, 0.1, 0.1])),
+      ("reversed", np.array([0.0, 0.2, 0.1])),
+      ("unanchored", np.array([0.1, 0.2, 0.3])),
+    )
+    for name, redshifts in bad_grids:
+      with self.subTest(grid=name):
+        with self.assertRaisesRegex(ValueError, "redshift grid"):
+          GridGeometry.from_targets(
+            device=torch.device("cpu"),
+            targets=_targets_for_grid(redshifts),
+            z=redshifts,
+            quantity="Hubble",
+            units="km/s/Mpc",
+            law="none",
+          )
+
+    # The directly emulated recombination distance has its own high-redshift
+    # window. It must be ordered and finite, but does not start at zero.
+    rec_redshifts = np.array([1000.0, 1100.0, 1200.0])
+    geometry = GridGeometry.from_targets(
+      device=torch.device("cpu"),
+      targets=_targets_for_grid(rec_redshifts),
+      z=rec_redshifts,
+      quantity="D_M",
+      units="Mpc",
+      law="none",
+    )
+    np.testing.assert_array_equal(geometry.z.cpu(), rec_redshifts)
+
+  def test_distance_math_refuses_a_hubble_grid_without_the_zero_anchor(self):
+    """Direct callers cannot make the integrator extrapolate H(z) back to 0."""
+    redshifts = np.linspace(0.1, 0.4, 4)
+    with self.assertRaisesRegex(ValueError, "redshift grid"):
+      distance_interpolators(
+        z_grid=redshifts,
+        h_grid=np.full(redshifts.shape, 70.0),
+      )
+
   def test_geometry_names_each_nonfinite_training_boundary(self):
     redshifts, targets = _training_rows()
     raw_nonfinite = targets.copy()
@@ -265,6 +320,11 @@ class BackgroundGridContractTests(unittest.TestCase):
       ("pair", {"units": "Mpc"}, "accepted pairs"),
       ("offset", {"offset": torch.tensor(math.inf)}, "saved offset"),
       (
+        "grid",
+        {"z": torch.tensor([0.0, 0.0], dtype=torch.float64)},
+        "redshift grid",
+      ),
+      (
         "center",
         {"center": torch.tensor([math.nan, 0.0])},
         "GridGeometry.center",
@@ -284,6 +344,40 @@ class BackgroundGridContractTests(unittest.TestCase):
             device=torch.device("cpu"),
             state=forged_state,
           )
+
+  def test_distance_pairs_keep_their_exact_two_column_shape(self):
+    """Cobaya requirements and getters reject malformed coordinate tables."""
+    adapter_module = _load_adapter_module()
+    adapter = adapter_module.emul_baosn()
+    adapter._sn_max = 3.0
+    adapter._rec_min = 1000.0
+    adapter._rec_max = 1200.0
+    malformed = (
+      np.array([0.1, 0.2]),
+      np.array([0.1, 0.2, 0.3]),
+      np.array([[0.1], [0.2]]),
+      np.array([[0.1, 0.2, 0.3]]),
+      np.array([[[0.1, 0.2]]]),
+    )
+    for pairs in malformed:
+      with self.subTest(shape=pairs.shape):
+        with self.assertRaisesRegex(ValueError, r"\(N, 2\)"):
+          adapter.must_provide(
+            angular_diameter_distance_2={"z_pairs": pairs})
+        with mock.patch.object(
+            adapter, "_chi",
+            side_effect=AssertionError("shape must be checked first")) as chi:
+          with self.assertRaisesRegex(ValueError, r"\(N, 2\)"):
+            adapter.get_angular_diameter_distance_2(pairs)
+          chi.assert_not_called()
+
+    valid = np.array([[0.1, 0.2], [0.3, 0.5]])
+    adapter.must_provide(angular_diameter_distance_2={"z_pairs": valid})
+    adapter._chi = lambda z: 10.0 * np.asarray(z)
+    np.testing.assert_allclose(
+      adapter.get_angular_diameter_distance_2(valid),
+      np.array([1.0 / 1.2, 2.0 / 1.5]),
+    )
 
   def test_adapter_reads_the_shared_registry_and_rejects_a_bad_pair(self):
     adapter_module = _load_adapter_module()
@@ -309,6 +403,10 @@ class BackgroundGridContractTests(unittest.TestCase):
         self.quantity = quantity
         self.units = units
         self.names = []
+        self.fixed_facts = {"flat_only": True}
+        self.z = torch.tensor(
+          [0.0, 0.5, 1.0] if quantity == "Hubble"
+          else [1000.0, 1100.0, 1200.0])
 
     adapter_module.EmulatorPredictor = _Predictor
     adapter = adapter_module.emul_baosn()
@@ -318,6 +416,73 @@ class BackgroundGridContractTests(unittest.TestCase):
     }
     with self.assertRaisesRegex(ValueError, r"\('Hubble', 'Mpc'\)"):
       adapter.initialize()
+
+  def test_adapter_refuses_an_artifact_recorded_as_nonflat(self):
+    """A fixed nonzero curvature cannot reach the flat distance formulas."""
+    adapter_module = _load_adapter_module()
+
+    class _Predictor:
+      def __init__(self, path, device, compile_model=False):
+        del device, compile_model
+        self._grid = True
+        self._scalar = self._cmb = self._grid2d = False
+        self.quantity = "Hubble" if "hubble" in str(path) else "D_M"
+        self.units = ("km/s/Mpc" if self.quantity == "Hubble" else "Mpc")
+        self.names = ["H0"]
+        self.fixed_facts = {
+          "flat_only": False,
+          "cosmology_fixed": {"omk": 0.01},
+        }
+        self.z = torch.tensor(
+          [0.0, 0.5, 1.0] if self.quantity == "Hubble"
+          else [1000.0, 1100.0, 1200.0])
+
+    adapter = adapter_module.emul_baosn()
+    adapter.extra_args = {
+      "device": "cpu",
+      "emulators": ["/tmp/hubble-nonflat", "/tmp/distance-nonflat"],
+    }
+    with mock.patch.object(adapter_module, "EmulatorPredictor", _Predictor), \
+         mock.patch.object(adapter_module, "check_artifacts_pair_up"):
+      with self.assertRaisesRegex(ValueError, "[Ff]lat"):
+        adapter.initialize()
+
+  def test_provider_refuses_sampled_or_fixed_nonzero_curvature(self):
+    """Directly named omk values are checked when Cobaya attaches its model."""
+    adapter_module = _load_adapter_module()
+
+    class _Predictor:
+      def check_fixed_values(self, known_constants):
+        del known_constants
+
+    cases = (
+      ({"omk": None}, {}, "sampled"),
+      ({}, {"omk": 0.01}, "fixed"),
+    )
+    for sampled, constants, name in cases:
+      with self.subTest(curvature=name):
+        parameterization = SimpleNamespace(
+          sampled_params=lambda: dict(sampled),
+          constant_params=lambda: dict(constants),
+        )
+        provider = SimpleNamespace(
+          model=SimpleNamespace(parameterization=parameterization))
+        adapter = adapter_module.emul_baosn()
+        adapter.p_h = _Predictor()
+        adapter.p_dm = _Predictor()
+        with self.assertRaisesRegex(ValueError, "[Ff]lat"):
+          adapter.initialize_with_provider(provider)
+
+    parameterization = SimpleNamespace(
+      sampled_params=lambda: {},
+      constant_params=lambda: {"omk": 0.0},
+    )
+    provider = SimpleNamespace(
+      model=SimpleNamespace(parameterization=parameterization))
+    adapter = adapter_module.emul_baosn()
+    adapter.p_h = _Predictor()
+    adapter.p_dm = _Predictor()
+    adapter.initialize_with_provider(provider)
 
 
 if __name__ == "__main__":

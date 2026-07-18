@@ -35,6 +35,8 @@ import torch
 from emulator.experiment import EmulatorExperiment
 from emulator.training import ordinary_median
 from emulator.results import save_emulator
+from compute_data_vectors.dataset_publication import (
+    load_dataset_locator, load_located_generation)
 
 FAILURES = []
 REPO = Path(__file__).resolve().parents[3]
@@ -150,7 +152,7 @@ def gen_yaml():
         "train_args:\n"
         "  probe: background\n"
         "  ord: [['omegam', 'H0', 'w']]\n"
-        "  z_sn:  [0.01, 3.0, 120]\n"
+        "  z_sn:  [0.0, 3.0, 120]\n"
         "  z_rec: [1000.0, 1200.0, 24]\n")
 
 
@@ -174,18 +176,41 @@ def check_generate(rootdir, rel_root):
     out = {}
     for tag in ("train", "val"):
         proc = run_generator(rootdir, rel_root, tag)
-        stem = os.path.join(chains, "params_%s_background_unifs" % tag)
-        dv = os.path.join(chains, "dvs_%s_background_unifs" % tag)
-        files_ok = all(os.path.isfile(p) for p in (
-            stem + ".1.txt", stem + ".covmat",
-            dv + "_h.npy", dv + "_h_z.npy",
-            dv + "_dm.npy", dv + "_dm_z.npy"))
+        published = {}
+        publication_error = None
+        if proc.returncode == 0:
+            try:
+                locator = load_dataset_locator(
+                    chains,
+                    logical_parameter=(
+                        "params_%s_background_unifs.1.txt" % tag))
+                active = load_located_generation(locator)
+                roles = {
+                    "params": "parameters.chain",
+                    "covmat": "parameters.covariance",
+                    "h": "payload.grid.h",
+                    "h_z": "axis.grid.h.redshift",
+                    "dm": "payload.grid.dm",
+                    "dm_z": "axis.grid.dm.redshift",
+                    "failed": "rows.failure-mask",
+                }
+                published = {
+                    name: str(active.member(role).path)
+                    for name, role in roles.items()
+                }
+            except Exception as exc:
+                publication_error = type(exc).__name__ + ": " + str(exc)
+        files_ok = bool(published) and all(
+            os.path.isfile(path) for path in published.values())
         detail = "rc=%d" % proc.returncode
         if not files_ok:
-            detail += " missing; stderr tail: " + proc.stderr.strip()[-200:]
+            detail += " missing"
+            if publication_error:
+                detail += "; " + publication_error[:200]
+            detail += "; stderr tail: " + proc.stderr.strip()[-200:]
         report("background dump (%s): both quantities + grids" % tag,
                proc.returncode == 0 and files_ok, detail)
-        out[tag] = {"stem": stem, "dv": dv}
+        out[tag] = published
     return out
 
 
@@ -195,17 +220,19 @@ def build_cfg(paths, quantity):
     grid = {"quantity": quantity,
             "units": "km/s/Mpc" if quantity == "Hubble" else "Mpc",
             "law": "log_offset" if quantity == "Hubble" else "none",
-            "z_file": paths["train"]["dv"] + "_%s_z.npy" % q}
+            "z_file": paths["train"][q + "_z"]}
     if quantity == "Hubble":
         grid["offset"] = 0.0
     return {
         "data": {
             "grid": grid,
-            "train_dv":     paths["train"]["dv"] + "_%s.npy" % q,
-            "val_dv":       paths["val"]["dv"] + "_%s.npy" % q,
-            "train_params": paths["train"]["stem"] + ".1.txt",
-            "val_params":   paths["val"]["stem"] + ".1.txt",
-            "train_covmat": paths["train"]["stem"] + ".covmat",
+            "train_dv":     paths["train"][q],
+            "val_dv":       paths["val"][q],
+            "train_params": paths["train"]["params"],
+            "val_params":   paths["val"]["params"],
+            "train_covmat": paths["train"]["covmat"],
+            "train_failure_mask": paths["train"]["failed"],
+            "val_failure_mask": paths["val"]["failed"],
             "n_train":      180,
             "n_val":        180,
             "split_seed":   0,
@@ -429,7 +456,7 @@ def check_dump_variance(paths):
     at low z, while a stale dump gives ~0 — anything within four
     decades of the healthy value passes.
     """
-    h = np.load(paths["train"]["dv"] + "_h.npy")
+    h = np.load(paths["train"]["h"])
     rel = h.std(axis=0) / np.abs(h.mean(axis=0))
     worst = float(rel.min())
     report("H dump varies across cosmologies (stale-cache tripwire)",

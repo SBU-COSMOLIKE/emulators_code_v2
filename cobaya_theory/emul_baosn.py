@@ -152,6 +152,10 @@ class emul_baosn(Theory):
                 units=units,
                 where="emul_baosn artifact " + repr(root),
             )
+            if predictor.fixed_facts["flat_only"] is not True:
+                raise ValueError(
+                    "emul_baosn: background artifacts must be flat-only; "
+                    "regenerate this artifact with omk fixed to zero")
             if quantity in by_quantity:
                 raise ValueError(
                     "emul_baosn: two artifacts both declare quantity "
@@ -215,6 +219,15 @@ class emul_baosn(Theory):
         check_artifacts_fixed_values(
             predictors=[self.p_h, self.p_dm],
             provider=provider)
+        parameterization = getattr(
+            getattr(provider, "model", None), "parameterization", None)
+        if parameterization is None:
+            return
+        sampled = parameterization.sampled_params()
+        constants = parameterization.constant_params()
+        if "omk" in sampled or constants.get("omk", 0.0) != 0.0:
+            raise ValueError(
+                "emul_baosn is flat-only; omk must be fixed to zero")
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
@@ -249,13 +262,30 @@ class emul_baosn(Theory):
             spec = requirements.get(product)
             if not isinstance(spec, dict):
                 continue
+            if product == "angular_diameter_distance_2":
+                z = spec.get("z_pairs")
+                if z is not None:
+                    self._redshift_pairs(
+                        z, who="the " + product + " requirement")
+                continue
             z = spec.get("z")
             if z is None:
                 continue
             z = np.atleast_1d(np.asarray(z, dtype="float64")).reshape(-1)
-            if product == "angular_diameter_distance_2":
-                z = z.reshape(-1)
             self._check_windows(z, who="the " + product + " requirement")
+
+    def _redshift_pairs(self, value, who):
+        """Return exact ordered ``(z1, z2)`` rows after checking the window."""
+        pairs = np.asarray(value, dtype="float64")
+        if pairs.ndim != 2 or pairs.shape[1] != 2:
+            raise ValueError(
+                "emul_baosn: " + who + " must have exact shape (N, 2); got "
+                + repr(pairs.shape))
+        if (pairs[:, 0] > pairs[:, 1]).any():
+            raise ValueError(
+                "emul_baosn: every redshift pair must satisfy z1 <= z2")
+        self._check_windows(pairs.reshape(-1), who=who)
+        return pairs
 
     def _check_windows(self, z, who):
         """Loudly reject any redshift outside the two covered windows.
@@ -407,7 +437,8 @@ class emul_baosn(Theory):
         Returns:
           (n,) the angular-diameter distance between each pair, Mpc.
         """
-        pairs = np.atleast_2d(np.asarray(z_pairs, dtype="float64"))
+        pairs = self._redshift_pairs(
+            z_pairs, who="get_angular_diameter_distance_2")
         chi1 = self._chi(pairs[:, 0])
         chi2 = self._chi(pairs[:, 1])
         return (chi2 - chi1) / (1.0 + pairs[:, 1])

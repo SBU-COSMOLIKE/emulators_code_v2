@@ -40,7 +40,7 @@ from generator_ingress import finite_number, native_integer
 #
 #- The training YAML must carry, inside train_args:
 #      probe: background
-#      z_sn:  [0.001, 3.0, 600]     # [zmin, zmax, nz] linspace, SN range
+#      z_sn:  [0.0, 3.0, 600]       # [zmin, zmax, nz] linspace, SN range
 #      z_rec: [1000.0, 1200.0, 40]  # [zmin, zmax, nz], recombination window
 #  plus the shared keys (ord; fiducial/params_covmat_file when --unif 0).
 #  The likelihood block may be the dummy `one` — this script adds the
@@ -87,11 +87,9 @@ class dataset(GeneratorCore):
   def _read_train_args(self, train_args):
     """Read the two grids and register the background requirements.
 
-    z_sn / z_rec = [zmin, zmax, nz] linspace specs. The SN grid must
-    start above 0 (H(0) is fine but the training grid convention keeps
-    z ascending and strictly positive at the low edge, matching the
-    legacy ZLIN) and the two windows must not overlap (the desert
-    between them is the adapter's loud-error region).
+    z_sn / z_rec = [zmin, zmax, nz] linspace specs. The SN grid starts
+    exactly at zero because the distance integral starts there. The
+    recombination grid starts above zero. The two windows must not overlap.
     """
     grids = {}
     for key in ("z_sn", "z_rec"):
@@ -102,9 +100,12 @@ class dataset(GeneratorCore):
       zmin = finite_number(spec[0], f"train_args.{key}[0]")
       zmax = finite_number(spec[1], f"train_args.{key}[1]")
       nz = native_integer(spec[2], f"train_args.{key}[2]", minimum=8)
-      if not (0.0 < zmin < zmax) or nz < 8:
-        raise ValueError(f"train_args.{key} needs 0 < zmin < zmax and "
-                         f"nz >= 8, got [{zmin}, {zmax}, {nz}]")
+      valid_limits = (zmin == 0.0 < zmax if key == "z_sn"
+                      else 0.0 < zmin < zmax)
+      if not valid_limits:
+        rule = "zmin = 0 < zmax" if key == "z_sn" else "0 < zmin < zmax"
+        raise ValueError(
+          f"train_args.{key} needs {rule}; got [{zmin}, {zmax}, {nz}]")
       with np.errstate(over="ignore", invalid="ignore"):
         grid = np.linspace(zmin, zmax, nz)
       if not np.isfinite(grid).all():

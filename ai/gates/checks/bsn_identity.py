@@ -90,23 +90,22 @@ GRID_SUPPORT = {"omegam": (0.26, 0.36),
                 "w":      (-1.25, -0.75)}
 
 
-def supported_test_record(names, label, family, support):
-    """Write this gate's fixed support bounds as literal decimal strings.
-
-    CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
-    float32 representation includes ``np.float32(...)``. That text is not a
-    decimal number. Keeping this conversion inside the synthetic gate avoids
-    changing production formatting or the scientific-record digest.
-    """
+def background_test_record(names, label, family, support=None,
+                           flat_only=True):
+    """Write one synthetic background record with explicit curvature."""
     blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
         names=names, label=label, family=family, support=None))
-    domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
-    domain["constraint"] = "box"
-    for key in ("requested", "resolved"):
-        domain[key] = {
-            name: [str(support[name][0]), str(support[name][1])]
-            for name in names
-        }
+    facts = blocks[fixed_facts.FIXED_FACTS_GROUP]
+    facts["flat_only"] = flat_only
+    facts["cosmology_fixed"]["omk"] = 0.0 if flat_only else 0.01
+    if support is not None:
+        domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
+        domain["constraint"] = "box"
+        for key in ("requested", "resolved"):
+            domain[key] = {
+                name: [str(support[name][0]), str(support[name][1])]
+                for name in names
+            }
     fixed_facts.validate(blocks, where="the background-identity test record")
     return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
 
@@ -136,7 +135,7 @@ QUADRATURE_ABSOLUTE_TOLERANCE = 1.0e-10
 QUADRATURE_RELATIVE_TOLERANCE = 1.0e-12
 QUADRATURE_MAX_SUBDIVISIONS = 100
 
-PIPELINE_MIN_REDSHIFT = 0.001
+PIPELINE_MIN_REDSHIFT = 0.0
 PIPELINE_MAX_REDSHIFT = 3.0
 PIPELINE_GRID_POINT_COUNT = 600
 PIPELINE_QUERY_REDSHIFTS = (0.1, 0.5, 1.0, 2.0, 2.9)
@@ -404,6 +403,27 @@ def check_pipeline():
         h_grid=h_grid,
     )
 
+    bad_grids = (
+        ("nonzero start", np.array([0.1, 0.2, 0.3, 0.4])),
+        ("duplicate point", np.array([0.0, 0.1, 0.1, 0.3])),
+        ("reversed points", np.array([0.0, 0.2, 0.1, 0.3])),
+        ("nonfinite point", np.array([0.0, 0.1, np.nan, 0.3])),
+    )
+    for label, bad_grid in bad_grids:
+        try:
+            distance_interpolators(
+                z_grid=bad_grid,
+                h_grid=np.full(bad_grid.shape, 70.0),
+            )
+            report("pipeline rejects " + label, False, "no raise")
+        except ValueError as error:
+            report_refusal(
+                "pipeline rejects " + label,
+                error,
+                needle="redshift grid",
+                law="the finite, ordered, zero-anchored grid law",
+            )
+
     # This reference shares neither the production integration rule nor its
     # evaluation grid.  For each redshift, quad integrates the analytic LCDM
     # c/H(z) function directly from zero to that redshift.
@@ -543,7 +563,7 @@ def check_pipeline():
 
 
 def check_geometry(device):
-    z = np.linspace(0.001, 3.0, 64)
+    z = np.linspace(0.0, 3.0, 64)
     g = np.random.default_rng(3)
     Y = lcdm_h(z)[None, :] * (1.0 + 0.05 * g.standard_normal((400, 64)))
     geom = GridGeometry.from_targets(device=device, targets=Y, z=z,
@@ -604,7 +624,7 @@ def grid_recipe(nz):
 
 def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=None, seed=0, support=None):
+                        z=None, seed=0, support=None, flat_only=True):
     """Build, then save, a tiny synthetic grid emulator under `root`.
 
     `label` fixes the identity of the scientific record the file carries:
@@ -619,7 +639,7 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
     record for a double nobody asks a question of, not a gap in one.
     """
     if z is None:
-        z = np.linspace(0.001, 3.0, 64)
+        z = np.linspace(0.0, 3.0, 64)
     covmat = os.path.join(tmp, "grid_%d.covmat" % seed)
     write_covmat(covmat, IN_NAMES, seed=seed + 1)
     pgeom = ParamGeometry.from_covmat(
@@ -668,16 +688,12 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=(fixed_facts.synthetic_sidecar(
+                  facts_yaml=background_test_record(
                       names=pgeom.state()["names"],
                       label=label,
                       family="grid",
-                      support=None)
-                    if support is None else supported_test_record(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="grid",
-                      support=support)),
+                      support=support,
+                      flat_only=flat_only),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -781,7 +797,7 @@ def check_npce(tmp, device):
     pgeom = ParamGeometry.from_covmat(
         device=device, center=np.array([0.31, 67.0, -1.0]),
         covmat_path=covmat)
-    z = np.linspace(0.001, 3.0, 64)
+    z = np.linspace(0.0, 3.0, 64)
     g = np.random.default_rng(62)
     C = np.column_stack([g.normal(0.31, 0.01, 400),
                          g.normal(67.0, 2.0, 400),
@@ -851,7 +867,7 @@ def check_npce(tmp, device):
                                 "loo_max": 0.9,
                                 "max_terms": 8},
                   resolved_transfer=None,
-                  facts_yaml=supported_test_record(
+                  facts_yaml=background_test_record(
                       names=pgeom.state()["names"],
                       label="bsn-identity/npce-hubble",
                       family="grid",
@@ -906,7 +922,7 @@ def check_adapter(tmp, device):
     save_synthetic_grid(root_h, device, tmp, label=ADAPTER_PAIR_LABEL,
                         quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=np.linspace(0.001, 3.0, 64), seed=40,
+                        z=np.linspace(0.0, 3.0, 64), seed=40,
                         support=GRID_SUPPORT)
     root_dm = os.path.join(tmp, "ad_dm")
     save_synthetic_grid(root_dm, device, tmp, label=ADAPTER_PAIR_LABEL,
@@ -914,6 +930,23 @@ def check_adapter(tmp, device):
                         units="Mpc", law="none", offset=0.0,
                         z=np.linspace(1000.0, 1200.0, 24), seed=50,
                         support=GRID_SUPPORT)
+
+    root_nonflat = os.path.join(tmp, "ad_h_nonflat")
+    save_synthetic_grid(
+        root_nonflat, device, tmp, label=ADAPTER_PAIR_LABEL,
+        quantity="Hubble", units="km/s/Mpc", law="log_offset", offset=1.0,
+        z=np.linspace(0.0, 3.0, 64), seed=45, support=GRID_SUPPORT,
+        flat_only=False)
+    try:
+        _build(cls, [root_nonflat, root_dm])
+        report("a nonflat background artifact is refused", False, "no raise")
+    except ValueError as error:
+        report_refusal(
+            "a nonflat background artifact is refused",
+            error,
+            needle="flat-only",
+            law="the flat-background artifact law",
+        )
 
     t = _build(cls, [root_h, root_dm])
     report("pair layout: SN window + rec window",
@@ -980,6 +1013,24 @@ def check_adapter(tmp, device):
     report("D_A_2 == (chi2 - chi1)/(1 + z2)",
            np.allclose(pair, [want_pair]),
            "max|d| %.1e" % np.abs(np.asarray(pair) - want_pair).max())
+    t.must_provide(
+        angular_diameter_distance_2={"z_pairs": [[0.3, 1.5]]})
+    malformed_pairs = np.array([[0.3, 1.5, 2.0]])
+    for label, call in (
+            ("D_A_2 requirement", lambda: t.must_provide(
+                angular_diameter_distance_2={"z_pairs": malformed_pairs})),
+            ("D_A_2 getter", lambda: t.get_angular_diameter_distance_2(
+                malformed_pairs))):
+        try:
+            call()
+            report(label + " rejects malformed pairs", False, "no raise")
+        except ValueError as error:
+            report_refusal(
+                label + " rejects malformed pairs",
+                error,
+                needle="(N, 2)",
+                law="the exact two-column pair law",
+            )
     # H units + the H-outside-SN loud error. This one leg bundles three
     # sub-checks, so it cannot use report_refusal (that helper reports a leg of
     # its own); each catch needles its guard's message by hand instead, for the
@@ -1046,7 +1097,7 @@ def check_adapter(tmp, device):
                         label=ADAPTER_PAIR_LABEL,
                         quantity="Hubble",
                         units="km/s/Mpc", law="none", offset=0.0,
-                        z=np.linspace(0.001, 2.0, 32), seed=60)
+                        z=np.linspace(0.0, 2.0, 32), seed=60)
     try:
         _build(cls, [root_h, root_h2])
         report("duplicate quantity raises", False, "no raise")
@@ -1070,7 +1121,7 @@ def check_adapter(tmp, device):
                         label="bsn-identity/adapter-foreign-dataset",
                         quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=np.linspace(0.001, 3.0, 64), seed=110)
+                        z=np.linspace(0.0, 3.0, 64), seed=110)
     try:
         _build(cls, [root_h_other, root_dm])
         report("mismatched dataset identity raises", False, "no raise")
@@ -1154,7 +1205,7 @@ def check_finetune(tmp, device):
             for name in IN_NAMES:
                 handle.write(name + " " + name + "\n")
         with open(stem + fixed_facts.SIDECAR_SUFFIX, "w") as handle:
-            handle.write(fixed_facts.synthetic_sidecar(
+            handle.write(background_test_record(
                 names=IN_NAMES,
                 label="bsn-identity/finetune-" + role,
                 family="grid",

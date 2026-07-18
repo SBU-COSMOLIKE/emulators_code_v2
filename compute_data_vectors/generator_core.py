@@ -2214,6 +2214,9 @@ class GeneratorCore:
       flat_only = False
     elif "omk" in pinned:
       flat_only = (pinned["omk"] == 0.0)
+    if family == "grid" and not flat_only:
+      raise ValueError(
+        "background generation is flat-only; omk must be fixed to zero")
 
     # how the neutrino masses are split, in the model's own word for it.
     neutrino_convention = fixed_facts.NOT_APPLICABLE

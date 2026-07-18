@@ -109,16 +109,30 @@ def comoving_distance_grid(z_grid, h_grid):
   cumulative-Simpson integrated.
 
   Arguments:
-    z_grid = (NZ,) the stored ascending redshift grid (z_grid[-1] is
-             the window edge z_max; the grid need not start at 0 — the
-             interpolation extends c/H to 0 exactly as the legacy did).
+    z_grid = (NZ,) the stored ascending redshift grid. It starts exactly at
+             zero and z_grid[-1] is the window edge z_max.
     h_grid = (NZ,) H(z_grid) in km/s/Mpc.
 
   Returns:
     (z_step, chi): the doubled grid and the comoving distance on it,
     both (2*NZ + 1,), chi in Mpc.
   """
-  func = interpolate.interp1d(z_grid, C_KMS / np.asarray(h_grid),
+  z_grid = np.asarray(z_grid, dtype="float64")
+  h_grid = np.asarray(h_grid, dtype="float64")
+  grid_is_valid = (
+    z_grid.ndim == 1 and len(z_grid) >= 4
+    and np.isfinite(z_grid).all() and z_grid[0] == 0.0
+    and (z_grid[1:] > z_grid[:-1]).all())
+  if not grid_is_valid:
+    raise ValueError(
+      "the Hubble redshift grid must be finite, strictly increasing, "
+      "one-dimensional, and start exactly at z = 0")
+  if h_grid.shape != z_grid.shape or not np.isfinite(h_grid).all() \
+      or not (h_grid > 0.0).all():
+    raise ValueError(
+      "H(z) must be one finite positive value for every redshift")
+
+  func = interpolate.interp1d(z_grid, C_KMS / h_grid,
                               kind='cubic',
                               assume_sorted=True,
                               fill_value="extrapolate")

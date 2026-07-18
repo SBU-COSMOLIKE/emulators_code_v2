@@ -531,6 +531,7 @@ class BackgroundDependencyTests(unittest.TestCase):
           self.units = "Mpc"
           self.names = ["omegab", "omegam"]
           self.z = torch.tensor([1000.0, 1100.0])
+        self.fixed_facts = {"flat_only": True}
 
     adapter = self.module.emul_baosn()
     adapter.extra_args = {

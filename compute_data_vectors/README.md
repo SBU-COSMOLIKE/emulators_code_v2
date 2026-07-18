@@ -221,7 +221,7 @@ train_args:
   probe: background
   ord:
     - [H0]
-  z_sn: [0.1, 1.0, 8]
+  z_sn: [0.0, 1.0, 8]
   z_rec: [1000.0, 1200.0, 8]
 ```
 
@@ -655,12 +655,13 @@ train_args:
   probe: background
   ord:
     - [H0]
-  z_sn: [0.1, 3.0, 120]
+  z_sn: [0.0, 3.0, 120]
   z_rec: [1000.0, 1200.0, 24]
 ```
 
-Each grid needs positive increasing limits and at least eight points. The
-low-redshift grid must end below the beginning of the recombination grid.
+The low-redshift grid starts at zero. The recombination grid has positive,
+increasing limits. Each grid needs at least eight points, and the low-redshift
+grid must end below the beginning of the recombination grid.
 The two limits are finite YAML numbers. The point count is an ordinary YAML
 integer, not a decimal, quoted value, or Boolean.
 

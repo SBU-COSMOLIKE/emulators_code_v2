@@ -844,7 +844,7 @@ def check_diagonal(device, tmp):
   n_composition = len(FAILURES)
   names = ["p0", "p1", "p2"]
   pg = param_geometry(names, device, seed=90)
-  z = np.linspace(0.001, 3.0, 32)
+  z = np.linspace(0.0, 3.0, 32)
   g = np.random.default_rng(91)
   rows = 70.0 * (1.0 + 0.05 * g.standard_normal((300, z.size)))
   geom = GridGeometry.from_targets(device=device, targets=rows, z=z,

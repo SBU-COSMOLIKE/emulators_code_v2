@@ -149,6 +149,18 @@ class GridGeometry:
 
     offset_value = float(offset)
     z_tensor = torch.as_tensor(z, dtype=torch.float64, device=device)
+    grid_is_valid = (
+      z_tensor.ndim == 1
+      and z_tensor.numel() >= 2
+      and bool(torch.isfinite(z_tensor).all())
+      and bool((z_tensor >= 0.0).all())
+      and bool((z_tensor[1:] > z_tensor[:-1]).all())
+    )
+    if not grid_is_valid or (quantity == "Hubble" and z_tensor[0] != 0.0):
+      raise ValueError(
+        "GridGeometry redshift grid must be finite, nonnegative, strictly "
+        "increasing and one-dimensional; "
+        "a Hubble grid must start exactly at z = 0")
     center_tensor = torch.as_tensor(
       center,
       dtype=torch.float32,
