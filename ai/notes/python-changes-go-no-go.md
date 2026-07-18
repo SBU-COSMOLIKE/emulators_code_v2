@@ -52,6 +52,11 @@ uses `*values` or `**options` to insert items from another sequence or mapping.
 runs. **Module-global state** is a value defined at the top level of a Python
 file and shared by calls that do not receive the value explicitly.
 
+A **monkey patch** replaces existing executable behavior while Python is
+running. Examples include replacing an imported function or method, changing
+`sys.modules`, `__defaults__`, `__code__`, or `__class__`, and using `patch`,
+`patch.object`, `patch.dict`, or pytest's `monkeypatch` fixture.
+
 ## Scope and decision authority
 
 The Architect alone issues the final style verdict. A correct result written
@@ -62,6 +67,28 @@ The intended reader is a library user or physics student who understands
 C-like control flow but may not know advanced Python idioms. Code must remain
 easy to trace one operation at a time. User-facing prose must define software
 and machine-learning terms where the terms first matter.
+
+### Do not add monkey patches
+
+New monkey patches are prohibited in production code, tests, gates, and
+tools. A candidate that adds, copies, retargets, or broadens one receives
+NO-GO. Use an explicit fake argument, a subclass defined before use, a
+temporary file, or a separate process whose changed files, arguments, or
+environment are selected before import. The child process must not replace
+live behavior after Python starts.
+
+Importing a module or assigning an alias alone is not a monkey patch;
+replacing behavior through that alias is. Assigning ordinary non-executable
+data to a new local object during construction is allowed when that object is
+passed explicitly and is not installed into an imported module, class,
+registry, or process-global table. Replacing a method or function on even a
+local instance is a monkey patch.
+
+Do not turn an unrelated ticket into a repository-wide cleanup. For every
+existing site encountered during bounded work, the Architect records one
+separate **High bug-fix ticket**. The Red Team reports each site to the
+Architect; only the Architect writes the ticket. Do not search for additional
+sites unless the user explicitly requests that search.
 
 ### Keep the repair proportional to the problem
 
@@ -486,6 +513,7 @@ must give a concrete repair and the command that will recheck the repair.
 Any condition below requires NO-GO:
 
 - a consequential code or style choice was left to the Implementer;
+- a candidate adds, copies, retargets, or broadens a monkey patch;
 - a changed path lacks a hot/cold classification;
 - a dense expression hides multiple operations or failure points;
 - code was minified, names were shortened, or explanations were removed to

@@ -132,7 +132,8 @@ restores ticket worktrees.
    every changed path as hot or cold and includes every applicable style row,
    exact code shape, forbidden forms, and required evidence. Return a blocker
    when an applicable row or consequential choice is missing. Do not invent
-   the missing Python design.
+   the missing Python design. Never add, copy, retarget, or broaden a monkey
+   patch; if the directive requires one, edit nothing and return a blocker.
 
    When the directive creates or changes a tracked README, a long-form
    document under `documentation/`, or explanatory Python prose (comments,

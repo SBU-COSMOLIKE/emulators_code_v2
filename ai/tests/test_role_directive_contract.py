@@ -1365,6 +1365,28 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("The Implementer and Red Team never edit",
                       self.python_contract)
 
+    def test_new_monkey_patches_are_forbidden_without_a_cleanup_sweep(self):
+        """One discovered old site becomes one separate High bug ticket."""
+        contract = " ".join(self.python_contract.split())
+        architect = " ".join(self.architect.split())
+        implementer = " ".join(self.implementer.split())
+        redteam = " ".join(self.redteam.split())
+
+        self.assertIn("New monkey patches are prohibited", contract)
+        prohibited = "adds, copies, retargets, or broadens a monkey patch"
+        self.assertIn("production code, tests, gates, and tools", contract)
+        self.assertIn(prohibited, architect)
+        self.assertIn("Never add, copy, retarget, or broaden", implementer)
+        self.assertIn("Never propose a monkey patch", redteam)
+        self.assertIn("High bug-fix ticket", contract)
+        self.assertIn("without widening the current ticket", architect)
+        self.assertIn("widen the current review", redteam)
+        self.assertIn("edit nothing and return a blocker", implementer)
+        self.assertIn("Report a newly introduced one as a finding", redteam)
+        self.assertIn("unless the user explicitly requests that search",
+                      contract)
+        self.assertIn("even a local instance is a monkey patch", contract)
+
     def test_every_execution_role_keeps_permanent_notes_off_limits(self):
         guard = "ai/tools/permanent_note_guard.py"
         architect = " ".join(self.architect.split())

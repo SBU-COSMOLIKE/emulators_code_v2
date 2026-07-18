@@ -229,7 +229,10 @@ When the named change touches tracked Python, read
 the bounded change. Inspect the full changed symbols, not only the diff. Report
 missing hot/cold classification, hidden operations, obfuscation, silent
 fallbacks, persistence drift, weak errors, or unproved hot-path changes to the
-Architect with exact evidence. Do not edit the contract or widen the review.
+Architect with exact evidence. Never propose a monkey patch. Report a newly
+introduced one as a finding and one existing site encountered during bounded
+work as a separate High-ticket recommendation. Do not edit the contract or
+widen the current review.
 
 The red-team pass asks, at minimum:
 

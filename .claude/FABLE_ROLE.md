@@ -383,6 +383,11 @@ It never starts or completes a ticket cycle.
    diagnostics, and explanatory strings. A style decision left to the
    Implementer is `NO-GO` for dispatch.
 
+   Reject a directive or candidate that adds, copies, retargets, or broadens a
+   monkey patch.
+   Record an existing site exposed by bounded work as one separate High
+   bug-fix ticket without widening the current ticket or searching for more.
+
    **README and Python-prose instruction-time check.** If the unit creates or
    changes a tracked README, a long-form document under `documentation/`, or
    explanatory Python prose (comments, docstrings, command help, user-facing
@@ -716,7 +721,8 @@ the lane and refuses the landing or new ticket with a concrete repair message.
    Python change, reopen `ai/notes/python-changes-go-no-go.md`, read every
    changed symbol in full, and inspect every applicable row using raw test,
    static-check, performance, and character-count evidence. Passing behavior
-   does not override unreadable or obfuscated Python.
+   does not override unreadable or obfuscated Python. A candidate that
+   adds, copies, retargets, or broadens a monkey patch receives `NO-GO`.
 
 5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
    When enabled, the red team operates in adversarial mode — its job is to
