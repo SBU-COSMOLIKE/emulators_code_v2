@@ -25,7 +25,9 @@ import tempfile
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = AI_ROOT / "tools" / "backlog_bundle.py"
+SOURCE_ROLE_CONTRACT = AI_ROOT / "notes" / "role-contract.yaml"
 ORIGIN = "git@github.com:ExampleOrg/ExampleRepo.git"
+ROLE_CONTRACT = "ai/notes/role-contract.yaml"
 
 PERMANENT_NOTES = (
     "ai/notes/MEMORY.md",
@@ -108,9 +110,10 @@ def scratch_repository(label):
         for index, path_text in enumerate(PERMANENT_NOTES):
             content = ("# Permanent note " + str(index) + "\n").encode("utf-8")
             write_bytes(repo, path_text, content)
+        write_bytes(repo, ROLE_CONTRACT, SOURCE_ROLE_CONTRACT.read_bytes())
 
         run_git(repo, "add", ".gitignore", "ai/tools/backlog_bundle.py",
-                *PERMANENT_NOTES)
+                *PERMANENT_NOTES, ROLE_CONTRACT)
         run_git(repo, "commit", "-q", "-m", "scratch permanent base")
 
         write_bytes(repo, "ai/notes/backlog.md", BACKLOG)

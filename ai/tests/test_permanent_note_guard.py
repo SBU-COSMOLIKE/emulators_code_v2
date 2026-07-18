@@ -15,6 +15,8 @@ from ai.tools.permanent_note_guard import PERMANENT_NOTES as GUARD_NOTES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "ai" / "tools" / "permanent_note_guard.py"
+SOURCE_ROLE_CONTRACT = REPO_ROOT / "ai" / "notes" / "role-contract.yaml"
+ROLE_CONTRACT = "ai/notes/role-contract.yaml"
 PERMANENT_NOTES = (
     "ai/notes/MEMORY.md",
     "ai/notes/artifacts-inference-warmstart.md",
@@ -65,8 +67,11 @@ def scratch_repository():
         shutil.copy2(SOURCE, guard)
         for index, path_text in enumerate(PERMANENT_NOTES):
             write(repo, path_text, "# Permanent note " + str(index) + "\n")
+        contract = repo / ROLE_CONTRACT
+        contract.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SOURCE_ROLE_CONTRACT, contract)
         run_git(repo, "add", "ai/tools/permanent_note_guard.py")
-        run_git(repo, "add", *PERMANENT_NOTES)
+        run_git(repo, "add", *PERMANENT_NOTES, ROLE_CONTRACT)
         run_git(repo, "commit", "-q", "-m", "guard base")
         base = run_git(repo, "rev-parse", "HEAD")
         yield repo, guard, base
@@ -101,6 +106,7 @@ class PermanentNoteGuardTests(unittest.TestCase):
                 result.stdout.count("PERMANENT-NOTE-GUARD PASS"), 1)
             for path in PERMANENT_NOTES:
                 self.assertIn(path, result.stdout)
+            self.assertIn(ROLE_CONTRACT, result.stdout)
             self.assertIn("states: current HEAD, Git staging area, working tree",
                           result.stdout)
 
@@ -137,6 +143,27 @@ class PermanentNoteGuardTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("current HEAD", result.stderr)
             self.assertNotIn("PERMANENT-NOTE-GUARD PASS", result.stdout)
+
+    def test_role_contract_is_protected_in_every_git_state(self):
+        cases = ("working tree", "Git staging area", "current HEAD")
+        for state in cases:
+            with self.subTest(state=state), \
+                    scratch_repository() as (repo, guard, base):
+                original = (repo / ROLE_CONTRACT).read_text(encoding="utf-8")
+                write(repo, ROLE_CONTRACT, original + "\n")
+                if state in ("Git staging area", "current HEAD"):
+                    run_git(repo, "add", ROLE_CONTRACT)
+                    if state == "Git staging area":
+                        write(repo, ROLE_CONTRACT, original)
+                    else:
+                        run_git(repo, "commit", "-q", "-m",
+                                "accidental role contract edit")
+                        write(repo, ROLE_CONTRACT, original)
+                        run_git(repo, "add", ROLE_CONTRACT)
+                result = run_guard(repo, guard, base)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(state, result.stderr)
+                self.assertNotIn("PERMANENT-NOTE-GUARD PASS", result.stdout)
 
     def test_extra_tracked_note_refuses_but_untracked_ticket_is_allowed(self):
         with scratch_repository() as (repo, guard, base):
@@ -182,6 +209,7 @@ class PermanentNoteGuardTests(unittest.TestCase):
                                  flags=re.MULTILINE):
             whitelisted.add("ai/notes/" + match.group(1))
         self.assertEqual(whitelisted, expected)
+        self.assertRegex(ignore_text, r"(?m)^!/ai/notes/role-contract\.yaml$")
 
         readme = (REPO_ROOT / "ai" / "README.md").read_text(encoding="utf-8")
         note_section = readme.split(
@@ -225,6 +253,10 @@ class PermanentNoteGuardTests(unittest.TestCase):
             if path.parent == Path("ai/notes") and path.suffix == ".md":
                 tracked_notes.add(path_text)
         self.assertEqual(tracked_notes, expected)
+        self.assertTrue(
+            (REPO_ROOT / ROLE_CONTRACT).is_file(),
+            "the protected YAML contract must not change the eleven-note count",
+        )
 
 
 if __name__ == "__main__":

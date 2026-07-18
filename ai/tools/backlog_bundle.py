@@ -2,8 +2,8 @@
 """Create and safely read portable backlog handoff archives.
 
 The archive is an email attachment, not a Git artifact.  It contains the
-local execution ledger and local supporting evidence while anchoring the eleven
-permanent notes to an exact Git commit.  Incoming archives are treated as
+local execution ledger and local supporting evidence while anchoring protected
+repository knowledge to an exact Git commit. Incoming archives are treated as
 hostile: inspection validates the complete XZ stream, tar structure,
 manifest, paths, sizes, and hashes before returning any content.
 """
@@ -34,8 +34,8 @@ SUPPORT_ROOT = "ai/notes/backlog-support"
 DEFAULT_BUNDLE_ROOT = "ai/backlog-bundles"
 DEFAULT_IMPORT_ROOT = "ai/backlog-imports"
 
-# These are the only durable notes.  The bundle never substitutes worktree
-# bytes for them: the recorded base commit is their source of truth.
+# These are the only durable Markdown notes. The bundle never substitutes
+# worktree bytes for protected knowledge from the recorded base commit.
 PERMANENT_NOTES = frozenset({
     "ai/notes/MEMORY.md",
     "ai/notes/artifacts-inference-warmstart.md",
@@ -49,6 +49,8 @@ PERMANENT_NOTES = frozenset({
     "ai/notes/training-stack.md",
     "ai/notes/python-changes-go-no-go.md",
 })
+ROLE_CONTRACT_PATH = "ai/notes/role-contract.yaml"
+PROTECTED_KNOWLEDGE = PERMANENT_NOTES | {ROLE_CONTRACT_PATH}
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_TAR_BYTES = 256 * 1024 * 1024
@@ -266,14 +268,15 @@ def _head_file_digest(repo, path_text):
 
 def require_clean_permanent_notes(repo):
     dirty = []
-    for path_text in sorted(PERMANENT_NOTES):
+    for path_text in sorted(PROTECTED_KNOWLEDGE):
         path = _repo_relative(repo, path_text)
         worktree = _git(repo, "hash-object", str(path)).stdout.strip()
         if worktree != _head_file_digest(repo, path_text):
             dirty.append(path_text)
     if dirty:
         raise BundleError(
-            "permanent notes differ from HEAD; the Architect must resolve "
+            "permanent notes differ from HEAD, or the protected role "
+            "contract does; the Architect must resolve "
             "them before packing: "
             + ", ".join(dirty)
         )
@@ -319,9 +322,9 @@ def selected_files(repo, explicit):
         roles.setdefault(path_text, "support")
     for path_text in explicit:
         validate_repo_path(path_text)
-        if path_text in PERMANENT_NOTES:
+        if path_text in PROTECTED_KNOWLEDGE:
             raise BundleError(
-                "permanent notes must come from the recorded Git base: " +
+                "protected knowledge must come from the recorded Git base: " +
                 path_text)
         roles.setdefault(path_text, "explicit")
     folded = {}
@@ -693,7 +696,7 @@ def validate_manifest(manifest):
     for record in files:
         _exact_keys(record, ["path", "role", "sha256", "size"], "file record")
         path_text = validate_repo_path(record["path"])
-        if path_text in PERMANENT_NOTES:
+        if path_text in PROTECTED_KNOWLEDGE:
             raise BundleError("bundle illegally embeds permanent note: " + path_text)
         if (not isinstance(record["role"], str) or
                 record["role"] not in allowed_roles):

@@ -141,7 +141,7 @@ stop-related message.
 | Preview, start, or stop the mailbox workflow; send a request to the Architect; choose role models | `mailbox_daemon.py` | `python3 ai/tools/mailbox_daemon.py --dry-run` | A dry run only prints. Commands that write files may create AI work folders, save or move mailbox files, write logs, and start AI roles. |
 | Check that an Architect or Red Team instruction contains every required part | `handoff_contract.py` | `python3 ai/tools/handoff_contract.py --help` | Reads one Markdown note. It does not run its tests or judge the scientific plan. |
 | Read status or run the manual clipboard workflow | `handoff_router.py` | `python3 ai/tools/handoff_router.py --status` | Status only reads. A run with `--note` changes the clipboard, waits for copied replies, runs local commands, and writes relay records. |
-| Check that eleven protected project notes still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the notes. It changes nothing and does not issue `GO` or `NO-GO`. |
+| Check that eleven protected project notes and the machine role contract still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the protected files. It changes nothing and does not issue `GO` or `NO-GO`. |
 | Detect an accidental change to the local backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
 | Package unfinished local backlog work for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
@@ -647,6 +647,11 @@ progress handoff, and keeps the same ticket open. The timeout is a later
 fallback for an AI program that no longer responds; it stops that process and
 moves the request to `failed/` when the move can be confirmed.
 
+`ai/notes/role-contract.yaml` records these stable timing facts together with
+role permissions and landing authority. The tools check that machine contract
+instead of relying on a README value. Only the Architect may edit it, through
+protected-policy administration; Implementer and Red Team access is read-only.
+
 Model selection and effort are independent. Choosing Sonnet does not silently
 lower the Implementer effort.
 
@@ -940,8 +945,8 @@ applies.
 ### Check protected project notes
 
 Only the Architect uses this result in a `GO` or `NO-GO` decision. The command
-below checks that the eleven permanent notes still match the saved Git version
-where the work began:
+below checks that the eleven permanent notes and `ai/notes/role-contract.yaml`
+still match the saved Git version where the work began:
 
 ```bash
 BASE="$(git rev-parse HEAD)"
@@ -963,14 +968,18 @@ approve the ticket.
 
 #### Land an Architect-only protected-rule update
 
-Only the Architect may edit and commit the eleven permanent notes and the
-Architect and Red Team role files. This is separate from an Implementer
-ticket and consumes no cycle slot.
+Only the Architect may edit and commit the eleven permanent notes,
+`ai/notes/role-contract.yaml`, and the Architect and Red Team role files, and
+only through protected-policy administration. The YAML is the protected
+machine source of truth for stable role, timing, and landing facts. This work
+is separate from an Implementer ticket and consumes no cycle slot.
 
 When Red Team is enabled, it reviews the exact draft once before the
-Architect's final decision. It may recommend a smaller change, but it cannot
-edit the files or veto the Architect. There is no second review round. With
-`--skip-redteam`, the Architect records that the review was unavailable.
+Architect's final decision. It returns one advisory `GO` or `NO-GO`
+recommendation and may recommend a smaller change, but it cannot edit the
+files or veto the Architect. There is no second review round, including after
+a correction. With `--skip-redteam`, the Architect records that the review
+was unavailable.
 
 The internal check names two saved versions:
 
@@ -1321,8 +1330,9 @@ still the final completion step for that cycle, so `--cycle 1` neither starts
 ticket B nor exits while ticket A's review is waiting. In a run without Red
 Team, step 3 completes the cycle.
 
-An Architect-only update to the eleven permanent notes is not a ticket. It
-does not use a cycle and receives no Red Team closure review.
+An Architect-only update to the eleven permanent notes or the protected
+machine role contract is not a ticket. It does not use a cycle and receives no
+Red Team closure review.
 
 #### Let different tickets overlap only when the limit has room
 
@@ -1623,8 +1633,9 @@ Put ordinary supporting files in `ai/notes/backlog-support/`. Add
 `--include ai/tests/tools_backlog_bundle_repro.py`.
 
 The automatic selection excludes live mailbox messages and relay logs. Do not
-add either with `--include`. The eleven permanent notes also stay out of the
-package because the recipient receives them from Git.
+add either with `--include`. The eleven permanent notes and protected machine
+role contract also stay out of the package because the recipient receives
+them from Git.
 
 ### FAQ H2. How can the other person open that package safely? <a id="faq-h2-inspect-unfinished-work"></a>
 

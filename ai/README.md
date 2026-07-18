@@ -596,6 +596,12 @@ The Architect owns any accepted edit to the permanent notes and may commit
 those eleven notes separately in the Architect coordination branch. The
 Implementer and Red Team do not inherit that authority.
 
+`ai/notes/role-contract.yaml` is a separate protected machine contract. It
+records stable role permissions, timing limits, and landing rules in a form
+the tools can check. It is not a twelfth permanent Markdown note. Only the
+Architect may edit it, through protected-policy administration; the
+Implementer and Red Team may read it but never change it.
+
 For an ordinary ticket, the Architect checks the Implementer's proposed saved
 change and sends the decision. After the Architect exits, the watcher alone
 records the accepted version on local `main` when its safety checks pass.
@@ -605,15 +611,18 @@ two versions.
 ### How a protected rule reaches `main`
 
 The eleven permanent notes explain durable project rules. The Architect and
-Red Team role files define those two roles. Only the Architect may edit these
-thirteen protected files. The Implementer and Red Team may report a problem,
-but they never change or commit one.
+Red Team role files define those two roles. `ai/notes/role-contract.yaml` is
+the machine-readable source of truth for stable role, timing, and landing
+facts. Only the Architect may edit these files, through protected-policy
+administration. The Implementer and Red Team may report a problem, but they
+never change or commit one.
 
 When Red Team is enabled, the Architect shows it the proposed wording once.
 Red Team checks whether the change is necessary, whether a smaller change
-would work, and whether it weakens another rule. The Architect reads that one
-advisory response and makes the final decision. There is no second review
-round. With `--skip-redteam`, the Architect records that this check was not
+would work, and whether it weakens another rule. Red Team returns one advisory
+`GO` or `NO-GO` recommendation. The Architect makes the final decision. If the
+Architect corrects the draft after a `NO-GO`, there is no second review round.
+With `--skip-redteam`, the Architect records that this check was not
 available.
 
 This update waits until ordinary ticket work is idle. The Architect saves a
@@ -834,6 +843,9 @@ Exactly eleven Markdown notes are permanent repository knowledge:
 10. `python-changes-go-no-go.md`
 11. `readme-go-no-go.md`
 
+The protected `role-contract.yaml` beside them is machine policy, not a
+Markdown knowledge note, so this list remains exactly eleven files.
+
 `MEMORY.md` begins with the mandatory GO/NO-GO contract for changing any file
 in this list. Permanent notes state current, reusable knowledge. Dates, ticket
 numbers, role conversations, review waves, and temporary status belong in
@@ -872,11 +884,12 @@ that a checksum can defeat a deliberately malicious program.
 The [backlog guard guide](tools/README.md#protect-the-local-backlog) gives the
 exact `check`, `initialize`, and `seal` commands.
 
-The Implementer and Red Team never edit these eleven notes, regardless of the
-ticket type. The Architect decides whether an accepted change modifies a
-general property recorded there. If it does, the Architect reviews and
-commits the note as a separate Architect-only change. That new commit can then
-be the starting version for a later implementation ticket.
+The Implementer and Red Team never edit these eleven notes or
+`ai/notes/role-contract.yaml`, regardless of the ticket type. The Architect
+decides whether an accepted change modifies a general property recorded there.
+If it does, the Architect reviews and commits the note as a separate
+Architect-only change. That new commit can then be the starting version for a
+later implementation ticket.
 
 Before handing work to either role, the Architect records the full starting
 commit. The Architect runs the following command immediately before that
@@ -1384,9 +1397,12 @@ using different mailboxes or placing an agent in the user's main folder.
 
 ### FAQ H1. How does the Architect update a protected rule? <a id="faq-h1-permanent-note-update"></a>
 
-Only the Architect may edit the eleven permanent notes or the Architect and
-Red Team role files. The Implementer and Red Team may point out a missing or
-incorrect rule, but they do not change or commit these files.
+Only the Architect may edit the eleven permanent notes,
+`ai/notes/role-contract.yaml`, or the Architect and Red Team role files, and
+only through protected-policy administration. The YAML is the machine-readable
+source of truth for stable role, timing, and landing facts. The Implementer and
+Red Team may point out a missing or incorrect rule, but they do not change or
+commit these files.
 
 The user does not run a special note-update command. The Architect waits for
 ordinary ticket work to become idle, saves a protected-rule change, and exits.
@@ -1405,9 +1421,10 @@ flowchart TD
 ```
 
 This special update is not a ticket. It consumes no cycle. Its single
-pre-change Red Team pass is advisory, and there is no second review round or
-post-change closure review. If the Architect decides that no protected rule
-needs to change, it sends no update.
+pre-change Red Team pass returns one advisory `GO` or `NO-GO` recommendation;
+the Architect makes the final decision. There is no second review after a
+correction and no post-change closure review. If the Architect decides that no
+protected rule needs to change, it sends no update.
 
 #### Internal record used for recovery
 
@@ -1419,7 +1436,8 @@ The process uses two saved project versions:
 
 - B is the exact local `main` version before the Architect starts.
 - P is the Architect's clean saved update. P follows directly after B and
-  changes only the eleven notes or the two protected role files.
+  changes only the eleven notes, `ai/notes/role-contract.yaml`, or the two
+  protected role files.
 
 P has one parent: B. In Git, this means P was saved directly after B rather
 than combined with another line of work.

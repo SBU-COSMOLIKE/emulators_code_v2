@@ -1186,8 +1186,11 @@ Team. Routine milestones do not create permanent-note churn.
 ### One review before protected policy changes
 
 The protected policy files are the eleven permanent notes,
-`.claude/FABLE_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. Only the Architect may
-change them.
+`ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, and
+`.codex/REDTEAM_ROLE.md`. The YAML is the machine-readable source of truth for
+stable role permissions, timing limits, and landing rules; it is not a twelfth
+permanent Markdown note. Only the Architect may change these files, through
+protected-policy administration. Implementer and Red Team access is read-only.
 
 When Red Team is enabled, the Architect first prepares the exact draft and
 sends one cycle-free `MAILBOX-TICKET: policy` request. Its body contains the
@@ -1196,11 +1199,12 @@ necessity, contradictions, and whether a smaller change would work. A change
 above 4,000 characters or touching several protected files receives a
 line-by-line review.
 
-That is the only review round. The Architect may use the advice, then gives
-the final GO or NO-GO. Red Team does not review a revision, edit a protected
-file, veto the decision, or reopen this administration work. When Red Team is
-disabled, the Architect records that the independent review was unavailable
-and continues with the same narrow guards.
+That is the only review round. Red Team returns one advisory GO or NO-GO
+recommendation. The Architect may use that advice, then gives the final GO or
+NO-GO. Red Team does not review a corrected draft, edit a protected file, veto
+the decision, or reopen this administration work. When Red Team is disabled,
+the Architect records that the independent review was unavailable and
+continues with the same narrow guards.
 
 The request has one header followed by the draft:
 

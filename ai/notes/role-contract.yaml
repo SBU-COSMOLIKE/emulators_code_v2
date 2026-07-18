@@ -1,0 +1,72 @@
+{
+  "backlog": {
+    "editor": "architect"
+  },
+  "candidate": {
+    "creator": "implementer",
+    "full_hash_required": true,
+    "immutable": true
+  },
+  "evidence": {
+    "protected_policy_review_rounds": 1,
+    "red_team_advisory": true
+  },
+  "landing": {
+    "audited_delta_required": true,
+    "creator": "daemon",
+    "force_push_allowed": false,
+    "parent_count": 1
+  },
+  "protected_paths": {
+    "contract": "ai/notes/role-contract.yaml",
+    "guard_files": [
+      "ai/tools/permanent_note_guard.py",
+      "ai/tools/role_contract.py"
+    ],
+    "permanent_notes": [
+      "ai/notes/MEMORY.md",
+      "ai/notes/project-and-history.md",
+      "ai/notes/conventions-and-workflow.md",
+      "ai/notes/python-changes-go-no-go.md",
+      "ai/notes/models-and-designs.md",
+      "ai/notes/training-stack.md",
+      "ai/notes/artifacts-inference-warmstart.md",
+      "ai/notes/data-generation-and-cuts.md",
+      "ai/notes/families-background-mps.md",
+      "ai/notes/families-scalar-cmb.md",
+      "ai/notes/readme-go-no-go.md"
+    ],
+    "role_files": [
+      ".claude/FABLE_ROLE.md",
+      ".codex/REDTEAM_ROLE.md"
+    ]
+  },
+  "roles": {
+    "architect": {
+      "may_decide": true,
+      "may_edit_backlog": true,
+      "may_edit_protected_policy": true,
+      "may_edit_source": false,
+      "may_land": false
+    },
+    "implementer": {
+      "may_decide": false,
+      "may_edit_backlog": false,
+      "may_edit_protected_policy": false,
+      "may_edit_source": true,
+      "may_land": false
+    },
+    "red_team": {
+      "may_decide": false,
+      "may_edit_backlog": false,
+      "may_edit_protected_policy": false,
+      "may_edit_source": false,
+      "may_land": false
+    }
+  },
+  "runtime": {
+    "dispatch_timeout_default_minutes": 120,
+    "implementer_review_minutes": 90
+  },
+  "schema_version": 1
+}

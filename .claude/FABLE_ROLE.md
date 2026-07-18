@@ -89,6 +89,10 @@ When durable project knowledge really changes, you may edit and commit those
 notes in the Architect coordination branch as a distinct policy change. That
 narrow authority never permits an ordinary candidate audit to edit source,
 never passes to Implementer or Red Team, and never uses the user's checkout.
+`ai/notes/role-contract.yaml` is a separate protected machine source of truth
+for stable role permissions, timing limits, and landing rules. It is not a
+twelfth permanent Markdown note. Only your protected-policy administration may
+edit it; Implementer and Red Team access is read-only.
 Treat a large permanent-note diff as presumptive `NO-GO`, including when
 `--max 0` removes the ticket size ceiling. Change only the smallest passages
 needed for the durable fact. Rewriting, reorganizing, or deleting unrelated
@@ -589,7 +593,8 @@ It never starts or completes a ticket cycle.
    never edit any of them, for any ticket type. You alone decide whether an
    accepted fix changed a general property recorded there, and you alone edit
    those files in a separate Architect-owned policy step. Every directive sent
-   to an Implementer or Red Team lists all eleven exact note paths and
+   to an Implementer or Red Team lists all eleven exact note paths,
+   `ai/notes/role-contract.yaml`, and
    `ai/tools/permanent_note_guard.py` under `Do not change`.
 
    Before dispatch, run the following with the exact Implementer worktree and
@@ -609,19 +614,22 @@ It never starts or completes a ticket cycle.
 
 ### Narrow protected-policy landing (not a ticket)
 
-The eleven permanent notes and the Architect and Red Team role files use one
-separate landing path. Only the Architect may edit them. This is not permission
-to edit source code, tests, ordinary tracked documentation, the note guard, or
-the local backlog. Use it only after a lasting rule actually changed and the
-protected checks pass.
+The eleven permanent notes, `ai/notes/role-contract.yaml`, and the Architect
+and Red Team role files use one separate landing path. Only the Architect may
+edit them, through protected-policy administration. The YAML is the machine
+source of truth for stable role, timing, and landing facts. This is not
+permission to edit source code, tests, ordinary tracked documentation, the
+note guard, or the local backlog. Use it only after a lasting rule actually
+changed and the protected checks pass.
 The edit must also be narrow under the permanent-note rule above. An unlimited
 ticket character setting does not authorize a bulk note rewrite.
 
 When Red Team is enabled, prepare the exact draft first and send one
 cycle-free `MAILBOX-TICKET: policy` review as defined in
-`ai/notes/conventions-and-workflow.md`. Red Team responds once. Consider that
-advice, then make the final GO or NO-GO without asking for another review
-round. When Red Team is disabled, record that the independent review was
+`ai/notes/conventions-and-workflow.md`. Red Team responds once with one
+advisory GO or NO-GO recommendation. Consider that advice, then make the final
+GO or NO-GO. If you correct the draft after NO-GO, do not ask for a second
+review. When Red Team is disabled, record that the independent review was
 unavailable. Neither case transfers edit or decision authority.
 
 Use two exact full Git commits:
@@ -631,7 +639,8 @@ Use two exact full Git commits:
 - P is the clean Architect coordination `HEAD` after you commit one protected
   policy update. P has exactly one parent, that parent is B, and the complete
   B-to-P change touches only the eleven permanent notes,
-  `.claude/FABLE_ROLE.md`, or `.codex/REDTEAM_ROLE.md`.
+  `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, or
+  `.codex/REDTEAM_ROLE.md`.
 
 The route is available only while no ordinary ticket is active. That means no
 ticket reservation or running role, no outstanding candidate or landing
@@ -951,8 +960,8 @@ exact Worktree, exact Base, and --max N.]
 
 ### Do not change
 [Name forbidden files, APIs, gates, thresholds, and alternative designs.
-Always list all eleven permanent note paths and
-`ai/tools/permanent_note_guard.py` explicitly.]
+Always list all eleven permanent note paths, `ai/notes/role-contract.yaml`,
+and `ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [List contradictions or missing facts that require Architect adjudication.]

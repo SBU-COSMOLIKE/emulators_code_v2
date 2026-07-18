@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Compare the permanent AI notes with one Architect-pinned Git commit.
+"""Compare protected AI knowledge with one Architect-pinned Git commit.
 
 This is a guardrail against accidental edits during any Implementer or Red
 Team work.  It does not decide GO or NO-GO.  The Architect records the full
 starting commit in the implementation directive and reruns this tool before
 making that decision.
+
+The eleven Markdown notes remain a fixed census. The separate structured role
+contract receives the same byte-for-byte protection.
 
 The expected SHA-256 values are calculated from Git.  They are not stored in
 an editable checksum file.  The tool compares the base commit, current HEAD,
@@ -39,6 +42,8 @@ PERMANENT_NOTES = (
     "ai/notes/training-stack.md",
     "ai/notes/python-changes-go-no-go.md",
 )
+ROLE_CONTRACT_PATH = "ai/notes/role-contract.yaml"
+PROTECTED_POLICY_FILES = PERMANENT_NOTES + (ROLE_CONTRACT_PATH,)
 
 FULL_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -313,7 +318,7 @@ def verify(repo, base):
     _require_exact_note_set(_index_paths(repo), "Git staging area")
 
     rows = []
-    for path in PERMANENT_NOTES:
+    for path in PROTECTED_POLICY_FILES:
         expected = _git_bytes(repo, base, path)
         head = _git_bytes(repo, "HEAD", path)
         staged = _git_bytes(repo, "", path)
@@ -328,8 +333,8 @@ def verify(repo, base):
 def build_parser():
     parser = argparse.ArgumentParser(
         description=(
-            "Compare the eleven permanent notes with an Architect-pinned "
-            "starting commit."))
+            "Compare the eleven permanent notes and protected role contract "
+            "with an Architect-pinned starting commit."))
     parser.add_argument(
         "--base",
         required=True,
@@ -355,7 +360,8 @@ def main(argv=None):
         print("permanent-note guard refused: " + str(error), file=sys.stderr)
         return 2
 
-    print("Permanent notes match the Architect-pinned starting commit.")
+    print("Permanent notes and role contract match the Architect-pinned "
+          "starting commit.")
     print("base: " + base)
     print("worktree: " + str(repo))
     print("states: current HEAD, Git staging area, working tree")
@@ -363,7 +369,7 @@ def main(argv=None):
         print(digest + "  " + path)
     print(
         "PERMANENT-NOTE-GUARD PASS base=" + base
-        + " notes=" + str(len(rows)))
+        + " notes=" + str(len(PERMANENT_NOTES)) + " contract=1")
     return 0
 
 

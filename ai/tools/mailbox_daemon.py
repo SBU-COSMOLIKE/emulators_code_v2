@@ -236,7 +236,8 @@ CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
 # A long Implementer turn first pauses for an Architect complexity review.
 # The later hard timeout remains a fallback for a CLI that stops responding.
 IMPLEMENTER_REVIEW_MINUTES = 90
-DISPATCH_TIMEOUT_MINUTES = 120
+DEFAULT_DISPATCH_TIMEOUT_MINUTES = 120
+DISPATCH_TIMEOUT_MINUTES = DEFAULT_DISPATCH_TIMEOUT_MINUTES
 MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
 MAX_TIMEOUT_HISTORY_BYTES = 262144
 MAX_TIMEOUT_HISTORY_EVENTS = 1000
@@ -281,14 +282,86 @@ ARCHITECT_PERMANENT_NOTE_PATHS = (
     "ai/notes/families-scalar-cmb.md",
     "ai/notes/readme-go-no-go.md",
 )
+ROLE_CONTRACT_RELATIVE_PATH = "ai/notes/role-contract.yaml"
+ROLE_CONTRACT_TOOL_RELATIVE_PATH = "ai/tools/role_contract.py"
 ARCHITECT_PROTECTED_POLICY_PATHS = (
     ARCHITECT_PERMANENT_NOTE_PATHS
-    + (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md")
+    + (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md",
+       ROLE_CONTRACT_RELATIVE_PATH)
 )
 ARCHITECT_PROTECTED_TRACKED_PATHS = (
     ARCHITECT_PROTECTED_POLICY_PATHS
-    + ("ai/tools/permanent_note_guard.py",)
+    + ("ai/tools/permanent_note_guard.py", ROLE_CONTRACT_TOOL_RELATIVE_PATH)
 )
+
+ROLE_PERMISSIONS = {
+    "architect": {
+        "may_edit_source": False, "may_decide": True, "may_land": False,
+        "may_edit_backlog": True, "may_edit_protected_policy": True},
+    "implementer": {
+        "may_edit_source": True, "may_decide": False, "may_land": False,
+        "may_edit_backlog": False, "may_edit_protected_policy": False},
+    "red_team": {
+        "may_edit_source": False, "may_decide": False, "may_land": False,
+        "may_edit_backlog": False, "may_edit_protected_policy": False},
+}
+
+
+def _local_role_contract_tool():
+    """Load the contract reader beside this daemon, never from another tree."""
+    expected = os.path.join(SCRIPT_DIR, "role_contract.py")
+    try:
+        from ai.tools import role_contract as tool
+    except ImportError:
+        tool = None
+    if (tool is not None
+            and os.path.realpath(tool.__file__) == os.path.realpath(expected)):
+        return tool
+    spec = importlib.util.spec_from_file_location(
+        "_mailbox_local_role_contract", expected)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load the protected role contract reader")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def validate_role_contract_bindings(contract=None):
+    """Refuse a live run when Python controls disagree with protected YAML."""
+    tool = _local_role_contract_tool()
+    if contract is None:
+        contract = tool.load_role_contract(
+            os.path.join(WORKTREE, ROLE_CONTRACT_RELATIVE_PATH))
+    else:
+        tool.validate_role_contract(contract)
+    expected = {
+        "roles": ROLE_PERMISSIONS,
+        "candidate": {"creator": "implementer", "immutable": True,
+                      "full_hash_required": True},
+        "landing": {"creator": "daemon", "parent_count": 1,
+                    "force_push_allowed": False,
+                    "audited_delta_required": True},
+        "backlog": {"editor": "architect"},
+        "evidence": {"red_team_advisory": True,
+                     "protected_policy_review_rounds": 1},
+        "runtime": {
+            "implementer_review_minutes": IMPLEMENTER_REVIEW_MINUTES,
+            "dispatch_timeout_default_minutes":
+                DEFAULT_DISPATCH_TIMEOUT_MINUTES},
+        "protected_paths": {
+            "contract": ROLE_CONTRACT_RELATIVE_PATH,
+            "permanent_notes": list(ARCHITECT_PERMANENT_NOTE_PATHS),
+            "role_files": [".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md"],
+            "guard_files": ["ai/tools/permanent_note_guard.py",
+                            ROLE_CONTRACT_TOOL_RELATIVE_PATH]},
+    }
+    for section, value in expected.items():
+        if contract[section] != value:
+            raise tool.RoleContractError(
+                section + " disagrees with the live mailbox controls")
+    return contract
+
+
 BACKLOG_GUARD_STATE_NAME = ".backlog-guard.json"
 MAX_PROTECTED_NOTE_BYTES = 4 * 1024 * 1024
 MAX_BACKLOG_GUARD_STATE_BYTES = 16 * 1024
@@ -1979,6 +2052,10 @@ def validate_authoritative_role_files(primary_path):
             primary, "ai", "tools", "handoff_contract.py")),
         ("ticket tool", os.path.join(
             primary, "ai", "tools", "ticket_change_guard.py")),
+        ("role contract reader", os.path.join(
+            primary, "ai", "tools", "role_contract.py")),
+        ("role contract", os.path.join(
+            primary, "ai", "notes", "role-contract.yaml")),
     )
     file_proof = []
     for kind, path in authoritative_files:
@@ -6308,10 +6385,11 @@ def revalidate_agent_dispatch_topology(proof):
 
 
 def revalidate_protected_policy_admin_topology(proof):
-    """Allow only the two role files to change during a policy admin turn."""
+    """Allow only Architect-owned policy files to change in an admin turn."""
     if not isinstance(proof, dict):
         return revalidate_agent_dispatch_topology(proof=proof)
-    mutable = (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md")
+    mutable = (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md",
+               ROLE_CONTRACT_RELATIVE_PATH)
     recheck_agent_dispatch_directories(proof=proof, mutable_paths=mutable)
     current = validate_live_agent_dispatch_topology(agent=proof["agent"])
     recheck_agent_dispatch_directories(
@@ -8262,6 +8340,22 @@ def record_implementer_candidate(cycle_id, starting_head):
             starting_commit=starting_head, accepted_commit=candidate):
         raise TicketCycleStateError(
             "Implementer result is not a new descendant of its saved base")
+    changed = _run_git(
+        repository_root=worktree,
+        arguments=["diff", "--name-only", "-z", starting_head, candidate,
+                   "--", "."])
+    try:
+        changed_paths = {
+            item.decode("utf-8", errors="strict")
+            for item in changed.stdout.split(b"\0") if item}
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "Implementer candidate contains a non-UTF-8 path") from exc
+    forbidden = changed_paths.intersection(ARCHITECT_PROTECTED_TRACKED_PATHS)
+    if forbidden:
+        raise TicketCycleStateError(
+            "Implementer candidate changes Architect-protected policy: "
+            + ", ".join(sorted(forbidden)))
     lock_file = acquire_ticket_cycle_lock()
     try:
         ticket_state = read_ticket_cycle_state()
@@ -9231,7 +9325,8 @@ def _permanent_note_commit_paths(base_commit, notes_commit):
                 ARCHITECT_PROTECTED_POLICY_PATHS))):
         raise TicketCycleStateError(
             "protected-policy commit must modify only the Architect role, "
-            "Red Team role, or exact eleven permanent notes")
+            "Red Team role, protected YAML contract, or exact eleven "
+            "permanent notes")
     return tuple(paths)
 
 
@@ -11826,6 +11921,16 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
 
 def send_architect_notes_admin(text, dry_run=False):
     """Publish one narrow Architect-only permanent-note self-route."""
+    try:
+        contract = validate_role_contract_bindings()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print("refused permanent-note admin request: role contract error: "
+              + str(exc) + ".")
+        return False
+    if not contract["roles"]["architect"]["may_edit_protected_policy"]:
+        print("refused permanent-note admin request: protected role contract "
+              "does not grant Architect policy administration.")
+        return False
     if os.environ.get(MAILBOX_ROLE_ENVIRONMENT) != "architect":
         print("refused permanent-note admin request: MAILBOX_ROLE must be "
               "architect.")
@@ -12063,6 +12168,11 @@ def main():
                 live_action=bool(primary_actions), dry_run=args.dry_run)
         except PrimaryWorktreeError as exc:
             print("primary worktree error: " + str(exc))
+            return 1
+        try:
+            validate_role_contract_bindings()
+        except (OSError, RuntimeError, ValueError) as exc:
+            print("role contract error: " + str(exc))
             return 1
 
     fix_only = args.fix_only is True

@@ -31,6 +31,8 @@ if str(REPO_ROOT) not in sys.path:
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 HANDOFF_CONTRACT_PATH = AI_ROOT / "tools" / "handoff_contract.py"
 PERMANENT_NOTE_GUARD_PATH = AI_ROOT / "tools" / "permanent_note_guard.py"
+ROLE_CONTRACT_TOOL_PATH = AI_ROOT / "tools" / "role_contract.py"
+ROLE_CONTRACT_PATH = AI_ROOT / "notes" / "role-contract.yaml"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 PERMANENT_NOTES = (
     "MEMORY.md",
@@ -187,6 +189,12 @@ def scratch_repository(source=None):
         write_exact(
             root / "ai" / "tools" / "permanent_note_guard.py",
             PERMANENT_NOTE_GUARD_PATH.read_bytes())
+        write_exact(
+            root / "ai" / "tools" / "role_contract.py",
+            ROLE_CONTRACT_TOOL_PATH.read_bytes())
+        write_exact(
+            root / "ai" / "notes" / "role-contract.yaml",
+            ROLE_CONTRACT_PATH.read_bytes())
         # Worktrees and their two bootstrap sidecars are runtime state.  The
         # production ignore rule is asserted separately; the scratch rule
         # prevents Git status from recursively inspecting linked checkouts.
@@ -214,7 +222,9 @@ def scratch_repository(source=None):
             "ai/tools/mailbox_daemon.py",
             "ai/tools/handoff_contract.py",
             "ai/tools/ticket_change_guard.py",
-            "ai/tools/permanent_note_guard.py")
+            "ai/tools/permanent_note_guard.py",
+            "ai/tools/role_contract.py",
+            "ai/notes/role-contract.yaml")
         git(root, "add", *[
             "ai/notes/" + note_name for note_name in PERMANENT_NOTES])
         git(root, "commit", "-m", "scratch daemon fixture")

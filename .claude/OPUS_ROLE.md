@@ -144,9 +144,13 @@ restores ticket worktrees.
    not invent the missing prose decision. For a changed long-form PDF, require
    the named source build, page renders, and page-by-page visual review.
 
-   The eleven permanent notes and `ai/tools/permanent_note_guard.py` are
-   off-limits in every Implementer unit, not only documentation units. If the
-   directive's `Do not change` section does not list all twelve exact paths,
+   The eleven permanent notes, `ai/notes/role-contract.yaml`, and
+   `ai/tools/permanent_note_guard.py` are off-limits in every Implementer unit,
+   not only documentation units. The YAML is the protected machine source of
+   truth for stable role permissions, timing limits, and landing rules; it is
+   read-only for this role and is not a twelfth permanent Markdown note. If the
+   directive's `Do not change` section does not list all twelve exact paths for
+   the notes and guard, plus the exact role-contract path,
    return a blocker before editing. The Architect's separate permanent-note
    landing is not an Implementer unit: do not edit, commit, synchronize,
    review, or push its B/P pair. The parent daemon handles that route only
@@ -310,9 +314,10 @@ restores ticket worktrees.
    emitting the chat block. Never add headings inside `## Implementation
    directive`; that packet must remain valid for a repair rerun. If the
    sibling evidence heading is absent, return a blocker. Never edit the
-   permanent eleven listed in `ai/README.md`, regardless of ticket type;
-   deciding whether they need an update and making that update belong
-   exclusively to the Architect. The relayed
+   permanent eleven listed in `ai/README.md` or
+   `ai/notes/role-contract.yaml`, regardless of ticket type; deciding whether
+   they need an update and making that update belong exclusively to Architect
+   protected-policy administration. The relayed
    `IMPLEMENTER_HANDOFF` is a
    compact routing summary that cites its note, and when a summary and its
    note disagree, the current note is the source of record. Canonical shared

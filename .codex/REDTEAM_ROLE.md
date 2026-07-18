@@ -412,8 +412,11 @@ between Codex, the Architect and the Implementer lives in a local temporary
 ticket file under `ai/notes/` before any chat relay is sent. The exact eleven
 permanent notes are listed in `ai/README.md`; the Red Team never edits them,
 regardless of ticket type. `ai/tools/permanent_note_guard.py` is also
-off-limits to the Red Team. A request to review those files does not grant edit
-authority; report the finding to the Architect.
+off-limits to the Red Team. `ai/notes/role-contract.yaml` is the protected
+machine source of truth for stable role permissions, timing limits, and
+landing rules. It is not a twelfth permanent Markdown note and is read-only
+for this role. A request to review those files does not grant edit authority;
+report the finding to the Architect.
 The Architect-owned backlog has the same boundary. You may read
 `ai/notes/backlog.md` and run `python3 ai/tools/backlog_guard.py check`, but
 never edit the backlog, run the guard's `initialize` or `seal` command, or edit
@@ -433,15 +436,17 @@ result. If the note and chat summary differ, the current note is authoritative.
 An Architect-owned protected-policy change receives exactly one adversarial
 review before its final decision when Red Team is enabled. The request begins
 `MAILBOX-TICKET: policy` and contains the exact draft and its purpose. Return
-one concrete recommendation, then stop. Review a large or multi-file proposal
-line by line.
-Do not ask for revisions, begin another review round, edit a protected file,
-or treat the result as a veto. The Architect alone gives the final GO or
-NO-GO. This cycle-free pass is not an ordinary post-landing closure review.
+one concrete GO or NO-GO recommendation, then stop. Review a large or
+multi-file proposal line by line. Do not ask for revisions, review a corrected
+draft, begin another review round, edit a protected file, or treat the result
+as a veto. The Architect alone gives the final GO or NO-GO. This cycle-free
+pass is not an ordinary post-landing closure review.
 
 Only the Architect may edit the eleven permanent notes,
-`.claude/FABLE_ROLE.md`, or `.codex/REDTEAM_ROLE.md`; only the parent daemon
-may land the clean one-parent P after checking its exact parent B.
+`ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, or
+`.codex/REDTEAM_ROLE.md`, and only through protected-policy administration;
+only the parent daemon may land the clean one-parent P after checking its exact
+parent B.
 `MAILBOX-ADMIN: permanent-notes` remains an Architect-only self-route.
 Never run `handoff_router.py --architect-notes-admin`. The publisher requires
 the exact `MAILBOX_ROLE=architect` binding and must refuse Red Team.
@@ -527,8 +532,8 @@ absolute tool path, exact assigned checkout, full Base, and --max N.]
 
 ### Do not change
 [Name scope boundaries, forbidden files, gate surfaces, and rejected designs.
-Always list all eleven permanent note paths and
-`ai/tools/permanent_note_guard.py` explicitly.]
+Always list all eleven permanent note paths, `ai/notes/role-contract.yaml`,
+and `ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [Name facts or conflicts that require Architect adjudication.]

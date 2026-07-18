@@ -11,6 +11,12 @@ The permanent notes are not a development diary. Git, the repository's
 version-control system, stores old
 wording and superseded designs. The local backlog stores unfinished work.
 
+`role-contract.yaml` is a separate protected machine contract. It records
+stable role permissions, timing limits, and landing rules for tool validation.
+It is not a twelfth permanent Markdown note. Only the Architect may edit it,
+through protected-policy administration; the Implementer and Red Team may
+only read it.
+
 The operating workflow is explained in [`ai/README.md`](../README.md).
 
 ## GO/NO-GO contract for changing a permanent note
@@ -138,14 +144,15 @@ edits. An intentional accepted change does not weaken or bypass the guard.
 
 1. The Architect reviews the complete note diff and every renamed reference.
 2. The Architect confirms that exactly eleven top-level Markdown notes remain
-   tracked under `ai/notes/`.
+   tracked under `ai/notes/` and that `role-contract.yaml` remains a separate
+   protected machine contract.
 3. The relevant note tests, link checks, and prose checks run before commit.
 4. The accepted commit becomes the new pinned base for later work.
 5. `permanent_note_guard.py` runs against that full accepted commit before the
    next Implementer or Red Team unit begins.
 
 The guard script and protected path list change only when the permanent-note
-map changes deliberately.
+map or machine role contract changes deliberately.
 
 ## The permanent eleven
 
@@ -180,6 +187,9 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
 11. **[`readme-go-no-go.md`](readme-go-no-go.md)** — the mandatory contract
     for tracked READMEs, long-form documentation, and explanatory Python
     comments, docstrings, command help, diagnostics, and strings.
+
+The protected `role-contract.yaml` beside these notes does not change this
+count. It is structured input for tools, not explanatory Markdown knowledge.
 
 `MEMORY.md` changes only when the permanent map or the permanent-note contract
 needs clarification. The file is not a per-ticket index.
@@ -237,18 +247,22 @@ important than closing a ticket, finishing a cycle, recovering automation, or
 clearing push debt. `conventions-and-workflow.md`, section **Protected branch
 history is never rewritten**, owns the complete rule.
 
-Permanent-note changes use a separate Architect-only administration turn;
-they are never folded into an Implementer ticket or a Red Team review. From a
-bound Architect turn, the Architect queues that work with
+Protected-policy changes use a separate Architect-only administration turn;
+they are never folded into an Implementer ticket or an ordinary ticket's
+closure review. When Red Team is enabled, it reviews the exact draft once and
+returns one advisory GO or NO-GO recommendation. The Architect makes the final
+decision, and a corrected draft receives no second review round. From a bound
+Architect turn, the Architect queues that work with
 `handoff_router.py --architect-notes-admin` and a plain-language summary. The
 turn runs only after ordinary ticket, candidate, landing, and closure work is
-idle. If durable knowledge changes, the Architect creates one clean commit P
-directly on the unchanged local-main commit B, changes only one or more of the
-eleven permanent notes, and returns the exact B/P `architect-notes-go`
-message. The parent daemon validates and fast-forwards B to P, records any
-push debt, and advances only clean safe role baselines. This administration
-uses no ticket cycle and receives no Sol review, but an unresolved admin turn
-or P landing prevents a watcher from claiming a clean exit.
+idle. If durable policy changes, the Architect creates one clean commit P
+directly on the unchanged local-main commit B, changes only the permanent
+notes, `role-contract.yaml`, or protected role files, and returns the exact
+B/P `architect-notes-go` message. The parent daemon validates and
+fast-forwards B to P, records any push debt, and advances only clean safe role
+baselines. This administration uses no ticket cycle and receives no closure
+review, but an unresolved admin turn or P landing prevents a watcher from
+claiming a clean exit.
 
 Roles exchange instructions by saving and moving Markdown files through the
 mailbox folders. A received final message needs no artificial reply only when

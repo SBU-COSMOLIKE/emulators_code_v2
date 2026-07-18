@@ -48,6 +48,7 @@ ai/notes/relay/
 !/ai/notes/readme-go-no-go.md
 !/ai/notes/training-stack.md
 !/ai/notes/python-changes-go-no-go.md
+!/ai/notes/role-contract.yaml
 
 # Offline backlog handoffs and their review staging are local transport.
 # Supporting attachments live here so an email bundle can collect them
