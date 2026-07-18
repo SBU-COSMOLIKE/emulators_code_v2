@@ -68,7 +68,7 @@ rules still apply when an AI role makes a change.
 - [FAQ F1. Which folder does each role use?](#appendix-f--what-is-the-worktree-topology)
 - [FAQ F2. Can I create another work folder for myself?](#faq-f2-other-worktrees)
 - [FAQ G1. What do candidate C and landing L mean?](#faq-g1-candidate-and-landing)
-- [FAQ H1. How does the Architect update a permanent note?](#faq-h1-permanent-note-update)
+- [FAQ H1. How does the Architect update a protected rule?](#faq-h1-permanent-note-update)
 
 **[Appendices about additional documentation](#appendices-about-additional-documentation)**
 
@@ -594,22 +594,30 @@ records the accepted version on local `main` when its safety checks pass.
 [FAQ G1](#faq-g1-candidate-and-landing) gives the internal Git names for those
 two versions.
 
-### How a permanent-note update reaches `main`
+### How a protected rule reaches `main`
 
-The eleven permanent notes explain durable project rules to future users and
-AI roles. Only the Architect may edit them. The Implementer and Red Team may
-report a problem with a note, but they never change or commit one.
+The eleven permanent notes explain durable project rules. The Architect and
+Red Team role files define those two roles. Only the Architect may edit these
+thirteen protected files. The Implementer and Red Team may report a problem,
+but they never change or commit one.
+
+When Red Team is enabled, the Architect shows it the proposed wording once.
+Red Team checks whether the change is necessary, whether a smaller change
+would work, and whether it weakens another rule. The Architect reads that one
+advisory response and makes the final decision. There is no second review
+round. With `--skip-redteam`, the Architect records that this check was not
+available.
 
 This update waits until ordinary ticket work is idle. The Architect saves a
-note-only change in the Architect folder. After the Architect exits, the
-watcher checks that the change contains only permanent notes and that the
-user's `main` folder is still safe to update. It then records that exact
+protected-rule change in the Architect folder. After the Architect exits, the
+watcher checks that the change contains only protected policy files and that
+the user's `main` folder is still safe to update. It then records that exact
 change on local `main` and prepares the three AI folders for later work.
 
-This note update is not a ticket, does not use a cycle, and does not ask Red
-Team for a closure review. A normal user never has to write its internal
-control fields. [FAQ H1](#faq-h1-permanent-note-update) explains those fields
-for a maintainer who must diagnose this special path.
+This update is not a ticket and does not use a cycle. Its one pre-change check
+is different from a ticket's closure review. A normal user never has to write
+its internal control fields. [FAQ H1](#faq-h1-permanent-note-update) explains
+those fields for a maintainer who must diagnose this special path.
 
 ### When does the Red Team run?
 
@@ -1366,29 +1374,32 @@ Commands that write files find the saved worktrees, then continue from the
 Architect's coordination folder. This prevents two terminals from silently
 using different mailboxes or placing an agent in the user's main folder.
 
-### FAQ H1. How does the Architect update a permanent note? <a id="faq-h1-permanent-note-update"></a>
+### FAQ H1. How does the Architect update a protected rule? <a id="faq-h1-permanent-note-update"></a>
 
-Only the Architect may edit the eleven permanent notes. The Implementer and
-Red Team may point out a missing or incorrect rule, but they do not change or
-commit these files.
+Only the Architect may edit the eleven permanent notes or the Architect and
+Red Team role files. The Implementer and Red Team may point out a missing or
+incorrect rule, but they do not change or commit these files.
 
 The user does not run a special note-update command. The Architect waits for
-ordinary ticket work to become idle, saves a note-only change, and exits. The
-watcher then checks and records that exact change on a clean, unchanged local
-`main`.
+ordinary ticket work to become idle, saves a protected-rule change, and exits.
+The watcher then checks and records that exact change on a clean, unchanged
+local `main`.
 
 ```mermaid
 flowchart TD
-  R["A durable project rule needs correction"] --> A["Architect edits only permanent notes"]
-  A --> S["Architect saves one note-only version"]
+  R["A lasting project rule needs correction"] --> D["Architect prepares an exact draft"]
+  D --> V["Red Team reviews the draft once, when enabled"]
+  V --> A["Architect makes the final decision"]
+  A --> S["Architect saves one protected-rule version"]
   S --> W["Watcher checks the changed files and main folder"]
   W --> M["Watcher records the note update on local main"]
   M --> N["Later tickets start with the updated rules"]
 ```
 
-This special update is not a ticket. It consumes no cycle and receives no Red
-Team closure review. If the Architect decides that no permanent note needs to
-change, it sends no update.
+This special update is not a ticket. It consumes no cycle. Its single
+pre-change Red Team pass is advisory, and there is no second review round or
+post-change closure review. If the Architect decides that no protected rule
+needs to change, it sends no update.
 
 #### Internal record used for recovery
 
@@ -1400,7 +1411,7 @@ The process uses two saved project versions:
 
 - B is the exact local `main` version before the Architect starts.
 - P is the Architect's clean saved update. P follows directly after B and
-  changes one or more permanent notes and nothing else.
+  changes only the eleven notes or the two protected role files.
 
 P has one parent: B. In Git, this means P was saved directly after B rather
 than combined with another line of work.
@@ -1433,8 +1444,8 @@ watcher**—checks the exact B/P pair. It confirms that the role folders are
 idle and safe to update before it makes P the newest saved version on local
 `main`. A later Implementer request then starts from saved version P.
 
-This special update does not use or complete a ticket cycle and does not ask
-Sol for a review.
+This special update does not use or complete a ticket cycle. When Red Team is
+enabled, its one required review happens before the Architect's final decision.
 
 The watcher tries one non-force push, meaning one attempt to send P without
 overwriting newer remote work. If that attempt fails or is uncertain, it

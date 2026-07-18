@@ -1175,7 +1175,37 @@ Only the Architect decides whether an accepted change alters a permanent
 general property. Permanent notes are not edited by an Implementer or Red
 Team. Routine milestones do not create permanent-note churn.
 
-When a permanent rule really changes, the Architect queues one separate
+### One review before protected policy changes
+
+The protected policy files are the eleven permanent notes,
+`.claude/FABLE_ROLE.md`, and `.codex/REDTEAM_ROLE.md`. Only the Architect may
+change them.
+
+When Red Team is enabled, the Architect first prepares the exact draft and
+sends one cycle-free `MAILBOX-TICKET: policy` request. Its body contains the
+complete proposed change and explains why it may be needed. Red Team checks
+necessity, contradictions, and whether a smaller change would work. A change
+above 4,000 characters or touching several protected files receives a
+line-by-line review.
+
+That is the only review round. The Architect may use the advice, then gives
+the final GO or NO-GO. Red Team does not review a revision, edit a protected
+file, veto the decision, or reopen this administration work. When Red Team is
+disabled, the Architect records that the independent review was unavailable
+and continues with the same narrow guards.
+
+The request has one header followed by the draft:
+
+```text
+MAILBOX-TICKET: policy
+
+COMPLETE DRAFT AND PURPOSE
+```
+
+Red Team returns one clear recommendation with reasons, then stops. The review
+uses no ticket cycle and never creates an Implementer task.
+
+When a protected rule really changes, the Architect queues one separate
 administration turn from its bound primary worktree:
 
 ```bash
@@ -1190,7 +1220,7 @@ candidate and landing recovery, role processes, and closure review are idle.
 It is the sole role launch in that mailbox pass. It may make no change and
 return silently. If a permanent note must change, it creates one clean commit
 P whose single parent is the exact unchanged local-main commit B. P modifies
-at least one of the eleven permanent Markdown notes and no other tracked path.
+one or more protected policy files and no other tracked path.
 It then writes exactly:
 
 ```text
@@ -1205,9 +1235,9 @@ note set, every ordinary landing record, and the clean user checkout. It
 fast-forwards B to P only after those checks, records remote push debt, and
 fast-forwards clean safe Architect, Implementer, and Red Team baselines.
 Dirty, active, or diverged role work is preserved and refused rather than
-reset. The route consumes no ticket cycle and creates no Sol review. A queued,
-inflight, or failed administration/P record is still visible work: it cannot
-be abandoned merely because a positive cycle limit was reached or because
+reset. The route consumes no ticket cycle and creates no second Sol review.
+A queued, inflight, or failed administration/P record is still visible work.
+It cannot be abandoned merely because a positive cycle limit was reached or because
 the ordinary backlog is empty.
 
 ## Landing and branch discipline

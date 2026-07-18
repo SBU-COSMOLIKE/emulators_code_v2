@@ -956,11 +956,16 @@ PERMANENT-NOTE-GUARD PASS base=... notes=11
 A passing result proves only that the protected files match. It does not
 approve the ticket.
 
-#### Land an Architect-only permanent-note update
+#### Land an Architect-only protected-rule update
 
-Only the Architect may edit and commit the permanent notes. This is separate
-from an Implementer ticket. It consumes no cycle slot and queues no Red Team
-request.
+Only the Architect may edit and commit the eleven permanent notes and the
+Architect and Red Team role files. This is separate from an Implementer
+ticket and consumes no cycle slot.
+
+When Red Team is enabled, it reviews the exact draft once before the
+Architect's final decision. It may recommend a smaller change, but it cannot
+edit the files or veto the Architect. There is no second review round. With
+`--skip-redteam`, the Architect records that the review was unavailable.
 
 The internal check names two saved versions:
 
@@ -995,7 +1000,7 @@ MAILBOX-NOTES-COMMIT: FULL-P
 MAILBOX-DECISION: GO
 ```
 
-If no permanent note needs to change, the Architect leaves `HEAD` at B and
+If no protected rule needs to change, the Architect leaves `HEAD` at B and
 creates neither a daemon request nor an Implementer request.
 
 After the Architect exits, the parent watcher checks B, P, and every changed

@@ -1434,30 +1434,35 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("parent daemon", architect.lower())
         self.assertIn("does not reserve, advance, or complete a ticket cycle",
                       architect)
-        self.assertIn("does not queue a Sol review", architect)
+        self.assertIn(
+            "does not queue a second or post-landing Sol review", architect)
 
-        self.assertIn("parent is the exact unchanged local-main base B",
+        self.assertIn("parent, the unchanged local-main base B",
                       architect_command)
         self.assertIn("no ordinary ticket reservation", architect_command)
         self.assertIn("consumes no ticket cycle", architect_command)
-        self.assertIn("receives no Sol review", architect_command)
+        self.assertIn(
+            "receives no second or post-landing Sol review",
+            architect_command)
 
         self.assertIn("B is the exact local `main` version", ai_readme)
         self.assertIn("P is the Architect's clean saved update", ai_readme)
         self.assertIn("parent watcher", ai_readme.lower())
         self.assertIn("does not use or complete a ticket cycle", ai_readme)
-        self.assertIn("does not ask Sol for a review", ai_readme)
+        self.assertIn(
+            "one required review happens before", ai_readme)
 
         self.assertIn("B is the local `main` commit", tools_readme)
         self.assertIn("P is the clean Architect coordination `HEAD`",
                       tools_readme)
         self.assertIn("parent watcher", tools_readme.lower())
         self.assertIn("consumes no cycle slot", tools_readme)
-        self.assertIn("queues no Red Team request", tools_readme)
+        self.assertIn("There is no second review round", self.tools_readme)
         self.assertIn("not an Implementer", implementer)
         self.assertIn("not an Implementer ticket", implementer_command)
         self.assertIn("do not edit, commit", implementer)
-        self.assertIn("not a Red Team review target", redteam)
+        self.assertIn("exactly one adversarial review", redteam)
+        self.assertIn("begin another review round", redteam)
         self.assertIn("candidate-to-landing recovery", tools_readme)
         self.assertIn("saved Architect GO", tools_readme)
         self.assertIn("leave `HEAD` at B and write no daemon or Implementer "

@@ -80,17 +80,25 @@ without rewriting the protected history.
 On `NO-GO`, revise the same cycle's complete directive and let the daemon
 restore its saved candidate; never reset or switch an agent worktree.
 
-Permanent-note work uses a different, narrow route. Only the Architect may edit
-the eleven permanent notes. Commit a clean note-only P. P has exactly one
-parent, and that parent is the exact unchanged local-main base B; change at
-least one permanent note and no other path. Use this route only when no
+Protected-policy work uses a different, narrow route. Only the Architect may
+edit the eleven permanent notes and the Architect and Red Team role files.
+Commit a clean P with exactly one parent, the unchanged local-main base B;
+change only those protected files. Use this route only when no
 ordinary ticket reservation, process, candidate/landing recovery, or closure
 review is active. Even then, change only the smallest required passages. Treat a
 large note diff as NO-GO even with `--max 0`; the digest guard proves identity,
 not quality. A bulk rewrite needs an explicit user request and separate diff
 review.
-After this process exits, the parent daemon validates and lands B-to-P. This work consumes
-no ticket cycle and receives no Sol review. The daemon alone attempts the
+
+When Red Team is enabled, send the exact draft for one cycle-free adversarial
+review first. Read its single advisory response, then make the final decision;
+do not start a second review round. With `--skip-redteam`, record that the
+review was unavailable. The exact protocol is in
+`ai/notes/conventions-and-workflow.md`.
+
+After this process exits, the parent daemon validates and lands B-to-P. This
+work consumes no ticket cycle and receives no second or post-landing Sol
+review. The daemon alone attempts the
 bounded push; a failed or uncertain attempt becomes push debt for exact P. It
 safely brings a clean idle lane to P before the next ticket;
 it must preserve and refuse to reset a dirty, diverged, or active lane.

@@ -281,8 +281,12 @@ ARCHITECT_PERMANENT_NOTE_PATHS = (
     "ai/notes/families-scalar-cmb.md",
     "ai/notes/readme-go-no-go.md",
 )
-ARCHITECT_PROTECTED_TRACKED_PATHS = (
+ARCHITECT_PROTECTED_POLICY_PATHS = (
     ARCHITECT_PERMANENT_NOTE_PATHS
+    + (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md")
+)
+ARCHITECT_PROTECTED_TRACKED_PATHS = (
+    ARCHITECT_PROTECTED_POLICY_PATHS
     + ("ai/tools/permanent_note_guard.py",)
 )
 BACKLOG_GUARD_STATE_NAME = ".backlog-guard.json"
@@ -2004,8 +2008,8 @@ def validate_authoritative_role_files(primary_path):
     return proof
 
 
-def recheck_authoritative_role_files(proof):
-    """Require every authoritative parent and file to keep its identity."""
+def recheck_authoritative_role_files(proof, mutable_paths=()):
+    """Require authoritative files to stay fixed outside an admin turn."""
     if (not isinstance(proof, dict)
             or set(proof) != {"directories", "files"}):
         raise PrimaryWorktreeError(
@@ -2013,7 +2017,10 @@ def recheck_authoritative_role_files(proof):
     for label, path, identity in proof["directories"]:
         _require_directory_identity(
             path=path, identity=identity, label=label)
+    primary = proof["directories"][0][1]
     for kind, path, identity in proof["files"]:
+        if os.path.relpath(path, primary) in mutable_paths:
+            continue
         try:
             info = os.lstat(path)
         except OSError as exc:
@@ -3209,7 +3216,7 @@ BACKLOG_REOPENING_RE = re.compile(
     r"(allowed|barred by Architect NO-GO)\.\*\*$")
 BACKLOG_REOPENING_CANDIDATE_RE = re.compile(
     r"Red[ \t]+Team[ \t]+reopening\b", re.IGNORECASE)
-SOL_TICKET_KINDS = ("closure", "discovery")
+SOL_TICKET_KINDS = ("closure", "discovery", "policy")
 SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
 SOL_TICKET_HEADER = "MAILBOX-TICKET: "
 SOL_SEVERITY_HEADER = "MAILBOX-SEVERITY: "
@@ -3538,6 +3545,7 @@ PREAMBLE = (
     "these classification lines:\n"
     "    MAILBOX-TICKET: closure\n"
     "    MAILBOX-TICKET: discovery\n"
+    "    MAILBOX-TICKET: policy\n"
     "Use closure only for work that retires an existing - OPEN ledger line;\n"
     "use discovery when the product is new findings. The daemon refuses to\n"
     "guess a class from prose. A discovery must add these exact second and\n"
@@ -3555,6 +3563,10 @@ PREAMBLE = (
     "and result headers. Result is NO CHANGE or REOPEN, never GO/NO-GO. A\n"
     "matching return completes the cycle. Another ticket may start only when\n"
     "the current watch still has an unused cycle slot.\n"
+    "Policy is the cycle-free, one-pass adversarial review of an Architect's\n"
+    "exact draft change to a protected role or permanent note. Return one\n"
+    "advisory answer. The Architect then makes the final decision; do not\n"
+    "begin a second review round.\n"
     "A public request to the Architect uses those same severity and scope\n"
     "lines as its first two lines. The daemon validates and exports both\n"
     "values to the Architect turn; they are not a Sol ticket classification.\n"
@@ -5174,8 +5186,8 @@ def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
                 "exact --ping sol payload")
     if ticket_kind not in SOL_TICKET_KINDS:
         return ("missing or invalid first line; every Sol ticket must start "
-                "with exactly 'MAILBOX-TICKET: closure' or "
-                "'MAILBOX-TICKET: discovery'")
+                "with exactly 'MAILBOX-TICKET: closure', "
+                "'MAILBOX-TICKET: discovery', or 'MAILBOX-TICKET: policy'")
     if ledger_problem is not None:
         return ledger_problem
     if ticket_kind == "discovery":
@@ -5191,7 +5203,7 @@ def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
         return "--severity is valid only for discovery tickets"
     elif discovery_scope is not None:
         return "discovery scope is valid only for discovery tickets"
-    if fix_only and ticket_kind != "closure":
+    if fix_only and ticket_kind not in {"closure", "policy"}:
         return ("fix-only watch is closing-only; discovery tickets and new "
                 "backlog lines are forbidden until the watch is restarted "
                 "without --fix-only")
@@ -6269,7 +6281,7 @@ def validate_live_agent_dispatch_topology(agent):
         _release_primary_lock(lock_file=lock_file)
 
 
-def recheck_agent_dispatch_directories(proof):
+def recheck_agent_dispatch_directories(proof, mutable_paths=()):
     """Prove launch pathnames still name the pre-claim directories."""
     if proof is None:
         raise PrimaryWorktreeError(
@@ -6280,7 +6292,8 @@ def recheck_agent_dispatch_directories(proof):
     _require_directory_identity(
         path=proof["notes_path"], identity=proof["notes_identity"],
         label="shared notes directory")
-    recheck_authoritative_role_files(proof=proof["authoritative_files"])
+    recheck_authoritative_role_files(
+        proof=proof["authoritative_files"], mutable_paths=mutable_paths)
 
 
 def revalidate_agent_dispatch_topology(proof):
@@ -6291,6 +6304,18 @@ def revalidate_agent_dispatch_topology(proof):
         raise PrimaryWorktreeError(
             "saved agent worktree topology changed after message claim")
     recheck_agent_dispatch_directories(proof=current)
+    return current
+
+
+def revalidate_protected_policy_admin_topology(proof):
+    """Allow only the two role files to change during a policy admin turn."""
+    if not isinstance(proof, dict):
+        return revalidate_agent_dispatch_topology(proof=proof)
+    mutable = (".claude/FABLE_ROLE.md", ".codex/REDTEAM_ROLE.md")
+    recheck_agent_dispatch_directories(proof=proof, mutable_paths=mutable)
+    current = validate_live_agent_dispatch_topology(agent=proof["agent"])
+    recheck_agent_dispatch_directories(
+        proof=current, mutable_paths=mutable)
     return current
 
 
@@ -6390,7 +6415,7 @@ def _require_exact_permanent_note_set(primary_worktree, head):
 
 
 def _validate_protected_tracked_state(primary_worktree):
-    """Require permanent notes and their guard to match current primary HEAD."""
+    """Require protected policy files and their guard to match primary HEAD."""
     try:
         head = worktree_head(worktree=primary_worktree)
     except TicketCycleStateError as exc:
@@ -6973,7 +6998,6 @@ def dispatch_under_main_checkout_lock(
         review_accepted_commit = redteam_closure_commit(message=message)
         if not dry_run:
             review_receipt_before = fable_message_inode_snapshot()
-
     if agent == "sol":
         placeholder_body = sol_ticket_body(message=message)
     elif message.startswith(MAILBOX_FLOW_HEADER):
@@ -7198,9 +7222,15 @@ def dispatch_under_main_checkout_lock(
                                     env=env)
             try:
                 if agent in {"fable", "opus", "sol"}:
-                    revalidate_agent_dispatch_topology(
-                        proof=agent_topology_proof)
-                recheck_persistent_role_state(proof=persistent_role_state)
+                    if notes_admin_turn:
+                        revalidate_protected_policy_admin_topology(
+                            proof=agent_topology_proof)
+                    else:
+                        revalidate_agent_dispatch_topology(
+                            proof=agent_topology_proof)
+                if not notes_admin_turn:
+                    recheck_persistent_role_state(
+                        proof=persistent_role_state)
             except (OSError, PrimaryWorktreeError):
                 proc.kill()
                 proc.wait()
@@ -7282,8 +7312,15 @@ def dispatch_under_main_checkout_lock(
     persistent_role_error = None
     if proc is not None and agent in {"fable", "opus", "sol"}:
         try:
-            revalidate_agent_dispatch_topology(proof=agent_topology_proof)
-            recheck_persistent_role_state(proof=persistent_role_state)
+            if notes_admin_turn:
+                revalidate_protected_policy_admin_topology(
+                    proof=agent_topology_proof)
+            else:
+                revalidate_agent_dispatch_topology(
+                    proof=agent_topology_proof)
+            if not notes_admin_turn:
+                recheck_persistent_role_state(
+                    proof=persistent_role_state)
         except (OSError, PrimaryWorktreeError) as exc:
             persistent_role_error = exc
 
@@ -7596,6 +7633,11 @@ def dispatch_under_main_checkout_lock(
                 return False
         if notes_commit == base_commit:
             try:
+                if (notes_admin_turn
+                        and _clean_worktree_status(
+                            worktree=AGENT_CWD["fable"])):
+                    raise PrimaryWorktreeError(
+                        "Architect admin turn left uncommitted changes")
                 _validate_current_protected_primary_state(
                     primary_worktree=AGENT_CWD["fable"])
             except PrimaryWorktreeError as exc:
@@ -9185,10 +9227,11 @@ def _permanent_note_commit_paths(base_commit, notes_commit):
             "permanent-note commit path is not UTF-8") from exc
     if (not paths
             or len(paths) != len(set(paths))
-            or not set(paths).issubset(set(ARCHITECT_PERMANENT_NOTE_PATHS))):
+            or not set(paths).issubset(set(
+                ARCHITECT_PROTECTED_POLICY_PATHS))):
         raise TicketCycleStateError(
-            "permanent-note commit must modify only the exact eleven "
-            "allowed note paths")
+            "protected-policy commit must modify only the Architect role, "
+            "Red Team role, or exact eleven permanent notes")
     return tuple(paths)
 
 
@@ -10857,8 +10900,9 @@ def register_ticket_cycle_message(
 
     Returns ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
     ``(cycle_id, None)`` for an Architect/Implementer exchange, and
-    ``(None, None)`` for unrelated work. A new ticket reserves one positive
-    ``--cycle`` slot before its mailbox file is claimed.
+    ``(None, None)`` for cycle-free policy review or unrelated work. A new
+    ticket reserves one positive ``--cycle`` slot before its mailbox file is
+    claimed.
     """
     cycle_id = None
     accepted_commit = None
@@ -11666,8 +11710,9 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
       text    = exact message text; internal role messages point to the source
                 note under ``ai/notes/``.
       dry_run = True to print the file path without writing the message.
-      ticket_kind = ``closure`` or ``discovery`` for internal Sol work. The
-                    exact internal Sol ping alone uses ``transport``.
+      ticket_kind = ``closure``, ``discovery``, or ``policy`` for internal
+                    Sol work. Policy is the cycle-free review of a protected
+                    rule. The exact internal Sol ping alone uses ``transport``.
       severity = the Architect-approved minimum ``high``, ``medium``, or
                  ``low`` value for an internal Sol discovery. Omission uses
                  the inherited run value or medium. Other ticket kinds and

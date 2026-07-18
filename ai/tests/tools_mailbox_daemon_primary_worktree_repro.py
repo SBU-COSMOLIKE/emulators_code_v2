@@ -541,8 +541,6 @@ def arm_stale_primary_protocol_refuses(source=None):
         write_exact(
             primary / "ai" / "tools" / "mailbox_daemon.py",
             stale_source.encode("utf-8"))
-        git(primary, "add", "ai/tools/mailbox_daemon.py")
-        git(primary, "commit", "-m", "scratch stale mailbox protocol")
         state_before = state_path(root).read_bytes()
         root_before = root_checkout_identity(root)
         rc, stdout, _stderr = invoke(
@@ -552,7 +550,7 @@ def arm_stale_primary_protocol_refuses(source=None):
         passed = (
             rc != 0
             and "primary worktree error:" in stdout
-            and "Architect primary is ahead of main" in stdout
+            and "saved primary daemon does not enforce" in stdout
             and pending_markdown(root) == []
             and pending_markdown(primary) == []
             and state_path(root).read_bytes() == state_before
@@ -2246,11 +2244,17 @@ def arm_permanent_note_admin_is_exclusive_and_lands(source=None):
             if environment.get("MAILBOX_NOTES_BASE") != base:
                 return
             note = primary / "ai" / "notes" / "MEMORY.md"
+            role = primary / ".claude" / "FABLE_ROLE.md"
             note.write_text(
                 note.read_text(encoding="utf-8")
                 + "\nAdmin-only scratch policy.\n",
                 encoding="utf-8", newline="")
-            git(primary, "add", "ai/notes/MEMORY.md")
+            role.write_text(
+                role.read_text(encoding="utf-8")
+                + "\nAdmin-only scratch role rule.\n",
+                encoding="utf-8", newline="")
+            git(primary, "add", "ai/notes/MEMORY.md",
+                ".claude/FABLE_ROLE.md")
             git(primary, "commit", "-m", "scratch permanent note P")
             notes_commit = git(primary, "rev-parse", "HEAD").stdout.strip()
             created["P"] = notes_commit
@@ -2717,6 +2721,41 @@ def arm_persistent_roles_refuse_tracked_and_untracked_source_edits(
         outcomes.append(refused)
         print("uncommitted permanent-note edit preserved and refused="
               + str(refused))
+
+    with scratch_repository(source=source) as root:
+        prepared = prepare_fable(root)
+        if prepared is None:
+            return False
+        daemon, primary, message = prepared
+        message.write_text(
+            daemon.architect_notes_admin_payload(
+                "Exercise an uncommitted role edit."),
+            encoding="utf-8", newline="")
+        request_identity = file_identity(message)
+        base = git(primary, "rev-parse", "HEAD").stdout.strip()
+        role = primary / ".claude" / "FABLE_ROLE.md"
+        dirty = role.read_bytes() + b"\nUncommitted scratch role rule.\n"
+
+        def edit_role():
+            role.write_bytes(dirty)
+
+        original = daemon.subprocess
+        daemon.subprocess = PopenProxy(original, edit_role)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        failed = primary / "ai" / "notes" / "mailbox" / "failed" / message.name
+        refused_role = (
+            result is False
+            and git(primary, "rev-parse", "HEAD").stdout.strip() == base
+            and role.read_bytes() == dirty
+            and file_identity(failed) == request_identity
+            and state(primary, "fable")
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(refused_role)
+        print("uncommitted protected-role edit preserved and refused="
+              + str(refused_role))
 
     with scratch_repository(source=source) as root:
         prepared = prepare_fable(root)
@@ -4955,15 +4994,20 @@ def mutation_cases(source):
         '    if True:  # mutation: exact prior reset cannot retire state\n',
         arm_candidate_retirement_internal_crash_replays)
     add("persistent role end-state recheck dropped",
-        '            revalidate_agent_dispatch_topology('
-        'proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '            else:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            if not notes_admin_turn:\n'
+        '                recheck_persistent_role_state(\n'
+        '                    proof=persistent_role_state)\n'
         '        except (OSError, PrimaryWorktreeError) as exc:\n'
         '            persistent_role_error = exc',
-        '            revalidate_agent_dispatch_topology('
-        'proof=agent_topology_proof)\n'
-        '            pass  # mutation: persistent tracked edits are ignored\n'
+        '            else:\n'
+        '                revalidate_agent_dispatch_topology(\n'
+        '                    proof=agent_topology_proof)\n'
+        '            if False:  # mutation: persistent edits are ignored\n'
+        '                recheck_persistent_role_state(\n'
+        '                    proof=persistent_role_state)\n'
         '        except (OSError, PrimaryWorktreeError) as exc:\n'
         '            persistent_role_error = exc',
         arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
@@ -5082,16 +5126,22 @@ def mutation_cases(source):
         arm_architect_launch_boundary_revalidates_branch_and_role)
     add("post-Popen Architect topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
-        '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                    if notes_admin_turn:\n'
+        '                        revalidate_protected_policy_admin_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                    else:\n'
+        '                        revalidate_agent_dispatch_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         '                if agent in {"opus", "sol"}:\n'
         '                    revalidate_agent_dispatch_topology(\n'
         '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         arm_architect_launch_boundary_revalidates_branch_and_role)
     add("pre-Popen Sol topology revalidation dropped",
@@ -5110,16 +5160,26 @@ def mutation_cases(source):
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("post-Popen Sol topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
-        '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                    if notes_admin_turn:\n'
+        '                        revalidate_protected_policy_admin_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                    else:\n'
+        '                        revalidate_agent_dispatch_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         '                if agent in {"fable", "opus"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
-        '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                    if notes_admin_turn:\n'
+        '                        revalidate_protected_policy_admin_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                    else:\n'
+        '                        revalidate_agent_dispatch_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("pre-Popen Implementer topology revalidation dropped",
@@ -5138,22 +5198,34 @@ def mutation_cases(source):
         arm_implementer_launch_boundary_revalidates_branch_and_state)
     add("post-Popen Implementer topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
-        '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                    if notes_admin_turn:\n'
+        '                        revalidate_protected_policy_admin_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                    else:\n'
+        '                        revalidate_agent_dispatch_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         '                if agent in {"fable", "sol"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
-        '                        proof=agent_topology_proof)\n'
-        '                recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
+        '                    if notes_admin_turn:\n'
+        '                        revalidate_protected_policy_admin_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                    else:\n'
+        '                        revalidate_agent_dispatch_topology(\n'
+        '                            proof=agent_topology_proof)\n'
+        '                if not notes_admin_turn:\n'
+        '                    recheck_persistent_role_state(\n'
+        '                        proof=persistent_role_state)\n'
         '            except (OSError, PrimaryWorktreeError):',
         arm_implementer_launch_boundary_revalidates_branch_and_state)
     add("around-Popen Sol Git revalidation reduced to inode check",
         '    current = validate_live_agent_dispatch_topology('
-        'agent=proof["agent"])\n',
-        '    current = proof  # mutation: branch and saved state not re-read\n',
+        'agent=proof["agent"])\n'
+        '    if current != proof:\n',
+        '    current = proof  # mutation: branch and state not re-read\n'
+        '    if current != proof:\n',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     legacy_refusal = (
         '    raise PrimaryWorktreeError(\n'

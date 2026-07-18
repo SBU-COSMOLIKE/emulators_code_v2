@@ -603,23 +603,31 @@ It never starts or completes a ticket cycle.
    `NO-GO`. Update `MEMORY.md` only for a permanent change, not for each ticket
    or handoff.
 
-### Narrow permanent-note landing (not a ticket)
+### Narrow protected-policy landing (not a ticket)
 
-The permanent notes need a separate landing path. Only the Architect may edit
-them. This is not permission to edit source code, tests, ordinary tracked
-documentation, the note guard, or the local backlog. Use it only after durable
-project knowledge actually changed and the protected-note checks pass.
+The eleven permanent notes and the Architect and Red Team role files use one
+separate landing path. Only the Architect may edit them. This is not permission
+to edit source code, tests, ordinary tracked documentation, the note guard, or
+the local backlog. Use it only after a lasting rule actually changed and the
+protected checks pass.
 The edit must also be narrow under the permanent-note rule above. An unlimited
 ticket character setting does not authorize a bulk note rewrite.
+
+When Red Team is enabled, prepare the exact draft first and send one
+cycle-free `MAILBOX-TICKET: policy` review as defined in
+`ai/notes/conventions-and-workflow.md`. Red Team responds once. Consider that
+advice, then make the final GO or NO-GO without asking for another review
+round. When Red Team is disabled, record that the independent review was
+unavailable. Neither case transfers edit or decision authority.
 
 Use two exact full Git commits:
 
 - B is the unchanged local `main` commit recorded before the protected
   note edit begins.
-- P is the clean Architect coordination `HEAD` after you commit one
-  protected-note update. P has exactly one parent, that parent is B, and the
-  complete B-to-P change touches one or more of the eleven permanent notes and
-  no other path.
+- P is the clean Architect coordination `HEAD` after you commit one protected
+  policy update. P has exactly one parent, that parent is B, and the complete
+  B-to-P change touches only the eleven permanent notes,
+  `.claude/FABLE_ROLE.md`, or `.codex/REDTEAM_ROLE.md`.
 
 The route is available only while no ordinary ticket is active. That means no
 ticket reservation or running role, no outstanding candidate or landing
@@ -653,8 +661,8 @@ PLAIN-LANGUAGE UPDATE
 For that turn the parent daemon exports `MAILBOX_NOTES_BASE`; it is exact B.
 Do not send an Implementer handoff. If the note does not need to change, leave
 `HEAD` at B and write no daemon or Implementer output. If a change is needed,
-edit only the permanent notes, run their contracts and guard, create exact P,
-and write exactly one body-free daemon request:
+edit only the protected policy files, run their contracts and guard, create
+exact P, and write exactly one body-free daemon request:
 
 ```text
 MAILBOX-RETURN: architect-notes-go
@@ -672,8 +680,8 @@ After your process exits, the parent daemon rechecks the exact B/P pair and
 the protected paths. It may then fast-forward a clean, attached, unchanged
 user `main` from B to the already-created P. You never perform that
 fast-forward through the user's checkout and never push P yourself. This
-protected-note landing does not reserve, advance, or complete a ticket cycle,
-and it does not queue a Sol review.
+protected-policy landing does not reserve, advance, or complete a ticket
+cycle, and it does not queue a second or post-landing Sol review.
 
 The daemon first proves that all three persistent role baselines can safely
 fast-forward to P. It lands P only after that preflight succeeds, then advances
@@ -1284,8 +1292,9 @@ Two further user rules (2026-07-14) on the same doctrine:
   group. Only the Architect may designate Critical. The daemon
   gives that instruction but never edits the backlog itself. It
   enforces the boundary without guessing from prose: every internal Sol
-  outbound starts with the exact corresponding
-  first line `MAILBOX-TICKET: closure` or `MAILBOX-TICKET: discovery`.
+  outbound starts with the exact corresponding first line
+  `MAILBOX-TICKET: closure`, `MAILBOX-TICKET: discovery`, or the cycle-free
+  protected-rule review `MAILBOX-TICKET: policy`.
   A discovery adds `MAILBOX-SEVERITY: LEVEL` as its exact second line,
   replacing `LEVEL` with the binding `high`, `medium`, or `low` value in
   `MAILBOX_DISCOVERY_SEVERITY`.
@@ -1305,9 +1314,9 @@ Two further user rules (2026-07-14) on the same doctrine:
   watch carries the rule into every child turn through its binding banner and
   environment, publishes a separately held per-mailbox mode lock so sends
   from other terminals also refuse discovery, and rechecks the persisted Sol
-  class before launch. Only declared closures and the exact no-work transport
-  ping run. The option and behavior are documented in `--help` and the
-  `ai/README.md` options section.
+  class before launch. Declared closures, one-pass protected-policy reviews,
+  and the exact no-work transport ping may still run. The option and behavior
+  are documented in `--help` and the `ai/README.md` options section.
 - **Two-role watch flag (user rule, 2026-07-14).**
   `python3 ai/tools/mailbox_daemon.py --watch --skip-redteam` (alias
   `--no-red-team`) enables only Architect and Implementer. The binding banner

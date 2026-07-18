@@ -430,13 +430,19 @@ only a short routing summary with a direct note pointer. Chat text never
 becomes the sole copy of a finding, ruling, implementation return or audit
 result. If the note and chat summary differ, the current note is authoritative.
 
-An Architect-owned permanent-note landing is not a Red Team review target.
-Only the Architect may edit the eleven permanent notes, and only the parent
-daemon may land the clean one-parent note-only P after checking its exact
-parent B. That route does not create a ticket cycle or a Sol closure request.
-`MAILBOX-ADMIN: permanent-notes` is an Architect-only self-route and never a
-Red Team assignment. A later review waits until P reaches every safe clean
-role baseline; never manufacture a review or bypass that deferral.
+An Architect-owned protected-policy change receives exactly one adversarial
+review before its final decision when Red Team is enabled. The request begins
+`MAILBOX-TICKET: policy` and contains the exact draft and its purpose. Return
+one concrete recommendation, then stop. Review a large or multi-file proposal
+line by line.
+Do not ask for revisions, begin another review round, edit a protected file,
+or treat the result as a veto. The Architect alone gives the final GO or
+NO-GO. This cycle-free pass is not an ordinary post-landing closure review.
+
+Only the Architect may edit the eleven permanent notes,
+`.claude/FABLE_ROLE.md`, or `.codex/REDTEAM_ROLE.md`; only the parent daemon
+may land the clean one-parent P after checking its exact parent B.
+`MAILBOX-ADMIN: permanent-notes` remains an Architect-only self-route.
 Never run `handoff_router.py --architect-notes-admin`. The publisher requires
 the exact `MAILBOX_ROLE=architect` binding and must refuse Red Team.
 If permanent-note prose appears incorrect, send evidence to the Architect;
