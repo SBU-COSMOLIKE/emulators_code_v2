@@ -100,7 +100,8 @@ PRIMARY_STATE_RELATIVE = os.path.join(
     ".claude", "worktrees", ".mailbox-primary-worktree.json")
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 PRIMARY_WORKTREE_NAME = "mailbox-primary"
-PRIMARY_TOPOLOGY = "dedicated-sol-worktree-v1"
+PRIMARY_STATE_SCHEMA = 3
+PRIMARY_TOPOLOGY = "separate-role-worktrees-v1"
 MAX_PRIMARY_STATE_BYTES = 16 * 1024
 MAX_BACKLOG_BYTES = 16 * 1024 * 1024
 OPEN_BACKLOG_TICKET_RE = re.compile(
@@ -238,10 +239,15 @@ def authoritative_backlog_path():
     if not isinstance(state, dict):
         raise BacklogLedgerError("primary-worktree state must be an object")
     schema = state.get("schema")
-    expected_keys = {"schema", "repository", "name", "path", "branch"}
-    if schema == 2:
-        expected_keys.add("topology")
-    elif schema != 1:
+    expected_keys = {
+        "schema", "repository", "name", "path", "branch", "topology"}
+    if type(schema) is int and schema in {1, 2}:
+        raise BacklogLedgerError(
+            "retired primary-worktree state schema; stop old mailbox "
+            "processes; preserve and update the saved primary worktree; "
+            "move the retired state file aside for recovery; then run the "
+            "current `python3 ai/tools/mailbox_daemon.py --once` there")
+    if type(schema) is not int or schema != PRIMARY_STATE_SCHEMA:
         raise BacklogLedgerError("unsupported primary-worktree state schema")
     if set(state) != expected_keys:
         raise BacklogLedgerError(
@@ -252,11 +258,10 @@ def authoritative_backlog_path():
                 or "\x00" in value or "\n" in value or "\r" in value):
             raise BacklogLedgerError(
                 "invalid primary-worktree state field " + key)
-    if schema == 2 and state["topology"] != PRIMARY_TOPOLOGY:
+    if state["topology"] != PRIMARY_TOPOLOGY:
         raise BacklogLedgerError("unsupported primary-worktree topology")
     if (not os.path.isabs(state["repository"])
-            or os.path.realpath(state["repository"])
-            != os.path.realpath(repository)):
+            or state["repository"] != common):
         raise BacklogLedgerError(
             "primary-worktree state names a different repository")
     primary = os.path.abspath(state["path"])

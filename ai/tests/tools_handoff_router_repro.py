@@ -29,6 +29,7 @@ if str(AI_ROOT.parent) not in sys.path:
 from ai.tests.test_handoff_contract import NO_HELPER_EVIDENCE
 from ai.tests.test_handoff_contract import NO_HELPER_PLAN
 from ai.tests.test_handoff_contract import packet
+from ai.tools import mailbox_daemon as live_mailbox_daemon
 
 
 VALID_ARCHITECT_NOTE = packet(role="architect")
@@ -1468,13 +1469,16 @@ def arm_saved_primary_backlog_resolution():
         write_backlog(repo=execution, high_bug_fix=12)
 
         state_path = managed / ".mailbox-primary-worktree.json"
+        common = run_git(
+            repository, "rev-parse", "--path-format=absolute",
+            "--git-common-dir").stdout.strip()
         state = {
-            "schema": 2,
-            "repository": str(repository),
+            "schema": live_mailbox_daemon.PRIMARY_STATE_SCHEMA,
+            "repository": os.path.realpath(common),
             "name": "mailbox-primary",
             "path": str(primary),
             "branch": "refs/heads/claude/mailbox-primary",
-            "topology": "dedicated-sol-worktree-v1",
+            "topology": live_mailbox_daemon.PRIMARY_TOPOLOGY_MARKER,
         }
 
         def write_state(value=state):
@@ -1487,6 +1491,11 @@ def arm_saved_primary_backlog_resolution():
             "scratch_router_primary_backlog", target)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        constants_match = (
+            module.PRIMARY_STATE_SCHEMA
+            == live_mailbox_daemon.PRIMARY_STATE_SCHEMA
+            and module.PRIMARY_TOPOLOGY
+            == live_mailbox_daemon.PRIMARY_TOPOLOGY_MARKER)
 
         resolved = module.authoritative_backlog_path()
         counts = module.backlog_severity_counts()
@@ -1535,6 +1544,74 @@ def arm_saved_primary_backlog_resolution():
             foreign_checkout_refused = True
         write_state()
 
+        retired_schemas_refused = []
+        for retired_schema in (1, 2):
+            retired = dict(state)
+            retired["schema"] = retired_schema
+            if retired_schema == 1:
+                retired.pop("topology")
+            else:
+                retired["topology"] = "dedicated-sol-worktree-v1"
+            write_state(retired)
+            try:
+                module.authoritative_backlog_path()
+            except module.BacklogLedgerError as exc:
+                explanation = str(exc)
+                retired_schemas_refused.append(
+                    "saved primary worktree" in explanation
+                    and "move the retired state file aside" in explanation
+                    and "mailbox_daemon.py --once" in explanation)
+            else:
+                retired_schemas_refused.append(False)
+        write_state()
+
+        unsupported_schemas_refused = []
+        for invalid_schema in (4, True):
+            unsupported = dict(state)
+            unsupported["schema"] = invalid_schema
+            write_state(unsupported)
+            try:
+                module.authoritative_backlog_path()
+            except module.BacklogLedgerError:
+                unsupported_schemas_refused.append(True)
+            else:
+                unsupported_schemas_refused.append(False)
+        write_state()
+
+        invalid_keys_refused = []
+        for invalid in ({key: value for key, value in state.items()
+                         if key != "topology"},
+                        dict(state, unexpected="value")):
+            write_state(invalid)
+            try:
+                module.authoritative_backlog_path()
+            except module.BacklogLedgerError:
+                invalid_keys_refused.append(True)
+            else:
+                invalid_keys_refused.append(False)
+        write_state()
+
+        wrong_topology = dict(state)
+        wrong_topology["topology"] = "dedicated-sol-worktree-v1"
+        write_state(wrong_topology)
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            wrong_topology_refused = True
+        else:
+            wrong_topology_refused = False
+
+        root_repository = dict(state)
+        root_repository["repository"] = str(repository)
+        write_state(root_repository)
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            root_repository_refused = True
+        else:
+            root_repository_refused = False
+        write_state()
+
         run_git(primary, "checkout", "-q", "-b", "claude/wrong-primary")
         branch_mismatch_refused = False
         try:
@@ -1543,17 +1620,33 @@ def arm_saved_primary_backlog_resolution():
             branch_mismatch_refused = True
 
         print("ARM saved primary backlog resolution")
+        print("  router constants match current daemon:", constants_match)
         print("  execution-checkout backlog ignored:", primary_selected)
         print("  missing state fails closed:", missing_state_refused)
         print("  redirected state fails closed:", redirected_state_refused)
         print("  foreign checkout in state fails closed:",
               foreign_checkout_refused)
+        print("  retired state schemas fail with migration action:",
+              all(retired_schemas_refused))
+        print("  unknown and boolean schemas fail closed:",
+              all(unsupported_schemas_refused))
+        print("  missing and extra state keys fail closed:",
+              all(invalid_keys_refused))
+        print("  retired topology fails closed:", wrong_topology_refused)
+        print("  old root-path repository field fails closed:",
+              root_repository_refused)
         print("  registered branch mismatch fails closed:",
               branch_mismatch_refused)
+        assert constants_match
         assert primary_selected
         assert missing_state_refused
         assert redirected_state_refused
         assert foreign_checkout_refused
+        assert all(retired_schemas_refused)
+        assert all(unsupported_schemas_refused)
+        assert all(invalid_keys_refused)
+        assert wrong_topology_refused
+        assert root_repository_refused
         assert branch_mismatch_refused
 
 
