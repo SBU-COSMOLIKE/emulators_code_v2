@@ -3573,6 +3573,7 @@ def check_provider_connectivity(
             ollama_marker = "COCOA-FLOW-PONG-OLLAMA-" + nonce
             ollama_command = [
                 OLLAMA_EXECUTABLE, "run", implementer_model,
+                "--hidethinking",
                 _provider_ping_prompt(ollama_marker)]
             ollama_ok = _provider_answered(
                 ollama_command, ollama_marker, directory)

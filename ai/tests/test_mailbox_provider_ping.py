@@ -127,6 +127,7 @@ class MailboxProviderPingTests(unittest.TestCase):
             self.assertEqual(
                 calls[1][0][:3],
                 [daemon.OLLAMA_EXECUTABLE, "run", "qwen-test-model"])
+            self.assertIn("--hidethinking", calls[1][0])
 
     def test_ollama_build_keeps_the_architect_on_claude(self):
         with scratch_daemon() as (daemon, _, _, _):

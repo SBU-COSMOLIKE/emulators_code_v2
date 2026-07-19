@@ -3297,6 +3297,42 @@ name was compiled into the daemon.
 
 </details>
 
+<a id="closed-ollama-ping-visible-thinking"></a>
+## Let reasoning-capable Ollama models pass the connection check
+
+### High-level summary
+
+The Ollama connection check required the model's entire visible answer to be
+the requested marker. GLM-5.2 Cloud answered correctly, but it printed its
+reasoning first, so CocoaFlow reported a healthy signed-in model as
+unavailable.
+
+### Current status
+
+**CLOSED.** This was accepted as a **HIGH BUG FIX** because the documented
+Ollama model could not pass the check required before an unattended watch.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+### What is already fixed
+
+The probe now asks Ollama to hide model reasoning. It still requires an exact,
+unpredictable reply, so echoed prompts and unrelated output remain failures.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+The repair adds Ollama's `--hidethinking` option only to the no-work
+connection probe. The focused provider test requires that option while the
+existing nonce and echoed-prompt tests retain the strict response boundary.
+
+</details>
+
 ## AI roles, user controls, and handoffs
 
 <a id="closed-subagent-discretion"></a>
