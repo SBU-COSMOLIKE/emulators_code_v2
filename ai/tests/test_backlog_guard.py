@@ -301,18 +301,55 @@ class BacklogGuardTests(unittest.TestCase):
                     backlog_guard._read_regular_bytes(
                         state, "backlog guard state", 1024 * 1024)
 
-    def test_existing_lock_refuses_writes_and_local_files_are_ignored(self):
+    def test_stale_lock_file_is_reused_and_local_files_are_ignored(self):
         with scratch_checkout() as (repo, _, state):
             lock = state.with_name(backlog_guard.LOCK_FILENAME)
             lock.write_text("123\n", encoding="ascii")
-            refused = run_guard(repo, "initialize", "--architect-ack")
-            self.assertEqual(refused.returncode, 2)
-            self.assertIn("another backlog guard write is active", refused.stderr)
+            initialized = run_guard(repo, "initialize", "--architect-ack")
+            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+            self.assertTrue(lock.is_file())
+            self.assertEqual(run_guard(repo, "check").returncode, 0)
 
         ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("/ai/notes/.backlog-guard.json\n", ignore)
         self.assertIn("/ai/notes/.backlog-guard.lock\n", ignore)
         self.assertIn("/ai/notes/.backlog-guard.json.tmp-*\n", ignore)
+
+    def test_killed_lock_owner_releases_the_same_file(self):
+        with scratch_checkout() as (repo, _, state):
+            lock = state.with_name(backlog_guard.LOCK_FILENAME)
+            helper = (
+                "import fcntl, pathlib, sys\n"
+                "path = pathlib.Path(sys.argv[1])\n"
+                "with path.open('a+') as stream:\n"
+                "    fcntl.flock(stream.fileno(), fcntl.LOCK_EX)\n"
+                "    stream.seek(0); stream.truncate(); "
+                "stream.write('999999\\n'); stream.flush()\n"
+                "    print('ready', flush=True)\n"
+                "    sys.stdin.read(1)\n")
+            owner = subprocess.Popen(
+                [sys.executable, "-c", helper, str(lock)],
+                cwd=str(REPO_ROOT), stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(owner.stdout.readline().strip(), "ready")
+                refused = run_guard(repo, "initialize", "--architect-ack")
+                self.assertEqual(refused.returncode, 2)
+                self.assertIn("another backlog guard write is active",
+                              refused.stderr)
+                self.assertFalse(state.exists())
+            finally:
+                if owner.poll() is None:
+                    owner.kill()
+                owner.wait(timeout=5)
+                owner.stdin.close()
+                owner.stdout.close()
+                owner.stderr.close()
+            self.assertTrue(lock.is_file())
+            recovered = run_guard(repo, "initialize", "--architect-ack")
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertTrue(lock.is_file())
+            self.assertEqual(run_guard(repo, "check").returncode, 0)
 
 
 if __name__ == "__main__":

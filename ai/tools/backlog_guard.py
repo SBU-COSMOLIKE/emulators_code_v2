@@ -14,6 +14,7 @@ continues working.
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -218,44 +219,68 @@ def _require_architect(acknowledged):
 
 
 class _WriteLock:
-    """Refuse overlapping state writers and remove only our own lock."""
+    """Hold one crash-released lock on the persistent lock file."""
 
     def __init__(self, path):
         self.path = path
-        self.signature = None
+        self.descriptor = None
 
     def __enter__(self):
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_CLOEXEC"):
             flags |= os.O_CLOEXEC
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
         try:
             descriptor = os.open(self.path, flags, 0o600)
-        except FileExistsError as error:
-            raise GuardError(
-                "another backlog guard write is active; inspect "
-                + str(self.path)) from error
         except OSError as error:
-            raise GuardError("cannot create backlog guard lock: " + str(error))
+            raise GuardError("cannot open backlog guard lock: " + str(error))
         try:
-            os.write(descriptor, (str(os.getpid()) + "\n").encode("ascii"))
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                raise GuardError("backlog guard lock is not one regular file")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise GuardError(
+                    "another backlog guard write is active; inspect "
+                    + str(self.path)) from error
+            observed = self.path.lstat()
+            if ((opened.st_dev, opened.st_ino)
+                    != (observed.st_dev, observed.st_ino)):
+                raise GuardError("backlog guard lock changed while opened")
+            os.ftruncate(descriptor, 0)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            data = (str(os.getpid()) + "\n").encode("ascii")
+            offset = 0
+            while offset < len(data):
+                written = os.write(descriptor, data[offset:])
+                if written <= 0:
+                    raise GuardError("cannot write backlog guard lock")
+                offset += written
             os.fsync(descriptor)
-            self.signature = _stat_signature(os.fstat(descriptor))
-        finally:
+            self.descriptor = descriptor
+        except GuardError:
             os.close(descriptor)
+            raise
+        except OSError as error:
+            os.close(descriptor)
+            raise GuardError(
+                "cannot acquire backlog guard lock: " + str(error)) from error
+        except BaseException:
+            os.close(descriptor)
+            raise
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            observed = self.path.lstat()
-            if self.signature is not None and (
-                    observed.st_dev,
-                    observed.st_ino,
-                ) == (self.signature[0], self.signature[1]):
-                self.path.unlink()
-        except FileNotFoundError:
-            pass
+        if self.descriptor is not None:
+            try:
+                fcntl.flock(self.descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(self.descriptor)
+                self.descriptor = None
         return False
 
 
