@@ -2698,6 +2698,7 @@ def ensure_primary_execution(live_action, dry_run):
                 sol_state=sol_state)
             shared_notes = validated_primary_notes(
                 primary_path=state["path"])
+            _bridge_local_sealed_backlog(primary_worktree=state["path"])
             validate_authoritative_role_files(primary_path=state["path"])
         finally:
             _release_primary_lock(lock_file=lock_file)
@@ -6836,6 +6837,35 @@ def _validate_sealed_backlog(primary_worktree):
             "backlog differs from the SHA-256 last sealed by the Architect")
 
 
+def _bridge_local_sealed_backlog(primary_worktree):
+    """Copy a sealed backlog into an empty primary."""
+    names = ("backlog.md", BACKLOG_GUARD_STATE_NAME)
+    source_notes = os.path.join(REPO_ROOT, "ai", "notes")
+    target_notes = os.path.join(primary_worktree, "ai", "notes")
+    targets = [os.path.join(target_notes, name) for name in names]
+    if all(os.path.lexists(path) for path in targets):
+        _validate_sealed_backlog(primary_worktree=primary_worktree)
+        return
+
+    sources = [os.path.join(source_notes, name) for name in names]
+    if not any(os.path.lexists(path) for path in sources):
+        _validate_sealed_backlog(primary_worktree=primary_worktree)
+        return
+    _validate_sealed_backlog(primary_worktree=REPO_ROOT)
+
+    for source, target in zip(sources, targets):
+        if (os.path.lexists(target)
+                and not _regular_files_equal(source, target)):
+            raise PrimaryWorktreeError(
+                "primary backlog conflicts: " + target)
+    for source, target in zip(sources, targets):
+        if not os.path.lexists(target):
+            _copy_regular_archive_file(
+                source=source, destination=target,
+                expected_size=os.lstat(source).st_size)
+    _validate_sealed_backlog(primary_worktree=primary_worktree)
+
+
 def _validate_current_protected_primary_state(primary_worktree):
     """Accept current Architect authority, including a concurrent seal/commit."""
     last_error = None
@@ -7449,7 +7479,7 @@ def dispatch_under_main_checkout_lock(
             "--settings", json.dumps(settings, separators=(",", ":"))]
     common_preamble = common_preamble_for_dispatch(
         checkpoint_audit=architect_checkpoint_audit)
-    command = command_prefix + [
+    command = command_prefix + ["--",
         banner + agent_preamble(agent=agent, message=message)
         + architect_admission_prompt(token=architect_admission)
         + common_preamble + message]
@@ -12201,6 +12231,54 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
     return False
 
 
+def recover_failed_maintenance_admission():
+    """Requeue one failed fix-only request on restart."""
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock recovery")
+    state_lock = None
+    try:
+        state_lock = acquire_ticket_cycle_lock()
+        state = read_ticket_cycle_state()
+        match = None
+        failed = os.path.join(MAILBOX, "failed")
+        for name, record in state["architect_admissions"].items():
+            path = os.path.join(failed, name)
+            if not os.path.lexists(path):
+                continue
+            message = read_cycle_message(path=path)
+            if hashlib.sha256(message.encode("utf-8")).hexdigest() \
+                    != record["sha256"]:
+                raise TicketCycleStateError("failed request changed")
+            if message == ARCHITECT_FIX_ONLY_REQUEST:
+                if match is not None:
+                    raise TicketCycleStateError(
+                        "multiple maintenance requests failed")
+                match = path
+        if match is None:
+            return
+        for duplicate in pending_messages():
+            if read_cycle_message(path=duplicate) \
+                    == ARCHITECT_FIX_ONLY_REQUEST:
+                _parked, moved = verified_state_move(
+                    dispatch_path=duplicate, directory=failed)
+                if not moved:
+                    raise TicketCycleStateError(
+                        "could not preserve duplicate")
+                print("parked duplicate " + os.path.basename(duplicate)
+                      + " in failed/")
+        recovered, moved = verified_state_move(
+            dispatch_path=match, directory=MAILBOX)
+        if not moved:
+            raise TicketCycleStateError("could not requeue failed request")
+        print("requeued " + recovered)
+        return recovered
+    finally:
+        if state_lock is not None:
+            release_ticket_cycle_lock(lock_file=state_lock)
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
+
+
 def send_architect_notes_admin(text, dry_run=False):
     """Publish one narrow Architect-only permanent-note self-route."""
     try:
@@ -12564,6 +12642,11 @@ def main():
 
     fix_only = args.fix_only is True
     skip_redteam = args.skip_redteam
+    if fix_only:
+        _backlog_lines, backlog_problem = verified_backlog_lines()
+        if backlog_problem is not None:
+            print("fix-only cannot start: " + backlog_problem)
+            return 1
     watch_topology = canonical_ticket_cycle_topology(
         skip_redteam=skip_redteam)
     MAX_CHARACTERS = (DEFAULT_MAX_CHARACTERS
@@ -12748,6 +12831,8 @@ def main():
                       + "; watcher did not start dispatching work.")
                 return 1
             try:
+                if fix_only:
+                    recover_failed_maintenance_admission()
                 reconcile_ticket_cycle_state()
             except (OSError, ValueError, TicketCycleStateError) as exc:
                 print("ticket-cycle recovery failed: " + str(exc)

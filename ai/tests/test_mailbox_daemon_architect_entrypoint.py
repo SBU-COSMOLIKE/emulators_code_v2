@@ -88,6 +88,20 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                              daemon.ARCHITECT_FIX_ONLY_REQUEST)
             self.assertNotIn(SEVERITY_HEADER, read_text_exact(pending[0]))
 
+    def test_fix_only_send_without_a_backlog_writes_no_request(self):
+        with scratch_daemon(create_mailbox=False) as (
+                daemon, root, mailbox, backlog):
+            backlog.unlink()
+            before = tree_snapshot(root)
+
+            rc, output, error = run_main(
+                daemon, ["--send", "architect", "--fix-only", "true"])
+
+            self.assertNotEqual(rc, 0, output + error)
+            self.assertEqual(tree_snapshot(root), before)
+            self.assertFalse(mailbox.exists())
+            self.assertIn("backlog.md is missing", output)
+
     def test_fix_only_send_rejects_policy_that_belongs_on_watcher(self):
         for extra in (["--severity", "high"], ["--unit", "one ticket"]):
             with self.subTest(extra=extra), \
@@ -117,6 +131,36 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertEqual(read_text_exact(request),
                              daemon.ARCHITECT_FIX_ONLY_REQUEST)
             self.assertFalse((mailbox / "inflight" / request.name).exists())
+
+    def test_watch_restart_recovers_the_exact_failed_maintenance_request(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            original = failed / "0013-to-fable.md"
+            duplicate = mailbox / "0014-to-fable.md"
+            original.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            duplicate.write_bytes(original.read_bytes())
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][original.name] = {
+                "mode": "normal",
+                "sequence": 13,
+                "sha256": daemon.hashlib.sha256(
+                    original.read_bytes()).hexdigest(),
+            }
+            daemon.write_ticket_cycle_state(state=state)
+
+            recovered = daemon.recover_failed_maintenance_admission()
+
+            self.assertEqual(recovered, str(mailbox / original.name))
+            self.assertTrue((mailbox / original.name).is_file())
+            self.assertFalse(original.exists())
+            self.assertTrue((failed / duplicate.name).is_file())
+            self.assertFalse(duplicate.exists())
+            self.assertIn(
+                original.name,
+                daemon.read_ticket_cycle_state()["architect_admissions"])
 
     def test_fix_only_request_reserves_the_finite_ticket_slot(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
@@ -319,6 +363,7 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 launches[0]["env"]["MAILBOX_DISCOVERY_SEVERITY"], "low")
             self.assertEqual(
                 launches[0]["env"]["MAILBOX_DISCOVERY_SCOPE"], "bounded")
+            self.assertEqual(launches[0]["command"][-2], "--")
             self.assertIn("coordinate one ticket", launches[0]["command"][-1])
             self.assertTrue((mailbox / "done" / path.name).is_file())
 

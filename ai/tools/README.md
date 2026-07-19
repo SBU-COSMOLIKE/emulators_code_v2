@@ -542,6 +542,9 @@ python3 ai/tools/mailbox_daemon.py --send architect --fix-only true
 ```
 
 This command starts no AI role and accepts neither `--unit` nor `--severity`.
+Fix-only copies a valid sealed backlog into the Architect worktree. Without one,
+it creates no request. Restarting after a failure retries the exact request and
+preserves a duplicate.
 
 Start that watcher separately:
 
