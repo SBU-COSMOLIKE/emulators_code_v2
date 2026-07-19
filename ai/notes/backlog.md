@@ -212,6 +212,8 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Reduce daemon risk through small authority-boundary extractions](#open-daemon-authority-modules)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
+- OPEN **LOW** **NEW FUNCTIONALITY** — [Bind each landing to its candidate and sealed backlog](#open-landing-backlog-identity)
+- OPEN **LOW** **NEW FUNCTIONALITY** — [Test every interrupted backlog synchronization step](#open-backlog-sync-crash-cuts)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
 <a id="open-control-plane-live-state-compatibility"></a>
@@ -2448,6 +2450,127 @@ old debt is not erased; invalid values fail before work begins; and existing
 commands retain their documented default. Update the concise runtime-control
 example in `ai/README.md` and the detailed push-recovery explanation in
 `ai/tools/README.md`.
+
+</details>
+
+<a id="open-landing-backlog-identity"></a>
+## Bind each landing to its candidate and sealed backlog
+
+### High-level summary
+
+An accepted landing intentionally combines two reviewed changes: candidate C
+contains the Implementer's fix, while the Architect supplies the sealed
+backlog update that closes the ticket. The daemon already verifies both, but
+the machine contract still describes the landing mainly as the audited
+candidate delta.
+
+Record the complete relationship explicitly so a later audit can answer one
+plain question: which candidate and which exact backlog bytes produced this
+landing commit?
+
+### Current status
+
+**Ticket type: NEW FUNCTIONALITY.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**OPEN.** Runtime verification includes the Architect-sealed backlog overlay,
+but durable landing state and the machine contract do not yet name that digest
+as part of the landing identity.
+
+**Priority: LOW.** The existing trusted-Architect process verifies the bytes
+before landing, so no current correctness failure is demonstrated. This work
+improves later audit and recovery evidence.
+
+### What is already fixed
+
+The daemon accepts only exact candidate C, checks the sealed backlog, builds L
+with one parent, and verifies that L contains the audited candidate change plus
+the permitted backlog update. The Implementer cannot edit or seal the backlog.
+
+### What is missing
+
+State the expanded invariant in `role-contract.yaml`: L contains the audited
+candidate delta and the Architect-sealed backlog overlay. Save candidate C,
+the exact backlog SHA-256 digest, landing parent M, and landing L together in
+durable landing state.
+
+<details><summary>Technical record for development tools</summary>
+
+Use explicit contract fields such as `audited_candidate_delta_required` and
+`architect_backlog_overlay_required`; do not weaken the existing one-parent or
+audited-delta rules. The digest comes from the exact sealed bytes already
+validated for this landing, not from a later reread.
+
+If landing commit metadata is added, use stable trailers such as
+`Mailbox-Candidate` and `Mailbox-Backlog-SHA256`. Recovery must verify that the
+saved tuple `(C, backlog digest, M, L)` agrees with the actual commit and tree.
+Tests must reject a substituted digest, backlog bytes changed after sealing,
+another candidate, another parent, or metadata that disagrees with durable
+state. Keep the catalog informational: the daemon and structured role contract
+remain authoritative.
+
+</details>
+
+<a id="open-backlog-sync-crash-cuts"></a>
+## Test every interrupted backlog synchronization step
+
+### High-level summary
+
+When the Architect worktree advances, the daemon temporarily preserves the
+sealed backlog so Git can update the rest of the checkout without losing the
+ticket record. The recovery code is careful, but current tests exercise normal
+synchronization rather than stopping the process after each filesystem and Git
+step.
+
+Add fault-injection tests that interrupt those exact boundaries and restart
+the same routine. Every restart must either recover the one accepted backlog
+or stop with a clear conflict; it must never discard or silently choose between
+different bytes.
+
+### Current status
+
+**Ticket type: NEW FUNCTIONALITY.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**OPEN.** Fresh setup, guard preservation, legacy migration, mismatched bytes,
+and a successful tracked-backlog landing are tested. There is no focused
+crash-cut reproduction for `.backlog-sync-recovery`.
+
+**Priority: LOW.** No synchronization failure is reproduced. The missing
+evidence concerns rare interruption timing and does not change the current
+runtime algorithm.
+
+### What is already fixed
+
+The recovery file is private, the backlog guard binds exact accepted bytes,
+and a normal landing preserves both candidate C and the Architect's tracked
+backlog update. Conflicting legacy and tracked bytes already fail closed.
+
+### What is missing
+
+Inject one failure after each operation that changes synchronization state:
+moving the backlog to recovery, restoring tracked files, fast-forwarding the
+Architect worktree, and deleting the recovery file. Restart after each failure
+and check the exact bytes, guard digest, Git commit, and recovery-file state.
+
+<details><summary>Technical record for development tools</summary>
+
+Exercise `os.replace`, the trusted `git restore`, `git merge --ff-only`, and
+`os.unlink` boundaries without changing production behavior merely to satisfy
+the test. Include a restart where both the checked-out backlog and recovery
+file exist with equal bytes, and one where they conflict. Equal bytes may
+converge to one clean state; conflicting bytes must remain preserved and
+require explicit recovery.
+
+Keep this a focused temporary-repository reproduction. It must not touch the
+live mailbox, worktrees, backlog, or guard state, and it must appear in the AI
+test inventory with its exact command.
 
 </details>
 
