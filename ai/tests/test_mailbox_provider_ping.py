@@ -1,4 +1,4 @@
-"""CPU tests for the direct Claude and Sol connection check.
+"""CPU tests for the direct Claude, Ollama, and Sol connection check.
 
 The real command spends one very small model request per provider.  These
 tests replace both command-line programs with controlled subprocess results,
@@ -48,6 +48,10 @@ def _successful_run(daemon, calls):
             return subprocess.CompletedProcess(
                 command, 0, stdout=(marker + "\n").encode("utf-8"),
                 stderr=b"")
+        if command[0] == daemon.OLLAMA_EXECUTABLE:
+            return subprocess.CompletedProcess(
+                command, 0, stdout=(marker + "\n").encode("utf-8"),
+                stderr=b"")
         if command[0] == daemon.CODEX_EXECUTABLE:
             _sol_answer_path(command).write_text(
                 marker + "\n", encoding="utf-8")
@@ -58,7 +62,7 @@ def _successful_run(daemon, calls):
     return run
 
 
-def _call_ping(daemon, run, *, include_sol):
+def _call_ping(daemon, run, *, include_sol, implementer_provider="claude"):
     """Run the production helper with fixed randomness and captured output."""
     output = io.StringIO()
     with mock.patch.object(
@@ -67,6 +71,8 @@ def _call_ping(daemon, run, *, include_sol):
             contextlib.redirect_stdout(output):
         outcome = daemon.check_provider_connectivity(
             architect_model="claude-test-model",
+            implementer_provider=implementer_provider,
+            implementer_model="qwen-test-model",
             include_sol=include_sol)
     return outcome, output.getvalue()
 
@@ -106,6 +112,45 @@ class MailboxProviderPingTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][0][0], daemon.CLAUDE_EXECUTABLE)
             self.assertNotIn(daemon.CODEX_EXECUTABLE, calls[0][0])
+
+    def test_ollama_implementer_is_checked_independently(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            calls = []
+            outcome, output = _call_ping(
+                daemon, _successful_run(daemon, calls),
+                include_sol=False, implementer_provider="ollama")
+
+            self.assertTrue(outcome, output)
+            self.assertEqual(
+                [call[0][0] for call in calls],
+                [daemon.CLAUDE_EXECUTABLE, daemon.OLLAMA_EXECUTABLE])
+            self.assertEqual(
+                calls[1][0][:3],
+                [daemon.OLLAMA_EXECUTABLE, "run", "qwen-test-model"])
+
+    def test_ollama_build_keeps_the_architect_on_claude(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            commands = daemon.build_agent_commands(
+                "high", "max", "xhigh", 64000,
+                architect_model="opus",
+                implementer_model="qwen3.5",
+                implementer_provider="ollama")
+
+            self.assertEqual(commands["fable"][0], daemon.CLAUDE_EXECUTABLE)
+            self.assertEqual(
+                commands["opus"][:7],
+                [daemon.OLLAMA_EXECUTABLE, "launch", "claude", "--model",
+                 "qwen3.5", "--yes", "--"])
+            self.assertIn("-p", commands["opus"])
+            self.assertNotIn("--effort", commands["opus"])
+            self.assertEqual(commands["sol"][0], daemon.CODEX_EXECUTABLE)
+
+    def test_unknown_implementer_provider_is_refused(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            with self.assertRaisesRegex(ValueError, "provider"):
+                daemon.build_agent_commands(
+                    "high", "max", "xhigh", 64000,
+                    implementer_provider="unknown")
 
     def test_claude_failure_does_not_hide_sol_status(self):
         with scratch_daemon() as (daemon, _, _, _):
@@ -205,6 +250,12 @@ class MailboxProviderPingTests(unittest.TestCase):
                 self.assertEqual(
                     check.call_args.kwargs["architect_model"],
                     daemon.DEFAULT_ARCHITECT_MODEL)
+                self.assertEqual(
+                    check.call_args.kwargs["implementer_provider"],
+                    daemon.DEFAULT_IMPLEMENTER_PROVIDER)
+                self.assertEqual(
+                    check.call_args.kwargs["implementer_model"],
+                    daemon.DEFAULT_IMPLEMENTER_MODEL)
                 self.assertEqual(
                     check.call_args.kwargs["include_sol"], include_sol)
 

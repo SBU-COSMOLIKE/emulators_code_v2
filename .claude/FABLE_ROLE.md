@@ -5,7 +5,8 @@ available Claude model with `--architect-model` (for example, `opus`) without
 changing this role. The `.claude/FABLE_ROLE.md` filename and `to-fable`
 mailbox address are stable legacy route names, not model requirements.
 Counterpart: the Implementer role (`.claude/OPUS_ROLE.md`), which defaults to
-`claude-opus-4-8` unless `--implementer-model` overrides it.
+`claude-opus-4-8`; a watch may instead select another Claude model or an
+Ollama-served open-weight Implementer.
 
 ## Core Objective
 

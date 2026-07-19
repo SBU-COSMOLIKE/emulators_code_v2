@@ -223,10 +223,11 @@ exclusive GO/NO-GO authority.
 A Git worktree is a separate checked-out working folder tied to a branch, so
 an agent can edit without changing the user's checkout. Model choice and role
 choice are separate. Current command-line model options may assign different
-models to the Architect and Implementer. Sol has a separate effort setting;
-there is no independent Red Team model option. None of these choices changes
-role authority, Git worktree ownership, mailbox route, or evidence
-requirements.
+models to the Architect and Implementer. The Architect uses Claude. The
+Implementer may use Claude or an Ollama-served open-weight model selected with
+`--implementer-provider`. Sol has a separate effort setting; there is no
+independent Red Team model option. Provider and model choices never change role
+authority, Git worktree ownership, mailbox route, or evidence requirements.
 
 Only the Implementer edits source code, tests, or ordinary tracked
 documentation for a ticket. The Architect writes plans, maintains the tracked

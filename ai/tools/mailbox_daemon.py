@@ -223,9 +223,12 @@ DEFAULT_SOL_EFFORT = "xhigh"
 # `claude --model` can override them per invocation.
 DEFAULT_ARCHITECT_MODEL = "claude-fable-5"
 DEFAULT_IMPLEMENTER_MODEL = "claude-opus-4-8"
+IMPLEMENTER_PROVIDERS = ("claude", "ollama")
+DEFAULT_IMPLEMENTER_PROVIDER = "claude"
 SOL_MODEL = "gpt-5.6-sol"
 
 CLAUDE_EXECUTABLE = "/Users/vivianmiranda/.local/bin/claude"
+OLLAMA_EXECUTABLE = "ollama"
 CODEX_EXECUTABLE = "/Applications/ChatGPT.app/Contents/Resources/codex"
 PROVIDER_PING_TIMEOUT_SECONDS = 120
 
@@ -234,8 +237,8 @@ PROVIDER_PING_TIMEOUT_SECONDS = 120
 # and Sol's key is separate). Neither CLI takes a hard cap, so both are
 # told to COMPACT (summarize their own history and continue) whenever
 # the live context reaches the budget, instead of growing toward their
-# native 1M windows: the Claude Architect/Implementer routes read
-# CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the codex CLI
+# native 1M windows: the Architect and Implementer coding runtimes read
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the Codex CLI
 # (Sol) takes -c model_auto_compact_token_limit (accepted live,
 # 2026-07-14). Override per launch with --claude-context / --sol-context.
 # Each dispatch is also explicitly non-persistent, so a later turn cannot
@@ -3408,11 +3411,11 @@ def truthy_fix_only(value):
 
 
 def validate_model_name(value):
-    """Accept one Claude model alias or full ID without shell ambiguity."""
+    """Accept one provider model name without shell ambiguity."""
     if (not isinstance(value, str) or not value or "\x00" in value
             or any(character.isspace() for character in value)):
         raise argparse.ArgumentTypeError(
-            "Claude model must be one non-whitespace alias or full name")
+            "model must be one non-whitespace alias or full name")
     return value
 
 
@@ -3420,7 +3423,8 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                          sol_context_budget,
                          architect_model=DEFAULT_ARCHITECT_MODEL,
                          implementer_model=DEFAULT_IMPLEMENTER_MODEL,
-                         sol_worktree=None, shared_notes=None):
+                         sol_worktree=None, shared_notes=None,
+                         implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER):
     """Assemble the per-agent headless CLI commands at the given settings.
 
     Arguments:
@@ -3435,13 +3439,14 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                            the environment instead -- see dispatch()).
       architect_model    = Claude alias or full ID launched on the legacy
                            fable route.
-      implementer_model  = Claude alias or full ID launched on the legacy
-                           opus route.
+      implementer_model  = Model name launched on the legacy opus route.
       sol_worktree       = validated worktree used as Sol's cwd and Codex
                            workspace root (default: deterministic first-run
                            path; live dispatch always passes saved state).
       shared_notes       = exact Claude-primary notes directory granted as
                            Sol's only additional writable directory.
+      implementer_provider = ``claude`` for Anthropic Claude or ``ollama``
+                           for an Ollama-served open-weight model.
 
     Returns:
       dict mapping "fable"/"opus"/"sol" to the argv list dispatch()
@@ -3449,12 +3454,29 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
     """
     architect_model = validate_model_name(value=architect_model)
     implementer_model = validate_model_name(value=implementer_model)
+    if implementer_provider not in IMPLEMENTER_PROVIDERS:
+        raise ValueError(
+            "Implementer provider must be claude or ollama")
     if sol_worktree is None:
         sol_worktree = sol_state_paths(REPO_ROOT)["default_path"]
     if shared_notes is None:
         shared_notes = os.path.join(WORKTREE, "ai", "notes")
     sol_worktree = os.path.abspath(sol_worktree)
     shared_notes = os.path.abspath(shared_notes)
+    if implementer_provider == "claude":
+        implementer_command = [
+            CLAUDE_EXECUTABLE, "-p", "--no-session-persistence",
+            "--model", implementer_model, "--effort", opus_effort,
+            "--permission-mode", "acceptEdits"]
+    else:
+        # Ollama's supported headless coding route. Arguments after the
+        # second ``--`` belong to Claude Code, which keeps the existing
+        # worktree, tool, hook, and evidence boundary around the local model.
+        implementer_command = [
+            OLLAMA_EXECUTABLE, "launch", "claude",
+            "--model", implementer_model, "--yes", "--",
+            "-p", "--no-session-persistence",
+            "--permission-mode", "acceptEdits"]
     commands = {
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
@@ -3463,10 +3485,7 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                   "--model", architect_model,
                   "--effort", fable_effort,
                   "--permission-mode", "acceptEdits"],
-        "opus": [CLAUDE_EXECUTABLE, "-p", "--no-session-persistence",
-                 "--model", implementer_model,
-                 "--effort", opus_effort,
-                 "--permission-mode", "acceptEdits"],
+        "opus": implementer_command,
         # Workspace-write is rooted at Sol's validated worktree. The only
         # additional writable directory is the Claude primary's authoritative
         # notes transport. REPO_ROOT and the rest of the primary are never
@@ -3516,11 +3535,20 @@ def _provider_answered(command, marker, directory, response_path=None):
     return answer == marker
 
 
-def check_provider_connectivity(architect_model, include_sol, dry_run=False):
-    """Check the configured Claude service and optionally the Sol service."""
+def check_provider_connectivity(
+        architect_model, include_sol, dry_run=False,
+        implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER,
+        implementer_model=DEFAULT_IMPLEMENTER_MODEL):
+    """Check every distinct provider selected for this watch."""
+    if implementer_provider not in IMPLEMENTER_PROVIDERS:
+        raise ValueError("Implementer provider must be claude or ollama")
     nonce = secrets.token_hex(16)
     if dry_run:
-        print("[dry-run] would check Claude model " + architect_model + ".")
+        print("[dry-run] would check Claude Architect model "
+              + architect_model + ".")
+        if implementer_provider == "ollama":
+            print("[dry-run] would check Ollama Implementer model "
+                  + implementer_model + ".")
         if include_sol:
             print("[dry-run] would check Sol model " + SOL_MODEL + ".")
         else:
@@ -3537,8 +3565,20 @@ def check_provider_connectivity(architect_model, include_sol, dry_run=False):
         ]
         claude_ok = _provider_answered(
             claude_command, claude_marker, directory)
-        print("Claude: " + ("online and answered the connection test."
-                            if claude_ok else "unavailable."))
+        print("Claude Architect: "
+              + ("online and answered the connection test."
+                 if claude_ok else "unavailable."))
+        ollama_ok = True
+        if implementer_provider == "ollama":
+            ollama_marker = "COCOA-FLOW-PONG-OLLAMA-" + nonce
+            ollama_command = [
+                OLLAMA_EXECUTABLE, "run", implementer_model,
+                _provider_ping_prompt(ollama_marker)]
+            ollama_ok = _provider_answered(
+                ollama_command, ollama_marker, directory)
+            print("Ollama Implementer: "
+                  + ("online and answered the connection test."
+                     if ollama_ok else "unavailable."))
         if include_sol:
             sol_marker = "COCOA-FLOW-PONG-SOL-" + nonce
             sol_output = os.path.join(directory, "sol-response.txt")
@@ -3558,13 +3598,27 @@ def check_provider_connectivity(architect_model, include_sol, dry_run=False):
         else:
             print("Sol: skipped by --skip-redteam.")
 
-    if claude_ok and (not include_sol or sol_ok):
-        checked = "Claude and Sol" if include_sol else "Claude"
+    if claude_ok and ollama_ok and (not include_sol or sol_ok):
+        checked_services = ["Claude"]
+        if implementer_provider == "ollama":
+            checked_services.append("Ollama")
+        if include_sol:
+            checked_services.append("Sol")
+        if len(checked_services) == 1:
+            checked = checked_services[0]
+        elif len(checked_services) == 2:
+            checked = " and ".join(checked_services)
+        else:
+            checked = (", ".join(checked_services[:-1])
+                       + ", and " + checked_services[-1])
         print("connection check passed: " + checked + " responded.")
         return True
     print("connection check failed; check login and service availability.")
     if not claude_ok:
         print("Claude login: " + CLAUDE_EXECUTABLE + " auth status")
+    if not ollama_ok:
+        print("Ollama: start the Ollama service and run `ollama pull "
+              + implementer_model + "`.")
     if include_sol and not sol_ok:
         print("Sol login: " + CODEX_EXECUTABLE + " login status")
     return False
@@ -7240,7 +7294,26 @@ def _bridge_local_sealed_backlog(primary_worktree):
                        "version": 1},
                 path=targets[1])
     if all(os.path.lexists(path) for path in targets):
-        _validate_sealed_backlog(primary_worktree=primary_worktree)
+        try:
+            _validate_sealed_backlog(primary_worktree=primary_worktree)
+        except PrimaryWorktreeError:
+            if _clean_worktree_status(worktree=primary_worktree):
+                raise
+            committed = _run_git(
+                repository_root=primary_worktree,
+                arguments=["show", "HEAD:" + BACKLOG_RELATIVE_PATH],
+                check=False)
+            working = stable_regular_bytes(
+                path=targets[0], maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+                label="tracked Architect backlog")
+            if committed.returncode != 0 or committed.stdout != working:
+                raise
+            _atomic_write_primary_state(
+                state={"backlog": BACKLOG_RELATIVE_PATH,
+                       "sha256": hashlib.sha256(working).hexdigest(),
+                       "version": 1},
+                path=targets[1])
+            _validate_sealed_backlog(primary_worktree=primary_worktree)
         return
 
     sources = [os.path.join(source_notes, name) for name in names]
@@ -13129,7 +13202,8 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     Arguments:
       dry_run  = True to print the would-be commands without running them.
       fix_only = True when a watch is closing existing ledger work only.
-      skip_redteam = True for a watch that dispatches only Claude routes.
+      skip_redteam = True for a watch that dispatches only Architect and
+                     Implementer routes.
 
     Returns:
       None when there was no backlog, True when every message was consumed
@@ -15646,7 +15720,8 @@ def main():
                         help="with --watch, start Architect and Implementer "
                              "jobs but no Red Team job; Red Team messages "
                              "remain waiting for a later watch without this "
-                             "option; with --ping, check Claude but not Sol")
+                             "option; with --ping, check the Architect and "
+                             "Implementer providers but not Sol")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
                         help="with --send architect, save a backlog-repair "
@@ -15660,8 +15735,8 @@ def main():
                              "Architect and exit")
     parser.add_argument(
         "--ping", action="store_true",
-        help="make one small live request to Claude and Sol, require both "
-             "to answer, and exit; add --skip-redteam to check only Claude")
+        help="make one small live request to every provider selected for "
+             "this run and exit; add --skip-redteam to omit Sol")
     parser.add_argument("--unit", default="",
                         help="the user's request text for --send architect; "
                              "include the path to its source note in "
@@ -15685,10 +15760,16 @@ def main():
     parser.add_argument("--implementer-model", metavar="MODEL",
                         type=validate_model_name,
                         default=DEFAULT_IMPLEMENTER_MODEL,
-                        help="Claude model alias or full name used for the "
-                             "Implementer; mailbox filenames for this role "
-                             "still contain opus (default: "
+                        help="model name used for the Implementer; select "
+                             "its service with --implementer-provider; "
+                             "mailbox filenames still contain opus "
+                             "(default: "
                              + DEFAULT_IMPLEMENTER_MODEL + ")")
+    parser.add_argument(
+        "--implementer-provider", choices=IMPLEMENTER_PROVIDERS,
+        default=DEFAULT_IMPLEMENTER_PROVIDER,
+        help="service used for the Implementer: claude or ollama; the "
+             "Architect remains on Claude (default: claude)")
     parser.add_argument("--fable-effort", default=DEFAULT_FABLE_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
                         help="claude CLI reasoning effort for the Architect "
@@ -15713,8 +15794,8 @@ def main():
                         type=positive_int,
                         default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
                         help="inside one Architect or Implementer turn, ask "
-                             "Claude to replace older conversation text with "
-                             "a shorter summary at this many tokens "
+                             "the coding runtime to replace older context "
+                             "with a shorter summary at this many tokens "
                              "(default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
@@ -15794,6 +15875,8 @@ def main():
     if args.ping:
         return 0 if check_provider_connectivity(
             architect_model=args.architect_model,
+            implementer_provider=args.implementer_provider,
+            implementer_model=args.implementer_model,
             include_sol=not args.skip_redteam,
             dry_run=args.dry_run) else 1
 
@@ -15856,17 +15939,23 @@ def main():
         sol_context_budget=args.sol_context,
         architect_model=args.architect_model,
         implementer_model=args.implementer_model,
+        implementer_provider=args.implementer_provider,
         sol_worktree=AGENT_CWD["sol"],
         shared_notes=(ACTIVE_TOPOLOGY["shared_notes"]
                       if ACTIVE_TOPOLOGY is not None
                       else os.path.join(AGENT_CWD["fable"], "ai", "notes")))
     if args.watch:
+        print("role providers: architect=claude implementer="
+              + args.implementer_provider + " red-team=codex")
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model
               + " (internal mailbox names: fable/opus)")
         if skip_redteam:
+            implementer_effort = (args.opus_effort
+                                  if args.implementer_provider == "claude"
+                                  else "provider default (ollama)")
             print("effort levels: architect/fable=" + args.fable_effort
-                  + " implementer/opus=" + args.opus_effort
+                  + " implementer/opus=" + implementer_effort
                   + " sol=disabled")
             print("context budgets: architect/implementer="
                   + str(args.claude_context)
@@ -15875,8 +15964,11 @@ def main():
                   "disabled; existing to-sol messages stay queued and "
                   "untouched")
         else:
+            implementer_effort = (args.opus_effort
+                                  if args.implementer_provider == "claude"
+                                  else "provider default (ollama)")
             print("effort levels: architect/fable=" + args.fable_effort
-                  + " implementer/opus=" + args.opus_effort
+                  + " implementer/opus=" + implementer_effort
                   + " sol=" + args.sol_effort)
             print("context budgets: architect/implementer="
                   + str(args.claude_context)

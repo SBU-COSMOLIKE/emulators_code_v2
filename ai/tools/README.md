@@ -345,36 +345,44 @@ recorded. Success here writes the user's request to the Architect. The
 Architect later writes the internal `to-sol` request beginning with
 `MAILBOX-TICKET: closure`.
 
-### Check whether Claude and Sol can answer
+### Check whether the selected AI services can answer
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping
 ```
 
-This makes one small, no-tool request to the configured Claude Architect model
-and one read-only request to Sol. It checks the installed programs, current
-login, selected models, and service response at that moment. It does not write
-a mailbox message or start a ticket. Each request uses a small amount of the
-corresponding account's allowance.
+This makes one small, no-tool request to the configured Claude Architect and
+one read-only request to Sol. When the Implementer uses Ollama, it also checks
+that Ollama model independently. The command checks installed programs,
+current login, selected models, and service responses. It does not write a
+mailbox message or start a ticket.
 
 A successful run ends with:
 
 ```text
-Claude: online and answered the connection test.
+Claude Architect: online and answered the connection test.
 Sol: online and answered the connection test.
 connection check passed: Claude and Sol responded.
 ```
 
-When a run will not use Red Team, check only Claude:
+When a run will not use Red Team, omit Sol:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam
 ```
 
-That form never starts Sol. A failed check returns a nonzero status and prints
-the login-status command for the affected service. The check has a two-minute
-limit for each service and still checks Sol when Claude fails, so one command
-reports both results.
+That form never starts Sol. To check a Claude Architect and Ollama
+Implementer, add the same provider and model selected for the watch:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
+  --implementer-provider ollama \
+  --implementer-model qwen3.5
+```
+
+A failed check returns a nonzero status and names the affected service. The
+check has a two-minute limit for each service and continues checking the other
+selected services after one fails.
 
 ## Choose the minimum discovery severity
 
@@ -691,8 +699,9 @@ text formats, unsaved files, and other counting details.
 
 | Concern | Options | Default |
 | --- | --- | --- |
-| Claude models | `--architect-model`, `--implementer-model` | `claude-fable-5`, `claude-opus-4-8` |
-| Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max` |
+| Architect and Implementer models | `--architect-model`, `--implementer-model` | `claude-fable-5`, `claude-opus-4-8` |
+| Implementer service | `--implementer-provider` | `claude`; choose `ollama` for an Ollama-served open-weight model |
+| Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max`; Implementer effort is left to Ollama when that provider is selected |
 | Sol effort | `--sol-effort` | `xhigh` |
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + advisory Sol Red Team |
 | Implementer complexity review | automatic | pause after 90 minutes |
@@ -750,16 +759,18 @@ The contract does not list compatible daemon versions. A new YAML file cannot
 prove that an older Python reader understands a field that did not exist when
 that reader was written.
 
-Model selection and effort are independent. Choosing Sonnet does not silently
-lower the Implementer effort.
+Model selection, provider selection, and role authority are independent.
+Choosing Sonnet does not silently lower a Claude Implementer's effort. Ollama
+models use their provider's own reasoning behavior, so `--opus-effort` is not
+passed to an Ollama Implementer.
 
-Each Claude model option accepts one nonempty value containing no spaces,
-tabs, line breaks, or hidden zero character, such as `sonnet` or a full model
-name. This checks only a formatting rule. The installed Claude program
-confirms whether the model exists only when a live role starts.
+Each model option accepts one nonempty value containing no spaces, tabs, line
+breaks, or hidden zero character, such as `sonnet` or `qwen3.5`. This checks
+only the name's format. The selected provider confirms whether the model
+exists when a live check or role starts.
 
 The mailbox addresses `fable` and `opus` continue to mean Architect and
-Implementer even when the command selects different Claude models. There is no
+Implementer even when the Implementer comes from Ollama. There is no
 `--sol-model` option. The program currently pins Sol to `gpt-5.6-sol`. The
 watch can include the advisory Red Team or omit it with `--skip-redteam`, but
 Sol's role itself does not change.
@@ -850,17 +861,16 @@ options:
                         no Red Team job for ordinary tickets; protected
                         control-plane tickets become BLOCKED_RED_TEAM_REQUIRED
                         before Implementer dispatch and resume on a later
-                        watch without this option; with --ping, check Claude
-                        but not Sol
+                        watch without this option; with --ping, check the
+                        Architect and Implementer providers but not Sol
   --fix-only value      with --send architect, save a backlog-repair request;
                         with --watch, run existing bug fixes at the watcher's
                         severity; the value accepts 1, true, or yes in any
                         capitalization
   --send {architect}    save the user's ticket request for the Architect and
                         exit
-  --ping                make one small live request to Claude and Sol, require
-                        both to answer, and exit; add --skip-redteam to check
-                        only Claude
+  --ping                make one small live request to every provider selected
+                        for this run and exit; add --skip-redteam to omit Sol
   --unit UNIT           the user's request text for --send architect; include
                         the path to its source note in ai/notes/
   --severity {high,medium,low}
@@ -877,9 +887,12 @@ options:
                         Architect; mailbox filenames for this role still
                         contain fable (default: claude-fable-5)
   --implementer-model MODEL
-                        Claude model alias or full name used for the
-                        Implementer; mailbox filenames for this role still
-                        contain opus (default: claude-opus-4-8)
+                        model name used for the Implementer; select its
+                        service with --implementer-provider; mailbox filenames
+                        still contain opus (default: claude-opus-4-8)
+  --implementer-provider {claude,ollama}
+                        service used for the Implementer: claude or ollama;
+                        the Architect remains on Claude (default: claude)
   --fable-effort {low,medium,high,xhigh,max}
                         claude CLI reasoning effort for the Architect
                         (default: xhigh)
@@ -895,8 +908,8 @@ options:
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
   --claude-context TOKENS
-                        inside one Architect or Implementer turn, ask Claude
-                        to replace older conversation text with a shorter
+                        inside one Architect or Implementer turn, ask the
+                        coding runtime to replace older context with a shorter
                         summary at this many tokens (default: 500000)
   --sol-context TOKENS  inside one Red Team turn, ask Codex to replace older
                         conversation text with a shorter summary at this many
@@ -1836,8 +1849,8 @@ prints the Claude or Codex command that would handle it.
 
 If an executable path is wrong, open `ai/tools/mailbox_daemon.py` and find
 `build_agent_commands()`. That function contains the fixed Claude and Codex
-paths. Updating either path is a normal reviewed code change; do not edit a
-different command merely to make the preview pass.
+paths and the `ollama` program name. Updating one is a normal reviewed code
+change; do not edit a different command merely to make the preview pass.
 
 #### Start the watcher
 
@@ -1858,10 +1871,27 @@ python3 ai/tools/mailbox_daemon.py --watch \
   --implementer-model sonnet
 ```
 
+This command keeps the Architect on Claude and uses an Ollama model as the
+Implementer:
+
+```bash
+ollama pull qwen3.5
+python3 ai/tools/mailbox_daemon.py --watch \
+  --skip-redteam \
+  --architect-model opus \
+  --implementer-provider ollama \
+  --implementer-model qwen3.5 \
+  --claude-context 64000
+```
+
+Ollama's `launch claude` integration supplies the coding tool shell. The model
+that reasons about and performs the Implementer work is served by Ollama. A
+raw Ollama chat request is not used because it could not edit the isolated
+worktree or run the Architect's acceptance commands.
+
 Model names, reasoning levels, and conversation-length limits are command-line
-choices for each run. Claude permission modes and Sol's service tier remain
-fixed inside `build_agent_commands()` and require normal code review to
-change.
+choices for each run. The coding permission mode and Sol's service tier remain
+fixed inside `build_agent_commands()` and require normal code review to change.
 
 ## Appendices about sharing unfinished work <a id="appendices-about-occasional-transfer"></a>
 

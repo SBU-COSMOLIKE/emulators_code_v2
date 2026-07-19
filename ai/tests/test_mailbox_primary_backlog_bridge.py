@@ -95,6 +95,28 @@ class PrimaryBacklogBridgeTests(unittest.TestCase):
             self.assertFalse(target_guard.exists())
             self.assertIn("backlog and its Architect-sealed guard", output)
 
+    def test_clean_committed_backlog_update_refreshes_the_local_guard(self):
+        with scratch_repository() as root:
+            rc, output, error = invoke(root, ["--once"])
+            self.assertEqual(rc, 0, output + error)
+
+            payload = b"# Execution backlog\n\nOne committed update.\n"
+            source_backlog, _source_guard = _paths(root)
+            write_exact(source_backlog, payload)
+            git(root, "add", "ai/notes/backlog.md")
+            git(root, "commit", "-m", "update tracked backlog")
+
+            rc, output, error = invoke(root, ["--once"])
+
+            primary = default_primary(root)
+            target_backlog, target_guard = _paths(primary)
+            self.assertEqual(rc, 0, output + error)
+            self.assertEqual(target_backlog.read_bytes(), payload)
+            self.assertIn(
+                hashlib.sha256(payload).hexdigest(),
+                target_guard.read_text(encoding="utf-8"))
+            self.assertEqual(git(primary, "status", "--porcelain").stdout, "")
+
 
 if __name__ == "__main__":
     unittest.main()

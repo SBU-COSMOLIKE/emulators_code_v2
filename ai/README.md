@@ -236,6 +236,40 @@ The models are command-line choices. The roles are stable: the Architect still
 finishes the design, writes the complete ordered plan, and checks the ticket.
 The Implementer follows that plan and makes the requested change.
 
+The two roles do not need to use the same AI provider. For example, the
+Architect can use Claude while an open-weight model served by
+[Ollama](https://ollama.com/) is the Implementer:
+
+```bash
+ollama pull qwen3.5
+python3 ai/tools/mailbox_daemon.py --watch \
+  --architect-model opus \
+  --implementer-provider ollama \
+  --implementer-model qwen3.5 \
+  --claude-context 64000
+```
+
+`ollama pull` downloads the model before the unattended watch begins. Ollama
+recommends at least a 64K context for coding models. The watcher uses Ollama's
+[headless Claude Code integration](https://docs.ollama.com/integrations/claude-code),
+so the open-weight model can inspect the isolated Implementer worktree, edit
+files, run tests, and return the same evidence as a Claude Implementer. Claude
+Code is the tool shell in this setup; the Implementer model and its inference
+service are Ollama, not Anthropic.
+
+Before starting a long run, check the selected services without opening a
+ticket:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
+  --implementer-provider ollama \
+  --implementer-model qwen3.5
+```
+
+This checks the Claude Architect and Ollama Implementer. Remove
+`--skip-redteam` to check Sol as well. The old `to-opus` mailbox name still
+means “Implementer”; it does not mean that Opus or any Claude model is required.
+
 The default watch makes the optional Sol Red Team available. For an
 Architect-and-Implementer run only:
 

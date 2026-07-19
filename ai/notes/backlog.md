@@ -4712,6 +4712,44 @@ comparison reaches weight loading and makes the focused test fail.
 See `ai/notes/gates-and-board.md`, Rebuild-time fixed-facts name audit.
 </details>
 
+### Use an Ollama model as the Implementer
+
+**High-level summary.** The watcher previously built both the Architect and
+Implementer commands around Anthropic's Claude service. A user who could run a
+capable open-weight coding model locally still had to spend Claude allowance
+for the token-heavy implementation work.
+
+The Architect and Implementer providers are now independent. The Architect
+remains on Claude, while `--implementer-provider ollama` sends the Implementer
+role to a named Ollama model through Ollama's supported headless coding
+integration.
+
+**Current status.** **CLOSED.** This was accepted as **LOW NEW
+FUNCTIONALITY**. The default remains Claude, so existing watcher commands do
+not change behavior.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**What is already fixed.** The provider and model are separate command-line
+choices. Ollama receives the same isolated Implementer worktree, checkpoint
+hook, Architect directive, and evidence requirements. `--ping` checks the
+Ollama model when selected, and the terminal names each role's provider.
+
+**What is missing.** Nothing for this ticket. The workstation running the
+watch must install Ollama, start its service, and download a coding model with
+enough context for the requested ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+Primary code: `ai/tools/mailbox_daemon.py::build_agent_commands` and
+`check_provider_connectivity`. Focused unit tests replace all provider
+programs, while `tools_mailbox_daemon_role_models_repro.py` verifies CLI
+wiring and kills mutations that ignore the provider or model choice.
+
+</details>
+
 ## Mailbox and watcher behavior
 
 ### Start every role turn with an empty provider conversation

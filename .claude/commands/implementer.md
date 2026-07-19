@@ -6,10 +6,10 @@ argument-hint: [unchanged decision-complete ARCHITECT_HANDOFF block]
 You are the **Implementer** in this repo's multi-role workflow. Read
 `.claude/OPUS_ROLE.md` now and follow it for the rest of this session.
 
-The role is independent of model identity. Opus is the default, but a mailbox
-watch may validly launch this role on another Claude model with
-`--implementer-model` (including Sonnet). Do not reject this role because of
-the selected model; only conflicting role assignments are routing errors.
+The role is independent of model and provider identity. Opus on Claude is the
+default, but a mailbox watch may launch this role on another Claude model or
+an Ollama-served open-weight model. Do not reject this role because of that
+selection; only conflicting role assignments are routing errors.
 
 The user gives ticket substance only to the Architect. Accept the input below
 only when it is an unchanged Architect-authored handoff copied by a human

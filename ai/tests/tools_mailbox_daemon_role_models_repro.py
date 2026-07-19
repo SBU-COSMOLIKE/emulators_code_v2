@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scratch-only witnesses for configurable Claude models by mailbox role.
+"""Scratch-only witnesses for independent role models and providers.
 
 The fable and opus filenames are stable legacy route addresses, not model
 identities.  Every runtime arm loads a fresh daemon and redirects its paths to
@@ -21,6 +21,7 @@ import types
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 CLAUDE_BINARY = "/Users/vivianmiranda/.local/bin/claude"
+OLLAMA_BINARY = "ollama"
 ARCHITECT_DEFAULT = "claude-fable-5"
 IMPLEMENTER_DEFAULT = "claude-opus-4-8"
 CUSTOM_ARCHITECT = "opus"
@@ -235,6 +236,47 @@ def expected_claude_line(name, model, effort, cwd):
             + " ".join(command) + "  (cwd " + cwd + ")")
 
 
+def expected_ollama_line(name, model, cwd):
+    """Return the daemon's dry-run line for an Ollama Implementer."""
+    command = [
+        OLLAMA_BINARY, "launch", "claude", "--model", model, "--yes", "--",
+        "-p", "--no-session-persistence", "--permission-mode", "acceptEdits"]
+    return ("[dry-run] would dispatch " + name + " -> "
+            + " ".join(command) + "  (cwd " + cwd + ")")
+
+
+def arm_ollama_implementer_cli(source=None):
+    """A CLI provider choice changes only the Implementer command."""
+    with scratch_daemon(source=source) as (daemon, root, mailbox):
+        messages = write_routing_messages(mailbox=mailbox)
+        before = tree_snapshot(root)
+        launches = []
+
+        def forbidden_popen(*args, **kwargs):
+            launches.append((args, kwargs))
+            raise AssertionError("dry-run attempted to launch a child")
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=forbidden_popen)
+        rc, output, error_output, error = call_main(daemon, [
+            "--dry-run", "--implementer-provider", "ollama",
+            "--implementer-model", "qwen3.5"])
+        lines = output.splitlines()
+        passed = (
+            error is None and rc == 0 and error_output == ""
+            and launches == [] and tree_snapshot(root) == before
+            and expected_ollama_line(
+                messages["opus"].name, "qwen3.5",
+                daemon.AGENT_CWD["opus"]) in lines
+            and daemon.AGENT_COMMANDS["fable"][0]
+            == daemon.CLAUDE_EXECUTABLE
+            and daemon.AGENT_COMMANDS["opus"][0]
+            == daemon.OLLAMA_EXECUTABLE
+            and "--effort" not in daemon.AGENT_COMMANDS["opus"])
+        print("Ollama Implementer CLI=" + str(passed))
+        return passed
+
+
 def arm_cli_plumbing_and_legacy_routes(source=None):
     """Custom CLI flags reach exact legacy routes without launch or writes."""
     with scratch_daemon(source=source) as (daemon, root, mailbox):
@@ -311,7 +353,7 @@ def arm_invalid_cli_is_pre_dispatch(source=None):
             rc, _, error_output, error = call_main(daemon, arguments)
             checks.append(
                 isinstance(error, SystemExit) and rc == 2
-                and "Claude model" in error_output
+                and "model must" in error_output
                 and backlog_calls == [] and tree_snapshot(root) == before)
     passed = all(checks)
     print("invalid CLI pre-dispatch=" + str(passed))
@@ -345,7 +387,7 @@ def mutate_swapped_routes(source):
 
 
 def arm_source_mutations():
-    """Kill model re-hardcoding, route swaps, and ignored CLI flags."""
+    """Kill model re-hardcoding and ignored model/provider flags."""
     source = DAEMON_PATH.read_text(encoding="utf-8")
     cases = [
         (
@@ -357,15 +399,18 @@ def arm_source_mutations():
         ),
         (
             "Implementer route re-hardcoded",
-            lambda text: mutate_route_model(
-                text, "opus", "implementer_model",
-                "DEFAULT_IMPLEMENTER_MODEL"),
+            lambda text: replace_regex_once(
+                text,
+                r'("--model",\s*)implementer_model(,\s*"--effort")',
+                r'\1DEFAULT_IMPLEMENTER_MODEL\2'),
             arm_swapped_aliases_and_sol_stability,
         ),
         (
-            "role routes swapped",
-            mutate_swapped_routes,
-            arm_swapped_aliases_and_sol_stability,
+            "Ollama provider ignored",
+            lambda text: text.replace(
+                'if implementer_provider == "claude":',
+                'if True:', 1),
+            arm_ollama_implementer_cli,
         ),
         (
             "Architect CLI flag ignored",
@@ -380,9 +425,22 @@ def arm_source_mutations():
         (
             "Implementer CLI flag ignored",
             lambda text: replace_regex_once(
-                text, r"implementer_model\s*=\s*args\.implementer_model",
-                "implementer_model=DEFAULT_IMPLEMENTER_MODEL"),
+                text,
+                (r"(# Rebuild the dispatch commands[\s\S]*?"
+                 r"AGENT_COMMANDS = build_agent_commands\([\s\S]*?"
+                 r"implementer_model=)args\.implementer_model"),
+                r"\1DEFAULT_IMPLEMENTER_MODEL"),
             arm_cli_plumbing_and_legacy_routes,
+        ),
+        (
+            "Implementer provider CLI flag ignored",
+            lambda text: replace_regex_once(
+                text,
+                (r"(# Rebuild the dispatch commands[\s\S]*?"
+                 r"AGENT_COMMANDS = build_agent_commands\([\s\S]*?"
+                 r"implementer_provider=)args\.implementer_provider"),
+                r"\1DEFAULT_IMPLEMENTER_PROVIDER"),
+            arm_ollama_implementer_cli,
         ),
     ]
     failures = []
@@ -409,6 +467,7 @@ def main():
         ("aliases/Sol stability", arm_swapped_aliases_and_sol_stability),
         ("fresh provider contexts", arm_each_dispatch_starts_fresh),
         ("CLI/routes", arm_cli_plumbing_and_legacy_routes),
+        ("Ollama Implementer CLI", arm_ollama_implementer_cli),
         ("invalid pre-dispatch", arm_invalid_cli_is_pre_dispatch),
         ("source mutations", arm_source_mutations),
     ]

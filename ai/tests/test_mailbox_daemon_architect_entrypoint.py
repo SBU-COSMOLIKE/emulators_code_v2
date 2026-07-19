@@ -902,6 +902,8 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertFalse(mailbox.exists())
             check.assert_called_once_with(
                 architect_model=daemon.DEFAULT_ARCHITECT_MODEL,
+                implementer_provider=daemon.DEFAULT_IMPLEMENTER_PROVIDER,
+                implementer_model=daemon.DEFAULT_IMPLEMENTER_MODEL,
                 include_sol=True, dry_run=False)
 
     def test_removed_public_targets_and_ticket_kind_are_zero_write_errors(self):
@@ -997,9 +999,10 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
         self.assertIn(
             "save the user's ticket request for the Architect", help_text)
         self.assertIn(
-            "make one small live request to Claude and Sol", help_text)
+            "make one small live request to every provider", help_text)
         self.assertIn(
-            "add --skip-redteam to check only Claude", normalized_help)
+            "with --ping, check the Architect and Implementer providers but "
+            "not Sol", normalized_help)
         self.assertNotIn("--ticket-kind", help_text)
         for old_form in (
                 "--send fable", "--send opus", "--send sol",

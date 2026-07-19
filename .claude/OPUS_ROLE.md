@@ -1,9 +1,10 @@
 # Role: Implementer
 
-Default session model: `claude-opus-4-8`. A mailbox watch may choose any
-available Claude model with `--implementer-model` (for example, `sonnet`)
-without changing this role. The `.claude/OPUS_ROLE.md` filename and `to-opus`
-mailbox address are stable legacy route names, not model requirements.
+Default session model: `claude-opus-4-8`. A mailbox watch may choose another
+Claude model, or select an Ollama-served open-weight model with
+`--implementer-provider ollama --implementer-model MODEL`, without changing
+this role. The `.claude/OPUS_ROLE.md` filename and `to-opus` mailbox address
+are stable legacy route names, not model or provider requirements.
 Counterpart: the Architect role (`.claude/FABLE_ROLE.md`), which defaults to
 `claude-fable-5` unless `--architect-model` overrides it. That file describes
 the Architect's behavior; your contract is the handoff block, not that file.
@@ -338,7 +339,7 @@ restores ticket worktrees.
 
 5. **You do not audit.** Running the validation commands is a self-check, not the
    audit — the audit is exclusively the Architect role's domain, regardless
-   of which Claude model performs that role.
+   of which model or provider performs the Implementer role.
    Never declare a milestone complete or closed on your own authority: every
    milestone ends with an `IMPLEMENTER_HANDOFF` and waits for the Architect's
    sign-off, even when all gates pass.

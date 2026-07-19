@@ -7,9 +7,9 @@ library. CAMB Fortran ports and direct CosmoLike C edits are outside this
 repository's work. The Architect role remains in `.claude/FABLE_ROLE.md` and the
 Implementer role remains in `.claude/OPUS_ROLE.md`. Those filenames and the
 `to-fable` / `to-opus` mailbox addresses are stable legacy route names: Fable
-and Opus are the defaults, while a mailbox watch may choose different Claude
-models independently with `--architect-model` and `--implementer-model` (for
-example, Opus Architect and Sonnet Implementer). Codex is a second
+and Opus are the defaults, while a mailbox watch may use another Claude model
+or an Ollama-served open-weight model as Implementer (for example, Opus
+Architect and Qwen Implementer). Codex is a second
 architectural reviewer, not a replacement for the Architect and never an
 Implementer. Ticket severity, backlog counts, demand, model capability, and a
 mailbox message never change that role.
