@@ -694,7 +694,7 @@ text formats, unsaved files, and other counting details.
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + advisory Sol Red Team |
 | Implementer complexity review | automatic | pause after 90 minutes |
 | AI job emergency timeout | `--dispatch-timeout` | 120 minutes |
-| Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
+| Compaction point inside one long role turn | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
@@ -729,19 +729,34 @@ confirms whether the model exists only when a live role starts.
 
 The mailbox addresses `fable` and `opus` continue to mean Architect and
 Implementer even when the command selects different Claude models. There is no
-`--sol-model` option. The program currently pins Sol to `gpt-5.6-sol`; its
-command-line choices control effort and saved conversation length. The watch
-can include the advisory Red Team or omit it with `--skip-redteam`, but Sol's
-role itself does not change.
+`--sol-model` option. The program currently pins Sol to `gpt-5.6-sol`. The
+watch can include the advisory Red Team or omit it with `--skip-redteam`, but
+Sol's role itself does not change.
 
 There are two role setups. The default uses Architect, Implementer, and the
 advisory Red Team. `--skip-redteam` uses only Architect and Implementer. Sol
 never becomes an Implementer.
 
-When a session reaches the chosen token count, it replaces older conversation
-text with a shorter summary and continues. Claude receives
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW`; Sol receives
-`model_auto_compact_token_limit`.
+### Does an old ticket consume the next ticket's context?
+
+No. Every mailbox dispatch starts a new provider conversation. The daemon
+marks Claude turns as non-persistent and Sol turns as ephemeral. No later turn
+can resume one of these conversations.
+
+For example, after the Implementer returns a candidate commit, the
+Architect's audit starts with an empty provider conversation and reads the
+saved handoff and repository evidence. After that ticket closes, the next
+ticket also starts empty.
+
+The daemon does not send a separate `compact` request at ticket closure. Such
+a request would open another empty provider conversation and spend a role turn
+without helping the next ticket.
+
+The context options still protect one unusually long role turn. When that
+single turn reaches the chosen token count, its provider summarizes older text
+and continues. Claude receives `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; Sol receives
+`model_auto_compact_token_limit`. Raising the limit or splitting an oversized
+ticket is the remedy when one turn compacts before that ticket finishes.
 
 On every pass, the watcher checks when `mailbox_daemon.py` was last modified.
 If the file changed, the running watcher exits. Start it again to load the new
@@ -847,11 +862,11 @@ options:
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
   --claude-context TOKENS
-                        ask Claude to replace older Architect and Implementer
-                        conversation text with a shorter summary when it
-                        reaches this many tokens (default: 500000)
-  --sol-context TOKENS  ask Codex to replace older Red Team conversation text
-                        with a shorter summary when it reaches this many
+                        inside one Architect or Implementer turn, ask Claude
+                        to replace older conversation text with a shorter
+                        summary at this many tokens (default: 500000)
+  --sol-context TOKENS  inside one Red Team turn, ask Codex to replace older
+                        conversation text with a shorter summary at this many
                         tokens (default: 500000)
 ```
 

@@ -134,6 +134,24 @@ def effort_in(command):
     return command[index + 1]
 
 
+def arm_each_dispatch_starts_fresh(source=None):
+    """Keep old provider conversations out of every new mailbox turn."""
+    daemon = load_daemon(source=source)
+    commands = build_commands(daemon)
+    claude_routes_are_fresh = all(
+        "--no-session-persistence" in commands[route]
+        and "--continue" not in commands[route]
+        and "--resume" not in commands[route]
+        for route in ("fable", "opus"))
+    sol_is_fresh = (
+        commands["sol"][:3]
+        == [daemon.CODEX_EXECUTABLE, "exec", "--ephemeral"]
+        and "resume" not in commands["sol"])
+    passed = claude_routes_are_fresh and sol_is_fresh
+    print("every dispatch starts fresh=" + str(passed))
+    return passed
+
+
 def build_commands(daemon, architect=CUSTOM_ARCHITECT,
                    implementer=CUSTOM_IMPLEMENTER):
     """Build one stable custom command set through the public API."""
@@ -210,7 +228,8 @@ def write_routing_messages(mailbox):
 
 def expected_claude_line(name, model, effort, cwd):
     """Return the daemon's exact dry-run line for one Claude route."""
-    command = [CLAUDE_BINARY, "-p", "--model", model,
+    command = [CLAUDE_BINARY, "-p", "--no-session-persistence",
+               "--model", model,
                "--effort", effort, "--permission-mode", "acceptEdits"]
     return ("[dry-run] would dispatch " + name + " -> "
             + " ".join(command) + "  (cwd " + cwd + ")")
@@ -351,8 +370,11 @@ def arm_source_mutations():
         (
             "Architect CLI flag ignored",
             lambda text: replace_regex_once(
-                text, r"architect_model\s*=\s*args\.architect_model",
-                "architect_model=DEFAULT_ARCHITECT_MODEL"),
+                text,
+                (r"architect_model=args\.architect_model,\n"
+                 r"\s*implementer_model="),
+                ("architect_model=DEFAULT_ARCHITECT_MODEL,\n"
+                 "        implementer_model=")),
             arm_cli_plumbing_and_legacy_routes,
         ),
         (
@@ -385,6 +407,7 @@ def main():
     arms = [
         ("defaults/validation", arm_defaults_and_validation),
         ("aliases/Sol stability", arm_swapped_aliases_and_sol_stability),
+        ("fresh provider contexts", arm_each_dispatch_starts_fresh),
         ("CLI/routes", arm_cli_plumbing_and_legacy_routes),
         ("invalid pre-dispatch", arm_invalid_cli_is_pre_dispatch),
         ("source mutations", arm_source_mutations),

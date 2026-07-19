@@ -214,6 +214,8 @@ PROVIDER_PING_TIMEOUT_SECONDS = 120
 # CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the codex CLI
 # (Sol) takes -c model_auto_compact_token_limit (accepted live,
 # 2026-07-14). Override per launch with --claude-context / --sol-context.
+# Each dispatch is also explicitly non-persistent, so a later turn cannot
+# inherit an earlier ticket's provider conversation.
 DEFAULT_CLAUDE_CONTEXT_BUDGET = 500000
 DEFAULT_SOL_CONTEXT_BUDGET = 500000
 
@@ -3434,11 +3436,11 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
         # is the logged-in v2.1.208 install (diagnosed 2026-07-14).
-        "fable": [CLAUDE_EXECUTABLE, "-p",
+        "fable": [CLAUDE_EXECUTABLE, "-p", "--no-session-persistence",
                   "--model", architect_model,
                   "--effort", fable_effort,
                   "--permission-mode", "acceptEdits"],
-        "opus": [CLAUDE_EXECUTABLE, "-p",
+        "opus": [CLAUDE_EXECUTABLE, "-p", "--no-session-persistence",
                  "--model", implementer_model,
                  "--effort", opus_effort,
                  "--permission-mode", "acceptEdits"],
@@ -3453,7 +3455,7 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
         # because the user's global ~/.codex/config.toml says "priority"
         # -- a dispatch must not inherit that default.
         "sol": [CODEX_EXECUTABLE,
-                "exec",
+                "exec", "--ephemeral",
                 "--model", SOL_MODEL,
                 "-c", "model_reasoning_effort=" + sol_effort,
                 "-c", "service_tier=standard",
@@ -13507,16 +13509,16 @@ def main():
     parser.add_argument("--claude-context", metavar="TOKENS",
                         type=positive_int,
                         default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-                        help="ask Claude to replace older Architect and "
-                             "Implementer conversation text with a shorter "
-                             "summary when it reaches this many tokens "
+                        help="inside one Architect or Implementer turn, ask "
+                             "Claude to replace older conversation text with "
+                             "a shorter summary at this many tokens "
                              "(default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
                         type=positive_int, default=DEFAULT_SOL_CONTEXT_BUDGET,
-                        help="ask Codex to replace older Red Team "
-                             "conversation text with a shorter summary when "
-                             "it reaches this many tokens (default: "
+                        help="inside one Red Team turn, ask Codex to replace "
+                             "older conversation text with a shorter summary "
+                             "at this many tokens (default: "
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
     maintenance_send = (
