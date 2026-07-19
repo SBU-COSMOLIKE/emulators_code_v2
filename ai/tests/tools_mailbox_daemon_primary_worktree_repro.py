@@ -4952,7 +4952,8 @@ def arm_timed_checkpoint_refusals(source=None):
         missing_checks = {
             "refused": missing_result is False,
             "exact-reason": (
-                "expected exactly one new checkpoint handoff"
+                "expected exactly one new Architect handoff to the "
+                "Implementer; found 0"
                 in missing_output.getvalue()),
             "request-failed": (
                 (mailbox / "failed" / missing_inbound.name).is_file()),
