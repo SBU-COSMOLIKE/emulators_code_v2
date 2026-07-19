@@ -707,6 +707,71 @@ def arm_production_dispatch_lifecycle(source=None):
         return passed
 
 
+def arm_candidate_audit_requires_one_outcome(source=None):
+    """Require a landing GO or one repair handoff after candidate audit."""
+    with scratch_daemon(source=source) as (daemon, root, mailbox):
+        anchor = "silent-candidate-audit"
+        cycle_id = anchor + "@" + BASE_COMMIT
+        write_indexed_open_tickets(
+            backlog=pathlib.Path(daemon.BACKLOG_LEDGER), anchors=(anchor,))
+        flow = ticket_flow_payload(
+            cycle_id=cycle_id, text="Audit the saved candidate.")
+        daemon.register_ticket_cycle_message(agent="opus", message=flow)
+        daemon.candidate_commit_for_cycle = lambda cycle_id: ACCEPTED_COMMIT
+        daemon.create_audit_snapshot = (
+            lambda **kwargs: str(root / "candidate-audit"))
+        daemon.remove_audit_snapshot = lambda **kwargs: None
+        for cwd in set(daemon.AGENT_CWD.values()):
+            pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+        daemon.capture_persistent_role_state = (
+            lambda agent: {"agent": agent, "base": BASE_COMMIT}
+            if agent == "fable" else object())
+        daemon.recheck_persistent_role_state = lambda proof: None
+        daemon.worktree_head = lambda worktree: BASE_COMMIT
+        daemon._validate_current_protected_primary_state = (
+            lambda primary_worktree: None)
+
+        def silent_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            stdout.write("Architect exited without an outcome.\n")
+            stdout.flush()
+            return ImmediateProcess()
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=silent_popen)
+        request = write_pending(mailbox, "0002-to-fable.md", flow)
+        consumed = daemon.dispatch(path=str(request), dry_run=False)
+        state = daemon.read_ticket_cycle_state()
+        silent_refused = (
+            consumed is False
+            and not (mailbox / "done" / request.name).exists()
+            and (mailbox / "failed" / request.name).is_file()
+            and state["active"][cycle_id]["phase"] == "implementation")
+
+        repair = ticket_flow_payload(
+            cycle_id=cycle_id,
+            text=("- **Directive:** [ai/notes/ticket.md, exact "
+                  "Implementation directive section]"))
+
+        def repair_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            write_pending(mailbox, "0004-to-opus.md", repair)
+            stdout.write("Architect requested one repair.\n")
+            stdout.flush()
+            return ImmediateProcess()
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=repair_popen)
+        retry = write_pending(mailbox, "0003-to-fable.md", flow)
+        repaired = daemon.dispatch(path=str(retry), dry_run=False)
+        passed = (
+            silent_refused and repaired
+            and (mailbox / "done" / retry.name).is_file()
+            and (mailbox / "0004-to-opus.md").is_file())
+        print("candidate audit requires one outcome=" + str(passed))
+        return passed
+
+
 def arm_three_role_pipeline_concurrency(source=None):
     """Three role lanes overlap while each role remains sequential."""
     with scratch_daemon(source=source) as (daemon, _, mailbox):
@@ -2179,6 +2244,7 @@ def main():
         ("Ctrl-C preservation", arm_ctrl_c_preserves_waiting_message),
         ("mid-pass source change", arm_source_change_stops_mid_pass),
         ("production dispatch hooks", arm_production_dispatch_lifecycle),
+        ("candidate audit outcome", arm_candidate_audit_requires_one_outcome),
         ("three-role pipeline", arm_three_role_pipeline_concurrency),
         ("finite modes", arm_once_and_dry_run_are_unaffected),
         ("cycle arguments", arm_cycle_argument_contract),

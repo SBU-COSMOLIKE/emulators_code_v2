@@ -4236,16 +4236,20 @@ def matching_new_architect_go(cycle_id, candidate_commit, mode,
     return (fresh[0] if fresh else None), [], None
 
 
-def checkpoint_architect_handoff_problem(message, cycle_id, mode):
-    """Return why a revised checkpoint handoff is not authorized."""
+def architect_handoff_problem(message, cycle_id, mode, checkpoint=False):
+    """Return why one same-cycle Architect repair is not authorized."""
     returned_cycle, returned_mode, body, problem = (
         _ticket_flow_envelope(message=message))
     if problem is not None:
         return problem
     if returned_cycle != cycle_id:
-        return "checkpoint handoff changed MAILBOX-CYCLE"
+        return "Architect handoff changed MAILBOX-CYCLE"
     if returned_mode != mode:
-        return "checkpoint handoff changed MAILBOX-MODE"
+        return "Architect handoff changed MAILBOX-MODE"
+    if not checkpoint:
+        if len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message)) != 1:
+            return "repair handoff requires exactly one Directive row"
+        return None
     decision_rows = [
         line for line in body.splitlines()
         if line.startswith(IMPLEMENTER_CHECKPOINT_DECISION_PREFIX)]
@@ -4258,8 +4262,15 @@ def checkpoint_architect_handoff_problem(message, cycle_id, mode):
     return None
 
 
-def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
-    """Require one fresh explicit checkpoint decision for the same ticket."""
+def checkpoint_architect_handoff_problem(message, cycle_id, mode):
+    """Compatibility name for the stricter checkpoint form."""
+    return architect_handoff_problem(
+        message=message, cycle_id=cycle_id, mode=mode, checkpoint=True)
+
+
+def matching_new_architect_handoff(cycle_id, mode, before_inodes,
+                                   checkpoint=False, required=True):
+    """Find one fresh same-cycle repair handoff from the Architect."""
     fresh = []
     invalid = []
     problems = []
@@ -4274,11 +4285,11 @@ def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
             invalid.append(path)
             problems.append(os.path.basename(path) + ": " + str(exc))
             continue
-        problem = checkpoint_architect_handoff_problem(
-            message=message, cycle_id=cycle_id, mode=mode)
+        problem = architect_handoff_problem(
+            message=message, cycle_id=cycle_id, mode=mode,
+            checkpoint=checkpoint)
         if os.path.dirname(path) != MAILBOX:
-            problem = (
-                "checkpoint handoff was not published in the mailbox root")
+            problem = "handoff was not published in the mailbox root"
         if problem is not None:
             invalid.append(path)
             problems.append(os.path.basename(path) + ": " + problem)
@@ -4286,11 +4297,18 @@ def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
             fresh.append(path)
     if problems:
         return None, list(dict.fromkeys(invalid + fresh)), "; ".join(problems)
-    if len(fresh) != 1:
+    if len(fresh) > 1 or (required and len(fresh) != 1):
         return (None, fresh,
-                "expected exactly one new checkpoint handoff to the "
+                "expected exactly one new Architect handoff to the "
                 "Implementer; found " + str(len(fresh)))
-    return fresh[0], [], None
+    return (fresh[0] if fresh else None), [], None
+
+
+def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
+    """Compatibility name for a required checkpoint decision."""
+    return matching_new_architect_handoff(
+        cycle_id=cycle_id, mode=mode, before_inodes=before_inodes,
+        checkpoint=True, required=True)
 
 
 def matching_new_architect_notes_go(base_commit, notes_commit,
@@ -7423,7 +7441,7 @@ def dispatch_under_main_checkout_lock(
     try:
         if agent == "fable":
             architect_go_before = daemon_message_inode_snapshot()
-            if architect_checkpoint_audit:
+            if architect_checkpoint_audit or registered_cycle_id is not None:
                 architect_opus_before = opus_message_inode_snapshot()
             elif notes_admin_turn:
                 admin_opus_before = opus_message_inode_snapshot()
@@ -7908,6 +7926,7 @@ def dispatch_under_main_checkout_lock(
         go_path, invalid_go_paths, go_problem = matching_new_architect_go(
             cycle_id=audit_cycle_id, candidate_commit=audit_commit,
             mode=flow_mode, before_inodes=architect_go_before)
+        handoff_path = None
         if architect_checkpoint_audit:
             handoff_path, invalid_handoffs, handoff_problem = (
                 matching_new_checkpoint_handoff(
@@ -7924,6 +7943,25 @@ def dispatch_under_main_checkout_lock(
             if go_problem is not None:
                 invalid_go_paths = list(dict.fromkeys(
                     invalid_go_paths + checkpoint_outputs))
+        else:
+            handoff_path, invalid_handoffs, handoff_problem = (
+                matching_new_architect_handoff(
+                    cycle_id=audit_cycle_id, mode=flow_mode,
+                    before_inodes=architect_opus_before,
+                    required=False))
+            if handoff_problem is not None:
+                go_problem = (handoff_problem if go_problem is None else
+                              go_problem + "; " + handoff_problem)
+            elif go_problem is None and ((go_path is None)
+                                         == (handoff_path is None)):
+                go_problem = (
+                    "candidate audit requires exactly one outcome: "
+                    "landing GO or same-cycle Implementer repair")
+            if go_problem is not None:
+                invalid_go_paths = list(dict.fromkeys(
+                    invalid_go_paths + invalid_handoffs
+                    + [path for path in (go_path, handoff_path)
+                       if path is not None]))
         if go_problem is not None:
             for invalid_path in invalid_go_paths:
                 park_failed_message(dispatch_path=invalid_path)
@@ -7937,6 +7975,9 @@ def dispatch_under_main_checkout_lock(
             print("  authenticated Architect GO for exact candidate "
                   + audit_commit + "; the daemon will prepare its landing "
                   "after this Architect turn releases the main lock.")
+        elif handoff_path is not None:
+            print("  authenticated Architect repair handoff for "
+                  + audit_cycle_id + ".")
 
     if (agent == "fable" and audit_cycle_id is None
             and architect_turn_base is not None):
