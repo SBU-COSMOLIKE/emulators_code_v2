@@ -10309,6 +10309,88 @@ def recover_failed_implementer_preflight():
     return recovered
 
 
+def live_implementer_owns_architect_admission(token):
+    """Return whether a valid queued Implementer handoff owns ``token``."""
+    request_name, digest = split_architect_admission_token(token=token)
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"),
+                      os.path.join(MAILBOX, "prelaunch"), DONE):
+        for path in glob.glob(os.path.join(directory, "*-to-opus.md")):
+            try:
+                message = read_cycle_message(path=path)
+            except (OSError, ValueError, TicketCycleStateError):
+                return True
+            flow_name, flow_digest, problem = (
+                _ticket_architect_admission(message=message))
+            if (problem is None and flow_name == request_name
+                    and flow_digest == digest):
+                return True
+    return False
+
+
+def retire_failed_public_architect_admission(path):
+    """Release one exact failed public request without retrying its turn."""
+    name = os.path.basename(path)
+    match = PENDING_MESSAGE_RE.fullmatch(name)
+    if (match is None or match.group(1) != "fable"
+            or os.path.dirname(path) != os.path.join(MAILBOX, "failed")):
+        return False
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock failed admission recovery")
+    state_lock = None
+    try:
+        state_lock = acquire_ticket_cycle_lock()
+        state = read_ticket_cycle_state()
+        record = state["architect_admissions"].get(name)
+        if record is None:
+            return False
+        other_states = [
+            os.path.join(MAILBOX, name),
+            os.path.join(MAILBOX, "prelaunch", name),
+            os.path.join(DONE, name),
+            os.path.join(MAILBOX, "inflight", name),
+            os.path.join(MAILBOX, "inflight", name + STATE_GUARD_SUFFIX),
+        ]
+        if any(os.path.lexists(candidate) for candidate in other_states):
+            return False
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            return False
+        digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
+        if (message == ARCHITECT_FIX_ONLY_REQUEST
+                or architect_user_request_problem(message=message)
+                is not None):
+            return False
+        if (record["sequence"] != message_sequence(path)
+                or record["sha256"] != digest):
+            raise TicketCycleStateError(
+                "failed public Architect request changed identity")
+        token = architect_admission_token(
+            request_name=name, digest=digest)
+        if live_implementer_owns_architect_admission(token=token):
+            return False
+        del state["architect_admissions"][name]
+        write_ticket_cycle_state(state=state)
+        print("released finite-cycle slot for failed " + name
+              + "; the failed Architect turn was not retried")
+        return True
+    finally:
+        if state_lock is not None:
+            release_ticket_cycle_lock(lock_file=state_lock)
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
+
+
+def recover_failed_public_architect_admissions():
+    """Retire exact failed public requests left charged by an older run."""
+    recovered = 0
+    pattern = os.path.join(MAILBOX, "failed", "*-to-fable.md")
+    for path in sorted(glob.glob(pattern), key=message_sequence):
+        if retire_failed_public_architect_admission(path=path):
+            recovered += 1
+    return recovered
+
+
 def recover_prelaunch_messages():
     """Requeue requests durably retained before any agent process started."""
     sequence_lock = acquire_mailbox_sequence_lock()
@@ -10338,6 +10420,7 @@ def recover_before_dispatch(fix_only=False):
         recover_failed_maintenance_admission()
     recover_failed_implementer_preflight()
     recover_prelaunch_messages()
+    recover_failed_public_architect_admissions()
     return reconcile_ticket_cycle_state()
 
 
@@ -10597,6 +10680,10 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
                     del _RENDEZVOUS_LOCAL.permit
                 finally:
                     controller.finish_attempt(permit=permit)
+        if not consumed and architect_admission is not None:
+            retire_failed_public_architect_admission(
+                path=os.path.join(
+                    MAILBOX, "failed", os.path.basename(path)))
         if not consumed:
             all_consumed = False
             # A false result can mean the head is still inflight because its
@@ -10798,6 +10885,8 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         workers.append(worker)
     for worker in workers:
         worker.join()
+    if not dry_run:
+        recover_failed_public_architect_admissions()
     return (daemon_outcome and not blockers
             and len(lane_outcomes) == len(lanes)
             and all(lane_outcomes.values()))

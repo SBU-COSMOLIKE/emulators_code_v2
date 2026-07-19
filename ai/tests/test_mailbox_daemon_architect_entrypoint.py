@@ -195,6 +195,125 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertEqual(
                 launches[0]["architect_admission"], expected_token)
 
+    def test_restart_releases_failed_public_request_without_retry(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            request = failed / "0013-to-fable.md"
+            request.write_text(
+                daemon.architect_user_request_payload("One failed request."),
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][request.name] = {
+                "mode": "normal", "sequence": 13,
+                "sha256": daemon.hashlib.sha256(
+                    request.read_bytes()).hexdigest(),
+            }
+            daemon.write_ticket_cycle_state(state=state)
+
+            daemon.recover_before_dispatch()
+
+            self.assertTrue(request.is_file())
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["architect_admissions"], {})
+            self.assertEqual(
+                daemon.recover_failed_public_architect_admissions(), 0)
+
+    def test_failed_request_keeps_slot_for_live_implementer_handoff(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            request = failed / "0013-to-fable.md"
+            request.write_text(
+                daemon.architect_user_request_payload("One failed request."),
+                encoding="utf-8", newline="")
+            digest = daemon.hashlib.sha256(request.read_bytes()).hexdigest()
+            token = daemon.architect_admission_token(
+                request_name=request.name, digest=digest)
+            (mailbox / "0014-to-opus.md").write_text(
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: one-ticket@" + BASE_COMMIT + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "MAILBOX-ADMISSION: " + token + "\n"
+                "Implement this exact ticket.\n",
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][request.name] = {
+                "mode": "normal", "sequence": 13, "sha256": digest}
+            daemon.write_ticket_cycle_state(state=state)
+
+            recovered = daemon.recover_failed_public_architect_admissions()
+
+            self.assertEqual(recovered, 0)
+            self.assertIn(
+                request.name,
+                daemon.read_ticket_cycle_state()["architect_admissions"])
+
+    def test_failed_request_keeps_slot_until_inflight_move_is_resolved(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            inflight = mailbox / "inflight"
+            failed.mkdir()
+            inflight.mkdir()
+            request = failed / "0013-to-fable.md"
+            request.write_text(
+                daemon.architect_user_request_payload("One failed request."),
+                encoding="utf-8", newline="")
+            inflight_request = inflight / request.name
+            guard = pathlib.Path(
+                str(inflight_request) + daemon.STATE_GUARD_SUFFIX)
+            os.link(request, inflight_request)
+            os.link(request, guard)
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][request.name] = {
+                "mode": "normal", "sequence": 13,
+                "sha256": daemon.hashlib.sha256(
+                    request.read_bytes()).hexdigest(),
+            }
+            daemon.write_ticket_cycle_state(state=state)
+
+            self.assertEqual(
+                daemon.recover_failed_public_architect_admissions(), 0)
+            self.assertIn(
+                request.name,
+                daemon.read_ticket_cycle_state()["architect_admissions"])
+
+            inflight_request.unlink()
+            guard.unlink()
+            self.assertEqual(
+                daemon.recover_failed_public_architect_admissions(), 1)
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["architect_admissions"], {})
+
+    def test_live_pass_releases_slot_after_bad_handoff_is_parked(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            request = failed / "0013-to-fable.md"
+            request.write_text(
+                daemon.architect_user_request_payload("One failed request."),
+                encoding="utf-8", newline="")
+            bad_handoff = mailbox / "0014-to-opus.md"
+            bad_handoff.write_bytes(b"\xff")
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][request.name] = {
+                "mode": "normal", "sequence": 13,
+                "sha256": daemon.hashlib.sha256(
+                    request.read_bytes()).hexdigest(),
+            }
+            daemon.write_ticket_cycle_state(state=state)
+            daemon.message_is_enabled_for_topology = lambda **_kwargs: True
+
+            def park_bad_lane(paths, **_kwargs):
+                return all(daemon.park_failed_message(path) for path in paths)
+
+            daemon.drain_lane = park_bad_lane
+            daemon.process_backlog(dry_run=False)
+
+            self.assertTrue((failed / bad_handoff.name).is_file())
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["architect_admissions"], {})
+
     def test_other_admission_still_defers_fix_only_request(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
             request = mailbox / "0013-to-fable.md"

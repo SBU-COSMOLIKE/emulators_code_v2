@@ -1413,9 +1413,9 @@ def arm_public_architect_non_ticket_outcomes_release_admission(source=None):
 
 
 def arm_public_architect_ambiguous_outcomes_fail_closed(source=None):
-    """Silence, malformed output, multiples, and mixed routes stay charged."""
+    """Failed turns keep evidence but release their unused finite slot."""
     results = []
-    for case in ("silent", "malformed", "multiple", "mixed"):
+    for case in ("child-error", "silent", "malformed", "multiple", "mixed"):
         with scratch_daemon(source=source) as (daemon, _, mailbox):
             request = write_pending(
                 mailbox, "0001-to-fable.md",
@@ -1468,7 +1468,10 @@ def arm_public_architect_ambiguous_outcomes_fail_closed(source=None):
                     created.append(second_output)
                 stdout.write("Architect invalid-outcome witness.\n")
                 stdout.flush()
-                return ImmediateProcess()
+                process = ImmediateProcess()
+                if case == "child-error":
+                    process.returncode = 1
+                return process
 
             daemon.subprocess = AttributeProxy(
                 daemon.subprocess, Popen=fake_invalid)
@@ -1483,18 +1486,22 @@ def arm_public_architect_ambiguous_outcomes_fail_closed(source=None):
                     paths=[str(request)], dry_run=False)
                 state = daemon.read_ticket_cycle_state()
                 charged = daemon.finite_cycle_capacity_used(state=state)
+                recovered_again = (
+                    daemon.recover_failed_public_architect_admissions())
             finally:
                 daemon._ACTIVE_WATCH_RENDEZVOUS = None
             results.append(
                 not consumed
-                and set(state["architect_admissions"]) == {request.name}
-                and state["active"] == {} and charged == 1
+                and state["architect_admissions"] == {}
+                and state["active"] == {} and charged == 0
+                and recovered_again == 0
                 and (mailbox / "failed" / request.name).is_file()
                 and all((mailbox / "failed" / path.name).is_file()
                         for path in created)
                 and all(not path.exists() for path in created))
     passed = all(results)
-    print("public Architect ambiguous outcomes fail closed=" + str(passed))
+    print("failed public Architect outcomes release finite slot="
+          + str(passed))
     return passed
 
 
