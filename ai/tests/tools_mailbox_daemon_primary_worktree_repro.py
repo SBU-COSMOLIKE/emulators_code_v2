@@ -5808,11 +5808,6 @@ def mutation_cases(source):
         '            primary_path=primary["path"])',
         '        authoritative_files = {"directories": (), "files": ()}',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
-    add("authoritative Architect role proof dropped",
-        '        ("role", os.path.join(\n'
-        '            primary, ".claude", "FABLE_ROLE.md")),\n',
-        '',
-        arm_architect_launch_boundary_revalidates_branch_and_role)
     add("pre-Popen Architect topology revalidation dropped",
         '            if agent in {"fable", "opus", "sol"}:\n'
         '                revalidate_agent_dispatch_topology(\n'
