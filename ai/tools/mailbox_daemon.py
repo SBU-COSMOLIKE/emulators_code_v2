@@ -3069,6 +3069,7 @@ class SafeKillRendezvous:
 # finite callers and the existing focused reproduction suites.
 _ACTIVE_WATCH_RENDEZVOUS = None
 _RENDEZVOUS_LOCAL = threading.local()
+_TOKEN_EXHAUSTION_STOP = threading.Event()
 
 
 def _rendezvous_turn_started():
@@ -7180,6 +7181,42 @@ def revalidate_sol_dispatch_topology(proof):
     return revalidate_agent_dispatch_topology(proof=proof)
 
 
+CLAUDE_TOKEN_EXHAUSTION_MARKERS = (
+    "credit balance is too low", "your org is out of usage",
+    "you're out of usage credits", "you've hit your monthly spend limit",
+)
+SOL_TOKEN_EXHAUSTION_MARKERS = (
+    "you've hit your usage limit", "your workspace is out of credits",
+    "you're out of credits", "you've reached your workspace credit limit",
+    "you hit your spend cap", '"usage_limit_exceeded"',
+    '_credits_depleted"', '_usage_limit_reached"',
+)
+
+
+def provider_is_out_of_tokens(agent, reply_lines):
+    """Recognize terminal account exhaustion, not transient API failures.
+
+    Arguments:
+      agent = Mailbox role name.
+      reply_lines = Completed provider-log lines.
+
+    Returns:
+      True for a known account limit.
+    """
+    if agent not in {"fable", "opus", "sol"}:
+        return False
+    markers = (CLAUDE_TOKEN_EXHAUSTION_MARKERS
+               if agent in {"fable", "opus"}
+               else SOL_TOKEN_EXHAUSTION_MARKERS)
+    tail = "\n".join(reply_lines[-24:]).replace("’", "'").casefold()
+    if (agent != "sol" and re.search(
+            r"you've hit your (5-hour|five-hour|7-day|seven-day) "
+            r"limit\b.*\bresets\b",
+            tail)):
+        return True
+    return any(marker in tail for marker in markers)
+
+
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
              new_reservation_cycle=None, architect_admission=None):
     """Serialize Architect GO decisions, then run one dispatch."""
@@ -7942,6 +7979,13 @@ def dispatch_under_main_checkout_lock(
         return False
 
     if proc.returncode != 0:
+        if provider_is_out_of_tokens(agent=agent, reply_lines=reply_lines):
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            _TOKEN_EXHAUSTION_STOP.set()
+            raise RoleTokenExhaustionError(
+                agent=agent,
+                request_path=(os.path.join(MAILBOX, "failed", name)
+                              if parked else None))
         # a failed dispatch is NOT done: park it in failed/ so it is never
         # silently consumed, and never hot-retried while the cause persists.
         # Requeue after fixing the cause:  mv ai/notes/mailbox/failed/<f> ai/notes/mailbox/
@@ -11123,6 +11167,9 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
     """
     all_consumed = True
     for path in paths:
+        if _TOKEN_EXHAUSTION_STOP.is_set():
+            all_consumed = False
+            break
         try:
             maintenance = (read_cycle_message(path=path)
                            == ARCHITECT_FIX_ONLY_REQUEST)
@@ -11243,6 +11290,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
       (or would dispatch in a dry run), and False when any dispatch or done
       archive failed.
     """
+    _TOKEN_EXHAUSTION_STOP.clear()
     if not dry_run:
         try:
             read_ticket_cycle_state()
@@ -11376,6 +11424,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     # watch pass. Other cwd lanes remain independent and may still drain.
     workers = []
     lane_outcomes = {}
+    token_errors = []
     outcome_lock = threading.Lock()
 
     def drain_and_record(cwd, paths, dry_run, fix_only, skip_redteam):
@@ -11388,6 +11437,10 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
             else:
                 consumed = drain_lane(
                     paths=paths, dry_run=dry_run, fix_only=fix_only)
+        except RoleTokenExhaustionError as exc:
+            with outcome_lock:
+                token_errors.append(exc)
+            consumed = False
         except Exception as exc:
             print("  !! dispatch lane failed: " + str(exc)
                   + "; lane is not consumed.")
@@ -11416,6 +11469,11 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         worker.join()
     if not dry_run:
         recover_failed_public_architect_admissions()
+    if token_errors:
+        order = {"fable": 0, "opus": 1, "sol": 2}
+        ordered = sorted(token_errors, key=lambda error: order[error.agent])
+        ordered[0].other_errors = ordered[1:]
+        raise ordered[0]
     return (daemon_outcome and not blockers
             and len(lane_outcomes) == len(lanes)
             and all(lane_outcomes.values()))
@@ -11691,6 +11749,40 @@ class RetryableArchitectLandingError(TicketCycleStateError):
 
 class FatalArchitectLandingError(TicketCycleStateError):
     """Stop this process after preserving a valid GO for a later retry."""
+
+
+class RoleTokenExhaustionError(RuntimeError):
+    """One role exhausted its account."""
+
+    ROLE_NAMES = {"fable": "Architect", "opus": "Implementer", "sol": "Sol"}
+
+    def __init__(self, agent, request_path):
+        self.agent = agent
+        self.role = self.ROLE_NAMES[agent]
+        self.request_path = request_path
+        self.worktree = AGENT_CWD[agent]
+        self.other_errors = []
+        super().__init__("Error: " + self.role + " is out of tokens")
+
+
+def report_role_token_exhaustion(error):
+    """Report exhausted roles and preserved work.
+
+    Arguments:
+      error = Role exhaustion from a joined dispatch pass.
+
+    Returns:
+      None; prints four lines per role.
+    """
+    for stopped in [error] + error.other_errors:
+        print(str(stopped))
+        print("Work was preserved in " + stopped.worktree + ".")
+        if stopped.request_path is None:
+            print("Request preservation is uncertain; inspect inflight/ and "
+                  "failed/ before retrying.")
+        else:
+            print("Request saved at " + stopped.request_path + ".")
+        print("Add credits before retrying.")
 
 
 class TicketCycleLimitDeferred(TicketCycleStateError):
@@ -13641,6 +13733,9 @@ def main():
                     print(failed_debt)
                     return 1
                 outcome = process_backlog(dry_run=False)
+            except RoleTokenExhaustionError as exc:
+                report_role_token_exhaustion(error=exc)
+                return 1
             except FatalArchitectLandingError as exc:
                 print("Architect landing needs user action: " + str(exc))
                 return 1
@@ -13759,6 +13854,9 @@ def main():
                     backlog_outcome = process_backlog(
                         dry_run=False, fix_only=fix_only,
                         skip_redteam=skip_redteam)
+                except RoleTokenExhaustionError as exc:
+                    report_role_token_exhaustion(error=exc)
+                    return 1
                 except FatalArchitectLandingError as exc:
                     print("Architect landing needs user action: " + str(exc))
                     return 1

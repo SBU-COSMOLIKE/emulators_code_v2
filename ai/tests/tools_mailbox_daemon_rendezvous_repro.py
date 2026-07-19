@@ -961,6 +961,63 @@ def arm_once_recovers_prelaunch_request(source=None):
         return passed
 
 
+def arm_watch_exits_on_token_exhaustion(source=None):
+    """A finite watch reports exhaustion once and keeps progress unfinished."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        calls = []
+
+        def exhausted_pass(dry_run, fix_only=False, skip_redteam=False):
+            del dry_run, fix_only, skip_redteam
+            calls.append("pass")
+            raise daemon.RoleTokenExhaustionError(
+                agent="opus",
+                request_path=str(mailbox / "failed" / "0001-to-opus.md"))
+
+        daemon.process_backlog = exhausted_pass
+        rc, output, _, error = call_main(
+            daemon, ["--watch", "--cycle", "1"])
+        state = daemon.read_ticket_cycle_state()
+        finite = state["finite_watch"]
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        lock_released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        passed = (
+            error is None and rc == 1 and calls == ["pass"]
+            and output.count("Error: Implementer is out of tokens") == 1
+            and "safe to Ctrl-C" not in output
+            and finite is not None and finite["status"] == "active"
+            and finite["completed"] == 0 and lock_released)
+        print("watch token exhaustion exits once=" + str(passed))
+        return passed
+
+
+def arm_once_exits_on_token_exhaustion(source=None):
+    """A one-pass run reports exhaustion once and releases its lock."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        calls = []
+
+        def exhausted_pass(dry_run, fix_only=False, skip_redteam=False):
+            del dry_run, fix_only, skip_redteam
+            calls.append("pass")
+            raise daemon.RoleTokenExhaustionError(
+                agent="fable",
+                request_path=str(mailbox / "failed" / "0001-to-fable.md"))
+
+        daemon.process_backlog = exhausted_pass
+        rc, output, _, error = call_main(daemon, ["--once"])
+        retry_lock = daemon.acquire_dispatch_lock(mode="once")
+        lock_released = retry_lock is not None
+        if retry_lock is not None:
+            daemon.release_dispatch_lock(lock_file=retry_lock)
+        passed = (
+            error is None and rc == 1 and calls == ["pass"]
+            and output.count("Error: Architect is out of tokens") == 1
+            and lock_released)
+        print("once token exhaustion exits once=" + str(passed))
+        return passed
+
+
 def arm_cycle_argument_contract(source=None):
     """Cycle is watch-only and works in both supported topologies."""
     with scratch_daemon(source=source) as (daemon, _, _):
@@ -2120,6 +2177,28 @@ def arm_source_mutations():
             arm_source_change_stops_mid_pass,
         ),
         (
+            "watch token exhaustion is swallowed",
+            lambda text: replace_exact(
+                text,
+                "                except RoleTokenExhaustionError as exc:\n"
+                "                    report_role_token_exhaustion(error=exc)\n"
+                "                    return 1\n"
+                "                except FatalArchitectLandingError as exc:\n",
+                "                except FatalArchitectLandingError as exc:\n"),
+            arm_watch_exits_on_token_exhaustion,
+        ),
+        (
+            "once token exhaustion is swallowed",
+            lambda text: replace_exact(
+                text,
+                "            except RoleTokenExhaustionError as exc:\n"
+                "                report_role_token_exhaustion(error=exc)\n"
+                "                return 1\n"
+                "            except FatalArchitectLandingError as exc:\n",
+                "            except FatalArchitectLandingError as exc:\n"),
+            arm_once_exits_on_token_exhaustion,
+        ),
+        (
             "countdown queue count frozen",
             lambda text: replace_exact(
                 text,
@@ -2306,6 +2385,8 @@ def main():
         ("three-role pipeline", arm_three_role_pipeline_concurrency),
         ("finite modes", arm_once_and_dry_run_are_unaffected),
         ("once restart recovery", arm_once_recovers_prelaunch_request),
+        ("watch token exhaustion", arm_watch_exits_on_token_exhaustion),
+        ("once token exhaustion", arm_once_exits_on_token_exhaustion),
         ("cycle arguments", arm_cycle_argument_contract),
         ("cycle omitted", arm_omitted_cycle_remains_unbounded),
         ("cycle positive", arm_positive_cycle_limit_preserves_queue),

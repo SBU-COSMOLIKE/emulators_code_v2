@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import types
 
 
@@ -393,6 +394,289 @@ def arm_ordinary_failure_has_no_timeout_history():
               + " parked=" + str(failed.is_file()))
         return (not result and len(calls) == 1
                 and not history_dir.exists() and failed.is_file())
+
+
+def arm_token_exhaustion_classification():
+    """Recognize provider quota messages without catching nearby failures."""
+    daemon = load_daemon()
+    positive = [
+        ("fable", "Error: Credit balance is too low"),
+        ("fable", "You've hit your 5-hour limit · resets at 3 pm"),
+        ("fable", "You've hit your five-hour limit; resets at 3 pm"),
+        ("opus", "You've hit your 7-day limit · resets Monday"),
+        ("opus", "You've hit your seven-day limit - resets Monday"),
+        ("opus", "Your org is out of usage · contact your admin"),
+        ("opus", "You're out of usage credits"),
+        ("opus", "You've hit your monthly spend limit"),
+        ("sol", '{"reason":"workspace_member_credits_depleted"}'),
+    ]
+    accepted = all(daemon.provider_is_out_of_tokens(
+        agent=agent, reply_lines=[line])
+        for agent, line in positive)
+    rejected = all(not daemon.provider_is_out_of_tokens(
+        agent=agent, reply_lines=[line])
+        for agent, line in [
+            ("fable", "You've hit your limit while reading a ticket"),
+            ("fable", "You've hit your five-hour limit in a test fixture"),
+            ("sol", "429 rate limit: retry later"),
+            ("sol", "context_window_exceeded"),
+            ("sol", "max_output_tokens reached"),
+            ("sol", "Server is temporarily limiting requests"),
+            ("sol", '{"spend_control_reached":false}'),
+        ])
+    with scratch_daemon() as (success_daemon, _):
+        path = write_message(
+            success_daemon, "0055-to-fable.md", "successful body\n")
+        success_daemon.subprocess.Popen = success_popen(
+            calls=[], output="Error: Credit balance is too low\n")
+        successful_phrase_is_not_failure = success_daemon.dispatch(
+            path=path, dry_run=False)
+    labels = [daemon.RoleTokenExhaustionError(
+        agent=agent, request_path="/saved/request").role
+        for agent in ("fable", "opus", "sol")]
+    print("token-classifier accepted=" + str(accepted)
+          + " rejected-nearby=" + str(rejected)
+          + " labels=" + repr(labels))
+    return (accepted and rejected and successful_phrase_is_not_failure
+            and labels == ["Architect", "Implementer", "Sol"])
+
+
+def arm_token_exhaustion_uses_all_role_routes():
+    """Send account exhaustion through Architect, Implementer, and Sol."""
+    cases = [
+        ("fable", "Credit balance is too low"),
+        ("opus", "Your org is out of usage · add funds"),
+        ("sol", '{"reason":"workspace_owner_usage_limit_reached"}'),
+    ]
+    outcomes = []
+    for index, (agent, provider_line) in enumerate(cases, start=1):
+        with scratch_daemon() as (daemon, _):
+            name = "006%d-to-%s.md" % (index, agent)
+            cycle = "token-role-route@" + ("1" * 40)
+            saved_records = []
+            if agent == "opus":
+                body = (
+                    "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                    + "\nMAILBOX-MODE: normal\n\nImplement this ticket.\n")
+                ticket_state = daemon.empty_ticket_cycle_state()
+                ticket_state["active"][cycle] = {
+                    "phase": "implementation", "commit": None,
+                    "mode": "normal", "route": "primary"}
+                daemon.write_ticket_cycle_state(ticket_state)
+                candidate_state = daemon.empty_candidate_state()
+                candidate_state["cycles"][cycle] = {
+                    "ref": daemon.cycle_candidate_ref(cycle),
+                    "commit": "2" * 40}
+                daemon.write_candidate_state(candidate_state)
+                saved_records = [
+                    pathlib.Path(daemon.ticket_cycle_state_path()),
+                    pathlib.Path(daemon.candidate_state_path())]
+                daemon.prepare_implementer_cycle_checkout = (
+                    lambda cycle_id: "1" * 40)
+            elif agent == "sol":
+                landing = "3" * 40
+                body = (
+                    "MAILBOX-TICKET: closure\nMAILBOX-CYCLE: " + cycle
+                    + "\nMAILBOX-COMMIT: " + landing
+                    + "\n\nReview this landing.\n")
+                ticket_state = daemon.empty_ticket_cycle_state()
+                ticket_state["active"][cycle] = {
+                    "phase": "awaiting-redteam", "commit": landing,
+                    "mode": "normal", "route": "primary"}
+                daemon.write_ticket_cycle_state(ticket_state)
+                saved_records = [
+                    pathlib.Path(daemon.ticket_cycle_state_path())]
+                daemon.create_audit_snapshot = lambda **_kwargs: None
+            else:
+                body = "Architect request.\n"
+            saved_bytes = {path: path.read_bytes() for path in saved_records}
+            path = write_message(daemon, name, body)
+            source_inode = pathlib.Path(path).stat().st_ino
+
+            def exhausted_popen(command, stdout, stderr, cwd, env):
+                del command, stderr, env
+                if agent == "opus":
+                    pathlib.Path(cwd, "partial-edit.txt").write_text(
+                        "preserve me\n", encoding="utf-8")
+                stdout.write(provider_line + "\n")
+                stdout.flush()
+                return FinishedProcess(returncode=1)
+
+            daemon.subprocess.Popen = exhausted_popen
+            error = None
+            try:
+                daemon.dispatch(path=path, dry_run=False)
+            except daemon.RoleTokenExhaustionError as exc:
+                error = exc
+            failed = pathlib.Path(daemon.MAILBOX) / "failed" / name
+            partial_ok = (agent != "opus" or pathlib.Path(
+                daemon.AGENT_CWD["opus"], "partial-edit.txt").read_text(
+                    encoding="utf-8") == "preserve me\n")
+            state_ok = all(path.read_bytes() == content
+                           for path, content in saved_bytes.items())
+            outcomes.append(
+                error is not None and error.agent == agent
+                and failed.is_file() and failed.stat().st_ino == source_inode
+                and failed.read_text(encoding="utf-8") == body
+                and not (pathlib.Path(daemon.DONE) / name).exists()
+                and partial_ok and state_ok)
+    print("token-role-routes outcomes=" + repr(outcomes))
+    return outcomes == [True, True, True]
+
+
+def arm_unverified_token_move_still_stops():
+    """Stop and warn when the failed-state move cannot be proved."""
+    with scratch_daemon() as (daemon, _):
+        name = "0064-to-fable.md"
+        body = "Preserve this uncertain request.\n"
+        path = write_message(daemon, name, body)
+
+        def exhausted_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            stdout.write("Credit balance is too low\n")
+            stdout.flush()
+            return FinishedProcess(returncode=1)
+
+        daemon.subprocess.Popen = exhausted_popen
+        daemon.park_failed_message = lambda dispatch_path: False
+        error = None
+        try:
+            daemon.dispatch(path=path, dry_run=False)
+        except daemon.RoleTokenExhaustionError as exc:
+            error = exc
+        output = io.StringIO()
+        if error is not None:
+            with contextlib.redirect_stdout(output):
+                daemon.report_role_token_exhaustion(error=error)
+        inflight = pathlib.Path(daemon.MAILBOX) / "inflight" / name
+        passed = (
+            error is not None and error.request_path is None
+            and inflight.read_text(encoding="utf-8") == body
+            and "Request preservation is uncertain" in output.getvalue()
+            and "Request saved at" not in output.getvalue())
+        print("token-unverified-move-stops=" + str(passed))
+        return passed
+
+
+def arm_token_exhaustion_stops_after_join():
+    """Preserve the request, finish a live sibling, then stop the pass."""
+    with scratch_daemon() as (daemon, _):
+        failed_name = "0052-to-fable.md"
+        waiting_name = "0053-to-fable.md"
+        sol_name = "0054-to-sol.md"
+        failed_body = "Architect work that must be preserved.\n"
+        failed_path = write_message(daemon, failed_name, failed_body)
+        waiting_path = write_message(
+            daemon, waiting_name, "Do not launch after exhaustion.\n")
+        sol_path = write_message(
+            daemon, sol_name,
+            "MAILBOX-TICKET: discovery\n"
+            "MAILBOX-SEVERITY: low\n"
+            "MAILBOX-SCOPE: bounded\n\n"
+            "Already-started Sol work.\n")
+        failed_inode = pathlib.Path(failed_path).stat().st_ino
+        barrier = threading.Barrier(2)
+        launches = []
+
+        def coordinated_popen(command, stdout, stderr, cwd, env):
+            del stderr, cwd, env
+            agent = ("fable" if command[0] == "harmless-fable" else "sol")
+            launches.append(agent)
+            barrier.wait(timeout=30)
+            if agent == "fable":
+                stdout.write("Error: Credit balance is too low\n")
+                returncode = 1
+            else:
+                stdout.write("Sol sibling completed normally.\n")
+                returncode = 0
+            stdout.flush()
+            return FinishedProcess(returncode=returncode)
+
+        daemon.subprocess.Popen = coordinated_popen
+        daemon.report_demand = lambda backlog: None
+        error = None
+        try:
+            daemon.process_backlog(dry_run=False)
+        except daemon.RoleTokenExhaustionError as exc:
+            error = exc
+        failed = pathlib.Path(daemon.MAILBOX) / "failed" / failed_name
+        sol_done = pathlib.Path(daemon.DONE) / sol_name
+        history = (pathlib.Path(daemon.MAILBOX)
+                   / ".dispatch-history" / (failed_name + ".json"))
+        preserved = (failed.is_file()
+                     and failed.read_text(encoding="utf-8") == failed_body
+                     and failed.stat().st_ino == failed_inode)
+        output = io.StringIO()
+        if error is not None:
+            with contextlib.redirect_stdout(output):
+                daemon.report_role_token_exhaustion(error=error)
+        exact_error = output.getvalue().splitlines()[0:1] == [
+            "Error: Architect is out of tokens"]
+        waiting_stayed_pending = pathlib.Path(waiting_path).is_file()
+        pathlib.Path(waiting_path).unlink()
+        failed.replace(pathlib.Path(daemon.MAILBOX) / failed_name)
+        retry_calls = []
+        daemon.subprocess.Popen = success_popen(calls=retry_calls)
+        retry = daemon.process_backlog(dry_run=False)
+        retried = (retry is True and len(retry_calls) == 1
+                   and (pathlib.Path(daemon.DONE) / failed_name).stat().st_ino
+                   == failed_inode)
+        print("token-stop launches=" + repr(sorted(launches))
+              + " preserved=" + str(preserved)
+              + " sibling-done=" + str(sol_done.is_file())
+              + " next-waiting=" + str(waiting_stayed_pending)
+              + " exact-error=" + str(exact_error)
+              + " manual-retry=" + str(retried))
+        return (sorted(launches) == ["fable", "sol"] and preserved
+                and sol_done.is_file() and not pathlib.Path(sol_path).exists()
+                and waiting_stayed_pending and retried
+                and not history.exists() and exact_error
+                and error.request_path == str(failed))
+
+
+def arm_simultaneous_token_exhaustion_reports_both():
+    """Name every exhausted role after already-started lanes finish."""
+    with scratch_daemon() as (daemon, _):
+        fable_name = "0065-to-fable.md"
+        sol_name = "0066-to-sol.md"
+        write_message(daemon, fable_name, "Architect request.\n")
+        write_message(
+            daemon, sol_name,
+            "MAILBOX-TICKET: discovery\n"
+            "MAILBOX-SEVERITY: low\n"
+            "MAILBOX-SCOPE: bounded\n\nReview this scope.\n")
+        barrier = threading.Barrier(2)
+
+        def exhausted_popen(command, stdout, stderr, cwd, env):
+            del stderr, cwd, env
+            agent = "fable" if command[0] == "harmless-fable" else "sol"
+            barrier.wait(timeout=30)
+            line = ("Credit balance is too low" if agent == "fable" else
+                    '{"reason":"workspace_member_credits_depleted"}')
+            stdout.write(line + "\n")
+            stdout.flush()
+            return FinishedProcess(returncode=1)
+
+        daemon.subprocess.Popen = exhausted_popen
+        daemon.report_demand = lambda backlog: None
+        error = None
+        try:
+            daemon.process_backlog(dry_run=False)
+        except daemon.RoleTokenExhaustionError as exc:
+            error = exc
+        output = io.StringIO()
+        if error is not None:
+            with contextlib.redirect_stdout(output):
+                daemon.report_role_token_exhaustion(error=error)
+        text = output.getvalue()
+        failed = pathlib.Path(daemon.MAILBOX) / "failed"
+        passed = (
+            text.count("Error: Architect is out of tokens") == 1
+            and text.count("Error: Sol is out of tokens") == 1
+            and (failed / fable_name).is_file()
+            and (failed / sol_name).is_file())
+        print("simultaneous-token-errors-all-reported=" + str(passed))
+        return passed
 
 
 def arm_dry_run_is_strictly_read_only():
@@ -1110,6 +1394,16 @@ def main():
         ("timeout-history-retry", arm_timeout_history_and_retry_hint),
         ("ordinary-rc1-no-history",
          arm_ordinary_failure_has_no_timeout_history),
+        ("token-exhaustion-classification",
+         arm_token_exhaustion_classification),
+        ("token-exhaustion-all-role-routes",
+         arm_token_exhaustion_uses_all_role_routes),
+        ("token-exhaustion-unverified-move",
+         arm_unverified_token_move_still_stops),
+        ("token-exhaustion-stop-after-join",
+         arm_token_exhaustion_stops_after_join),
+        ("token-exhaustion-report-all-roles",
+         arm_simultaneous_token_exhaustion_reports_both),
         ("dry-run-read-only", arm_dry_run_is_strictly_read_only),
         ("queued-message-diagnostic-failure",
          arm_queued_message_survives_diagnostic_failure),

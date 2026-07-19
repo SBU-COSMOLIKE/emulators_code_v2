@@ -706,6 +706,14 @@ progress handoff, and keeps the same ticket open. The timeout is a later
 fallback for an AI program that no longer responds; it stops that process and
 moves the request to `failed/` when the move can be confirmed.
 
+### If an AI account runs out of tokens
+
+When Claude or Sol reports an account limit, running jobs finish. The watcher
+exits status 1: `Error: <role> is out of tokens`. The request remains in
+`failed/`, or `inflight/` if that move cannot be verified; logs and worktree
+edits remain. Add credits, inspect edits, then requeue. It never resets or
+commits them.
+
 `ai/notes/role-contract.yaml` records these stable timing facts together with
 role permissions and landing authority. The tools check that machine contract
 instead of relying on a README value. Only the Architect may edit it, through
