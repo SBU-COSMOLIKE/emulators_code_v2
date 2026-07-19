@@ -133,7 +133,7 @@ class BacklogGuardTests(unittest.TestCase):
             self.assertEqual(run_guard(repo, "check").returncode, 0)
 
     def test_retry_accepts_a_complete_initialize_or_seal(self):
-        with scratch_checkout() as (repo, backlog, _):
+        with scratch_checkout() as (repo, backlog, state):
             real_write = backlog_guard._atomic_write_state
 
             def publish_then_stop(path, document):
@@ -164,6 +164,25 @@ class BacklogGuardTests(unittest.TestCase):
             current = hashlib.sha256(backlog.read_bytes()).hexdigest()
             self.assertEqual(
                 backlog_guard.seal(repo, previous, acknowledged=True), current)
+            saved = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(saved["version"], 2)
+            self.assertEqual(saved["previous_sha256"], previous)
+
+    def test_stale_retry_cannot_accept_a_later_seal(self):
+        with scratch_checkout() as (repo, backlog, state):
+            first = initialize(repo)
+            backlog.write_bytes(backlog.read_bytes() + b"first edit\n")
+            second = backlog_guard.seal(repo, first, acknowledged=True)
+            backlog.write_bytes(backlog.read_bytes() + b"second edit\n")
+            third = backlog_guard.seal(repo, second, acknowledged=True)
+
+            with self.assertRaisesRegex(
+                    backlog_guard.GuardError,
+                    "does not match the saved state"):
+                backlog_guard.seal(repo, first, acknowledged=True)
+            saved = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(saved["sha256"], third)
+            self.assertEqual(saved["previous_sha256"], second)
 
     def test_seal_retry_refuses_if_backlog_changed_after_publish(self):
         with scratch_checkout() as (repo, backlog, _):
@@ -317,6 +336,19 @@ class BacklogGuardTests(unittest.TestCase):
             boolean_version = run_guard(repo, "check")
             self.assertEqual(boolean_version.returncode, 2)
             self.assertIn("unsupported version", boolean_version.stderr)
+
+            state.write_text(
+                json.dumps({
+                    "backlog": "ai/notes/backlog.md",
+                    "previous_sha256": "invalid",
+                    "sha256": digest,
+                    "version": 2,
+                }, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            invalid_previous = run_guard(repo, "check")
+            self.assertEqual(invalid_previous.returncode, 2)
+            self.assertIn("invalid previous SHA-256", invalid_previous.stderr)
 
     def test_a_file_changed_during_its_read_refuses(self):
         with scratch_checkout() as (repo, backlog, state):

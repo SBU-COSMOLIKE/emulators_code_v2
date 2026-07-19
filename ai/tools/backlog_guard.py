@@ -33,6 +33,7 @@ BACKLOG_RELATIVE_PATH = Path(ROLE_CONTRACT["backlog"]["path"])
 STATE_FILENAME = ".backlog-guard.json"
 LOCK_FILENAME = ".backlog-guard.lock"
 STATE_VERSION = 1
+SEALED_STATE_VERSION = 2
 MAX_BACKLOG_BYTES = 16 * 1024 * 1024
 MAX_STATE_BYTES = 16 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -147,13 +148,17 @@ def _sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def _state_document(digest):
+def _state_document(digest, previous_digest=None):
     """Build the only accepted state representation."""
-    return {
+    document = {
         "backlog": BACKLOG_RELATIVE_PATH.as_posix(),
         "sha256": digest,
-        "version": STATE_VERSION,
+        "version": (STATE_VERSION if previous_digest is None
+                    else SEALED_STATE_VERSION),
     }
+    if previous_digest is not None:
+        document["previous_sha256"] = previous_digest
+    return document
 
 
 def _canonical_state_bytes(document):
@@ -183,16 +188,26 @@ def _parse_state(data):
         raise GuardError("backlog guard state is not valid UTF-8 JSON") from error
     if not isinstance(document, dict):
         raise GuardError("backlog guard state must be one JSON object")
-    if set(document) != {"backlog", "sha256", "version"}:
+    version = document.get("version")
+    expected_fields = {"backlog", "sha256", "version"}
+    if version == SEALED_STATE_VERSION:
+        expected_fields.add("previous_sha256")
+    if set(document) != expected_fields:
         raise GuardError("backlog guard state has missing or unexpected fields")
-    if (type(document["version"]) is not int
-            or document["version"] != STATE_VERSION):
+    if type(version) is not int or version not in {
+            STATE_VERSION, SEALED_STATE_VERSION}:
         raise GuardError("backlog guard state uses an unsupported version")
     if document["backlog"] != BACKLOG_RELATIVE_PATH.as_posix():
         raise GuardError("backlog guard state names a different backlog")
     digest = document["sha256"]
     if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
         raise GuardError("backlog guard state has an invalid SHA-256 value")
+    if version == SEALED_STATE_VERSION:
+        previous = document["previous_sha256"]
+        if (not isinstance(previous, str)
+                or SHA256_RE.fullmatch(previous) is None):
+            raise GuardError(
+                "backlog guard state has an invalid previous SHA-256 value")
     if data != _canonical_state_bytes(document):
         raise GuardError("backlog guard state is not in canonical form")
     return document
@@ -382,12 +397,15 @@ def seal(repo, previous_digest, acknowledged=False):
             # A previous seal may have published the new digest and died
             # before reporting success.  A matching backlog makes the retry a
             # harmless no-op; any later edit still fails this check.
-            try:
-                accepted = check(repo)
-            except GuardError:
-                accepted = None
-            if accepted == original_state["sha256"]:
-                return accepted
+            if (original_state["version"] == SEALED_STATE_VERSION
+                    and original_state["previous_sha256"]
+                    == previous_digest):
+                try:
+                    accepted = check(repo)
+                except GuardError:
+                    accepted = None
+                if accepted == original_state["sha256"]:
+                    return accepted
             raise GuardError(
                 "--previous-sha256 does not match the saved state; run check "
                 "before editing and copy its accepted SHA-256")
@@ -406,7 +424,8 @@ def seal(repo, previous_digest, acknowledged=False):
         if repeated_backlog != backlog:
             raise GuardError("ai/notes/backlog.md changed while sealing")
 
-        _atomic_write_state(state_path, _state_document(new_digest))
+        _atomic_write_state(
+            state_path, _state_document(new_digest, previous_digest))
         accepted = check(repo)
         if accepted != new_digest:
             raise GuardError("new backlog state did not verify")
