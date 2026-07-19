@@ -635,7 +635,7 @@ def arm_only_inflight_reports_failure():
 
 
 def arm_timeout_value_validation():
-    """Reject invalid CLI/direct timeouts after claim and before launch."""
+    """Reject invalid CLI/direct timeouts before claim or launch."""
     validator_daemon = load_daemon()
     cli_rejected = []
     for value in ["0", "-1",
@@ -661,12 +661,12 @@ def arm_timeout_value_validation():
             calls = []
             daemon.subprocess.Popen = success_popen(calls=calls)
             result = daemon.dispatch(path=path, dry_run=False)
-            inflight = (pathlib.Path(daemon.MAILBOX)
-                        / "inflight" / name)
             history = (pathlib.Path(daemon.MAILBOX)
                        / ".dispatch-history" / (name + ".json"))
             direct_results.append(
-                not result and not calls and inflight.is_file()
+                not result and not calls and pathlib.Path(path).is_file()
+                and not (pathlib.Path(daemon.MAILBOX)
+                         / "inflight" / name).exists()
                 and not history.exists())
     print("timeout-validation cli=" + repr(cli_rejected)
           + " positive=" + str(cli_positive)
@@ -962,16 +962,20 @@ def arm_hostile_timeout_histories_are_controlled():
             except Exception as exc:
                 raised = exc
                 result = None
-            inflight = (pathlib.Path(daemon.MAILBOX)
-                        / "inflight" / name)
             after = hashlib.sha256(history_path.read_bytes()).hexdigest()
             controlled = (raised is None and result is False and not calls
-                          and inflight.is_file()
-                          and not pathlib.Path(root_path).exists()
+                          and pathlib.Path(root_path).is_file()
+                          and not (pathlib.Path(daemon.MAILBOX)
+                                   / "inflight" / name).exists()
                           and before == after)
-            outcomes.append(controlled)
+            history_path.unlink()
+            retry = daemon.dispatch(path=root_path, dry_run=False)
+            recovered = (retry is True and len(calls) == 1
+                         and (pathlib.Path(daemon.DONE) / name).is_file())
+            outcomes.append(controlled and recovered)
             print("hostile-history label=" + label
                   + " controlled=" + str(controlled)
+                  + " retry=" + str(recovered)
                   + " raised="
                   + ("none" if raised is None else type(raised).__name__))
     return len(outcomes) == 4 and all(outcomes)

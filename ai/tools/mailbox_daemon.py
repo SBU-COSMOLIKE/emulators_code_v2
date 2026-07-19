@@ -7142,29 +7142,29 @@ def dispatch_under_main_checkout_lock(
     currency = None
     prior_timeout = None
     if not dry_run:
+        if not valid_duration(value=DISPATCH_TIMEOUT_MINUTES,
+                              strictly_positive=True):
+            print("refused " + name + ": dispatch timeout must be between "
+                  "1 and " + str(MAX_DISPATCH_TIMEOUT_MINUTES)
+                  + " minutes; message left queued.")
+            return False
+        try:
+            history = timeout_events(name=name)
+        except (OSError, ValueError, json.JSONDecodeError,
+                OverflowError, RecursionError) as exc:
+            print("refused " + name + ": cannot verify its timeout history: "
+                  + str(exc) + "; message left queued.")
+            return False
         dispatch_path = claim_message(path=path)
         if dispatch_path is None:
             if new_reservation_cycle is not None:
                 release_unstarted_ticket_reservation(
                     cycle_id=new_reservation_cycle)
             return False
-        if not valid_duration(value=DISPATCH_TIMEOUT_MINUTES,
-                              strictly_positive=True):
-            print("refused " + name + ": dispatch timeout must be between "
-                  "1 and " + str(MAX_DISPATCH_TIMEOUT_MINUTES)
-                  + " minutes; leaving the claimed message in inflight/.")
-            return False
         # One recursive view, taken only after the atomic claim, owns both
         # currency numbers. Re-globbing each number would let a concurrent
         # sender make the banner internally inconsistent.
         currency = dispatch_currency(dispatch_path=dispatch_path, agent=agent)
-        try:
-            history = timeout_events(name=name)
-        except (OSError, ValueError, json.JSONDecodeError,
-                OverflowError, RecursionError) as exc:
-            print("refused " + name + ": cannot verify its timeout history: "
-                  + str(exc) + "; leaving the claimed message in inflight/.")
-            return False
         if history:
             prior_timeout = history[-1]["killed_after_minutes"]
     try:
