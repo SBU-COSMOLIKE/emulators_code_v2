@@ -54,14 +54,16 @@ def valid_subagent_evidence():
         "command output names the new assertion.")
 
 
-def implementer_handoff(evidence=None):
+def implementer_handoff(evidence=None, candidate=None):
     """Build one routed return with the exact evidence boundary fields."""
     if evidence is None:
         evidence = valid_subagent_evidence()
     return (
         "### IMPLEMENTER_HANDOFF: REQUESTING REVIEW\n\n"
         "- **Current state:** Scratch implementation is ready for review.\n"
-        "- **Subagent work:**\n"
+        + (("- **Candidate commit:** `" + candidate + "`\n")
+           if candidate is not None else "")
+        + "- **Subagent work:**\n"
         + evidence + "\n"
         "- **Blockers/findings:** none\n"
         "- **Action required:** Architect audit of the candidate.\n")
@@ -406,7 +408,16 @@ def arm_interrupted_implementer_return_resumes():
         module.ROUTER_LOCK_PATH = str(root / "router.lock")
         copied = []
         module.copy_to_clipboard = copied.append
-        module.wait_for_block = lambda **_kwargs: implementer_handoff()
+        candidate = None
+
+        def commit_candidate(**_kwargs):
+            nonlocal candidate
+            run_git(repo, "commit", "--allow-empty", "-q", "-m",
+                    "scratch candidate")
+            candidate = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+            return implementer_handoff(candidate=candidate)
+
+        module.wait_for_block = commit_candidate
         module.run_gates = lambda **_kwargs: (_ for _ in ()).throw(
             RuntimeError("simulated stop after saved return"))
         original_argv = module.sys.argv
@@ -452,6 +463,12 @@ def arm_interrupted_implementer_return_resumes():
             changed_base_rc = module.main()
             route_path.write_bytes(original_route)
 
+            run_git(repo, "commit", "--allow-empty", "-q", "-m",
+                    "unrelated later commit")
+            copied.clear()
+            unrelated_head_rc = module.main()
+            run_git(repo, "reset", "--hard", "-q", candidate)
+
             route_path.write_bytes(original_route + b"duplicate\n")
             copied.clear()
             duplicate_rc = module.main()
@@ -468,10 +485,11 @@ def arm_interrupted_implementer_return_resumes():
             and copied[0].startswith("### RELAY FOR AUDIT"))
         refusals = (
             mutated_archive_rc == 1 and changed_base_rc == 1
-            and duplicate_rc == 1)
+            and unrelated_head_rc == 1 and duplicate_rc == 1)
         print("ARM interrupted Implementer return recovery")
         print("  first run stopped after complete archive:", stopped)
-        print("  changed archive/base and malformed route refuse:", refusals)
+        print("  changed archive/base, unrelated HEAD, and malformed route "
+              "refuse:", refusals)
         print("  restart skips Implementer and reaches Architect:",
               recovered_once and complete)
         assert stopped

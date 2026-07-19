@@ -94,6 +94,8 @@ SUPPORTING_COPY_PREFIX = (
 GATE_RECEIPT_RE = re.compile(
     r"^<!-- ROUTER GATES v1 commands=([0-9a-f]{64}) "
     r"result=(pass|fail) body=([0-9a-f]{64}) -->$")
+CANDIDATE_COMMIT_RE = re.compile(
+    r"^- \*\*Candidate commit:\*\* `([0-9a-f]{40})`$")
 
 COCOA_PYTHON = ("/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa"
                 "/.local/bin/python")
@@ -561,8 +563,8 @@ def _read_recovery_file(path, label, maximum_bytes):
     return _read_regular_file(os.path.realpath(path), label, maximum_bytes)
 
 
-def route_sequence(note_path, note_display, base):
-    """Resume one exact unfinished route, or save a new route before work."""
+def route_sequence(note_path, note_display, base, create=True):
+    """Resume one exact route, or optionally save a new one before work."""
     note_digest = hashlib.sha256(_read_recovery_file(
         note_path, "Architect source note", MAX_BACKLOG_BYTES)).hexdigest()
     os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
@@ -583,6 +585,8 @@ def route_sequence(note_path, note_display, base):
             raise BacklogLedgerError(
                 "an unfinished route names a different note or version")
         return record[1]
+    if not create:
+        return None
     seq = reserve_run_sequence()
     if os.path.lexists(os.path.join(RELAY_DIR, seq + "-implementer.md")):
         raise BacklogLedgerError(
@@ -605,6 +609,31 @@ def recovered_implementer_return(seq):
         raise BacklogLedgerError(
             "saved Implementer return has no complete supporting-copy header")
     return text[len(SUPPORTING_COPY_PREFIX):]
+
+
+def implementer_candidate_commit(handoff):
+    """Read the one canonical candidate row from a saved handoff."""
+    candidate_lines = [line for line in handoff.splitlines()
+                       if "Candidate commit:" in line]
+    if not candidate_lines:
+        return None
+    matches = [CANDIDATE_COMMIT_RE.fullmatch(line)
+               for line in candidate_lines]
+    if len(matches) != 1 or matches[0] is None:
+        raise BacklogLedgerError(
+            "saved Implementer return has an invalid candidate commit row")
+    return matches[0].group(1)
+
+
+def recovered_candidate_commit(note_path, note_display, base):
+    """Return the candidate named by this route's complete saved return."""
+    seq = route_sequence(note_path, note_display, base, create=False)
+    if seq is None:
+        return None
+    handoff = recovered_implementer_return(seq)
+    if handoff is None:
+        return None
+    return implementer_candidate_commit(handoff)
 
 
 def finish_route():
@@ -918,7 +947,7 @@ def run_gates(commands, seq, router_lock):
     return (log_path, all_green)
 
 
-def verify_execution_checkout(checkout):
+def verify_execution_checkout(checkout, recovered_candidate=None):
     """Bind this router process and its gate log to the declared checkout.
 
     The manual router runs commands from its own repository root. A directive
@@ -978,11 +1007,20 @@ def verify_execution_checkout(checkout):
         raise DirectiveError(
             "Execution checkout Branch mismatch: expected "
             + checkout["Branch"] + ", found " + actual_ref)
+    base = checkout["Base"].lower()
     actual_head = git_value(["rev-parse", "HEAD"], "base").lower()
-    if actual_head != checkout["Base"].lower():
+    if actual_head == base:
+        return
+    if actual_head != recovered_candidate:
         raise DirectiveError(
             "Execution checkout Base mismatch: expected "
             + checkout["Base"] + ", found " + actual_head)
+    merge_base = git_value(
+        ["merge-base", base, recovered_candidate], "candidate ancestry")
+    if merge_base.lower() != base:
+        raise DirectiveError(
+            "saved Implementer candidate does not descend from the "
+            "Execution checkout Base")
 
 
 def _git(args_list):
@@ -1221,11 +1259,15 @@ def main():
         note_path, note_display = resolve_note_path(args.note)
         directive = validate_directive_file(
             role="architect", path=note_path, expected_max=expected_max)
+        recovered_candidate = recovered_candidate_commit(
+            note_path=note_path, note_display=note_display,
+            base=directive["execution_checkout"]["Base"])
         verify_execution_checkout(
-            checkout=directive["execution_checkout"])
+            checkout=directive["execution_checkout"],
+            recovered_candidate=recovered_candidate)
         verify_manual_capability_checkpoint(
             directive=directive, source_note=note_display)
-    except DirectiveError as exc:
+    except (BacklogLedgerError, DirectiveError) as exc:
         print("refused incomplete Architect directive: " + str(exc))
         return 1
     role_plan = directive["role_plan"]
@@ -1371,6 +1413,13 @@ def main():
     else:
         print("[1/" + str(total_steps) + "] recovered the complete saved "
               "Implementer return; no new Implementer work was requested.")
+        if (implementer_candidate_commit(implementer_block)
+                != recovered_candidate):
+            finish_route()
+            release_router_lock(router_lock)
+            print("refused router recovery: saved candidate changed during "
+                  "recovery")
+            return 1
     try:
         evidence_result = validate_implementer_handoff_subagent_evidence(
             parallel_work_plan=directive["parallel_work_plan"],
