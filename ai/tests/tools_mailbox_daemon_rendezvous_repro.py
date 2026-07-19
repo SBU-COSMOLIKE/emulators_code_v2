@@ -935,6 +935,32 @@ def arm_once_and_dry_run_are_unaffected(source=None):
     return passed
 
 
+def arm_once_recovers_prelaunch_request(source=None):
+    """A finite pass sees work retained before a provider process started."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        held = mailbox / "prelaunch"
+        held.mkdir()
+        request = write_pending(held, "0001-to-fable.md", "real body\n")
+        launches = []
+
+        def fake_dispatch(path, dry_run, **kwargs):
+            del dry_run, kwargs
+            launches.append(pathlib.Path(path).name)
+            pathlib.Path(path).unlink()
+            return True
+
+        daemon.dispatch = fake_dispatch
+        rc, output, _, error = call_main(daemon, ["--once"])
+        passed = (
+            error is None and rc == 0
+            and launches == [request.name]
+            and not request.exists()
+            and not (mailbox / request.name).exists()
+            and "requeued pre-launch message" in output)
+        print("once recovers pre-launch request=" + str(passed))
+        return passed
+
+
 def arm_cycle_argument_contract(source=None):
     """Cycle is watch-only and works in both supported topologies."""
     with scratch_daemon(source=source) as (daemon, _, _):
@@ -2272,6 +2298,7 @@ def main():
         ("candidate audit outcome", arm_candidate_audit_requires_one_outcome),
         ("three-role pipeline", arm_three_role_pipeline_concurrency),
         ("finite modes", arm_once_and_dry_run_are_unaffected),
+        ("once restart recovery", arm_once_recovers_prelaunch_request),
         ("cycle arguments", arm_cycle_argument_contract),
         ("cycle omitted", arm_omitted_cycle_remains_unbounded),
         ("cycle positive", arm_positive_cycle_limit_preserves_queue),

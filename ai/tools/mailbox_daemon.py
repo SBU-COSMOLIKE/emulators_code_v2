@@ -10286,6 +10286,15 @@ def recover_prelaunch_messages():
         release_mailbox_sequence_lock(lock_file=sequence_lock)
 
 
+def recover_before_dispatch(fix_only=False):
+    """Recover restart-safe mailbox state before a live dispatch pass."""
+    if fix_only:
+        recover_failed_maintenance_admission()
+    recover_failed_implementer_preflight()
+    recover_prelaunch_messages()
+    return reconcile_ticket_cycle_state()
+
+
 def implementer_reservation_preflight_problem(path, message):
     """Return a permanent pre-launch problem before a slot is reserved."""
     if "\x00" in message:
@@ -12928,7 +12937,7 @@ def main():
             return 1
         try:
             try:
-                reconcile_ticket_cycle_state()
+                recover_before_dispatch(fix_only=fix_only)
                 failed_debt = architect_notes_failed_debt_error()
                 if failed_debt is not None:
                     print(failed_debt)
@@ -13011,11 +13020,7 @@ def main():
                       + "; watcher did not start dispatching work.")
                 return 1
             try:
-                if fix_only:
-                    recover_failed_maintenance_admission()
-                recover_failed_implementer_preflight()
-                recover_prelaunch_messages()
-                reconcile_ticket_cycle_state()
+                recover_before_dispatch(fix_only=fix_only)
                 failed_debt = architect_notes_failed_debt_error()
                 if failed_debt is not None:
                     print(failed_debt)
