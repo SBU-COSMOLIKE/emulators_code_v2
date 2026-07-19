@@ -3933,7 +3933,9 @@ ARCHITECT_ROLE_PREAMBLE = (
     ".claude/FABLE_ROLE.md before acting. You own design reasoning. Before\n"
     "sending work to an Implementer, write the complete Implementation\n"
     "directive in the cited note and run ai/tools/handoff_contract.py; a\n"
-    "goal summary or unresolved design choice is not dispatchable.\n\n")
+    "goal summary or unresolved design choice is not dispatchable. Use the\n"
+    "exact handoff row: - **Directive:** [ai/notes/<name>.md, exact "
+    "Implementation directive section]\n\n")
 
 IMPLEMENTER_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the Implementer. Read and obey\n"
@@ -10111,18 +10113,66 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
                   else DAEMON_MESSAGE_HARD_STOP)
 
 
-def release_unstarted_ticket_reservation(cycle_id):
+def release_unstarted_ticket_reservation(cycle_id, expected_mode=None):
     """Remove only a new implementation reservation that was never claimed."""
     lock_file = acquire_ticket_cycle_lock()
+    released = False
     try:
         state = read_ticket_cycle_state()
         current = state["active"].get(cycle_id)
         if (current is not None and current["phase"] == "implementation"
-                and current["commit"] is None):
+                and current["commit"] is None
+                and current["route"] == "primary"
+                and (expected_mode is None
+                     or current["mode"] == expected_mode)):
             del state["active"][cycle_id]
             write_ticket_cycle_state(state=state)
+            released = True
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
+    return released
+
+
+def ticket_cycle_has_live_message(cycle_id):
+    """Return whether a root or inflight message still owns this cycle."""
+    header = MAILBOX_CYCLE_HEADER + cycle_id
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight")):
+        for path in glob.glob(os.path.join(directory, "*-to-*.md")):
+            if PENDING_MESSAGE_RE.match(os.path.basename(path)) is None:
+                continue
+            try:
+                message = read_cycle_message(path=path)
+            except (OSError, ValueError, TicketCycleStateError):
+                return True
+            if header in message.splitlines():
+                return True
+    return False
+
+
+def recover_failed_implementer_preflight():
+    """Release a proved pre-launch reservation left by an older daemon."""
+    recovered = 0
+    pattern = os.path.join(MAILBOX, "failed", "*-to-opus.md")
+    for path in sorted(glob.glob(pattern), key=message_sequence):
+        message = read_cycle_message(path=path)
+        if (not message.startswith(MAILBOX_FLOW_HEADER)
+                or len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message)) == 1):
+            continue
+        cycle_id, mode, _body, problem = _ticket_flow_envelope(
+            message=message)
+        if (problem is not None
+                or ticket_cycle_has_live_message(cycle_id=cycle_id)
+                or candidate_commit_for_cycle(cycle_id) is not None
+                or worktree_head(AGENT_CWD["opus"])
+                != cycle_starting_commit(cycle_id)
+                or _clean_worktree_status(AGENT_CWD["opus"])):
+            continue
+        if release_unstarted_ticket_reservation(
+                cycle_id=cycle_id, expected_mode=mode):
+            recovered += 1
+            print("released pre-launch reservation for failed "
+                  + os.path.basename(path))
+    return recovered
 
 
 def implementer_reservation_preflight_problem(path, message):
@@ -10340,6 +10390,7 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
             _RENDEZVOUS_LOCAL.permit = permit
         new_reservation_cycle = None
         architect_admission = None
+        consumed = False
         try:
             if not dry_run:
                 deferred, architect_admission = (
@@ -10372,6 +10423,11 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
         finally:
             if controller is not None:
                 try:
+                    if (new_reservation_cycle is not None
+                            and not consumed
+                            and not permit.launched):
+                        release_unstarted_ticket_reservation(
+                            cycle_id=new_reservation_cycle)
                     del _RENDEZVOUS_LOCAL.permit
                 finally:
                     controller.finish_attempt(permit=permit)
@@ -12840,6 +12896,7 @@ def main():
             try:
                 if fix_only:
                     recover_failed_maintenance_admission()
+                recover_failed_implementer_preflight()
                 reconcile_ticket_cycle_state()
             except (OSError, ValueError, TicketCycleStateError) as exc:
                 print("ticket-cycle recovery failed: " + str(exc)

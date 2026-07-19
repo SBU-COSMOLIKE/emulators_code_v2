@@ -202,6 +202,116 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertFalse(outcome)
             dispatch.assert_not_called()
 
+    def test_prelaunch_refusal_releases_its_new_ticket_reservation(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            request = mailbox / "0015-to-opus.md"
+            request.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\nImplement this ticket.\n",
+                encoding="utf-8", newline="")
+            daemon.dispatch = mock.Mock(return_value=False)
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertFalse(outcome)
+            self.assertEqual(daemon.active_ticket_cycle_count(), 0)
+
+    def test_started_dispatch_keeps_its_ticket_reservation(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            request = mailbox / "0015-to-opus.md"
+            request.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\nImplement this ticket.\n",
+                encoding="utf-8", newline="")
+            controller = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+
+            def launched_then_refused(**_kwargs):
+                permit = daemon._RENDEZVOUS_LOCAL.permit
+                controller.turn_started(permit=permit)
+                controller.turn_finished(permit=permit)
+                return False
+
+            daemon.dispatch = launched_then_refused
+            daemon._ACTIVE_WATCH_RENDEZVOUS = controller
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertFalse(outcome)
+            self.assertEqual(daemon.active_ticket_cycle_count(), 1)
+
+    def test_restart_releases_the_proved_old_prelaunch_reservation(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            failed = mailbox / "failed"
+            failed.mkdir()
+            request = failed / "0015-to-opus.md"
+            request.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\n"
+                "- **Directive:** `ai/notes/ticket.md`, section "
+                "`Implementation directive`\n",
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            daemon.candidate_commit_for_cycle = lambda cycle_id: None
+            daemon.worktree_head = lambda worktree: BASE_COMMIT
+            daemon._clean_worktree_status = lambda worktree: b""
+
+            recovered = daemon.recover_failed_implementer_preflight()
+
+            self.assertEqual(recovered, 1)
+            self.assertEqual(daemon.active_ticket_cycle_count(), 0)
+            self.assertTrue(request.is_file())
+
+    def test_restart_keeps_reservation_owned_by_a_corrected_handoff(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            failed = mailbox / "failed"
+            failed.mkdir()
+            (failed / "0015-to-opus.md").write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\n"
+                "- **Directive:** `ai/notes/ticket.md`, section "
+                "`Implementation directive`\n",
+                encoding="utf-8", newline="")
+            (mailbox / "0016-to-opus.md").write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/ticket.md, exact "
+                "Implementation directive section]\n",
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            daemon.candidate_commit_for_cycle = lambda cycle_id: None
+            daemon.worktree_head = lambda worktree: BASE_COMMIT
+            daemon._clean_worktree_status = lambda worktree: b""
+
+            recovered = daemon.recover_failed_implementer_preflight()
+
+            self.assertEqual(recovered, 0)
+            self.assertEqual(daemon.active_ticket_cycle_count(), 1)
+
     def test_fix_only_request_reserves_the_finite_ticket_slot(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
             maintenance = mailbox / "0001-to-fable.md"
