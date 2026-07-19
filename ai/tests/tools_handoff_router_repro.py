@@ -13,10 +13,12 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from unittest import mock
 
 
@@ -250,7 +252,10 @@ def arm_cwd():
               text=True,
             ).stdout.strip()
             seq = module.reserve_run_sequence(stamp="20000101-000000")
-            log_path, all_green = module.run_gates(commands=["pwd -P"], seq=seq)
+            with (repo / ".scratch-router.lock").open("w") as router_lock:
+                log_path, all_green = module.run_gates(
+                    commands=["pwd -P"], seq=seq,
+                    router_lock=router_lock)
             log = (repo / log_path).read_text(encoding="utf-8")
             note_path, note_display = module.resolve_note_path(
                 "ai/notes/spec.md")
@@ -343,6 +348,78 @@ def arm_clipboard_lock():
         assert legacy_claims == 2
         assert refused
         assert stale_file_exists
+
+
+def arm_gate_child_keeps_router_lock():
+    """A gate child keeps the router lock after its parent is killed."""
+    with tempfile.TemporaryDirectory(prefix="router-orphan-gate-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(root, "scratch_router_orphan_gate")
+        lock_path = root / "router.lock"
+        marker = root / "gate-started"
+        gate = root / "gate.py"
+        gate.write_text(
+            "from pathlib import Path\n"
+            "import sys, time\n"
+            "Path(sys.argv[1]).write_text('started\\n')\n"
+            "time.sleep(2)\n",
+            encoding="utf-8")
+        command = shlex.join([sys.executable, str(gate), str(marker)])
+        runner = root / "run_router.py"
+        runner.write_text(
+            "import importlib.util, sys\n"
+            "sys.path.insert(0, "
+            + repr(str(repo / "ai" / "tools")) + ")\n"
+            "sys.path.append(" + repr(str(AI_ROOT / "tools")) + ")\n"
+            "spec = importlib.util.spec_from_file_location('orphan_router', "
+            + repr(str(repo / "ai" / "tools" / "handoff_router.py")) + ")\n"
+            "router = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(router)\n"
+            "router.ROUTER_LOCK_PATH = " + repr(str(lock_path)) + "\n"
+            "lock = router.acquire_router_lock()\n"
+            "router.run_gates(commands=[" + repr(command)
+            + "], seq='orphan', router_lock=lock)\n",
+            encoding="utf-8")
+        process = subprocess.Popen(
+            [sys.executable, str(runner)], cwd=str(repo),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not marker.exists():
+            if process.poll() is None:
+                process.kill()
+            stdout, stderr = process.communicate()
+            raise AssertionError(
+                "gate child did not start: " + stdout + stderr)
+        process.kill()
+        process.wait()
+
+        module.ROUTER_LOCK_PATH = str(lock_path)
+        try:
+            unexpected_lock = module.acquire_router_lock()
+        except RuntimeError:
+            held_after_parent_death = True
+        else:
+            module.release_router_lock(unexpected_lock)
+            held_after_parent_death = False
+
+        reacquired = False
+        deadline = time.monotonic() + 5
+        while not reacquired and time.monotonic() < deadline:
+            try:
+                lock = module.acquire_router_lock()
+            except RuntimeError:
+                time.sleep(0.05)
+            else:
+                module.release_router_lock(lock)
+                reacquired = True
+        print("ARM orphan gate lock")
+        print("  gate retains lock after parent death:",
+              held_after_parent_death)
+        print("  lock releases after gate exits:", reacquired)
+        assert held_after_parent_death
+        assert reacquired
 
 
 def arm_handoff_header():
@@ -464,7 +541,7 @@ def arm_subagent_evidence_validation():
                     encoding="utf-8")
                 return relative
 
-            def scratch_gates(commands, seq):
+            def scratch_gates(commands, seq, router_lock):
                 gates.append((commands, seq))
                 return "ai/notes/relay/" + seq + "-gates-log.md", True
 
@@ -1007,7 +1084,7 @@ def arm_character_budget_binding():
         returns = iter([implementer_handoff()])
         module.wait_for_block = lambda **_kwargs: next(returns)
         routed_gate_commands = []
-        module.run_gates = lambda commands, seq: (
+        module.run_gates = lambda commands, seq, router_lock: (
           routed_gate_commands.extend(commands)
           or ("ai/notes/relay/scratch-gates.md", True))
         module.sys.argv = [
@@ -1044,7 +1121,7 @@ def arm_character_budget_binding():
         copied.clear()
         failed_returns = iter([implementer_handoff()])
         module.wait_for_block = lambda **_kwargs: next(failed_returns)
-        module.run_gates = lambda commands, seq: (
+        module.run_gates = lambda commands, seq, router_lock: (
           "ai/notes/relay/scratch-failed-gates.md", False)
         module.sys.argv = [
           "handoff_router.py", "--note", "ai/notes/spec.md",
@@ -1103,7 +1180,7 @@ def arm_discovery_severity_binding():
             returns = iter([implementer_handoff()])
             module.copy_to_clipboard = copied.append
             module.wait_for_block = lambda **_kwargs: next(returns)
-            module.run_gates = lambda commands, seq: (
+            module.run_gates = lambda commands, seq, router_lock: (
               "ai/notes/relay/scratch-severity-gates.md", gates_green)
             original_argv = module.sys.argv
             module.sys.argv = [
@@ -1254,7 +1331,7 @@ def arm_structured_review_scope():
                 return implementer_handoff()
 
             module.wait_for_block = returned_block
-            module.run_gates = lambda commands, seq: (
+            module.run_gates = lambda commands, seq, router_lock: (
                 "ai/notes/relay/scratch-review-scope-gates.md", True)
             original_argv = module.sys.argv
             module.sys.argv = [
@@ -2071,7 +2148,7 @@ def arm_skip_redteam_aliases():
                     archived_names.append(name)
                     return "ai/notes/relay/" + seq + "-" + name + ".md"
 
-                def green_gates(commands, seq):
+                def green_gates(commands, seq, router_lock):
                     gate_calls.append((commands, seq))
                     return (
                         "ai/notes/relay/" + seq + "-gates-log.md", True)
@@ -2182,7 +2259,7 @@ def arm_skip_redteam_mode_conflict():
 
             module.copy_to_clipboard = forbidden_copy
             module.wait_for_block = forbidden_wait
-            module.run_gates = lambda commands, seq: (
+            module.run_gates = lambda commands, seq, router_lock: (
                 "ai/notes/relay/unexpected-gates.md", True)
             original_argv = module.sys.argv
             module.sys.argv = [
@@ -2217,6 +2294,7 @@ def main():
     arm_cwd()
     arm_sequence_collision()
     arm_clipboard_lock()
+    arm_gate_child_keeps_router_lock()
     arm_handoff_header()
     arm_subagent_evidence_boundary()
     arm_subagent_evidence_validation()

@@ -753,7 +753,7 @@ def verify_manual_capability_checkpoint(directive, source_note):
             "IMPLEMENTER_HANDOFF for the current cycle")
 
 
-def run_gates(commands, seq):
+def run_gates(commands, seq, router_lock):
     """Run local checks and save their complete output.
 
     The console shows one result line per command. Complete output goes to a
@@ -762,6 +762,7 @@ def run_gates(commands, seq):
     Arguments:
       commands = list of shell command strings to run from the repo root.
       seq      = the run sequence stamp for the log filename.
+      router_lock = open router lock inherited by each gate process.
 
     Returns:
       (log_path, all_green) -- the saved log path and whether every command
@@ -774,7 +775,8 @@ def run_gates(commands, seq):
                               shell=True,
                               capture_output=True,
                               text=True,
-                              cwd=REPO_ROOT)
+                              cwd=REPO_ROOT,
+                              pass_fds=(router_lock.fileno(),))
         verdict = "PASS" if proc.returncode == 0 else "FAIL"
         if proc.returncode != 0:
             all_green = False
@@ -1280,7 +1282,8 @@ def main():
             "--max", str(guard["max"]),
         ]))
     print("[2/" + str(total_steps) + "] running the local checks:")
-    log_path, all_green = run_gates(commands=commands, seq=seq)
+    log_path, all_green = run_gates(
+        commands=commands, seq=seq, router_lock=router_lock)
     print("      checks " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
 
