@@ -169,6 +169,7 @@ No open CRITICAL tickets.
 High new functionality appears before High bug fixes. No High feature is
 currently open.
 
+- OPEN **HIGH** **BUG FIX** — [Test a proposed controller against the saved state it must inherit](#open-control-plane-live-state-compatibility)
 - OPEN **HIGH** **BUG FIX** — [Refuse conflicting amplitude names before calculating Syren matter power](#open-syren-amplitude-aliases)
 - OPEN **HIGH** **BUG FIX** — [Isolate the matter-power adapter test without replacing imported modules](#open-mps-test-import-isolation)
 - OPEN **HIGH** **BUG FIX** — [Test saved activation defaults without replacing a live function](#open-artifact-drift-import-isolation)
@@ -212,6 +213,82 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Reduce daemon risk through small authority-boundary extractions](#open-daemon-authority-modules)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
+
+<a id="open-control-plane-live-state-compatibility"></a>
+## Test a proposed controller against the saved state it must inherit
+
+### High-level summary
+
+The protected controller check currently creates new workflow records using
+the proposed controller and then proves that the same controller can read
+them. That does not prove the proposed controller can read the real records
+already saved by the trusted controller that is running now.
+
+A format-changing controller could therefore pass every disposable check,
+reach `main`, and then refuse the existing active or completed ticket state.
+The protected upgrade would stop the core AI workflow at the exact point where
+the new controller takes responsibility.
+
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**OPEN.** The D0-owned shadow check exercises fresh state created by D1. It
+does not yet copy D0's actual durable workflow records into the disposable
+repository and require D1 to read or explicitly migrate those copies.
+
+**Severity: HIGH.** An incompatible protected upgrade can halt the central
+mailbox controller after landing. Medium is insufficient because recovery may
+require running the preserved old controller against live coordination state.
+The defect is not Critical because no current state-format incompatibility has
+been demonstrated and the existing controller remains operational.
+
+### What is already fixed
+
+Protected controller tickets require exact Architect and Red Team decisions.
+Trusted D0 owns the disposable Git and workflow-state checks, creates the
+landing, detects a stale `main`, and records a durable health failure instead
+of silently continuing with a broken controller.
+
+### What is missing
+
+Before D1 may land, D0 must copy every current durable controller record that
+D1 will inherit into the disposable repository. D1 must parse those copies,
+preserve their meaning and every active or completed cycle, and reread the
+result after any declared migration. The check must never mount or edit the
+live files.
+
+<details><summary>Technical record for development tools</summary>
+
+Start with the records D0 already knows how to fingerprint: ticket-cycle and
+candidate state, the saved primary/Implementer/Red Team worktree records, and
+any existing landing or push-debt state that D1 reads during startup. Copy
+exact bytes and relative locations into the disposable Git and workflow-state
+environment before importing D1.
+
+A candidate that changes one of those state schemas must provide one explicit
+declaration naming the old and new schema versions and the migration function.
+D0's trusted harness runs that migration only on the copy, checks that no
+cycle or decision disappeared or changed meaning, starts a fresh D1 process,
+and requires that process to read the migrated result. A schema change without
+that declaration fails before L is created.
+
+Keep this ticket limited to saved-state takeover. Do not add operating-system
+sandboxing, candidate-owned acceptance tests, controller refactoring, or a new
+supervisor framework. Those concerns are separate from the demonstrated D0 to
+D1 compatibility gap.
+
+Required negative examples include a D1 reader that accepts only its new
+empty-state schema, a migration that drops one completed or active cycle, a
+wrong from/to declaration, and a migration that changes the live source file.
+The existing fresh-state, restart, exact landing, stale-main, and health-state
+checks remain authoritative.
+
+</details>
 
 <a id="open-mps-test-import-isolation"></a>
 ## Isolate the matter-power adapter test without replacing imported modules
