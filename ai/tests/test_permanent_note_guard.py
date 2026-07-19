@@ -8,7 +8,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
+from ai.tools import permanent_note_guard
 from ai.tools.backlog_bundle import PERMANENT_NOTES as BUNDLE_NOTES
 from ai.tools.permanent_note_guard import PERMANENT_NOTES as GUARD_NOTES
 
@@ -213,6 +215,27 @@ class PermanentNoteGuardTests(unittest.TestCase):
             result = run_guard(repo, guard, base)
             self.assertEqual(result.returncode, 2)
             self.assertIn("not a regular working file", result.stderr)
+
+    def test_change_between_complete_snapshots_refuses(self):
+        """A late protected-file edit cannot inherit an earlier clean read."""
+        with scratch_repository() as (repo, _guard, base):
+            original_reader = permanent_note_guard._working_bytes
+            changed = [False]
+
+            def change_after_last_read(repo, path_text):
+                data = original_reader(repo=repo, path_text=path_text)
+                if path_text == ROLE_CONTRACT and not changed[0]:
+                    changed[0] = True
+                    write(repo, PERMANENT_NOTES[0], "# Late rewrite\n")
+                return data
+
+            with mock.patch.object(
+                    permanent_note_guard, "_working_bytes",
+                    side_effect=change_after_last_read):
+                with self.assertRaises(
+                        permanent_note_guard.GuardError, msg="late edit passed"):
+                    permanent_note_guard.verify(repo=repo, base=base)
+            self.assertTrue(changed[0])
 
     def test_canonical_note_lists_agree(self):
         expected = set(PERMANENT_NOTES)

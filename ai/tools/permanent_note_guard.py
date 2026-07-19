@@ -309,8 +309,9 @@ def _require_guard_unchanged(repo, base):
         _require_same(path, expected, working, "working tree")
 
 
-def verify(repo, base):
-    """Verify all protected states and return the base SHA-256 rows."""
+def _verify_snapshot(repo, base):
+    """Read one complete protected-state snapshot."""
+    head_before = _git(repo, "rev-parse", "--verify", "HEAD^{commit}").stdout
     _require_guard_unchanged(repo=repo, base=base)
     if frozenset(GUARD_PATHS) != frozenset(_BOOTSTRAP_GUARD_PATHS):
         raise GuardError(
@@ -329,7 +330,19 @@ def verify(repo, base):
         _require_same(path, expected, staged, "Git staging area")
         _require_same(path, expected, working, "working tree")
         rows.append((_sha256(expected), path))
-    return rows
+    head_after = _git(repo, "rev-parse", "--verify", "HEAD^{commit}").stdout
+    if head_after != head_before:
+        raise GuardError("current HEAD changed during protected-state checks")
+    return head_before, rows
+
+
+def verify(repo, base):
+    """Require two identical complete protected-state snapshots."""
+    first = _verify_snapshot(repo=repo, base=base)
+    second = _verify_snapshot(repo=repo, base=base)
+    if second != first:
+        raise GuardError("protected state changed while it was verified")
+    return first[1]
 
 
 def build_parser():
