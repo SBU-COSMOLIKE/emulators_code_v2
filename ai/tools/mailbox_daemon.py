@@ -12442,6 +12442,28 @@ def _matching_journaled_notes_go(base_commit, notes_commit,
     return matches[0]
 
 
+def _require_safe_noop_admin_recovery(base_commit):
+    """Allow a proved no-change admin result after clean later landings."""
+    primary = AGENT_CWD["fable"]
+    primary_head = worktree_head(worktree=primary)
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    if primary_head != current_main:
+        raise TicketCycleStateError(
+            "validated no-op admin needs Architect primary at current main")
+    try:
+        if _tracked_worktree_changes(worktree=primary):
+            raise TicketCycleStateError(
+                "validated no-op admin needs a clean Architect primary")
+        _validate_current_protected_primary_state(primary_worktree=primary)
+    except PrimaryWorktreeError as exc:
+        raise TicketCycleStateError(str(exc)) from exc
+    _require_ancestor_or_same(
+        ancestor=base_commit, descendant=current_main,
+        label="validated no-op admin base is not in current main history")
+
+
 def reconcile_architect_notes_admin_journals():
     """Validate every admin journal and retire only proved done no-ops."""
     prefix = ".pending-notes-admin-"
@@ -12489,20 +12511,8 @@ def reconcile_architect_notes_admin_journals():
         if journal["phase"] == "validated-noop":
             if directory == os.path.join(MAILBOX, "inflight"):
                 continue
-            base_commit = journal["base"]
-            primary_head = worktree_head(worktree=AGENT_CWD["fable"])
-            current_main = _exact_git_object(
-                arguments=["rev-parse", "--verify",
-                           "refs/heads/main^{commit}"],
-                label="current main commit")
-            if primary_head != base_commit or current_main != base_commit:
-                raise TicketCycleStateError(
-                    "archived validated no-op admin no longer names exact B")
-            try:
-                _validate_current_protected_primary_state(
-                    primary_worktree=AGENT_CWD["fable"])
-            except PrimaryWorktreeError as exc:
-                raise TicketCycleStateError(str(exc)) from exc
+            _require_safe_noop_admin_recovery(
+                base_commit=journal["base"])
             remove_architect_notes_admin_journal(
                 request_name=request_name)
             retired += 1
@@ -12569,19 +12579,7 @@ def reconcile_inflight_architect_notes_admin():
                 "result may be unvalidated. Inspect the dispatch log and "
                 "process before any manual requeue")
         if phase == "validated-noop":
-            primary_head = worktree_head(worktree=AGENT_CWD["fable"])
-            current_main = _exact_git_object(
-                arguments=["rev-parse", "--verify",
-                           "refs/heads/main^{commit}"],
-                label="current main commit")
-            if primary_head != base_commit or current_main != base_commit:
-                raise TicketCycleStateError(
-                    "validated no-op admin journal no longer names exact B")
-            try:
-                _validate_current_protected_primary_state(
-                    primary_worktree=AGENT_CWD["fable"])
-            except PrimaryWorktreeError as exc:
-                raise TicketCycleStateError(str(exc)) from exc
+            _require_safe_noop_admin_recovery(base_commit=base_commit)
         else:
             notes_commit = journal["notes_commit"]
             _matching_journaled_notes_go(

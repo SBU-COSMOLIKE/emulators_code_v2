@@ -2784,25 +2784,28 @@ def arm_permanent_note_journal_restart_is_exact(source=None):
         finally:
             context.__exit__(None, None, None)
 
-    noop_context = scratch_repository(source=source)
-    noop_root = noop_context.__enter__()
-    try:
-        noop_rc, _noop_stdout, noop_stderr = invoke(noop_root, ["--once"])
-        if (noop_rc != 0 or noop_stderr != ""
-                or not validate_topology(noop_root)):
-            noop_ok = False
-        else:
+    noop_results = []
+    for initial_state in ("inflight", "done"):
+        noop_context = scratch_repository(source=source)
+        noop_root = noop_context.__enter__()
+        try:
+            noop_rc, _noop_stdout, noop_stderr = invoke(
+                noop_root, ["--once"])
+            if (noop_rc != 0 or noop_stderr != ""
+                    or not validate_topology(noop_root)):
+                noop_results.append(False)
+                continue
             noop_primary = default_primary(noop_root)
             noop_daemon = load_scratch_daemon(noop_primary)
             noop_daemon.ensure_primary_execution(
                 live_action=True, dry_run=False)
             noop_mailbox = noop_primary / "ai" / "notes" / "mailbox"
-            noop_inflight = noop_mailbox / "inflight"
-            noop_inflight.mkdir(parents=True, exist_ok=True)
+            request_dir = noop_mailbox / initial_state
+            request_dir.mkdir(parents=True, exist_ok=True)
             noop_name = "0001-to-fable.md"
             noop_message = noop_daemon.architect_notes_admin_payload(
                 "Check the saved notes and make no change.")
-            (noop_inflight / noop_name).write_text(
+            (request_dir / noop_name).write_text(
                 noop_message, encoding="utf-8", newline="")
             noop_base = git(
                 noop_root, "rev-parse", "HEAD").stdout.strip()
@@ -2812,15 +2815,78 @@ def arm_permanent_note_journal_restart_is_exact(source=None):
             noop_journal = Path(
                 noop_daemon.architect_notes_admin_journal_path(
                     request_name=noop_name))
+            marker = noop_root / ("later-main-" + initial_state + ".txt")
+            marker.write_text(
+                "ordinary later landing\n", encoding="utf-8", newline="")
+            git(noop_root, "add", marker.name)
+            git(noop_root, "commit", "-m", "later clean landing")
+            later_main = git(
+                noop_root, "rev-parse", "HEAD").stdout.strip()
             noop_rc, noop_stdout, noop_stderr = invoke(
                 noop_root, ["--once"])
-            noop_ok = (
+            noop_results.append(
                 noop_rc == 0 and noop_stderr == ""
+                and git(
+                    noop_primary, "rev-parse", "HEAD").stdout.strip()
+                == later_main
                 and (noop_mailbox / "done" / noop_name).is_file()
                 and not noop_journal.exists()
                 and "dispatching " + noop_name not in noop_stdout)
-    finally:
-        noop_context.__exit__(None, None, None)
+        finally:
+            noop_context.__exit__(None, None, None)
+    noop_refusals = []
+    for refusal in ("unrelated-base", "dirty-primary"):
+        noop_context = scratch_repository(source=source)
+        noop_root = noop_context.__enter__()
+        try:
+            noop_rc, _noop_stdout, noop_stderr = invoke(
+                noop_root, ["--once"])
+            if (noop_rc != 0 or noop_stderr != ""
+                    or not validate_topology(noop_root)):
+                noop_refusals.append(False)
+                continue
+            noop_primary = default_primary(noop_root)
+            noop_daemon = load_scratch_daemon(noop_primary)
+            noop_daemon.ensure_primary_execution(
+                live_action=True, dry_run=False)
+            noop_done = noop_primary / "ai" / "notes" / "mailbox" / "done"
+            noop_done.mkdir(parents=True, exist_ok=True)
+            noop_name = "0001-to-fable.md"
+            noop_message = noop_daemon.architect_notes_admin_payload(
+                "Check the saved notes and make no change.")
+            noop_request = noop_done / noop_name
+            noop_request.write_text(
+                noop_message, encoding="utf-8", newline="")
+            noop_base = git(
+                noop_root, "rev-parse", "HEAD").stdout.strip()
+            if refusal == "unrelated-base":
+                tree = git(
+                    noop_root, "rev-parse", "HEAD^{tree}").stdout.strip()
+                noop_base = git(
+                    noop_root, "commit-tree", tree, "-m",
+                    "unrelated no-op base").stdout.strip()
+            noop_daemon.write_architect_notes_admin_journal(
+                request_name=noop_name, request_message=noop_message,
+                base_commit=noop_base, phase="validated-noop")
+            noop_journal = Path(
+                noop_daemon.architect_notes_admin_journal_path(
+                    request_name=noop_name))
+            if refusal == "dirty-primary":
+                (noop_primary / "untracked-admin-work.txt").write_text(
+                    "preserve this work\n", encoding="utf-8", newline="")
+            request_before = noop_request.read_bytes()
+            journal_before = noop_journal.read_bytes()
+            refused = False
+            try:
+                noop_daemon.reconcile_architect_notes_admin_journals()
+            except noop_daemon.TicketCycleStateError:
+                refused = True
+            noop_refusals.append(
+                refused and noop_request.read_bytes() == request_before
+                and noop_journal.read_bytes() == journal_before)
+        finally:
+            noop_context.__exit__(None, None, None)
+    noop_ok = all(noop_results) and all(noop_refusals)
 
     prelaunch_results = []
     for phase in ("missing", "started"):
