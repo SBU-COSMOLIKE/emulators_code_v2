@@ -537,7 +537,7 @@ def arm_subagent_evidence_validation():
         checkpoint_paths = sorted(
             (repo / "ai" / "notes" / "relay").glob(
                 "*-capability-checkpoint.json"))
-        checkpoint_binding_refusals = False
+        checkpoint_binding_safe = False
         if len(checkpoint_paths) == 1:
             checkpoint_path = checkpoint_paths[0]
             checkpoint = json.loads(checkpoint_path.read_text(
@@ -609,14 +609,14 @@ def arm_subagent_evidence_validation():
             duplicate = checkpoint_path.with_name(
                 "duplicate-capability-checkpoint.json")
             duplicate.write_bytes(checkpoint_path.read_bytes())
-            duplicate_refused = verification_refuses(directive)
+            duplicate_accepted = not verification_refuses(directive)
             duplicate.unlink()
-            checkpoint_binding_refusals = (
+            checkpoint_binding_safe = (
                 all(archive_refusals)
                 and verification_refuses(stale_cycle)
                 and verification_refuses(stale_sha)
                 and verification_refuses(fabricated)
-                and duplicate_refused
+                and duplicate_accepted
                 and verification_refuses(
                     directive, source_note="ai/notes/other.md"))
 
@@ -676,14 +676,14 @@ def arm_subagent_evidence_validation():
               exact_no_helper_reaches_checks)
         print("  blocked return reaches Architect checkpoint only:",
               blocked_is_checkpoint_only)
-        print("  checkpoint mutations and same-base cross-note reuse refuse:",
-              checkpoint_binding_refusals)
+        print("  altered checkpoints refuse; an identical retry recovers:",
+              checkpoint_binding_safe)
         print("  missing/extra/mismatched/weak evidence stops before archive:",
               refusals_stop_before_archive)
         assert valid_reaches_checks
         assert exact_no_helper_reaches_checks
         assert blocked_is_checkpoint_only
-        assert checkpoint_binding_refusals
+        assert checkpoint_binding_safe
         assert refusals_stop_before_archive
 
 

@@ -740,9 +740,9 @@ def verify_manual_capability_checkpoint(directive, source_note):
         except (OSError, UnicodeError, ValueError, TypeError,
                 DirectiveError):
             continue
-    if matches != 1:
+    if matches == 0:
         raise DirectiveError(
-            "capability exception is not bound to exactly one saved blocked "
+            "capability exception is not bound to a saved blocked "
             "IMPLEMENTER_HANDOFF for the current cycle")
 
 
