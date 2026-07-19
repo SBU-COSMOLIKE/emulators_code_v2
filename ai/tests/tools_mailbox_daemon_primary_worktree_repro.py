@@ -4893,7 +4893,7 @@ def arm_timed_checkpoint_refusals(source=None):
             "import os\n"
             "import sys\n"
             "from pathlib import Path\n\n"
-            "if 'MAILBOX-RETURN: architect-go' in sys.argv[1]:\n"
+            "if 'MAILBOX-RETURN: architect-go' in sys.argv[-1]:\n"
             "    raise SystemExit('checkpoint prompt still grants landing')\n"
             "mailbox = Path(os.environ['MAILBOX_SHARED_NOTES']) / 'mailbox'\n"
             "(mailbox / '0007-to-opus.md').write_text("
