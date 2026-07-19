@@ -7787,10 +7787,17 @@ def dispatch_under_main_checkout_lock(
                         break
                     if now >= next_beat:
                         elapsed_min = (now - started) / 60.0
-                        log_kb = os.path.getsize(log_path) / 1024.0
-                        print("  ... " + name + " still running "
-                              + "(%.0f min elapsed, log %.1f kB; tail -f %s)"
-                              % (elapsed_min, log_kb, log_path))
+                        try:
+                            log_kb = os.fstat(f.fileno()).st_size / 1024.0
+                        except OSError:
+                            print("  ... " + name + " still running "
+                                  + "(%.0f min elapsed, log size unavailable; "
+                                  "tail -f %s)" % (elapsed_min, log_path))
+                        else:
+                            print("  ... " + name + " still running "
+                                  + "(%.0f min elapsed, log %.1f kB; "
+                                  "tail -f %s)"
+                                  % (elapsed_min, log_kb, log_path))
                         next_beat += 60.0
             finally:
                 # If an unexpected monitor/log exception occurs, do not leave
@@ -7855,8 +7862,12 @@ def dispatch_under_main_checkout_lock(
 
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
     # show the reply's tail on the terminal so activity is visible live.
-    with open(log_path, encoding="utf-8") as f:
-        reply_lines = f.read().strip().splitlines()
+    try:
+        with open(log_path, encoding="utf-8") as f:
+            reply_lines = f.read().strip().splitlines()
+    except (OSError, UnicodeError) as exc:
+        reply_lines = []
+        print("  warning: relay log tail is unavailable: " + str(exc))
     for line in reply_lines[-8:]:
         print("  | " + line)
 

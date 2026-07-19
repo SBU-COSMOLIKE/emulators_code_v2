@@ -10,6 +10,7 @@ import pathlib
 import re
 import tempfile
 import types
+from unittest import mock
 
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -221,6 +222,7 @@ def runtime_heartbeat_line():
             if remaining % 2:
                 stdout.write("x")
             stdout.flush()
+            os.unlink(stdout.name)
             return HarmlessProcess()
 
         class SubprocessProxy:
@@ -235,20 +237,33 @@ def runtime_heartbeat_line():
 
         daemon.datetime = types.SimpleNamespace(datetime=FrozenDateTime)
         daemon.time = types.SimpleNamespace(
-            time=lambda: next(times), sleep=lambda _seconds: None)
+            time=lambda: next(times), monotonic=lambda: 0.0,
+            sleep=lambda _seconds: None)
         original_subprocess = daemon.subprocess
         daemon.subprocess = SubprocessProxy(original_subprocess)
         stream = io.StringIO()
         try:
-            with contextlib.redirect_stdout(stream):
+            with mock.patch.object(
+                    daemon.os.path, "getsize",
+                    side_effect=OSError("diagnostic read failed")), \
+                    contextlib.redirect_stdout(stream):
                 daemon.dispatch(path=str(path), dry_run=False)
         finally:
             daemon.subprocess = original_subprocess
         lines = [line for line in stream.getvalue().splitlines()
                  if " still running " in line]
         if len(lines) != 1:
-            return ""
-        return lines[0].replace(str(root), "...")
+            return "", False
+        terminal_paths = [
+            pathlib.Path(daemon.DONE) / path.name,
+            pathlib.Path(daemon.MAILBOX) / "failed" / path.name,
+        ]
+        inflight = pathlib.Path(daemon.MAILBOX) / "inflight" / path.name
+        recovered = (
+            "relay log tail is unavailable" in stream.getvalue()
+            and not path.exists() and not inflight.exists()
+            and sum(item.exists() for item in terminal_paths) == 1)
+        return lines[0].replace(str(root), "..."), recovered
 
 
 def main():
@@ -266,7 +281,7 @@ def main():
     expected_refusal = (
         "refused 0001-to-fable.md: the whole body is the template placeholder "
         "'<unit>'; parked in failed/; fill in the real text and requeue.")
-    heartbeat = runtime_heartbeat_line()
+    heartbeat, relay_log_recovery = runtime_heartbeat_line()
     expected_heartbeat = (
         "  ... 0046-to-opus.md still running (3 min elapsed, log 12.4 kB; "
         "tail -f .../ai/notes/relay/20260714-031840-dispatch-opus.log)")
@@ -292,6 +307,7 @@ def main():
         "runtime refusal": refusal == expected_refusal,
         "runtime demand report": demand == expected_demand,
         "runtime heartbeat": heartbeat == expected_heartbeat,
+        "relay log failure reaches a terminal mailbox": relay_log_recovery,
         "README removes automatic emergency":
             "emergency: 2 open Critical bugs" not in readme,
         "README removes Sol implementation option":
