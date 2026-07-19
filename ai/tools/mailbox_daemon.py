@@ -1991,7 +1991,7 @@ def clean_user_main_matches(target):
             and not _tracked_worktree_changes(worktree=REPO_ROOT))
 
 
-def bootstrap_sync_primary_from_main_authority(primary_path):
+def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
     """
     Advance a stale clean Architect worktree to an accepted main commit.
 
@@ -2001,6 +2001,7 @@ def bootstrap_sync_primary_from_main_authority(primary_path):
 
     Arguments:
       primary_path = the saved Architect worktree.
+      primary_branch = that worktree's saved full branch name.
 
     Returns:
       True when the Architect worktree advances; otherwise False.
@@ -2021,7 +2022,7 @@ def bootstrap_sync_primary_from_main_authority(primary_path):
     if primary_head == target:
         return False
     _symbolic_worktree_branch(
-        worktree=primary_path, expected_branch=PRIMARY_BRANCH,
+        worktree=primary_path, expected_branch=primary_branch,
         label="Architect")
     if _clean_worktree_status(worktree=primary_path):
         raise PrimaryWorktreeError(
@@ -2588,11 +2589,13 @@ def _release_primary_lock(lock_file):
     lock_file.close()
 
 
-def configure_agent_worktrees(primary_path, implementer_path, sol_path):
+def configure_agent_worktrees(primary_path, implementer_path, sol_path,
+                              primary_branch=PRIMARY_BRANCH):
     """Bind every role to its already-validated dispatch checkout."""
     AGENT_CWD["fable"] = os.path.abspath(primary_path)
     AGENT_CWD["opus"] = os.path.abspath(implementer_path)
     AGENT_CWD["sol"] = os.path.abspath(sol_path)
+    AGENT_BRANCH["fable"] = primary_branch
 
 
 def ensure_primary_execution(live_action, dry_run):
@@ -2635,7 +2638,8 @@ def ensure_primary_execution(live_action, dry_run):
             configure_agent_worktrees(
                 primary_path=state["path"],
                 implementer_path=implementer_paths["default_path"],
-                sol_path=sol_paths["default_path"])
+                sol_path=sol_paths["default_path"],
+                primary_branch=state["branch"])
             return state
         if state["schema"] != PRIMARY_STATE_SCHEMA:
             print("[dry-run] this saved state predates separate Architect "
@@ -2645,7 +2649,8 @@ def ensure_primary_execution(live_action, dry_run):
             configure_agent_worktrees(
                 primary_path=state["path"],
                 implementer_path=implementer_paths["default_path"],
-                sol_path=sol_paths["default_path"])
+                sol_path=sol_paths["default_path"],
+                primary_branch=state["branch"])
             return state
         implementer_exists = os.path.lexists(implementer_paths["state"])
         if implementer_exists:
@@ -2691,7 +2696,7 @@ def ensure_primary_execution(live_action, dry_run):
             state = _upgrade_primary_topology_state(
                 state=state, repository_root=REPO_ROOT)
             bootstrap_sync_primary_from_main_authority(
-                primary_path=state["path"])
+                primary_path=state["path"], primary_branch=state["branch"])
             _require_primary_daemon_topology_support(
                 primary_path=state["path"])
             implementer_state = provision_or_reuse_implementer(
@@ -2713,7 +2718,7 @@ def ensure_primary_execution(live_action, dry_run):
     configure_agent_worktrees(
         primary_path=state["path"],
         implementer_path=implementer_state["path"],
-        sol_path=sol_state["path"])
+        sol_path=sol_state["path"], primary_branch=state["branch"])
     running_in_primary = (
         os.path.realpath(WORKTREE) == os.path.realpath(state["path"]))
     if live_action:
@@ -2722,6 +2727,7 @@ def ensure_primary_execution(live_action, dry_run):
             "implementer_state": implementer_paths["state"],
             "sol_state": sol_paths["state"],
             "primary_path": os.path.abspath(state["path"]),
+            "primary_branch": state["branch"],
             "implementer_path": os.path.abspath(
                 implementer_state["path"]),
             "sol_path": os.path.abspath(sol_state["path"]),
@@ -3500,6 +3506,11 @@ AGENT_CWD = {
     "fable": WORKTREE,
     "opus": implementer_state_paths(REPO_ROOT)["default_path"],
     "sol": sol_state_paths(REPO_ROOT)["default_path"],
+}
+AGENT_BRANCH = {
+    "fable": PRIMARY_BRANCH,
+    "opus": IMPLEMENTER_BRANCH,
+    "sol": SOL_BRANCH,
 }
 
 
@@ -6581,6 +6592,7 @@ def validate_live_agent_dispatch_topology(agent):
             sol_state=sol)
         expected = ACTIVE_TOPOLOGY
         if (os.path.abspath(primary["path"]) != expected["primary_path"]
+                or primary["branch"] != expected["primary_branch"]
                 or os.path.abspath(implementer["path"])
                 != expected["implementer_path"]
                 or os.path.abspath(sol["path"]) != expected["sol_path"]
@@ -9803,7 +9815,7 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
     ticket_state = read_ticket_cycle_state()
     plan = []
     for worktree, branch, label in (
-            (AGENT_CWD["fable"], PRIMARY_BRANCH, "Architect"),
+            (AGENT_CWD["fable"], AGENT_BRANCH["fable"], "Architect"),
             (AGENT_CWD["sol"], SOL_BRANCH, "Red Team")):
         _symbolic_worktree_branch(
             worktree=worktree, expected_branch=branch, label=label)
@@ -9928,7 +9940,7 @@ def require_architect_notes_commit(base_commit, notes_commit,
     """Prove clean one-parent B-to-P authority for a note-only landing."""
     primary = AGENT_CWD["fable"]
     _symbolic_worktree_branch(
-        worktree=primary, expected_branch=PRIMARY_BRANCH,
+        worktree=primary, expected_branch=AGENT_BRANCH["fable"],
         label="Architect")
     if _clean_worktree_status(worktree=primary):
         raise TicketCycleStateError(

@@ -958,12 +958,47 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
         expected_branch = "refs/heads/claude/existing-coordinator"
         adopted = (rc == 0 and validate_topology(
             root, primary_path=existing, primary_branch=expected_branch))
+
+        marker = root / "after-adoption.txt"
+        write_exact(marker, b"user main moved after adoption\n")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "advance main after adoption")
+        new_main = git(root, "rev-parse", "HEAD").stdout.strip()
+        rc_update, _stdout, _stderr = invoke(root, ["--once"])
+        state = json.loads(state_path(root).read_text(encoding="utf-8"))
+        resynced = (
+            rc_update == 0 and state["branch"] == expected_branch
+            and all(git(path, "rev-parse", "HEAD").stdout.strip()
+                    == new_main for path in (
+                        existing, default_implementer(root),
+                        default_sol(root))))
+
+        daemon = load_scratch_daemon(existing)
+        daemon.configure_agent_worktrees(
+            primary_path=str(existing),
+            implementer_path=str(default_implementer(root)),
+            sol_path=str(default_sol(root)),
+            primary_branch=expected_branch)
+        observed = {}
+
+        def capture_branch(*, worktree, expected_branch, label):
+            observed["branch"] = expected_branch
+            raise RuntimeError("branch captured")
+
+        daemon._symbolic_worktree_branch = capture_branch
+        try:
+            daemon.require_architect_notes_commit("0" * 40, "1" * 40)
+        except RuntimeError as exc:
+            note_branch = (str(exc) == "branch captured"
+                           and observed.get("branch") == expected_branch)
+        else:
+            note_branch = False
         rc_send, _stdout, _stderr = invoke(
             root, ["--send", "architect", "--unit",
                    "Scratch after adoption."])
         queued = pending_markdown(existing)
         passed = (
-            adopted and rc_send == 0
+            adopted and resynced and note_branch and rc_send == 0
             and file_identity(archived) == archived_before
             and file_identity(relay) == relay_before
             and [path.name for path in queued] == ["0043-to-fable.md"]
