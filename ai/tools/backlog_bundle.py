@@ -408,8 +408,6 @@ def write_archive(output, manifest_bytes, payload):
     """Write a deterministic archive and install it without overwriting."""
     output = output.expanduser().absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists() or output.is_symlink():
-        raise BundleError("refusing to overwrite archive: " + str(output))
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=".backlog-bundle-", suffix=".tmp", dir=str(output.parent))
     temporary = Path(temporary_name)
@@ -449,12 +447,22 @@ def write_archive(output, manifest_bytes, payload):
             try:
                 os.link(str(temporary), str(output))
             except FileExistsError:
-                raise BundleError("refusing to overwrite archive: " + str(output))
-            output_stat = output.lstat()
-            if ((archive_stat.st_dev, archive_stat.st_ino) !=
-                    (output_stat.st_dev, output_stat.st_ino)):
-                raise BundleError("published archive identity is ambiguous")
-            archive_digest = digest.hexdigest()
+                expected_digest = digest.hexdigest()
+                try:
+                    existing_digest = validate_archive(output)[3]
+                except BundleError:
+                    raise BundleError(
+                        "refusing to overwrite archive: " + str(output))
+                if existing_digest != expected_digest:
+                    raise BundleError(
+                        "refusing to overwrite archive: " + str(output))
+                archive_digest = existing_digest
+            else:
+                output_stat = output.lstat()
+                if ((archive_stat.st_dev, archive_stat.st_ino) !=
+                        (output_stat.st_dev, output_stat.st_ino)):
+                    raise BundleError("published archive identity is ambiguous")
+                archive_digest = digest.hexdigest()
     finally:
         # fdopen owns descriptor after successful construction.  If fdopen
         # itself failed, close the original descriptor here.

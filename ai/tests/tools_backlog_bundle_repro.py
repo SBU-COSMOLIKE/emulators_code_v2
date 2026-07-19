@@ -206,6 +206,11 @@ def arm_roundtrip_and_exact_payload():
         packed = run_cli(repo, tool_path, "pack", "--output", str(first),
                          *include)
         assert_ok(packed, "first pack")
+        first_bytes = first.read_bytes()
+        recovered = run_cli(repo, tool_path, "pack", "--output", str(first),
+                            *include)
+        assert_ok(recovered, "retry after published output")
+        assert first.read_bytes() == first_bytes
         packed_again = run_cli(repo, tool_path, "pack", "--output", str(second),
                                *include)
         assert_ok(packed_again, "second pack")
@@ -275,6 +280,27 @@ def arm_existing_output_and_import_collisions():
         packed = run_cli(repo, tool_path, "pack", "--output", str(occupied))
         assert_refused(packed, "refusing to overwrite")
         assert occupied.read_bytes() == b"do-not-overwrite\n"
+
+        different = repo / "different.backlog-bundle.tar.xz"
+        with_extra = run_cli(
+            repo, tool_path, "pack", "--output", str(different),
+            "--include", "evidence/attempt.patch")
+        assert_ok(with_extra, "different-valid fixture pack")
+        different_bytes = different.read_bytes()
+        without_extra = run_cli(
+            repo, tool_path, "pack", "--output", str(different))
+        assert_refused(without_extra, "refusing to overwrite")
+        assert different.read_bytes() == different_bytes
+
+        target = repo / "symlink-target.backlog-bundle.tar.xz"
+        target.write_bytes(b"keep-symlink-target\n")
+        linked_output = repo / "symlink-output.backlog-bundle.tar.xz"
+        linked_output.symlink_to(target.name)
+        linked_pack = run_cli(
+            repo, tool_path, "pack", "--output", str(linked_output))
+        assert_refused(linked_pack, "refusing to overwrite")
+        assert linked_output.is_symlink()
+        assert target.read_bytes() == b"keep-symlink-target\n"
 
         valid = repo / "valid.backlog-bundle.tar.xz"
         result = run_cli(repo, tool_path, "pack", "--output", str(valid))
