@@ -153,6 +153,7 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             failed = checkpoint.checkpoint_result(
                 event="Stop", now=90.0, deadline=90.0,
                 state_path=state, output_stream=BrokenOutput())
+            self.assertFalse(daemon.implementer_checkpoint_delivered(state))
             recovered_output = io.StringIO()
             recovered = checkpoint.checkpoint_result(
                 event="Stop", now=91.0, deadline=90.0,
@@ -165,6 +166,7 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
                 json.loads(recovered_output.getvalue())["decision"],
                 "block")
             self.assertEqual(state.read_bytes(), b"triggered\n")
+            self.assertTrue(daemon.implementer_checkpoint_delivered(state))
 
     def test_failed_delivery_marker_does_not_suppress_retry(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -176,6 +178,7 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
                 failed = checkpoint.checkpoint_result(
                     event="Stop", now=90.0, deadline=90.0,
                     state_path=state, output_stream=first_output)
+            self.assertFalse(daemon.implementer_checkpoint_delivered(state))
             retry_output = io.StringIO()
             recovered = checkpoint.checkpoint_result(
                 event="Stop", now=91.0, deadline=90.0,
@@ -188,6 +191,36 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             self.assertEqual(json.loads(retry_output.getvalue())["decision"],
                              "block")
             self.assertEqual(state.read_bytes(), b"triggered\n")
+
+    def test_short_marker_write_does_not_claim_delivery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            first_output = io.StringIO()
+            with mock.patch.object(checkpoint.os, "write", return_value=1):
+                failed = checkpoint.checkpoint_result(
+                    event="Stop", now=90.0, deadline=90.0,
+                    state_path=state, output_stream=first_output)
+            self.assertEqual(failed[0], 2)
+            self.assertIn("short checkpoint marker write", failed[2])
+            self.assertFalse(daemon.implementer_checkpoint_delivered(state))
+
+            retry_output = io.StringIO()
+            recovered = checkpoint.checkpoint_result(
+                event="Stop", now=91.0, deadline=90.0,
+                state_path=state, output_stream=retry_output)
+            self.assertEqual(recovered, (0, "", ""))
+            self.assertEqual(state.read_bytes(), b"triggered\n")
+
+    def test_daemon_needs_the_complete_delivery_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            self.assertFalse(daemon.implementer_checkpoint_delivered(state))
+            for incomplete in (b"", b"triggered", b"triggered\nextra"):
+                state.write_bytes(incomplete)
+                self.assertFalse(
+                    daemon.implementer_checkpoint_delivered(state))
+            state.write_bytes(b"triggered\n")
+            self.assertTrue(daemon.implementer_checkpoint_delivered(state))
 
     def test_subagent_event_cannot_claim_the_main_checkpoint(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -6970,6 +6970,16 @@ def capture_persistent_role_state(agent):
     }
 
 
+def implementer_checkpoint_delivered(state_path):
+    """Return true only after the hook records its complete instruction."""
+    if not state_path:
+        return False
+    marker = stable_regular_bytes(
+        path=state_path, maximum_bytes=32,
+        label="Implementer checkpoint marker", missing_ok=True)
+    return marker == b"triggered\n"
+
+
 def recheck_persistent_role_state(proof):
     """Refuse tracked edits outside the authority of Fable or Sol."""
     if proof is None:
@@ -7808,7 +7818,8 @@ def dispatch_under_main_checkout_lock(
                 evidence_problem = str(exc)
                 implementer_completion_ready = None
             if (evidence_problem is None
-                    and os.path.exists(checkpoint_state_path)):
+                    and implementer_checkpoint_delivered(
+                        checkpoint_state_path)):
                 try:
                     returned_message = read_cycle_message(
                         path=implementer_return)

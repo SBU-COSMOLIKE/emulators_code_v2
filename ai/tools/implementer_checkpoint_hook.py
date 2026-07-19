@@ -24,6 +24,7 @@ except ImportError:  # Direct execution from ai/tools/.
 DEADLINE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_DEADLINE"
 STATE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_STATE"
 SUPPORTED_EVENTS = {"PostToolBatch", "Stop"}
+TRIGGERED_MARKER = b"triggered\n"
 CHECKPOINT_MINUTES = ROLE_CONTRACT["runtime"]["implementer_review_minutes"]
 CHECKPOINT_INSTRUCTION = (
     f"The Implementer has worked for {CHECKPOINT_MINUTES} minutes, may be "
@@ -77,13 +78,15 @@ def checkpoint_result(*, event, now, deadline, state_path,
         descriptor = _open_checkpoint_state(state_path)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         os.lseek(descriptor, 0, os.SEEK_SET)
-        if os.read(descriptor, 32) == b"triggered\n":
+        if os.read(descriptor, 32) == TRIGGERED_MARKER:
             return 0, "", ""
         capture.write(_checkpoint_payload(event=event))
         capture.flush()
         os.ftruncate(descriptor, 0)
         os.lseek(descriptor, 0, os.SEEK_SET)
-        os.write(descriptor, b"triggered\n")
+        written = os.write(descriptor, TRIGGERED_MARKER)
+        if written != len(TRIGGERED_MARKER):
+            raise OSError("short checkpoint marker write")
         os.fsync(descriptor)
     except OSError as error:
         message = ("cannot deliver or record the " + str(CHECKPOINT_MINUTES)

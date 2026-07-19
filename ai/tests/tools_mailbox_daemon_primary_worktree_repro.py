@@ -5435,7 +5435,8 @@ def mutation_cases(source):
         arm_blocked_evidence_is_checkpoint_not_candidate)
     add("fired timer accepts an ordinary Implementer return",
         '            if (evidence_problem is None\n'
-        '                    and os.path.exists(checkpoint_state_path)):\n',
+        '                    and implementer_checkpoint_delivered(\n'
+        '                        checkpoint_state_path)):\n',
         '            if False:  # mutation: timed return is not checked\n',
         arm_timed_checkpoint_refusals)
     add("checkpoint without a new commit accepted",
