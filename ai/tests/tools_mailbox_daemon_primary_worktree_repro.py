@@ -887,7 +887,7 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
             "Implementation directive section]\n",
             encoding="utf-8", newline="")
 
-        recovered = daemon.recover_prelaunch_implementer_checkout()
+        recovered = daemon.recover_prelaunch_messages()
         root_message = message.parent.parent / message.name
         prepared = daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
         passed = (

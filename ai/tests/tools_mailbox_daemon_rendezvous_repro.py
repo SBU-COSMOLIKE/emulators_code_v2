@@ -707,6 +707,30 @@ def arm_production_dispatch_lifecycle(source=None):
         return passed
 
 
+def arm_no_child_launch_is_restartable(source=None):
+    """A Popen failure is recoverable without resembling a failed turn."""
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        request = write_pending(mailbox, "0001-to-fable.md", "real body\n")
+        for cwd in set(daemon.AGENT_CWD.values()):
+            pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
+
+        def refused_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            raise OSError("provider process did not start")
+
+        daemon.subprocess = AttributeProxy(
+            daemon.subprocess, Popen=refused_popen)
+        consumed = daemon.dispatch(path=str(request), dry_run=False)
+        held = mailbox / "prelaunch" / request.name
+        retained = (consumed is False and held.is_file()
+                    and not (mailbox / "failed" / request.name).exists())
+        recovered = daemon.recover_prelaunch_messages()
+        passed = (retained and recovered == 1 and request.is_file()
+                  and not held.exists())
+        print("no-child launch is restartable=" + str(passed))
+        return passed
+
+
 def arm_candidate_audit_requires_one_outcome(source=None):
     """Require a landing GO or one repair handoff after candidate audit."""
     with scratch_daemon(source=source) as (daemon, root, mailbox):
@@ -2244,6 +2268,7 @@ def main():
         ("Ctrl-C preservation", arm_ctrl_c_preserves_waiting_message),
         ("mid-pass source change", arm_source_change_stops_mid_pass),
         ("production dispatch hooks", arm_production_dispatch_lifecycle),
+        ("no-child launch recovery", arm_no_child_launch_is_restartable),
         ("candidate audit outcome", arm_candidate_audit_requires_one_outcome),
         ("three-role pipeline", arm_three_role_pipeline_concurrency),
         ("finite modes", arm_once_and_dry_run_are_unaffected),

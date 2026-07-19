@@ -7533,6 +7533,7 @@ def dispatch_under_main_checkout_lock(
     # terminal silent for an entire multi-minute turn.
     started = time.time()
     proc = None
+    child_started = False
     launch_error = None
     timed_out = False
     timeout_history_error = None
@@ -7605,6 +7606,7 @@ def dispatch_under_main_checkout_lock(
                                     stderr=subprocess.STDOUT,
                                     cwd=AGENT_CWD[agent],
                                     env=env)
+            child_started = True
             try:
                 if agent in {"fable", "opus", "sol"}:
                     if notes_admin_turn:
@@ -7720,9 +7722,14 @@ def dispatch_under_main_checkout_lock(
                     "audit snapshot cleanup failed: " + str(exc))
 
     if launch_error is not None:
-        parked = park_failed_message(dispatch_path=dispatch_path)
-        state = "message parked in failed/" if parked \
-            else "failed-state move was not verified"
+        if child_started:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            state = "message parked in failed/" if parked \
+                else "failed-state move was not verified"
+        else:
+            parked = park_prelaunch_message(dispatch_path=dispatch_path)
+            state = "message retained in prelaunch/" if parked \
+                else "pre-launch state move was not verified"
         print("  !! dispatch could not start: " + str(launch_error)
               + "; " + state + "; log -> " + log_path)
         return False
@@ -10256,63 +10263,24 @@ def recover_failed_implementer_preflight():
     return recovered
 
 
-def recover_prelaunch_implementer_checkout():
-    """Requeue only work durably marked as refused before agent launch."""
+def recover_prelaunch_messages():
+    """Requeue requests durably retained before any agent process started."""
     sequence_lock = acquire_mailbox_sequence_lock()
     if sequence_lock is None:
-        raise TicketCycleStateError("cannot lock Implementer recovery")
+        raise TicketCycleStateError("cannot lock pre-launch recovery")
     recovered = 0
     try:
-        pattern = os.path.join(MAILBOX, "prelaunch", "*-to-opus.md")
+        pattern = os.path.join(MAILBOX, "prelaunch", "*-to-*.md")
         for path in sorted(glob.glob(pattern), key=message_sequence):
-            message = read_cycle_message(path=path)
-            if (not message.startswith(MAILBOX_FLOW_HEADER)
-                    or len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message))
-                    != 1):
-                continue
-            cycle_id, mode, _body, problem = _ticket_flow_envelope(
-                message=message)
-            state = read_ticket_cycle_state()
-            expected = {
-                "phase": "implementation", "commit": None,
-                "mode": mode, "route": "primary"}
-            if (problem is not None
-                    or state["active"].get(cycle_id) != expected
-                    or ticket_cycle_has_live_message(cycle_id=cycle_id)
-                    or candidate_commit_for_cycle(cycle_id) is not None):
-                continue
-            worktree = AGENT_CWD["opus"]
-            _symbolic_worktree_branch(
-                worktree=worktree, expected_branch=IMPLEMENTER_BRANCH,
-                label="Implementer")
-            if _clean_worktree_status(worktree=worktree):
-                continue
-            current = worktree_head(worktree=worktree)
-            target = cycle_starting_commit(cycle_id)
-            try:
-                main_commit = _exact_git_object(
-                    arguments=["rev-parse", "--verify",
-                               "refs/heads/main^{commit}"],
-                    label="current main commit")
-                _require_ancestor_or_same(
-                    ancestor=target, descendant=main_commit,
-                    label="failed handoff base is not on current main")
-                if current != target and current != main_commit:
-                    _require_ancestor_or_same(
-                        ancestor=current, descendant=target,
-                        label="failed handoff checkout is neither an older "
-                              "base nor the trusted main baseline")
-            except TicketCycleStateError:
-                continue
+            read_cycle_message(path=path)
             recovered_path, moved = verified_state_move(
                 dispatch_path=path, directory=MAILBOX)
             if not moved:
                 raise TicketCycleStateError(
-                    "could not requeue pre-launch handoff "
+                    "could not requeue pre-launch message "
                     + os.path.basename(path))
             recovered += 1
-            print("requeued pre-launch Implementer handoff "
-                  + recovered_path)
+            print("requeued pre-launch message " + recovered_path)
         return recovered
     finally:
         release_mailbox_sequence_lock(lock_file=sequence_lock)
@@ -13046,7 +13014,7 @@ def main():
                 if fix_only:
                     recover_failed_maintenance_admission()
                 recover_failed_implementer_preflight()
-                recover_prelaunch_implementer_checkout()
+                recover_prelaunch_messages()
                 reconcile_ticket_cycle_state()
                 failed_debt = architect_notes_failed_debt_error()
                 if failed_debt is not None:

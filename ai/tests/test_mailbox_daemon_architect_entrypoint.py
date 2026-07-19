@@ -422,7 +422,7 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             daemon.write_timeout_history(
                 name=request.name, killed_after_minutes=120)
 
-            recovered = daemon.recover_prelaunch_implementer_checkout()
+            recovered = daemon.recover_prelaunch_messages()
 
             self.assertEqual(recovered, 0)
             self.assertTrue(request.is_file())
