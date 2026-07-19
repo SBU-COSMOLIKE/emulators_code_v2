@@ -1575,10 +1575,10 @@ def arm_saved_primary_backlog_resolution():
 
         managed = repository / ".claude" / "worktrees"
         managed.mkdir(parents=True)
-        primary = managed / "mailbox-primary"
+        primary = managed / "existing-coordinator"
         execution = root / "execution"
         run_git(repository, "worktree", "add", "-q", "-b",
-                "claude/mailbox-primary", str(primary), "main")
+                "claude/existing-coordinator", str(primary), "main")
         run_git(repository, "worktree", "add", "-q", "-b",
                 "claude/router-fixture", str(execution), "main")
         (primary / "ai" / "notes").mkdir(parents=True, exist_ok=True)
@@ -1593,9 +1593,9 @@ def arm_saved_primary_backlog_resolution():
         state = {
             "schema": live_mailbox_daemon.PRIMARY_STATE_SCHEMA,
             "repository": os.path.realpath(common),
-            "name": "mailbox-primary",
+            "name": "existing-coordinator",
             "path": str(primary),
-            "branch": "refs/heads/claude/mailbox-primary",
+            "branch": "refs/heads/claude/existing-coordinator",
             "topology": live_mailbox_daemon.PRIMARY_TOPOLOGY_MARKER,
         }
 
@@ -1623,6 +1623,46 @@ def arm_saved_primary_backlog_resolution():
             and counts["low"] == 2
             and counts["high_bug_fix"] == 0
             and counts["unclassified"] == 0)
+
+        alternate_roles_refused = []
+        for name, branch in (("mailbox-implementer",
+                              "claude/mailbox-implementer"),
+                             ("mailbox-sol", "codex/mailbox-sol")):
+            role_path = managed / name
+            run_git(repository, "worktree", "add", "-q", "-b", branch,
+                    str(role_path), "main")
+            forged = dict(state, name=name, path=str(role_path),
+                          branch="refs/heads/" + branch)
+            write_state(forged)
+            try:
+                module.authoritative_backlog_path()
+            except module.BacklogLedgerError:
+                alternate_roles_refused.append(True)
+            else:
+                alternate_roles_refused.append(False)
+        write_state()
+
+        run_git(repository, "checkout", "-q", "--detach")
+        run_git(primary, "checkout", "-q", "main")
+        write_state(dict(state, branch="refs/heads/main"))
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            attached_main_refused = True
+        else:
+            attached_main_refused = False
+        run_git(primary, "checkout", "-q", "claude/existing-coordinator")
+        run_git(repository, "checkout", "-q", "main")
+        write_state()
+
+        run_git(primary, "checkout", "-q", "--detach")
+        try:
+            module.authoritative_backlog_path()
+        except module.BacklogLedgerError:
+            detached_refused = True
+        else:
+            detached_refused = False
+        run_git(primary, "checkout", "-q", "claude/existing-coordinator")
 
         state_bytes = state_path.read_bytes()
         state_path.unlink()
@@ -1740,6 +1780,10 @@ def arm_saved_primary_backlog_resolution():
         print("ARM saved primary backlog resolution")
         print("  router constants match current daemon:", constants_match)
         print("  execution-checkout backlog ignored:", primary_selected)
+        print("  Implementer and Sol states fail closed:",
+              all(alternate_roles_refused))
+        print("  attached main state fails closed:", attached_main_refused)
+        print("  detached primary fails closed:", detached_refused)
         print("  missing state fails closed:", missing_state_refused)
         print("  redirected state fails closed:", redirected_state_refused)
         print("  foreign checkout in state fails closed:",
@@ -1757,6 +1801,9 @@ def arm_saved_primary_backlog_resolution():
               branch_mismatch_refused)
         assert constants_match
         assert primary_selected
+        assert all(alternate_roles_refused)
+        assert attached_main_refused
+        assert detached_refused
         assert missing_state_refused
         assert redirected_state_refused
         assert foreign_checkout_refused

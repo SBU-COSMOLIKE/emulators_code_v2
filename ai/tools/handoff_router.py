@@ -98,8 +98,12 @@ DEFAULT_GATE_COMMANDS = [
 
 PRIMARY_STATE_RELATIVE = os.path.join(
     ".claude", "worktrees", ".mailbox-primary-worktree.json")
-PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
-PRIMARY_WORKTREE_NAME = "mailbox-primary"
+ARCHITECT_BRANCH_PREFIX = "refs/heads/claude/"
+RESERVED_ROLE_NAMES = frozenset({"mailbox-implementer", "mailbox-sol"})
+RESERVED_ROLE_BRANCHES = frozenset({
+    "refs/heads/claude/mailbox-implementer",
+    "refs/heads/codex/mailbox-sol",
+})
 PRIMARY_STATE_SCHEMA = 3
 PRIMARY_TOPOLOGY = "separate-role-worktrees-v1"
 MAX_PRIMARY_STATE_BYTES = 16 * 1024
@@ -272,9 +276,12 @@ def authoritative_backlog_path():
     managed = os.path.join(repository, ".claude", "worktrees")
     if (not os.path.isabs(state["path"])
             or os.path.dirname(primary) != os.path.abspath(managed)
-            or state["name"] != PRIMARY_WORKTREE_NAME
-            or os.path.basename(primary) != PRIMARY_WORKTREE_NAME
-            or state["branch"] != PRIMARY_BRANCH):
+            or state["name"] != os.path.basename(primary)
+            or state["name"] in {".", ".."}
+            or "/" in state["name"]
+            or state["name"] in RESERVED_ROLE_NAMES
+            or not state["branch"].startswith(ARCHITECT_BRANCH_PREFIX)
+            or state["branch"] in RESERVED_ROLE_BRANCHES):
         raise BacklogLedgerError(
             "primary-worktree state does not name the managed Claude primary")
     try:
@@ -307,11 +314,11 @@ def authoritative_backlog_path():
                 record["prunable"] = True
         if os.path.realpath(record["path"]) == primary:
             matches.append(record)
-    if (len(matches) != 1 or matches[0]["branch"] != PRIMARY_BRANCH
+    if (len(matches) != 1 or matches[0]["branch"] != state["branch"]
             or matches[0]["detached"] or matches[0]["prunable"]):
         raise BacklogLedgerError(
             "saved primary worktree is not uniquely registered on "
-            + PRIMARY_BRANCH)
+            + state["branch"])
     if _git_common_directory(primary) != common:
         raise BacklogLedgerError(
             "saved primary worktree belongs to a different repository")
@@ -321,7 +328,7 @@ def authoritative_backlog_path():
     branch = _checked_git(
         primary, ["symbolic-ref", "--quiet", "HEAD"],
         "the saved primary branch")
-    if os.path.realpath(top) != primary or branch != PRIMARY_BRANCH:
+    if os.path.realpath(top) != primary or branch != state["branch"]:
         raise BacklogLedgerError(
             "saved primary checkout does not match its registered path and "
             "branch")
