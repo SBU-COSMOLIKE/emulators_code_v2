@@ -8595,11 +8595,14 @@ def candidate_record_locked(cycle_id, ticket_state, candidate_state,
     record = candidate_state["cycles"].get(cycle_id)
     reference = cycle_candidate_ref(cycle_id=cycle_id)
     ref_commit = git_ref_commit(reference=reference)
-    if record is None and ref_commit is not None:
+    if (ref_commit is not None
+            and (record is None or record["commit"] != ref_commit)):
+        previous = (cycle_starting_commit(cycle_id)
+                    if record is None else record["commit"])
         if (not recover or active is None
                 or active["phase"] != "implementation"
                 or not git_commit_descends_from(
-                    starting_commit=cycle_starting_commit(cycle_id),
+                    starting_commit=previous,
                     accepted_commit=ref_commit)):
             raise TicketCycleStateError(
                 "unowned candidate ref exists for " + cycle_id)
