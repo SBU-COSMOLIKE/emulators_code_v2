@@ -10191,7 +10191,10 @@ def recover_failed_implementer_preflight():
     recovered = 0
     pattern = os.path.join(MAILBOX, "failed", "*-to-opus.md")
     for path in sorted(glob.glob(pattern), key=message_sequence):
-        message = read_cycle_message(path=path)
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
         if (not message.startswith(MAILBOX_FLOW_HEADER)
                 or len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message)) == 1):
             continue
@@ -12196,7 +12199,10 @@ def reconcile_ticket_cycle_state():
         match = PENDING_MESSAGE_RE.match(name)
         if match is None or match.group(1) != "sol":
             continue
-        message = read_cycle_message(path=path)
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
         if sol_ticket_kind(message=message) == "closure":
             register_ticket_cycle_message(agent="sol", message=message)
 
@@ -12420,8 +12426,11 @@ def recover_failed_maintenance_admission():
         if match is None:
             return
         for duplicate in pending_messages():
-            if read_cycle_message(path=duplicate) \
-                    == ARCHITECT_FIX_ONLY_REQUEST:
+            try:
+                duplicate_message = read_cycle_message(path=duplicate)
+            except (OSError, ValueError, TicketCycleStateError):
+                continue
+            if duplicate_message == ARCHITECT_FIX_ONLY_REQUEST:
                 _parked, moved = verified_state_move(
                     dispatch_path=duplicate, directory=failed)
                 if not moved:

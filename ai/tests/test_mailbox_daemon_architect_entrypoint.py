@@ -147,10 +147,12 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             failed.mkdir()
             original = failed / "0013-to-fable.md"
             duplicate = mailbox / "0014-to-fable.md"
+            malformed = mailbox / "0015-to-fable.md"
             original.write_text(
                 daemon.ARCHITECT_FIX_ONLY_REQUEST,
                 encoding="utf-8", newline="")
             duplicate.write_bytes(original.read_bytes())
+            malformed.write_bytes(b"\xff")
             state = daemon.read_ticket_cycle_state()
             state["architect_admissions"][original.name] = {
                 "mode": "normal",
@@ -167,6 +169,7 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertFalse(original.exists())
             self.assertTrue((failed / duplicate.name).is_file())
             self.assertFalse(duplicate.exists())
+            self.assertTrue(malformed.is_file())
             self.assertIn(
                 original.name,
                 daemon.read_ticket_cycle_state()["architect_admissions"])
@@ -289,6 +292,20 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertEqual(recovered, 1)
             self.assertEqual(daemon.active_ticket_cycle_count(), 0)
             self.assertTrue(request.is_file())
+
+    def test_quarantined_non_utf8_messages_do_not_break_restart(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            failed_opus = failed / "0015-to-opus.md"
+            failed_sol = failed / "0016-to-sol.md"
+            failed_opus.write_bytes(b"\xff")
+            failed_sol.write_bytes(b"\xff")
+
+            self.assertEqual(daemon.recover_failed_implementer_preflight(), 0)
+            self.assertEqual(daemon.reconcile_ticket_cycle_state(), 0)
+            self.assertTrue(failed_opus.is_file())
+            self.assertTrue(failed_sol.is_file())
 
     def test_restart_keeps_reservation_owned_by_a_corrected_handoff(self):
         with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
