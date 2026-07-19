@@ -5974,9 +5974,13 @@ def mutation_cases(source):
         "    if False:\n",
         arm_corrupt_and_redirected_state_fail_closed)
     add("transport evidence ignored",
+        '    evidence = []\n'
+        '    for record in records:\n'
         '        reasons = coordination_transport_evidence('
         'worktree=record["path"])',
-        "        reasons = []",
+        '    evidence = []\n'
+        '    for record in records:\n'
+        '        reasons = []',
         arm_legacy_transport_refuses_new_primary)
     add("live sender lock ignored",
         '        (".sequence.lock", "live sender or sequence lock is held"),\n',
