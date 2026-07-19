@@ -238,5 +238,67 @@ class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
             self.assertTrue((mailbox / "failed" / request.name).is_file())
             preserve.assert_not_called()
 
+
+class MailboxStateMoveRecoveryTests(unittest.TestCase):
+    """Recover only exact hardlinks left by an interrupted mailbox move."""
+
+    def test_restart_repairs_claim_after_source_unlink_failure(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text("one request\n", encoding="utf-8")
+            with mock.patch.object(
+                    daemon.os, "unlink",
+                    side_effect=OSError("injected unlink failure")):
+                with self.assertRaisesRegex(OSError, "injected"):
+                    daemon.claim_message(str(request))
+            inflight = mailbox / "inflight" / request.name
+            self.assertEqual(request.stat().st_ino, inflight.stat().st_ino)
+
+            self.assertEqual(daemon.recover_interrupted_mailbox_moves(), 1)
+
+            self.assertTrue(request.is_file())
+            self.assertFalse(inflight.exists())
+            self.assertEqual(daemon.inflight_lane_blockers(), {})
+
+    def test_restart_finishes_exact_terminal_hardlinks(self):
+        for state in ("done", "failed", "prelaunch"):
+            with self.subTest(state=state), scratch_daemon() as (
+                    daemon, _, mailbox, _):
+                inflight_dir = mailbox / "inflight"
+                inflight_dir.mkdir()
+                request = inflight_dir / "0001-to-opus.md"
+                request.write_text("one request\n", encoding="utf-8")
+                guard = pathlib.Path(
+                    str(request) + daemon.STATE_GUARD_SUFFIX)
+                guard.hardlink_to(request)
+                destination_dir = mailbox / state
+                destination_dir.mkdir()
+                destination = destination_dir / request.name
+                destination.hardlink_to(request)
+
+                self.assertEqual(
+                    daemon.recover_interrupted_mailbox_moves(), 1)
+
+                self.assertTrue(destination.is_file())
+                self.assertFalse(request.exists())
+                self.assertFalse(guard.exists())
+                self.assertEqual(daemon.inflight_lane_blockers(), {})
+
+    def test_different_inodes_remain_a_hard_stop(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text("pending\n", encoding="utf-8")
+            inflight = mailbox / "inflight"
+            inflight.mkdir()
+            claimed = inflight / request.name
+            claimed.write_text("different\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError, "conflicting states"):
+                daemon.recover_interrupted_mailbox_moves()
+
+            self.assertTrue(request.is_file())
+            self.assertTrue(claimed.is_file())
+
 if __name__ == "__main__":
     unittest.main()

@@ -6120,6 +6120,7 @@ def move_without_overwrite(path, directory):
         return None
     except FileNotFoundError:
         return None
+    fsync_directory(directory=directory)
     os.unlink(path)
     return destination
 
@@ -8464,6 +8465,7 @@ def restore_state_source(guard_path, dispatch_path, source_inode):
     if not os.path.lexists(dispatch_path):
         try:
             os.link(guard_path, dispatch_path)
+            fsync_directory(directory=os.path.dirname(dispatch_path))
         except OSError:
             pass
     return regular_inode(path=dispatch_path) == source_inode
@@ -8498,6 +8500,7 @@ def verified_state_move(dispatch_path, directory):
     guard_path = dispatch_path + STATE_GUARD_SUFFIX
     try:
         os.link(dispatch_path, guard_path)
+        fsync_directory(directory=os.path.dirname(guard_path))
     except OSError:
         return None, False
     if regular_inode(path=guard_path) != source_inode:
@@ -10713,8 +10716,89 @@ def recover_prelaunch_messages():
         release_mailbox_sequence_lock(lock_file=sequence_lock)
 
 
+def recover_interrupted_mailbox_moves():
+    """Collapse exact hardlink debris left by an interrupted state move."""
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock mailbox-move recovery")
+    recovered = 0
+    inflight_directory = os.path.join(MAILBOX, "inflight")
+    try:
+        names = set()
+        for pattern in ("*.md", "*.md" + STATE_GUARD_SUFFIX):
+            for path in glob.glob(os.path.join(inflight_directory, pattern)):
+                names.add(blocker_message_name(path=path))
+        for name in sorted(names, key=message_sequence):
+            inflight = os.path.join(inflight_directory, name)
+            guard = inflight + STATE_GUARD_SUFFIX
+            root = os.path.join(MAILBOX, name)
+            destinations = [
+                os.path.join(DONE, name),
+                os.path.join(MAILBOX, "failed", name),
+                os.path.join(MAILBOX, "prelaunch", name),
+            ]
+
+            def inode(path):
+                value = regular_inode(path=path)
+                if value is None and os.path.lexists(path):
+                    raise TicketCycleStateError(
+                        "mailbox move recovery found a non-regular state: "
+                        + path)
+                return value
+
+            inflight_inode = inode(inflight)
+            guard_inode = inode(guard)
+            root_inode = inode(root)
+            terminal = [(path, inode(path)) for path in destinations]
+            terminal = [(path, value) for path, value in terminal
+                        if value is not None]
+            known = [value for value in (inflight_inode, guard_inode)
+                     if value is not None]
+            if len(set(known)) > 1:
+                raise TicketCycleStateError(
+                    "interrupted mailbox move changed its guard identity")
+            source_inode = known[0] if known else None
+
+            if root_inode is not None:
+                if (source_inode is None or root_inode != source_inode
+                        or guard_inode is not None or terminal):
+                    raise TicketCycleStateError(
+                        "interrupted mailbox claim has conflicting states")
+                os.unlink(inflight)
+                fsync_directory(directory=inflight_directory)
+                recovered += 1
+                print("recovered interrupted claim " + name)
+                continue
+
+            if terminal:
+                if (len(terminal) != 1 or source_inode is None
+                        or terminal[0][1] != source_inode):
+                    raise TicketCycleStateError(
+                        "interrupted mailbox move has conflicting destinations")
+                for leftover in (inflight, guard):
+                    if os.path.lexists(leftover):
+                        os.unlink(leftover)
+                fsync_directory(directory=inflight_directory)
+                recovered += 1
+                print("finished interrupted mailbox move " + name)
+                continue
+
+            if inflight_inode is not None and guard_inode == inflight_inode:
+                os.unlink(guard)
+                fsync_directory(directory=inflight_directory)
+                recovered += 1
+                print("removed interrupted state guard for " + name)
+            elif guard_inode is not None:
+                raise TicketCycleStateError(
+                    "interrupted mailbox guard has no recoverable source")
+        return recovered
+    finally:
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
+
+
 def recover_before_dispatch(fix_only=False):
     """Recover restart-safe mailbox state before a live dispatch pass."""
+    recover_interrupted_mailbox_moves()
     if fix_only:
         recover_failed_maintenance_admission()
     recover_implementer_deliveries()
