@@ -1,12 +1,14 @@
 """Focused tests for the Implementer's 90-minute pause hook."""
 
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from ai.tools import implementer_checkpoint_hook as checkpoint
 from ai.tools import mailbox_daemon as daemon
@@ -136,6 +138,55 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             self.assertEqual(
                 json.loads(outputs[0])["hookSpecificOutput"]
                 ["additionalContext"], checkpoint.CHECKPOINT_INSTRUCTION)
+            self.assertEqual(state.read_bytes(), b"triggered\n")
+
+    def test_broken_output_is_retried(self):
+        class BrokenOutput:
+            def write(self, _text):
+                raise OSError("injected broken output")
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            failed = checkpoint.checkpoint_result(
+                event="Stop", now=90.0, deadline=90.0,
+                state_path=state, output_stream=BrokenOutput())
+            recovered_output = io.StringIO()
+            recovered = checkpoint.checkpoint_result(
+                event="Stop", now=91.0, deadline=90.0,
+                state_path=state, output_stream=recovered_output)
+
+            self.assertEqual(failed[0], 2)
+            self.assertIn("cannot deliver", failed[2])
+            self.assertEqual(recovered, (0, "", ""))
+            self.assertEqual(
+                json.loads(recovered_output.getvalue())["decision"],
+                "block")
+            self.assertEqual(state.read_bytes(), b"triggered\n")
+
+    def test_failed_delivery_marker_does_not_suppress_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            first_output = io.StringIO()
+            with mock.patch.object(
+                    checkpoint.os, "write",
+                    side_effect=OSError("injected full disk")):
+                failed = checkpoint.checkpoint_result(
+                    event="Stop", now=90.0, deadline=90.0,
+                    state_path=state, output_stream=first_output)
+            retry_output = io.StringIO()
+            recovered = checkpoint.checkpoint_result(
+                event="Stop", now=91.0, deadline=90.0,
+                state_path=state, output_stream=retry_output)
+
+            self.assertEqual(json.loads(first_output.getvalue())["decision"],
+                             "block")
+            self.assertEqual(failed[0], 2)
+            self.assertEqual(recovered, (0, "", ""))
+            self.assertEqual(json.loads(retry_output.getvalue())["decision"],
+                             "block")
             self.assertEqual(state.read_bytes(), b"triggered\n")
 
     def test_subagent_event_cannot_claim_the_main_checkpoint(self):

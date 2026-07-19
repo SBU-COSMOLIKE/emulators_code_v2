@@ -7,6 +7,8 @@ Implementer to write a short progress handoff.  A small state file makes that
 instruction one-shot even if Claude Code invokes another hook immediately.
 """
 
+import fcntl
+import io
 import json
 import math
 import os
@@ -40,36 +42,8 @@ CHECKPOINT_INSTRUCTION = (
 )
 
 
-def _claim_once(path):
-    """Create the state file atomically and return whether this call won."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= os.O_CLOEXEC
-    try:
-        descriptor = os.open(path, flags, 0o600)
-    except FileExistsError:
-        return False
-    try:
-        os.write(descriptor, b"triggered\n")
-    finally:
-        os.close(descriptor)
-    return True
-
-
-def checkpoint_result(*, event, now, deadline, state_path):
-    """Return ``(exit code, stdout, stderr)`` for one hook event."""
-    if event not in SUPPORTED_EVENTS:
-        return 2, "", "unsupported checkpoint hook event: " + str(event) + "\n"
-    if now < deadline:
-        return 0, "", ""
-    try:
-        first = _claim_once(state_path)
-    except OSError as error:
-        message = ("cannot record the " + str(CHECKPOINT_MINUTES)
-                   + "-minute checkpoint: " + str(error))
-        return 2, "", message + "\n"
-    if not first:
-        return 0, "", ""
+def _checkpoint_payload(event):
+    """Return the JSON instruction for one supported hook event."""
     if event == "PostToolBatch":
         output = {
             "hookSpecificOutput": {
@@ -79,7 +53,47 @@ def checkpoint_result(*, event, now, deadline, state_path):
         }
     else:
         output = {"decision": "block", "reason": CHECKPOINT_INSTRUCTION}
-    return 0, json.dumps(output, sort_keys=True) + "\n", ""
+    return json.dumps(output, sort_keys=True) + "\n"
+
+
+def _open_checkpoint_state(path):
+    """Open the one-shot state file used as a crash-released lock."""
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    return os.open(path, flags, 0o600)
+
+
+def checkpoint_result(*, event, now, deadline, state_path,
+                      output_stream=None):
+    """Return ``(exit code, stdout, stderr)`` for one hook event."""
+    if event not in SUPPORTED_EVENTS:
+        return 2, "", "unsupported checkpoint hook event: " + str(event) + "\n"
+    if now < deadline:
+        return 0, "", ""
+    descriptor = -1
+    capture = io.StringIO() if output_stream is None else output_stream
+    try:
+        descriptor = _open_checkpoint_state(state_path)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        if os.read(descriptor, 32) == b"triggered\n":
+            return 0, "", ""
+        capture.write(_checkpoint_payload(event=event))
+        capture.flush()
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, b"triggered\n")
+        os.fsync(descriptor)
+    except OSError as error:
+        message = ("cannot deliver or record the " + str(CHECKPOINT_MINUTES)
+                   + "-minute checkpoint: " + str(error))
+        return 2, "", message + "\n"
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    output = capture.getvalue() if output_stream is None else ""
+    return 0, output, ""
 
 
 def main():
@@ -105,7 +119,7 @@ def main():
 
     code, output, error = checkpoint_result(
         event=event, now=time.monotonic(), deadline=deadline,
-        state_path=state_path)
+        state_path=state_path, output_stream=sys.stdout)
     sys.stdout.write(output)
     sys.stderr.write(error)
     return code
