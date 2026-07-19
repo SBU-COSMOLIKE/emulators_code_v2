@@ -688,6 +688,12 @@ starts. It is not a twelfth permanent Markdown note. Only the
 Architect may edit it, through protected-policy administration; the
 Implementer and Red Team may read it but never change it.
 
+The nearby
+[`implementer-failure-modes.yaml`](notes/implementer-failure-modes.yaml) is a
+small reference catalog. It points from eight common problems to responses the
+tools already enforce. It creates no new authority, workflow state, or policy;
+the code and `role-contract.yaml` remain the sources of truth.
+
 For an ordinary ticket, the Architect checks the Implementer's proposed saved
 change and sends the decision. After the Architect exits, the watcher alone
 records the accepted version on local `main` when its safety checks pass.

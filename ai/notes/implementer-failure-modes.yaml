@@ -1,0 +1,64 @@
+# This is a short reference catalog, not a second policy system.
+# Code, the validated handoff contract, and role-contract.yaml remain
+# authoritative. Add a catalog entry only after its mechanical response exists.
+
+schema_version: 1
+authority: reference-only
+purpose: Map common Implementer problems to existing CoCoA-Flow responses.
+
+failure_modes:
+  - id: scope_expansion
+    symptom: Candidate C changes ordinary files outside the Architect's saved list.
+    response: Preserve C, report SCOPE_EXCEEDED, and require an Architect decision before landing.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::classify_candidate_scope
+      - ai/tools/mailbox_daemon.py::record_implementer_candidate
+
+  - id: protected_path_change
+    symptom: Candidate C changes a globally protected file or prefix.
+    response: Refuse candidate admission with PROTECTED_PATH_VIOLATION; never reclassify it silently.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::candidate_forbidden_paths
+      - ai/tools/mailbox_daemon.py::record_implementer_candidate
+
+  - id: false_progress
+    symptom: A handoff claims completion without the exact candidate and required evidence.
+    response: Refuse the handoff, preserve the request and work, and create no landing decision.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::matching_new_implementer_handoff
+      - ai/tools/handoff_contract.py::validate_implementer_handoff_subagent_evidence
+
+  - id: candidate_identity_mismatch
+    symptom: An approval or return names another candidate, cycle, or abbreviated commit.
+    response: Refuse the decision and preserve the exact saved candidate for correction.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::matching_new_architect_go
+      - ai/tools/mailbox_daemon.py::execute_architect_go_locked
+
+  - id: oversized_fix
+    symptom: Candidate C exceeds the ticket's positive --max character limit.
+    response: Return a nonzero size result; passing tests cannot override the limit.
+    enforced_by:
+      - ai/tools/ticket_change_guard.py::measure_characters
+      - ai/tools/ticket_change_guard.py::main
+
+  - id: timed_complexity
+    symptom: One Implementer has worked on the same ticket for 90 minutes.
+    response: Save a checkpoint, stop editing, and request one Architect complexity decision.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::checkpoint_handoff_problem
+      - ai/tools/mailbox_daemon.py::prove_blocked_implementer_checkpoint
+
+  - id: subagent_capability_unavailable
+    symptom: The required first subagent launch fails before implementation begins.
+    response: Return the exact blocked checkpoint; only an Architect-bound capability exception may resume work without that helper.
+    enforced_by:
+      - ai/tools/handoff_contract.py::extract_blocked_implementer_capability_evidence
+      - ai/tools/handoff_contract.py::validate_implementer_handoff_subagent_evidence
+
+  - id: provider_token_exhaustion
+    symptom: A provider reports that the Architect, Implementer, or Red Team is out of tokens.
+    response: Preserve inflight work, stop the watch cleanly, and print which role needs account recovery.
+    enforced_by:
+      - ai/tools/mailbox_daemon.py::provider_is_out_of_tokens
+      - ai/tools/mailbox_daemon.py::RoleTokenExhaustionError
