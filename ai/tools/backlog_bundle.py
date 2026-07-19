@@ -1015,14 +1015,20 @@ def _collect_import_tree(root_fd):
     return files, directories
 
 
-def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
-    """Return true only for a complete, byte-identical prior import."""
+def _expected_import_files(manifest, payload, bundle_id):
+    """Return the files in one finished import."""
     expected = {
         ".COMPLETE": (bundle_id + "\n").encode("ascii"),
         "manifest.json": canonical_json(manifest),
     }
     for path_text, data in payload.items():
         expected["payload/" + path_text] = data
+    return expected
+
+
+def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
+    """Return true only for a complete, byte-identical prior import."""
+    expected = _expected_import_files(manifest, payload, bundle_id)
     expected_directories = set()
     for relative in expected:
         parent = PurePosixPath(relative).parent
@@ -1044,6 +1050,36 @@ def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
     return True
 
 
+def _resumable_import_files(destination_fd, manifest, payload, bundle_id):
+    """Return verified files from an interrupted import, or ``None``."""
+    expected = _expected_import_files(manifest, payload, bundle_id)
+    expected[".INCOMPLETE"] = (bundle_id + "\n").encode("ascii")
+    expected_directories = set()
+    for relative in expected:
+        parent = PurePosixPath(relative).parent
+        while str(parent) != ".":
+            expected_directories.add(str(parent))
+            parent = parent.parent
+    found = _collect_import_tree(destination_fd)
+    if found is None:
+        return None
+    found_files, found_directories = found
+    if (".INCOMPLETE" not in found_files
+            or not found_files.issubset(expected)
+            or not found_directories.issubset(expected_directories)):
+        return None
+    for relative in found_files:
+        wanted = expected[relative]
+        observed = _read_file_at(
+            destination_fd, relative.split("/"), len(wanted))
+        if observed != wanted:
+            return None
+    final_files = set(expected) - {".INCOMPLETE"}
+    if ".COMPLETE" in found_files and not final_files.issubset(found_files):
+        return None
+    return found_files
+
+
 def unpack_archive(repo, archive_path, requested_output):
     manifest, payload, bundle_id, archive_digest = validate_archive(archive_path)
     base_is_ancestor = verify_import_repository(repo, manifest)
@@ -1057,19 +1093,26 @@ def unpack_archive(repo, archive_path, requested_output):
         except FileExistsError:
             created = False
         destination_fd = _open_directory_at(import_root_fd, destination.name)
+        existing_files = set()
         if not created:
             if _existing_import_is_exact(
                     destination_fd, manifest, payload, bundle_id):
                 print("Already imported:", destination)
                 return
-            raise BundleError(
-                "refusing to reuse existing import directory: " +
-                str(destination))
-        _write_file_at(
-            destination_fd, ".INCOMPLETE",
-            (bundle_id + "\n").encode("ascii"))
-        _write_file_at(
-            destination_fd, "manifest.json", canonical_json(manifest))
+            existing_files = _resumable_import_files(
+                destination_fd, manifest, payload, bundle_id)
+            if existing_files is None:
+                raise BundleError(
+                    "refusing to reuse existing import directory: " +
+                    str(destination))
+        else:
+            _write_file_at(
+                destination_fd, ".INCOMPLETE",
+                (bundle_id + "\n").encode("ascii"))
+            existing_files.add(".INCOMPLETE")
+        if "manifest.json" not in existing_files:
+            _write_file_at(
+                destination_fd, "manifest.json", canonical_json(manifest))
         payload_root_fd = _open_or_create_directory_at(
             destination_fd, "payload")
         try:
@@ -1081,14 +1124,21 @@ def unpack_archive(repo, archive_path, requested_output):
                         child = _open_or_create_directory_at(current, part)
                         os.close(current)
                         current = child
-                    _write_file_at(current, parts[-1], payload[path_text])
+                    if "payload/" + path_text not in existing_files:
+                        _write_file_at(
+                            current, parts[-1], payload[path_text])
                 finally:
                     os.close(current)
         finally:
             os.close(payload_root_fd)
-        _write_file_at(
-            destination_fd, ".COMPLETE",
-            (bundle_id + "\n").encode("ascii"))
+        if ".COMPLETE" not in existing_files:
+            _write_file_at(
+                destination_fd, ".COMPLETE",
+                (bundle_id + "\n").encode("ascii"))
+        verified = _resumable_import_files(
+            destination_fd, manifest, payload, bundle_id)
+        if verified is None or ".COMPLETE" not in verified:
+            raise BundleError("import changed before finalization")
         try:
             os.unlink(".INCOMPLETE", dir_fd=destination_fd)
         except OSError as error:

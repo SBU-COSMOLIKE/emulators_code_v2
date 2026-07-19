@@ -1755,6 +1755,8 @@ unpacking, the tool checks that every extracted file matches that inventory.
 #### Recover from an incomplete unpack
 
 If an unpacking failure leaves a directory containing `.INCOMPLETE`, do not
-use it as a finished import. Read the reported refusal, keep the incoming
-archive unchanged, and retry into another fresh review folder after fixing the
-cause.
+use it as a finished import. Keep the incoming archive unchanged and repeat
+the same `unpack` command. The tool resumes only when the marker names that
+exact package and every file already written has the expected bytes. An
+unmarked or changed folder is left untouched and refused; inspect the message
+before choosing a different review folder.

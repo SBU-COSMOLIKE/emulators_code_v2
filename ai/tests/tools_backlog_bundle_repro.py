@@ -334,6 +334,109 @@ def arm_existing_output_and_import_collisions():
     return True
 
 
+def arm_interrupted_import_recovery():
+    """Resume only an exact partial import bearing this bundle's marker."""
+    with scratch_repository("import-recovery") as (repo, tool_path, module):
+        archive = repo / "valid.backlog-bundle.tar.xz"
+        packed = run_cli(repo, tool_path, "pack", "--output", str(archive))
+        assert_ok(packed, "import-recovery fixture pack")
+        manifest, payload, bundle_id, _digest = module.validate_archive(
+            archive)
+        marker = (bundle_id + "\n").encode("ascii")
+        manifest_bytes = module.canonical_json(manifest)
+
+        partial_text = "ai/backlog-imports/partial"
+        partial = repo / partial_text
+        partial.mkdir(parents=True)
+        (partial / ".INCOMPLETE").write_bytes(marker)
+        (partial / "manifest.json").write_bytes(manifest_bytes)
+        retained_name = sorted(payload)[0]
+        retained = partial / "payload" / retained_name
+        retained.parent.mkdir(parents=True)
+        retained.write_bytes(payload[retained_name])
+        resumed = run_cli(
+            repo, tool_path, "unpack", str(archive),
+            "--output", partial_text)
+        assert_ok(resumed, "resume partial import")
+        repeated = run_cli(
+            repo, tool_path, "unpack", str(archive),
+            "--output", partial_text)
+        assert_ok(repeated, "repeat resumed import")
+        assert "Already imported:" in repeated.stdout
+        assert retained.read_bytes() == payload[retained_name]
+
+        final_text = "ai/backlog-imports/final-marker"
+        finalized = run_cli(
+            repo, tool_path, "unpack", str(archive), "--output", final_text)
+        assert_ok(finalized, "complete-marker fixture import")
+        final = repo / final_text
+        (final / ".INCOMPLETE").write_bytes(marker)
+        recovered_final = run_cli(
+            repo, tool_path, "unpack", str(archive), "--output", final_text)
+        assert_ok(recovered_final, "recover complete plus marker")
+        assert not (final / ".INCOMPLETE").exists()
+
+        def partial_directory(name, marker_bytes=marker,
+                              contents=manifest_bytes):
+            destination = repo / "ai" / "backlog-imports" / name
+            destination.mkdir(parents=True)
+            if marker_bytes is not None:
+                (destination / ".INCOMPLETE").write_bytes(marker_bytes)
+            (destination / "manifest.json").write_bytes(contents)
+            return destination
+
+        unsafe = [
+            partial_directory("wrong-marker", b"wrong-bundle\n"),
+            partial_directory("unmarked", None),
+            partial_directory("corrupt", contents=b"wrong\n"),
+        ]
+        extra = partial_directory("extra")
+        (extra / "unexpected.txt").write_bytes(b"keep\n")
+        unsafe.append(extra)
+        linked = partial_directory("linked")
+        (linked / "payload").symlink_to(repo / "ai" / "notes")
+        unsafe.append(linked)
+        fifo = partial_directory("fifo")
+        os.mkfifo(str(fifo / "blocked.fifo"), 0o600)
+        unsafe.append(fifo)
+
+        for destination in unsafe:
+            before = tree_snapshot(destination)
+            refused = run_cli(
+                repo, tool_path, "unpack", str(archive),
+                "--output", destination.relative_to(repo).as_posix())
+            assert_refused(
+                refused, "refusing to reuse existing import directory")
+            assert tree_snapshot(destination) == before
+
+        original_write = module._write_file_at
+
+        def change_after_complete(parent_fd, name, data):
+            original_write(parent_fd, name, data)
+            if name == ".COMPLETE":
+                original_write(parent_fd, "unexpected.txt", b"changed\n")
+
+        module._write_file_at = change_after_complete
+        try:
+            try:
+                module.unpack_archive(
+                    repo, archive,
+                    "ai/backlog-imports/finalization-check")
+            except module.BundleError as error:
+                finalization_refused = (
+                    "changed before finalization" in str(error))
+            else:
+                finalization_refused = False
+        finally:
+            module._write_file_at = original_write
+        finalization = (
+            repo / "ai" / "backlog-imports" / "finalization-check")
+        assert finalization_refused
+        assert (finalization / ".INCOMPLETE").is_file()
+        assert (finalization / ".COMPLETE").is_file()
+    return True
+
+
 def arm_dirty_permanent_and_source_symlink_refusals():
     """Prove unruled permanent edits and linked support fail before output."""
     with scratch_repository("sources") as (repo, tool_path, _module):
@@ -643,6 +746,7 @@ def main():
          arm_roundtrip_and_exact_payload),
         ("existing output and import collisions",
          arm_existing_output_and_import_collisions),
+        ("interrupted import recovery", arm_interrupted_import_recovery),
         ("dirty permanent note and source symlink refusals",
          arm_dirty_permanent_and_source_symlink_refusals),
         ("pack bounds and output policy",
