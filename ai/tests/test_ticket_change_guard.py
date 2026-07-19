@@ -95,8 +95,8 @@ def run_guard(repository, base, maximum=None, environment_limit=None,
 class TicketChangeGuardTests(unittest.TestCase):
     """Pin size, repository-state, and text-decoding boundaries."""
 
-    def test_default_zero_skips_dirty_binary_candidate(self):
-        """Unlimited mode neither measures text nor requires a clean tree."""
+    def test_default_zero_refuses_a_dirty_candidate(self):
+        """Unlimited size never turns off candidate-identity checks."""
         with repository() as (root, base):
             write_bytes(repository=root, name="image.bin",
                         payload=b"\x00\xff\x01")
@@ -107,6 +107,18 @@ class TicketChangeGuardTests(unittest.TestCase):
 
             return_code, output = run_guard(
                 repository=root, base=base)
+
+        self.assertEqual(return_code, 2)
+        self.assertIn("staged, unstaged", output)
+
+    def test_default_zero_skips_clean_binary_measurement(self):
+        """Unlimited size accepts a clean commit without decoding its blobs."""
+        with repository() as (root, base):
+            write_bytes(repository=root, name="image.bin",
+                        payload=b"\x00\xff\x01")
+            commit_all(repository=root, message="binary candidate")
+
+            return_code, output = run_guard(repository=root, base=base)
 
         self.assertEqual(return_code, 0)
         self.assertIn("size limit disabled", output)

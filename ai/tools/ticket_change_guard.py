@@ -699,6 +699,14 @@ def main(argv=None):
             repository=repository, base=base, candidate=candidate,
             candidate_label=candidate_label)
 
+        if audit_mode:
+            require_exact_named_commit(
+                repository=repository, revision=args.candidate,
+                expected=candidate, label="--candidate")
+        else:
+            require_clean_candidate(
+                repository=repository, expected_head=candidate)
+
         if maximum == 0:
             print("ticket change guard: size limit disabled")
             print_identity(base=base, candidate=candidate,
@@ -707,13 +715,6 @@ def main(argv=None):
                   "is unlimited")
             return 0
 
-        if audit_mode:
-            require_exact_named_commit(
-                repository=repository, revision=args.candidate,
-                expected=candidate, label="--candidate")
-        else:
-            require_clean_candidate(
-                repository=repository, expected_head=candidate)
         count = measure_characters(
             repository=repository, base=base, candidate=candidate)
         if audit_mode:
