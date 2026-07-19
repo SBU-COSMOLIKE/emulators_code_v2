@@ -1426,6 +1426,34 @@ def _copy_regular_archive_file(source, destination, expected_size):
                 pass
 
 
+def _remove_archive_copy_temporaries(worktree):
+    """Remove regular copy residues left by an interrupted archive bridge."""
+    roots = (
+        os.path.join(worktree, "ai", "notes", "mailbox", "done"),
+        os.path.join(worktree, "ai", "notes", "relay"),
+    )
+    for root in roots:
+        if not os.path.lexists(root):
+            continue
+        info = os.lstat(root)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            continue
+        for directory, _names, files in os.walk(
+                root, followlinks=False, onerror=_raise_walk_error):
+            removed = False
+            for name in files:
+                if not name.startswith(".primary-archive-"):
+                    continue
+                path = os.path.join(directory, name)
+                entry = os.lstat(path)
+                if stat.S_ISREG(entry.st_mode) and not stat.S_ISLNK(
+                        entry.st_mode):
+                    os.remove(path)
+                    removed = True
+            if removed:
+                fsync_directory(directory=directory)
+
+
 def _publish_primary_record(record, repository_root, bridge_main=False,
                             fence_empty_main=False):
     """Publish one selected record behind the applicable legacy locks."""
@@ -1599,6 +1627,11 @@ def provision_or_adopt_primary(repository_root, current_worktree):
     paths = primary_state_paths(repository_root=repository_root)
     _managed_primary_root(repository_root=repository_root, create=True)
     records = registered_worktrees(repository_root=repository_root)
+    default_record = _record_at_path(
+        records=records, path=paths["default_path"])
+    if (default_record is not None
+            and default_record.get("branch") == PRIMARY_BRANCH):
+        _remove_archive_copy_temporaries(worktree=default_record["path"])
     evidence = []
     for record in records:
         reasons = coordination_transport_evidence(worktree=record["path"])
@@ -1608,8 +1641,6 @@ def provision_or_adopt_primary(repository_root, current_worktree):
         evidence=evidence, repository_root=repository_root,
         default_path=paths["default_path"])
 
-    default_record = _record_at_path(
-        records=records, path=paths["default_path"])
     if default_record is not None:
         if default_record.get("branch") != PRIMARY_BRANCH:
             raise PrimaryWorktreeError(

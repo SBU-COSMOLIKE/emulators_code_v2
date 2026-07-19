@@ -1229,12 +1229,15 @@ def arm_interrupted_archive_bridge_is_exactly_resumable(source=None):
                    / archived.name)
         write_exact(partial, archived.read_bytes())
         partial_before = file_identity(partial)
+        interrupted_copy = partial.parent / ".primary-archive-stranded"
+        write_exact(interrupted_copy, b"incomplete internal copy\n")
 
         rc, stdout, stderr = invoke(root, ["--once"])
         copied_relay = primary / "ai" / "notes" / "relay" / relay.name
         resumed = (
             rc == 0 and stderr == "" and validate_topology(root)
             and file_identity(partial) == partial_before
+            and not interrupted_copy.exists()
             and copied_relay.read_bytes() == relay.read_bytes()
             and file_identity(archived) == archived_before
             and file_identity(relay) == relay_before
