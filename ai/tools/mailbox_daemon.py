@@ -4545,7 +4545,8 @@ def prepare_implementer_evidence_contract(message):
                     + "' does not exactly match the digest-bound blocked "
                     "IMPLEMENTER_HANDOFF")
     return {"contract": contract, "parallel_work_plan": plan,
-            "note_path": note_path}
+            "note_path": note_path,
+            "allowed_paths": frozenset(directive["allowed_paths"])}
 
 
 def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
@@ -5939,7 +5940,8 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                     fix_only=False, skip_redteam=False,
                     discovery_severity=None, discovery_scope=None,
                     saved_discovery=False,
-                    saved_architect_request=False):
+                    saved_architect_request=False,
+                    candidate_scope=None):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -5965,6 +5967,19 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
             "Architect and Architect repair handoffs to the Implementer.")
     lines.append("--- END DISPATCH CURRENCY ---")
     lines.append("")
+    if candidate_scope is not None:
+        result = candidate_scope["result"]
+        lines.extend(("--- CANDIDATE TICKET SCOPE (binding) ---",
+                      "result: " + result))
+        if candidate_scope["paths"]:
+            lines.append("paths: " + ", ".join(
+                repr(path) for path in candidate_scope["paths"]))
+        if result == "SCOPE_EXCEEDED":
+            lines.append(
+                "Candidate C is preserved, but the Implementer expanded the "
+                "ticket. Architect GO explicitly accepts this expansion; a "
+                "repair handoff rejects it. Audit the listed paths.")
+        lines.extend(("--- END CANDIDATE TICKET SCOPE ---", ""))
     lines.append("--- DISCOVERY SEVERITY (binding) ---")
     if discovery_severity is None:
         discovery_severity = DISCOVERY_SEVERITY
@@ -7578,7 +7593,10 @@ def dispatch_under_main_checkout_lock(
         try:
             registered_cycle_id, _ = register_ticket_cycle_message(
                 agent=agent, message=message,
-                skip_redteam=skip_redteam)
+                skip_redteam=skip_redteam,
+                path_scope=(implementer_evidence_contract.get("allowed_paths")
+                            if implementer_evidence_contract is not None
+                            else None))
         except TicketCycleStateError as exc:
             reason = "ticket-cycle state refused this message: " + str(exc)
             parked = park_failed_message(dispatch_path=dispatch_path)
@@ -7641,6 +7659,7 @@ def dispatch_under_main_checkout_lock(
     audit_cycle_id = None
     audit_commit = None
     audit_worktree = None
+    candidate_scope = None
     architect_go_before = None
     admin_opus_before = None
     architect_opus_before = None
@@ -7667,6 +7686,9 @@ def dispatch_under_main_checkout_lock(
                 cycle_id=registered_cycle_id)
             if audit_commit is not None:
                 audit_cycle_id = registered_cycle_id
+                candidate_scope = candidate_scope_for_cycle(
+                    cycle_id=audit_cycle_id,
+                    candidate_commit=audit_commit)
                 audit_worktree = create_audit_snapshot(
                     cycle_id=audit_cycle_id, commit=audit_commit,
                     agent="fable")
@@ -7692,7 +7714,8 @@ def dispatch_under_main_checkout_lock(
         discovery_severity=effective_discovery_severity,
         discovery_scope=effective_discovery_scope,
         saved_discovery=(ticket_kind == "discovery"),
-        saved_architect_request=(saved_architect_severity is not None))
+        saved_architect_request=(saved_architect_severity is not None),
+        candidate_scope=candidate_scope)
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
     # role-specific banner sits between them. Consequently PREAMBLE's
     # --- MESSAGE --- delimiter remains immediately before the exact raw
@@ -8975,6 +8998,52 @@ def candidate_forbidden_paths(changed_paths):
                    for prefix in ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES))}
 
 
+def candidate_changed_paths(base_commit, candidate_commit):
+    """Return every repository path changed from ticket base B to C."""
+    changed = _run_git(
+        repository_root=AGENT_CWD["opus"],
+        arguments=["diff", "--name-only", "-z", "--no-renames",
+                   base_commit, candidate_commit, "--", "."])
+    try:
+        return {
+            item.decode("utf-8", errors="strict")
+            for item in changed.stdout.split(b"\0") if item}
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "Implementer candidate contains a non-UTF-8 path") from exc
+
+
+def classify_candidate_scope(changed_paths, path_scope):
+    """Classify C against global protection and its ticket file list."""
+    protected = candidate_forbidden_paths(changed_paths)
+    if protected:
+        return "PROTECTED_PATH_VIOLATION", protected
+    exceeded = set(changed_paths) - set(path_scope or ())
+    if exceeded:
+        return "SCOPE_EXCEEDED", exceeded
+    return "IN_SCOPE", set()
+
+
+def candidate_scope_for_cycle(cycle_id, candidate_commit):
+    """Recompute the exact ticket-scope result shown to the Architect."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        record = read_ticket_cycle_state()["active"].get(cycle_id)
+        path_scope = None if record is None else record.get("path_scope")
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+    # A ticket already running when this field was introduced has no frozen
+    # scope. Preserve that one ticket under the earlier Architect-only audit;
+    # every newly launched Implementer handoff records the scope below.
+    if path_scope is None:
+        return None
+    changed = candidate_changed_paths(
+        base_commit=cycle_starting_commit(cycle_id),
+        candidate_commit=candidate_commit)
+    result, paths = classify_candidate_scope(changed, path_scope)
+    return {"result": result, "paths": sorted(paths)}
+
+
 def record_implementer_candidate(cycle_id, starting_head):
     """Atomically preserve a successful clean Opus commit for its cycle."""
     worktree = AGENT_CWD["opus"]
@@ -8988,22 +9057,9 @@ def record_implementer_candidate(cycle_id, starting_head):
             starting_commit=starting_head, accepted_commit=candidate):
         raise TicketCycleStateError(
             "Implementer result is not a new descendant of its saved base")
-    changed = _run_git(
-        repository_root=worktree,
-        arguments=["diff", "--name-only", "-z", starting_head, candidate,
-                   "--", "."])
-    try:
-        changed_paths = {
-            item.decode("utf-8", errors="strict")
-            for item in changed.stdout.split(b"\0") if item}
-    except UnicodeDecodeError as exc:
-        raise TicketCycleStateError(
-            "Implementer candidate contains a non-UTF-8 path") from exc
-    forbidden = candidate_forbidden_paths(changed_paths)
-    if forbidden:
-        raise TicketCycleStateError(
-            "Implementer candidate changes Architect-protected policy: "
-            + ", ".join(sorted(forbidden)))
+    changed_paths = candidate_changed_paths(
+        base_commit=cycle_starting_commit(cycle_id),
+        candidate_commit=candidate)
     lock_file = acquire_ticket_cycle_lock()
     try:
         ticket_state = read_ticket_cycle_state()
@@ -9011,6 +9067,13 @@ def record_implementer_candidate(cycle_id, starting_head):
         if active is None or active["phase"] != "implementation":
             raise TicketCycleStateError(
                 "candidate commit has no active implementation cycle")
+        path_scope = active.get("path_scope")
+        scope_result, scope_paths = classify_candidate_scope(
+            changed_paths, path_scope or changed_paths)
+        if scope_result == "PROTECTED_PATH_VIOLATION":
+            raise TicketCycleStateError(
+                scope_result + ": "
+                + ", ".join(repr(path) for path in sorted(scope_paths)))
         candidate_state = read_candidate_state()
         prior = candidate_record_locked(
             cycle_id=cycle_id, ticket_state=ticket_state,
@@ -9027,6 +9090,9 @@ def record_implementer_candidate(cycle_id, starting_head):
         candidate_state["cycles"][cycle_id] = {
             "ref": reference, "commit": candidate}
         write_candidate_state(state=candidate_state)
+        if scope_result == "SCOPE_EXCEEDED":
+            print("  SCOPE_EXCEEDED; candidate preserved for Architect: "
+                  + ", ".join(repr(path) for path in sorted(scope_paths)))
         return candidate
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
@@ -11951,15 +12017,18 @@ def validate_ticket_cycle_state(payload):
             "mode": mode, "sequence": sequence, "sha256": digest}
     normalized_active = {}
     for cycle_id, record in active.items():
+        record_keys = ({"phase", "commit", "mode", "route"},
+                       {"phase", "commit", "mode", "route", "path_scope"})
         if (not isinstance(cycle_id, str)
                 or CYCLE_ID_RE.fullmatch(cycle_id) is None
                 or not isinstance(record, dict)
-                or set(record) != {"phase", "commit", "mode", "route"}):
+                or set(record) not in record_keys):
             raise TicketCycleStateError("invalid active ticket-cycle record")
         phase = record.get("phase")
         commit = record.get("commit")
         mode = record.get("mode")
         route = record.get("route")
+        path_scope = record.get("path_scope")
         if phase not in {"implementation", "committed-awaiting-closure",
                          "awaiting-redteam"}:
             raise TicketCycleStateError("invalid active ticket-cycle phase")
@@ -11983,9 +12052,25 @@ def validate_ticket_cycle_state(payload):
         }
         if phase != "implementation" and mode not in expected_modes[phase]:
             raise TicketCycleStateError("ticket-cycle mode conflicts with phase")
-        normalized_active[cycle_id] = {
+        if path_scope is not None:
+            if (not isinstance(path_scope, list) or not path_scope
+                    or len(path_scope) > 256
+                    or any(not isinstance(path, str) for path in path_scope)
+                    or path_scope != sorted(set(path_scope))):
+                raise TicketCycleStateError("ticket path scope is invalid")
+            for path in path_scope:
+                parts = path.split("/")
+                if (not parts or any(part in {"", ".", ".."} for part in parts)
+                        or path.startswith("/") or "\\" in path
+                        or any(mark in path for mark in "*?[]{}")
+                        or not path.isprintable()):
+                    raise TicketCycleStateError("ticket path scope is invalid")
+        normalized = {
             "phase": phase, "commit": commit, "mode": mode,
             "route": route}
+        if "path_scope" in record:
+            normalized["path_scope"] = path_scope
+        normalized_active[cycle_id] = normalized
     normalized_completed = {}
     for cycle_id, commit in completed.items():
         if (not isinstance(cycle_id, str)
@@ -12321,7 +12406,8 @@ def finite_cycle_capacity_used(state, skip_redteam=False):
 
 def register_ticket_cycle_message(
         agent, message, skip_redteam=False, return_reservation=False,
-        architect_admission=None, implementer_request_name=None):
+        architect_admission=None, implementer_request_name=None,
+        path_scope=None):
     """Register a ticket exchange or post-commit review before dispatch.
 
     Returns ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
@@ -12466,7 +12552,9 @@ def register_ticket_cycle_message(
                             + " ticket cycle(s)")
                 state["active"][cycle_id] = {
                     "phase": "implementation", "commit": None,
-                    "mode": requested_mode, "route": requested_route}
+                    "mode": requested_mode, "route": requested_route,
+                    "path_scope": (sorted(path_scope)
+                                   if path_scope is not None else None)}
                 if admission is not None:
                     del state["architect_admissions"][admission_name]
                 created = True
@@ -12482,6 +12570,16 @@ def register_ticket_cycle_message(
                 raise TicketCycleStateError(
                     "ticket exchange changed its saved mode or Implementer "
                     "route")
+            elif agent == "opus" and path_scope is not None:
+                frozen = current.get("path_scope")
+                proposed = sorted(path_scope)
+                if frozen is not None and frozen != proposed:
+                    raise TicketCycleStateError(
+                        "Implementer handoff changed the frozen ticket path "
+                        "scope")
+                if frozen is None:
+                    state["active"][cycle_id] = dict(
+                        current, path_scope=proposed)
         else:
             if current is None:
                 raise TicketCycleStateError(

@@ -28,6 +28,7 @@ start them, what they change, and what result to expect.
 **[Appendices for AI roles and maintainers](#appendices-for-ai-roles-and-maintainers)**
 
 - [How does a role check a handoff directive?](#check-a-handoff-directive)
+- [What happens if a candidate changes an unplanned file?](#ticket-file-scope)
 - [How does the Architect check protected project notes?](#check-protected-project-notes)
 - [How is a closed ticket reviewed?](#review-a-closed-ticket)
 - [How does the Architect protect the local backlog?](#protect-the-local-backlog)
@@ -939,7 +940,7 @@ that matches the command or problem currently on screen.
 
 ## Appendices for AI roles and maintainers <a id="appendices-for-ai-roles-and-maintainers"></a>
 
-These four sections explain checks normally run by the Architect, Red Team,
+These sections explain checks normally run by the Architect, Red Team,
 or the watcher. A user sending an ordinary ticket does not need to perform
 them.
 
@@ -984,6 +985,30 @@ the ticket starts. Every requested edit and test also names a real location:
 Here, `path::name` means the file followed by the function, class, section, or
 test to inspect. The real note uses locations for its own ticket; it does not
 copy this example for unrelated work.
+
+<a id="ticket-file-scope"></a>
+#### What happens if a candidate changes an unplanned file?
+
+Before the Implementer starts, the watcher saves the exact files named under
+`Files and symbols` and `Tests to write`. This becomes that ticket's file
+list. The watcher later compares the complete proposed change with the saved
+list.
+
+For example, suppose a plan names `emulator/training.py` and
+`ai/tests/test_training.py`, but the proposed change also edits
+`emulator/model.py`. The watcher preserves the proposal and reports:
+
+```text
+SCOPE_EXCEEDED
+paths: 'emulator/model.py'
+```
+
+The Architect must then accept that exact expansion or send the ticket back
+for repair. The Implementer cannot silently enlarge the plan. A change to a
+globally protected control file is stricter: the watcher reports
+`PROTECTED_PATH_VIOLATION` and refuses the proposal, even if the directive
+accidentally named that file. A proposal containing only planned files is
+reported as `IN_SCOPE`.
 
 #### Record whether helpers add value
 

@@ -932,6 +932,7 @@ def _require_locator(bodies, heading):
             "section '" + heading + "' requires a visible bullet locator "
             "that starts with `repo/path::symbol-or-section`: followed by "
             "its exact edit")
+    return rows
 
 
 def _require_execution_checkout(body):
@@ -2146,7 +2147,8 @@ def validate_directive_text(role, text, expected_max=0,
     bodies = _section_bodies(text=text, title=title, required=required)
     _require_substance(bodies=bodies)
 
-    _require_locator(bodies=bodies, heading="Files and symbols")
+    file_rows = _require_locator(
+        bodies=bodies, heading="Files and symbols")
     result = {"role": role, "packet_title": title}
     result["character_change_budget"] = _require_character_change_budget(
         body=bodies["Character-change budget"],
@@ -2160,7 +2162,9 @@ def validate_directive_text(role, text, expected_max=0,
             body=bodies["Role plan"])
         result["parallel_work_plan"] = _require_parallel_subagent_plan(
             body=bodies["Parallel work plan"])
-        _require_locator(bodies=bodies, heading="Tests to write")
+        test_rows = _require_locator(bodies=bodies, heading="Tests to write")
+        result["allowed_paths"] = sorted({
+            path for path, _symbol in file_rows + test_rows})
         evidence_body = _require_evidence_destination(
             text=text, packet_title=title)
         if result["parallel_work_plan"]["mode"] == "capability-unavailable":

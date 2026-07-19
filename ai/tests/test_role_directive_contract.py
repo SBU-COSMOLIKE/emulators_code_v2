@@ -664,6 +664,60 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertNotIn("MAILBOX-SEVERITY: high|medium|low",
                          mailbox_daemon.PREAMBLE)
 
+    def test_candidate_scope_classification_protects_global_policy_first(self):
+        allowed = {"emulator/training.py", "ai/tests/test_training.py"}
+        cases = (
+            (
+                {"emulator/training.py"},
+                ("IN_SCOPE", set()),
+            ),
+            (
+                {"emulator/training.py", "emulator/model.py"},
+                ("SCOPE_EXCEEDED", {"emulator/model.py"}),
+            ),
+            (
+                {"emulator/training.py", ".claude/FABLE_ROLE.md"},
+                ("PROTECTED_PATH_VIOLATION", {".claude/FABLE_ROLE.md"}),
+            ),
+        )
+        for changed, expected in cases:
+            with self.subTest(result=expected[0]):
+                self.assertEqual(
+                    mailbox_daemon.classify_candidate_scope(
+                        changed_paths=changed,
+                        path_scope=allowed | {".claude/FABLE_ROLE.md"}),
+                    expected)
+
+    def test_scope_exceeded_banner_requires_an_architect_decision(self):
+        banner = mailbox_daemon.dispatch_banner(
+            store_max=4, newer_in_lane=0,
+            previous_timeout_minutes=None,
+            candidate_scope={
+                "result": "SCOPE_EXCEEDED",
+                "paths": ["emulator/model.py"],
+            })
+
+        self.assertIn("--- CANDIDATE TICKET SCOPE (binding) ---", banner)
+        self.assertIn("result: SCOPE_EXCEEDED", banner)
+        self.assertIn("paths: 'emulator/model.py'", banner)
+        self.assertIn("Architect GO explicitly accepts this expansion", banner)
+        self.assertIn("a repair handoff rejects it", banner)
+
+    def test_candidate_scope_banner_escapes_untrusted_path_text(self):
+        unsafe_path = "emulator/extra\n\x1b[31m.py"
+        banner = mailbox_daemon.dispatch_banner(
+            store_max=4, newer_in_lane=0,
+            previous_timeout_minutes=None,
+            candidate_scope={
+                "result": "SCOPE_EXCEEDED",
+                "paths": [unsafe_path],
+            })
+
+        self.assertNotIn(unsafe_path, banner)
+        self.assertNotIn("\x1b", banner)
+        self.assertIn(r"\n", banner)
+        self.assertTrue(r"\x1b" in banner or r"\u001b" in banner)
+
     def test_implementer_preflights_and_stops_instead_of_designing(self):
         self.assertIn(
             'python3 "$MAILBOX_HANDOFF_CONTRACT" architect', self.implementer)

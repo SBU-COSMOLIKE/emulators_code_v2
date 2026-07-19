@@ -210,6 +210,14 @@ class HandoffContractTests(unittest.TestCase):
                 self.assertEqual(
                     result["character_change_budget"]["limit"], 0)
 
+    def test_architect_packet_returns_its_exact_file_scope(self):
+        result = validate_directive_text(
+            role="architect", text=packet(role="architect"))
+
+        self.assertEqual(
+            result["allowed_paths"],
+            ["ai/tests/test_example.py", "ai/tools/example.py"])
+
     def test_architect_role_plan_selects_roles_and_severity(self):
         cases = (
             (

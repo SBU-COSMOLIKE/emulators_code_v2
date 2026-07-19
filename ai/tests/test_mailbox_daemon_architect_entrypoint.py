@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 import os
 import pathlib
 import sys
@@ -85,6 +86,64 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertIn("Before ending, re-read the outgoing\nfile", preamble)
             self.assertIn("one Directive row", preamble)
             self.assertIn("validation alone does not validate", preamble)
+
+    def test_current_handoff_adds_scope_to_a_legacy_active_cycle(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            legacy = daemon.empty_ticket_cycle_state()
+            legacy["active"][cycle] = {
+                "phase": "implementation",
+                "commit": None,
+                "mode": "normal",
+                "route": "primary",
+            }
+            pathlib.Path(daemon.ticket_cycle_state_path()).write_text(
+                json.dumps(legacy), encoding="utf-8", newline="")
+
+            self.assertIsNone(
+                daemon.read_ticket_cycle_state()["active"][cycle].get(
+                    "path_scope"))
+
+            message = (
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "Implement the validated directive.\n")
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=message,
+                path_scope=[
+                    "emulator/training.py",
+                    "ai/tests/test_training.py",
+                ])
+
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["active"][cycle][
+                    "path_scope"],
+                ["ai/tests/test_training.py", "emulator/training.py"])
+
+    def test_active_ticket_scope_cannot_change_mid_cycle(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            message = (
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: " + cycle + "\n"
+                "MAILBOX-MODE: normal\n\n"
+                "Implement the validated directive.\n")
+            original_scope = ["emulator/training.py"]
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=message,
+                path_scope=original_scope)
+
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError, "path scope"):
+                daemon.register_ticket_cycle_message(
+                    agent="opus", message=message,
+                    path_scope=["emulator/model.py"])
+
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["active"][cycle][
+                    "path_scope"],
+                original_scope)
 
     def test_send_architect_queues_one_fable_file_and_preserves_request(self):
         request = (

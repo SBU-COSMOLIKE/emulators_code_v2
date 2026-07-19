@@ -1,5 +1,7 @@
 """Recovery tests for an Implementer result interrupted before archiving."""
 
+import contextlib
+import io
 import pathlib
 import unittest
 from unittest import mock
@@ -55,6 +57,21 @@ def prepare_architect_delivery(daemon, mailbox, outcome_agent):
     return request, outcome, receipt
 
 
+def prepare_active_scope(daemon, allowed_paths):
+    """Save one active scratch ticket with its Architect file list."""
+    cycle = "scratch-candidate-scope@" + BASE_COMMIT
+    state = daemon.read_ticket_cycle_state()
+    state["active"][cycle] = {
+        "phase": "implementation",
+        "commit": None,
+        "mode": "normal",
+        "route": "primary",
+        "path_scope": sorted(allowed_paths),
+    }
+    daemon.write_ticket_cycle_state(state=state)
+    return cycle
+
+
 class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
     """Prove restart finishes only the exact validated delivery."""
 
@@ -81,6 +98,54 @@ class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
 
             self.assertEqual(daemon.recover_implementer_deliveries(), 0)
             self.assertEqual(preserve.call_count, 1)
+
+    def test_extra_source_path_is_preserved_for_architect_scope_review(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            cycle = prepare_active_scope(
+                daemon, allowed_paths={"emulator/training.py"})
+            daemon._clean_worktree_status = mock.Mock(return_value=b"")
+            daemon.worktree_head = mock.Mock(return_value=ACCEPTED_COMMIT)
+            daemon.candidate_changed_paths = mock.Mock(return_value={
+                "emulator/training.py", "emulator/model.py"})
+            daemon.git_ref_commit = mock.Mock(return_value=None)
+            daemon._run_git = mock.Mock()
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                candidate = daemon.record_implementer_candidate(
+                    cycle_id=cycle, starting_head=BASE_COMMIT)
+
+            self.assertEqual(candidate, ACCEPTED_COMMIT)
+            self.assertEqual(
+                daemon.read_candidate_state()["cycles"][cycle]["commit"],
+                ACCEPTED_COMMIT)
+            self.assertIn(
+                "SCOPE_EXCEEDED; candidate preserved for Architect: "
+                "'emulator/model.py'",
+                output.getvalue())
+
+    def test_global_protected_path_is_refused_even_when_ticket_lists_it(self):
+        protected = ".claude/FABLE_ROLE.md"
+        with scratch_daemon() as (daemon, _, _, _):
+            cycle = prepare_active_scope(
+                daemon, allowed_paths={protected})
+            daemon._clean_worktree_status = mock.Mock(return_value=b"")
+            daemon.worktree_head = mock.Mock(return_value=ACCEPTED_COMMIT)
+            daemon.candidate_changed_paths = mock.Mock(
+                return_value={protected})
+            daemon.git_ref_commit = mock.Mock(return_value=None)
+            update_ref = mock.Mock()
+            daemon._run_git = update_ref
+
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError,
+                    "PROTECTED_PATH_VIOLATION: '\\.claude/FABLE_ROLE.md'"):
+                daemon.record_implementer_candidate(
+                    cycle_id=cycle, starting_head=BASE_COMMIT)
+
+            self.assertEqual(
+                daemon.read_candidate_state()["cycles"], {})
+            update_ref.assert_not_called()
 
     def test_restart_accepts_archive_completed_before_receipt_removal(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
