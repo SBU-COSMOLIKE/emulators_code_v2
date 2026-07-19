@@ -16,6 +16,8 @@ from ai.tests.tools_mailbox_daemon_fix_only_repro import read_text_exact
 from ai.tests.tools_mailbox_daemon_fix_only_repro import run_main
 from ai.tests.tools_mailbox_daemon_fix_only_repro import scratch_daemon
 from ai.tests.tools_mailbox_daemon_fix_only_repro import tree_snapshot
+from ai.tests.tools_mailbox_daemon_primary_worktree_repro import \
+    arm_failed_ancestor_handoff_requeues_and_advances
 
 
 SEVERITY_HEADER = "MAILBOX-SEVERITY: "
@@ -49,6 +51,13 @@ def install_maintenance_architect_child(daemon, mailbox, plan_count):
 
 class MailboxArchitectEntrypointTests(unittest.TestCase):
     """Pin the public role boundary without narrowing internal routing."""
+
+    def test_architect_must_self_check_the_published_handoff(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            preamble = daemon.ARCHITECT_ROLE_PREAMBLE
+            self.assertIn("Before ending, re-read the outgoing\nfile", preamble)
+            self.assertIn("one Directive row", preamble)
+            self.assertIn("validation alone does not validate", preamble)
 
     def test_send_architect_queues_one_fable_file_and_preserves_request(self):
         request = (
@@ -311,6 +320,62 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
 
             self.assertEqual(recovered, 0)
             self.assertEqual(daemon.active_ticket_cycle_count(), 1)
+
+    def test_clean_older_implementer_head_advances_to_ticket_base(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            old_head = "0" * 40
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            current = [old_head]
+            daemon._clean_worktree_status = lambda worktree: b""
+            daemon.worktree_head = lambda worktree: current[0]
+            daemon.candidate_record_locked = lambda **kwargs: None
+            ancestry = mock.Mock()
+            daemon._require_ancestor_or_same = ancestry
+
+            def reset(repository_root, arguments, check=True):
+                self.assertEqual(arguments, ["reset", "--hard", BASE_COMMIT])
+                current[0] = BASE_COMMIT
+                return mock.Mock(returncode=0, stdout=b"", stderr=b"")
+
+            daemon._run_git = reset
+            prepared = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle)
+
+            self.assertEqual(prepared, BASE_COMMIT)
+            ancestry.assert_called_once_with(
+                ancestor=old_head, descendant=BASE_COMMIT,
+                label="Implementer HEAD is not an ancestor of the "
+                      "ticket base")
+
+    def test_divergent_implementer_head_is_still_preserved(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            old_head = "0" * 40
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            daemon._clean_worktree_status = lambda worktree: b""
+            daemon.worktree_head = lambda worktree: old_head
+            daemon.candidate_record_locked = lambda **kwargs: None
+            daemon._require_ancestor_or_same = mock.Mock(
+                side_effect=daemon.TicketCycleStateError("divergent"))
+            daemon._run_git = mock.Mock()
+
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError,
+                    "refusing to discard " + old_head):
+                daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
+            daemon._run_git.assert_not_called()
+
+    def test_failed_ancestor_handoff_requeues_in_a_real_repository(self):
+        self.assertTrue(arm_failed_ancestor_handoff_requeues_and_advances())
 
     def test_fix_only_request_reserves_the_finite_ticket_slot(self):
         with scratch_daemon() as (daemon, _, mailbox, _):

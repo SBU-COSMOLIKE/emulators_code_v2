@@ -832,6 +832,62 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
     return outcomes == [True, True, True]
 
 
+def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
+    """Recover one valid handoff refused before its older base could move."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        old_base = git(root, "rev-parse", "HEAD").stdout.strip()
+
+        marker = root / "new-ticket-base.txt"
+        marker.write_text("new base\n", encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "new ticket base")
+        ticket_base = git(root, "rev-parse", "HEAD").stdout.strip()
+        git(primary, "merge", "--ff-only", ticket_base)
+        git(sol, "merge", "--ff-only", ticket_base)
+
+        daemon = load_scratch_daemon(primary)
+        daemon.configure_agent_worktrees(
+            primary_path=str(primary), implementer_path=str(implementer),
+            sol_path=str(sol))
+        cycle = "failed-ancestor-handoff@" + ticket_base
+        state = daemon.read_ticket_cycle_state()
+        state["active"][cycle] = {
+            "phase": "implementation", "commit": None,
+            "mode": "normal", "route": "primary"}
+        daemon.write_ticket_cycle_state(state=state)
+        failed = primary / "ai" / "notes" / "mailbox" / "failed"
+        failed.mkdir(parents=True, exist_ok=True)
+        message = failed / "0017-to-opus.md"
+        message.write_text(
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n"
+            "- **Directive:** [ai/notes/ticket.md, exact "
+            "Implementation directive section]\n",
+            encoding="utf-8", newline="")
+
+        recovered = daemon.recover_failed_implementer_ancestor_checkout()
+        root_message = message.parent.parent / message.name
+        prepared = daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
+        passed = (
+            recovered == 1 and root_message.is_file()
+            and not message.exists()
+            and prepared == ticket_base
+            and git(implementer, "rev-parse", "HEAD").stdout.strip()
+            == ticket_base
+            and git(root, "merge-base", "--is-ancestor",
+                    old_base, ticket_base, check=False).returncode == 0
+            and daemon.read_ticket_cycle_state()["active"].get(cycle)
+            == state["active"][cycle])
+        print("failed ancestor handoff requeues and advances=" + str(passed))
+        return passed
+
+
 def arm_interrupted_implementer_bootstrap_is_exactly_resumable(source=None):
     """A registered exact Implementer tree is recovered when state is absent."""
     with scratch_repository(source=source) as root:

@@ -3939,7 +3939,10 @@ ARCHITECT_ROLE_PREAMBLE = (
     "directive in the cited note and run ai/tools/handoff_contract.py; a\n"
     "goal summary or unresolved design choice is not dispatchable. Use the\n"
     "exact handoff row: - **Directive:** [ai/notes/<name>.md, exact "
-    "Implementation directive section]\n\n")
+    "Implementation directive section]. Before ending, re-read the outgoing\n"
+    "file and use the daemon parsers to require its exact envelope, admission,\n"
+    "one Directive row, and no placeholders. Fix it in the same turn; note\n"
+    "validation alone does not validate the mailbox file.\n\n")
 
 IMPLEMENTER_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the Implementer. Read and obey\n"
@@ -8602,9 +8605,16 @@ def prepare_implementer_cycle_checkout(cycle_id):
         preserved = {item["commit"]
                      for item in candidate_state["cycles"].values()}
         if current != target and current not in preserved:
-            raise TicketCycleStateError(
-                "Implementer HEAD is not a saved candidate; refusing to "
-                "discard " + current)
+            try:
+                _require_ancestor_or_same(
+                    ancestor=current, descendant=target,
+                    label="Implementer HEAD is not an ancestor of the "
+                          "ticket base")
+            except TicketCycleStateError as exc:
+                raise TicketCycleStateError(
+                    "Implementer HEAD is not a saved candidate or an older "
+                    "ticket-base ancestor; refusing to discard "
+                    + current) from exc
         _run_git(
             repository_root=worktree,
             arguments=["reset", "--hard", target])
@@ -10177,6 +10187,68 @@ def recover_failed_implementer_preflight():
             print("released pre-launch reservation for failed "
                   + os.path.basename(path))
     return recovered
+
+
+def recover_failed_implementer_ancestor_checkout():
+    """Requeue a valid handoff refused because its clean base lagged."""
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock Implementer recovery")
+    recovered = 0
+    try:
+        pattern = os.path.join(MAILBOX, "failed", "*-to-opus.md")
+        for path in sorted(glob.glob(pattern), key=message_sequence):
+            message = read_cycle_message(path=path)
+            if (not message.startswith(MAILBOX_FLOW_HEADER)
+                    or len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message))
+                    != 1):
+                continue
+            cycle_id, mode, _body, problem = _ticket_flow_envelope(
+                message=message)
+            state = read_ticket_cycle_state()
+            expected = {
+                "phase": "implementation", "commit": None,
+                "mode": mode, "route": "primary"}
+            if (problem is not None
+                    or state["active"].get(cycle_id) != expected
+                    or ticket_cycle_has_live_message(cycle_id=cycle_id)
+                    or candidate_commit_for_cycle(cycle_id) is not None):
+                continue
+            worktree = AGENT_CWD["opus"]
+            _symbolic_worktree_branch(
+                worktree=worktree, expected_branch=IMPLEMENTER_BRANCH,
+                label="Implementer")
+            if _clean_worktree_status(worktree=worktree):
+                continue
+            current = worktree_head(worktree=worktree)
+            target = cycle_starting_commit(cycle_id)
+            if current == target:
+                continue
+            try:
+                _require_ancestor_or_same(
+                    ancestor=current, descendant=target,
+                    label="failed handoff checkout did not lag its base")
+                main_commit = _exact_git_object(
+                    arguments=["rev-parse", "--verify",
+                               "refs/heads/main^{commit}"],
+                    label="current main commit")
+                _require_ancestor_or_same(
+                    ancestor=target, descendant=main_commit,
+                    label="failed handoff base is not on current main")
+            except TicketCycleStateError:
+                continue
+            recovered_path, moved = verified_state_move(
+                dispatch_path=path, directory=MAILBOX)
+            if not moved:
+                raise TicketCycleStateError(
+                    "could not requeue pre-launch handoff "
+                    + os.path.basename(path))
+            recovered += 1
+            print("requeued pre-launch Implementer handoff "
+                  + recovered_path)
+        return recovered
+    finally:
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
 
 
 def implementer_reservation_preflight_problem(path, message):
@@ -12901,6 +12973,7 @@ def main():
                 if fix_only:
                     recover_failed_maintenance_admission()
                 recover_failed_implementer_preflight()
+                recover_failed_implementer_ancestor_checkout()
                 reconcile_ticket_cycle_state()
             except (OSError, ValueError, TicketCycleStateError) as exc:
                 print("ticket-cycle recovery failed: " + str(exc)
