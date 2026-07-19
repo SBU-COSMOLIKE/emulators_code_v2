@@ -901,27 +901,28 @@ def status_report():
     print("latest saved version on main: " + main_tip)
     branches = _git(["branch", "--list", "claude/*", "codex/*",
                      "--format=%(refname:short) %(committerdate:unix)"])
-    working = ""
-    newest = 0
+    claude_branches = []
     for line in branches.splitlines():
         parts = line.rsplit(" ", 1)
         if len(parts) != 2 or not parts[0].startswith("claude/"):
             continue
-        if int(parts[1]) > newest:
-            newest = int(parts[1])
-            working = parts[0]
-    if working:
-        tip = _git(["log", "--oneline", "-1", working])
-        ahead = _git(["rev-list", "--count", "main.." + working])
-        print("Architect work branch:        " + tip)
+        claude_branches.append((int(parts[1]), parts[0]))
+    claude_branches.sort(reverse=True)
+    open_claude_branches = []
+    print("\nArchitect work branches:")
+    for _date, name in claude_branches:
+        ahead = _git(["rev-list", "--count", "main.." + name])
         if ahead != "0":
+            open_claude_branches.append(name)
+            tip = _git(["log", "--oneline", "-1", name])
+            print("  [OPEN] " + name + ": " + tip)
             print("  -> " + ahead + " saved change(s) are not on main.")
             print("     Do not merge or push this branch by hand.")
             print("     After the Architect saves its exact GO request, run")
             print("     python3 ai/tools/mailbox_daemon.py --once")
             print("     so the daemon can verify and land the audited commit.")
-        else:
-            print("  -> main already includes this branch's saved changes.")
+    if not open_claude_branches:
+        print("  (none open)")
 
     # Show advisory Red Team branches and whether main or the Architect work
     # branch already includes them.
@@ -932,9 +933,7 @@ def status_report():
         if len(parts) != 2 or not parts[0].startswith("codex/"):
             continue
         name = parts[0]
-        merge_targets = ["main"]
-        if working:
-            merge_targets.append(working)
+        merge_targets = ["main"] + open_claude_branches
         is_integrated = False
         for target in merge_targets:
             if _branch_is_ancestor(branch=name, target=target):

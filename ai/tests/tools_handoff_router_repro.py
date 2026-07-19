@@ -844,6 +844,54 @@ def arm_status_git_failure():
         assert ancestry_refused
 
 
+def arm_status_all_claude_branches():
+    """An older open Architect branch cannot hide behind a newer one."""
+    with tempfile.TemporaryDirectory(prefix="router-status-branches-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_status_branches")
+        run_git(repo, "init", "-q", "-b", "main")
+        run_git(repo, "config", "user.email", "scratch@example.invalid")
+        run_git(repo, "config", "user.name", "Scratch Probe")
+        tracked = repo / "tracked.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        run_git(repo, "add", "tracked.txt")
+        run_git(repo, "commit", "-q", "-m", "base")
+
+        def commit_at(message, date):
+            environment = dict(os.environ)
+            environment["GIT_AUTHOR_DATE"] = date
+            environment["GIT_COMMITTER_DATE"] = date
+            subprocess.run(
+                ["git", "commit", "-q", "-am", message], cwd=repo,
+                check=True, env=environment)
+
+        run_git(repo, "checkout", "-q", "-b", "claude/older-open")
+        tracked.write_text("base\nolder open\n", encoding="utf-8")
+        commit_at("older open", "2001-01-01T00:00:00+0000")
+        run_git(repo, "checkout", "-q", "main")
+        run_git(repo, "checkout", "-q", "-b", "claude/newer-merged")
+        tracked.write_text("base\nnewer merged\n", encoding="utf-8")
+        commit_at("newer merged", "2002-01-01T00:00:00+0000")
+        run_git(repo, "checkout", "-q", "main")
+        run_git(repo, "merge", "-q", "--ff-only", "claude/newer-merged")
+
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            module.status_report()
+        status_text = stream.getvalue()
+        older_visible = (
+            "[OPEN] claude/older-open" in status_text
+            and "1 saved change(s)" in status_text)
+        merged_not_open = "[OPEN] claude/newer-merged" not in status_text
+
+        print("ARM status all Architect branches")
+        print("  older unmerged branch remains visible:", older_visible)
+        print("  newer merged branch is not called open:", merged_not_open)
+        assert older_visible
+        assert merged_not_open
+
+
 def arm_incomplete_directive_refusal():
     """A goal-only note never reaches either clipboard or an agent session."""
     with tempfile.TemporaryDirectory(prefix="router-directive-refusal-") as tmp:
@@ -2128,6 +2176,7 @@ def main():
     arm_clipboard_failure()
     arm_integrated_status()
     arm_status_git_failure()
+    arm_status_all_claude_branches()
     arm_incomplete_directive_refusal()
     arm_character_budget_binding()
     arm_discovery_severity_binding()
