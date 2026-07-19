@@ -132,6 +132,60 @@ class BacklogGuardTests(unittest.TestCase):
             self.assertEqual(json.loads(state.read_text())["sha256"], current)
             self.assertEqual(run_guard(repo, "check").returncode, 0)
 
+    def test_retry_accepts_a_complete_initialize_or_seal(self):
+        with scratch_checkout() as (repo, backlog, _):
+            real_write = backlog_guard._atomic_write_state
+
+            def publish_then_stop(path, document):
+                real_write(path, document)
+                raise backlog_guard.GuardError("simulated stop after publish")
+
+            with mock.patch.object(
+                    backlog_guard, "_atomic_write_state",
+                    side_effect=publish_then_stop):
+                with self.assertRaisesRegex(
+                        backlog_guard.GuardError, "simulated stop"):
+                    backlog_guard.initialize(repo, acknowledged=True)
+
+            expected = hashlib.sha256(backlog.read_bytes()).hexdigest()
+            self.assertEqual(
+                backlog_guard.initialize(repo, acknowledged=True), expected)
+
+            previous = expected
+            backlog.write_bytes(backlog.read_bytes() + b"\n## New ticket\n")
+            with mock.patch.object(
+                    backlog_guard, "_atomic_write_state",
+                    side_effect=publish_then_stop):
+                with self.assertRaisesRegex(
+                        backlog_guard.GuardError, "simulated stop"):
+                    backlog_guard.seal(
+                        repo, previous, acknowledged=True)
+
+            current = hashlib.sha256(backlog.read_bytes()).hexdigest()
+            self.assertEqual(
+                backlog_guard.seal(repo, previous, acknowledged=True), current)
+
+    def test_seal_retry_refuses_if_backlog_changed_after_publish(self):
+        with scratch_checkout() as (repo, backlog, _):
+            previous = initialize(repo)
+            backlog.write_bytes(backlog.read_bytes() + b"first edit\n")
+            real_write = backlog_guard._atomic_write_state
+
+            def publish_then_stop(path, document):
+                real_write(path, document)
+                raise backlog_guard.GuardError("simulated stop after publish")
+
+            with mock.patch.object(
+                    backlog_guard, "_atomic_write_state",
+                    side_effect=publish_then_stop):
+                with self.assertRaises(backlog_guard.GuardError):
+                    backlog_guard.seal(repo, previous, acknowledged=True)
+
+            backlog.write_bytes(backlog.read_bytes() + b"second edit\n")
+            with self.assertRaisesRegex(
+                    backlog_guard.GuardError, "does not match the saved state"):
+                backlog_guard.seal(repo, previous, acknowledged=True)
+
     def test_seal_requires_a_canonical_previous_digest_and_saved_state(self):
         with scratch_checkout() as (repo, _, _):
             missing = run_guard(

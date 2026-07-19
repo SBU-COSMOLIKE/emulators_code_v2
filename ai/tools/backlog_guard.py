@@ -357,8 +357,9 @@ def initialize(repo, acknowledged=False):
             if stat.S_ISLNK(existing.st_mode) or not stat.S_ISREG(
                     existing.st_mode):
                 raise GuardError("backlog guard state is not a regular file")
-            raise GuardError(
-                "backlog guard state already exists; use check or seal")
+            # A previous initialize may have published the complete state and
+            # died before reporting success.  Accept only that exact result.
+            return check(repo)
         backlog = _read_regular_bytes(
             backlog_path, "ai/notes/backlog.md", MAX_BACKLOG_BYTES)
         digest = _sha256(backlog)
@@ -378,6 +379,15 @@ def seal(repo, previous_digest, acknowledged=False):
     with _WriteLock(lock_path):
         original_state_bytes, original_state = _read_state(state_path)
         if previous_digest != original_state["sha256"]:
+            # A previous seal may have published the new digest and died
+            # before reporting success.  A matching backlog makes the retry a
+            # harmless no-op; any later edit still fails this check.
+            try:
+                accepted = check(repo)
+            except GuardError:
+                accepted = None
+            if accepted == original_state["sha256"]:
+                return accepted
             raise GuardError(
                 "--previous-sha256 does not match the saved state; run check "
                 "before editing and copy its accepted SHA-256")
