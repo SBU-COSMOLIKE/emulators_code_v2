@@ -954,6 +954,18 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
         archived_before = file_identity(archived)
         relay_before = file_identity(relay)
 
+        dispatch_lock = archived.parents[1] / ".dispatch.lock"
+        handle = dispatch_lock.open("a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            rc_live, live_stdout, _stderr = invoke(existing, ["--once"])
+            live_refused = (
+                rc_live != 0 and "live watcher"
+                in live_stdout.lower() and not state_path(root).exists())
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
         rc, _stdout, _stderr = invoke(existing, ["--once"])
         expected_branch = "refs/heads/claude/existing-coordinator"
         adopted = (rc == 0 and validate_topology(
@@ -998,13 +1010,67 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
                    "Scratch after adoption."])
         queued = pending_markdown(existing)
         passed = (
-            adopted and resynced and note_branch and rc_send == 0
+            live_refused and adopted and resynced and note_branch
+            and rc_send == 0
             and file_identity(archived) == archived_before
             and file_identity(relay) == relay_before
             and [path.name for path in queued] == ["0043-to-fable.md"]
             and not default_primary(root).exists()
             and len(worktree_records(root)) == 4)
         print("existing coordinator adoption=" + str(passed))
+        return passed
+
+
+def arm_adoption_publication_fences_late_watcher(source=None):
+    """A watcher starting after the first scan prevents state publication."""
+    with scratch_repository(source=source) as root:
+        existing = managed_base(root) / "late-watcher-coordinator"
+        git(root, "worktree", "add", "-b", "claude/late-watcher",
+            str(existing), "main")
+        archived, archived_before = transport_case(
+            existing, "ai/notes/mailbox/done/0042-to-fable.md",
+            b"historical mailbox bytes\n")
+        daemon = load_scratch_daemon(root)
+        original_open = daemon._open_legacy_transport_lock
+        holder = [None]
+
+        def start_watcher_before_lock(path, nonblocking):
+            if path.endswith("/.dispatch.lock") and holder[0] is None:
+                program = (
+                    "import fcntl,sys,time; "
+                    "f=open(sys.argv[1],'a+'); "
+                    "fcntl.flock(f.fileno(),fcntl.LOCK_EX); "
+                    "print('ready',flush=True); time.sleep(30)")
+                holder[0] = subprocess.Popen(
+                    [sys.executable, "-c", program, path],
+                    cwd=str(root), stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True)
+                readable, _writable, _errors = select.select(
+                    [holder[0].stdout], [], [], 5.0)
+                if (not readable
+                        or holder[0].stdout.readline().strip() != "ready"):
+                    raise RuntimeError("late-watcher fixture did not lock")
+            return original_open(path=path, nonblocking=nonblocking)
+
+        daemon._open_legacy_transport_lock = start_watcher_before_lock
+        error = None
+        try:
+            daemon.provision_or_adopt_primary(
+                repository_root=str(root), current_worktree=str(existing))
+        except BaseException as exc:
+            error = exc
+        finally:
+            if holder[0] is not None:
+                holder[0].terminate()
+                holder[0].wait(timeout=5)
+            daemon._open_legacy_transport_lock = original_open
+        passed = (
+            isinstance(error, daemon.PrimaryWorktreeError)
+            and "legacy transport is live" in str(error).lower()
+            and file_identity(archived) == archived_before
+            and not state_path(root).exists()
+            and not default_primary(root).exists())
+        print("late watcher adoption fence=" + str(passed))
         return passed
 
 
@@ -5821,6 +5887,8 @@ def main():
          arm_interrupted_implementer_bootstrap_is_exactly_resumable),
         ("existing coordinator adoption",
          arm_existing_linked_coordinator_is_adopted),
+        ("late watcher adoption fence",
+         arm_adoption_publication_fences_late_watcher),
         ("unsafe coordinator refusal",
          arm_unsafe_existing_coordinator_is_not_adopted),
         ("legacy transport refusal", arm_legacy_transport_refuses_new_primary),

@@ -511,7 +511,6 @@ PRIMARY_ARCHIVE_RUNTIME_LOCKS = frozenset({
 CURRENT_ADOPTION_SAFE_REASONS = frozenset({
     "numbered mailbox history exists",
     "relay evidence exists",
-    "live watcher or once lock is held",
 })
 
 
@@ -1541,6 +1540,44 @@ def _publish_primary_record(record, repository_root, bridge_main=False,
     return state
 
 
+def _publish_adopted_primary_record(record, repository_root):
+    """Publish an existing coordinator only while its mailbox is idle."""
+    mailbox = os.path.join(
+        record["path"], "ai", "notes", "mailbox")
+    _plain_directory(
+        path=os.path.dirname(mailbox), label="adopted notes directory")
+    identity = _plain_directory(
+        path=mailbox, label="adopted mailbox", create=True)
+    dispatch_lock = _open_legacy_transport_lock(
+        path=os.path.join(mailbox, ".dispatch.lock"), nonblocking=True)
+    sequence_lock = None
+    try:
+        sequence_lock = _open_legacy_transport_lock(
+            path=os.path.join(mailbox, ".sequence.lock"), nonblocking=True)
+        _require_directory_identity(
+            path=mailbox, identity=identity, label="adopted mailbox")
+        reasons = coordination_transport_evidence(worktree=record["path"])
+        allowed = CURRENT_ADOPTION_SAFE_REASONS | {
+            "live watcher or once lock is held",
+            "live sender or sequence lock is held",
+        }
+        if not reasons or not set(reasons).issubset(allowed):
+            raise PrimaryWorktreeError(
+                "adopted coordination transport changed before publication")
+        _validate_primary_record(
+            record=record, branch=record["branch"],
+            repository_root=repository_root)
+        state = _primary_state_for_record(
+            record=record, repository_root=repository_root)
+        _atomic_write_primary_state(
+            state=state, path=primary_state_paths(repository_root)["state"])
+        return state
+    finally:
+        if sequence_lock is not None:
+            _release_legacy_transport_lock(lock_file=sequence_lock)
+        _release_legacy_transport_lock(lock_file=dispatch_lock)
+
+
 def _format_evidence(candidates):
     """Format legacy coordination stores for one actionable refusal."""
     return "; ".join(sorted(path + " (" + ", ".join(reasons) + ")"
@@ -1620,7 +1657,7 @@ def provision_or_adopt_primary(repository_root, current_worktree):
                 repository_root=repository_root)
             print("adopting current coordination worktree and preserving its "
                   "mailbox: " + os.path.abspath(current_worktree), flush=True)
-            return _publish_primary_record(
+            return _publish_adopted_primary_record(
                 record=current_record, repository_root=repository_root)
         if (not bridge_main and len(evidence) == 1
                 and current_record is not None
