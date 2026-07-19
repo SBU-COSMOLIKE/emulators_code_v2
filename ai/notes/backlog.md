@@ -3483,6 +3483,50 @@ full tests 169/169, eleven router reproductions, 59-case security matrix,
 compilation, diff, and three reviews passed.
 </details>
 
+<a id="closed-failure-catalog-consistency"></a>
+## Keep the Implementer failure catalog synchronized with its controls
+
+### High-level summary
+
+The short Implementer failure catalog correctly points to existing recovery
+behavior, but one explanation repeated the current 90-minute setting and its
+code references could silently become stale after a function rename.
+
+The catalog now names the configurable role-contract setting instead of its
+present value. A documentation check verifies that every catalog identifier is
+unique and every named Python file and symbol still exists.
+
+### Current status
+
+**CLOSED.** This was accepted as a **LOW BUG FIX**. Stale catalog text could
+mislead a future maintainer, but it never changed runtime behavior or granted
+the Implementer additional authority.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+### What is already fixed
+
+The `timed_complexity` entry points to
+`role-contract.yaml::runtime.implementer_review_minutes`. The existing
+role-contract tests parse the reference catalog as documentation, confirm
+unique IDs, and use Python's syntax tree to find each referenced function or
+class in its named source file.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+The check deliberately does not execute the catalog or derive workflow policy
+from it. Code, the validated handoff contract, and `role-contract.yaml` remain
+authoritative. The test only prevents broken documentation links and a copied
+configuration value from misleading a later reader.
+
+</details>
+
 ## Scientific code, data handling, and gates
 
 <a id="open-mps-serving-domain"></a>

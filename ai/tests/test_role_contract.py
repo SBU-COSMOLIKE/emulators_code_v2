@@ -1,11 +1,13 @@
 """Keep the protected role contract strict and bound to live controls."""
 
+import ast
 import copy
 from contextlib import redirect_stdout
 import io
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import unittest
@@ -79,6 +81,40 @@ class RoleContractTests(unittest.TestCase):
             for path in (REPO_ROOT / "ai/tools").glob("*.py")}
         self.assertEqual(named_tools, shipped_tools)
         mailbox_daemon.validate_role_contract_bindings(loaded)
+
+    def test_failure_catalog_references_current_code_and_configuration(self):
+        """Keep reference-only catalog links useful without granting authority."""
+        catalog_path = REPO_ROOT / "ai/notes/implementer-failure-modes.yaml"
+        catalog = catalog_path.read_text(encoding="utf-8")
+        identifiers = re.findall(
+            r"^  - id: ([a-z][a-z0-9_]*)$", catalog, re.MULTILINE)
+        self.assertTrue(identifiers)
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+
+        references = re.findall(
+            r"^      - (ai/tools/[A-Za-z0-9_./-]+\.py)::"
+            r"([A-Za-z_][A-Za-z0-9_]*)$", catalog, re.MULTILINE)
+        self.assertTrue(references)
+        for relative, symbol in references:
+            with self.subTest(reference=relative + "::" + symbol):
+                path = REPO_ROOT / relative
+                self.assertTrue(path.is_file())
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                names = {node.name for node in tree.body
+                         if isinstance(
+                             node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef))}
+                self.assertIn(symbol, names)
+
+        interval_reference = (
+            "configuration: ai/notes/role-contract.yaml::"
+            "runtime.implementer_review_minutes")
+        self.assertIn(interval_reference, catalog)
+        timed_section = catalog.split(
+            "  - id: timed_complexity\n", 1)[1].split("\n  - id:", 1)[0]
+        self.assertNotIn("90 minutes", timed_section)
+        self.assertIsInstance(
+            ROLE_CONTRACT["runtime"]["implementer_review_minutes"], int)
 
     def test_duplicate_key_refuses(self):
         key = next(iter(ROLE_CONTRACT))

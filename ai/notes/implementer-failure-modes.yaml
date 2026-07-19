@@ -43,7 +43,8 @@ failure_modes:
       - ai/tools/ticket_change_guard.py::main
 
   - id: timed_complexity
-    symptom: One Implementer has worked on the same ticket for 90 minutes.
+    symptom: The Implementer reaches the configured complexity-review interval.
+    configuration: ai/notes/role-contract.yaml::runtime.implementer_review_minutes
     response: Save a checkpoint, stop editing, and request one Architect complexity decision.
     enforced_by:
       - ai/tools/mailbox_daemon.py::checkpoint_handoff_problem
