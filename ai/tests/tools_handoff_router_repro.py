@@ -480,6 +480,78 @@ def arm_interrupted_implementer_return_resumes():
         assert complete
 
 
+def arm_completed_gate_log_resumes():
+    """A saved check log prevents repeated local checks after a stop."""
+    with tempfile.TemporaryDirectory(prefix="router-gate-resume-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_gate_resume", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        copied = []
+
+        def stop_at_architect(text):
+            copied.append(text)
+            if text.startswith("### RELAY FOR AUDIT"):
+                raise RuntimeError("simulated stop after saved checks")
+
+        module.copy_to_clipboard = stop_at_architect
+        module.wait_for_block = lambda **_kwargs: implementer_handoff()
+        original_argv = module.sys.argv
+        command = "printf gate-ok"
+        module.sys.argv = [
+            "handoff_router.py", "--note", "ai/notes/spec.md",
+            "--gate-cmd", command]
+        try:
+            try:
+                module.main()
+            except RuntimeError as exc:
+                stopped = "simulated stop" in str(exc)
+            else:
+                stopped = False
+
+            route = (Path(module.RUN_RESERVATIONS_DIR)
+                     / module.ROUTE_RECORD_NAME)
+            seq = route.read_text(encoding="utf-8").splitlines()[1]
+            log_path = (repo / "ai" / "notes" / "relay"
+                        / (seq + "-gates-log.md"))
+            original_log = log_path.read_bytes()
+            module.wait_for_block = lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("Implementer was asked to work again"))
+            module.run_gates = lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("completed checks were run again"))
+
+            log_path.write_bytes(original_log + b"changed\n")
+            copied.clear()
+            changed_log_rc = module.main()
+            log_path.write_bytes(original_log)
+
+            module.sys.argv[-1] = "printf different"
+            copied.clear()
+            changed_command_rc = module.main()
+            module.sys.argv[-1] = command
+
+            copied.clear()
+            module.copy_to_clipboard = copied.append
+            resumed_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+
+        recovered = (
+            resumed_rc == 0 and len(copied) == 1
+            and copied[0].startswith("### RELAY FOR AUDIT")
+            and not route.exists())
+        refusals = changed_log_rc == 1 and changed_command_rc == 1
+        print("ARM completed check-log recovery")
+        print("  first run stopped after complete check log:", stopped)
+        print("  changed log or command list refuses:", refusals)
+        print("  restart skips Implementer and checks:", recovered)
+        assert stopped
+        assert refusals
+        assert recovered
+
+
 def arm_clipboard_lock():
     """Show concurrent flows collide and a stale lock file is harmless."""
     with tempfile.TemporaryDirectory(prefix="router-lock-") as tmp:
@@ -2461,6 +2533,7 @@ def main():
     arm_sequence_collision()
     arm_atomic_evidence_publication()
     arm_interrupted_implementer_return_resumes()
+    arm_completed_gate_log_resumes()
     arm_clipboard_lock()
     arm_gate_child_keeps_router_lock()
     arm_handoff_header()

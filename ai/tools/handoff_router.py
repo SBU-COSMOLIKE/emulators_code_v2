@@ -91,6 +91,9 @@ SUPPORTING_COPY_PREFIX = (
     "<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
     "     that this block cites remains authoritative.\n"
     "     Saved by ai/tools/handoff_router.py. -->\n\n")
+GATE_RECEIPT_RE = re.compile(
+    r"^<!-- ROUTER GATES v1 commands=([0-9a-f]{64}) "
+    r"result=(pass|fail) body=([0-9a-f]{64}) -->$")
 
 COCOA_PYTHON = ("/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa"
                 "/.local/bin/python")
@@ -609,6 +612,35 @@ def finish_route():
     os.remove(os.path.join(RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME))
 
 
+def gate_commands_digest(commands):
+    """Bind the ordered check commands without executing them."""
+    payload = json.dumps(
+        list(commands), ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def recovered_gate_result(seq, commands):
+    """Return a verified saved check result, or None before publication."""
+    path = os.path.join(RELAY_DIR, seq + "-gates-log.md")
+    if not os.path.lexists(path):
+        return None
+    data = _read_recovery_file(path, "saved check log", MAX_BACKLOG_BYTES)
+    text = data.decode("utf-8", errors="strict")
+    if not text.startswith(SUPPORTING_COPY_PREFIX):
+        raise BacklogLedgerError("saved check log has no complete header")
+    receipt, separator, body = text[len(SUPPORTING_COPY_PREFIX):].partition(
+        "\n")
+    if not receipt.startswith("<!-- ROUTER GATES v1 "):
+        return None
+    match = GATE_RECEIPT_RE.fullmatch(receipt)
+    if (not separator or match is None
+            or match.group(1) != gate_commands_digest(commands)
+            or match.group(3) != hashlib.sha256(
+                body.encode("utf-8")).hexdigest()):
+        raise BacklogLedgerError("saved check log does not match this route")
+    return (os.path.relpath(path, REPO_ROOT), match.group(2) == "pass")
+
+
 def acquire_router_lock():
     """Take the machine-wide lock that protects the shared clipboard.
 
@@ -876,7 +908,13 @@ def run_gates(commands, seq, router_lock):
         lines.append("--- stderr ---")
         lines.append(proc.stderr)
         lines.append("")
-    log_path = archive(seq, "gates-log", "\n".join(lines))
+    body = "\n".join(lines)
+    receipt = (
+        "<!-- ROUTER GATES v1 commands=" + gate_commands_digest(commands)
+        + " result=" + ("pass" if all_green else "fail")
+        + " body=" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+        + " -->\n")
+    log_path = archive(seq, "gates-log", receipt + body)
     return (log_path, all_green)
 
 
@@ -1388,9 +1426,20 @@ def main():
             "--base", guard["base"],
             "--max", str(guard["max"]),
         ]))
-    print("[2/" + str(total_steps) + "] running the local checks:")
-    log_path, all_green = run_gates(
-        commands=commands, seq=seq, router_lock=router_lock)
+    try:
+        saved_gates = recovered_gate_result(seq=seq, commands=commands)
+    except (BacklogLedgerError, UnicodeError) as exc:
+        release_router_lock(router_lock)
+        print("refused router recovery: " + str(exc))
+        return 1
+    if saved_gates is None:
+        print("[2/" + str(total_steps) + "] running the local checks:")
+        log_path, all_green = run_gates(
+            commands=commands, seq=seq, router_lock=router_lock)
+    else:
+        log_path, all_green = saved_gates
+        print("[2/" + str(total_steps) + "] recovered the complete saved "
+              "check log; checks were not rerun.")
     print("      checks " + ("ALL PASS" if all_green else "NOT all green")
           + " -> " + log_path)
 
