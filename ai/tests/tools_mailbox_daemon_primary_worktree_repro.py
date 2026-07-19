@@ -1965,6 +1965,7 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         launches = []
         child = ObservedProcess()
         real_claim = daemon.claim_message
+        original_identity = file_identity(message)
 
         def claim_then_switch(path):
             claimed = real_claim(path=path)
@@ -1984,13 +1985,47 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             result = daemon.dispatch(path=str(message), dry_run=False)
         finally:
             daemon.subprocess = original_subprocess
-        prelaunch_refused = (
+        prelaunch_path = (primary / "ai" / "notes" / "mailbox"
+                          / "prelaunch" / message.name)
+        retained = (
             result is False and launches == []
             and not child.killed and not child.waited
             and git(sol, "symbolic-ref", "HEAD").stdout.strip()
             == "refs/heads/main"
             and transport_counts(primary)
-            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 0}
+            and prelaunch_path.is_file()
+            and file_identity(prelaunch_path) == original_identity)
+        git(sol, "switch", "--ignore-other-worktrees",
+            SOL_BRANCH.removeprefix("refs/heads/"))
+        daemon.claim_message = real_claim
+        requeued_path = primary / "ai" / "notes" / "mailbox" / message.name
+        requeued = (
+            daemon.recover_prelaunch_messages() == 1
+            and file_identity(requeued_path) == original_identity
+            and transport_counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        retry_child = ObservedProcess()
+        retry_child.returncode = 1
+        retry_launches = []
+
+        def retry_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            retry_launches.append("admitted")
+            return retry_child
+
+        daemon.subprocess = PopenProxy(original_subprocess, retry_popen)
+        try:
+            retry_result = daemon.dispatch(
+                path=str(requeued_path), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        retried = (
+            retry_result is False and retry_launches == ["admitted"]
+            and transport_counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1}
+            and not prelaunch_path.exists())
+        prelaunch_refused = retained and requeued and retried
     outcomes.append(prelaunch_refused)
     print("Sol pre-Popen branch race refused=" + str(prelaunch_refused))
 
@@ -2006,7 +2041,9 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         launches = []
         child = ObservedProcess()
         role = primary / ".codex" / "REDTEAM_ROLE.md"
+        role_before = role.read_bytes()
         real_claim = daemon.claim_message
+        original_identity = file_identity(message)
 
         def claim_then_replace_role(path):
             claimed = real_claim(path=path)
@@ -2028,11 +2065,44 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             result = daemon.dispatch(path=str(message), dry_run=False)
         finally:
             daemon.subprocess = original_subprocess
-        role_race_refused = (
+        prelaunch_path = (primary / "ai" / "notes" / "mailbox"
+                          / "prelaunch" / message.name)
+        retained = (
             result is False and launches == []
             and not child.killed and not child.waited
             and transport_counts(primary)
-            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 0}
+            and prelaunch_path.is_file()
+            and file_identity(prelaunch_path) == original_identity)
+        role.write_bytes(role_before)
+        daemon.claim_message = real_claim
+        requeued_path = primary / "ai" / "notes" / "mailbox" / message.name
+        requeued = (
+            daemon.recover_prelaunch_messages() == 1
+            and file_identity(requeued_path) == original_identity
+            and transport_counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        retry_child = ObservedProcess()
+        retry_child.returncode = 1
+        retry_launches = []
+
+        def retry_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            retry_launches.append("admitted")
+            return retry_child
+
+        daemon.subprocess = PopenProxy(original_subprocess, retry_popen)
+        try:
+            retry_result = daemon.dispatch(
+                path=str(requeued_path), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        retried = (
+            retry_result is False and retry_launches == ["admitted"]
+            and transport_counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1}
+            and not prelaunch_path.exists())
+        role_race_refused = retained and requeued and retried
         outcomes.append(role_race_refused)
         print("Sol pre-Popen role-file race refused="
               + str(role_race_refused))
@@ -2194,6 +2264,7 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
         launches = []
         child = ObservedProcess()
         real_claim = daemon.claim_message
+        original_identity = file_identity(message)
 
         def claim_then_switch(path):
             claimed = real_claim(path=path)
@@ -2213,13 +2284,47 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
             result = daemon.dispatch(path=str(message), dry_run=False)
         finally:
             daemon.subprocess = original
-        refused = (
+        prelaunch_path = (primary / "ai" / "notes" / "mailbox"
+                          / "prelaunch" / message.name)
+        retained = (
             result is False and launches == []
             and not child.killed and not child.waited
             and git(implementer, "symbolic-ref", "HEAD").stdout.strip()
             == "refs/heads/main"
             and counts(primary)
-            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 0}
+            and prelaunch_path.is_file()
+            and file_identity(prelaunch_path) == original_identity)
+        git(implementer, "switch", "--ignore-other-worktrees",
+            IMPLEMENTER_BRANCH.removeprefix("refs/heads/"))
+        daemon.claim_message = real_claim
+        requeued_path = primary / "ai" / "notes" / "mailbox" / message.name
+        requeued = (
+            daemon.recover_prelaunch_messages() == 1
+            and file_identity(requeued_path) == original_identity
+            and counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        retry_child = ObservedProcess()
+        retry_child.returncode = 1
+        retry_launches = []
+
+        def retry_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            retry_launches.append("admitted")
+            return retry_child
+
+        daemon.subprocess = PopenProxy(original, retry_popen)
+        try:
+            retry_result = daemon.dispatch(
+                path=str(requeued_path), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        retried = (
+            retry_result is False and retry_launches == ["admitted"]
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1}
+            and not prelaunch_path.exists())
+        refused = retained and requeued and retried
         outcomes.append(refused)
         print("Implementer pre-Popen branch race refused=" + str(refused))
 
@@ -2353,6 +2458,8 @@ def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
         child = ObservedProcess()
         role = primary / ".claude" / "FABLE_ROLE.md"
         real_claim = daemon.claim_message
+        role_before = role.read_bytes()
+        original_identity = file_identity(message)
 
         def claim_then_replace(path):
             claimed = real_claim(path=path)
@@ -2374,11 +2481,45 @@ def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
             result = daemon.dispatch(path=str(message), dry_run=False)
         finally:
             daemon.subprocess = original
-        refused = (
+        prelaunch_path = (primary / "ai" / "notes" / "mailbox"
+                          / "prelaunch" / message.name)
+        retained = (
             result is False and launches == []
             and not child.killed and not child.waited
             and counts(primary)
-            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 0}
+            and prelaunch_path.is_file()
+            and file_identity(prelaunch_path) == original_identity)
+        role.write_bytes(role_before)
+        daemon.claim_message = real_claim
+        requeued_path = primary / "ai" / "notes" / "mailbox" / message.name
+        requeued = (
+            daemon.recover_prelaunch_messages() == 1
+            and file_identity(requeued_path) == original_identity
+            and counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        retry_child = ObservedProcess()
+        retry_child.returncode = 1
+        retry_launches = []
+
+        def retry_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            retry_launches.append("admitted")
+            return retry_child
+
+        daemon.subprocess = PopenProxy(original, retry_popen)
+        try:
+            retry_result = daemon.dispatch(
+                path=str(requeued_path), dry_run=False)
+        finally:
+            daemon.subprocess = original
+        retried = (
+            retry_result is False and retry_launches == ["admitted"]
+            and counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1}
+            and not prelaunch_path.exists()
+            and git(primary, "status", "--porcelain=v1").stdout == "")
+        refused = retained and requeued and retried
         outcomes.append(refused)
         print("Architect pre-Popen role race refused=" + str(refused))
 
