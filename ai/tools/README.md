@@ -377,7 +377,7 @@ Implementer, add the same provider and model selected for the watch:
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
-  --implementer-model qwen3.5
+  --implementer-model glm-5.2:cloud
 ```
 
 A failed check returns a nonzero status and names the affected service. The
@@ -766,7 +766,7 @@ models use their provider's own reasoning behavior, so `--opus-effort` is not
 passed to an Ollama Implementer.
 
 Each model option accepts one nonempty value containing no spaces, tabs, line
-breaks, or hidden zero character, such as `sonnet` or `qwen3.5`. This checks
+breaks, or hidden zero character, such as `sonnet` or `glm-5.2:cloud`. This checks
 only the name's format. The selected provider confirms whether the model
 exists when a live check or role starts.
 
@@ -1909,14 +1909,20 @@ This command keeps the Architect on Claude and uses an Ollama model as the
 Implementer:
 
 ```bash
-ollama pull qwen3.5
+ollama signin
+ollama pull glm-5.2:cloud
 python3 ai/tools/mailbox_daemon.py --watch \
   --skip-redteam \
   --architect-model opus \
   --implementer-provider ollama \
-  --implementer-model qwen3.5 \
+  --implementer-model glm-5.2:cloud \
   --claude-context 64000
 ```
+
+The documentation uses `glm-5.2:cloud` as the standard Ollama choice. This is
+a cloud-served model, so the workstation must sign in to Ollama and its prompts
+and responses leave the workstation for Ollama's service. A user may replace
+the model name with another compatible local or cloud model.
 
 Ollama's `launch claude` integration supplies the coding tool shell. The model
 that reasons about and performs the Implementer work is served by Ollama. A

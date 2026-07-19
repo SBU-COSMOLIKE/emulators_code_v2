@@ -241,16 +241,20 @@ Architect can use Claude while an open-weight model served by
 [Ollama](https://ollama.com/) is the Implementer:
 
 ```bash
-ollama pull qwen3.5
+ollama signin
+ollama pull glm-5.2:cloud
 python3 ai/tools/mailbox_daemon.py --watch \
   --architect-model opus \
   --implementer-provider ollama \
-  --implementer-model qwen3.5 \
+  --implementer-model glm-5.2:cloud \
   --claude-context 64000
 ```
 
-`ollama pull` downloads the model before the unattended watch begins. Ollama
-recommends at least a 64K context for coding models. The watcher uses Ollama's
+The documentation uses `glm-5.2:cloud` whenever an Ollama model is not
+otherwise specified. It requires an Ollama account, and the prompts and
+responses are processed by Ollama's cloud service. `ollama signin` connects
+the local Ollama program to that account; `ollama pull` makes the cloud model
+available before the unattended watch begins. The watcher uses Ollama's
 [headless Claude Code integration](https://docs.ollama.com/integrations/claude-code),
 so the open-weight model can inspect the isolated Implementer worktree, edit
 files, run tests, and return the same evidence as a Claude Implementer. Claude
@@ -263,7 +267,7 @@ ticket:
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
-  --implementer-model qwen3.5
+  --implementer-model glm-5.2:cloud
 ```
 
 This checks the Claude Architect and Ollama Implementer. Remove

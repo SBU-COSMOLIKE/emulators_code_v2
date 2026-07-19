@@ -3260,6 +3260,43 @@ reproductions, 84/84 tests, diff check, and three reviews passed. The old
 scratch-fixture debt is superseded by `c91791a`.
 </details>
 
+<a id="closed-ollama-documentation-model"></a>
+## Use GLM-5.2 Cloud in the Ollama examples
+
+### High-level summary
+
+The AI guides used Qwen as their example Ollama Implementer. The preferred
+documented choice is now `glm-5.2:cloud`, so a user copying either the watcher
+or connection-check command should see that model consistently.
+
+### Current status
+
+**CLOSED.** This was accepted as a **LOW DOCUMENTATION CHANGE**. It changes
+the recommended examples, not the daemon's Claude default or the user's
+ability to name another Ollama model.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+### What is already fixed
+
+The short AI guide and detailed tool guide use `glm-5.2:cloud` for Ollama
+watch and `--ping` commands. They also explain that this choice requires an
+Ollama account and processes prompts through Ollama's cloud service.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+Only documentation examples changed. Runtime model selection remains explicit
+through `--implementer-provider ollama --implementer-model MODEL`; no model
+name was compiled into the daemon.
+
+</details>
+
 ## AI roles, user controls, and handoffs
 
 <a id="closed-subagent-discretion"></a>
