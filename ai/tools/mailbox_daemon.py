@@ -10302,7 +10302,9 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
             maintenance = False
         if (maintenance
                 and (not fix_only
-                     or active_ticket_cycle_count(skip_redteam=skip_redteam)
+                     or active_ticket_cycle_count(
+                         skip_redteam=skip_redteam,
+                         exclude_admission=os.path.basename(path))
                      or any(candidate.endswith("-to-opus.md")
                             for candidate in pending_messages()))):
             if not fix_only:
@@ -11584,8 +11586,8 @@ def record_architect_commit(cycle_id, accepted_commit, mode):
     return completed_now
 
 
-def active_ticket_cycle_count(skip_redteam=False):
-    """Return active enabled-cycle count, raising on unsafe daemon state.
+def active_ticket_cycle_count(skip_redteam=False, exclude_admission=None):
+    """Count enabled work, optionally excluding one request's admission.
 
     Each topology counts only tickets it can advance. Valid work saved for a
     different topology remains active and untouched for a later watch.
@@ -11593,10 +11595,15 @@ def active_ticket_cycle_count(skip_redteam=False):
     lock_file = acquire_ticket_cycle_lock()
     try:
         state = read_ticket_cycle_state()
-        return (len(active_cycle_records_for_topology(
-                    state=state, skip_redteam=skip_redteam))
-                + len(architect_admissions_for_topology(
-                    state=state, skip_redteam=skip_redteam)))
+        active = active_cycle_records_for_topology(
+            state=state, skip_redteam=skip_redteam)
+        admissions = architect_admissions_for_topology(
+            state=state, skip_redteam=skip_redteam)
+        excluded = state["architect_admissions"].get(exclude_admission)
+        if (excluded is not None and ticket_cycle_mode_is_enabled(
+                mode=excluded["mode"], skip_redteam=skip_redteam)):
+            admissions.remove(excluded)
+        return len(active) + len(admissions)
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
 

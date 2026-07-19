@@ -162,6 +162,46 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 original.name,
                 daemon.read_ticket_cycle_state()["architect_admissions"])
 
+            launches = []
+            daemon.dispatch = lambda **kwargs: launches.append(kwargs) or True
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=5, ticket_cycle_topology="normal")
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=5, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[recovered], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            expected_token = daemon.architect_admission_token(
+                request_name=original.name,
+                digest=daemon.hashlib.sha256(
+                    pathlib.Path(recovered).read_bytes()).hexdigest())
+            self.assertTrue(outcome)
+            self.assertEqual(len(launches), 1)
+            self.assertEqual(
+                launches[0]["architect_admission"], expected_token)
+
+    def test_other_admission_still_defers_fix_only_request(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request = mailbox / "0013-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"]["0012-to-fable.md"] = {
+                "mode": "normal", "sequence": 12, "sha256": "0" * 64}
+            daemon.write_ticket_cycle_state(state=state)
+            dispatch = mock.Mock(return_value=True)
+            daemon.dispatch = dispatch
+
+            outcome = daemon.drain_lane(
+                paths=[str(request)], dry_run=False, fix_only=True)
+
+            self.assertFalse(outcome)
+            dispatch.assert_not_called()
+
     def test_fix_only_request_reserves_the_finite_ticket_slot(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
             maintenance = mailbox / "0001-to-fable.md"
