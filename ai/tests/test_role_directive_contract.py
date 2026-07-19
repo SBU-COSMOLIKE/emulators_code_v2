@@ -463,6 +463,24 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertNotIn("MAILBOX-SEVERITY: high|medium|low",
                          mailbox_daemon.PREAMBLE)
 
+    def test_architect_ends_candidate_audit_with_human_assessment(self):
+        rows = (
+            "Architect review: GO|NO-GO",
+            "Implementer result: EXACT|CLOSE|PARTIAL|OFF TARGET|BLOCKED",
+            "Review history: Accepted after N Implementer attempts.|Not "
+            "accepted after N Implementer attempts.",
+            "What went well: ONE CONCRETE SENTENCE",
+            "What remains: ONE CONCRETE SENTENCE OR Nothing for this "
+            "candidate.",
+            "Scope: ONE SENTENCE ABOUT AUTHORIZED AND PROTECTED FILES",
+            "Next action: ONE CONCRETE SENTENCE",
+        )
+        positions = [self.architect.index(row) for row in rows]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("Judge only the\nexact candidate", self.architect)
+        self.assertIn("does not belong in or alter the five-line\n"
+                      "decision-only", self.architect)
+
     def test_implementer_preflights_and_stops_instead_of_designing(self):
         self.assertIn(
             'python3 "$MAILBOX_HANDOFF_CONTRACT" architect', self.implementer)

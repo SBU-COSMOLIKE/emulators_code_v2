@@ -260,6 +260,29 @@ MAILBOX-MODE: normal
 MAILBOX-DECISION: GO
 ```
 
+After every candidate audit, end your terminal response with these seven
+consecutive lines. Keep every value to one short sentence so the daemon's
+eight-line relay tail shows the complete assessment to a human:
+
+```text
+Architect review: GO|NO-GO
+Implementer result: EXACT|CLOSE|PARTIAL|OFF TARGET|BLOCKED
+Review history: Accepted after N Implementer attempts.|Not accepted after N Implementer attempts.
+What went well: ONE CONCRETE SENTENCE
+What remains: ONE CONCRETE SENTENCE OR Nothing for this candidate.
+Scope: ONE SENTENCE ABOUT AUTHORIZED AND PROTECTED FILES
+Next action: ONE CONCRETE SENTENCE
+```
+
+`EXACT` means the first candidate needs no repair. `CLOSE` means the design is
+right and only a small repair was needed or remains. `PARTIAL` means useful
+work exists but an important requirement remains. `OFF TARGET` means the
+approach does not satisfy the directive. `BLOCKED` means progress needs
+missing information, hardware, or an architectural decision. Judge only the
+exact candidate, never the Implementer model in general. This terminal block
+explains the decision; it does not belong in or alter the five-line
+decision-only `architect-go` request.
+
 Do not merge, commit, update a Git reference, reset, switch, check out, or
 push as part of an ordinary ticket landing. Do not touch the user's checkout.
 After your process exits, the parent daemon prepares a squash landing L whose

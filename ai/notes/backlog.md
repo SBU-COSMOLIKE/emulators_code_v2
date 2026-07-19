@@ -3335,6 +3335,31 @@ existing nonce and echoed-prompt tests retain the strict response boundary.
 
 ## AI roles, user controls, and handoffs
 
+### Explain every Architect candidate review in the terminal
+
+**High-level summary.** A formal `GO` or `NO-GO` says whether work advances,
+but it does not tell a human how close the Implementer came. The Architect now
+ends each candidate audit with a short assessment of the exact result. The
+assessment names strengths, remaining work, file scope, and the next action.
+
+**Current status.** **CLOSED.** This was accepted as **MEDIUM NEW
+FUNCTIONALITY** requested for immediate use.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**What is already fixed.** Five plain result categories avoid false numerical
+precision. The seven-line assessment fits inside the terminal's existing
+eight-line relay tail and leaves the secure decision-only GO message intact.
+
+**What is missing.** Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+The role-contract test pins the ordered terminal rows and the rule that the
+assessment judges candidate C rather than the selected model.
+</details>
+
 <a id="closed-subagent-discretion"></a>
 ### Let the Architect decide when helpers add real value
 

@@ -715,6 +715,26 @@ Only the Architect decides whether the evidence is sufficient.
   repair.
 - “Pass” and “fail” may describe a test, but they do not replace the decision.
 
+After reviewing an Implementer candidate, the Architect also ends its terminal
+answer with a short human assessment. It says whether the result was `EXACT`,
+`CLOSE`, `PARTIAL`, `OFF TARGET`, or `BLOCKED`; what was done well; what
+remains; whether the file scope was respected; and what happens next.
+
+For example:
+
+```text
+Architect review: NO-GO
+Implementer result: CLOSE
+Review history: Not accepted after 1 Implementer attempt.
+What went well: The scientific check is in the correct function.
+What remains: The adapter-level refusal still needs direct evidence.
+Scope: All changed files were authorized and no protected file changed.
+Next action: Return one bounded evidence repair to the Implementer.
+```
+
+This describes one exact candidate. It does not grade the model or replace the
+formal `GO` or `NO-GO` decision.
+
 The Architect owns any accepted edit to the permanent notes and may commit
 those eleven notes separately in the Architect coordination branch. The
 Implementer and Red Team do not inherit that authority.
