@@ -39,6 +39,9 @@ _MINIMUM_PERMANENT_NOTES = {
     "ai/notes/families-scalar-cmb.md",
     "ai/notes/readme-go-no-go.md",
 }
+_MINIMUM_PROTECTED_REFERENCE_FILES = {
+    "ai/notes/implementer-failure-modes.yaml",
+}
 _BOOTSTRAP_BACKLOG_PATH = "ai/notes/backlog.md"
 _BOOTSTRAP_WORKTREES = {
     "architect_branch": "refs/heads/claude/mailbox-primary",
@@ -140,7 +143,8 @@ def validate_role_contract(value):
                     "dispatch_timeout_default_minutes"),
         "protected_paths": ("candidate_forbidden_files",
                             "candidate_forbidden_prefixes", "contract",
-                            "guard_files", "permanent_notes", "role_files",
+                            "guard_files", "permanent_notes",
+                            "protected_reference_files", "role_files",
                             "trusted_tools"),
         "worktrees": ("architect_branch", "architect_name",
                       "claude_branch_prefix", "cleanup_action",
@@ -192,7 +196,8 @@ def validate_role_contract(value):
     if protected["contract"] != _BOOTSTRAP_CONTRACT_PATH:
         raise RoleContractError(
             "protected_paths.contract must match the protected reader path")
-    for group in ("candidate_forbidden_files", "permanent_notes", "role_files"):
+    for group in ("candidate_forbidden_files", "permanent_notes",
+                  "protected_reference_files", "role_files"):
         _path_list(protected[group], "protected_paths." + group)
     _type(protected["candidate_forbidden_prefixes"], list,
           "protected_paths.candidate_forbidden_prefixes")
@@ -224,6 +229,13 @@ def validate_role_contract(value):
         if path.parent != notes_root or path.suffix.casefold() != ".md":
             raise RoleContractError(
                 "permanent notes must be Markdown files beside the contract")
+    for reference in protected["protected_reference_files"]:
+        path = PurePosixPath(reference)
+        if path.parent != notes_root or path.suffix.casefold() not in {
+                ".json", ".yaml", ".yml"}:
+            raise RoleContractError(
+                "protected reference files must be structured files beside "
+                "the contract")
 
     # An editable contract may tighten configuration, but it cannot grant
     # itself authority that the reader and daemon deliberately never expose.
@@ -282,6 +294,10 @@ def validate_role_contract(value):
             protected["permanent_notes"]):
         raise RoleContractError(
             "protected permanent notes dropped a required note")
+    if not _MINIMUM_PROTECTED_REFERENCE_FILES.issubset(
+            protected["protected_reference_files"]):
+        raise RoleContractError(
+            "protected reference files dropped a required file")
     if not _MINIMUM_FORBIDDEN_FILES.issubset(
             protected["candidate_forbidden_files"]):
         raise RoleContractError(

@@ -15,6 +15,8 @@ CONTROLLER_FILES = (
     "ai/tools/handoff_contract.py",
     "ai/tools/role_contract.py",
     "ai/notes/role-contract.yaml",
+    "ai/notes/implementer-failure-modes.yaml",
+    "ai/notes/backlog.md",
 )
 
 

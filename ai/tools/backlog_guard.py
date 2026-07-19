@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Detect accidental edits to the Architect-owned local backlog.
+"""Detect accidental edits to the Architect-owned tracked backlog.
 
-``ai/notes/backlog.md`` is intentionally not committed to Git, so Git cannot
-provide the fixed reference used by ``permanent_note_guard.py``.  This tool
-instead keeps one small, ignored state file beside the backlog.  The state
-records the SHA-256 fingerprint of the exact backlog bytes last accepted by
-the Architect.
+Git preserves completed backlog updates. During an active ticket, the
+Architect may need to edit the backlog before the ticket lands. This tool
+keeps one small ignored state file beside it and records the exact bytes the
+Architect accepted for that landing.
 
 This is an accidental-change guard, not an authorization system.  A malicious
 program that can rewrite both local files can defeat it.  Its purpose is to
@@ -435,7 +434,7 @@ def seal(repo, previous_digest, acknowledged=False):
 def build_parser():
     parser = argparse.ArgumentParser(
         description=(
-            "Detect accidental changes to the Architect-owned local backlog."))
+            "Detect accidental changes to the Architect-owned backlog."))
     parser.add_argument(
         "--repo",
         help="checkout to inspect; default: the checkout containing this tool",

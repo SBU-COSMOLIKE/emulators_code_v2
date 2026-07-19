@@ -6,8 +6,9 @@ Team work.  It does not decide GO or NO-GO.  The Architect records the full
 starting commit in the implementation directive and reruns this tool before
 making that decision.
 
-The eleven Markdown notes remain a fixed census. The separate structured role
-contract receives the same byte-for-byte protection.
+The eleven Markdown notes remain a fixed census. The structured role contract
+and the small protected reference catalog receive the same byte-for-byte
+protection.
 
 The expected SHA-256 values are calculated from Git.  They are not stored in
 an editable checksum file.  The tool compares the base commit, current HEAD,
@@ -41,7 +42,10 @@ GUARD_PATH = _PATHS["guard_files"]["permanent_note_guard"]
 ROLE_CONTRACT_PATH = _PATHS["contract"]
 NOTES_ROOT = PurePosixPath(ROLE_CONTRACT_PATH).parent
 PERMANENT_NOTES = tuple(_PATHS["permanent_notes"])
-PROTECTED_POLICY_FILES = PERMANENT_NOTES + (ROLE_CONTRACT_PATH,)
+PROTECTED_REFERENCE_FILES = tuple(_PATHS["protected_reference_files"])
+PROTECTED_POLICY_FILES = (
+    PERMANENT_NOTES + PROTECTED_REFERENCE_FILES + (ROLE_CONTRACT_PATH,))
+BACKLOG_PATH = ROLE_CONTRACT["backlog"]["path"]
 
 FULL_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 MAX_FILE_BYTES = ROLE_CONTRACT["limits"]["protected_policy_file_bytes"]
@@ -144,7 +148,8 @@ def _top_level_markdown(paths):
     selected = []
     for text in paths:
         path = PurePosixPath(text)
-        if path.parent == NOTES_ROOT and path.suffix.casefold() == ".md":
+        if (path.parent == NOTES_ROOT and path.suffix.casefold() == ".md"
+                and text != BACKLOG_PATH):
             selected.append(text)
     return selected
 

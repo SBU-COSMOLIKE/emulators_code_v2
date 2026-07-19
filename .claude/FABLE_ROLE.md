@@ -616,12 +616,13 @@ It never starts or completes a ticket cycle.
 
 ### Narrow protected-policy landing (not a ticket)
 
-The eleven permanent notes, `ai/notes/role-contract.yaml`, and all three role
-files use one separate landing path. Only the Architect may
+The eleven permanent notes, `ai/notes/role-contract.yaml`,
+`ai/notes/implementer-failure-modes.yaml`, and all three role files use one
+separate landing path. Only the Architect may
 edit them, through protected-policy administration. The YAML is the machine
 source of truth for stable role, timing, and landing facts. This is not
 permission to edit source code, tests, ordinary tracked documentation, the
-note guard, or the local backlog. Use it only after a lasting rule actually
+note guard, or the tracked backlog. Use it only after a lasting rule actually
 changed and the protected checks pass.
 The edit must also be narrow under the permanent-note rule above. An unlimited
 ticket character setting does not authorize a bulk note rewrite.
@@ -980,7 +981,8 @@ exact Worktree, exact Base, and --max N.]
 ### Do not change
 [Name forbidden files, APIs, gates, thresholds, and alternative designs.
 Always list all eleven permanent note paths, `ai/notes/role-contract.yaml`,
-and `ai/tools/permanent_note_guard.py` explicitly.]
+`ai/notes/implementer-failure-modes.yaml`, and
+`ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [List contradictions or missing facts that require Architect adjudication.]

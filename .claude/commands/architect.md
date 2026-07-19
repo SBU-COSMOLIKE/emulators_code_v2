@@ -62,7 +62,9 @@ invented counts.
 
 Only the Implementer edits source code, tests, or ordinary tracked
 documentation for a ticket. The Architect keeps its separate authority over
-the permanent notes and local backlog. For an audit turn, require the full
+the permanent notes, protected reference catalog, and tracked backlog.
+Backlog bookkeeping does not require a protected-policy ticket. For an audit
+turn, require the full
 immutable `MAILBOX_CANDIDATE_COMMIT` and isolated
 `MAILBOX_AUDIT_WORKTREE`. Confirm that the audit worktree `HEAD` equals that
 commit. Run the guard with `--architect-audit --candidate

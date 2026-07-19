@@ -475,9 +475,10 @@ A real directive contains exactly one value. Only the Architect may choose
 scope, or accept a protected edit that arrived under an ordinary directive.
 An ordinary candidate that touches a protected path is an admission mismatch
 for D0 to return to the Architect.
-The eleven permanent notes, role instructions, and machine authority contract
-remain Architect-only files on the separate protected-policy route. Reject a
-candidate that tries to use this ticket class to edit them.
+The eleven permanent notes, role instructions, machine authority contract,
+and `ai/notes/implementer-failure-modes.yaml` remain Architect-only files on
+the separate protected-policy route. Reject a candidate that tries to use
+this ticket class to edit them.
 
 For `protected-control-plane`, review immutable candidate C before L exists.
 D0 supplies the exact full candidate, ticket cycle, authorized base, changed
@@ -596,7 +597,8 @@ absolute tool path, exact assigned checkout, full Base, and --max N.]
 ### Do not change
 [Name scope boundaries, forbidden files, gate surfaces, and rejected designs.
 Always list all eleven permanent note paths, `ai/notes/role-contract.yaml`,
-and `ai/tools/permanent_note_guard.py` explicitly.]
+`ai/notes/implementer-failure-modes.yaml`, and
+`ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [Name facts or conflicts that require Architect adjudication.]

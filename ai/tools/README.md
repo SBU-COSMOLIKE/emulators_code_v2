@@ -31,7 +31,7 @@ start them, what they change, and what result to expect.
 - [What happens if a candidate changes an unplanned file?](#ticket-file-scope)
 - [How does the Architect check protected project notes?](#check-protected-project-notes)
 - [How is a closed ticket reviewed?](#review-a-closed-ticket)
-- [How does the Architect protect the local backlog?](#protect-the-local-backlog)
+- [How does the Architect protect the tracked backlog?](#protect-the-tracked-backlog)
 
 **[Appendices about ticket size](#appendices-about-ticket-size)**
 
@@ -144,9 +144,9 @@ stop-related message.
 | Check that an Architect or Red Team instruction contains every required part | `handoff_contract.py` | `python3 ai/tools/handoff_contract.py --help` | Reads one Markdown note. It does not run its tests or judge the scientific plan. |
 | Read status or run the manual clipboard workflow | `handoff_router.py` | `python3 ai/tools/handoff_router.py --status` | Status only reads. A run with `--note` changes the clipboard, waits for copied replies, runs local commands, and writes relay records. |
 | Check that eleven protected project notes and the machine role contract still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the protected files. It changes nothing and does not issue `GO` or `NO-GO`. |
-| Detect an accidental change to the local backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
+| Detect an accidental change to the tracked backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
-| Package unfinished local backlog work for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
+| Package unfinished backlog work and its local supporting files for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
 ## Where do I run these commands?
 
@@ -1066,9 +1066,10 @@ the workflow itself. The protected set comes from
 `ai/notes/role-contract.yaml` and its trusted path groups. It includes the
 mailbox daemon, candidate-admission and C-to-L landing code, role and handoff
 validators, durable recovery logic, permanent-note guard code, and trusted
-workflow test harnesses. The eleven permanent notes, role instructions, and
-machine authority contract remain on the separate Architect-only protected
-policy route. An Implementer candidate may never edit those files.
+workflow test harnesses. The eleven permanent notes, role instructions,
+machine authority contract, and protected failure-mode catalog remain on the
+separate Architect-only protected policy route. An Implementer candidate may
+never edit those files.
 
 The validated Architect directive adds one exact row under `### Role plan`:
 
@@ -1210,8 +1211,9 @@ applies.
 ### Check protected project notes
 
 Only the Architect uses this result in a `GO` or `NO-GO` decision. The command
-below checks that the eleven permanent notes and `ai/notes/role-contract.yaml`
-still match the saved Git version where the work began:
+below checks that the eleven permanent notes, `ai/notes/role-contract.yaml`,
+and the protected failure-mode catalog still match the saved Git version where
+the work began:
 
 ```bash
 BASE="$(git rev-parse HEAD)"
@@ -1390,11 +1392,12 @@ cycle count. Without Red Team, the cycle ends when the watcher records L.
 
 </details>
 
-### Protect the local backlog
+### Protect the tracked backlog
 
-Git does not save `ai/notes/backlog.md`, so `backlog_guard.py` stores a local
-SHA-256 fingerprint for the exact backlog last accepted by the Architect. The
-fingerprint exposes an accidental change.
+Git saves completed versions of `ai/notes/backlog.md`. While a ticket is
+active, `backlog_guard.py` stores a local SHA-256 fingerprint for the exact
+version accepted by the Architect. The fingerprint exposes an accidental
+change before the daemon includes the sealed backlog in the ticket landing.
 
 The Architect performs three steps:
 

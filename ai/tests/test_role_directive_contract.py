@@ -803,7 +803,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
 
     def test_local_backlog_recreation_contract_is_exact_and_fail_closed(self):
         start = self.conventions.index(
-            "#### Recreate the local backlog consistently")
+            "#### Maintain the tracked backlog consistently")
         end = self.conventions.index(
             "The Architect updates the ticket in the same turn", start)
         contract = self.conventions[start:end]
@@ -811,10 +811,11 @@ class RoleDirectiveContractTests(unittest.TestCase):
 
         exact_skeleton = (
             "# Execution backlog\n\n"
-            "This file is local to this clone and is not committed to "
-            "GitHub. The Architect\n"
-            "recreates it from this contract and updates it whenever a "
-            "ticket changes.\n\n"
+            "This operational record is tracked in Git so unfinished fixes "
+            "survive a new\n"
+            "clone. Only the Architect updates it. The daemon includes the "
+            "Architect-sealed\n"
+            "ticket update in the same landing commit as the accepted fix.\n\n"
             "## Contents\n\n"
             "- [Open tickets](#open-tickets)\n"
             "- [Parked edge cases](#parked-edge-cases)\n"
@@ -867,8 +868,12 @@ class RoleDirectiveContractTests(unittest.TestCase):
             "`TYPE` is\nexactly `BUG FIX` or `NEW FUNCTIONALITY`", contract)
         self.assertIn(
             "`CRITICAL` with `NEW FUNCTIONALITY`\nis invalid", contract)
-        self.assertIn("does not copy an imported backlog\nblindly", contract)
-        self.assertIn("validates\nand normalizes it to this contract", contract)
+        self.assertIn(
+            "bundle tool is still input to review, not an automatic replacement",
+            contract_normalized)
+        self.assertIn(
+            "imported older records are brought into this shape when first touched",
+            contract_normalized)
         self.assertIn(
             "lowercase ASCII letters, digits, and hyphens", contract)
         self.assertIn("must match byte for byte", contract)
@@ -1213,7 +1218,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("edit and commit those notes in the Architect "
                       "coordination branch as a distinct policy change",
                       architect)
-        self.assertIn("all twelve exact paths", self.implementer)
+        self.assertIn("all thirteen exact paths", self.implementer)
         self.assertIn("regardless of ticket type", self.implementer)
         self.assertIn("regardless of ticket type", self.redteam)
         self.assertIn(guard, self.redteam)

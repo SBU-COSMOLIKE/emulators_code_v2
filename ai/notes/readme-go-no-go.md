@@ -81,7 +81,7 @@ correction or leave the old rule beside the new one.
 The reader needs the current rule, its reason, one concrete example when the
 reason is broad, and any present limitation. The reader does not need to know
 which request, review, model, ticket, or development session introduced it.
-Git keeps earlier tracked wording. The local backlog keeps unfinished work and
+Git keeps earlier tracked wording. The tracked backlog keeps unfinished work and
 temporary review history.
 
 These forms receive `NO-GO` when they narrate policy development:

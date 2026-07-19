@@ -64,6 +64,9 @@ class RoleContractTests(unittest.TestCase):
             loaded["protected_paths"]["role_files"],
             [".claude/FABLE_ROLE.md", ".claude/OPUS_ROLE.md",
              ".codex/REDTEAM_ROLE.md"])
+        self.assertEqual(
+            loaded["protected_paths"]["protected_reference_files"],
+            ["ai/notes/implementer-failure-modes.yaml"])
         self.assertEqual(loaded["limits"], {
             "protected_policy_file_bytes": 4 * 1024 * 1024,
             "role_contract_bytes": 64 * 1024,
@@ -227,6 +230,9 @@ class RoleContractTests(unittest.TestCase):
         note = copy.deepcopy(ROLE_CONTRACT)
         note["protected_paths"]["permanent_notes"].pop()
         cases.append(("permanent note", note))
+        reference = copy.deepcopy(ROLE_CONTRACT)
+        reference["protected_paths"]["protected_reference_files"].pop()
+        cases.append(("protected reference", reference))
         forbidden_file = copy.deepcopy(ROLE_CONTRACT)
         forbidden_file["protected_paths"][
             "candidate_forbidden_files"].remove(".gitignore")
@@ -263,6 +269,12 @@ class RoleContractTests(unittest.TestCase):
             with self.subTest(control=label):
                 with self.assertRaises(RoleContractError):
                     mailbox_daemon.validate_role_contract_bindings(drifted)
+
+    def test_failure_mode_catalog_is_forbidden_to_implementer(self):
+        self.assertIn(
+            "ai/notes/implementer-failure-modes.yaml",
+            mailbox_daemon.candidate_forbidden_files_from_contract(
+                ROLE_CONTRACT))
 
     def test_changed_contract_requires_a_fresh_process(self):
         drifted = copy.deepcopy(ROLE_CONTRACT)

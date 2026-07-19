@@ -690,9 +690,10 @@ Implementer and Red Team may read it but never change it.
 
 The nearby
 [`implementer-failure-modes.yaml`](notes/implementer-failure-modes.yaml) is a
-small reference catalog. It points from eight common problems to responses the
-tools already enforce. It creates no new authority, workflow state, or policy;
-the code and `role-contract.yaml` remain the sources of truth.
+small protected reference catalog. It points from eight common problems to
+responses the tools already enforce. The Implementer and Red Team may read it
+but cannot change it. It creates no second policy framework; the code and
+`role-contract.yaml` remain the sources of truth.
 
 For an ordinary ticket, the Architect checks the Implementer's proposed saved
 change and sends the decision. After the Architect exits, the watcher alone
@@ -956,37 +957,41 @@ only for comments or documentation. The Architect reads the contract before
 writing the directive and again before the final verdict. The contract protects
 explicit, teachable Python even when a ticket has a character-change limit.
 
-The backlog, dated reviews, incident reports, state notes, handoff registers,
-mailbox files, and relay logs are local working records. Do not add them to a
-GitHub commit.
+The backlog is the exception among working records: Git tracks it because its
+Open tickets are valuable project work. Dated reviews, incident reports,
+handoff registers, mailbox files, and relay logs remain local and are not
+committed.
 
-A clean clone therefore has no `ai/notes/backlog.md`. Before the first ticket
-is admitted, the Architect creates it from the paste-ready skeleton and exact
-ticket template in
-[`conventions-and-workflow.md`](notes/conventions-and-workflow.md#recreate-the-local-backlog-consistently).
-The user does not have to remember a private format, and two users receive the
-same headings, priorities, ticket types, links, and human explanations.
+A clean clone already contains `ai/notes/backlog.md`. If it is missing,
+restore it from the current `main` branch instead of inventing a replacement.
+The ticket format is defined in
+[`conventions-and-workflow.md`](notes/conventions-and-workflow.md#maintain-the-tracked-backlog-consistently).
 
-### Protect the local backlog
+### Protect the tracked backlog
 
 Only the Architect may edit `ai/notes/backlog.md`. The Architect protects its
 exact bytes with an Architect-owned SHA-256 check. SHA-256 produces a short
 fingerprint: changing even one character produces a different result.
+The backlog is operational state, not permanent policy. An Architect backlog
+update does not require a protected-policy ticket or Red Team policy review.
 
 Before accepting work from another role, the Architect confirms that the
 backlog still has the expected fingerprint. After the Architect deliberately
 adds, closes, reopens, or reclassifies a ticket, the Architect checks the
-human-readable entry and then records the new expected fingerprint. The
+human-readable entry and then records the new expected fingerprint. The daemon
+places that sealed version in the same landing commit as the ticket fix. The
 Implementer and Red Team do not edit either the backlog or the saved value
 used to check it. This is protection against accidental edits, not a claim
 that a checksum can defeat a deliberately malicious program.
 
-The [backlog guard guide](tools/README.md#protect-the-local-backlog) gives the
+The [backlog guard guide](tools/README.md#protect-the-tracked-backlog) gives the
 exact `check`, `initialize`, and `seal` commands.
 
-The Implementer and Red Team never edit these eleven notes or
-`ai/notes/role-contract.yaml`, regardless of the ticket type. The Architect
-decides whether an accepted change modifies a general property recorded there.
+The Implementer and Red Team never edit these eleven notes,
+`ai/notes/role-contract.yaml`, or
+`ai/notes/implementer-failure-modes.yaml`, regardless of the ticket type. The
+Architect decides whether an accepted change modifies a general property
+recorded there.
 If it does, the Architect reviews and commits the note as a separate
 Architect-only change. That new commit can then be the starting version for a
 later implementation ticket.
@@ -1593,8 +1598,8 @@ The process uses two saved project versions:
 
 - B is the exact local `main` version before the Architect starts.
 - P is the Architect's clean saved update. P follows directly after B and
-  changes only the eleven notes, `ai/notes/role-contract.yaml`, or the three
-  protected role files.
+  changes only the eleven notes, `ai/notes/role-contract.yaml`,
+  `ai/notes/implementer-failure-modes.yaml`, or the three protected role files.
 
 P has one parent: B. In Git, this means P was saved directly after B rather
 than combined with another line of work.

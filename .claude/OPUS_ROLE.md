@@ -46,8 +46,10 @@ those roles.
 ## Persisted coordination home
 
 Only the Implementer lane edits source code, tests, or ordinary tracked
-documentation for a ticket. The permanent notes and local backlog remain
-Architect-only. Subagents launched by the Implementer remain inside this lane
+documentation for a ticket. The permanent notes, protected reference catalog,
+and tracked backlog remain Architect-only. The backlog does not need a
+protected-policy ticket; its sealed ticket update lands with the accepted fix.
+Subagents launched by the Implementer remain inside this lane
 and may edit only the exact,
 non-overlapping files assigned in the Architect's plan. Architect and Red
 Team subagents are read-only. The daemon prepares an isolated execution
@@ -176,13 +178,14 @@ restores ticket worktrees.
    not invent the missing prose decision. For a changed long-form PDF, require
    the named source build, page renders, and page-by-page visual review.
 
-   The eleven permanent notes, `ai/notes/role-contract.yaml`, and
+   The eleven permanent notes, `ai/notes/role-contract.yaml`,
+   `ai/notes/implementer-failure-modes.yaml`, and
    `ai/tools/permanent_note_guard.py` are off-limits in every Implementer unit,
    not only documentation units. The YAML is the protected machine source of
    truth for stable role permissions, timing limits, and landing rules; it is
    read-only for this role and is not a twelfth permanent Markdown note. If the
-   directive's `Do not change` section does not list all twelve exact paths for
-   the notes and guard, plus the exact role-contract path,
+   directive's `Do not change` section does not list all thirteen exact paths
+   for the notes, reference catalog, and guard, plus the exact role-contract path,
    return a blocker before editing. The Architect's separate permanent-note
    landing is not an Implementer unit: do not edit, commit, synchronize,
    review, or push its B/P pair. The parent daemon handles that route only

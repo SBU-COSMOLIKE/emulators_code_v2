@@ -2,7 +2,7 @@
 
 This note explains the project-wide decisions that still shape the emulator
 library. The note does not reproduce chronological development history. Git
-preserves retired implementations, while the local backlog records unfinished
+preserves retired implementations, while the tracked backlog records unfinished
 work.
 
 Read [`MEMORY.md`](MEMORY.md) first. Use the topic notes for detailed model,

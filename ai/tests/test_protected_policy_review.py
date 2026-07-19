@@ -23,7 +23,8 @@ class ProtectedPolicyReviewTests(unittest.TestCase):
             - set(daemon.ARCHITECT_PERMANENT_NOTE_PATHS),
             {".claude/FABLE_ROLE.md", ".claude/OPUS_ROLE.md",
              ".codex/REDTEAM_ROLE.md",
-             "ai/notes/role-contract.yaml"})
+             "ai/notes/role-contract.yaml",
+             "ai/notes/implementer-failure-modes.yaml"})
         self.assertTrue(
             set(daemon.ARCHITECT_PROTECTED_POLICY_PATHS).issubset(
                 daemon.ARCHITECT_PROTECTED_TRACKED_PATHS))

@@ -25,9 +25,12 @@ contradictory, or leaves a consequential design choice open, return a blocker;
 do not invent the missing architecture.
 
 Only this role edits source code, tests, or ordinary tracked documentation for
-a ticket. The eleven permanent notes and the local backlog remain
-Architect-only. Their separate B-to-P landing is not an Implementer ticket;
-do not edit, commit, review, synchronize, or push it. A
+a ticket. The permanent notes, protected reference catalog, and tracked
+backlog remain Architect-only. The separate B-to-P protected-policy landing is
+not an Implementer ticket. The backlog does not use that route: the daemon
+includes its sealed ticket update in the accepted fix's landing commit. Do
+not edit, commit, review, synchronize, or push any of these Architect-owned
+files. A
 `MAILBOX-ADMIN: permanent-notes` request is a routing error in this role. Wait
 until the parent daemon lands P and advances the safe clean role baselines;
 never bypass that deferral. Never run

@@ -9,13 +9,18 @@ interfaces, failure boundaries, and evidence that remains useful after one
 bounded work request, called a ticket, closes.
 The permanent notes are not a development diary. Git, the repository's
 version-control system, stores old
-wording and superseded designs. The local backlog stores unfinished work.
+wording and superseded designs. The tracked backlog stores unfinished work.
 
 `role-contract.yaml` is a separate protected machine contract. It records
 stable role permissions, timing limits, and landing rules for tool validation.
 It is not a twelfth permanent Markdown note. Only the Architect may edit it,
 through protected-policy administration; the Implementer and Red Team may
 only read it.
+
+`implementer-failure-modes.yaml` is a protected reference catalog beside the
+contract. It names common implementation failures and points to responses the
+tools already enforce. It adds no new workflow state. Only the Architect may
+edit it through the same protected-policy administration path.
 
 The operating workflow is explained in [`ai/README.md`](../README.md).
 
@@ -54,7 +59,7 @@ A permanent-note change receives GO only when every statement below is true:
    example makes the boundary easier to understand.
 8. A required behavior that the current code violates is not hidden inside a
    permanent note. The durable rule stays in its topic note, while the
-   Architect creates or updates a local backlog ticket in the same turn. A
+   Architect creates or updates a tracked backlog ticket in the same turn. A
    deliberate unsupported capability is stated as a present boundary, not as
    promised future work.
 9. The planned edit is the smallest change that records the durable fact.
@@ -104,7 +109,7 @@ The final permanent-note change receives GO only when all of these checks pass:
 - Related sections describe one coherent current system. They contain no
   dated correction, `hard user rule`, generic-user attribution, review round,
   or later paragraph that repairs an older policy paragraph left in place.
-- Open work is not inferred from the permanent note. The local backlog and
+- Open work is not inferred from the permanent note. The tracked backlog and
   executable gates determine current work and current evidence.
 - The plain-language, neutral-audience, and anti-AI requirements in
   [`readme-go-no-go.md`](readme-go-no-go.md) also govern permanent-note prose.
@@ -188,18 +193,19 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
     for tracked READMEs, long-form documentation, and explanatory Python
     comments, docstrings, command help, diagnostics, and strings.
 
-The protected `role-contract.yaml` beside these notes does not change this
-count. It is structured input for tools, not explanatory Markdown knowledge.
+The protected `role-contract.yaml` and `implementer-failure-modes.yaml` beside
+these notes do not change this count. They are structured input for tools, not
+explanatory Markdown knowledge.
 
 `MEMORY.md` changes only when the permanent map or the permanent-note contract
 needs clarification. The file is not a per-ticket index.
 
-## Local working records
+## Working records
 
-The backlog, gate board, state notes, audits, incident reports, and handoff
-registers are local working records. These records remain in the local
-checkout and stay outside Git. The records may contain dates and execution
-detail because the records describe temporary work.
+The backlog is an Architect-owned working record that stays in Git so Open
+tickets survive a new clone. Gate state, audits, incident reports, and handoff
+registers remain local and stay outside Git. Working records may contain dates
+and execution detail because they describe temporary work.
 
 The Architect and Red Team provide the reasoning. A directive must resolve
 design choices and give the Implementer complete, ordered steps. The
@@ -285,7 +291,7 @@ repository history rather than from emailed working files.
 
 ## Finding current execution state
 
-Use the local `ai/notes/backlog.md` for countable unfinished work. Use
+Use the tracked `ai/notes/backlog.md` for countable unfinished work. Use
 `python3 ai/gates/run_board.py --list` for the gate inventory. Use
 `python3 ai/tools/handoff_router.py --status` for a read-only workflow summary.
 Do not infer current work from a permanent-note paragraph.

@@ -20,6 +20,7 @@ SOURCE = REPO_ROOT / "ai" / "tools" / "permanent_note_guard.py"
 SOURCE_READER = REPO_ROOT / "ai" / "tools" / "role_contract.py"
 SOURCE_ROLE_CONTRACT = REPO_ROOT / "ai" / "notes" / "role-contract.yaml"
 ROLE_CONTRACT = "ai/notes/role-contract.yaml"
+FAILURE_MODES = "ai/notes/implementer-failure-modes.yaml"
 PERMANENT_NOTES = (
     "ai/notes/MEMORY.md",
     "ai/notes/artifacts-inference-warmstart.md",
@@ -74,9 +75,10 @@ def scratch_repository():
         contract = repo / ROLE_CONTRACT
         contract.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(SOURCE_ROLE_CONTRACT, contract)
+        shutil.copy2(REPO_ROOT / FAILURE_MODES, repo / FAILURE_MODES)
         run_git(repo, "add", "ai/tools/permanent_note_guard.py",
                 "ai/tools/role_contract.py")
-        run_git(repo, "add", *PERMANENT_NOTES, ROLE_CONTRACT)
+        run_git(repo, "add", *PERMANENT_NOTES, ROLE_CONTRACT, FAILURE_MODES)
         run_git(repo, "commit", "-q", "-m", "guard base")
         base = run_git(repo, "rev-parse", "HEAD")
         yield repo, guard, base
@@ -112,8 +114,17 @@ class PermanentNoteGuardTests(unittest.TestCase):
             for path in PERMANENT_NOTES:
                 self.assertIn(path, result.stdout)
             self.assertIn(ROLE_CONTRACT, result.stdout)
+            self.assertIn(FAILURE_MODES, result.stdout)
             self.assertIn("states: current HEAD, Git staging area, working tree",
                           result.stdout)
+
+    def test_failure_mode_catalog_change_refuses(self):
+        with scratch_repository() as (repo, guard, base):
+            with (repo / FAILURE_MODES).open("a", encoding="utf-8") as stream:
+                stream.write("\n")
+            result = run_guard(repo, guard, base)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(FAILURE_MODES, result.stderr)
 
     def test_unstaged_note_edit_refuses(self):
         with scratch_repository() as (repo, guard, base):
@@ -247,6 +258,7 @@ class PermanentNoteGuardTests(unittest.TestCase):
         for match in re.finditer(r"^!/ai/notes/([^/]+\.md)$", ignore_text,
                                  flags=re.MULTILINE):
             whitelisted.add("ai/notes/" + match.group(1))
+        whitelisted.discard("ai/notes/backlog.md")
         self.assertEqual(whitelisted, expected)
         self.assertRegex(ignore_text, r"(?m)^!/ai/notes/role-contract\.yaml$")
 
@@ -291,11 +303,13 @@ class PermanentNoteGuardTests(unittest.TestCase):
             path = Path(path_text)
             if path.parent == Path("ai/notes") and path.suffix == ".md":
                 tracked_notes.add(path_text)
+        tracked_notes.discard("ai/notes/backlog.md")
         self.assertEqual(tracked_notes, expected)
         self.assertTrue(
             (REPO_ROOT / ROLE_CONTRACT).is_file(),
             "the protected YAML contract must not change the eleven-note count",
         )
+        self.assertTrue((REPO_ROOT / FAILURE_MODES).is_file())
 
 
 if __name__ == "__main__":

@@ -56,6 +56,9 @@
       "ai/notes/families-scalar-cmb.md",
       "ai/notes/readme-go-no-go.md"
     ],
+    "protected_reference_files": [
+      "ai/notes/implementer-failure-modes.yaml"
+    ],
     "role_files": [
       ".claude/FABLE_ROLE.md",
       ".claude/OPUS_ROLE.md",

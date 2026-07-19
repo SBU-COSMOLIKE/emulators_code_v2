@@ -33,6 +33,7 @@ HANDOFF_CONTRACT_PATH = AI_ROOT / "tools" / "handoff_contract.py"
 PERMANENT_NOTE_GUARD_PATH = AI_ROOT / "tools" / "permanent_note_guard.py"
 ROLE_CONTRACT_TOOL_PATH = AI_ROOT / "tools" / "role_contract.py"
 ROLE_CONTRACT_PATH = AI_ROOT / "notes" / "role-contract.yaml"
+FAILURE_MODES_PATH = AI_ROOT / "notes" / "implementer-failure-modes.yaml"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 OTHER_TRUSTED_TOOLS = (
     "backlog_bundle.py",
@@ -235,6 +236,10 @@ def scratch_repository(source=None):
         write_exact(
             root / "ai" / "notes" / "role-contract.yaml",
             ROLE_CONTRACT_PATH.read_bytes())
+        write_exact(
+            root / "ai" / "notes" / "implementer-failure-modes.yaml",
+            FAILURE_MODES_PATH.read_bytes())
+        write_exact(root / "ai" / "notes" / "backlog.md", b"")
         # Worktrees and their two bootstrap sidecars are runtime state.  The
         # production ignore rule is asserted separately; the scratch rule
         # prevents Git status from recursively inspecting linked checkouts.
@@ -252,10 +257,8 @@ def scratch_repository(source=None):
         git(root, "symbolic-ref", "HEAD", "refs/heads/main")
         git(root, "config", "user.name", "Primary Worktree Witness")
         git(root, "config", "user.email", "primary@example.invalid")
-        # backlog.md and its checksum state remain absent on the synthetic
-        # clean clone. Individual ticket arms create and seal them only when
-        # they need a ledger; transport-only Sol work proves both-absent is a
-        # valid bootstrap state.
+        # A clean clone contains the tracked backlog. The first live action
+        # creates its ignored local fingerprint.
         git(root, "add", ".gitignore", ".claude/.keep",
             ".claude/FABLE_ROLE.md",
             ".claude/OPUS_ROLE.md", ".codex/REDTEAM_ROLE.md",
@@ -265,7 +268,9 @@ def scratch_repository(source=None):
             "ai/tools/permanent_note_guard.py",
             "ai/tools/role_contract.py",
             *["ai/tools/" + name for name in OTHER_TRUSTED_TOOLS],
-            "ai/notes/role-contract.yaml")
+            "ai/notes/role-contract.yaml",
+            "ai/notes/implementer-failure-modes.yaml",
+            "ai/notes/backlog.md")
         git(root, "add", *[
             "ai/notes/" + note_name for note_name in PERMANENT_NOTES])
         git(root, "commit", "-m", "scratch daemon fixture")
@@ -550,7 +555,7 @@ def arm_all_live_actions_bootstrap(source=None):
                             "MAILBOX-SEVERITY: " + expected + "\n"
                             "MAILBOX-SCOPE: bounded\n\n"))
             records = worktree_records(root)
-            expected_rc = (124 if label == "watch" else 0)
+            expected_rc = 0
             passed = (
                 rc == expected_rc and stderr == ""
                 and validate_topology(root)
@@ -788,7 +793,8 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         state = daemon.read_ticket_cycle_state()
         state["active"][cycle] = {
             "phase": "implementation", "commit": None,
-            "mode": "normal", "route": "primary"}
+            "mode": "normal", "route": "primary",
+            "ticket_class": "ordinary"}
         daemon.write_ticket_cycle_state(state=state)
 
         marker = root / "user-main-during-unstarted-ticket.txt"

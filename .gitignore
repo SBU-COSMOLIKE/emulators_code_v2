@@ -27,16 +27,17 @@ documentation/*Notes.bib
 ai/notes/mailbox/
 ai/notes/relay/
 
-# The Architect's local backlog fingerprint, write lock, and interrupted
-# atomic-write files.  The backlog itself is already excluded by the local
-# Markdown rule below.
+# The Architect's backlog fingerprint, write lock, and interrupted
+# atomic-write files are local machinery. The backlog itself is tracked.
 /ai/notes/.backlog-guard.json
 /ai/notes/.backlog-guard.lock
 /ai/notes/.backlog-guard.json.tmp-*
+/ai/notes/.backlog-sync-recovery
 
-# Only the eleven permanent, general-property notes belong in Git.  Every other
-# top-level Markdown note is a local ticket record.
+# Keep the eleven permanent notes and the Architect-owned operational backlog.
+# Every other top-level Markdown note is a local ticket record.
 /ai/notes/*.md
+!/ai/notes/backlog.md
 !/ai/notes/MEMORY.md
 !/ai/notes/artifacts-inference-warmstart.md
 !/ai/notes/conventions-and-workflow.md

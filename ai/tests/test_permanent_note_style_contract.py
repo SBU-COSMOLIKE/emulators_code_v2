@@ -92,7 +92,7 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
         self.assertIn("Acceptance evidence:", memory)
         self.assertIn("future development model and a physics undergraduate",
                       " ".join(memory.split()))
-        self.assertIn("creates or updates a local backlog ticket in the same turn",
+        self.assertIn("creates or updates a tracked backlog ticket in the same turn",
                       memory)
         self.assertIn("anti-AI requirements", memory)
         self.assertIn(

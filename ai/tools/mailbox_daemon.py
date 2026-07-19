@@ -313,7 +313,10 @@ CANDIDATE_REF_ROOT = "refs/mailbox/cycles"
 AUDIT_WORKTREE_PREFIX = "mailbox-audit-"
 _PROTECTED_PATHS = ROLE_CONTRACT["protected_paths"]
 ARCHITECT_PERMANENT_NOTE_PATHS = tuple(_PROTECTED_PATHS["permanent_notes"])
+ARCHITECT_PROTECTED_REFERENCE_PATHS = tuple(
+    _PROTECTED_PATHS["protected_reference_files"])
 ROLE_CONTRACT_RELATIVE_PATH = _PROTECTED_PATHS["contract"]
+BACKLOG_RELATIVE_PATH = ROLE_CONTRACT["backlog"]["path"]
 ARCHITECT_ROLE_PATHS = tuple(_PROTECTED_PATHS["role_files"])
 ARCHITECT_GUARD_PATHS_BY_NAME = dict(_PROTECTED_PATHS["guard_files"])
 PERMANENT_NOTE_GUARD_RELATIVE_PATH = (
@@ -328,6 +331,7 @@ ARCHITECT_TRUSTED_TOOL_PATHS = (
     + tuple(ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME.values()))
 ARCHITECT_PROTECTED_POLICY_PATHS = (
     ARCHITECT_PERMANENT_NOTE_PATHS
+    + ARCHITECT_PROTECTED_REFERENCE_PATHS
     + ARCHITECT_ROLE_PATHS + (ROLE_CONTRACT_RELATIVE_PATH,))
 ARCHITECT_PROTECTED_TRACKED_PATHS = (
     ARCHITECT_PROTECTED_POLICY_PATHS + ARCHITECT_GUARD_PATHS)
@@ -339,6 +343,7 @@ def candidate_forbidden_files_from_contract(contract):
     return frozenset(
         protected["candidate_forbidden_files"]
         + protected["permanent_notes"]
+        + protected["protected_reference_files"]
         + protected["role_files"]
         + [protected["contract"]])
 
@@ -439,6 +444,7 @@ def role_contract_exit_status():
 
 
 BACKLOG_GUARD_STATE_NAME = ".backlog-guard.json"
+BACKLOG_SYNC_RECOVERY_NAME = ".backlog-sync-recovery"
 MAX_PROTECTED_NOTE_BYTES = ROLE_CONTRACT["limits"][
     "protected_policy_file_bytes"]
 MAX_BACKLOG_GUARD_STATE_BYTES = 16 * 1024
@@ -2093,6 +2099,24 @@ def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
     _symbolic_worktree_branch(
         worktree=primary_path, expected_branch=primary_branch,
         label="Architect")
+    old_backlog = _run_git(
+        repository_root=primary_path,
+        arguments=["cat-file", "-e",
+                   primary_head + ":" + BACKLOG_RELATIVE_PATH],
+        check=False)
+    new_backlog = _run_git(
+        repository_root=primary_path,
+        arguments=["show", target + ":" + BACKLOG_RELATIVE_PATH],
+        check=False)
+    working_backlog = os.path.join(primary_path, BACKLOG_RELATIVE_PATH)
+    if (old_backlog.returncode != 0 and new_backlog.returncode == 0
+            and os.path.lexists(working_backlog)):
+        sealed = _validate_sealed_backlog(primary_worktree=primary_path)
+        if sealed != new_backlog.stdout:
+            raise PrimaryWorktreeError(
+                "tracked backlog migration conflicts with the sealed local "
+                "backlog; both versions were preserved")
+        os.unlink(working_backlog)
     if _clean_worktree_status(worktree=primary_path):
         raise PrimaryWorktreeError(
             "stale Architect primary has work; landing authority cannot "
@@ -3828,9 +3852,8 @@ def verified_backlog_lines():
         initial = os.lstat(BACKLOG_LEDGER)
     except FileNotFoundError:
         return None, (
-            "ai/notes/backlog.md is missing; the Architect must recreate "
-            "the local backlog from the permanent contract before ticket "
-            "dispatch")
+            "ai/notes/backlog.md is missing; restore the tracked file from "
+            "the current main branch before ticket dispatch")
     except OSError as exc:
         return None, "cannot inspect ai/notes/backlog.md: " + str(exc)
     if stat.S_ISLNK(initial.st_mode) or not stat.S_ISREG(initial.st_mode):
@@ -6942,7 +6965,8 @@ def _architect_ordinary_tracked_state(worktree, base_commit, cached):
     arguments.extend([base_commit, "--", "."])
     arguments.extend(
         ":(top,exclude)" + path
-        for path in ARCHITECT_PERMANENT_NOTE_PATHS)
+        for path in ARCHITECT_PERMANENT_NOTE_PATHS
+        + (BACKLOG_RELATIVE_PATH,))
     try:
         result = _run_git(
             repository_root=worktree, arguments=arguments, check=False)
@@ -6957,9 +6981,9 @@ def _architect_ordinary_tracked_state(worktree, base_commit, cached):
 def _ordinary_untracked_worktree_state(worktree):
     """Return every nonignored untracked path in one persistent worktree.
 
-    Mailbox transport, relay logs, the local backlog, and temporary note
-    evidence are deliberately ignored by Git and therefore do not appear in
-    this proof.  A newly created source, test, README, or tool does appear.
+    Mailbox transport, relay logs, and temporary note evidence are ignored by
+    Git and therefore do not appear in this proof. The tracked backlog has its
+    own Architect seal. A newly created source, test, README, or tool appears.
     """
     try:
         result = _run_git(
@@ -7021,6 +7045,8 @@ def _require_exact_permanent_note_set(primary_worktree, head):
         raw_paths=head_result.stdout, label="Architect HEAD")
     index_notes = _top_level_tracked_markdown(
         raw_paths=index_result.stdout, label="Architect index")
+    head_notes.discard(BACKLOG_RELATIVE_PATH)
+    index_notes.discard(BACKLOG_RELATIVE_PATH)
     if head_notes != expected or index_notes != expected:
         raise PrimaryWorktreeError(
             "Architect HEAD and index must contain exactly the eleven "
@@ -7168,11 +7194,51 @@ def require_closed_backlog_ticket(ticket_anchor, sealed_backlog):
 
 
 def _bridge_local_sealed_backlog(primary_worktree):
-    """Copy a sealed backlog into an empty primary."""
+    """Adopt legacy local state or initialize the tracked backlog seal."""
     names = ("backlog.md", BACKLOG_GUARD_STATE_NAME)
     source_notes = os.path.join(REPO_ROOT, "ai", "notes")
     target_notes = os.path.join(primary_worktree, "ai", "notes")
     targets = [os.path.join(target_notes, name) for name in names]
+    recovery = os.path.join(target_notes, BACKLOG_SYNC_RECOVERY_NAME)
+    if os.path.lexists(recovery):
+        saved = stable_regular_bytes(
+            path=recovery, maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+            label="backlog sync recovery")
+        if not os.path.lexists(targets[0]):
+            os.replace(recovery, targets[0])
+        else:
+            working = stable_regular_bytes(
+                path=targets[0], maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+                label="Architect backlog")
+            if working == saved:
+                os.unlink(recovery)
+            else:
+                head = _run_git(
+                    repository_root=primary_worktree,
+                    arguments=["show", "HEAD:" + BACKLOG_RELATIVE_PATH],
+                    check=False)
+                if head.returncode != 0 or head.stdout != working:
+                    raise PrimaryWorktreeError(
+                        "backlog sync recovery conflicts with visible work")
+                os.replace(recovery, targets[0])
+    if os.path.lexists(targets[0]) and not os.path.lexists(targets[1]):
+        committed = _run_git(
+            repository_root=primary_worktree,
+            arguments=["show", "HEAD:" + BACKLOG_RELATIVE_PATH],
+            check=False)
+        if (committed.returncode == 0
+                and len(committed.stdout) <= MAX_BACKLOG_LEDGER_BYTES):
+            working = stable_regular_bytes(
+                path=targets[0], maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+                label="tracked Architect backlog")
+        else:
+            working = None
+        if working is not None and committed.stdout == working:
+            _atomic_write_primary_state(
+                state={"backlog": BACKLOG_RELATIVE_PATH,
+                       "sha256": hashlib.sha256(working).hexdigest(),
+                       "version": 1},
+                path=targets[1])
     if all(os.path.lexists(path) for path in targets):
         _validate_sealed_backlog(primary_worktree=primary_worktree)
         return
@@ -9833,6 +9899,47 @@ def _exact_squash_tree(parent_commit, candidate_commit):
     return tree
 
 
+def _tree_with_backlog(tree, backlog):
+    """Return ``tree`` with the Architect-sealed backlog bytes."""
+    with tempfile.TemporaryDirectory(prefix="mailbox-backlog-index-") as tmp:
+        environment = os.environ.copy()
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            environment.pop(name, None)
+        environment["GIT_INDEX_FILE"] = os.path.join(tmp, "index")
+
+        def git(arguments, input_bytes=None):
+            result = subprocess.run(
+                ["git", "-C", AGENT_CWD["fable"]] + arguments,
+                env=environment, input=input_bytes, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False)
+            if result.returncode != 0:
+                raise TicketCycleStateError(
+                    "cannot add the sealed backlog to the landing tree")
+            return result.stdout
+
+        git(["read-tree", tree])
+        blob = git(["hash-object", "-w", "--stdin"], backlog).decode(
+            "ascii", errors="strict").strip()
+        git(["update-index", "--add", "--cacheinfo", "100644", blob,
+             BACKLOG_RELATIVE_PATH])
+        result = git(["write-tree"]).decode("ascii", errors="strict").strip()
+    if FULL_COMMIT_RE.fullmatch(result) is None:
+        raise TicketCycleStateError("Git did not return one backlog tree")
+    return result
+
+
+def _landing_backlog(landing_commit):
+    """Read the exact backlog that one prepared landing preserves."""
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["show", landing_commit + ":" + BACKLOG_RELATIVE_PATH],
+        check=False)
+    if result.returncode != 0 or len(result.stdout) > MAX_BACKLOG_LEDGER_BYTES:
+        raise TicketCycleStateError(
+            "prepared landing has no valid tracked backlog")
+    return result.stdout
+
+
 def cycle_landing_ref(cycle_id):
     """Return the private crash-journal ref for one prepared landing."""
     return cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
@@ -9893,11 +10000,18 @@ def _landing_commit_message(cycle_id, candidate_commit):
         + "Mailbox-Candidate: " + candidate_commit + "\n")
 
 
-def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit):
+def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
+                             expected_backlog=None):
     """Return L's parent after proving the exact journaled C -> L squash."""
     parent_commit = _single_commit_parent(commit=landing_commit)
-    expected_tree = _exact_squash_tree(
-        parent_commit=parent_commit, candidate_commit=candidate_commit)
+    backlog = _landing_backlog(landing_commit=landing_commit)
+    if expected_backlog is not None and backlog != expected_backlog:
+        raise TicketCycleStateError(
+            "prepared landing backlog differs from the Architect seal")
+    expected_tree = _tree_with_backlog(
+        tree=_exact_squash_tree(
+            parent_commit=parent_commit, candidate_commit=candidate_commit),
+        backlog=backlog)
     landing_tree = _exact_git_object(
         arguments=["rev-parse", "--verify", landing_commit + "^{tree}"],
         label="prepared landing tree")
@@ -9926,7 +10040,8 @@ def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit):
     return parent_commit
 
 
-def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
+def prepare_exact_squash_landing(cycle_id, candidate_commit, mode,
+                                 sealed_backlog=None):
     """Create or reuse exact L without touching any checkout or branch."""
     lock_file = acquire_ticket_cycle_lock()
     try:
@@ -9943,6 +10058,9 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
         if record is None or record["commit"] != candidate_commit:
             raise TicketCycleStateError(
                 "Architect GO does not name the exact saved candidate")
+        if sealed_backlog is None:
+            sealed_backlog = _validate_sealed_backlog(
+                primary_worktree=AGENT_CWD["fable"])
         reference = cycle_landing_ref(cycle_id=cycle_id)
         prepared = git_ref_commit(reference=reference)
         current_main = _exact_git_object(
@@ -9951,7 +10069,7 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
         if prepared is not None:
             parent = _verify_prepared_landing(
                 cycle_id=cycle_id, candidate_commit=candidate_commit,
-                landing_commit=prepared)
+                landing_commit=prepared, expected_backlog=sealed_backlog)
             main_problem = _prepared_landing_main_problem(
                 candidate_commit=candidate_commit,
                 landing_commit=prepared, parent_commit=parent,
@@ -9963,9 +10081,11 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
             ancestor=cycle_starting_commit(cycle_id),
             descendant=current_main,
             label="landing parent does not preserve the cycle base")
-        tree = _exact_squash_tree(
-            parent_commit=current_main,
-            candidate_commit=candidate_commit)
+        tree = _tree_with_backlog(
+            tree=_exact_squash_tree(
+                parent_commit=current_main,
+                candidate_commit=candidate_commit),
+            backlog=sealed_backlog)
         parent_tree = _exact_git_object(
             arguments=["rev-parse", "--verify", current_main + "^{tree}"],
             label="landing parent tree")
@@ -10007,7 +10127,7 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
                 "landing crash journal did not preserve the created commit")
         parent = _verify_prepared_landing(
             cycle_id=cycle_id, candidate_commit=candidate_commit,
-            landing_commit=landing)
+            landing_commit=landing, expected_backlog=sealed_backlog)
         return landing, parent, reference
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
@@ -10871,6 +10991,7 @@ normalized = d.validate_ticket_cycle_state(state)
 assert normalized['active'][cycle]['control_plane'] == control
 
 os.makedirs(d.MAILBOX, exist_ok=True)
+d._bridge_local_sealed_backlog(shadow_repository)
 owner = d.acquire_dispatch_lock(mode='once')
 assert owner is not None
 try:
@@ -11123,7 +11244,8 @@ def record_control_plane_check(cycle_id, candidate_commit, kind, ok,
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
-def execute_architect_go_locked(cycle_id, candidate_commit, mode):
+def execute_architect_go_locked(cycle_id, candidate_commit, mode,
+                                sealed_backlog=None):
     """Land C as exact L and durably advance state before any push."""
     protected = control_plane_ticket_state(
         cycle_id=cycle_id, candidate_commit=candidate_commit) is not None
@@ -11139,11 +11261,11 @@ def execute_architect_go_locked(cycle_id, candidate_commit, mode):
     if landing is None:
         landing, parent, _reference = prepare_exact_squash_landing(
             cycle_id=cycle_id, candidate_commit=candidate_commit,
-            mode=mode)
+            mode=mode, sealed_backlog=sealed_backlog)
     else:
         parent = _verify_prepared_landing(
             cycle_id=cycle_id, candidate_commit=candidate_commit,
-            landing_commit=landing)
+            landing_commit=landing, expected_backlog=sealed_backlog)
         journaled = git_ref_commit(
             reference=cycle_landing_ref(cycle_id=cycle_id))
         if journaled is not None and journaled != landing:
@@ -11209,15 +11331,17 @@ def require_architect_landing_locked(cycle_id, landing_commit,
         ancestor=cycle_starting_commit(cycle_id),
         descendant=parent_commit,
         label="landing parent does not preserve the cycle base")
-    expected_tree = _exact_squash_tree(
-        parent_commit=parent_commit, candidate_commit=candidate_commit)
+    expected_tree = _tree_with_backlog(
+        tree=_exact_squash_tree(
+            parent_commit=parent_commit, candidate_commit=candidate_commit),
+        backlog=_landing_backlog(landing_commit=landing_commit))
     landing_tree = _exact_git_object(
         arguments=["rev-parse", "--verify", landing_commit + "^{tree}"],
         label="Architect landing tree")
     if landing_tree != expected_tree:
         raise TicketCycleStateError(
-            "Architect landing tree is not the exact candidate squash on "
-            "its parent")
+            "Architect landing tree is not the exact candidate plus its "
+            "sealed backlog on the landing parent")
     return candidate_commit
 
 
@@ -11350,13 +11474,69 @@ def _symbolic_worktree_branch(worktree, expected_branch, label):
             label + " checkout left its saved branch")
 
 
+def _architect_backlog_matches_target(worktree, target):
+    """Return whether the sealed backlog is the only change and is in L."""
+    changed = _run_git(
+        repository_root=worktree,
+        arguments=["diff", "--name-only", "-z", "HEAD", "--", "."])
+    try:
+        paths = {item.decode("utf-8", errors="strict")
+                 for item in changed.stdout.split(b"\0") if item}
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "Architect changed a non-UTF-8 path") from exc
+    untracked = _run_git(
+        repository_root=worktree,
+        arguments=["ls-files", "--others", "--exclude-standard", "-z",
+                   "--", "."])
+    if paths != {BACKLOG_RELATIVE_PATH} or untracked.stdout:
+        return False
+    target_backlog = _landing_backlog(landing_commit=target)
+    try:
+        working = stable_regular_bytes(
+            path=os.path.join(worktree, BACKLOG_RELATIVE_PATH),
+            maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
+            label="Architect backlog")
+    except (OSError, ValueError) as exc:
+        raise TicketCycleStateError(str(exc)) from exc
+    return working == target_backlog
+
+
+def _clear_landed_architect_backlog(worktree, target):
+    """Restore old bytes before a fast-forward that contains the same edit."""
+    if not _architect_backlog_matches_target(
+            worktree=worktree, target=target):
+        raise TicketCycleStateError(
+            "Architect checkout has work beyond the backlog in this landing")
+    backlog = os.path.join(worktree, BACKLOG_RELATIVE_PATH)
+    recovery = os.path.join(
+        worktree, "ai", "notes", BACKLOG_SYNC_RECOVERY_NAME)
+    if os.path.lexists(recovery):
+        raise TicketCycleStateError("backlog sync recovery already exists")
+    os.replace(backlog, recovery)
+    result = _run_git(
+        repository_root=worktree,
+        arguments=["restore", "--source=HEAD", "--staged", "--worktree",
+                   "--", BACKLOG_RELATIVE_PATH],
+        check=False)
+    if result.returncode != 0 or _clean_worktree_status(worktree=worktree):
+        os.replace(recovery, backlog)
+        raise TicketCycleStateError(
+            "Architect backlog could not be prepared for baseline sync")
+    return recovery
+
+
 def sync_clean_role_baseline(worktree, expected_branch, target, label):
     """Fast-forward one clean role baseline to an exact landed commit."""
     _symbolic_worktree_branch(
         worktree=worktree, expected_branch=expected_branch, label=label)
+    recovery = None
     if _clean_worktree_status(worktree=worktree):
-        raise TicketCycleStateError(
-            label + " checkout has staged, unstaged, or untracked work")
+        if label != "Architect":
+            raise TicketCycleStateError(
+                label + " checkout has staged, unstaged, or untracked work")
+        recovery = _clear_landed_architect_backlog(
+            worktree=worktree, target=target)
     current = worktree_head(worktree=worktree)
     if current == target:
         return False
@@ -11367,12 +11547,17 @@ def sync_clean_role_baseline(worktree, expected_branch, target, label):
         repository_root=worktree,
         arguments=["merge", "--ff-only", target], check=False)
     if result.returncode != 0:
+        if recovery is not None:
+            os.replace(recovery, os.path.join(
+                worktree, BACKLOG_RELATIVE_PATH))
         raise TicketCycleStateError(
             label + " baseline could not fast-forward to the landing")
     if (worktree_head(worktree=worktree) != target
             or _clean_worktree_status(worktree=worktree)):
         raise TicketCycleStateError(
             label + " baseline did not advance cleanly to the landing")
+    if recovery is not None:
+        os.unlink(recovery)
     return True
 
 
@@ -11386,7 +11571,10 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
             (AGENT_CWD["sol"], SOL_BRANCH, "Red Team")):
         _symbolic_worktree_branch(
             worktree=worktree, expected_branch=branch, label=label)
-        if _clean_worktree_status(worktree=worktree):
+        if (_clean_worktree_status(worktree=worktree)
+                and not (label == "Architect"
+                         and _architect_backlog_matches_target(
+                             worktree=worktree, target=target))):
             raise TicketCycleStateError(
                 label + " checkout has work that baseline sync would touch")
         current = worktree_head(worktree=worktree)
@@ -11800,7 +11988,8 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
             + ". Stop the other landing process and restart.")
     try:
         landing, completed = execute_architect_go_locked(
-            cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
+            cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode,
+            sealed_backlog=sealed_backlog)
     except RetryableArchitectLandingError as exc:
         release_main_checkout_turn_lock(lock_file=main_lock)
         if (protected is not None

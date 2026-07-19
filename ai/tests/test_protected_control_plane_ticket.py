@@ -80,12 +80,14 @@ class ProtectedPathTests(unittest.TestCase):
             changed_paths={path}, path_scope={path},
             ticket_class="protected-control-plane"),
         ("PROTECTED_PATH_VIOLATION", {path}))
+    self.assertNotIn(path, daemon.ARCHITECT_PROTECTED_POLICY_PATHS)
 
   def test_protected_class_keeps_policy_files_architect_only(self):
     """A protected candidate cannot edit permanent memory or authority."""
     for path in (
         "ai/notes/MEMORY.md",
         "ai/notes/role-contract.yaml",
+        "ai/notes/implementer-failure-modes.yaml",
         ".claude/FABLE_ROLE.md",
     ):
       with self.subTest(path=path):

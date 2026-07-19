@@ -229,7 +229,7 @@ role authority, Git worktree ownership, mailbox route, or evidence
 requirements.
 
 Only the Implementer edits source code, tests, or ordinary tracked
-documentation for a ticket. The Architect writes plans, maintains the local
+documentation for a ticket. The Architect writes plans, maintains the tracked
 backlog and permanent notes, audits named commits, and records GO or NO-GO.
 The parent daemon performs the controlled landing after an Architect GO. The
 Red Team writes findings and audit returns. Architect and Red Team audits read
@@ -469,7 +469,7 @@ of the exact daemon-recorded landing L. Neither review follows the Implementer's
 branch.
 
 The primary Architect worktree's `ai/notes/` directory is the shared
-coordination location for mailbox files, relay copies, the local backlog, and
+coordination location for mailbox files, relay copies, the tracked backlog, and
 temporary records. The other roles receive explicit access to that directory
 and must not create another active mailbox or backlog in their own worktrees.
 
@@ -603,7 +603,7 @@ or an unrelated daemon-recorded landing open.
 
 ### Backlog ticket GO / NO-GO
 
-`ai/notes/backlog.md` is the local list of unfinished and completed tickets.
+`ai/notes/backlog.md` is the tracked list of unfinished and completed tickets.
 It is written for a human reader first and retains a separate technical record
 for development tools. The Architect owns its structure and is the only role
 that admits a ticket, changes its status, or moves it between the open and
@@ -692,21 +692,20 @@ On receipt, the Architect immediately restores an allowed ticket and
 increments its reopen count. The Architect evaluates the evidence, final
 priority, and GO/NO-GO later.
 
-#### Recreate the local backlog consistently
+#### Maintain the tracked backlog consistently
 
-`backlog.md` is local and is not present in a clean Git clone. When it is
-missing, the Architect creates it at the exact path `ai/notes/backlog.md`
-before admitting work. The Architect does not copy an imported backlog
-blindly and does not invent a shorter private format. A backlog received
-through the supported bundle tool is input to review; the Architect validates
-and normalizes it to this contract before dispatch. Every new local backlog
-uses this exact opening and these headings in this order:
+`backlog.md` is tracked at `ai/notes/backlog.md`, so a clean Git clone already
+contains the current Open and Closed tickets. If it is missing, restore the
+version from `main`; do not invent a shorter private format. A backlog received
+through the bundle tool is still input to review, not an automatic replacement.
+The tracked backlog uses this exact opening and these headings in this order:
 
 ```markdown
 # Execution backlog
 
-This file is local to this clone and is not committed to GitHub. The Architect
-recreates it from this contract and updates it whenever a ticket changes.
+This operational record is tracked in Git so unfinished fixes survive a new
+clone. Only the Architect updates it. The daemon includes the Architect-sealed
+ticket update in the same landing commit as the accepted fix.
 
 ## Contents
 
@@ -869,7 +868,7 @@ The Architect writes a feature's user-supplied priority and any
 “after the backlog is closed” prerequisite into `Current status`. For a
 High bug, the priority reason must explain why Medium is insufficient. For a
 Critical bug, it must also explain why High is insufficient.
-These rules apply to every user's local backlog; old local records are brought
+These rules apply to every tracked backlog; imported older records are brought
 into this shape when first touched rather than copied as an incompatible
 private format.
 
@@ -1023,8 +1022,9 @@ backlog bytes that the Architect last accepted. The fingerprint detects an
 unexpected character change; it does not prove that the ticket description is
 correct.
 
-After creating and reading a new backlog, the Architect initializes the local
-record:
+On a clean clone, the daemon initializes the local fingerprint for the tracked
+backlog. After an intentional replacement that has been reviewed, the
+Architect may initialize the record explicitly:
 
 ```bash
 python3 ai/tools/backlog_guard.py initialize --architect-ack
@@ -1058,12 +1058,12 @@ turns receive non-Architect values. They may run `check`, but they never edit
 the backlog, run `initialize` or `seal`, or edit `ai/tools/backlog_guard.py`,
 the fingerprint record, or its `.backlog-guard.lock` write lock.
 
-The backlog, fingerprint record, and lock stay outside Git. An incoming
-backlog package is inspected in its separate import folder; it never replaces
-the live backlog or its fingerprint automatically. This guard is intended to
-catch accidental role edits and hallucinated replacements. A malicious
-program able to rewrite both the backlog and guard is outside this limited
-protection.
+The backlog stays in Git; its fingerprint record and lock stay outside Git.
+An incoming backlog package is inspected in its separate import folder; it
+never replaces the live backlog or its fingerprint automatically. This guard
+is intended to catch accidental role edits and hallucinated replacements. A
+malicious program able to rewrite both the backlog and guard is outside this
+limited protection.
 
 A workstation-only check stays open when it is required for acceptance. If a
 large ticket is split, each follow-up either remains under the parent ticket's
