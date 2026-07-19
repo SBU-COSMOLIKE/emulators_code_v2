@@ -3625,7 +3625,7 @@ def check_provider_connectivity(
 
 
 def implementer_checkpoint_settings(python, hook_path):
-    """Return the Claude hook that requests one safe 90-minute pause."""
+    """Return the Implementer's time and context checkpoint hooks."""
     hook = {
         "type": "command",
         "command": python,
@@ -3635,6 +3635,7 @@ def implementer_checkpoint_settings(python, hook_path):
     return {"hooks": {
         "PostToolBatch": [{"hooks": [hook]}],
         "Stop": [{"hooks": [hook]}],
+        "PreCompact": [{"matcher": "auto", "hooks": [hook]}],
     }}
 
 
@@ -3746,6 +3747,21 @@ IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
     re.MULTILINE)
 IMPLEMENTER_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: CHECKPOINT")
+CONTEXT_HANDOFF_HEADING = "### IMPLEMENTER_HANDOFF: CONTEXT HANDOFF"
+CONTEXT_HANDOFF_FIELDS = (
+    "Ticket and cycle",
+    "Base commit",
+    "Current worktree HEAD",
+    "Candidate created",
+)
+CONTEXT_HANDOFF_SECTIONS = (
+    "Completed",
+    "Known failures",
+    "Rejected approaches",
+    "Uncommitted changes",
+    "Next exact action",
+    "Do not revisit",
+)
 IMPLEMENTER_CHECKPOINT_CURRENT_STATE = (
     f"- **Current state:** {IMPLEMENTER_REVIEW_MINUTES} minutes reached; "
     "work is paused and may be "
@@ -4150,9 +4166,20 @@ def agent_preamble(agent, message=None):
         if message is not None and message.startswith(MAILBOX_FLOW_HEADER):
             cycle_id, _mode, body, problem = _ticket_flow_envelope(
                 message=message)
+            context_handoff = (
+                problem is None and is_implementer_context_handoff(body))
             checkpoint_audit = (
-                problem is None and is_implementer_time_checkpoint(body))
-            if checkpoint_audit:
+                problem is None and is_implementer_checkpoint_request(body))
+            if context_handoff:
+                checkpoint_notice = (
+                    "IMPLEMENTER CONTEXT HANDOFF: this is the prior "
+                    "Implementer's exact record, not a candidate or a "
+                    "completed ticket. Check the stated repository state. "
+                    "Send one same-cycle replacement handoff with exactly "
+                    "one **Checkpoint decision:** `GO` or `NO-GO` row. GO "
+                    "continues from this record; NO-GO parks or revises the "
+                    "work. Do not rewrite the record as a summary.\n\n")
+            elif checkpoint_audit:
                 checkpoint_notice = (
                     "90-MINUTE IMPLEMENTER CHECKPOINT: inspect the saved "
                     "candidate, then send one revised same-cycle handoff "
@@ -5021,11 +5048,12 @@ def _ticket_flow_envelope(message):
 
 
 def is_implementer_checkpoint_request(body):
-    """Return whether a handoff uses the timed-checkpoint heading."""
+    """Return whether a handoff asks the Architect for a pause decision."""
     if not isinstance(body, str):
         return False
     lines = body.splitlines()
-    return bool(lines) and lines[0] == IMPLEMENTER_CHECKPOINT_HEADING
+    return bool(lines) and lines[0] in {
+        IMPLEMENTER_CHECKPOINT_HEADING, CONTEXT_HANDOFF_HEADING}
 
 
 def is_implementer_time_checkpoint(body):
@@ -5037,11 +5065,180 @@ def is_implementer_time_checkpoint(body):
     return first_field == IMPLEMENTER_CHECKPOINT_CURRENT_STATE
 
 
+def is_implementer_context_handoff(body):
+    """Return whether the body begins with the context-handoff heading."""
+    return (isinstance(body, str)
+            and body.splitlines()[:1] == [CONTEXT_HANDOFF_HEADING])
+
+
+def _context_handoff_field(lines, name):
+    """Read one exact field from a context handoff."""
+    prefix = "- **" + name + ":** "
+    values = [line[len(prefix):].strip("`") for line in lines
+              if line.startswith(prefix)]
+    if len(values) != 1 or not values[0]:
+        raise TicketCycleStateError(
+            "CONTEXT HANDOFF needs exactly one " + name + " field")
+    return values[0]
+
+
+def parse_context_handoff(body):
+    """Read the required facts and ordered lists from one small handoff."""
+    if not isinstance(body, str) or len(body.encode("utf-8")) > 32 * 1024:
+        raise TicketCycleStateError("CONTEXT HANDOFF is missing or too large")
+    lines = body.splitlines()
+    if not lines or lines[0] != CONTEXT_HANDOFF_HEADING:
+        raise TicketCycleStateError("CONTEXT HANDOFF heading is missing")
+    record = {name: _context_handoff_field(lines, name)
+              for name in CONTEXT_HANDOFF_FIELDS}
+    for name in ("Base commit", "Current worktree HEAD"):
+        if FULL_COMMIT_RE.fullmatch(record[name]) is None:
+            raise TicketCycleStateError(name + " must be one full Git commit")
+    if record["Candidate created"] not in {"yes", "no"}:
+        raise TicketCycleStateError("Candidate created must be yes or no")
+    headings = ["#### " + name for name in CONTEXT_HANDOFF_SECTIONS]
+    if any(lines.count(heading) != 1 for heading in headings):
+        raise TicketCycleStateError(
+            "CONTEXT HANDOFF needs every required list section once")
+    positions = [lines.index(heading) for heading in headings]
+    if positions != sorted(positions):
+        raise TicketCycleStateError("CONTEXT HANDOFF sections are out of order")
+    sections = {}
+    for index, name in enumerate(CONTEXT_HANDOFF_SECTIONS):
+        start = positions[index] + 1
+        end = positions[index + 1] if index + 1 < len(positions) else len(lines)
+        rows = [line for line in lines[start:end] if line.strip()]
+        values = [line[2:].strip() for line in rows
+                  if line.startswith("- ")]
+        if (len(values) != len(rows) or not values
+                or any(value in {"", "...", "[...]"} for value in values)):
+            raise TicketCycleStateError(
+                name + " must contain concrete bullets or '- none'")
+        sections[name] = values
+    record["sections"] = sections
+    return record
+
+
+def context_handoff_problem(message, expected_cycle=None,
+                            expected_mode=None):
+    """Validate one context record against the current Implementer tree."""
+    cycle_id, mode, body, problem = _ticket_flow_envelope(message=message)
+    if problem is not None:
+        return problem
+    if expected_cycle is not None and cycle_id != expected_cycle:
+        return "CONTEXT HANDOFF changed MAILBOX-CYCLE"
+    if expected_mode is not None and mode != expected_mode:
+        return "CONTEXT HANDOFF changed MAILBOX-MODE"
+    try:
+        record = parse_context_handoff(body=body)
+    except TicketCycleStateError as exc:
+        return str(exc)
+    base = cycle_id.rsplit("@", 1)[1]
+    if record["Ticket and cycle"] != cycle_id:
+        return "CONTEXT HANDOFF does not name its exact ticket and cycle"
+    if record["Base commit"] != base:
+        return "CONTEXT HANDOFF does not name the cycle base commit"
+    try:
+        head = worktree_head(worktree=AGENT_CWD["opus"])
+        dirty = bool(_clean_worktree_status(worktree=AGENT_CWD["opus"]))
+    except (OSError, PrimaryWorktreeError, TicketCycleStateError) as exc:
+        return "cannot verify CONTEXT HANDOFF worktree: " + str(exc)
+    if record["Current worktree HEAD"] != head:
+        return "CONTEXT HANDOFF does not name current Implementer HEAD"
+    uncommitted = record["sections"]["Uncommitted changes"]
+    if dirty == (uncommitted == ["none"]):
+        return "CONTEXT HANDOFF disagrees with current uncommitted changes"
+    if (record["Candidate created"] == "yes"
+            and (dirty or head == base)):
+        return "CONTEXT HANDOFF candidate must be a clean changed commit"
+    return None
+
+
+def matching_new_context_handoff(cycle_id, mode, before_inodes):
+    """Find one fresh exact context record written by the Implementer."""
+    matches = []
+    invalid = []
+    problems = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError) as exc:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + str(exc))
+            continue
+        _found_cycle, _found_mode, body, envelope_problem = (
+            _ticket_flow_envelope(message=message))
+        if (envelope_problem is not None
+                or not is_implementer_context_handoff(body)):
+            continue
+        problem = context_handoff_problem(
+            message=message, expected_cycle=cycle_id, expected_mode=mode)
+        if os.path.dirname(path) != MAILBOX:
+            problem = "CONTEXT HANDOFF was not published in mailbox root"
+        if problem is None:
+            matches.append(path)
+        else:
+            invalid.append(path)
+            problems.append(os.path.basename(path) + ": " + problem)
+    if problems:
+        return None, list(dict.fromkeys(invalid + matches)), "; ".join(problems)
+    if len(matches) > 1:
+        return None, matches, "expected at most one CONTEXT HANDOFF"
+    return (matches[0] if matches else None), [], None
+
+
+def latest_context_handoff_path(cycle_id, mode):
+    """Return the newest valid same-cycle record for a replacement turn."""
+    matches = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        if regular_inode(path=path) is None:
+            continue
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        found_cycle, found_mode, body, problem = _ticket_flow_envelope(
+            message=message)
+        if (problem is None and found_cycle == cycle_id
+                and found_mode == mode
+                and is_implementer_context_handoff(body)):
+            matches.append(path)
+    if not matches:
+        return None
+    path = max(matches, key=lambda item: (
+        sequence_in_name(os.path.basename(item)) or -1))
+    message = read_cycle_message(path=path)
+    problem = context_handoff_problem(
+        message=message, expected_cycle=cycle_id, expected_mode=mode)
+    if problem is not None:
+        raise TicketCycleStateError(
+            "saved replacement CONTEXT HANDOFF is stale: " + problem)
+    return path
+
+
+def replacement_context_notice(path):
+    """Tell a fresh Implementer where to read the prior exact record."""
+    return (
+        "REPLACEMENT IMPLEMENTER CONTEXT\n"
+        "Read the exact prior Implementer record at:\n" + path + "\n"
+        "Verify it against the repository before editing. It is not a "
+        "daemon-written summary. Do not repeat an approach listed under "
+        "Do not revisit unless the Architect explicitly reopened it.\n\n")
+
+
 def checkpoint_handoff_problem(message):
-    """Refuse an ordinary handoff after the 90-minute hook has fired."""
+    """Validate the timed or context checkpoint sent to the Architect."""
     _, _, body, problem = _ticket_flow_envelope(message=message)
     if problem is not None or not is_implementer_checkpoint_request(body):
-        return "the 90-minute hook fired without its checkpoint handoff"
+        return ("the 90-minute hook or context hook fired without its "
+                "checkpoint handoff")
+    if is_implementer_context_handoff(body):
+        return context_handoff_problem(message=message)
     current_state_rows = [
         line for line in body.splitlines()
         if line.startswith("- **Current state:**")]
@@ -7963,6 +8160,7 @@ def dispatch_under_main_checkout_lock(
     audit_commit = None
     audit_worktree = None
     candidate_scope = None
+    replacement_context_path = None
     architect_go_before = None
     admin_opus_before = None
     architect_opus_before = None
@@ -7982,8 +8180,11 @@ def dispatch_under_main_checkout_lock(
                 architect_sol_before = sol_message_inode_snapshot()
                 architect_user_before = user_message_inode_snapshot()
         if agent == "opus" and registered_cycle_id is not None:
+            replacement_context_path = latest_context_handoff_path(
+                cycle_id=registered_cycle_id, mode=flow_mode)
             implementer_starting_head = prepare_implementer_cycle_checkout(
-                cycle_id=registered_cycle_id)
+                cycle_id=registered_cycle_id,
+                preserve_current=replacement_context_path is not None)
         elif (agent == "fable" and registered_cycle_id is not None):
             audit_commit = candidate_commit_for_cycle(
                 cycle_id=registered_cycle_id)
@@ -8030,6 +8231,8 @@ def dispatch_under_main_checkout_lock(
         saved_discovery=(ticket_kind == "discovery"),
         saved_architect_request=(saved_architect_severity is not None),
         candidate_scope=candidate_scope)
+    if replacement_context_path is not None:
+        banner += replacement_context_notice(path=replacement_context_path)
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
     # role-specific banner sits between them. Consequently PREAMBLE's
     # --- MESSAGE --- delimiter remains immediately before the exact raw
@@ -8356,17 +8559,27 @@ def dispatch_under_main_checkout_lock(
     architect_delivery_receipt = None
     if agent == "opus" and registered_cycle_id is not None:
         implementer_completion_ready = True
+        implementer_context_handoff = False
         if implementer_evidence_contract is not None:
             try:
                 returned_candidate = worktree_head(
                     worktree=AGENT_CWD["opus"])
-                implementer_return, invalid_returns, evidence_problem, \
-                    implementer_completion_ready = (
-                    matching_new_implementer_handoff(
+                implementer_return, invalid_returns, evidence_problem = (
+                    matching_new_context_handoff(
                         cycle_id=registered_cycle_id, mode=flow_mode,
-                        candidate_commit=returned_candidate,
-                        before_inodes=implementer_return_before,
-                        evidence_contract=implementer_evidence_contract))
+                        before_inodes=implementer_return_before))
+                implementer_context_handoff = implementer_return is not None
+                if (evidence_problem is None
+                        and not implementer_context_handoff):
+                    implementer_return, invalid_returns, evidence_problem, \
+                        implementer_completion_ready = (
+                        matching_new_implementer_handoff(
+                            cycle_id=registered_cycle_id, mode=flow_mode,
+                            candidate_commit=returned_candidate,
+                            before_inodes=implementer_return_before,
+                            evidence_contract=implementer_evidence_contract))
+                elif implementer_context_handoff:
+                    implementer_completion_ready = False
             except (OSError, PrimaryWorktreeError,
                     TicketCycleStateError) as exc:
                 implementer_return = None
@@ -8396,6 +8609,7 @@ def dispatch_under_main_checkout_lock(
                     implementer_completion_ready = None
             if (evidence_problem is None
                     and implementer_completion_ready is False
+                    and not implementer_context_handoff
                     and (returned_candidate != implementer_starting_head
                          or _clean_worktree_status(
                              worktree=AGENT_CWD["opus"]))):
@@ -8453,9 +8667,14 @@ def dispatch_under_main_checkout_lock(
                 print("  preserved Implementer candidate " + candidate
                       + " for " + registered_cycle_id + ".")
         else:
-            print("  Implementer returned a blocked subagent checkpoint; "
-                  "the Architect may revise the same ticket, but no "
-                  "candidate was frozen and no GO boundary advanced.")
+            if implementer_context_handoff:
+                print("  Implementer saved an exact CONTEXT HANDOFF; the "
+                      "Architect may start a replacement on the same ticket, "
+                      "but no candidate was frozen and no cycle completed.")
+            else:
+                print("  Implementer returned a blocked subagent checkpoint; "
+                      "the Architect may revise the same ticket, but no "
+                      "candidate was frozen and no GO boundary advanced.")
 
     if control_review_cycle is not None:
         receipt_path, control_result, receipt_problem = (
@@ -9309,8 +9528,8 @@ def worktree_head(worktree):
     return commit
 
 
-def prepare_implementer_cycle_checkout(cycle_id):
-    """Reset the clean fixed Implementer branch to this cycle's saved tip."""
+def prepare_implementer_cycle_checkout(cycle_id, preserve_current=False):
+    """Select the cycle tip, or preserve a validated context checkpoint."""
     lock_file = acquire_ticket_cycle_lock()
     try:
         ticket_state = read_ticket_cycle_state()
@@ -9325,6 +9544,8 @@ def prepare_implementer_cycle_checkout(cycle_id):
         target = (record["commit"] if record is not None
                   else cycle_starting_commit(cycle_id))
         worktree = AGENT_CWD["opus"]
+        if preserve_current:
+            return worktree_head(worktree=worktree)
         if _clean_worktree_status(worktree=worktree):
             raise TicketCycleStateError(
                 "Implementer worktree is not clean; refusing to reset it")

@@ -197,7 +197,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Refuse polynomial-emulator requests outside the fitted parameter range](#open-pce-domain-enforcement)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Add advertised CMB unit and multipole conversions](#open-cmb-serving-conversions)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Let the Implementer stop honestly when a ticket cannot proceed](#open-implementer-blocked-outcome)
-- OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Preserve exact Implementer context before a replacement session](#open-implementer-context-handoff)
 
 ### Low
 
@@ -1575,98 +1574,6 @@ landing creation, Architect revision, explicit parking, and compatibility with
 the existing 90-minute and subagent-capability checkpoints. Update the short
 human explanation in `ai/README.md` and keep the exact field reference in
 `ai/tools/README.md`.
-
-</details>
-
-<a id="open-implementer-context-handoff"></a>
-## Preserve exact Implementer context before a replacement session
-
-### High-level summary
-
-The watcher preserves mailbox requests and repository work when an AI account
-runs out of tokens, and each provider may compact its own conversation at the
-configured context budget. A replacement Implementer can therefore recover
-the files, but may not know which approach already failed or which exact action
-should come next.
-
-Add one small, role-authored context handoff for an Implementer that is about
-to lose useful working context. The replacement reads that saved record and
-the repository itself. The daemon transports and validates the record but does
-not invent a summary of the Implementer's work.
-
-### Current status
-
-**Ticket type: NEW FUNCTIONALITY.**
-
-**Red Team reopen count: 0.**
-
-**Red Team reopening: allowed.**
-
-**OPEN.** Provider compaction and out-of-token recovery preserve work and
-report which role stopped. No standardized artifact preserves completed work,
-rejected approaches, and the next exact action across an Implementer session
-replacement.
-
-**Priority: MEDIUM.** Long implementation turns and context replacement occur
-during normal development. Repeating discarded approaches wastes substantial
-tokens, but the missing record does not itself corrupt scientific output or
-lose committed work.
-
-### What is already fixed
-
-The watcher keeps inflight requests, waits for other active roles, reports
-`Error: <role> is out of tokens`, and exits without pretending that the ticket
-finished. The 90-minute checkpoint provides a separate complexity review for
-long-running work.
-
-### What is missing
-
-Add one exact `CONTEXT HANDOFF` format for the Implementer with these required
-fields:
-
-- ticket and cycle;
-- base commit;
-- current worktree HEAD;
-- whether candidate C was created and, when yes, its full commit;
-- completed work;
-- known failures;
-- rejected approaches;
-- uncommitted changes;
-- next exact action;
-- **do not revisit**.
-
-Every list must contain concrete content or the explicit value `none`. The
-**do not revisit** field is mandatory: a replacement must not repeat a named
-approach during the same cycle unless a later Architect directive explicitly
-reopens that choice.
-
-<details><summary>Technical record for development tools</summary>
-
-Reuse the existing ticket envelope and recovery folders. This handoff is a
-checkpoint, not candidate evidence, Architect GO, a new ticket, or a completed
-cycle. At most one current context handoff is active for a ticket; a later
-valid same-cycle handoff may supersede it without deleting the earlier relay
-evidence.
-
-Prefer a clean checkpoint commit when the current work is coherent. If the
-worktree is dirty, record the exact `git status --short` paths and preserve the
-files without cleaning, resetting, or claiming that they form candidate C.
-The replacement must verify the saved cycle, base, HEAD, candidate flag, and
-current status before editing. A mismatch stops for Architect recovery rather
-than guessing which state is newer.
-
-The daemon relays the exact validated bytes to the replacement Implementer and
-prints the saved path when token exhaustion occurs after a handoff exists. If
-the provider stops before producing the artifact, retain the current safe
-recovery behavior; the daemon must not fabricate completed work or rejected
-approaches.
-
-Keep the implementation narrow: no session graph, task DAG, supervisor, or
-new role. Tests must cover clean and dirty work, candidate yes/no consistency,
-missing or duplicate fields, wrong cycle or HEAD, restart, exact-byte relay,
-superseding a prior handoff, no daemon-written summary, and enforcement of the
-same-cycle **do not revisit** list. Explain the human behavior briefly in
-`ai/README.md` and keep the exact record format in `ai/tools/README.md`.
 
 </details>
 
@@ -5338,6 +5245,62 @@ and one repository lock prevents Fable and Sol from landing concurrently.
 <details><summary>Technical record for development tools</summary>
 Focused runtime 15/15 and ten mutations on both runtimes, preserved suites,
 44/44 CoCoA tests, board self-test, compilation, diff, and two reviews passed.
+</details>
+
+<a id="closed-implementer-context-handoff"></a>
+## Preserve exact Implementer context before a replacement session
+
+### High-level summary
+
+An Implementer can reach the context limit while a ticket is only partly
+finished. Repository files survive, but a fresh Implementer also needs to know
+what succeeded, what failed, and which rejected approach would waste time if
+repeated.
+
+The watcher now asks for one small record before automatic context replacement.
+The replacement reads that exact record and checks the repository instead of
+receiving a summary invented by the watcher.
+
+### Current status
+
+**CLOSED.** This was accepted as **LOW NEW FUNCTIONALITY**. Repeating an
+unsuccessful approach wastes tokens, but the former behavior did not corrupt
+scientific output or erase repository work.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+### What is already fixed
+
+The automatic context hook asks the Implementer to name the ticket, base and
+current commits, candidate status, completed work, failures, rejected
+approaches, uncommitted files, next action, and work that must not be repeated.
+The watcher verifies those facts against the current Implementer worktree.
+
+The record follows the existing checkpoint path. It creates no candidate and
+closes no cycle. After the Architect permits continuation, the replacement
+receives the exact saved path and keeps the verified unfinished worktree.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+`implementer_checkpoint_hook.py` requests the record through Claude Code's
+automatic `PreCompact` hook. `mailbox_daemon.py` parses the bounded record and
+verifies the cycle, base, HEAD, candidate
+claim, and dirty state before reusing the existing checkpoint route. Focused
+tests cover clean and dirty records, malformed fields, stale identity, exact
+saved-path delivery, preservation of unfinished work, and absence of landing
+instructions.
+
+No session graph, task scheduler, supervisor, or additional role was added.
+If a provider stops before creating the record, the existing out-of-token
+recovery continues to preserve the request and worktree without fabricating a
+summary.
+
 </details>
 
 ## Repository organization and release hygiene

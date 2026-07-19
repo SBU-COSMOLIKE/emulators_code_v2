@@ -23,7 +23,7 @@ except ImportError:  # Direct execution from ai/tools/.
 
 DEADLINE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_DEADLINE"
 STATE_ENVIRONMENT = "MAILBOX_IMPLEMENTER_CHECKPOINT_STATE"
-SUPPORTED_EVENTS = {"PostToolBatch", "Stop"}
+SUPPORTED_EVENTS = {"PostToolBatch", "Stop", "PreCompact"}
 TRIGGERED_MARKER = b"triggered\n"
 CHECKPOINT_MINUTES = ROLE_CONTRACT["runtime"]["implementer_review_minutes"]
 CHECKPOINT_INSTRUCTION = (
@@ -42,10 +42,47 @@ CHECKPOINT_INSTRUCTION = (
     "doing more implementation."
 )
 
+CONTEXT_HANDOFF_INSTRUCTION = """\
+The Implementer is about to lose detailed working context. Stop making source
+edits. Send one same-cycle handoff to the Architect with this exact shape:
+
+### IMPLEMENTER_HANDOFF: CONTEXT HANDOFF
+
+- **Ticket and cycle:** `THE-CURRENT-MAILBOX-CYCLE`
+- **Base commit:** `THE-DIRECTIVE-BASE-COMMIT`
+- **Current worktree HEAD:** `THE-FULL-CURRENT-COMMIT`
+- **Candidate created:** `yes` or `no`
+
+#### Completed
+- concrete result, or none
+
+#### Known failures
+- concrete failure, or none
+
+#### Rejected approaches
+- concrete rejected approach, or none
+
+#### Uncommitted changes
+- each path from git status --short, or none
+
+#### Next exact action
+- one concrete next action
+
+#### Do not revisit
+- rejected approach a replacement must not repeat, or none
+
+This is a checkpoint, not candidate evidence or a completed ticket. End the
+turn after sending it. The replacement will read this exact record and the
+repository; the daemon will not invent a summary.
+"""
+
 
 def _checkpoint_payload(event):
     """Return the JSON instruction for one supported hook event."""
-    if event == "PostToolBatch":
+    if event == "PreCompact":
+        output = {"decision": "block",
+                  "reason": CONTEXT_HANDOFF_INSTRUCTION}
+    elif event == "PostToolBatch":
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PostToolBatch",
@@ -70,6 +107,13 @@ def checkpoint_result(*, event, now, deadline, state_path,
     """Return ``(exit code, stdout, stderr)`` for one hook event."""
     if event not in SUPPORTED_EVENTS:
         return 2, "", "unsupported checkpoint hook event: " + str(event) + "\n"
+    if event == "PreCompact":
+        output = _checkpoint_payload(event=event)
+        if output_stream is None:
+            return 0, output, ""
+        output_stream.write(output)
+        output_stream.flush()
+        return 0, "", ""
     if now < deadline:
         return 0, "", ""
     descriptor = -1

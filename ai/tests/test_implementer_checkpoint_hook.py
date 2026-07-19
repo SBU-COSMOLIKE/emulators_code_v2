@@ -1,4 +1,4 @@
-"""Focused tests for the Implementer's 90-minute pause hook."""
+"""Focused tests for the Implementer's time and context pause hook."""
 
 import json
 import io
@@ -28,6 +28,22 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
                 state_path=state)
 
             self.assertEqual(result, (0, "", ""))
+            self.assertFalse(state.exists())
+
+    def test_precompact_requests_the_exact_context_handoff(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            result = checkpoint.checkpoint_result(
+                event="PreCompact", now=1.0, deadline=90.0,
+                state_path=state)
+
+            document = json.loads(result[1])
+            self.assertEqual(result[0], 0)
+            self.assertEqual(result[2], "")
+            self.assertEqual(document["decision"], "block")
+            self.assertEqual(document["reason"],
+                             checkpoint.CONTEXT_HANDOFF_INSTRUCTION)
+            self.assertIn("#### Do not revisit", document["reason"])
             self.assertFalse(state.exists())
 
     def test_post_tool_batch_requests_one_handoff_at_the_boundary(self):
@@ -373,11 +389,14 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
                     daemon.checkpoint_architect_handoff_problem(
                         message=message, cycle_id=cycle, mode="normal"))
 
-    def test_daemon_installs_only_the_two_checkpoint_hooks(self):
+    def test_daemon_installs_only_the_three_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(
             python="/usr/bin/python3", hook_path="/repo/hook.py")
 
-        self.assertEqual(set(settings["hooks"]), {"PostToolBatch", "Stop"})
+        self.assertEqual(
+            set(settings["hooks"]), {"PostToolBatch", "Stop", "PreCompact"})
+        self.assertEqual(settings["hooks"]["PreCompact"][0]["matcher"],
+                         "auto")
         for event in settings["hooks"].values():
             [hook] = event[0]["hooks"]
             self.assertEqual(hook["command"], "/usr/bin/python3")

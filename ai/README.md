@@ -1229,6 +1229,14 @@ It saves a clean progress commit and asks the Architect whether the approach
 should continue, become smaller, or be replaced. This pause is still part of
 the same ticket and cycle. Work resumes only after the Architect answers.
 
+An Implementer that is about to lose detailed conversation context pauses for
+a different reason. It records what is finished, what failed, which approaches
+must not be repeated, any uncommitted files, and the next exact action. After
+the Architect accepts that checkpoint, a fresh Implementer reads the saved
+record and checks the repository before continuing the same ticket. The
+watcher does not rewrite the record as its own summary, create candidate C, or
+close the cycle at this pause.
+
 `--dispatch-timeout MINUTES` sets a later emergency limit and defaults to 120
 minutes. At that limit, the watcher stops the AI program, saves a timeout record
 under `ai/notes/mailbox/.dispatch-history/`, and tries to move the request to

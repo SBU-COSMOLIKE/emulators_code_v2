@@ -488,6 +488,16 @@ one additional bounded 90-minute work period; a NO-GO requires a simpler,
 split, or replacement approach. This checkpoint commit is not an accepted
 candidate, a landing, or a completed cycle.
 
+When the context hook says that detailed conversation context is about to be
+replaced, stop editing and send the exact `CONTEXT HANDOFF` shape printed by
+that hook. Report the current full commit and every path shown by
+`git status --short`; write `none` only when that list is empty. Record failed
+and rejected approaches honestly, especially under **Do not revisit**, then
+end the turn. This is a checkpoint, not candidate C or a completed cycle. A
+replacement Implementer reads that exact saved record and the repository and
+must not retry a **Do not revisit** approach unless the Architect explicitly
+reopens it.
+
 ```
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
 

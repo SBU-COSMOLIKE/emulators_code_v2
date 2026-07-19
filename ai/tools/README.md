@@ -705,6 +705,7 @@ text formats, unsaved files, and other counting details.
 | Sol effort | `--sol-effort` | `xhigh` |
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + advisory Sol Red Team |
 | Implementer complexity review | automatic | pause after 90 minutes |
+| Implementer context replacement | automatic | save an exact handoff before automatic compaction |
 | AI job emergency timeout | `--dispatch-timeout` | 120 minutes |
 | Compaction point inside one long role turn | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
@@ -799,6 +800,39 @@ single turn reaches the chosen token count, its provider summarizes older text
 and continues. Claude receives `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; Sol receives
 `model_auto_compact_token_limit`. Raising the limit or splitting an oversized
 ticket is the remedy when one turn compacts before that ticket finishes.
+
+For an Implementer turn, the
+[Claude Code `PreCompact` hook](https://code.claude.com/docs/en/hooks#precompact)
+first asks the Implementer to save this small record:
+
+```text
+### IMPLEMENTER_HANDOFF: CONTEXT HANDOFF
+
+- Ticket and cycle
+- Base commit
+- Current worktree HEAD
+- Candidate created: yes or no
+
+Completed
+Known failures
+Rejected approaches
+Uncommitted changes
+Next exact action
+Do not revisit
+```
+
+Every named section contains a concrete bullet or `none`. The watcher checks
+the cycle, base commit, current Implementer commit, and whether the declared
+uncommitted work agrees with Git. It then sends the exact record to the
+Architect through the existing checkpoint route. This record is not candidate
+C and does not complete a cycle.
+
+If the Architect permits continuation, the replacement Implementer receives
+the path of the saved record. It reads that file and the repository instead of
+receiving a summary written by the watcher. A listed rejected approach stays
+off limits unless the Architect explicitly reopens it. If the provider stops
+before writing the record, the ordinary out-of-token recovery above preserves
+the files without inventing missing history.
 
 On every pass, the watcher checks when `mailbox_daemon.py` was last modified.
 If the file changed, the running watcher exits. Start it again to load the new
