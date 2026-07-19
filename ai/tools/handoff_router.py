@@ -1021,12 +1021,17 @@ def run_gates(commands, seq, router_lock):
     return (log_path, all_green)
 
 
-def verify_execution_checkout(checkout, recovered_candidate=None):
+def verify_execution_checkout(checkout, recovered_candidate=None,
+                              resume_active_route=False):
     """Bind this router process and its gate log to the declared checkout.
 
     The manual router runs commands from its own repository root. A directive
     naming another checkout must therefore use that checkout's copy of this
     script, never test an implementation accidentally against main.
+
+    ``resume_active_route`` accepts one clean descendant commit after an
+    existing route stopped before copying its first return. The return value
+    is that candidate commit, or ``None`` while the checkout remains at base.
     """
     worktree = checkout["Worktree"]
     if os.path.realpath(worktree) != os.path.realpath(REPO_ROOT):
@@ -1085,20 +1090,28 @@ def verify_execution_checkout(checkout, recovered_candidate=None):
     actual_head = git_value(["rev-parse", "HEAD"], "base").lower()
     if recovered_candidate is None:
         if actual_head == base:
-            return
-        raise DirectiveError(
-            "Execution checkout Base mismatch: expected "
-            + checkout["Base"] + ", found " + actual_head)
-    if actual_head != recovered_candidate:
+            return None
+        if not resume_active_route:
+            raise DirectiveError(
+                "Execution checkout Base mismatch: expected "
+                + checkout["Base"] + ", found " + actual_head)
+        recovered_candidate = actual_head
+    if actual_head != recovered_candidate.lower():
         raise DirectiveError(
             "Execution checkout Base mismatch: expected "
             + recovered_candidate + ", found " + actual_head)
+    if git_value(
+            ["status", "--porcelain=v1", "--untracked-files=all"],
+            "status"):
+        raise DirectiveError(
+            "saved Implementer candidate checkout is not clean")
     merge_base = git_value(
         ["merge-base", base, recovered_candidate], "candidate ancestry")
     if merge_base.lower() != base:
         raise DirectiveError(
             "saved Implementer candidate does not descend from the "
             "Execution checkout Base")
+    return recovered_candidate.lower()
 
 
 def _git(args_list):
@@ -1459,9 +1472,15 @@ def main():
             note_path=note_path, note_display=note_display,
             base=directive["execution_checkout"]["Base"],
             commands=commands)
-        verify_execution_checkout(
+        active_record = active_route_record()
+        resume_active_route = (
+            recovered_candidate is None and active_record is not None
+            and len(active_record) == 6
+            and recovered_implementer_return(active_record[1]) is None)
+        recovered_candidate = verify_execution_checkout(
             checkout=directive["execution_checkout"],
-            recovered_candidate=recovered_candidate)
+            recovered_candidate=recovered_candidate,
+            resume_active_route=resume_active_route)
         verify_manual_capability_checkpoint(
             directive=directive, source_note=note_display)
     except (BacklogLedgerError, DirectiveError) as exc:
@@ -1556,12 +1575,18 @@ def main():
     else:
         print("[1/" + str(total_steps) + "] recovered the complete saved "
               "Implementer return; no new Implementer work was requested.")
-        if (implementer_candidate_commit(implementer_block)
-                != recovered_candidate):
-            finish_route()
+    if recovered_candidate is not None:
+        try:
+            returned_candidate = implementer_candidate_commit(
+                implementer_block)
+        except BacklogLedgerError as exc:
             release_router_lock(router_lock)
-            print("refused router recovery: saved candidate changed during "
-                  "recovery")
+            print("refused router recovery: " + str(exc))
+            return 1
+        if returned_candidate != recovered_candidate:
+            release_router_lock(router_lock)
+            print("refused router recovery: return does not name the saved "
+                  "candidate")
             return 1
     try:
         evidence_result = validate_implementer_handoff_subagent_evidence(

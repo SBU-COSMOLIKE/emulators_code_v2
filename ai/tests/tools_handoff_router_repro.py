@@ -104,6 +104,7 @@ def load_scratch_router(root, name, linked=False):
     shutil.copy2(SOURCE, target)
     shutil.copy2(HANDOFF_CONTRACT_SOURCE, tools_dir / "handoff_contract.py")
     if linked:
+        shutil.copy2(AI_ROOT.parent / ".gitignore", repo / ".gitignore")
         subprocess.run(
             ["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         subprocess.run(
@@ -113,7 +114,7 @@ def load_scratch_router(root, name, linked=False):
             ["git", "config", "user.name", "Scratch Probe"],
             cwd=repo, check=True)
         subprocess.run(
-            ["git", "add", "ai/tools/handoff_router.py",
+            ["git", "add", ".gitignore", "ai/tools/handoff_router.py",
              "ai/tools/handoff_contract.py"], cwd=repo, check=True)
         subprocess.run(
             ["git", "commit", "-q", "-m", "scratch router fixture"],
@@ -722,6 +723,80 @@ def arm_interrupted_implementer_return_resumes():
         assert refusals
         assert recovered_once
         assert complete
+
+
+def arm_candidate_before_return_resumes():
+    """A clean candidate survives a stop before its handoff is copied."""
+    outcomes = {}
+    for case in ("resume", "fresh", "dirty", "unrelated", "mismatch"):
+        with tempfile.TemporaryDirectory(
+                prefix="router-candidate-before-return-") as tmp:
+            root = Path(tmp)
+            module, repo = load_scratch_router(
+                root, "scratch_router_candidate_before_return", linked=True)
+            note = repo / "ai" / "notes" / "spec.md"
+            write_bound_architect_note(repo=repo, note=note)
+            module.ROUTER_LOCK_PATH = str(root / "router.lock")
+            base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+            if case != "fresh":
+                module.route_sequence(
+                    note_path=str(note), note_display="ai/notes/spec.md",
+                    base=base, commands=module.DEFAULT_GATE_COMMANDS)
+            if case == "unrelated":
+                tree = run_git(
+                    repo, "rev-parse", "HEAD^{tree}").stdout.strip()
+                candidate = run_git(
+                    repo, "commit-tree", tree, "-m",
+                    "unrelated candidate").stdout.strip()
+                run_git(repo, "reset", "--hard", "-q", candidate)
+            else:
+                run_git(repo, "commit", "--allow-empty", "-q", "-m",
+                        "candidate before return")
+                candidate = run_git(
+                    repo, "rev-parse", "HEAD").stdout.strip()
+            if case == "dirty":
+                (repo / "uncommitted.txt").write_text(
+                    "not in candidate\n", encoding="utf-8", newline="")
+
+            wait_calls = []
+            returned_candidate = (
+                "f" * 40 if case == "mismatch" else candidate)
+            module.wait_for_block = lambda **_kwargs: (
+                wait_calls.append(True)
+                or implementer_handoff(candidate=returned_candidate))
+            module.copy_to_clipboard = lambda _text: None
+            module.run_gates = lambda commands, seq, router_lock: (
+                "ai/notes/relay/" + seq + "-gates-log.md", True)
+            original_argv = module.sys.argv
+            module.sys.argv = [
+                "handoff_router.py", "--note", "ai/notes/spec.md"]
+            try:
+                rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+
+            route_path = (Path(module.RUN_RESERVATIONS_DIR)
+                          / module.ROUTE_RECORD_NAME)
+            if case == "resume":
+                outcomes[case] = (
+                    rc == 0 and len(wait_calls) == 1
+                    and not route_path.exists())
+            elif case == "fresh":
+                outcomes[case] = (
+                    rc == 1 and not wait_calls and not route_path.exists())
+            else:
+                record = (route_path.read_text(encoding="utf-8").splitlines()
+                          if route_path.is_file() else [])
+                outcomes[case] = (
+                    rc == 1 and (not wait_calls if case != "mismatch"
+                                 else len(wait_calls) == 1)
+                    and len(record) == 6 and record[0] == "route-v2")
+    passed = all(outcomes.values())
+    print("ARM candidate before Implementer return recovery")
+    print("  exact clean descendant resumes:", outcomes["resume"])
+    print("  fresh, dirty, unrelated, and mismatched states refuse:",
+          all(outcomes[name] for name in outcomes if name != "resume"))
+    assert passed
 
 
 def arm_completed_gate_log_resumes():
@@ -2921,6 +2996,7 @@ def main():
     arm_atomic_evidence_publication()
     arm_recovery_evidence_size_limit()
     arm_interrupted_implementer_return_resumes()
+    arm_candidate_before_return_resumes()
     arm_explicit_route_abandonment()
     arm_abandonment_is_serialized_with_recovery()
     arm_completed_gate_log_resumes()
