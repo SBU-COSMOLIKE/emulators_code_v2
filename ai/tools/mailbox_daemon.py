@@ -6950,12 +6950,20 @@ def _validate_sealed_backlog(primary_worktree):
         raise PrimaryWorktreeError(
             "backlog guard state is not exact UTF-8 JSON: " + str(exc)) \
             from exc
+    version = state.get("version") if isinstance(state, dict) else None
+    expected_fields = {"backlog", "sha256", "version"}
+    if version == 2:
+        expected_fields.add("previous_sha256")
     if (not isinstance(state, dict)
-            or set(state) != {"backlog", "sha256", "version"}
+            or type(version) is not int or version not in {1, 2}
+            or set(state) != expected_fields
             or state.get("backlog") != "ai/notes/backlog.md"
-            or state.get("version") != 1
             or not isinstance(state.get("sha256"), str)
-            or re.fullmatch(r"[0-9a-f]{64}", state["sha256"]) is None):
+            or re.fullmatch(r"[0-9a-f]{64}", state["sha256"]) is None
+            or (version == 2 and (
+                not isinstance(state.get("previous_sha256"), str)
+                or re.fullmatch(
+                    r"[0-9a-f]{64}", state["previous_sha256"]) is None))):
         raise PrimaryWorktreeError(
             "backlog guard state has missing, extra, or invalid fields")
     observed = hashlib.sha256(backlog).hexdigest()

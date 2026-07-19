@@ -184,6 +184,27 @@ class BacklogGuardTests(unittest.TestCase):
             self.assertEqual(saved["sha256"], third)
             self.assertEqual(saved["previous_sha256"], second)
 
+    def test_daemon_accepts_strict_v1_and_v2_guard_state(self):
+        from ai.tools import mailbox_daemon
+
+        with scratch_checkout() as (repo, backlog, state):
+            first = initialize(repo)
+            mailbox_daemon._validate_sealed_backlog(str(repo))
+
+            backlog.write_bytes(backlog.read_bytes() + b"sealed edit\n")
+            backlog_guard.seal(repo, first, acknowledged=True)
+            mailbox_daemon._validate_sealed_backlog(str(repo))
+
+            document = json.loads(state.read_text(encoding="utf-8"))
+            document["previous_sha256"] = "invalid"
+            state.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8")
+            with self.assertRaisesRegex(
+                    mailbox_daemon.PrimaryWorktreeError,
+                    "missing, extra, or invalid fields"):
+                mailbox_daemon._validate_sealed_backlog(str(repo))
+
     def test_seal_retry_refuses_if_backlog_changed_after_publish(self):
         with scratch_checkout() as (repo, backlog, _):
             previous = initialize(repo)
