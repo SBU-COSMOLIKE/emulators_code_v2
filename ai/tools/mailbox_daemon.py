@@ -278,6 +278,7 @@ MAX_TICKET_CYCLE_RECORDS = 10000
 CANDIDATE_STATE_NAME = ".ticket-candidate-state.json"
 CANDIDATE_STATE_SCHEMA = 1
 MAX_CANDIDATE_STATE_BYTES = 1024 * 1024
+IMPLEMENTER_DELIVERY_PREFIX = ".validated-implementer-return-for-"
 ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA = 1
 MAX_ARCHITECT_NOTES_ADMIN_JOURNAL_BYTES = 16 * 1024
 CANDIDATE_REF_ROOT = "refs/mailbox/cycles"
@@ -7798,6 +7799,7 @@ def dispatch_under_main_checkout_lock(
                   "the log above.")
         return False
 
+    implementer_delivery_receipt = None
     if agent == "opus" and registered_cycle_id is not None:
         implementer_completion_ready = True
         if implementer_evidence_contract is not None:
@@ -7861,16 +7863,37 @@ def dispatch_under_main_checkout_lock(
                 return False
         if implementer_completion_ready:
             try:
+                if implementer_evidence_contract is not None:
+                    implementer_delivery_receipt = (
+                        write_implementer_delivery_receipt(
+                            request_path=dispatch_path,
+                            return_path=implementer_return))
                 candidate = record_implementer_candidate(
                     cycle_id=registered_cycle_id,
                     starting_head=implementer_starting_head)
-            except (OSError, PrimaryWorktreeError,
+            except (OSError, ValueError, PrimaryWorktreeError,
                     TicketCycleStateError) as exc:
-                parked = park_failed_message(dispatch_path=dispatch_path)
+                if implementer_delivery_receipt is not None:
+                    try:
+                        preserved = (candidate_commit_for_cycle(
+                            cycle_id=registered_cycle_id)
+                            == returned_candidate)
+                    except (OSError, TicketCycleStateError):
+                        preserved = True
+                    if not preserved:
+                        os.remove(implementer_delivery_receipt)
+                        fsync_directory(directory=MAILBOX)
+                        implementer_delivery_receipt = None
+                parked = (False if implementer_delivery_receipt is not None
+                          else park_failed_message(
+                              dispatch_path=dispatch_path))
                 print("  !! Implementer returned rc=0 but its exact "
                       "candidate could not be preserved: " + str(exc) + "; "
                       + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                         ("delivery receipt retained with the inflight "
+                          "request for restart recovery."
+                          if implementer_delivery_receipt is not None else
+                          "failed-state move was not verified.")))
                 return False
             if candidate is not None:
                 print("  preserved Implementer candidate " + candidate
@@ -8257,6 +8280,9 @@ def dispatch_under_main_checkout_lock(
                   + "; parent daemon will fast-forward it after this turn.")
 
     archived = archive_consumed_message(dispatch_path=dispatch_path)
+    if archived and implementer_delivery_receipt is not None:
+        os.remove(implementer_delivery_receipt)
+        fsync_directory(directory=MAILBOX)
     if archived and notes_admin_turn:
         try:
             journal = read_architect_notes_admin_journal(
@@ -8783,6 +8809,167 @@ def candidate_commit_for_cycle(cycle_id):
         return None if record is None else record["commit"]
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def write_implementer_delivery_receipt(request_path, return_path):
+    """Hard-link a validated return before freezing its candidate."""
+    request = stable_regular_bytes(
+        path=request_path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+        label="Implementer request")
+    request_name = os.path.basename(request_path)
+    match = PENDING_MESSAGE_RE.fullmatch(request_name)
+    if match is None or match.group(1) != "opus":
+        raise TicketCycleStateError(
+            "invalid Implementer request name for delivery recovery")
+    return_raw = stable_regular_bytes(
+        path=return_path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+        label="Implementer return")
+    return_name = os.path.basename(return_path)
+    match = PENDING_MESSAGE_RE.fullmatch(return_name)
+    if match is None or match.group(1) != "fable":
+        raise TicketCycleStateError(
+            "invalid Implementer return name for delivery recovery")
+    path = os.path.join(
+        MAILBOX, IMPLEMENTER_DELIVERY_PREFIX
+        + "@".join((request_name, hashlib.sha256(request).hexdigest(),
+                    return_name, hashlib.sha256(return_raw).hexdigest())))
+    created = False
+    try:
+        os.link(return_path, path, follow_symlinks=False)
+        created = True
+    except FileExistsError:
+        pass
+    try:
+        linked = stable_regular_bytes(
+            path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="Implementer delivery receipt")
+        if linked != return_raw:
+            raise TicketCycleStateError(
+                "Implementer return changed while its receipt was saved")
+        fsync_directory(directory=MAILBOX)
+    except BaseException:
+        if created:
+            os.remove(path)
+        raise
+    return path
+
+
+def recover_implementer_deliveries():
+    """Finish exact candidate deliveries interrupted after a valid return."""
+    pattern = os.path.join(MAILBOX, IMPLEMENTER_DELIVERY_PREFIX + "*")
+    recovered = 0
+    for receipt_path in sorted(glob.glob(pattern)):
+        receipt_name = os.path.basename(receipt_path)
+        encoded = receipt_name[len(IMPLEMENTER_DELIVERY_PREFIX):]
+        fields = encoded.split("@")
+        if len(fields) != 4:
+            raise TicketCycleStateError(
+                "Implementer delivery receipt has the wrong filename")
+        request_name, request_sha256, return_name, return_sha256 = fields
+        request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
+        return_match = PENDING_MESSAGE_RE.fullmatch(return_name)
+        if (request_match is None or request_match.group(1) != "opus"
+                or return_match is None or return_match.group(1) != "fable"
+                or re.fullmatch(r"[0-9a-f]{64}", request_sha256) is None
+                or re.fullmatch(r"[0-9a-f]{64}", return_sha256) is None):
+            raise TicketCycleStateError(
+                "Implementer delivery receipt has the wrong filename")
+        return_paths = [os.path.join(directory, return_name)
+                        for directory in (MAILBOX,
+                                          os.path.join(MAILBOX, "inflight"),
+                                          DONE)
+                        if os.path.lexists(os.path.join(
+                            directory, return_name))]
+        if len(return_paths) != 1:
+            raise TicketCycleStateError(
+                "validated Implementer return has "
+                + str(len(return_paths)) + " mailbox locations")
+        return_raw = stable_regular_bytes(
+            path=return_paths[0],
+            maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="validated Implementer return")
+        receipt_raw = stable_regular_bytes(
+            path=receipt_path,
+            maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="Implementer delivery receipt")
+        if (hashlib.sha256(return_raw).hexdigest() != return_sha256
+                or hashlib.sha256(receipt_raw).hexdigest() != return_sha256):
+            raise TicketCycleStateError(
+                "Implementer return changed before delivery recovery")
+        inflight = os.path.join(MAILBOX, "inflight", request_name)
+        done = os.path.join(DONE, request_name)
+        guard = inflight + STATE_GUARD_SUFFIX
+        done_inode = regular_inode(path=done)
+        inflight_inode = regular_inode(path=inflight)
+        if done_inode is not None:
+            for leftover in (inflight, guard):
+                if (os.path.lexists(leftover)
+                        and regular_inode(path=leftover) != done_inode):
+                    raise TicketCycleStateError(
+                        "interrupted request archive changed identity")
+            request_path = done
+        elif inflight_inode is not None:
+            if (os.path.lexists(guard)
+                    and regular_inode(path=guard) != inflight_inode):
+                raise TicketCycleStateError(
+                    "interrupted request guard changed identity")
+            request_path = inflight
+        else:
+            raise TicketCycleStateError(
+                "interrupted Implementer request is missing")
+        request_raw = stable_regular_bytes(
+            path=request_path,
+            maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+            label="interrupted Implementer request")
+        if hashlib.sha256(request_raw).hexdigest() != request_sha256:
+            raise TicketCycleStateError(
+                "Implementer request changed before delivery recovery")
+        if done_inode is not None:
+            for leftover in (inflight, guard):
+                if os.path.lexists(leftover):
+                    os.remove(leftover)
+            fsync_directory(directory=os.path.dirname(inflight))
+        elif os.path.lexists(guard):
+            os.remove(guard)
+            fsync_directory(directory=os.path.dirname(inflight))
+        request_message = read_cycle_message(path=request_path)
+        cycle_id, mode, _, problem = _ticket_flow_envelope(
+            message=request_message)
+        if problem is not None:
+            raise TicketCycleStateError(problem)
+        returned_message = read_cycle_message(path=receipt_path)
+        returned_cycle, returned_mode, returned_body, problem = (
+            _ticket_flow_envelope(message=returned_message))
+        candidates = (IMPLEMENTER_CANDIDATE_LINE_RE.findall(returned_body)
+                      if problem is None else [])
+        if (returned_cycle != cycle_id or returned_mode != mode
+                or len(candidates) != 1):
+            raise TicketCycleStateError(
+                "saved Implementer return is not a completed handoff")
+        candidate = candidates[0]
+        starting_head = candidate_commit_for_cycle(cycle_id=cycle_id)
+        if starting_head != candidate:
+            if starting_head is None:
+                starting_head = cycle_starting_commit(cycle_id=cycle_id)
+            if worktree_head(worktree=AGENT_CWD["opus"]) != candidate:
+                raise TicketCycleStateError(
+                    "Implementer worktree no longer holds the delivered "
+                    "candidate")
+            if record_implementer_candidate(
+                    cycle_id=cycle_id,
+                    starting_head=starting_head) != candidate:
+                raise TicketCycleStateError(
+                    "delivered candidate was not preserved")
+        if os.path.dirname(request_path) != os.path.abspath(DONE):
+            if not archive_consumed_message(dispatch_path=request_path):
+                raise TicketCycleStateError(
+                    "interrupted Implementer request could not be archived")
+        os.remove(receipt_path)
+        fsync_directory(directory=MAILBOX)
+        recovered += 1
+        print("recovered Implementer candidate delivery for "
+              + request_name)
+    return recovered
 
 
 def audit_snapshot_path(cycle_id, agent):
@@ -10432,6 +10619,7 @@ def recover_before_dispatch(fix_only=False):
     """Recover restart-safe mailbox state before a live dispatch pass."""
     if fix_only:
         recover_failed_maintenance_admission()
+    recover_implementer_deliveries()
     recover_failed_implementer_preflight()
     recover_prelaunch_messages()
     recover_failed_public_architect_admissions()
