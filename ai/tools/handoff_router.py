@@ -563,10 +563,11 @@ def _read_recovery_file(path, label, maximum_bytes):
     return _read_regular_file(os.path.realpath(path), label, maximum_bytes)
 
 
-def route_sequence(note_path, note_display, base, create=True):
+def route_sequence(note_path, note_display, base, commands, create=True):
     """Resume one exact route, or optionally save a new one before work."""
     note_digest = hashlib.sha256(_read_recovery_file(
         note_path, "Architect source note", MAX_BACKLOG_BYTES)).hexdigest()
+    commands_digest = gate_commands_digest(commands)
     os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
     record_path = os.path.join(
         RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
@@ -574,16 +575,28 @@ def route_sequence(note_path, note_display, base, create=True):
         data = _read_recovery_file(
             record_path, "router recovery record", 16 * 1024)
         record = tuple(data.decode("utf-8", errors="strict").splitlines())
-        if (len(record) != 5 or record[0] != "route-v1"
+        if (len(record) != 6 or record[0] != "route-v2"
                 or re.fullmatch(
                     r"[0-9]{8}-[0-9]{6}(?:-[0-9]+)?", record[1]) is None
                 or re.fullmatch(r"[0-9a-f]{40}", record[3]) is None
                 or re.fullmatch(r"[0-9a-f]{64}", record[4]) is None
+                or re.fullmatch(r"[0-9a-f]{64}", record[5]) is None
                 or data != ("\n".join(record) + "\n").encode("utf-8")):
             raise BacklogLedgerError("router recovery record is malformed")
-        if record[2:] != (note_display, base, note_digest):
+        try:
+            reservation = os.lstat(os.path.join(
+                RUN_RESERVATIONS_DIR, record[1]))
+        except OSError as exc:
             raise BacklogLedgerError(
-                "an unfinished route names a different note or version")
+                "router sequence reservation is missing") from exc
+        if not stat.S_ISDIR(reservation.st_mode):
+            raise BacklogLedgerError(
+                "router sequence reservation must be a plain directory")
+        if record[2:] != (
+                note_display, base, note_digest, commands_digest):
+            raise BacklogLedgerError(
+                "an unfinished route names a different note, version, or "
+                "check command list")
         return record[1]
     if not create:
         return None
@@ -591,7 +604,8 @@ def route_sequence(note_path, note_display, base, create=True):
     if os.path.lexists(os.path.join(RELAY_DIR, seq + "-implementer.md")):
         raise BacklogLedgerError(
             "new route collides with existing Implementer evidence")
-    fields = ("route-v1", seq, note_display, base, note_digest)
+    fields = (
+        "route-v2", seq, note_display, base, note_digest, commands_digest)
     publish_complete_text(
         path=record_path, text="\n".join(fields) + "\n")
     return seq
@@ -625,9 +639,10 @@ def implementer_candidate_commit(handoff):
     return matches[0].group(1)
 
 
-def recovered_candidate_commit(note_path, note_display, base):
+def recovered_candidate_commit(note_path, note_display, base, commands):
     """Return the candidate named by this route's complete saved return."""
-    seq = route_sequence(note_path, note_display, base, create=False)
+    seq = route_sequence(
+        note_path, note_display, base, commands, create=False)
     if seq is None:
         return None
     handoff = recovered_implementer_return(seq)
@@ -1259,9 +1274,26 @@ def main():
         note_path, note_display = resolve_note_path(args.note)
         directive = validate_directive_file(
             role="architect", path=note_path, expected_max=expected_max)
+        budget = directive["character_change_budget"]
+        commands = list(
+            args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS)
+        if budget["limit"] > 0:
+            guard = directive["ticket_change_guard"]
+            guard_tool = guard["tool"]
+            if not os.path.isabs(guard_tool):
+                guard_tool = os.path.join(
+                    REPO_ROOT, guard_tool.lstrip("./"))
+            commands.append(shlex.join([
+                sys.executable,
+                guard_tool,
+                "--repo", guard["repo"],
+                "--base", guard["base"],
+                "--max", str(guard["max"]),
+            ]))
         recovered_candidate = recovered_candidate_commit(
             note_path=note_path, note_display=note_display,
-            base=directive["execution_checkout"]["Base"])
+            base=directive["execution_checkout"]["Base"],
+            commands=commands)
         verify_execution_checkout(
             checkout=directive["execution_checkout"],
             recovered_candidate=recovered_candidate)
@@ -1326,7 +1358,6 @@ def main():
         print(str(exc))
         return 1
     where = note_display + ', section "Implementation directive"'
-    budget = directive["character_change_budget"]
     budget_prompt = (
         "Binding character-change budget: limit "
         + str(budget["limit"]) + " characters; planned maximum "
@@ -1393,7 +1424,8 @@ def main():
     try:
         seq = route_sequence(
             note_path=note_path, note_display=note_display,
-            base=directive["execution_checkout"]["Base"])
+            base=directive["execution_checkout"]["Base"],
+            commands=commands)
         implementer_block = recovered_implementer_return(seq=seq)
     except (BacklogLedgerError, UnicodeError) as exc:
         release_router_lock(router_lock)
@@ -1462,19 +1494,6 @@ def main():
 
     # [2] Run local checks and save their exact output. The Architect still
     # reruns every check required by the directive before deciding.
-    commands = list(args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS)
-    if budget["limit"] > 0:
-        guard = directive["ticket_change_guard"]
-        guard_tool = guard["tool"]
-        if not os.path.isabs(guard_tool):
-            guard_tool = os.path.join(REPO_ROOT, guard_tool.lstrip("./"))
-        commands.append(shlex.join([
-            sys.executable,
-            guard_tool,
-            "--repo", guard["repo"],
-            "--base", guard["base"],
-            "--max", str(guard["max"]),
-        ]))
     try:
         saved_gates = recovered_gate_result(seq=seq, commands=commands)
     except (BacklogLedgerError, UnicodeError) as exc:

@@ -442,12 +442,41 @@ def arm_interrupted_implementer_return_resumes():
             original_archive = archive_path.read_bytes()
             original_route = route_path.read_bytes()
 
+            route_directory.rmdir()
+            try:
+                module.route_sequence(
+                    note_path=str(note), note_display="ai/notes/spec.md",
+                    base=route_record[3],
+                    commands=module.DEFAULT_GATE_COMMANDS, create=False)
+            except module.BacklogLedgerError:
+                missing_reservation_refused = True
+            else:
+                missing_reservation_refused = False
+            route_directory.mkdir()
+
             module.wait_for_block = lambda **_kwargs: (_ for _ in ()).throw(
                 AssertionError("Implementer was asked to work again"))
-            module.run_gates = lambda commands, seq, router_lock: (
-                "ai/notes/relay/" + seq + "-gates-log.md", True)
             module.archive = lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 AssertionError("saved Implementer return was overwritten"))
+
+            reservation_before = sorted(
+                item.name for item in reservations.iterdir())
+            module.copy_to_clipboard = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("changed commands reached the clipboard"))
+            module.run_gates = lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("changed commands reached local checks"))
+            module.sys.argv.extend(["--gate-cmd", "printf different"])
+            changed_command_before_log_rc = module.main()
+            del module.sys.argv[-2:]
+            changed_command_zero_write = (
+                route_path.read_bytes() == original_route
+                and archive_path.read_bytes() == original_archive
+                and sorted(item.name for item in reservations.iterdir())
+                == reservation_before)
+
+            module.copy_to_clipboard = copied.append
+            module.run_gates = lambda commands, seq, router_lock: (
+                "ai/notes/relay/" + seq + "-gates-log.md", True)
 
             archive_path.write_text("partial evidence\n", encoding="utf-8")
             copied.clear()
@@ -485,11 +514,13 @@ def arm_interrupted_implementer_return_resumes():
             and copied[0].startswith("### RELAY FOR AUDIT"))
         refusals = (
             mutated_archive_rc == 1 and changed_base_rc == 1
-            and unrelated_head_rc == 1 and duplicate_rc == 1)
+            and unrelated_head_rc == 1 and duplicate_rc == 1
+            and changed_command_before_log_rc == 1
+            and changed_command_zero_write and missing_reservation_refused)
         print("ARM interrupted Implementer return recovery")
         print("  first run stopped after complete archive:", stopped)
-        print("  changed archive/base, unrelated HEAD, and malformed route "
-              "refuse:", refusals)
+        print("  changed commands/archive/base, unrelated HEAD, and malformed "
+              "route refuse:", refusals)
         print("  restart skips Implementer and reaches Architect:",
               recovered_once and complete)
         assert stopped
