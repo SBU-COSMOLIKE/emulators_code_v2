@@ -7899,6 +7899,7 @@ def dispatch_under_main_checkout_lock(
         return False
 
     implementer_delivery_receipt = None
+    architect_delivery_receipt = None
     if agent == "opus" and registered_cycle_id is not None:
         implementer_completion_ready = True
         if implementer_evidence_contract is not None:
@@ -8118,6 +8119,15 @@ def dispatch_under_main_checkout_lock(
         elif handoff_path is not None:
             print("  authenticated Architect repair handoff for "
                   + audit_cycle_id + ".")
+        try:
+            architect_delivery_receipt = (
+                write_implementer_delivery_receipt(
+                    request_path=dispatch_path,
+                    return_path=go_path or handoff_path))
+        except (OSError, ValueError, TicketCycleStateError) as exc:
+            print("  !! validated Architect outcome could not be journaled: "
+                  + str(exc) + "; request kept in inflight/.")
+            return False
 
     if (agent == "fable" and audit_cycle_id is None
             and architect_turn_base is not None):
@@ -8381,6 +8391,9 @@ def dispatch_under_main_checkout_lock(
     archived = archive_consumed_message(dispatch_path=dispatch_path)
     if archived and implementer_delivery_receipt is not None:
         os.remove(implementer_delivery_receipt)
+        fsync_directory(directory=MAILBOX)
+    if archived and architect_delivery_receipt is not None:
+        os.remove(architect_delivery_receipt)
         fsync_directory(directory=MAILBOX)
     if archived and notes_admin_turn:
         try:
@@ -8913,23 +8926,26 @@ def candidate_commit_for_cycle(cycle_id):
 
 
 def write_implementer_delivery_receipt(request_path, return_path):
-    """Hard-link a validated return before freezing its candidate."""
+    """Hard-link a validated role return before its request is archived."""
     request = stable_regular_bytes(
         path=request_path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
         label="Implementer request")
     request_name = os.path.basename(request_path)
     match = PENDING_MESSAGE_RE.fullmatch(request_name)
-    if match is None or match.group(1) != "opus":
+    request_agent = match.group(1) if match is not None else None
+    if request_agent not in {"opus", "fable"}:
         raise TicketCycleStateError(
-            "invalid Implementer request name for delivery recovery")
+            "invalid request name for delivery recovery")
     return_raw = stable_regular_bytes(
         path=return_path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
         label="Implementer return")
     return_name = os.path.basename(return_path)
     match = PENDING_MESSAGE_RE.fullmatch(return_name)
-    if match is None or match.group(1) != "fable":
+    return_agent = match.group(1) if match is not None else None
+    if (request_agent, return_agent) not in {
+            ("opus", "fable"), ("fable", "daemon"), ("fable", "opus")}:
         raise TicketCycleStateError(
-            "invalid Implementer return name for delivery recovery")
+            "invalid delivery-receipt route")
     path = os.path.join(
         MAILBOX, IMPLEMENTER_DELIVERY_PREFIX
         + "@".join((request_name, hashlib.sha256(request).hexdigest(),
@@ -8969,8 +8985,12 @@ def recover_implementer_deliveries():
         request_name, request_sha256, return_name, return_sha256 = fields
         request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
         return_match = PENDING_MESSAGE_RE.fullmatch(return_name)
-        if (request_match is None or request_match.group(1) != "opus"
-                or return_match is None or return_match.group(1) != "fable"
+        request_agent = (request_match.group(1)
+                         if request_match is not None else None)
+        return_agent = (return_match.group(1)
+                        if return_match is not None else None)
+        if ((request_agent, return_agent) not in {
+                ("opus", "fable"), ("fable", "daemon"), ("fable", "opus")}
                 or re.fullmatch(r"[0-9a-f]{64}", request_sha256) is None
                 or re.fullmatch(r"[0-9a-f]{64}", return_sha256) is None):
             raise TicketCycleStateError(
@@ -9034,13 +9054,46 @@ def recover_implementer_deliveries():
             os.remove(guard)
             fsync_directory(directory=os.path.dirname(inflight))
         request_message = read_cycle_message(path=request_path)
-        cycle_id, mode, _, problem = _ticket_flow_envelope(
+        cycle_id, mode, request_body, problem = _ticket_flow_envelope(
             message=request_message)
         if problem is not None:
             raise TicketCycleStateError(problem)
         returned_message = read_cycle_message(path=receipt_path)
         returned_cycle, returned_mode, returned_body, problem = (
             _ticket_flow_envelope(message=returned_message))
+        if request_agent == "fable":
+            candidate = candidate_commit_for_cycle(cycle_id=cycle_id)
+            if (candidate is None
+                    or IMPLEMENTER_CANDIDATE_LINE_RE.findall(
+                        request_message) != [candidate]):
+                raise TicketCycleStateError(
+                    "saved Architect audit does not name its exact candidate")
+            if return_agent == "daemon":
+                returned_cycle, returned_candidate, returned_mode, problem = (
+                    _architect_go_request(message=returned_message))
+                if (problem is not None or returned_cycle != cycle_id
+                        or returned_candidate != candidate
+                        or returned_mode != mode):
+                    raise TicketCycleStateError(
+                        "saved Architect GO does not match its audit")
+            else:
+                problem = architect_handoff_problem(
+                    message=returned_message, cycle_id=cycle_id, mode=mode,
+                    checkpoint=is_implementer_checkpoint_request(
+                        body=request_body))
+                if problem is not None:
+                    raise TicketCycleStateError(
+                        "saved Architect repair is invalid: "
+                        + problem)
+            if os.path.dirname(request_path) != os.path.abspath(DONE):
+                if not archive_consumed_message(dispatch_path=request_path):
+                    raise TicketCycleStateError(
+                        "interrupted Architect request could not be archived")
+            os.remove(receipt_path)
+            fsync_directory(directory=MAILBOX)
+            recovered += 1
+            print("recovered validated delivery for " + request_name)
+            continue
         candidates = (IMPLEMENTER_CANDIDATE_LINE_RE.findall(returned_body)
                       if problem is None else [])
         if (returned_cycle != cycle_id or returned_mode != mode
@@ -9068,8 +9121,7 @@ def recover_implementer_deliveries():
         os.remove(receipt_path)
         fsync_directory(directory=MAILBOX)
         recovered += 1
-        print("recovered Implementer candidate delivery for "
-              + request_name)
+        print("recovered validated delivery for " + request_name)
     return recovered
 
 

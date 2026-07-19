@@ -30,6 +30,31 @@ def prepare_delivery(daemon, mailbox):
     return request, returned, receipt, cycle
 
 
+def prepare_architect_delivery(daemon, mailbox, outcome_agent):
+    """Write one audited candidate request and its validated outcome."""
+    inflight = mailbox / "inflight"
+    inflight.mkdir(parents=True, exist_ok=True)
+    cycle = "scratch-architect-recovery@" + BASE_COMMIT
+    flow = ("MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n")
+    request = inflight / "0001-to-fable.md"
+    request.write_text(
+        flow + "- **Candidate commit:** `" + ACCEPTED_COMMIT + "`\n",
+        encoding="utf-8")
+    outcome = mailbox / ("0002-to-" + outcome_agent + ".md")
+    if outcome_agent == "daemon":
+        text = daemon.architect_go_request_payload(
+            cycle_id=cycle, candidate_commit=ACCEPTED_COMMIT,
+            mode="normal")
+    else:
+        text = (flow + "- **Directive:** [ai/notes/ticket.md, exact "
+                "Implementation directive]\n")
+    outcome.write_text(text, encoding="utf-8")
+    receipt = pathlib.Path(daemon.write_implementer_delivery_receipt(
+        request_path=str(request), return_path=str(outcome)))
+    return request, outcome, receipt
+
+
 class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
     """Prove restart finishes only the exact validated delivery."""
 
@@ -299,6 +324,44 @@ class MailboxStateMoveRecoveryTests(unittest.TestCase):
 
             self.assertTrue(request.is_file())
             self.assertTrue(claimed.is_file())
+
+
+class ArchitectDeliveryRecoveryTests(unittest.TestCase):
+    """Do not rerun an audit whose exact GO or repair was already saved."""
+
+    def test_restart_finishes_validated_go_and_repair_deliveries(self):
+        for outcome_agent in ("daemon", "opus"):
+            with self.subTest(outcome_agent=outcome_agent), \
+                    scratch_daemon() as (daemon, _, mailbox, _):
+                request, outcome, receipt = prepare_architect_delivery(
+                    daemon=daemon, mailbox=mailbox,
+                    outcome_agent=outcome_agent)
+                original_outcome = outcome.read_bytes()
+                daemon.candidate_commit_for_cycle = mock.Mock(
+                    return_value=ACCEPTED_COMMIT)
+
+                self.assertEqual(daemon.recover_implementer_deliveries(), 1)
+
+                self.assertFalse(request.exists())
+                self.assertTrue((mailbox / "done" / request.name).is_file())
+                self.assertEqual(outcome.read_bytes(), original_outcome)
+                self.assertFalse(receipt.exists())
+                self.assertEqual(daemon.recover_implementer_deliveries(), 0)
+
+    def test_wrong_saved_candidate_keeps_recovery_evidence(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request, outcome, receipt = prepare_architect_delivery(
+                daemon=daemon, mailbox=mailbox, outcome_agent="daemon")
+            daemon.candidate_commit_for_cycle = mock.Mock(
+                return_value="3" * 40)
+
+            with self.assertRaisesRegex(
+                    daemon.TicketCycleStateError, "exact candidate"):
+                daemon.recover_implementer_deliveries()
+
+            self.assertTrue(request.is_file())
+            self.assertTrue(outcome.is_file())
+            self.assertTrue(receipt.is_file())
 
 if __name__ == "__main__":
     unittest.main()
