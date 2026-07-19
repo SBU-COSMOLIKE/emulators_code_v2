@@ -990,6 +990,15 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Keep the five human-first parts", self.architect)
         self.assertIn("Classify before ordering", self.architect)
         self.assertIn("Architect GO closes without Red Team", self.architect)
+        self.assertIn(
+            "Before `architect-go`, remove its Open\n  index",
+            self.architect)
+        self.assertIn(
+            "acceptance closes and\nseals the backlog ticket, then emits",
+            self.conventions)
+        self.assertNotIn(
+            "the daemon's recorded\n  local landing, and any required",
+            self.architect)
         self.assertNotIn("A GO retires the line immediately", self.architect)
         self.assertNotIn("ledger stays countable one-liners", self.architect)
 

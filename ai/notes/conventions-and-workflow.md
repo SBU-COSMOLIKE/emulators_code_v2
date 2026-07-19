@@ -1073,11 +1073,12 @@ owns that work.
 
 The Architect updates the ticket in the same turn as every state change,
 including dispatch, returned evidence, GO or NO-GO, landing, a Red Team
-`REOPEN`, a `NEW TICKET` return, and a new or cleared blocker. The ticket stays OPEN until
-implementation, required evidence, Architect review, landing, and any required
-permanent-note update are complete. Architect acceptance closes the backlog
-ticket and emits the exact GO request without waiting for Red Team. The daemon
-then creates and records L; a later advisory review may reopen the ticket.
+`REOPEN`, a `NEW TICKET` return, and a new or cleared blocker. The ticket stays
+OPEN until implementation, required evidence, Architect review, and any
+required permanent-note update are complete. Architect acceptance closes and
+seals the backlog ticket, then emits the exact GO request without waiting for
+Red Team or landing L. The daemon then creates and records L; a later advisory
+review may reopen the ticket.
 
 The Architect note has one current `## Implementation directive`. A confirmed
 Red Team return has one current `## Repair directive`. The appropriate

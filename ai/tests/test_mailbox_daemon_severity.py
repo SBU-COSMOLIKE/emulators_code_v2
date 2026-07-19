@@ -496,6 +496,65 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertEqual(daemon.strict_cycle_ledger_count(), (1, None))
             daemon.require_open_backlog_ticket("named-remainder")
 
+    def test_architect_go_needs_the_exact_ticket_closed(self):
+        anchor = "scratch-high-bug-fix-1"
+        with scratch_daemon(open_count=1) as (
+                daemon, _, mailbox, backlog):
+            dispatch = mailbox / "inflight" / "0001-to-daemon.md"
+            dispatch.parent.mkdir(parents=True)
+            dispatch.write_text("saved GO\n", encoding="utf-8")
+            with mock.patch.object(
+                    daemon, "_validate_sealed_backlog"), \
+                    mock.patch.object(
+                        daemon, "park_failed_message", return_value=True), \
+                    mock.patch.object(
+                        daemon, "acquire_main_checkout_turn_lock") as lock:
+                result = daemon.finish_claimed_architect_go(
+                    dispatch_path=str(dispatch),
+                    cycle_id=anchor + "@" + BASE_COMMIT,
+                    candidate_commit="2" * 40, mode="normal")
+            self.assertEqual(result, (False, 0, None))
+            lock.assert_not_called()
+
+            valid_closed = (
+                "# Open tickets\n\n"
+                "# Closed tickets\n\n"
+                '<a id="' + anchor + '"></a>\n'
+                "## Scratch high ticket\n\n"
+                "### High-level summary\n\nThe repair is complete.\n\n"
+                "### Current status\n\n"
+                "**CLOSED.** The accepted repair is complete.\n\n"
+                "### What is already fixed\n\nThe defect is fixed.\n\n"
+                "### What is missing\n\nNothing for this ticket.\n\n"
+                "<details><summary>Technical record for development "
+                "tools</summary>\n\nExact evidence.\n\n</details>\n\n"
+                "## Another closed group\n")
+            backlog.write_text(valid_closed, encoding="utf-8")
+            daemon.require_closed_backlog_ticket(
+                anchor, backlog.read_bytes())
+
+            malformed = {
+                "trailing_open_index": (
+                    "- OPEN **HIGH** **BUG FIX** — [Scratch](#"
+                    + anchor + ") trailing\n" + valid_closed),
+                "missing_status_heading": valid_closed.replace(
+                    "### Current status\n\n", ""),
+                "remaining_work": valid_closed.replace(
+                    "Nothing for this ticket.",
+                    "Nothing for this ticket.\n\nMore work remains."),
+                "wrong_missing_answer": valid_closed.replace(
+                    "Nothing for this ticket.", "A task remains."),
+                "contradictory_open_status": valid_closed.replace(
+                    "**CLOSED.** The accepted repair is complete.",
+                    "**OPEN.** Contradiction mentions **CLOSED.**"),
+            }
+            for name, content in malformed.items():
+                with self.subTest(name=name):
+                    backlog.write_text(content, encoding="utf-8")
+                    with self.assertRaises(daemon.TicketCycleStateError):
+                        daemon.require_closed_backlog_ticket(
+                            anchor, backlog.read_bytes())
+
     def test_reopen_count_five_keeps_severity_but_six_forces_low(self):
         classifications = (
             ("critical", {"critical_count": 1}),

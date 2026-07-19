@@ -119,6 +119,37 @@ def seal_backlog(primary):
             "utf-8"))
 
 
+def close_backlog_ticket(primary, anchor):
+    """Move one scratch ticket below Closed and seal the result."""
+    backlog = primary / "ai" / "notes" / "backlog.md"
+    lines = backlog.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in lines
+             if not (line.startswith("- OPEN ")
+                     and line.endswith("](#" + anchor + ")"))]
+    marker = '<a id="' + anchor + '"></a>'
+    starts = [index for index, line in enumerate(lines) if line == marker]
+    if len(starts) != 1:
+        raise AssertionError("scratch backlog lacks one anchor: " + anchor)
+    start = starts[0]
+    end = next((index for index in range(start + 1, len(lines))
+                if lines[index].startswith('<a id="')
+                or lines[index] == "# Closed tickets"), len(lines))
+    del lines[start:end]
+    if "# Closed tickets" not in lines:
+        lines.extend(["", "# Closed tickets"])
+    lines.extend([
+        "", marker, "## Closed scratch ticket", "",
+        "### High-level summary", "", "The scratch repair is complete.",
+        "",
+        "### Current status", "", "**CLOSED.** Scratch repair accepted.",
+        "", "### What is already fixed", "", "The repair is present.",
+        "", "### What is missing", "", "Nothing for this ticket.",
+    ])
+    backlog.write_text(
+        "\n".join(lines).strip() + "\n", encoding="utf-8", newline="")
+    seal_backlog(primary=primary)
+
+
 def create_empty_sealed_backlog(primary):
     """Create the valid empty local ledger required before Sol admission."""
     write_exact(primary / "ai" / "notes" / "backlog.md", b"")
@@ -3597,6 +3628,28 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             cycle_id=cycle_id, starting_head=starting)
         if candidate is None:
             return False
+        mailbox = Path(daemon.MAILBOX)
+        mailbox.mkdir(parents=True, exist_ok=True)
+        wrong_mode_go = mailbox / "0001-to-daemon.md"
+        wrong_mode_go.write_text(
+            daemon.architect_go_request_payload(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="two-role"),
+            encoding="utf-8", newline="")
+        wrong_mode_refused = not daemon.consume_daemon_message(
+            path=str(wrong_mode_go))
+        open_go = mailbox / "0002-to-daemon.md"
+        open_go.write_text(
+            daemon.architect_go_request_payload(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal"),
+            encoding="utf-8", newline="")
+        open_go_refused = not daemon.consume_daemon_message(
+            path=str(open_go))
+        open_candidate_preserved = (
+            daemon.candidate_commit_for_cycle(cycle_id) == candidate
+            and git(root, "rev-parse", "HEAD").stdout.strip() == base)
+        close_backlog_ticket(primary=primary, anchor="squash-landing")
         candidate_object = git_bytes(
             implementer, "cat-file", "commit", candidate).stdout
         candidate_message_raw = candidate_object.partition(b"\n\n")[2]
@@ -3677,15 +3730,21 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
         finally:
             git(root, "update-ref", "-d", landing_ref,
                 wrong_message_landing, check=False)
-        mailbox = Path(daemon.MAILBOX)
-        mailbox.mkdir(parents=True, exist_ok=True)
         go_path = mailbox / "0003-to-daemon.md"
         go_path.write_text(
             daemon.architect_go_request_payload(
                 cycle_id=cycle_id, candidate_commit=candidate,
                 mode="normal"),
             encoding="utf-8", newline="")
-        consumed = daemon.consume_daemon_message(path=str(go_path))
+        real_retire = daemon.retire_superseded_failed_architect_go
+        try:
+            daemon.retire_superseded_failed_architect_go = (
+                lambda **_kwargs: None)
+            consumed = daemon.consume_daemon_message(path=str(go_path))
+        finally:
+            daemon.retire_superseded_failed_architect_go = real_retire
+        rejected_go_waited_for_recovery = (
+            mailbox / "failed" / open_go.name).is_file()
         landing = git(root, "rev-parse", "HEAD").stdout.strip()
         landing_object = git_bytes(
             root, "cat-file", "commit", landing).stdout
@@ -3727,6 +3786,15 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
         finally:
             daemon.subprocess.run = real_run
         checks = {
+            "open-go-refused": open_go_refused,
+            "wrong-mode-go-remains-explicit-debt": (
+                wrong_mode_refused
+                and (mailbox / "failed" / wrong_mode_go.name).is_file()),
+            "rejected-go-retired-after-fresh-go": (
+                rejected_go_waited_for_recovery
+                and not (mailbox / "failed" / open_go.name).exists()
+                and (mailbox / "done" / open_go.name).is_file()),
+            "open-candidate-preserved": open_candidate_preserved,
             "go-consumed": consumed,
             "candidate-is-not-landing": candidate_as_landing_refused,
             "wrong-tree-is-not-landing": wrong_tree_refused,
@@ -3877,6 +3945,7 @@ def arm_landed_candidate_hands_off_without_clobbering_pipeline(source=None):
 
             mailbox = Path(daemon.MAILBOX)
             mailbox.mkdir(parents=True, exist_ok=True)
+            close_backlog_ticket(primary=primary, anchor="handoff-a")
             go = mailbox / "0003-to-daemon.md"
             go.write_text(
                 daemon.architect_go_request_payload(
@@ -3915,6 +3984,7 @@ def arm_landed_candidate_hands_off_without_clobbering_pipeline(source=None):
                     == candidate_b,
                 })
                 go_b = mailbox / "0005-to-daemon.md"
+                close_backlog_ticket(primary=primary, anchor="handoff-b")
                 go_b.write_text(
                     daemon.architect_go_request_payload(
                         cycle_id=cycle_b, candidate_commit=candidate_b,
@@ -4022,10 +4092,10 @@ def arm_candidate_retirement_internal_crash_replays(source=None):
                 git(root, "update-ref", "-d", reference, candidate)
             first = daemon.retire_cycle_candidate(
                 cycle_id=cycle, candidate_commit=candidate,
-                landing_commit=landing)
+                landing_commit=landing, mode="two-role")
             second = daemon.retire_cycle_candidate(
                 cycle_id=cycle, candidate_commit=candidate,
-                landing_commit=landing)
+                landing_commit=landing, mode="two-role")
             checks = {
                 "first-retired": first,
                 "second-idempotent": second,
@@ -4088,6 +4158,7 @@ def arm_architect_go_crash_cuts_recover_once(source=None):
             git(implementer, "commit", "-m", "scratch " + cut)
             candidate = daemon.record_implementer_candidate(
                 cycle_id=cycle_id, starting_head=starting)
+            close_backlog_ticket(primary=primary, anchor=anchor)
             mailbox = Path(daemon.MAILBOX)
             inflight = mailbox / "inflight"
             inflight.mkdir(parents=True, exist_ok=True)
@@ -4197,6 +4268,7 @@ def arm_post_landing_error_preserves_go(source=None):
         git(implementer, "commit", "-m", "post landing recovery")
         candidate = daemon.record_implementer_candidate(
             cycle_id=cycle_id, starting_head=starting)
+        close_backlog_ticket(primary=primary, anchor=anchor)
 
         mailbox = Path(daemon.MAILBOX)
         inflight = mailbox / "inflight"
@@ -4314,6 +4386,7 @@ def arm_two_role_debt_failure_replays_past_cycle_limit(source=None):
         if candidate is None:
             daemon._ACTIVE_WATCH_RENDEZVOUS = None
             return False
+        close_backlog_ticket(primary=primary, anchor=anchor)
         mailbox = Path(daemon.MAILBOX)
         mailbox.mkdir(parents=True, exist_ok=True)
         go_path = mailbox / "0003-to-daemon.md"
@@ -4475,6 +4548,7 @@ def arm_architect_go_user_checkout_stop_is_finite(source=None):
             landing, parent, _reference = daemon.prepare_exact_squash_landing(
                 cycle_id=cycle_id, candidate_commit=candidate,
                 mode="normal")
+            close_backlog_ticket(primary=primary, anchor=anchor)
             if case == "dirty-landed":
                 daemon.land_prepared_commit_in_clean_user_checkout(
                     landing=landing, parent=parent)

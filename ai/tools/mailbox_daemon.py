@@ -6911,7 +6911,7 @@ def _validate_protected_tracked_state(primary_worktree):
 
 
 def _validate_sealed_backlog(primary_worktree):
-    """Require the local backlog to match its Architect-sealed SHA-256."""
+    """Return the backlog bytes after matching the Architect-sealed SHA."""
     notes = os.path.join(primary_worktree, "ai", "notes")
     backlog_path = os.path.join(notes, "backlog.md")
     state_path = os.path.join(notes, BACKLOG_GUARD_STATE_NAME)
@@ -6922,7 +6922,7 @@ def _validate_sealed_backlog(primary_worktree):
                 or os.path.lexists(state_path)):
             raise PrimaryWorktreeError(
                 "backlog or its guard appeared while absence was checked")
-        return
+        return b""
     if backlog_exists != state_exists:
         raise PrimaryWorktreeError(
             "backlog and its Architect-sealed guard must either both exist "
@@ -6970,6 +6970,43 @@ def _validate_sealed_backlog(primary_worktree):
     if observed != state["sha256"]:
         raise PrimaryWorktreeError(
             "backlog differs from the SHA-256 last sealed by the Architect")
+    return backlog
+
+
+def require_closed_backlog_ticket(ticket_anchor, sealed_backlog):
+    """Prove one ticket is Closed before landing."""
+    try:
+        lines = sealed_backlog.decode("utf-8", errors="strict").splitlines()
+    except (AttributeError, UnicodeDecodeError) as exc:
+        raise TicketCycleStateError("backlog is not UTF-8") from exc
+    marker = '<a id="' + ticket_anchor + '"></a>'
+    if (lines.count("# Closed tickets") != 1 or lines.count(marker) != 1
+            or any(OPEN_BACKLOG_CANDIDATE_RE.match(line)
+                   and "(#" + ticket_anchor + ")" in line for line in lines)):
+        raise TicketCycleStateError("ticket is Open: " + ticket_anchor)
+    start = lines.index(marker) + 1
+    if start <= lines.index("# Closed tickets"):
+        raise TicketCycleStateError("ticket is Open: " + ticket_anchor)
+    end = next((index for index in range(start + 1, len(lines))
+                if lines[index].startswith(("## ", '<a id="'))), len(lines))
+    section = lines[start:end]
+    headings = ["### High-level summary", "### Current status",
+                "### What is already fixed", "### What is missing"]
+    if (not section or not section[0].startswith("## ")
+            or any(section.count(heading) != 1 for heading in headings)):
+        raise TicketCycleStateError("invalid ticket: " + ticket_anchor)
+    positions = [section.index(heading) for heading in headings]
+    if positions != sorted(positions):
+        raise TicketCycleStateError("invalid ticket: " + ticket_anchor)
+    status = [line for line in section[positions[1] + 1:positions[2]]
+              if line.startswith("**CLOSED.**")]
+    missing = section[positions[3] + 1:]
+    missing = missing[:next((index for index, line in enumerate(missing)
+                            if line.startswith(("### ", "<details>"))),
+                           len(missing))]
+    if len(status) != 1 or [line for line in missing if line] != [
+            "Nothing for this ticket."]:
+        raise TicketCycleStateError("invalid ticket: " + ticket_anchor)
 
 
 def _bridge_local_sealed_backlog(primary_worktree):
@@ -9924,15 +9961,33 @@ def retire_cycle_candidate_locked(cycle_id, candidate_commit,
     return True
 
 
-def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit):
+def retire_superseded_failed_architect_go(cycle_id, candidate_commit, mode):
+    """Archive rejected GO after landing."""
+    paths = glob.glob(os.path.join(MAILBOX, "failed", "*-to-daemon.md"))
+    for path in sorted(paths, key=message_sequence):
+        try:
+            returned = _architect_go_request(read_cycle_message(path=path))
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        if returned != (cycle_id, candidate_commit, mode, None):
+            continue
+        _destination, verified = verified_state_move(path, DONE)
+        if not verified:
+            print("  warning: rejected GO remains: " + os.path.basename(path))
+
+
+def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit, mode):
     """Retire exact C after durable GO state, preserving concurrent work."""
     lock_file = acquire_ticket_cycle_lock()
     try:
-        return retire_cycle_candidate_locked(
+        retired = retire_cycle_candidate_locked(
             cycle_id=cycle_id, candidate_commit=candidate_commit,
             landing_commit=landing_commit)
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
+    retire_superseded_failed_architect_go(
+        cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
+    return retired
 
 
 def _symbolic_worktree_branch(worktree, expected_branch, label):
@@ -10281,6 +10336,19 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
                                 candidate_commit, mode):
     """Finish or replay one already-claimed, well-formed Architect GO."""
     name = os.path.basename(dispatch_path)
+    try:
+        sealed_backlog = _validate_sealed_backlog(
+            primary_worktree=AGENT_CWD["fable"])
+        require_closed_backlog_ticket(
+            ticket_anchor=cycle_ticket_anchor(cycle_id),
+            sealed_backlog=sealed_backlog)
+    except (PrimaryWorktreeError, TicketCycleStateError) as exc:
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        state = "parked." if parked else "move failed."
+        print("refused " + name + ": " + str(exc)
+              + "; C and its cycle remain. Close and seal the ticket, then "
+              "send a fresh GO; " + state)
+        return False, 0, None
     main_lock = acquire_main_checkout_turn_lock()
     if main_lock is None:
         requeued = requeue_retryable_daemon_message(
@@ -10375,7 +10443,7 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
     try:
         retired = retire_cycle_candidate(
             cycle_id=cycle_id, candidate_commit=candidate_commit,
-            landing_commit=landing)
+            landing_commit=landing, mode=mode)
     except (OSError, TicketCycleStateError) as exc:
         print("  warning: durable state and GO archive are complete, but "
               "the private candidate journal remains for recovery: "
@@ -12775,7 +12843,7 @@ def reconcile_ticket_cycle_state():
                 cycle_id=cycle_id, landing=landing)
             retire_cycle_candidate(
                 cycle_id=cycle_id, candidate_commit=candidate_commit,
-                landing_commit=landing)
+                landing_commit=landing, mode=mode)
             current_main = _exact_git_object(
                 arguments=["rev-parse", "--verify",
                            "refs/heads/main^{commit}"],

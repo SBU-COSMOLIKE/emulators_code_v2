@@ -1694,7 +1694,8 @@ def main():
         + "Review per your role file, including your own reruns of every\n"
         "required check. The saved blocks and check log support the review;\n"
         "they do not replace it. Do not wait for Red Team before this audit\n"
-        "or your exact architect-go decision. Do not merge, commit, update\n"
+        "or your exact architect-go decision. Before GO, close and seal this\n"
+        "ticket in the backlog. Do not merge, commit, update\n"
         "main, or push; save the decision as a to-daemon message and let\n"
         "mailbox_daemon.py create and record landing L.\n\n"
         "### ENDS\n")

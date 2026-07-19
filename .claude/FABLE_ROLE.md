@@ -1424,11 +1424,12 @@ turn that touches a ticket are:
 - **Update every state change in the same turn**: dispatch, returned evidence,
   Architect GO or NO-GO, landing, and a new or cleared blocker. The detailed
   ticket always says what has happened and what it still waits on.
-- **Architect GO closes without Red Team approval.** Keep it OPEN until
-  implementation, required evidence, Architect review, the daemon's recorded
-  local landing, and any required permanent-note work are complete. Your GO
-  authorizes that daemon landing through the exact decision-only request. Red
-  Team is advisory; never make its review or GO a prerequisite for GO or L.
+- **Architect GO closes without Red Team approval.** Keep the ticket OPEN
+  until implementation, required evidence, Architect review, and any required
+  permanent-note work are complete. Before `architect-go`, remove its Open
+  index, move it below `# Closed tickets`, mark it `**CLOSED.**`, set **What is
+  missing** to `Nothing for this ticket.`, and seal. GO then authorizes L; do
+  not wait for L or Red Team approval before closing.
 - **Count every formal Red Team reopening request.** Every ticket begins with
   `**Red Team reopen count: 0.**`; never reset it. It also begins with
   `**Red Team reopening: allowed.**`. When a matching normal-cycle return says

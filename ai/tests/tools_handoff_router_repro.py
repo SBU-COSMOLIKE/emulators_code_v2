@@ -1981,6 +1981,7 @@ def arm_discovery_severity_binding():
               and "Post-acceptance Red Team plan" in copied[1]
               and "First audit the Implementer result" in copied[1]
               and "exact decision-only architect-go block" in copied[1]
+              and "Before GO, close and seal this" in copied[1]
               and "do not merge, commit, or push" in copied[1]
               and "After the daemon records landing L" in copied[1]
               and not any(prompt.startswith(
