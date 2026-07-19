@@ -749,6 +749,46 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         implementer = default_implementer(root)
         sol = default_sol(root)
         base = git(root, "rev-parse", "HEAD").stdout.strip()
+        daemon = load_scratch_daemon(primary)
+        daemon.configure_agent_worktrees(
+            primary_path=str(primary), implementer_path=str(implementer),
+            sol_path=str(sol))
+        cycle = "unstarted-user-main-update@" + base
+        state = daemon.read_ticket_cycle_state()
+        state["active"][cycle] = {
+            "phase": "implementation", "commit": None,
+            "mode": "normal", "route": "primary"}
+        daemon.write_ticket_cycle_state(state=state)
+
+        marker = root / "user-main-during-unstarted-ticket.txt"
+        marker.write_text(
+            "committed before the Implementer starts\n",
+            encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "user advances main before child start")
+        user_commit = git(root, "rev-parse", "HEAD").stdout.strip()
+
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        state_after = daemon.read_ticket_cycle_state()
+        accepted_unstarted = (
+            rc == 0 and stderr == ""
+            and git(primary, "rev-parse", "HEAD").stdout.strip()
+            == user_commit
+            and git(sol, "rev-parse", "HEAD").stdout.strip() == user_commit
+            and git(implementer, "rev-parse", "HEAD").stdout.strip() == base
+            and state_after["active"].get(cycle) == state["active"][cycle])
+        outcomes.append(accepted_unstarted)
+        print("clean user-main commit preserves unstarted ticket="
+              + str(accepted_unstarted))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
         saved_states = {
             "primary": file_identity(state_path(root)),
             "implementer": file_identity(implementer_state_path(root)),
@@ -789,7 +829,7 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         outcomes.append(refused)
         print("Implementer-only main ref move refused=" + str(refused))
 
-    return outcomes == [True, True]
+    return outcomes == [True, True, True]
 
 
 def arm_interrupted_implementer_bootstrap_is_exactly_resumable(source=None):

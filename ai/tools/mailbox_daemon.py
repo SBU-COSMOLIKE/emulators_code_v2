@@ -2126,7 +2126,11 @@ def bootstrap_sync_primary_from_main_authority(primary_path):
             "stale Architect primary has an invalid root landing request: "
             + "; ".join(root_problems))
     if not authorities:
-        if (ticket_state["active"] or candidate_state["cycles"]
+        post_implementation = any(
+            record["phase"] != "implementation"
+            or record["commit"] is not None
+            for record in ticket_state["active"].values())
+        if (post_implementation or candidate_state["cycles"]
                 or not clean_user_main_matches(target=target)):
             raise PrimaryWorktreeError(
                 "main is ahead of the Architect primary without an exact "
