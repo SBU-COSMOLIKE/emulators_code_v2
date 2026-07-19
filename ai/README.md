@@ -626,8 +626,10 @@ two versions.
 The eleven permanent notes explain durable project rules. The Architect,
 Implementer, and Red Team role files define the three roles.
 `ai/notes/role-contract.yaml` is
-the machine-readable source of truth for stable role, timing, and landing
-facts. Only the Architect may edit these files, through protected-policy
+the machine-readable record for configurable role-system settings. The
+reader keeps role identities, saved worktree layout, trusted file locations,
+and irreversible Git safeguards fixed until code provides an explicit
+migration. Only the Architect may edit these files, through protected-policy
 administration. The Implementer and Red Team may report a problem, but they
 never change or commit one.
 
@@ -1434,9 +1436,9 @@ using different mailboxes or placing an agent in the user's main folder.
 Only the Architect may edit the eleven permanent notes,
 `ai/notes/role-contract.yaml`, or the three role files, and
 only through protected-policy administration. The YAML is the machine-readable
-source of truth for stable role, timing, and landing facts. The Implementer and
-Red Team may point out a missing or incorrect rule, but they do not change or
-commit these files.
+record for settings that may change without a protocol migration. The
+Implementer and Red Team may point out a missing or incorrect rule, but they
+do not change or commit these files.
 
 The user does not run a special note-update command. The Architect waits for
 ordinary ticket work to become idle, saves a protected-rule change, and exits.

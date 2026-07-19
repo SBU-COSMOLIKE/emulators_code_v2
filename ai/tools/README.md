@@ -720,6 +720,34 @@ role permissions and landing authority. The tools check that machine contract
 instead of relying on a README value. Only the Architect may edit it, through
 protected-policy administration; Implementer and Red Team access is read-only.
 
+### Change the machine contract safely
+
+The YAML file is the source for settings that the Architect may configure.
+The watcher reads one copy when it starts. For example, adding `.ai-secrets/`
+to `candidate_forbidden_prefixes` does not require a matching Python constant.
+As soon as a protected update replaces that copy, the watcher finishes no
+other message and asks the user to restart it.
+
+Some identities are not ordinary settings. Python fixes the contract's own
+location, the trusted tool and role files, the backlog location, and the saved
+worktree layout. It also fixes the maximum bytes read before parsing, the
+schema versions understood, and Git rules such as “never force-push.” The
+reader refuses a YAML edit that removes or redirects one of these boundaries.
+Changing one requires a separate code migration with tests for the saved
+state or protocol it affects.
+
+A future change to the YAML's shape uses `schema_version` in three steps:
+
+1. Stop the watcher and release a reader that accepts both the old and new
+   schema.
+2. Update the YAML through protected-policy administration, then restart the
+   watcher.
+3. Remove old-schema support in a later maintenance change.
+
+The contract does not list compatible daemon versions. A new YAML file cannot
+prove that an older Python reader understands a field that did not exist when
+that reader was written.
+
 Model selection and effort are independent. Choosing Sonnet does not silently
 lower the Implementer effort.
 
@@ -1084,9 +1112,9 @@ approve the ticket.
 
 Only the Architect may edit and commit the eleven permanent notes,
 `ai/notes/role-contract.yaml`, and the three role files, and
-only through protected-policy administration. The YAML is the protected
-machine source of truth for stable role, timing, and landing facts. This work
-is separate from an Implementer ticket and consumes no cycle slot.
+only through protected-policy administration. The YAML holds configurable
+machine settings inside the fixed safety boundaries described above. This
+work is separate from an Implementer ticket and consumes no cycle slot.
 
 When Red Team is enabled, it reviews the exact draft once before the
 Architect's final decision. It returns one advisory `GO` or `NO-GO`

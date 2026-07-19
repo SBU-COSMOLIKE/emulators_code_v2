@@ -8,6 +8,59 @@ import stat
 
 _BOOTSTRAP_CONTRACT_PATH = "ai/notes/role-contract.yaml"
 _BOOTSTRAP_CONTRACT_BYTES = 64 * 1024
+_BOOTSTRAP_ROLE_FILES = (
+    ".claude/FABLE_ROLE.md",
+    ".claude/OPUS_ROLE.md",
+    ".codex/REDTEAM_ROLE.md",
+)
+_BOOTSTRAP_GUARD_FILES = {
+    "permanent_note_guard": "ai/tools/permanent_note_guard.py",
+    "role_contract_reader": "ai/tools/role_contract.py",
+}
+_BOOTSTRAP_TRUSTED_TOOLS = {
+    "backlog_bundle": "ai/tools/backlog_bundle.py",
+    "backlog_guard": "ai/tools/backlog_guard.py",
+    "handoff_contract": "ai/tools/handoff_contract.py",
+    "handoff_router": "ai/tools/handoff_router.py",
+    "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
+    "mailbox_daemon": "ai/tools/mailbox_daemon.py",
+    "ticket_change_guard": "ai/tools/ticket_change_guard.py",
+}
+_MINIMUM_PERMANENT_NOTES = {
+    "ai/notes/MEMORY.md",
+    "ai/notes/project-and-history.md",
+    "ai/notes/conventions-and-workflow.md",
+    "ai/notes/python-changes-go-no-go.md",
+    "ai/notes/models-and-designs.md",
+    "ai/notes/training-stack.md",
+    "ai/notes/artifacts-inference-warmstart.md",
+    "ai/notes/data-generation-and-cuts.md",
+    "ai/notes/families-background-mps.md",
+    "ai/notes/families-scalar-cmb.md",
+    "ai/notes/readme-go-no-go.md",
+}
+_BOOTSTRAP_BACKLOG_PATH = "ai/notes/backlog.md"
+_BOOTSTRAP_WORKTREES = {
+    "architect_branch": "refs/heads/claude/mailbox-primary",
+    "architect_name": "mailbox-primary",
+    "claude_branch_prefix": "claude/",
+    "cleanup_action": "--clean-all",
+    "implementer_branch": "refs/heads/claude/mailbox-implementer",
+    "implementer_name": "mailbox-implementer",
+    "legacy_cleanup_prefix": "worktree-agent-",
+    "sol_branch": "refs/heads/codex/mailbox-sol",
+    "sol_branch_prefix": "codex/",
+    "sol_name": "mailbox-sol",
+    "topology": "separate-role-worktrees-v1",
+}
+_MINIMUM_FORBIDDEN_FILES = {
+    "CLAUDE.md", ".gitattributes", ".gitignore", ".gitmodules",
+    "ai/notes/backlog.md", "ai/notes/.backlog-guard.json",
+    "ai/notes/.backlog-guard.lock",
+}
+_MINIMUM_FORBIDDEN_PREFIXES = {
+    ".claude/", ".codex/", "ai/notes/mailbox/", "ai/notes/relay/",
+}
 
 
 class RoleContractError(ValueError):
@@ -116,9 +169,10 @@ def validate_role_contract(value):
         _type(value["limits"][name], int, "limits." + name)
         if value["limits"][name] <= 0:
             raise RoleContractError("limits." + name + " must be positive")
-    if value["limits"]["role_contract_bytes"] != _BOOTSTRAP_CONTRACT_BYTES:
+    if value["limits"]["role_contract_bytes"] > _BOOTSTRAP_CONTRACT_BYTES:
         raise RoleContractError(
-            "limits.role_contract_bytes must match the protected reader cap")
+            "limits.role_contract_bytes cannot exceed the protected reader "
+            "cap")
     for name in ("implementer_review_minutes",
                  "dispatch_timeout_default_minutes"):
         _type(value["runtime"][name], int, "runtime." + name)
@@ -170,6 +224,72 @@ def validate_role_contract(value):
         if path.parent != notes_root or path.suffix.casefold() != ".md":
             raise RoleContractError(
                 "permanent notes must be Markdown files beside the contract")
+
+    # An editable contract may tighten configuration, but it cannot grant
+    # itself authority that the reader and daemon deliberately never expose.
+    safety_floor = {
+        "candidate": {"creator": "implementer", "immutable": True,
+                      "full_hash_required": True},
+        "landing": {"creator": "daemon", "parent_count": 1,
+                    "force_push_allowed": False,
+                    "audited_delta_required": True},
+        "evidence": {"red_team_advisory": True,
+                     "protected_policy_review_rounds": 1},
+    }
+    for section, required in safety_floor.items():
+        if value[section] != required:
+            raise RoleContractError(
+                section + " does not match the compiled safety floor")
+    required_permissions = {
+        "architect": {
+            "may_edit_source": False, "may_decide": True, "may_land": False,
+            "may_edit_backlog": True, "may_edit_protected_policy": True,
+        },
+        "implementer": {
+            "may_edit_source": True, "may_decide": False, "may_land": False,
+            "may_edit_backlog": False, "may_edit_protected_policy": False,
+        },
+        "red_team": {
+            "may_edit_source": False, "may_decide": False,
+            "may_land": False, "may_edit_backlog": False,
+            "may_edit_protected_policy": False,
+        },
+    }
+    for role, required in required_permissions.items():
+        if value["roles"][role] != required:
+            raise RoleContractError(
+                "roles." + role + " does not match the compiled safety "
+                "floor")
+    if value["backlog"]["editor"] != "architect":
+        raise RoleContractError(
+            "backlog.editor does not match the compiled safety floor")
+    if value["backlog"]["path"] != _BOOTSTRAP_BACKLOG_PATH:
+        raise RoleContractError(
+            "backlog.path requires an explicit protocol migration")
+    if value["worktrees"] != _BOOTSTRAP_WORKTREES:
+        raise RoleContractError(
+            "worktrees requires an explicit saved-state migration")
+    if tuple(protected["role_files"]) != _BOOTSTRAP_ROLE_FILES:
+        raise RoleContractError(
+            "protected role files do not match the bootstrap identities")
+    if protected["guard_files"] != _BOOTSTRAP_GUARD_FILES:
+        raise RoleContractError(
+            "protected guard files do not match the bootstrap identities")
+    if protected["trusted_tools"] != _BOOTSTRAP_TRUSTED_TOOLS:
+        raise RoleContractError(
+            "trusted tools do not match the bootstrap identities")
+    if not _MINIMUM_PERMANENT_NOTES.issubset(
+            protected["permanent_notes"]):
+        raise RoleContractError(
+            "protected permanent notes dropped a required note")
+    if not _MINIMUM_FORBIDDEN_FILES.issubset(
+            protected["candidate_forbidden_files"]):
+        raise RoleContractError(
+            "candidate forbidden files dropped a safety-floor path")
+    if not _MINIMUM_FORBIDDEN_PREFIXES.issubset(
+            protected["candidate_forbidden_prefixes"]):
+        raise RoleContractError(
+            "candidate forbidden prefixes dropped a safety-floor path")
     return value
 
 
@@ -193,6 +313,8 @@ def load_role_contract(path=None):
     except (UnicodeError, json.JSONDecodeError) as error:
         raise RoleContractError("role contract is not canonical JSON-compatible YAML") from error
     validate_role_contract(value)
+    if len(data) > value["limits"]["role_contract_bytes"]:
+        raise RoleContractError("role contract exceeds its configured limit")
     canonical = json.dumps(value, sort_keys=True, indent=2) + "\n"
     if text != canonical:
         raise RoleContractError("role contract must use canonical formatting")

@@ -107,6 +107,30 @@ AI_ROOT = os.path.dirname(SCRIPT_DIR)
 WORKTREE = os.path.dirname(AI_ROOT)
 
 
+def _load_local_role_contract_tool():
+    """Load the protected reader beside this exact daemon file."""
+    path = os.path.join(SCRIPT_DIR, "role_contract.py")
+    try:
+        from ai.tools import role_contract as packaged_tool
+    except ImportError:
+        packaged_tool = None
+    if (packaged_tool is not None
+            and os.path.realpath(packaged_tool.__file__)
+            == os.path.realpath(path)):
+        return packaged_tool
+    spec = importlib.util.spec_from_file_location(
+        "_mailbox_local_role_contract", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load the protected role contract reader")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+_ROLE_CONTRACT_TOOL = _load_local_role_contract_tool()
+ROLE_CONTRACT = _ROLE_CONTRACT_TOOL.ROLE_CONTRACT
+
+
 def repo_root_of(worktree):
     """Return the shared repository root that owns a worktree directory.
 
@@ -250,8 +274,10 @@ CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
 # lane for 21 minutes until a human Ctrl-C'd the watch (2026-07-14).
 # A long Implementer turn first pauses for an Architect complexity review.
 # The later hard timeout remains a fallback for a CLI that stops responding.
-IMPLEMENTER_REVIEW_MINUTES = 90
-DEFAULT_DISPATCH_TIMEOUT_MINUTES = 120
+IMPLEMENTER_REVIEW_MINUTES = ROLE_CONTRACT["runtime"][
+    "implementer_review_minutes"]
+DEFAULT_DISPATCH_TIMEOUT_MINUTES = ROLE_CONTRACT["runtime"][
+    "dispatch_timeout_default_minutes"]
 DISPATCH_TIMEOUT_MINUTES = DEFAULT_DISPATCH_TIMEOUT_MINUTES
 MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
 MAX_TIMEOUT_HISTORY_BYTES = 262144
@@ -285,41 +311,18 @@ ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA = 1
 MAX_ARCHITECT_NOTES_ADMIN_JOURNAL_BYTES = 16 * 1024
 CANDIDATE_REF_ROOT = "refs/mailbox/cycles"
 AUDIT_WORKTREE_PREFIX = "mailbox-audit-"
-ARCHITECT_PERMANENT_NOTE_PATHS = (
-    "ai/notes/MEMORY.md",
-    "ai/notes/project-and-history.md",
-    "ai/notes/conventions-and-workflow.md",
-    "ai/notes/python-changes-go-no-go.md",
-    "ai/notes/models-and-designs.md",
-    "ai/notes/training-stack.md",
-    "ai/notes/artifacts-inference-warmstart.md",
-    "ai/notes/data-generation-and-cuts.md",
-    "ai/notes/families-background-mps.md",
-    "ai/notes/families-scalar-cmb.md",
-    "ai/notes/readme-go-no-go.md",
-)
-ROLE_CONTRACT_RELATIVE_PATH = "ai/notes/role-contract.yaml"
-PERMANENT_NOTE_GUARD_RELATIVE_PATH = "ai/tools/permanent_note_guard.py"
-ROLE_CONTRACT_TOOL_RELATIVE_PATH = "ai/tools/role_contract.py"
-ARCHITECT_ROLE_PATHS = (
-    ".claude/FABLE_ROLE.md",
-    ".claude/OPUS_ROLE.md",
-    ".codex/REDTEAM_ROLE.md",
-)
-ARCHITECT_GUARD_PATHS_BY_NAME = {
-    "permanent_note_guard": PERMANENT_NOTE_GUARD_RELATIVE_PATH,
-    "role_contract_reader": ROLE_CONTRACT_TOOL_RELATIVE_PATH,
-}
+_PROTECTED_PATHS = ROLE_CONTRACT["protected_paths"]
+ARCHITECT_PERMANENT_NOTE_PATHS = tuple(_PROTECTED_PATHS["permanent_notes"])
+ROLE_CONTRACT_RELATIVE_PATH = _PROTECTED_PATHS["contract"]
+ARCHITECT_ROLE_PATHS = tuple(_PROTECTED_PATHS["role_files"])
+ARCHITECT_GUARD_PATHS_BY_NAME = dict(_PROTECTED_PATHS["guard_files"])
+PERMANENT_NOTE_GUARD_RELATIVE_PATH = (
+    ARCHITECT_GUARD_PATHS_BY_NAME["permanent_note_guard"])
+ROLE_CONTRACT_TOOL_RELATIVE_PATH = (
+    ARCHITECT_GUARD_PATHS_BY_NAME["role_contract_reader"])
 ARCHITECT_GUARD_PATHS = tuple(ARCHITECT_GUARD_PATHS_BY_NAME.values())
-ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME = {
-    "backlog_bundle": "ai/tools/backlog_bundle.py",
-    "backlog_guard": "ai/tools/backlog_guard.py",
-    "handoff_contract": "ai/tools/handoff_contract.py",
-    "handoff_router": "ai/tools/handoff_router.py",
-    "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
-    "mailbox_daemon": "ai/tools/mailbox_daemon.py",
-    "ticket_change_guard": "ai/tools/ticket_change_guard.py",
-}
+ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME = dict(
+    _PROTECTED_PATHS["trusted_tools"])
 ARCHITECT_TRUSTED_TOOL_PATHS = (
     ARCHITECT_GUARD_PATHS
     + tuple(ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME.values()))
@@ -328,137 +331,101 @@ ARCHITECT_PROTECTED_POLICY_PATHS = (
     + ARCHITECT_ROLE_PATHS + (ROLE_CONTRACT_RELATIVE_PATH,))
 ARCHITECT_PROTECTED_TRACKED_PATHS = (
     ARCHITECT_PROTECTED_POLICY_PATHS + ARCHITECT_GUARD_PATHS)
-ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES = (
-    "CLAUDE.md", ".gitattributes", ".gitignore", ".gitmodules",
-    "ai/notes/backlog.md", "ai/notes/.backlog-guard.json",
-    "ai/notes/.backlog-guard.lock",
-)
-ARCHITECT_CANDIDATE_FORBIDDEN_FILES = frozenset(
-    ARCHITECT_PROTECTED_TRACKED_PATHS
-    + ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES)
-ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES = (
-    ".claude/", ".codex/", "ai/notes/mailbox/", "ai/notes/relay/")
-
-ROLE_PERMISSIONS = {
-    "architect": {
-        "may_edit_source": False, "may_decide": True, "may_land": False,
-        "may_edit_backlog": True, "may_edit_protected_policy": True},
-    "implementer": {
-        "may_edit_source": True, "may_decide": False, "may_land": False,
-        "may_edit_backlog": False, "may_edit_protected_policy": False},
-    "red_team": {
-        "may_edit_source": False, "may_decide": False, "may_land": False,
-        "may_edit_backlog": False, "may_edit_protected_policy": False},
-}
 
 
-def _local_role_contract_tool():
-    """Load the contract reader beside this daemon, never from another tree."""
-    expected = os.path.join(SCRIPT_DIR, "role_contract.py")
-    try:
-        from ai.tools import role_contract as tool
-    except ImportError:
-        tool = None
-    if (tool is not None
-            and os.path.realpath(tool.__file__) == os.path.realpath(expected)):
-        return tool
-    spec = importlib.util.spec_from_file_location(
-        "_mailbox_local_role_contract", expected)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("cannot load the protected role contract reader")
-    tool = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(tool)
-    return tool
-
-
-def validate_role_contract_bindings(contract=None):
-    """Refuse a live run when Python controls disagree with protected YAML."""
-    tool = _local_role_contract_tool()
-    if contract is None:
-        contract = tool.load_role_contract(
-            os.path.join(WORKTREE, ROLE_CONTRACT_RELATIVE_PATH))
-    else:
-        tool.validate_role_contract(contract)
-    runtime_backlog = os.path.relpath(BACKLOG_LEDGER, WORKTREE).replace(
-        os.sep, "/")
-    expected = {
-        "roles": ROLE_PERMISSIONS,
-        "candidate": {"creator": "implementer", "immutable": True,
-                      "full_hash_required": True},
-        "landing": {"creator": "daemon", "parent_count": 1,
-                    "force_push_allowed": False,
-                    "audited_delta_required": True},
-        "backlog": {"editor": "architect", "path": runtime_backlog},
-        "evidence": {"red_team_advisory": True,
-                     "protected_policy_review_rounds": 1},
-        "limits": {
-            "protected_policy_file_bytes": MAX_PROTECTED_NOTE_BYTES,
-            "role_contract_bytes": tool.MAX_CONTRACT_BYTES},
-        "runtime": {
-            "implementer_review_minutes": IMPLEMENTER_REVIEW_MINUTES,
-            "dispatch_timeout_default_minutes":
-                DEFAULT_DISPATCH_TIMEOUT_MINUTES},
-        "protected_paths": {
-            "contract": ROLE_CONTRACT_RELATIVE_PATH,
-            "permanent_notes": list(ARCHITECT_PERMANENT_NOTE_PATHS),
-            "role_files": list(ARCHITECT_ROLE_PATHS),
-            "guard_files": dict(ARCHITECT_GUARD_PATHS_BY_NAME),
-            "trusted_tools": dict(ARCHITECT_TRUSTED_TOOL_PATHS_BY_NAME),
-            "candidate_forbidden_files": list(
-                ARCHITECT_CANDIDATE_EXTRA_FORBIDDEN_FILES),
-            "candidate_forbidden_prefixes": list(
-                ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES)},
-        "worktrees": {
-            "architect_branch": PRIMARY_BRANCH,
-            "architect_name": PRIMARY_WORKTREE_NAME,
-            "claude_branch_prefix": CLAUDE_BRANCH_PREFIX,
-            "cleanup_action": CLEANUP_ACTION,
-            "implementer_branch": IMPLEMENTER_BRANCH,
-            "implementer_name": IMPLEMENTER_WORKTREE_NAME,
-            "legacy_cleanup_prefix": LEGACY_CLEANUP_PREFIX,
-            "sol_branch": SOL_BRANCH,
-            "sol_branch_prefix": SOL_BRANCH_PREFIX,
-            "sol_name": SOL_WORKTREE_NAME,
-            "topology": PRIMARY_TOPOLOGY_MARKER},
-    }
-    for section, value in expected.items():
-        if contract[section] != value:
-            raise tool.RoleContractError(
-                section + " disagrees with the live mailbox controls")
+def candidate_forbidden_files_from_contract(contract):
+    """Return exact protected files from one validated contract value."""
     protected = contract["protected_paths"]
-    effective_forbidden = frozenset(
+    return frozenset(
         protected["permanent_notes"] + protected["role_files"]
         + list(protected["guard_files"].values())
         + protected["candidate_forbidden_files"]
         + [protected["contract"]])
-    if effective_forbidden != ARCHITECT_CANDIDATE_FORBIDDEN_FILES:
+
+
+ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES = tuple(
+    _PROTECTED_PATHS["candidate_forbidden_prefixes"])
+
+
+def _local_role_contract_tool():
+    """Load the contract reader beside this daemon, never from another tree."""
+    return _ROLE_CONTRACT_TOOL
+
+
+def validate_role_contract_bindings(contract=None):
+    """Validate one policy snapshot and its non-configurable safety floor."""
+    tool = _local_role_contract_tool()
+    if contract is None:
+        contract = tool.load_role_contract(
+            os.path.join(WORKTREE, ROLE_CONTRACT_RELATIVE_PATH))
+        if contract != ROLE_CONTRACT:
+            raise tool.RoleContractError(
+                "role contract changed after daemon startup; restart before "
+                "admitting more work")
+    else:
+        tool.validate_role_contract(contract)
+
+    protected = contract["protected_paths"]
+    worktrees = contract["worktrees"]
+    if worktrees != ROLE_CONTRACT["worktrees"]:
         raise tool.RoleContractError(
-            "candidate forbidden files disagree with live admission")
-    configured_tools = frozenset(
-        list(protected["guard_files"].values())
-        + list(protected["trusted_tools"].values()))
-    if configured_tools != frozenset(ARCHITECT_TRUSTED_TOOL_PATHS):
-        raise tool.RoleContractError(
-            "trusted tools disagree with live dispatch checks")
+            "worktree policy changes require an explicit saved-state "
+            "migration")
     expected_branch_refs = tuple(
         "refs/heads/" + prefix for prefix in (
-            CLAUDE_BRANCH_PREFIX, SOL_BRANCH_PREFIX,
-            LEGACY_CLEANUP_PREFIX))
-    if AI_BRANCH_PREFIXES != expected_branch_refs:
+            worktrees["claude_branch_prefix"],
+            worktrees["sol_branch_prefix"],
+            worktrees["legacy_cleanup_prefix"]))
+    if tuple(AI_BRANCH_PREFIXES) != expected_branch_refs:
         raise tool.RoleContractError(
             "cleanup branch prefixes disagree with the role contract")
     runtime_transport = {
         os.path.relpath(path, WORKTREE).replace(os.sep, "/") + "/"
         for path in (MAILBOX, RELAY_DIR)}
     if not runtime_transport.issubset(
-            set(ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES)):
+            set(protected["candidate_forbidden_prefixes"])):
         raise tool.RoleContractError(
             "mailbox paths are not protected from candidates")
     return contract
 
 
+def role_contract_snapshot_problem():
+    """Describe a contract edit made after this process loaded its policy."""
+    try:
+        current = _local_role_contract_tool().load_role_contract(
+            os.path.join(WORKTREE, ROLE_CONTRACT_RELATIVE_PATH))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return "role contract on disk is invalid: " + str(exc)
+    if current != ROLE_CONTRACT:
+        return ("role contract changed after daemon startup; restart the "
+                "watcher before admitting more work")
+    return None
+
+
+def report_role_contract_restart():
+    """Print the current policy stop and return its process exit status."""
+    problem = role_contract_snapshot_problem()
+    if problem is None:
+        problem = ("role contract changed during this mailbox pass; restart "
+                   "before admitting more work")
+    print(problem + ".")
+    return 1 if problem.startswith("role contract on disk is invalid") else 0
+
+
+def role_contract_exit_status():
+    """Return a watch exit code unless an exact policy landing may finish."""
+    problem = role_contract_snapshot_problem()
+    if problem is None:
+        return None
+    invalid = problem.startswith("role contract on disk is invalid")
+    if not invalid and architect_notes_transition_pending():
+        return None
+    return report_role_contract_restart()
+
+
 BACKLOG_GUARD_STATE_NAME = ".backlog-guard.json"
-MAX_PROTECTED_NOTE_BYTES = 4 * 1024 * 1024
+MAX_PROTECTED_NOTE_BYTES = ROLE_CONTRACT["limits"][
+    "protected_policy_file_bytes"]
 MAX_BACKLOG_GUARD_STATE_BYTES = 16 * 1024
 PROTECTED_STATE_RECHECK_ATTEMPTS = 20
 PROTECTED_STATE_RECHECK_SECONDS = 0.05
@@ -469,27 +436,28 @@ PROTECTED_STATE_RECHECK_SECONDS = 0.05
 # primary, then creates the exact Implementer and Sol checkouts. Later actions
 # prove all three saved identities before dispatch. REPO_ROOT remains the
 # user's checkout.
-PRIMARY_WORKTREE_NAME = "mailbox-primary"
-PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
+_WORKTREE_POLICY = ROLE_CONTRACT["worktrees"]
+PRIMARY_WORKTREE_NAME = _WORKTREE_POLICY["architect_name"]
+PRIMARY_BRANCH = _WORKTREE_POLICY["architect_branch"]
 PRIMARY_STATE_NAME = ".mailbox-primary-worktree.json"
 PRIMARY_LOCK_NAME = ".mailbox-primary-worktree.lock"
 LEGACY_PRIMARY_STATE_SCHEMA = 1
 PREVIOUS_PRIMARY_STATE_SCHEMA = 2
 PREVIOUS_PRIMARY_TOPOLOGY_MARKER = "dedicated-sol-worktree-v1"
 PRIMARY_STATE_SCHEMA = 3
-PRIMARY_TOPOLOGY_MARKER = "separate-role-worktrees-v1"
-IMPLEMENTER_WORKTREE_NAME = "mailbox-implementer"
-IMPLEMENTER_BRANCH = "refs/heads/claude/mailbox-implementer"
+PRIMARY_TOPOLOGY_MARKER = _WORKTREE_POLICY["topology"]
+IMPLEMENTER_WORKTREE_NAME = _WORKTREE_POLICY["implementer_name"]
+IMPLEMENTER_BRANCH = _WORKTREE_POLICY["implementer_branch"]
 IMPLEMENTER_STATE_NAME = ".mailbox-implementer-worktree.json"
 IMPLEMENTER_STATE_SCHEMA = 1
-SOL_WORKTREE_NAME = "mailbox-sol"
-SOL_BRANCH = "refs/heads/codex/mailbox-sol"
+SOL_WORKTREE_NAME = _WORKTREE_POLICY["sol_name"]
+SOL_BRANCH = _WORKTREE_POLICY["sol_branch"]
 SOL_STATE_NAME = ".mailbox-sol-worktree.json"
 SOL_STATE_SCHEMA = 1
-CLAUDE_BRANCH_PREFIX = "claude/"
-SOL_BRANCH_PREFIX = "codex/"
-LEGACY_CLEANUP_PREFIX = "worktree-agent-"
-CLEANUP_ACTION = "--clean-all"
+CLAUDE_BRANCH_PREFIX = _WORKTREE_POLICY["claude_branch_prefix"]
+SOL_BRANCH_PREFIX = _WORKTREE_POLICY["sol_branch_prefix"]
+LEGACY_CLEANUP_PREFIX = _WORKTREE_POLICY["legacy_cleanup_prefix"]
+CLEANUP_ACTION = _WORKTREE_POLICY["cleanup_action"]
 AI_BRANCH_PREFIXES = (
     "refs/heads/" + CLAUDE_BRANCH_PREFIX,
     "refs/heads/" + SOL_BRANCH_PREFIX,
@@ -3606,7 +3574,8 @@ PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
 # AI role. The historical declaration is parsed only so it can be rejected;
 # Sol is always advisory Red Team in a three-role watch.
 DISCOVERY_ADMISSION_THRESHOLD = 10
-BACKLOG_LEDGER = os.path.join(AI_ROOT, "notes", "backlog.md")
+BACKLOG_LEDGER = os.path.join(
+    WORKTREE, *ROLE_CONTRACT["backlog"]["path"].split("/"))
 OPEN_BACKLOG_TICKET_RE = re.compile(
     r"^- OPEN \*\*(CRITICAL|HIGH|MEDIUM|LOW)\*\* "
     r"\*\*(BUG FIX|NEW FUNCTIONALITY)\*\* — "
@@ -8989,13 +8958,16 @@ def prepare_implementer_cycle_checkout(cycle_id):
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
-def candidate_forbidden_paths(changed_paths):
-    """Return candidate paths reserved for the Architect or Git control."""
+def candidate_forbidden_paths(changed_paths, contract=ROLE_CONTRACT):
+    """Return candidate paths forbidden by one validated policy snapshot."""
+    forbidden_files = candidate_forbidden_files_from_contract(contract)
+    forbidden_prefixes = tuple(
+        contract["protected_paths"]["candidate_forbidden_prefixes"])
     return {
         path for path in changed_paths
-        if (path in ARCHITECT_CANDIDATE_FORBIDDEN_FILES
+        if (path in forbidden_files
             or any(path.startswith(prefix)
-                   for prefix in ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES))}
+                   for prefix in forbidden_prefixes))}
 
 
 def candidate_changed_paths(base_commit, candidate_commit):
@@ -10300,6 +10272,13 @@ def require_architect_notes_commit(base_commit, notes_commit,
         _validate_protected_tracked_state(primary_worktree=primary)
     except PrimaryWorktreeError as exc:
         raise TicketCycleStateError(str(exc)) from exc
+    try:
+        proposed_contract = _local_role_contract_tool().load_role_contract(
+            os.path.join(primary, ROLE_CONTRACT_RELATIVE_PATH))
+        validate_role_contract_bindings(contract=proposed_contract)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise TicketCycleStateError(
+            "proposed role contract is invalid: " + str(exc)) from exc
     current_main = _exact_git_object(
         arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
         label="current main commit")
@@ -10611,6 +10590,7 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
 DAEMON_MESSAGE_CONSUMED = "consumed"
 DAEMON_NOTE_DEFERRED = "retryable-note-deferred"
 DAEMON_MESSAGE_HARD_STOP = "hard-stop"
+ROLE_CONTRACT_RESTART_REQUIRED = "role-contract-restart-required"
 
 
 def finish_claimed_architect_notes_go(dispatch_path, base_commit,
@@ -11439,7 +11419,8 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     Returns:
       None when there was no backlog, True when every message was consumed
       (or would dispatch in a dry run), and False when any dispatch or done
-      archive failed.
+      archive failed. ROLE_CONTRACT_RESTART_REQUIRED stops a pass after a
+      protected contract update, before another message can start.
     """
     _TOKEN_EXHAUSTION_STOP.clear()
     if not dry_run:
@@ -11459,6 +11440,19 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         path for path in all_daemon_paths
         if message_is_enabled_for_topology(
             path=path, skip_redteam=skip_redteam)]
+    policy_problem = role_contract_snapshot_problem()
+    policy_recovery_only = (
+        policy_problem is not None and architect_notes_transition_pending())
+    if policy_recovery_only:
+        # The Architect primary already contains a proposed new contract.
+        # The old process may finish only that exact P landing. It must not
+        # land an ordinary candidate or start a role under stale policy.
+        daemon_paths = [
+            path for path in daemon_paths
+            if regular_file_has_prefix(
+                path=path,
+                prefix=(MAILBOX_RETURN_HEADER
+                        + "architect-notes-go").encode("ascii"))]
     daemon_outcome = True
     for daemon_path in daemon_paths:
         # This GO belongs to a ticket already admitted against the finite
@@ -11471,11 +11465,24 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
             # An unlanded P can wait behind a later, already-admitted
             # ordinary GO. Continue the daemon lane so that exact ticket can
             # reach L and clear P's idle-boundary requirement.
+            if policy_recovery_only:
+                return ROLE_CONTRACT_RESTART_REQUIRED
             daemon_outcome = False
             continue
         if outcome != DAEMON_MESSAGE_CONSUMED:
+            if policy_recovery_only:
+                return ROLE_CONTRACT_RESTART_REQUIRED
             daemon_outcome = False
             break
+        # Check after each daemon message, not after the complete lane. A P
+        # landing therefore cannot release a second daemon request or a role
+        # while this process still holds the old policy snapshot.
+        if (policy_recovery_only
+                or (policy_problem is None
+                    and role_contract_snapshot_problem() is not None)):
+            return ROLE_CONTRACT_RESTART_REQUIRED
+    if policy_recovery_only:
+        return ROLE_CONTRACT_RESTART_REQUIRED
     agent_backlog = [path for path in all_backlog
                      if path not in all_daemon_paths]
     backlog = [
@@ -13896,6 +13903,8 @@ def main():
             print(failed_debt)
             return 1
         outcome = process_backlog(dry_run=args.dry_run)
+        if outcome == ROLE_CONTRACT_RESTART_REQUIRED:
+            return report_role_contract_restart()
         if outcome is None:
             print("mailbox empty")
             return 0
@@ -13926,6 +13935,8 @@ def main():
                 print("ticket-cycle recovery failed: " + str(exc)
                       + "; no mailbox work was dispatched.")
                 return 1
+            if outcome == ROLE_CONTRACT_RESTART_REQUIRED:
+                return report_role_contract_restart()
             if outcome is None:
                 print("mailbox empty")
             elif not outcome:
@@ -14023,6 +14034,9 @@ def main():
                           "limit of at least " + str(used_at_start) + ".")
                     return 1
             while True:
+                contract_exit = role_contract_exit_status()
+                if contract_exit is not None:
+                    return contract_exit
                 # Preserve the existing first-pass call shape for finite
                 # witnesses, then check before every later release as well as
                 # after every joined pass.  A source edit during an idle safe
@@ -14043,6 +14057,11 @@ def main():
                 except FatalArchitectLandingError as exc:
                     print("Architect landing needs user action: " + str(exc))
                     return 1
+                if backlog_outcome == ROLE_CONTRACT_RESTART_REQUIRED:
+                    return report_role_contract_restart()
+                contract_exit = role_contract_exit_status()
+                if contract_exit is not None:
+                    return contract_exit
                 if (rendezvous.source_changed()
                         or os.path.getmtime(source_path) != source_stamp):
                     print("daemon source changed on disk; exiting so "
