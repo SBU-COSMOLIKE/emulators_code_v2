@@ -9,6 +9,7 @@ manifest, paths, sizes, and hashes before returning any content.
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import lzma
@@ -1163,22 +1164,24 @@ def unpack_archive(repo, archive_path, requested_output):
     try:
         try:
             os.mkdir(destination.name, 0o700, dir_fd=import_root_fd)
-            created = True
         except FileExistsError:
-            created = False
+            pass
         destination_fd = _open_directory_at(import_root_fd, destination.name)
-        existing_files = set()
-        if not created:
-            if _existing_import_is_exact(
-                    destination_fd, manifest, payload, bundle_id):
-                print("Already imported:", destination)
-                return
-            existing_files = _resumable_import_files(
-                destination_fd, manifest, payload, bundle_id)
-            if existing_files is None:
-                raise BundleError(
-                    "refusing to reuse existing import directory: " +
-                    str(destination))
+        try:
+            fcntl.flock(destination_fd, fcntl.LOCK_EX)
+        except OSError as error:
+            raise BundleError(
+                "cannot lock import directory: " + str(error))
+        if _existing_import_is_exact(
+                destination_fd, manifest, payload, bundle_id):
+            print("Already imported:", destination)
+            return
+        existing_files = _resumable_import_files(
+            destination_fd, manifest, payload, bundle_id)
+        if existing_files is None:
+            raise BundleError(
+                "refusing to reuse existing import directory: " +
+                str(destination))
         if ".INCOMPLETE" not in existing_files:
             _write_file_at(
                 destination_fd, ".INCOMPLETE",

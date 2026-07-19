@@ -9,6 +9,7 @@ emailed handoff must refuse.
 
 import contextlib
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 
 
 AI_ROOT = Path(__file__).resolve().parents[1]
@@ -562,6 +564,111 @@ def arm_interrupted_import_recovery():
     return True
 
 
+def arm_concurrent_import_recovery():
+    """Serialize two processes that resume the same partial import."""
+    with scratch_repository("concurrent-import") as (repo, tool_path, module):
+        archive = repo / "valid.backlog-bundle.tar.xz"
+        assert_ok(
+            run_cli(repo, tool_path, "pack", "--output", str(archive)),
+            "concurrent-import fixture pack")
+        manifest, _payload, bundle_id, _digest = module.validate_archive(
+            archive)
+        destination_text = "ai/backlog-imports/concurrent"
+        destination = repo / destination_text
+        destination.mkdir(parents=True)
+        (destination / ".INCOMPLETE").write_bytes(
+            (bundle_id + "\n").encode("ascii"))
+        manifest_bytes = module.canonical_json(manifest)
+        (destination / "manifest.json").write_bytes(
+            manifest_bytes[:len(manifest_bytes) // 2])
+
+        signals = repo / "signals"
+        signals.mkdir()
+        wrapper = repo / "resume_import.py"
+        wrapper.write_text(
+            """import importlib.util
+import os
+from pathlib import Path
+import sys
+import time
+
+tool_path, repo, archive, output, role, signals = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("bundle_under_test", tool_path)
+module = importlib.util.module_from_spec(spec)
+sys.path.insert(0, str(Path(tool_path).parent))
+spec.loader.exec_module(module)
+real_resume = module._resumable_import_files
+
+def observed_resume(*args):
+    Path(signals, role + "-entered").write_text("entered\\n")
+    if role == "holder":
+        while not Path(signals, "release").exists():
+            time.sleep(0.01)
+    return real_resume(*args)
+
+module._resumable_import_files = observed_resume
+module.unpack_archive(Path(repo), Path(archive), output)
+""",
+            encoding="utf-8")
+        environment = os.environ.copy()
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+
+        def start(role):
+            return subprocess.Popen(
+                [sys.executable, "-B", str(wrapper), str(tool_path),
+                 str(repo), str(archive), destination_text, role,
+                 str(signals)],
+                cwd=str(repo), env=environment, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        holder = start("holder")
+        contender = None
+        try:
+            for _ in range(500):
+                if (signals / "holder-entered").exists():
+                    break
+                time.sleep(0.01)
+            if not (signals / "holder-entered").exists():
+                if holder.poll() is None:
+                    raise AssertionError("holder did not reach import recovery")
+                stdout, stderr = holder.communicate()
+                raise AssertionError(
+                    "holder stopped before import recovery\n" + stdout + stderr)
+            probe = os.open(str(destination), os.O_RDONLY)
+            try:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    destination_is_locked = True
+                else:
+                    destination_is_locked = False
+                    fcntl.flock(probe, fcntl.LOCK_UN)
+            finally:
+                os.close(probe)
+            assert destination_is_locked
+            contender = start("contender")
+            (signals / "release").write_text("release\n", encoding="utf-8")
+            holder_stdout, holder_stderr = holder.communicate(timeout=10)
+            contender_stdout, contender_stderr = contender.communicate(
+                timeout=10)
+            assert holder.returncode == 0, holder_stdout + holder_stderr
+            assert contender.returncode == 0, (
+                contender_stdout + contender_stderr)
+            assert "Already imported:" in contender_stdout
+            assert not (signals / "contender-entered").exists()
+            repeated = run_cli(
+                repo, tool_path, "unpack", str(archive),
+                "--output", destination_text)
+            assert_ok(repeated, "verify concurrent import")
+            assert "Already imported:" in repeated.stdout
+        finally:
+            for process in (holder, contender):
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait()
+    return True
+
+
 def arm_dirty_permanent_and_source_symlink_refusals():
     """Prove unruled permanent edits and linked support fail before output."""
     with scratch_repository("sources") as (repo, tool_path, _module):
@@ -875,6 +982,7 @@ def main():
         ("concurrent head advance keeps one base",
          arm_head_advance_keeps_one_base),
         ("interrupted import recovery", arm_interrupted_import_recovery),
+        ("concurrent import recovery", arm_concurrent_import_recovery),
         ("dirty permanent note and source symlink refusals",
          arm_dirty_permanent_and_source_symlink_refusals),
         ("pack bounds and output policy",
