@@ -313,6 +313,88 @@ def arm_sequence_collision():
         assert len(payloads) == 8
 
 
+def arm_atomic_evidence_publication():
+    """Interrupted writes never expose partial final evidence files."""
+    with tempfile.TemporaryDirectory(prefix="router-atomic-evidence-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(root, "scratch_router_atomic")
+        relay = repo / "ai" / "notes" / "relay"
+        markdown = relay / "atomic-implementer.md"
+        with mock.patch.object(
+                module.os, "replace", side_effect=OSError("interrupted")):
+            try:
+                module.archive("atomic", "implementer", "complete return")
+            except OSError:
+                markdown_absent = not markdown.exists()
+            else:
+                markdown_absent = False
+        no_markdown_temporary = not any(
+            path.name.startswith(".atomic-implementer.md.tmp-")
+            for path in relay.iterdir())
+
+        markdown.write_text("older complete evidence\n", encoding="utf-8")
+        with mock.patch.object(
+                module.os, "replace", side_effect=OSError("interrupted")):
+            try:
+                module.archive("atomic", "implementer", "replacement")
+            except OSError:
+                old_markdown_preserved = (
+                    markdown.read_text(encoding="utf-8")
+                    == "older complete evidence\n")
+            else:
+                old_markdown_preserved = False
+
+        checkpoint = relay / "atomic-capability-checkpoint.json"
+        capability = {
+            "capability_checked": "collaboration.spawn_agent",
+            "attempted_operation": "launch one helper",
+            "raw_failure": "helper unavailable",
+        }
+        with mock.patch.object(
+                module.os, "replace", side_effect=OSError("interrupted")):
+            try:
+                module.save_manual_capability_checkpoint(
+                    seq="atomic", cycle="ticket@" + "1" * 40,
+                    source_note="ai/notes/spec.md",
+                    archive_path="ai/notes/relay/atomic-implementer.md",
+                    handoff_text="blocked handoff", capability_failure=capability)
+            except OSError:
+                checkpoint_absent = not checkpoint.exists()
+            else:
+                checkpoint_absent = False
+        no_checkpoint_temporary = not any(
+            path.name.startswith(".atomic-capability-checkpoint.json.tmp-")
+            for path in relay.iterdir())
+
+        module.archive("atomic", "implementer", "replacement")
+        digest = module.save_manual_capability_checkpoint(
+            seq="atomic", cycle="ticket@" + "1" * 40,
+            source_note="ai/notes/spec.md",
+            archive_path="ai/notes/relay/atomic-implementer.md",
+            handoff_text="blocked handoff", capability_failure=capability)
+        complete_markdown = markdown.read_text(encoding="utf-8").endswith(
+            "replacement\n")
+        complete_checkpoint = json.loads(
+            checkpoint.read_text(encoding="utf-8"))["handoff_sha256"] == digest
+        print("ARM atomic evidence publication")
+        print("  interrupted Markdown has no final file:", markdown_absent)
+        print("  existing Markdown remains complete:",
+              old_markdown_preserved)
+        print("  interrupted checkpoint has no final file:",
+              checkpoint_absent)
+        print("  failed writes leave no temporary evidence:",
+              no_markdown_temporary and no_checkpoint_temporary)
+        print("  successful files are complete:",
+              complete_markdown and complete_checkpoint)
+        assert markdown_absent
+        assert old_markdown_preserved
+        assert checkpoint_absent
+        assert no_markdown_temporary
+        assert no_checkpoint_temporary
+        assert complete_markdown
+        assert complete_checkpoint
+
+
 def arm_clipboard_lock():
     """Show concurrent flows collide and a stale lock file is harmless."""
     with tempfile.TemporaryDirectory(prefix="router-lock-") as tmp:
@@ -2293,6 +2375,7 @@ def main():
     """Run every isolated reproduction arm."""
     arm_cwd()
     arm_sequence_collision()
+    arm_atomic_evidence_publication()
     arm_clipboard_lock()
     arm_gate_child_keeps_router_lock()
     arm_handoff_header()

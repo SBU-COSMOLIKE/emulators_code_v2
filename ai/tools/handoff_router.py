@@ -640,6 +640,34 @@ def resolve_note_path(note):
     return (path, os.path.relpath(path, REPO_ROOT))
 
 
+def publish_complete_text(path, text):
+    """Make a complete synced text file visible in one atomic step."""
+    directory = os.path.dirname(path)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix="." + os.path.basename(path) + ".tmp-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory_descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary is not None:
+            try:
+                os.remove(temporary)
+            except FileNotFoundError:
+                pass
+
+
 def archive(seq, name, text):
     """Save one supporting copy under ai/notes/relay/ and return its path.
 
@@ -650,13 +678,11 @@ def archive(seq, name, text):
     """
     os.makedirs(RELAY_DIR, exist_ok=True)
     path = os.path.join(RELAY_DIR, seq + "-" + name + ".md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
-                "     that this block cites remains authoritative.\n"
-                "     Saved by ai/tools/handoff_router.py. -->\n\n")
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
+    payload = ("<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
+               "     that this block cites remains authoritative.\n"
+               "     Saved by ai/tools/handoff_router.py. -->\n\n"
+               + text + ("" if text.endswith("\n") else "\n"))
+    publish_complete_text(path=path, text=payload)
     return os.path.relpath(path, REPO_ROOT)
 
 
@@ -690,9 +716,9 @@ def save_manual_capability_checkpoint(seq, cycle, source_note, archive_path,
         "raw_failure": capability_failure["raw_failure"],
     }
     path = os.path.join(RELAY_DIR, seq + "-capability-checkpoint.json")
-    with open(path, "w", encoding="utf-8") as stream:
-        json.dump(payload, stream, sort_keys=True, indent=2)
-        stream.write("\n")
+    publish_complete_text(
+        path=path,
+        text=json.dumps(payload, sort_keys=True, indent=2) + "\n")
     return digest
 
 
