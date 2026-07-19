@@ -10,6 +10,7 @@ import fcntl
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from ai.tests.tools_mailbox_daemon_primary_worktree_repro import (
     DAEMON_PATH,
@@ -58,6 +59,15 @@ def worktree_paths(root):
         for line in output.splitlines()
         if line.startswith("worktree ")
     }
+
+
+def load_daemon():
+    """Load an isolated daemon module for direct lock tests."""
+    spec = importlib.util.spec_from_file_location(
+        "mailbox_clean_all_test_daemon", DAEMON_PATH)
+    daemon = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(daemon)
+    return daemon
 
 
 def prepare_ai_work(root):
@@ -193,6 +203,77 @@ class MailboxCleanAllTest(unittest.TestCase):
             self.assertIn("refs/heads/claude/live",
                           local_refs(root, "refs/heads"))
 
+    def test_cleanup_holds_transport_locks_until_deletion_starts(self):
+        """A sender cannot enter after cleanup's final idle check."""
+        daemon = load_daemon()
+        with scratch_repository() as root:
+            managed = managed_base(root)
+            ai_worktree = add_worktree(
+                root, managed / "locked-claude", branch="claude/locked")
+            mailbox = ai_worktree / "ai" / "notes" / "mailbox"
+            mailbox.mkdir(parents=True, exist_ok=True)
+            observed = []
+            real_run_git = daemon._run_git
+
+            def inspect_first_prune(repository_root, arguments, check=True,
+                                    input_bytes=None):
+                if arguments == ["worktree", "prune"] and not observed:
+                    for name in (".dispatch.lock", ".sequence.lock"):
+                        with (mailbox / name).open("r+") as probe:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(
+                                    probe.fileno(),
+                                    fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    observed.append(True)
+                return real_run_git(
+                    repository_root, arguments, check=check,
+                    input_bytes=input_bytes)
+
+            with mock.patch.object(
+                    daemon, "_run_git", side_effect=inspect_first_prune):
+                daemon.clean_all_ai_worktrees(
+                    repository_root=str(root), current_worktree=str(root))
+
+            self.assertEqual(observed, [True])
+            self.assertFalse(ai_worktree.exists())
+
+    def test_actions_refuse_if_cleanup_removed_the_saved_topology(self):
+        """A lock waiter cannot publish into a worktree cleanup removed."""
+        daemon = load_daemon()
+        with scratch_repository() as root:
+            mailbox = root / "action-mailbox"
+            changing = [object(), daemon.PrimaryWorktreeError("removed")]
+            with mock.patch.object(daemon, "MAILBOX", str(mailbox)), \
+                    mock.patch.object(
+                        daemon, "ACTIVE_TOPOLOGY", {"active": True}), \
+                    mock.patch.object(
+                        daemon, "validate_live_agent_dispatch_topology",
+                        side_effect=changing), \
+                    mock.patch.object(
+                        daemon, "publish_message_locked") as publish:
+                self.assertFalse(daemon.send(
+                    agent="fable", text="request", dry_run=False))
+                publish.assert_not_called()
+
+            sequence = mailbox / ".sequence.lock"
+            with sequence.open("r+") as probe:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+
+            changing = [object(), daemon.PrimaryWorktreeError("removed")]
+            with mock.patch.object(daemon, "MAILBOX", str(mailbox)), \
+                    mock.patch.object(
+                        daemon, "ACTIVE_TOPOLOGY", {"active": True}), \
+                    mock.patch.object(
+                        daemon, "validate_live_agent_dispatch_topology",
+                        side_effect=changing):
+                self.assertIsNone(daemon.acquire_dispatch_lock(mode="watch"))
+
+            dispatch = mailbox / ".dispatch.lock"
+            with dispatch.open("r+") as probe:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+
     def test_clean_all_conflicts_with_once_without_deleting(self):
         """A mixed cleanup/dispatch command is refused without side effects."""
         with scratch_repository() as root:
@@ -211,10 +292,7 @@ class MailboxCleanAllTest(unittest.TestCase):
 
     def test_new_role_worktrees_use_role_specific_branch_namespaces(self):
         """Claude uses ``claude/`` and Sol uses ``codex/`` branches."""
-        spec = importlib.util.spec_from_file_location(
-            "mailbox_clean_all_namespace_contract", DAEMON_PATH)
-        daemon = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(daemon)
+        daemon = load_daemon()
 
         self.assertTrue(daemon.PRIMARY_BRANCH.startswith(
             "refs/heads/claude/"))

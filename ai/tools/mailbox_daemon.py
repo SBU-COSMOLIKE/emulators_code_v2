@@ -6339,6 +6339,19 @@ def warn_if_mailbox_unwatched():
                   "a live watch: " + candidate)
 
 
+def live_action_topology_is_current(agent, action):
+    """Refuse an action whose saved worktrees were removed by cleanup."""
+    if ACTIVE_TOPOLOGY is None:
+        return True
+    try:
+        validate_live_agent_dispatch_topology(agent=agent)
+    except (OSError, PrimaryWorktreeError) as exc:
+        print(action + " refused: saved worktree topology changed ("
+              + str(exc) + ").")
+        return False
+    return True
+
+
 def acquire_dispatch_lock(mode="unknown"):
     """Acquire the process-wide dispatch-loop lock without a PID race.
 
@@ -6352,6 +6365,8 @@ def acquire_dispatch_lock(mode="unknown"):
     """
     if mode not in ("watch", "once"):
         mode = "unknown"
+    if not live_action_topology_is_current("fable", "dispatch"):
+        return None
     os.makedirs(MAILBOX, exist_ok=True)
     lock_path = os.path.join(MAILBOX, ".dispatch.lock")
     lock_file = open(lock_path, "a+", encoding="utf-8")
@@ -6363,6 +6378,9 @@ def acquire_dispatch_lock(mode="unknown"):
         lock_file.close()
         print("another dispatch loop is already running ("
               + (owner or "owner unknown") + "); refusing to overlap it.")
+        return None
+    if not live_action_topology_is_current("fable", "dispatch"):
+        release_dispatch_lock(lock_file=lock_file)
         return None
     lock_file.seek(0)
     lock_file.truncate()
@@ -12803,32 +12821,36 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
               + os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md"))
         warn_if_mailbox_unwatched()
         return True
+    if not live_action_topology_is_current(agent, "--send " + agent):
+        return False
     os.makedirs(MAILBOX, exist_ok=True)
-    lock_path = os.path.join(MAILBOX, ".sequence.lock")
-    with open(lock_path, "a+", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            # Recheck persisted modes and the current classified backlog while
-            # publication is serialized. Queue publication does not itself
-            # change either severity count.
-            reason = refusal_now()
-            if reason is not None:
-                print("refused --send " + agent + ": " + reason + ".")
-                return False
-            for _ in range(20):
-                path = publish_message_locked(
-                    agent=agent, payload=payload, attempts=1)
-                if path is not None:
-                    print("queued " + path)
-                    warn_if_mailbox_unwatched()
-                    if skip_redteam_policy_active():
-                        report_demand(
-                            backlog=pending_messages(), skip_redteam=True)
-                    else:
-                        report_demand(backlog=pending_messages())
-                    return True
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        return False
+    try:
+        if not live_action_topology_is_current(agent, "--send " + agent):
+            return False
+        # Recheck persisted modes and the current classified backlog while
+        # publication is serialized. Queue publication does not itself change
+        # either severity count.
+        reason = refusal_now()
+        if reason is not None:
+            print("refused --send " + agent + ": " + reason + ".")
+            return False
+        for _ in range(20):
+            path = publish_message_locked(
+                agent=agent, payload=payload, attempts=1)
+            if path is not None:
+                print("queued " + path)
+                warn_if_mailbox_unwatched()
+                if skip_redteam_policy_active():
+                    report_demand(
+                        backlog=pending_messages(), skip_redteam=True)
+                else:
+                    report_demand(backlog=pending_messages())
+                return True
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
     print("could not claim a sequence number after 20 tries; "
           "is something flooding the mailbox?")
     return False
@@ -12945,6 +12967,30 @@ def _is_ai_branch(branch):
             and branch.startswith(AI_BRANCH_PREFIXES))
 
 
+def _lock_cleanup_transport(records):
+    """Hold every existing mailbox lock until destructive cleanup ends."""
+    locks = []
+    try:
+        for record in sorted(records, key=lambda item: item["path"]):
+            for notes in (os.path.join("ai", "notes"), "notes"):
+                mailbox = os.path.join(record["path"], notes, "mailbox")
+                if not os.path.lexists(mailbox):
+                    continue
+                identity = _plain_directory(
+                    path=mailbox, label="cleanup mailbox")
+                for name in (".dispatch.lock", ".sequence.lock"):
+                    locks.append(_open_legacy_transport_lock(
+                        path=os.path.join(mailbox, name), nonblocking=True))
+                _require_directory_identity(
+                    path=mailbox, identity=identity,
+                    label="cleanup mailbox")
+        return locks
+    except BaseException:
+        for lock_file in reversed(locks):
+            _release_legacy_transport_lock(lock_file=lock_file)
+        raise
+
+
 def clean_all_ai_worktrees(repository_root, current_worktree):
     """Discard local AI worktrees and branches after an explicit request."""
     repository = os.path.abspath(repository_root)
@@ -12952,6 +12998,7 @@ def clean_all_ai_worktrees(repository_root, current_worktree):
         raise PrimaryWorktreeError(
             "run --clean-all from the user's main repository folder")
     lock_file = _open_primary_lock(repository)
+    transport_locks = []
     try:
         managed_root = _managed_primary_root(repository, create=True)
         records = registered_worktrees(repository)
@@ -12965,6 +13012,7 @@ def clean_all_ai_worktrees(repository_root, current_worktree):
                 raise PrimaryWorktreeError(
                     "stop the live mailbox watcher or sender before "
                     "--clean-all: " + record["path"])
+        transport_locks = _lock_cleanup_transport(records=records)
         print("WARNING: --clean-all permanently discards dirty files and "
               "unmerged commits in local AI worktrees.", flush=True)
         _run_git(repository, ["worktree", "prune"])
@@ -13014,6 +13062,8 @@ def clean_all_ai_worktrees(repository_root, current_worktree):
         print("clean-all finished; main and non-AI branches were not "
               "changed.", flush=True)
     finally:
+        for transport_lock in reversed(transport_locks):
+            _release_legacy_transport_lock(lock_file=transport_lock)
         _release_primary_lock(lock_file=lock_file)
 
 
