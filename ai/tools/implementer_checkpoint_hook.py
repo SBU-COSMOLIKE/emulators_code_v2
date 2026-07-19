@@ -73,6 +73,7 @@ def checkpoint_result(*, event, now, deadline, state_path,
     if now < deadline:
         return 0, "", ""
     descriptor = -1
+    marker_started = False
     capture = io.StringIO() if output_stream is None else output_stream
     try:
         descriptor = _open_checkpoint_state(state_path)
@@ -82,6 +83,7 @@ def checkpoint_result(*, event, now, deadline, state_path,
             return 0, "", ""
         capture.write(_checkpoint_payload(event=event))
         capture.flush()
+        marker_started = True
         os.ftruncate(descriptor, 0)
         os.lseek(descriptor, 0, os.SEEK_SET)
         written = os.write(descriptor, TRIGGERED_MARKER)
@@ -89,6 +91,11 @@ def checkpoint_result(*, event, now, deadline, state_path,
             raise OSError("short checkpoint marker write")
         os.fsync(descriptor)
     except OSError as error:
+        if descriptor >= 0 and marker_started:
+            try:
+                os.ftruncate(descriptor, 0)
+            except OSError:
+                pass
         message = ("cannot deliver or record the " + str(CHECKPOINT_MINUTES)
                    + "-minute checkpoint: " + str(error))
         return 2, "", message + "\n"

@@ -211,6 +211,44 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             self.assertEqual(recovered, (0, "", ""))
             self.assertEqual(state.read_bytes(), b"triggered\n")
 
+    def test_failed_marker_sync_does_not_suppress_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            first_output = io.StringIO()
+            with mock.patch.object(
+                    checkpoint.os, "fsync",
+                    side_effect=OSError("injected sync failure")):
+                failed = checkpoint.checkpoint_result(
+                    event="Stop", now=90.0, deadline=90.0,
+                    state_path=state, output_stream=first_output)
+
+            self.assertEqual(failed[0], 2)
+            self.assertFalse(daemon.implementer_checkpoint_delivered(state))
+            self.assertEqual(state.read_bytes(), b"")
+            retry_output = io.StringIO()
+            recovered = checkpoint.checkpoint_result(
+                event="Stop", now=91.0, deadline=90.0,
+                state_path=state, output_stream=retry_output)
+            self.assertEqual(recovered, (0, "", ""))
+            self.assertEqual(
+                json.loads(retry_output.getvalue())["decision"], "block")
+            self.assertTrue(daemon.implementer_checkpoint_delivered(state))
+
+    def test_failed_lock_does_not_erase_another_delivery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "checkpoint.state"
+            state.write_bytes(b"triggered\n")
+            with mock.patch.object(
+                    checkpoint.fcntl, "flock",
+                    side_effect=OSError("injected lock failure")):
+                failed = checkpoint.checkpoint_result(
+                    event="Stop", now=90.0, deadline=90.0,
+                    state_path=state, output_stream=io.StringIO())
+
+            self.assertEqual(failed[0], 2)
+            self.assertEqual(state.read_bytes(), b"triggered\n")
+            self.assertTrue(daemon.implementer_checkpoint_delivered(state))
+
     def test_daemon_needs_the_complete_delivery_marker(self):
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder) / "checkpoint.state"
