@@ -334,6 +334,37 @@ def arm_existing_output_and_import_collisions():
     return True
 
 
+def arm_head_advance_keeps_one_base():
+    """A concurrent main advance cannot split the saved commit and tree."""
+    with scratch_repository("head-advance") as (repo, _tool_path, module):
+        original_git = module._git
+        advanced = False
+
+        def advance_after_head(candidate, *arguments, **kwargs):
+            nonlocal advanced
+            result = original_git(candidate, *arguments, **kwargs)
+            if (not advanced and arguments in {
+                    ("rev-parse", "HEAD"),
+                    ("rev-parse", "HEAD^{commit}")}):
+                advanced = True
+                evidence = repo / "evidence" / "attempt.patch"
+                evidence.write_bytes(evidence.read_bytes() + b"+later\n")
+                run_git(repo, "add", "evidence/attempt.patch")
+                run_git(repo, "commit", "-q", "-m", "concurrent advance")
+            return result
+
+        module._git = advance_after_head
+        manifest, _manifest_bytes, _payload = module.build_bundle(
+            repo.resolve(), ["evidence/attempt.patch"])
+        saved_tree = run_git(
+            repo, "rev-parse", manifest["base_commit"] + "^{tree}")
+        assert advanced
+        assert manifest["base_commit"] != run_git(repo, "rev-parse", "HEAD")
+        assert manifest["base_tree"] == saved_tree
+        assert module.verify_import_repository(repo.resolve(), manifest)
+    return True
+
+
 def arm_interrupted_import_recovery():
     """Resume only an exact partial import bearing this bundle's marker."""
     with scratch_repository("import-recovery") as (repo, tool_path, module):
@@ -541,8 +572,9 @@ def arm_dirty_permanent_and_source_symlink_refusals():
         (repo / PERMANENT_NOTES[0]).write_bytes(original + b"unruled edit\n")
         dirty = run_cli(repo, tool_path, "pack", "--output",
                         str(dirty_output))
-        assert_refused(dirty, "permanent notes differ from head",
-                       PERMANENT_NOTES[0], "architect")
+        assert_refused(
+            dirty, "permanent notes differ from the captured bundle base",
+            PERMANENT_NOTES[0], "architect")
         assert not dirty_output.exists()
         (repo / PERMANENT_NOTES[0]).write_bytes(original)
 
@@ -840,6 +872,8 @@ def main():
          arm_roundtrip_and_exact_payload),
         ("existing output and import collisions",
          arm_existing_output_and_import_collisions),
+        ("concurrent head advance keeps one base",
+         arm_head_advance_keeps_one_base),
         ("interrupted import recovery", arm_interrupted_import_recovery),
         ("dirty permanent note and source symlink refusals",
          arm_dirty_permanent_and_source_symlink_refusals),

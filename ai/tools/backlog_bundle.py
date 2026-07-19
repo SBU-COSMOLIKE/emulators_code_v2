@@ -251,23 +251,25 @@ def stable_read(repo, path_text):
     return b"".join(chunks)
 
 
-def _head_file_digest(repo, path_text):
-    result = _git(repo, "rev-parse", "HEAD:" + path_text, check=False)
+def _commit_file_digest(repo, commit, path_text):
+    result = _git(repo, "rev-parse", commit + ":" + path_text, check=False)
     if result.returncode != 0:
-        raise BundleError("permanent note is absent from HEAD: " + path_text)
+        raise BundleError(
+            "permanent note is absent from the bundle base: " + path_text)
     return result.stdout.strip()
 
 
-def require_clean_permanent_notes(repo):
+def require_clean_permanent_notes(repo, base_commit):
     dirty = []
     for path_text in sorted(PROTECTED_KNOWLEDGE):
         path = _repo_relative(repo, path_text)
         worktree = _git(repo, "hash-object", str(path)).stdout.strip()
-        if worktree != _head_file_digest(repo, path_text):
+        if worktree != _commit_file_digest(repo, base_commit, path_text):
             dirty.append(path_text)
     if dirty:
         raise BundleError(
-            "permanent notes differ from HEAD, or the protected role "
+            "permanent notes differ from the captured bundle base, or the "
+            "protected role "
             "contract does; the Architect must resolve "
             "them before packing: "
             + ", ".join(dirty)
@@ -343,7 +345,9 @@ def canonical_json(value):
 
 
 def build_bundle(repo, explicit):
-    require_clean_permanent_notes(repo)
+    base_commit = _git(
+        repo, "rev-parse", "HEAD^{commit}").stdout.strip()
+    require_clean_permanent_notes(repo, base_commit)
     roles = selected_files(repo, explicit)
     payload = {}
     records = []
@@ -362,8 +366,9 @@ def build_bundle(repo, explicit):
         })
     manifest = {
         "backlog_path": BACKLOG_PATH,
-        "base_commit": _git(repo, "rev-parse", "HEAD").stdout.strip(),
-        "base_tree": _git(repo, "rev-parse", "HEAD^{tree}").stdout.strip(),
+        "base_commit": base_commit,
+        "base_tree": _git(
+            repo, "rev-parse", base_commit + "^{tree}").stdout.strip(),
         "files": records,
         "format": FORMAT_NAME,
         "open_items": open_backlog_lines(payload[BACKLOG_PATH]),
