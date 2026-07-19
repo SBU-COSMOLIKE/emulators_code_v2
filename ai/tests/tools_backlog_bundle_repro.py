@@ -344,13 +344,93 @@ def arm_interrupted_import_recovery():
             archive)
         marker = (bundle_id + "\n").encode("ascii")
         manifest_bytes = module.canonical_json(manifest)
+        expected = module._expected_import_files(
+            manifest, payload, bundle_id)
+        expected[".INCOMPLETE"] = marker
+
+        def write_files(destination, files):
+            for relative, data in files.items():
+                path = destination / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+
+        empty_text = "ai/backlog-imports/empty-after-mkdir"
+        (repo / empty_text).mkdir(parents=True)
+        empty_retry = run_cli(
+            repo, tool_path, "unpack", str(archive),
+            "--output", empty_text)
+        assert_ok(empty_retry, "resume after destination mkdir")
+
+        retained_name = sorted(payload)[0]
+        prefix_fixtures = {
+            ".INCOMPLETE": {".INCOMPLETE": b""},
+            "manifest.json": {
+                ".INCOMPLETE": marker,
+                "manifest.json": manifest_bytes[:len(manifest_bytes) // 2],
+            },
+            "payload/" + retained_name: {
+                ".INCOMPLETE": marker,
+                "manifest.json": manifest_bytes,
+                "payload/" + retained_name:
+                    payload[retained_name][:len(payload[retained_name]) // 2],
+            },
+            ".COMPLETE": {
+                **expected,
+                ".COMPLETE": expected[".COMPLETE"][:-1],
+            },
+        }
+        for index, (relative, files) in enumerate(prefix_fixtures.items()):
+            destination_text = "ai/backlog-imports/prefix-" + str(index)
+            destination = repo / destination_text
+            destination.mkdir(parents=True)
+            write_files(destination, files)
+            retried = run_cli(
+                repo, tool_path, "unpack", str(archive),
+                "--output", destination_text)
+            assert_ok(retried, "resume partial " + relative)
+            assert not (destination / ".INCOMPLETE").exists()
+
+        stopped_text = "ai/backlog-imports/stop-during-prefix-repair"
+        stopped_destination = repo / stopped_text
+        stopped_destination.mkdir(parents=True)
+        manifest_prefix = manifest_bytes[:len(manifest_bytes) // 2]
+        write_files(stopped_destination, {
+            ".INCOMPLETE": marker[:-1],
+            "manifest.json": manifest_prefix,
+        })
+        original_complete_prefix = module._complete_prefix_at
+        prefix_calls = []
+
+        def stop_after_first_prefix(root_fd, parts, wanted):
+            original_complete_prefix(root_fd, parts, wanted)
+            prefix_calls.append("/".join(parts))
+            if len(prefix_calls) == 1:
+                raise module.BundleError("simulated stop during repair")
+
+        module._complete_prefix_at = stop_after_first_prefix
+        try:
+            try:
+                module.unpack_archive(repo, archive, stopped_text)
+            except module.BundleError as error:
+                repair_stopped = "simulated stop" in str(error)
+            else:
+                repair_stopped = False
+        finally:
+            module._complete_prefix_at = original_complete_prefix
+        assert repair_stopped and prefix_calls == [".INCOMPLETE"]
+        assert (stopped_destination / ".INCOMPLETE").read_bytes() == marker
+        assert (stopped_destination / "manifest.json").read_bytes() \
+            == manifest_prefix
+        resumed_repair = run_cli(
+            repo, tool_path, "unpack", str(archive),
+            "--output", stopped_text)
+        assert_ok(resumed_repair, "resume interrupted prefix repair")
 
         partial_text = "ai/backlog-imports/partial"
         partial = repo / partial_text
         partial.mkdir(parents=True)
         (partial / ".INCOMPLETE").write_bytes(marker)
         (partial / "manifest.json").write_bytes(manifest_bytes)
-        retained_name = sorted(payload)[0]
         retained = partial / "payload" / retained_name
         retained.parent.mkdir(parents=True)
         retained.write_bytes(payload[retained_name])
@@ -399,6 +479,20 @@ def arm_interrupted_import_recovery():
         fifo = partial_directory("fifo")
         os.mkfifo(str(fifo / "blocked.fifo"), 0o600)
         unsafe.append(fifo)
+
+        incomplete_final = partial_directory("incomplete-final")
+        (incomplete_final / ".COMPLETE").write_bytes(
+            expected[".COMPLETE"][:-1])
+        unsafe.append(incomplete_final)
+
+        mixed = repo / "ai" / "backlog-imports" / "mixed-prefix-wrong"
+        mixed.mkdir(parents=True)
+        write_files(mixed, {
+            ".INCOMPLETE": marker,
+            "manifest.json": manifest_bytes[:len(manifest_bytes) // 2],
+            "payload/" + retained_name: b"not archive bytes\n",
+        })
+        unsafe.append(mixed)
 
         for destination in unsafe:
             before = tree_snapshot(destination)

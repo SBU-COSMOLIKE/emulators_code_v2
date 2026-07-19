@@ -933,7 +933,7 @@ def _open_or_create_directory_at(parent_fd, name):
     return _open_directory_at(parent_fd, name)
 
 
-def _read_file_at(root_fd, parts, expected_size):
+def _read_file_at(root_fd, parts, expected_size, allow_short=False):
     current = os.dup(root_fd)
     descriptor = None
     try:
@@ -946,7 +946,9 @@ def _read_file_at(root_fd, parts, expected_size):
             flags |= os.O_NOFOLLOW
         descriptor = os.open(parts[-1], flags, dir_fd=current)
         before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode) or before.st_size != expected_size:
+        if (not stat.S_ISREG(before.st_mode)
+                or (allow_short and before.st_size > expected_size)
+                or (not allow_short and before.st_size != expected_size)):
             return None
         chunks = []
         remaining = expected_size + 1
@@ -965,6 +967,59 @@ def _read_file_at(root_fd, parts, expected_size):
         return b"".join(chunks)
     except (BundleError, OSError):
         return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(current)
+
+
+def _complete_prefix_at(root_fd, parts, wanted):
+    """Finish one verified prefix without deleting its pathname."""
+    current = os.dup(root_fd)
+    descriptor = None
+    try:
+        for part in parts[:-1]:
+            child = _open_directory_at(current, part)
+            os.close(current)
+            current = child
+        flags = os.O_RDWR | os.O_APPEND
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(parts[-1], flags, dir_fd=current)
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode)
+                or before.st_size >= len(wanted)):
+            raise BundleError("partial import file changed before repair")
+        chunks = []
+        remaining = before.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(IO_CHUNK, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        observed = b"".join(chunks)
+        checked = os.fstat(descriptor)
+        if (checked.st_dev, checked.st_ino, checked.st_size) != (
+                before.st_dev, before.st_ino, before.st_size):
+            raise BundleError("partial import file changed before repair")
+        if observed != wanted[:before.st_size]:
+            raise BundleError("partial import bytes changed before repair")
+        offset = before.st_size
+        while offset < len(wanted):
+            written = os.write(descriptor, wanted[offset:])
+            if written <= 0:
+                raise BundleError("short write while repairing import file")
+            offset += written
+        after = os.fstat(descriptor)
+        if (not stat.S_ISREG(after.st_mode)
+                or (after.st_dev, after.st_ino) !=
+                (before.st_dev, before.st_ino)
+                or after.st_size != len(wanted)):
+            raise BundleError("partial import file changed during repair")
+    except (BundleError, OSError) as error:
+        raise BundleError(
+            "cannot finish partial import file: " + str(error))
     finally:
         if descriptor is not None:
             os.close(descriptor)
@@ -1051,7 +1106,7 @@ def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
 
 
 def _resumable_import_files(destination_fd, manifest, payload, bundle_id):
-    """Return verified files from an interrupted import, or ``None``."""
+    """Verify an interrupted import and finish any exact file prefixes."""
     expected = _expected_import_files(manifest, payload, bundle_id)
     expected[".INCOMPLETE"] = (bundle_id + "\n").encode("ascii")
     expected_directories = set()
@@ -1064,19 +1119,33 @@ def _resumable_import_files(destination_fd, manifest, payload, bundle_id):
     if found is None:
         return None
     found_files, found_directories = found
+    if not found_files and not found_directories:
+        # This is exactly what a stop after mkdir, before the marker, leaves.
+        return set()
     if (".INCOMPLETE" not in found_files
             or not found_files.issubset(expected)
             or not found_directories.issubset(expected_directories)):
         return None
-    for relative in found_files:
-        wanted = expected[relative]
-        observed = _read_file_at(
-            destination_fd, relative.split("/"), len(wanted))
-        if observed != wanted:
-            return None
     final_files = set(expected) - {".INCOMPLETE"}
     if ".COMPLETE" in found_files and not final_files.issubset(found_files):
         return None
+    prefixes = []
+    for relative in sorted(found_files):
+        wanted = expected[relative]
+        observed = _read_file_at(
+            destination_fd, relative.split("/"), len(wanted),
+            allow_short=True)
+        if observed == wanted:
+            continue
+        if observed is None or not wanted.startswith(observed):
+            return None
+        prefixes.append(relative)
+    # Establish ownership first; publish completion only after other files.
+    order = {".INCOMPLETE": 0, ".COMPLETE": 2}
+    for relative in sorted(prefixes, key=lambda item: (order.get(item, 1),
+                                                       item)):
+        _complete_prefix_at(
+            destination_fd, relative.split("/"), expected[relative])
     return found_files
 
 
@@ -1105,7 +1174,7 @@ def unpack_archive(repo, archive_path, requested_output):
                 raise BundleError(
                     "refusing to reuse existing import directory: " +
                     str(destination))
-        else:
+        if ".INCOMPLETE" not in existing_files:
             _write_file_at(
                 destination_fd, ".INCOMPLETE",
                 (bundle_id + "\n").encode("ascii"))
