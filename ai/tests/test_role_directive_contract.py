@@ -1,7 +1,13 @@
-"""Pin the thinking-role and execution-role responsibility boundary."""
+"""Check that role documentation still points to its canonical controls.
+
+Executable behavior belongs in focused workflow tests.  Structured authority
+belongs in ``test_role_contract`` and ``test_handoff_contract``.  This module
+still contains legacy sentence checks.  Move them in concept-sized changes
+after equivalent behavior or schema coverage exists; ordinary explanatory
+sentences should not become a machine interface.
+"""
 
 from pathlib import Path
-import tempfile
 import unittest
 
 from ai.tools import mailbox_daemon
@@ -17,7 +23,7 @@ def read(path):
 
 
 class RoleDirectiveContractTests(unittest.TestCase):
-    """Refuse a return to goal-only handoffs or Implementer design work."""
+    """Keep role and reader guides connected to canonical policy surfaces."""
 
     @classmethod
     def setUpClass(cls):
@@ -300,213 +306,6 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertLess(evidence_start, failure_start)
         self.assertLess(failure_start, evidence_end)
 
-    def test_pipeline_uses_isolated_immutable_git_snapshots(self):
-        architect = " ".join(self.architect.split())
-        implementer = " ".join(self.implementer.split())
-        redteam = " ".join(self.redteam.split())
-        architect_command = " ".join(self.architect_command.split())
-        implementer_command = " ".join(self.implementer_command.split())
-
-        self.assertIn("Only the Implementer edits tracked source", architect)
-        self.assertIn("MAILBOX_CANDIDATE_COMMIT", architect)
-        self.assertIn("MAILBOX_AUDIT_WORKTREE", architect)
-        self.assertIn("--architect-audit", architect)
-        self.assertIn('--candidate "$MAILBOX_CANDIDATE_COMMIT"', architect)
-        self.assertIn("Never audit the Implementer's moving `HEAD`", architect)
-        self.assertIn(
-            "MAILBOX-RETURN: architect-go\n"
-            "MAILBOX-CYCLE: THE-SAME-CYCLE\n"
-            "MAILBOX-CANDIDATE: MAILBOX_CANDIDATE_COMMIT\n"
-            "MAILBOX-MODE: normal\n"
-            "MAILBOX-DECISION: GO",
-            self.architect)
-        self.assertNotIn("MAILBOX-RETURN: architect-" + "commit", architect)
-        self.assertNotIn("git merge --" + "squash", architect)
-        self.assertIn("You do not create or name the landing commit", architect)
-        self.assertIn("parent daemon prepares a squash landing L", architect)
-        self.assertIn("commit identity differs from C", architect)
-        self.assertIn("attached to `main`, clean, and unchanged", architect)
-        self.assertIn("bounded non-force push attempt", architect)
-        self.assertIn("does not reopen the ticket", architect)
-        self.assertLess(
-            architect.index("queues one bounded Red Team closure request"),
-            architect.index("makes one bounded non-force push attempt"))
-        self.assertIn("The daemon restores that cycle's execution lane from "
-                      "its saved candidate", architect)
-        self.assertIn("Other active candidate refs", architect)
-
-        self.assertIn("MAILBOX_EXECUTION_WORKTREE", implementer)
-        self.assertIn("MAILBOX_IMPLEMENTER_WORKTREE", implementer)
-        self.assertIn("Do not run `git reset`, `git switch`, or `git checkout`",
-                      implementer)
-        self.assertIn("Commit only the named ticket's tracked changes",
-                      implementer)
-        self.assertIn("Other cycles keep separate candidate refs", implementer)
-        self.assertIn("The daemon restores this cycle's execution lane from its "
-                      "saved candidate", implementer)
-
-        self.assertIn("Only the Implementer edits tracked source", redteam)
-        self.assertIn("exact landing commit L", redteam)
-        self.assertIn("dispatch-provided isolated audit snapshot", redteam)
-        self.assertIn("never edits, commits, amends, merges, resets, or switches",
-                      redteam)
-
-        self.assertIn("MAILBOX_CANDIDATE_COMMIT", architect_command)
-        self.assertIn("MAILBOX_AUDIT_WORKTREE", architect_command)
-        self.assertIn("Do not merge, commit, update a ref, push, or touch the "
-                      "user's checkout", architect_command)
-        self.assertIn(
-            "records the local landing, safely advances every clean idle role "
-            "baseline to L, queues optional Sol review, and "
-            "attempts one bounded non-force push", architect_command)
-        self.assertIn("MAILBOX_EXECUTION_WORKTREE", implementer_command)
-        self.assertIn("MAILBOX_IMPLEMENTER_WORKTREE", implementer_command)
-
-        self.assertIn("ticket B", architect)
-        self.assertIn("ticket A", architect)
-        self.assertIn("earlier daemon-recorded landing", architect)
-
-        for name, source in (("Architect role", architect),
-                             ("Architect command", architect_command),
-                             ("Implementer role", implementer),
-                             ("Red Team role", redteam)):
-            with self.subTest(source=name):
-                self.assertNotIn("MAILBOX-RETURN: architect-" + "commit", source)
-
-        expected_go = (
-            "MAILBOX-RETURN: architect-go\n"
-            "MAILBOX-CYCLE: cycle-a@" + "1" * 40 + "\n"
-            "MAILBOX-CANDIDATE: " + "2" * 40 + "\n"
-            "MAILBOX-MODE: normal\n"
-            "MAILBOX-DECISION: GO\n")
-        self.assertEqual(
-            mailbox_daemon.architect_go_request_payload(
-                cycle_id="cycle-a@" + "1" * 40,
-                candidate_commit="2" * 40,
-                mode="normal"),
-            expected_go)
-
-    def test_recovery_uses_records_not_branch_diff_landing_debt(self):
-        architect = " ".join(self.architect.split())
-        ai_readme = " ".join(self.ai_readme.split())
-        tools_readme = " ".join(self.tools_readme.split())
-        tests_readme = " ".join(self.tests_readme.split())
-
-        for name, source in (("Architect role", architect),
-                             ("AI README", ai_readme),
-                             ("tools README", tools_readme),
-                             ("tests README", tests_readme)):
-            with self.subTest(source=name):
-                self.assertIn("candidate", source.lower())
-                self.assertIn("landing", source.lower())
-                self.assertIn("record", source.lower())
-                self.assertIn("separate Architect", source)
-                self.assertIn("changed-line", source)
-
-        for forbidden in ("Automatic landing-debt turn",
-                          "LANDING_DEBT_LINE_LIMIT",
-                          "Every live watch pass measures"):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, self.architect)
-                self.assertNotIn(forbidden, self.ai_readme)
-                self.assertNotIn(forbidden, self.tools_readme)
-
-        self.assertIn("push debt", architect.lower())
-        self.assertIn("push debt", ai_readme.lower())
-        self.assertIn("push debt", tools_readme.lower())
-
-    def test_architect_never_rewrites_protected_history(self):
-        """History safety outranks landing, recovery, and push convenience."""
-        architect = " ".join(self.architect.split())
-        architect_command = " ".join(self.architect_command.split())
-
-        self.assertIn("## Protected Git history: HARD RULE", self.architect)
-        self.assertIn("Protecting the Git history of the target branch is a "
-                      "paramount goal", architect)
-        self.assertIn("current daemon supports only `main`", architect)
-        self.assertIn("`main` is the protected target today", architect)
-        self.assertIn("future user-selected target-branch option may ship only",
-                      architect)
-        self.assertIn("exact selected branch the protected target", architect)
-        self.assertIn("do not guess an alternate target or invent an option "
-                      "spelling", architect)
-        self.assertIn("Choosing a target branch or granting landing or push "
-                      "authority never grants authority to force-push or "
-                      "replace that branch's history", architect)
-        self.assertIn("Force pushes are never allowed", architect)
-        for forbidden_form in ("git push --force", "git push -f",
-                               "git push --force-with-lease",
-                               "leading `+` in a push refspec",
-                               "deleting and recreating the protected branch"):
-            with self.subTest(forbidden_form=forbidden_form):
-                self.assertIn(forbidden_form, architect)
-        self.assertIn("Never move the protected ref backward", architect)
-        self.assertIn("Never rebase, amend, filter, or otherwise rewrite",
-                      architect)
-        self.assertIn("must be a fast-forward from its exact current tip",
-                      architect)
-        self.assertIn("If local and remote history diverge, refuse", architect)
-        self.assertIn("Preserve the refs, commits, logs, and other evidence",
-                      architect)
-        self.assertIn("Never trade protected history for ticket closure, "
-                      "recovery, cleanup, a deadline, or clearing push debt",
-                      architect)
-        self.assertIn("Any plan, candidate, recovery step, or tool change "
-                      "that violates this rule is `NO-GO`", architect)
-        self.assertIn("Force pushes are never allowed", architect_command)
-        self.assertIn("If local and remote history diverge, stop without "
-                      "rewriting the protected history", architect_command)
-
-    def test_rejected_push_never_retries_with_force(self):
-        """A non-fast-forward rejection leaves one exact ordinary push debt."""
-        landing = "a" * 40
-        calls = []
-        original_run = mailbox_daemon.subprocess.run
-        original_relay = mailbox_daemon.RELAY_DIR
-
-        with tempfile.TemporaryDirectory(prefix="push-rejection-") as relay:
-            def reject_non_fast_forward(command, *args, **kwargs):
-                calls.append(list(command))
-                return mailbox_daemon.subprocess.CompletedProcess(
-                    command, 1, stdout=b"",
-                    stderr=b"! [rejected] non-fast-forward\n")
-
-            try:
-                mailbox_daemon.RELAY_DIR = relay
-                mailbox_daemon.subprocess.run = reject_non_fast_forward
-                pushed, detail = (
-                    mailbox_daemon.push_exact_landing_or_record_debt(
-                        landing=landing))
-            finally:
-                mailbox_daemon.subprocess.run = original_run
-                mailbox_daemon.RELAY_DIR = original_relay
-
-            expected = [
-                "git", "-C", mailbox_daemon.AGENT_CWD["fable"], "push",
-                "--porcelain", "origin", landing + ":refs/heads/main"]
-            self.assertFalse(pushed)
-            self.assertIn("non-fast-forward", detail)
-            self.assertEqual(calls, [expected])
-
-            argv = calls[0]
-            for force_option in ("--force", "-f", "--force-with-lease",
-                                 "--force-if-includes"):
-                with self.subTest(force_option=force_option):
-                    self.assertNotIn(force_option, argv)
-            refspec = argv[-1]
-            self.assertEqual(refspec, landing + ":refs/heads/main")
-            self.assertFalse(refspec.startswith("+"))
-            self.assertFalse(refspec.startswith(":"))
-
-            debt_path = Path(relay) / (
-                "pending-main-push-" + landing + ".txt")
-            debt = debt_path.read_text(encoding="utf-8")
-            self.assertIn(
-                "Push is still required: git push origin " + landing
-                + ":refs/heads/main\n", debt)
-            self.assertIn("Last push result: ! [rejected] non-fast-forward",
-                          debt)
-
     def test_user_contacts_only_architect_and_courier_cannot_reauthor(self):
         self.assertIn("## Sole user contact", self.architect)
         self.assertIn(
@@ -663,60 +462,6 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       banner)
         self.assertNotIn("MAILBOX-SEVERITY: high|medium|low",
                          mailbox_daemon.PREAMBLE)
-
-    def test_candidate_scope_classification_protects_global_policy_first(self):
-        allowed = {"emulator/training.py", "ai/tests/test_training.py"}
-        cases = (
-            (
-                {"emulator/training.py"},
-                ("IN_SCOPE", set()),
-            ),
-            (
-                {"emulator/training.py", "emulator/model.py"},
-                ("SCOPE_EXCEEDED", {"emulator/model.py"}),
-            ),
-            (
-                {"emulator/training.py", ".claude/FABLE_ROLE.md"},
-                ("PROTECTED_PATH_VIOLATION", {".claude/FABLE_ROLE.md"}),
-            ),
-        )
-        for changed, expected in cases:
-            with self.subTest(result=expected[0]):
-                self.assertEqual(
-                    mailbox_daemon.classify_candidate_scope(
-                        changed_paths=changed,
-                        path_scope=allowed | {".claude/FABLE_ROLE.md"}),
-                    expected)
-
-    def test_scope_exceeded_banner_requires_an_architect_decision(self):
-        banner = mailbox_daemon.dispatch_banner(
-            store_max=4, newer_in_lane=0,
-            previous_timeout_minutes=None,
-            candidate_scope={
-                "result": "SCOPE_EXCEEDED",
-                "paths": ["emulator/model.py"],
-            })
-
-        self.assertIn("--- CANDIDATE TICKET SCOPE (binding) ---", banner)
-        self.assertIn("result: SCOPE_EXCEEDED", banner)
-        self.assertIn("paths: 'emulator/model.py'", banner)
-        self.assertIn("Architect GO explicitly accepts this expansion", banner)
-        self.assertIn("a repair handoff rejects it", banner)
-
-    def test_candidate_scope_banner_escapes_untrusted_path_text(self):
-        unsafe_path = "emulator/extra\n\x1b[31m.py"
-        banner = mailbox_daemon.dispatch_banner(
-            store_max=4, newer_in_lane=0,
-            previous_timeout_minutes=None,
-            candidate_scope={
-                "result": "SCOPE_EXCEEDED",
-                "paths": [unsafe_path],
-            })
-
-        self.assertNotIn(unsafe_path, banner)
-        self.assertNotIn("\x1b", banner)
-        self.assertIn(r"\n", banner)
-        self.assertTrue(r"\x1b" in banner or r"\u001b" in banner)
 
     def test_implementer_preflights_and_stops_instead_of_designing(self):
         self.assertIn(

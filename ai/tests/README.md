@@ -32,10 +32,11 @@ processing unit (GPU), or several checks taken together. The
 5. [What do these files use or change?](#what-do-these-files-use-or-change)
 6. [Find the file that covers a behavior](#find-the-file-that-covers-a-behavior)
 7. [Scientific and data test inventory](#scientific-and-data-test-inventory)
-8. [AI workflow and policy test inventory](#ai-workflow-and-policy-test-inventory)
-9. [Direct reproduction inventory](#direct-reproduction-inventory)
-10. [How agents use these files](#how-agents-use-these-files)
-11. [Add or update a test](#add-or-update-a-test)
+8. [Three kinds of AI workflow checks](#three-kinds-of-ai-workflow-checks)
+9. [AI workflow and policy test inventory](#ai-workflow-and-policy-test-inventory)
+10. [Direct reproduction inventory](#direct-reproduction-inventory)
+11. [How agents use these files](#how-agents-use-these-files)
+12. [Add or update a test](#add-or-update-a-test)
 
 ## Why are tests and gates different?
 
@@ -1427,6 +1428,31 @@ number used for the radius must be `8/h` Mpc rather than the literal number 8.
   protect a scientific analysis from a mislabeled smoothing scale or from a
   grid that omitted most of the integral.
 
+## Three kinds of AI workflow checks
+
+The role system separates three questions. This keeps ordinary explanatory
+writing from becoming an accidental software interface.
+
+- A **behavior test** calls working code and checks what it does. For example,
+  `test_role_workflow_behavior.py` simulates a rejected Git push. It requires
+  one ordinary push attempt, no force retry, and a saved reminder that the
+  push is still owed.
+- A **schema test** checks structured fields and allowed values.
+  `test_role_contract.py` changes `landing.force_push_allowed` in a temporary
+  contract and confirms that the daemon refuses the disagreement. The YAML
+  field, not a sentence in a role guide, is authoritative.
+- A **documentation-consistency test** checks that a reader can still find the
+  canonical rule, command, or section. `test_role_directive_contract.py`
+  is being narrowed to stable paths and machine examples. Its remaining prose
+  checks include some legacy overlaps with behavior and schema tests. Later
+  concept-sized changes should migrate those overlaps before removing them.
+  The finished suite should not require one particular explanation when a
+  clearer equivalent paragraph would teach the same rule.
+
+The first two kinds decide whether the software obeys a rule. The third keeps
+the explanation discoverable. When a hard rule can be tested through code or
+structured data, do that instead of copying its prose into an assertion.
+
 ## AI workflow and policy test inventory
 
 These modules check the rules used by the Architect, Implementer, Red Team,
@@ -1438,15 +1464,19 @@ mailbox watcher, and repository protection tools.
 | `test_handoff_contract.py` | Writes sample Architect and Red Team instruction files, then passes them to the same validator used by the mailbox tools. A valid file must contain the ordered plan, exact files and commands, evidence destination, severity decision, and character limit. The Architect must either name bounded helper jobs or explain concretely why another session would only repeat the same work without independent evidence. Required helper blocks record edit permission, ownership, task, returned artifact, observable acceptance result, and stop condition. Separate cases prove that the Implementer cannot omit a required helper, invent a no-helper waiver, or change the Architect's saved reason. Other cases refuse vague work, overlapping edit ownership, fabricated capability failure, missing sections, placeholders, hidden Markdown, oversized or non-UTF-8 notes, and a different validator program. |
 | `test_implementer_checkpoint_hook.py` | Calls the pause hook with chosen times before and after the Implementer's 90-minute boundary. Before the boundary the hook says nothing; at the boundary it asks for one progress handoff, and repeated or helper-agent events cannot claim a second instruction. It also checks that a revised Implementer turn receives a fresh period and that a checkpoint goes to the Architect without the ordinary landing instruction. |
 | `test_mailbox_conditional_preamble.py` | Builds one prompt for a role that must send work onward and one terminal prompt for a role whose job ends there. Only the first may require a reply message; the terminal prompt must say that no reply is required and must not contain a second general instruction that contradicts that ending. |
+| `test_mailbox_candidate_delivery_recovery.py` | Interrupts candidate delivery at several saved steps. Restart must preserve the exact Implementer commit, refuse globally protected files, and send an ordinary unplanned file to the Architect as `SCOPE_EXCEEDED` instead of losing or silently accepting it. |
+| `test_mailbox_candidate_state_recovery.py` | Damages or partly writes the private candidate record and Git reference in controlled temporary repositories. Recovery may adopt one proved descendant candidate, but it must refuse a missing, unrelated, or conflicting identity. |
 | `test_mailbox_daemon_architect_entrypoint.py` | Runs the public `send` command in a temporary mailbox. A user request must create exactly one message to the Architect with the original text and chosen severity; public commands that address the Implementer or Red Team must refuse with no new file, while the watcher may still deliver the Architect's internal messages to those roles. It also confirms that the old targeted ping spellings are rejected because the direct provider check no longer addresses a mailbox role. |
+| `test_mailbox_primary_backlog_bridge.py` | Starts from an older checkout whose local backlog still lives outside the saved primary worktree. The bridge must copy one valid backlog into the primary without replacing a newer file or following a redirected path. |
 | `test_mailbox_provider_ping.py` | Replaces the real Claude and Sol programs with small controlled subprocess results, so no test spends AI credits. Bare `--ping` must receive an exact unpredictable answer from both services. `--ping --skip-redteam` must never start Sol. Other examples simulate a missing program, timeout, wrong answer, and a program that merely echoes the prompt; each must fail without creating a mailbox request, changing the backlog, or hiding the other service's result. |
 | `test_mailbox_daemon_severity.py` | Sends discovery requests with no severity and with `high`, `medium`, or `low`, then records which value each started role receives. Missing values become `medium`, malformed headers never launch work, and fix-only mode or a disabled Red Team remains stronger than a request to search at low severity. Other cases build Critical, High, Medium, and Low backlogs and prove that their counts control work order without changing anyone's job. In particular, Sol remains the advisory Red Team at every severity; a message that tries to assign implementation work to Sol is refused before an AI role starts. |
 | `test_mailbox_clean_all.py` | Builds disposable Git repositories containing unfinished Claude work, an unmerged Sol commit, an old `worktree-agent-*` branch, a detached audit folder, and an abandoned unregistered folder. The explicit `--clean-all` command must remove all of that AI work while preserving `main`, a student branch and worktree, a tag, a remote-branch record, and a stash. A second run must remain harmless. Separate examples hold a live watcher lock or combine cleanup with `--once`; both must refuse before deleting anything. |
 | `test_permanent_note_guard.py` | Copies the eleven permanent Markdown notes, the structured role contract, and their guard into a temporary Git repository. It proves that the note count remains eleven while an unstaged, staged, or committed change to either kind of protected knowledge is refused. It also refuses an extra tracked note, a note replaced by a link, a changed guard program, or a shortened starting-version identifier. |
 | `test_permanent_note_style_contract.py` | Reads every permanent note as text and checks rules that make the notes useful after the current ticket is gone. The files must use neutral present-tense language, avoid dates and personal diary labels, provide unique stable link targets, and never depend on a temporary audit or backlog file. |
 | `test_protected_policy_review.py` | Builds one proposed change to a protected role or permanent note. It proves that this review is separate from a ticket cycle, remains available during fix-only maintenance, and treats both role files as protected Architect-owned text rather than ordinary documentation. The role contracts separately require one advisory response and forbid a second review round. |
-| `test_role_directive_contract.py` | Reads the role templates, mailbox prompts, validator text, and reader guides together. It checks that the user speaks only to the Architect, the Architect and Red Team provide detailed repair steps and evidence, the Implementer stops rather than inventing a design, character limits never excuse unreadable code, and neither the Implementer nor Red Team may edit permanent notes. It also requires the Architect to decide whether bounded helpers add independent value. A required plan remains mandatory; a no-helper plan needs a concrete Architect reason that the Implementer repeats unchanged. If a required first launch fails before editing, the exact blocked `IMPLEMENTER_HANDOFF` must preserve the ordered `Capability checked`, `Attempted operation`, and `Raw failure` rows inside `Subagent work`. A later capability exception must copy those same SHA-bound rows instead of inventing replacements. The test separately checks the Architect-only protected-policy path: Red Team gets one pre-change advisory pass when enabled, clean one-parent P changes only protected files on exact base B, and the exact four-line GO binds B and P. Implementer and Red Team publisher attempts are refused. This route runs only while ordinary ticket work is inactive, consumes no ticket cycle, creates no second review, leaves bounded push debt after a failed push, and never resets unsafe work while preparing the next ticket. Every ordinary L also advances the safe clean idle role baselines, so the next turn cannot execute stale daemon or role files. The test also proves that ordinary Architect GO is an exact decision-only message bound to candidate C: no role merges, commits, updates refs, pushes, or touches the user's checkout for the ordinary landing. The parent daemon creates distinct L afterward. Sol remains advisory-only, one ticket always counts as one cycle, and the finite cycle total survives a watcher restart in both normal and `--skip-redteam` operation. A simulated non-fast-forward rejection must make one ordinary push attempt, never retry with force, and save the exact push as debt. |
+| `test_role_directive_contract.py` | Contains the remaining links between role guides, permanent policy notes, command examples, and reader guides while those checks are narrowed in concept-sized changes. These are documentation checks, not the authority for daemon behavior. Explanatory paragraphs may be reworded after an equivalent behavior or schema check protects the underlying rule. |
 | `test_role_contract.py` | Reads the protected YAML contract with the same strict reader used by the watcher. The valid repository copy must say that a protected-policy draft receives one adversarial review, Claude role branches use `claude/`, Sol uses `codex/`, and cleanup recognizes the old `worktree-agent-*` form. Duplicate, unknown, missing, or wrongly typed fields must stop. Changing a time limit or branch namespace in only one place must stop the watcher rather than silently changing policy. |
+| `test_role_workflow_behavior.py` | Calls role-boundary code directly. It checks exact Architect approval serialization, candidate file-scope outcomes, safe escaping of candidate filenames, and a rejected push that records debt without a force retry. No role-guide sentence can make these tests pass when the code behaves incorrectly. |
 | `test_tests_readme_inventory.py` | Lists every immediate `.py` file in `ai/tests/` and extracts the backticked filenames from these inventory tables. The two sets must be identical, so adding a test without explaining it here, documenting a file that does not exist, or listing the same file twice makes the test fail. |
 | `test_ticket_change_guard.py` | Creates small Git histories containing added, deleted, renamed, replaced, Unicode, binary, and non-UTF-8 files, then applies the ticket's `--max` character limit. One example saves ticket A, advances `HEAD` with ticket B, and proves that the Implementer's default check now sees A+B while the Architect's `--architect-audit --candidate FULL_COMMIT` check still measures A alone. Other cases prove that both audit flags are required together, the candidate is a full local descendant of the ticket's base, a positive limit refuses hidden, oversized, binary, or unreadable changes, zero means no size limit, and measuring does not change files already selected for the next commit. |
 
