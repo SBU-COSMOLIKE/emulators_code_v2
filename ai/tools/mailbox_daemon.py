@@ -9878,6 +9878,26 @@ def requeue_retryable_daemon_message(dispatch_path):
     return verified
 
 
+def prepared_landing_reached_main(cycle_id):
+    """Return whether main contains this cycle's journaled landing."""
+    landing = git_ref_commit(reference=cycle_landing_ref(cycle_id=cycle_id))
+    if landing is None:
+        return False
+    current = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit after landing error")
+    if current == landing:
+        return True
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["merge-base", "--is-ancestor", landing, current],
+        check=False)
+    if result.returncode not in {0, 1}:
+        raise TicketCycleStateError(
+            "cannot determine whether main contains the prepared landing")
+    return result.returncode == 0
+
+
 def finish_claimed_architect_go(dispatch_path, cycle_id,
                                 candidate_commit, mode):
     """Finish or replay one already-claimed, well-formed Architect GO."""
@@ -9913,7 +9933,33 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
                 "restart this watcher")
         raise FatalArchitectLandingError(
             str(exc) + "; " + preserved + ". " + remedy + ".") from exc
-    except (OSError, TicketCycleStateError) as exc:
+    except (OSError, PrimaryWorktreeError, TicketCycleStateError) as exc:
+        try:
+            landing_reached_main = prepared_landing_reached_main(
+                cycle_id=cycle_id)
+        except (OSError, PrimaryWorktreeError,
+                TicketCycleStateError) as proof_exc:
+            release_main_checkout_turn_lock(lock_file=main_lock)
+            requeued = requeue_retryable_daemon_message(
+                dispatch_path=dispatch_path)
+            raise FatalArchitectLandingError(
+                "landing recovery could not determine whether main already "
+                "advanced: " + str(proof_exc) + "; "
+                + ("the exact GO was returned to the mailbox root"
+                   if requeued else
+                   "the inflight GO remains preserved for recovery")
+                + ". Repair Git access, then restart.") from exc
+        if landing_reached_main:
+            release_main_checkout_turn_lock(lock_file=main_lock)
+            requeued = requeue_retryable_daemon_message(
+                dispatch_path=dispatch_path)
+            raise FatalArchitectLandingError(
+                "main already contains the prepared landing, but its "
+                "final checks did not finish: " + str(exc) + "; "
+                + ("the exact GO was returned to the mailbox root"
+                   if requeued else
+                   "the inflight GO remains preserved for recovery")
+                + ". Restart to finish the same landing.") from exc
         release_main_checkout_turn_lock(lock_file=main_lock)
         parked = park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": exact local landing was not accepted: "

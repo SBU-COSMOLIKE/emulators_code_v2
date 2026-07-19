@@ -3851,6 +3851,110 @@ def arm_architect_go_crash_cuts_recover_once(source=None):
     return passed
 
 
+def arm_post_landing_error_preserves_go(source=None):
+    """A verification error after main advances leaves one replayable GO."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        daemon = load_scratch_daemon(primary)
+        daemon.ensure_primary_execution(live_action=True, dry_run=False)
+        base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+        anchor = "post-landing-error"
+        cycle_id = anchor + "@" + base
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_text(
+            "- OPEN **HIGH** **BUG FIX** — [Recovery](#" + anchor
+            + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+            "**Red Team reopen count: 0.**\n"
+            "**Red Team reopening: allowed.**\n",
+            encoding="utf-8", newline="")
+        seal_backlog(primary)
+        flow = (
+            "MAILBOX-FLOW: ticket\n"
+            "MAILBOX-CYCLE: " + cycle_id + "\n"
+            "MAILBOX-MODE: normal\n\n"
+            "Implement the recovery witness.\n")
+        daemon.register_ticket_cycle_message(agent="opus", message=flow)
+        starting = daemon.prepare_implementer_cycle_checkout(
+            cycle_id=cycle_id)
+        changed = implementer / "post-landing-error.txt"
+        changed.write_text("candidate\n", encoding="utf-8", newline="")
+        git(implementer, "add", changed.name)
+        git(implementer, "commit", "-m", "post landing recovery")
+        candidate = daemon.record_implementer_candidate(
+            cycle_id=cycle_id, starting_head=starting)
+
+        mailbox = Path(daemon.MAILBOX)
+        inflight = mailbox / "inflight"
+        inflight.mkdir(parents=True, exist_ok=True)
+        go_path = inflight / "0003-to-daemon.md"
+        go_path.write_text(
+            daemon.architect_go_request_payload(
+                cycle_id=cycle_id, candidate_commit=candidate,
+                mode="normal"),
+            encoding="utf-8", newline="")
+
+        real_status = daemon._user_checkout_status
+        status_calls = [0]
+
+        def fail_after_landing():
+            status_calls[0] += 1
+            if status_calls[0] == 2:
+                raise daemon.TicketCycleStateError(
+                    "injected post-merge verification failure")
+            return real_status()
+
+        daemon._user_checkout_status = fail_after_landing
+        stopped = False
+        try:
+            daemon.finish_claimed_architect_go(
+                dispatch_path=str(go_path), cycle_id=cycle_id,
+                candidate_commit=candidate, mode="normal")
+        except daemon.FatalArchitectLandingError:
+            stopped = True
+        finally:
+            daemon._user_checkout_status = real_status
+
+        landing = daemon.git_ref_commit(
+            reference=daemon.cycle_landing_ref(cycle_id=cycle_id))
+        root_go = mailbox / go_path.name
+        preserved = (
+            stopped and landing is not None and root_go.is_file()
+            and not (mailbox / "failed" / go_path.name).exists()
+            and git(root, "rev-parse", "HEAD").stdout.strip() == landing)
+        if not preserved:
+            print("post-landing GO was not preserved")
+            return False
+
+        replayed = daemon.process_backlog(dry_run=False)
+        second = daemon.reconcile_ticket_cycle_state()
+        active = daemon.read_ticket_cycle_state()["active"].get(cycle_id)
+        closures = [
+            path for path in mailbox.rglob("*-to-sol.md")
+            if daemon.redteam_closure_ticket(
+                path.read_text(encoding="utf-8")) == cycle_id]
+        checks = {
+            "recovery-count": replayed is True and second == 0,
+            "state": (active is not None
+                      and active["phase"] == "awaiting-redteam"
+                      and active["commit"] == landing),
+            "go-done": (mailbox / "done" / go_path.name).is_file(),
+            "closure-unique": len(closures) == 1,
+            "candidate-retired": daemon.git_ref_commit(
+                reference=daemon.cycle_candidate_ref(cycle_id)) is None,
+            "landing-retired": daemon.git_ref_commit(
+                reference=daemon.cycle_landing_ref(cycle_id)) is None,
+        }
+        passed = all(checks.values())
+        if not passed:
+            print("post-landing recovery checks=" + repr(checks))
+        print("post-landing verification error replays once=" + str(passed))
+        return passed
+
+
 def arm_two_role_debt_failure_replays_past_cycle_limit(source=None):
     """A completed finite ticket still archives its requeued daemon GO."""
     with scratch_repository(source=source) as root:
@@ -5718,6 +5822,8 @@ def main():
          arm_candidate_retirement_internal_crash_replays),
         ("Architect GO crash recovery",
          arm_architect_go_crash_cuts_recover_once),
+        ("post-landing GO preservation",
+         arm_post_landing_error_preserves_go),
         ("finite two-role daemon GO recovery",
          arm_two_role_debt_failure_replays_past_cycle_limit),
         ("Architect GO finite user-action stop",
