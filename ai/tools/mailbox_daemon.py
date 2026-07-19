@@ -7468,9 +7468,15 @@ def dispatch_under_main_checkout_lock(
             implementer_return_before = fable_message_inode_snapshot()
         except (OSError, TicketCycleStateError) as exc:
             reason = "Implementer evidence contract refused: " + str(exc)
-            parked = park_failed_message(dispatch_path=dispatch_path)
+            retry_after_note_fix = (
+                len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message)) == 1)
+            parked = (park_prelaunch_message(dispatch_path=dispatch_path)
+                      if retry_after_note_fix else
+                      park_failed_message(dispatch_path=dispatch_path))
+            state = ("retained in prelaunch/." if retry_after_note_fix
+                     else "parked in failed/.")
             print("refused " + name + ": " + reason + "; "
-                  + ("parked in failed/." if parked else
+                  + (state if parked else
                      "failed-state move was not verified."))
             return False
 

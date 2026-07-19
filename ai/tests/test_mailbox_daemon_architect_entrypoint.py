@@ -355,6 +355,36 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertFalse(outcome)
             self.assertEqual(daemon.active_ticket_cycle_count(), 0)
 
+    def test_public_cycle_requeues_after_directive_preflight_refusal(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            request = mailbox / "0015-to-opus.md"
+            request.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                + "\nMAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/missing.md, section "
+                "Implementation directive]\n",
+                encoding="utf-8", newline="")
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            daemon.ACTIVE_TOPOLOGY = {}
+            daemon.prepare_implementer_evidence_contract = mock.Mock(
+                side_effect=daemon.TicketCycleStateError(
+                    "source note is missing"))
+
+            outcome = daemon.dispatch(path=str(request), dry_run=False)
+
+            self.assertFalse(outcome)
+            self.assertEqual(daemon.active_ticket_cycle_count(), 1)
+            held = mailbox / "prelaunch" / request.name
+            self.assertTrue(held.is_file())
+            self.assertEqual(daemon.recover_prelaunch_messages(), 1)
+            self.assertTrue(request.is_file())
+            self.assertEqual(daemon.active_ticket_cycle_count(), 1)
+
     def test_started_dispatch_keeps_its_ticket_reservation(self):
         with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
             cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
