@@ -13007,6 +13007,10 @@ def main():
                 recover_failed_implementer_preflight()
                 recover_prelaunch_implementer_checkout()
                 reconcile_ticket_cycle_state()
+                failed_debt = architect_notes_failed_debt_error()
+                if failed_debt is not None:
+                    print(failed_debt)
+                    return 1
             except (OSError, ValueError, TicketCycleStateError) as exc:
                 print("ticket-cycle recovery failed: " + str(exc)
                       + "; watcher did not start dispatching work.")

@@ -307,6 +307,20 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertTrue(failed_opus.is_file())
             self.assertTrue(failed_sol.is_file())
 
+    def test_watch_stops_immediately_for_failed_permanent_note_debt(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            debt = daemon.ARCHITECT_NOTES_DEBT_PREFIX + "inspect failed note"
+            daemon.architect_notes_failed_debt_error = lambda: debt
+            daemon.process_backlog = mock.Mock(
+                side_effect=AssertionError("watch entered its poll loop"))
+
+            rc, output, error = run_main(
+                daemon, ["--watch", "--cycle", "1"])
+
+            self.assertNotEqual(rc, 0, output + error)
+            self.assertIn(debt, output)
+            daemon.process_backlog.assert_not_called()
+
     def test_restart_keeps_reservation_owned_by_a_corrected_handoff(self):
         with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
             cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
