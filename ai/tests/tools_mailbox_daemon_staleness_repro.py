@@ -9,6 +9,7 @@ temporary directory before calling a daemon entry point.
 import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -412,6 +413,26 @@ def arm_dry_run_is_strictly_read_only():
               + " tree_equal=" + str(before == after)
               + " entries=" + str(len(before)))
         return result and before == after
+
+
+def arm_queued_message_survives_diagnostic_failure():
+    """A failed status report cannot turn a published request into failure."""
+    with scratch_daemon() as (daemon, _):
+        daemon.live_action_topology_is_current = lambda *_args: True
+        daemon.skip_redteam_policy_active = lambda: False
+        daemon.warn_if_mailbox_unwatched = lambda: None
+        daemon.report_demand = lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("injected status failure"))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            queued = daemon.send(
+                agent="fable", text="one diagnostic recovery request",
+                dry_run=False)
+        messages = sorted(pathlib.Path(daemon.MAILBOX).glob("*-to-fable.md"))
+        print("post-publication diagnostic result=" + str(queued)
+              + " messages=" + str(len(messages)))
+        return (queued and len(messages) == 1
+                and "message is queued" in output.getvalue())
 
 
 def arm_archive_failure_propagates(daemon_path=DAEMON_PATH):
@@ -1090,6 +1111,8 @@ def main():
         ("ordinary-rc1-no-history",
          arm_ordinary_failure_has_no_timeout_history),
         ("dry-run-read-only", arm_dry_run_is_strictly_read_only),
+        ("queued-message-diagnostic-failure",
+         arm_queued_message_survives_diagnostic_failure),
         ("archive-failure-propagates", arm_archive_failure_propagates),
         ("same-role-archive-and-logs",
          arm_same_role_serializes_through_archive_and_logs),

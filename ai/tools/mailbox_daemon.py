@@ -12989,12 +12989,16 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
                 agent=agent, payload=payload, attempts=1)
             if path is not None:
                 print("queued " + path)
-                warn_if_mailbox_unwatched()
-                if skip_redteam_policy_active():
-                    report_demand(
-                        backlog=pending_messages(), skip_redteam=True)
-                else:
-                    report_demand(backlog=pending_messages())
+                try:
+                    warn_if_mailbox_unwatched()
+                    if skip_redteam_policy_active():
+                        report_demand(
+                            backlog=pending_messages(), skip_redteam=True)
+                    else:
+                        report_demand(backlog=pending_messages())
+                except Exception as exc:
+                    print("  warning: message is queued, but its status "
+                          "report failed: " + str(exc))
                 return True
     finally:
         release_mailbox_sequence_lock(lock_file=lock_file)
