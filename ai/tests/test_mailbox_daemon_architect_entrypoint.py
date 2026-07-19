@@ -377,6 +377,26 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
     def test_failed_ancestor_handoff_requeues_in_a_real_repository(self):
         self.assertTrue(arm_failed_ancestor_handoff_requeues_and_advances())
 
+    def test_failed_implementer_turn_is_never_automatic_retry(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            request = failed / "0017-to-opus.md"
+            request.write_text(
+                "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: ticket@"
+                + BASE_COMMIT + "\nMAILBOX-MODE: normal\n\n"
+                "- **Directive:** [ai/notes/ticket.md, exact "
+                "Implementation directive section]\n",
+                encoding="utf-8", newline="")
+            daemon.write_timeout_history(
+                name=request.name, killed_after_minutes=120)
+
+            recovered = daemon.recover_prelaunch_implementer_checkout()
+
+            self.assertEqual(recovered, 0)
+            self.assertTrue(request.is_file())
+            self.assertEqual(len(daemon.timeout_events(request.name)), 1)
+
     def test_fix_only_request_reserves_the_finite_ticket_slot(self):
         with scratch_daemon() as (daemon, _, mailbox, _):
             maintenance = mailbox / "0001-to-fable.md"

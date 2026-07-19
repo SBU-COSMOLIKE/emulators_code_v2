@@ -7449,10 +7449,10 @@ def dispatch_under_main_checkout_lock(
             audit_worktree = create_audit_snapshot(
                 cycle_id=audit_cycle_id, commit=audit_commit, agent="sol")
     except (OSError, PrimaryWorktreeError, TicketCycleStateError) as exc:
-        parked = park_failed_message(dispatch_path=dispatch_path)
+        parked = park_prelaunch_message(dispatch_path=dispatch_path)
         print("refused " + name + ": exact cycle checkout failed ("
               + str(exc) + "); "
-              + ("parked in failed/." if parked else
+              + ("retained in prelaunch/." if parked else
                  "failed-state move was not verified."))
         return False
 
@@ -8222,6 +8222,14 @@ def park_failed_message(dispatch_path):
     _, verified = verified_state_move(
         dispatch_path=dispatch_path,
         directory=os.path.join(MAILBOX, "failed"))
+    return verified
+
+
+def park_prelaunch_message(dispatch_path):
+    """Retain a request that was refused before its agent process started."""
+    _, verified = verified_state_move(
+        dispatch_path=dispatch_path,
+        directory=os.path.join(MAILBOX, "prelaunch"))
     return verified
 
 
@@ -10204,14 +10212,14 @@ def recover_failed_implementer_preflight():
     return recovered
 
 
-def recover_failed_implementer_ancestor_checkout():
-    """Requeue a valid handoff refused because its clean base lagged."""
+def recover_prelaunch_implementer_checkout():
+    """Requeue only work durably marked as refused before agent launch."""
     sequence_lock = acquire_mailbox_sequence_lock()
     if sequence_lock is None:
         raise TicketCycleStateError("cannot lock Implementer recovery")
     recovered = 0
     try:
-        pattern = os.path.join(MAILBOX, "failed", "*-to-opus.md")
+        pattern = os.path.join(MAILBOX, "prelaunch", "*-to-opus.md")
         for path in sorted(glob.glob(pattern), key=message_sequence):
             message = read_cycle_message(path=path)
             if (not message.startswith(MAILBOX_FLOW_HEADER)
@@ -12988,7 +12996,7 @@ def main():
                 if fix_only:
                     recover_failed_maintenance_admission()
                 recover_failed_implementer_preflight()
-                recover_failed_implementer_ancestor_checkout()
+                recover_prelaunch_implementer_checkout()
                 reconcile_ticket_cycle_state()
             except (OSError, ValueError, TicketCycleStateError) as exc:
                 print("ticket-cycle recovery failed: " + str(exc)

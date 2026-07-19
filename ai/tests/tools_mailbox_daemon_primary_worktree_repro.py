@@ -877,9 +877,9 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
         # Reproduce the live state made by the older startup order: the
         # managed checkout had already been advanced before recovery ran.
         git(implementer, "merge", "--ff-only", current_main)
-        failed = primary / "ai" / "notes" / "mailbox" / "failed"
-        failed.mkdir(parents=True, exist_ok=True)
-        message = failed / "0017-to-opus.md"
+        prelaunch = primary / "ai" / "notes" / "mailbox" / "prelaunch"
+        prelaunch.mkdir(parents=True, exist_ok=True)
+        message = prelaunch / "0017-to-opus.md"
         message.write_text(
             "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
             + "\nMAILBOX-MODE: normal\n\n"
@@ -887,7 +887,7 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
             "Implementation directive section]\n",
             encoding="utf-8", newline="")
 
-        recovered = daemon.recover_failed_implementer_ancestor_checkout()
+        recovered = daemon.recover_prelaunch_implementer_checkout()
         root_message = message.parent.parent / message.name
         prepared = daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
         passed = (
