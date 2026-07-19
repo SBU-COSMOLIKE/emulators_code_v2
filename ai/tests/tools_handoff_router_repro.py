@@ -774,6 +774,76 @@ def arm_integrated_status():
         assert reservation_hidden
 
 
+def arm_status_git_failure():
+    """Git errors must never become an idle status answer."""
+    with tempfile.TemporaryDirectory(prefix="router-status-failure-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_status_failure")
+        run_git(repo, "init", "-q", "-b", "main")
+        run_git(repo, "config", "user.email", "scratch@example.invalid")
+        run_git(repo, "config", "user.name", "Scratch Probe")
+        tracked = repo / "tracked.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        run_git(repo, "add", "tracked.txt")
+        run_git(repo, "commit", "-q", "-m", "base")
+        run_git(repo, "checkout", "-q", "-b", "codex/open")
+        tracked.write_text("base\nopen\n", encoding="utf-8")
+        run_git(repo, "commit", "-q", "-am", "open")
+        run_git(repo, "checkout", "-q", "main")
+
+        def status_with(run):
+            original_argv = module.sys.argv
+            original_run = module.subprocess.run
+            module.sys.argv = ["handoff_router.py", "--status"]
+            module.subprocess.run = run
+            stream = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stream):
+                    rc = module.main()
+            finally:
+                module.sys.argv = original_argv
+                module.subprocess.run = original_run
+            return rc, stream.getvalue()
+
+        real_run = module.subprocess.run
+        normal_rc, normal_text = status_with(real_run)
+
+        def failed_branch(args, **kwargs):
+            if args[:3] == ["git", "branch", "--list"]:
+                return subprocess.CompletedProcess(
+                    args, 128, "", "fatal: injected branch failure")
+            return real_run(args, **kwargs)
+
+        branch_rc, branch_text = status_with(failed_branch)
+
+        def failed_ancestry(args, **kwargs):
+            if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+                return subprocess.CompletedProcess(
+                    args, 128, "", "fatal: injected ancestry failure")
+            return real_run(args, **kwargs)
+
+        ancestry_rc, ancestry_text = status_with(failed_ancestry)
+        normal_open = normal_rc == 0 and "[OPEN" in normal_text
+        branch_refused = (
+            branch_rc == 1
+            and "injected branch failure" in branch_text
+            and "work is idle" not in branch_text)
+        ancestry_refused = (
+            ancestry_rc == 1
+            and "injected ancestry failure" in ancestry_text
+            and "work is idle" not in ancestry_text)
+
+        print("ARM status Git failure")
+        print("  ordinary not-ancestor result remains OPEN:", normal_open)
+        print("  branch query failure refuses idle answer:", branch_refused)
+        print("  ancestry query failure refuses idle answer:",
+              ancestry_refused)
+        assert normal_open
+        assert branch_refused
+        assert ancestry_refused
+
+
 def arm_incomplete_directive_refusal():
     """A goal-only note never reaches either clipboard or an agent session."""
     with tempfile.TemporaryDirectory(prefix="router-directive-refusal-") as tmp:
@@ -2057,6 +2127,7 @@ def main():
     arm_subagent_evidence_validation()
     arm_clipboard_failure()
     arm_integrated_status()
+    arm_status_git_failure()
     arm_incomplete_directive_refusal()
     arm_character_budget_binding()
     arm_discovery_severity_binding()

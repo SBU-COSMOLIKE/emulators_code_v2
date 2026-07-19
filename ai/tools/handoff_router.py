@@ -122,6 +122,10 @@ class BacklogLedgerError(RuntimeError):
     """The saved primary backlog cannot safely authorize a role decision."""
 
 
+class StatusError(RuntimeError):
+    """Git could not provide a trustworthy work-status answer."""
+
+
 def _read_regular_file(path, label, maximum_bytes):
     """Read one bounded regular file without following redirected paths."""
     path = os.path.abspath(path)
@@ -848,18 +852,39 @@ def verify_execution_checkout(checkout):
 
 
 def _git(args_list):
-    """Run one git command and return its stdout text (empty on failure).
+    """Run one status Git command and return its stdout text.
 
     Arguments:
       args_list = the git arguments, e.g. ["log", "--oneline", "-1", "main"].
     """
-    proc = subprocess.run(["git"] + args_list,
-                          capture_output=True,
-                          text=True,
-                          cwd=REPO_ROOT)
+    try:
+        proc = subprocess.run(["git"] + args_list,
+                              capture_output=True,
+                              text=True,
+                              cwd=REPO_ROOT)
+    except OSError as exc:
+        raise StatusError("Git status command could not start: "
+                          + str(exc)) from exc
     if proc.returncode != 0:
-        return ""
+        raise StatusError(
+            "Git status command failed: " + proc.stderr.strip())
     return proc.stdout.strip()
+
+
+def _branch_is_ancestor(branch, target):
+    """Return Git ancestry while distinguishing false from query failure."""
+    try:
+        proc = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", branch, target],
+            capture_output=True, text=True, cwd=REPO_ROOT)
+    except OSError as exc:
+        raise StatusError("Git ancestry check could not start: "
+                          + str(exc)) from exc
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    raise StatusError("Git ancestry check failed: " + proc.stderr.strip())
 
 
 def status_report():
@@ -912,11 +937,7 @@ def status_report():
             merge_targets.append(working)
         is_integrated = False
         for target in merge_targets:
-            merged = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", name, target],
-                capture_output=True,
-                cwd=REPO_ROOT)
-            if merged.returncode == 0:
+            if _branch_is_ancestor(branch=name, target=target):
                 is_integrated = True
                 break
         if is_integrated:
@@ -1044,7 +1065,11 @@ def main():
               "Role plan in a --note run")
         return 1
     if args.status:
-        status_report()
+        try:
+            status_report()
+        except StatusError as exc:
+            print("cannot read AI work status: " + str(exc))
+            return 1
         return 0
     if not args.note:
         print("either --status or --note is required (see --help)")
