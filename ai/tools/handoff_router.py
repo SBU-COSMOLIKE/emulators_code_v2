@@ -1593,7 +1593,6 @@ def main():
             parallel_work_plan=directive["parallel_work_plan"],
             handoff_text=implementer_block)
     except DirectiveError as exc:
-        finish_route()
         release_router_lock(router_lock)
         print("refused Implementer subagent evidence: " + str(exc))
         return 1

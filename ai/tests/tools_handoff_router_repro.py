@@ -799,6 +799,68 @@ def arm_candidate_before_return_resumes():
     assert passed
 
 
+def arm_evidence_refusal_keeps_route():
+    """A malformed return can be corrected without losing its candidate."""
+    with tempfile.TemporaryDirectory(prefix="router-evidence-retry-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_evidence_retry", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        seq = module.route_sequence(
+            note_path=str(note), note_display="ai/notes/spec.md",
+            base=base, commands=module.DEFAULT_GATE_COMMANDS)
+        run_git(repo, "commit", "--allow-empty", "-q", "-m", "candidate")
+        candidate = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        evidence = valid_subagent_evidence()
+        second_return = "#### Subagent return `regression-writer`"
+        malformed = implementer_handoff(
+            evidence=evidence[:evidence.index(second_return)].rstrip(),
+            candidate=candidate)
+        corrected = implementer_handoff(candidate=candidate)
+        replies = iter((malformed, corrected))
+        gate_runs = []
+        module.wait_for_block = lambda **_kwargs: next(replies)
+        module.copy_to_clipboard = lambda _text: None
+        module.run_gates = lambda commands, seq, router_lock: (
+            gate_runs.append(seq)
+            or ("ai/notes/relay/" + seq + "-gates-log.md", True))
+        original_argv = module.sys.argv
+        module.sys.argv = [
+            "handoff_router.py", "--note", "ai/notes/spec.md"]
+        try:
+            first_rc = module.main()
+            route_path = (Path(module.RUN_RESERVATIONS_DIR)
+                          / module.ROUTE_RECORD_NAME)
+            first_record = route_path.read_text(
+                encoding="utf-8").splitlines()
+            archive_path = (Path(module.RELAY_DIR)
+                            / (seq + "-implementer.md"))
+            first_preserved = (
+                first_rc == 1 and len(first_record) == 6
+                and first_record[0] == "route-v2"
+                and run_git(
+                    repo, "rev-parse", "HEAD").stdout.strip() == candidate
+                and not archive_path.exists() and not gate_runs)
+            second_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        corrected_completed = (
+            second_rc == 0 and not route_path.exists()
+            and archive_path.is_file()
+            and candidate in archive_path.read_text(encoding="utf-8")
+            and gate_runs == [seq])
+        print("ARM evidence refusal route recovery")
+        print("  invalid evidence preserves route and candidate:",
+              first_preserved)
+        print("  corrected exact-candidate return completes:",
+              corrected_completed)
+        assert first_preserved
+        assert corrected_completed
+
+
 def arm_completed_gate_log_resumes():
     """A saved check log prevents repeated local checks after a stop."""
     with tempfile.TemporaryDirectory(prefix="router-gate-resume-") as tmp:
@@ -2997,6 +3059,7 @@ def main():
     arm_recovery_evidence_size_limit()
     arm_interrupted_implementer_return_resumes()
     arm_candidate_before_return_resumes()
+    arm_evidence_refusal_keeps_route()
     arm_explicit_route_abandonment()
     arm_abandonment_is_serialized_with_recovery()
     arm_completed_gate_log_resumes()
