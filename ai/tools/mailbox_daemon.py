@@ -8611,10 +8611,19 @@ def prepare_implementer_cycle_checkout(cycle_id):
                     label="Implementer HEAD is not an ancestor of the "
                           "ticket base")
             except TicketCycleStateError as exc:
-                raise TicketCycleStateError(
-                    "Implementer HEAD is not a saved candidate or an older "
-                    "ticket-base ancestor; refusing to discard "
-                    + current) from exc
+                main_commit = _exact_git_object(
+                    arguments=["rev-parse", "--verify",
+                               "refs/heads/main^{commit}"],
+                    label="current main commit")
+                if record is not None or current != main_commit:
+                    raise TicketCycleStateError(
+                        "Implementer HEAD is not a saved candidate, an older "
+                        "ticket-base ancestor, or the trusted main baseline; "
+                        "refusing to discard " + current) from exc
+                _require_ancestor_or_same(
+                    ancestor=target, descendant=current,
+                    label="ticket base is not an ancestor of the trusted "
+                          "main baseline")
         _run_git(
             repository_root=worktree,
             arguments=["reset", "--hard", target])
@@ -9552,10 +9561,11 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
     opus_head = worktree_head(worktree=AGENT_CWD["opus"])
     preserved = {record["commit"]
                  for record in candidate_state["cycles"].values()}
-    preserved.update(
+    active_bases = {
         cycle_starting_commit(cycle_id)
         for cycle_id, record in ticket_state["active"].items()
-        if record["phase"] == "implementation")
+        if record["phase"] == "implementation"}
+    preserved.update(active_bases)
     _symbolic_worktree_branch(
         worktree=AGENT_CWD["opus"], expected_branch=IMPLEMENTER_BRANCH,
         label="Implementer")
@@ -9568,6 +9578,11 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
     elif opus_head in preserved:
         plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
                      "Implementer preserved work", False))
+    elif any(git_commit_descends_from(
+            starting_commit=opus_head, accepted_commit=base)
+            for base in active_bases):
+        plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
+                     "Implementer older active base", False))
     else:
         if _clean_worktree_status(worktree=AGENT_CWD["opus"]):
             raise TicketCycleStateError(
@@ -10222,12 +10237,7 @@ def recover_failed_implementer_ancestor_checkout():
                 continue
             current = worktree_head(worktree=worktree)
             target = cycle_starting_commit(cycle_id)
-            if current == target:
-                continue
             try:
-                _require_ancestor_or_same(
-                    ancestor=current, descendant=target,
-                    label="failed handoff checkout did not lag its base")
                 main_commit = _exact_git_object(
                     arguments=["rev-parse", "--verify",
                                "refs/heads/main^{commit}"],
@@ -10235,6 +10245,11 @@ def recover_failed_implementer_ancestor_checkout():
                 _require_ancestor_or_same(
                     ancestor=target, descendant=main_commit,
                     label="failed handoff base is not on current main")
+                if current != target and current != main_commit:
+                    _require_ancestor_or_same(
+                        ancestor=current, descendant=target,
+                        label="failed handoff checkout is neither an older "
+                              "base nor the trusted main baseline")
             except TicketCycleStateError:
                 continue
             recovered_path, moved = verified_state_move(

@@ -833,7 +833,7 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
 
 
 def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
-    """Recover one valid handoff refused before its older base could move."""
+    """Recover after startup moved a clean Implementer past the ticket."""
     with scratch_repository(source=source) as root:
         rc, _stdout, stderr = invoke(root, ["--once"])
         if rc != 0 or stderr != "" or not validate_topology(root):
@@ -851,6 +851,14 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
         git(primary, "merge", "--ff-only", ticket_base)
         git(sol, "merge", "--ff-only", ticket_base)
 
+        repair = root / "later-daemon-repair.txt"
+        repair.write_text("later repair\n", encoding="utf-8", newline="")
+        git(root, "add", repair.name)
+        git(root, "commit", "-m", "later daemon repair")
+        current_main = git(root, "rev-parse", "HEAD").stdout.strip()
+        git(primary, "merge", "--ff-only", current_main)
+        git(sol, "merge", "--ff-only", current_main)
+
         daemon = load_scratch_daemon(primary)
         daemon.configure_agent_worktrees(
             primary_path=str(primary), implementer_path=str(implementer),
@@ -861,6 +869,14 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
             "phase": "implementation", "commit": None,
             "mode": "normal", "route": "primary"}
         daemon.write_ticket_cycle_state(state=state)
+        daemon.sync_all_clean_role_baselines(target=current_main)
+        older_base_was_preserved = (
+            git(implementer, "rev-parse", "HEAD").stdout.strip()
+            == old_base)
+
+        # Reproduce the live state made by the older startup order: the
+        # managed checkout had already been advanced before recovery ran.
+        git(implementer, "merge", "--ff-only", current_main)
         failed = primary / "ai" / "notes" / "mailbox" / "failed"
         failed.mkdir(parents=True, exist_ok=True)
         message = failed / "0017-to-opus.md"
@@ -875,16 +891,18 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
         root_message = message.parent.parent / message.name
         prepared = daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
         passed = (
-            recovered == 1 and root_message.is_file()
+            older_base_was_preserved and recovered == 1
+            and root_message.is_file()
             and not message.exists()
             and prepared == ticket_base
             and git(implementer, "rev-parse", "HEAD").stdout.strip()
             == ticket_base
+            and current_main != ticket_base
             and git(root, "merge-base", "--is-ancestor",
                     old_base, ticket_base, check=False).returncode == 0
             and daemon.read_ticket_cycle_state()["active"].get(cycle)
             == state["active"][cycle])
-        print("failed ancestor handoff requeues and advances=" + str(passed))
+        print("failed handoff survives startup baseline sync=" + str(passed))
         return passed
 
 
