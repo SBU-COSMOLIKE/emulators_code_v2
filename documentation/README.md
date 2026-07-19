@@ -62,6 +62,6 @@ pdflatex -interaction=nonstopmode -halt-on-error \
 ```
 
 Expected result: both commands exit with code `0` and
-`documentation/candidate_to_landing.pdf` contains four readable pages. Render
+`documentation/candidate_to_landing.pdf` contains five readable pages. Render
 and inspect every page before committing a changed PDF; a successful LaTeX
 exit alone cannot detect clipped or overlapping content.

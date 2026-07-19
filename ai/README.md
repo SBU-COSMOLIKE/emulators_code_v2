@@ -382,7 +382,10 @@ flowchart TD
 
 An unfinished edit in the user's folder requires cleanup followed by a
 watcher restart. If another saved version became the newest version on `main`
-after L was created, C requires a new Architect audit instead.
+after L was created, the watcher preserves the work and reports
+`STALE — REQUIRES INTEGRATION REVALIDATION`. This is usually a narrower check
+than repeating the original candidate audit. [FAQ G1](#faq-g1-stale-integration)
+explains the distinction.
 
 For an ordinary ticket, only the Implementer edits source code. The Architect
 reads the candidate and decides; it does not merge or push the ticket. The
@@ -1352,8 +1355,42 @@ short operating explanation.
 
 Read the recovery message before changing anything. If the main folder only
 contains unfinished edits, make it clean and restart the watcher. If another
-saved version became the newest version on `main` after L was created,
-candidate C needs a new Architect audit.
+saved version became the newest version on `main` after L was created, read
+the integration-revalidation explanation below. Do not delete C, GO, or L.
+
+#### If `main` changes after L is prepared <a id="faq-g1-stale-integration"></a>
+
+The watcher reports:
+
+```text
+STALE — REQUIRES INTEGRATION REVALIDATION
+```
+
+This state does not mean that the original candidate audit failed. It means L
+was built directly after one saved `main` version, called **M0**, but `main`
+now names a newer version, called **M1**.
+
+```text
+M0  ->  intervening main changes  ->  M1
+                                        + accepted candidate C
+                                        -> provisional combined result
+```
+
+The Architect checks only whether the change from M0 to M1 affects C. The
+Architect does not approve those intervening commits again. The check covers
+C's assumptions, APIs, dependencies, tests, and numerical or scientific
+behavior. The original acceptance commands must pass on the combined result,
+along with any new relevant checks introduced on M1.
+
+A complete candidate audit is needed only when that interaction changes what
+C means or invalidates its earlier evidence. Otherwise the narrower
+integration revalidation is sufficient.
+
+Current automation stops safely at this state and preserves C, the old L, the
+Architect's GO, and the user's files. It does not yet create or approve a
+replacement landing automatically. If `main` already contains L and merely
+has later commits, the task is recovery rather than revalidation. If M1 does
+not descend from M0, Git history needs user reconciliation instead.
 
 #### How the two saved versions are made
 

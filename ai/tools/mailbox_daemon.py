@@ -1885,7 +1885,23 @@ def _bootstrap_root_ticket_authority(message, target, ticket_state,
             or git_ref_commit(reference=candidate_ref) != candidate_commit):
         return False, "root Architect GO has no exact saved candidate C"
     landing_ref = cycle_landing_ref(cycle_id=cycle_id)
-    if git_ref_commit(reference=landing_ref) != target:
+    saved_landing = git_ref_commit(reference=landing_ref)
+    if saved_landing != target:
+        if saved_landing is not None:
+            try:
+                saved_parent = _verify_prepared_landing(
+                    cycle_id=cycle_id,
+                    candidate_commit=candidate_commit,
+                    landing_commit=saved_landing)
+                main_problem = _prepared_landing_main_problem(
+                    candidate_commit=candidate_commit,
+                    landing_commit=saved_landing,
+                    parent_commit=saved_parent,
+                    current_main=target)
+            except TicketCycleStateError as exc:
+                return False, str(exc)
+            if main_problem is not None:
+                return False, main_problem
         return False, "root Architect GO has no exact target landing ref L"
     try:
         parent = _verify_prepared_landing(
@@ -9429,8 +9445,16 @@ def _single_commit_parent(commit):
 
 def _require_ancestor_or_same(ancestor, descendant, label):
     """Require ``descendant`` to preserve ``ancestor`` in its lineage."""
-    if ancestor == descendant:
+    if _commit_is_ancestor(ancestor=ancestor, descendant=descendant,
+                           label=label):
         return
+    raise TicketCycleStateError(label)
+
+
+def _commit_is_ancestor(ancestor, descendant, label):
+    """Return whether one exact commit remains in another's history."""
+    if ancestor == descendant:
+        return True
     try:
         result = _run_git(
             repository_root=AGENT_CWD["fable"],
@@ -9440,10 +9464,41 @@ def _require_ancestor_or_same(ancestor, descendant, label):
     except PrimaryWorktreeError as exc:
         raise TicketCycleStateError(
             "cannot inspect " + label + ": " + str(exc)) from exc
-    if result.returncode == 1:
-        raise TicketCycleStateError(label)
-    if result.returncode != 0:
+    if result.returncode not in {0, 1}:
         raise TicketCycleStateError("cannot inspect " + label)
+    return result.returncode == 0
+
+
+STALE_INTEGRATION_REVALIDATION = (
+    "STALE — REQUIRES INTEGRATION REVALIDATION")
+
+
+def _prepared_landing_main_problem(candidate_commit, landing_commit,
+                                   parent_commit, current_main):
+    """Explain why prepared L cannot replace the current main commit."""
+    if current_main in {parent_commit, landing_commit}:
+        return None
+    if _commit_is_ancestor(
+            ancestor=landing_commit, descendant=current_main,
+            label="whether main already contains prepared landing L"):
+        return ("main already contains prepared landing L=" + landing_commit
+                + " followed by newer commits; durable-state recovery is "
+                  "required, not candidate revalidation")
+    if _commit_is_ancestor(
+            ancestor=parent_commit, descendant=current_main,
+            label="whether main preserves prepared landing parent M0"):
+        candidate = (candidate_commit if candidate_commit is not None
+                     else "not-applicable")
+        return (
+            STALE_INTEGRATION_REVALIDATION + ": C=" + candidate
+            + " L=" + landing_commit + " M0=" + parent_commit
+            + " M1=" + current_main + "; inspect M0-to-M1, its interaction "
+              "with C, and the provisional combined result on M1. Repeat "
+              "the complete candidate audit only if the intervening change "
+              "affects C's assumptions, APIs, tests, numerical behavior, "
+              "or dependencies")
+    return ("main no longer descends from prepared landing parent M0="
+            + parent_commit + "; history requires user reconciliation")
 
 
 def _exact_squash_tree(parent_commit, candidate_commit):
@@ -9591,10 +9646,12 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode):
             parent = _verify_prepared_landing(
                 cycle_id=cycle_id, candidate_commit=candidate_commit,
                 landing_commit=prepared)
-            if current_main not in {parent, prepared}:
-                raise RetryableArchitectLandingError(
-                    "main moved after the exact landing was prepared; "
-                    "the candidate requires a new Architect audit")
+            main_problem = _prepared_landing_main_problem(
+                candidate_commit=candidate_commit,
+                landing_commit=prepared, parent_commit=parent,
+                current_main=current_main)
+            if main_problem is not None:
+                raise RetryableArchitectLandingError(main_problem)
             return prepared, parent, reference
         _require_ancestor_or_same(
             ancestor=cycle_starting_commit(cycle_id),
@@ -9664,7 +9721,8 @@ def _user_checkout_status():
     return result.stdout
 
 
-def land_prepared_commit_in_clean_user_checkout(landing, parent):
+def land_prepared_commit_in_clean_user_checkout(
+        landing, parent, candidate_commit=None):
     """Fast-forward a clean attached main checkout; never reset or force."""
     symbolic = _run_git(
         repository_root=REPO_ROOT,
@@ -9683,10 +9741,11 @@ def land_prepared_commit_in_clean_user_checkout(landing, parent):
                 "local main reached the prepared landing but the user's "
                 "checkout is not clean")
         return
-    if current != parent:
-        raise RetryableArchitectLandingError(
-            "main moved after the exact landing was prepared; the candidate "
-            "requires a new Architect audit")
+    main_problem = _prepared_landing_main_problem(
+        candidate_commit=candidate_commit, landing_commit=landing,
+        parent_commit=parent, current_main=current)
+    if main_problem is not None:
+        raise RetryableArchitectLandingError(main_problem)
     if _user_checkout_status():
         raise RetryableArchitectLandingError(
             "the user's main checkout has staged, unstaged, or untracked "
@@ -9919,7 +9978,8 @@ def execute_architect_go_locked(cycle_id, candidate_commit, mode):
     preflight_role_baseline_sync(
         target=landing, retiring_candidate=candidate_commit)
     land_prepared_commit_in_clean_user_checkout(
-        landing=landing, parent=parent)
+        landing=landing, parent=parent,
+        candidate_commit=candidate_commit)
     completed_now = record_architect_commit(
         cycle_id=cycle_id, accepted_commit=landing, mode=mode)
     if mode == "normal":
@@ -10473,11 +10533,17 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
         preserved = ("the exact GO was returned to the mailbox root"
                      if requeued else
                      "the inflight GO remains preserved for recovery")
-        if "main moved" in str(exc):
+        if STALE_INTEGRATION_REVALIDATION in str(exc):
             remedy = (
-                "Automated same-cycle re-audit is not supported yet; keep "
+                "Automated integration revalidation is not supported yet; "
+                "keep "
                 "C, L, GO, and the user's work preserved, and do not restart "
                 "this cycle until that recovery is handled explicitly")
+        elif ("durable-state recovery" in str(exc)
+              or "history requires user reconciliation" in str(exc)):
+            remedy = (
+                "Keep C, L, GO, and the user's work preserved and inspect "
+                "the named Git history before retrying")
         else:
             remedy = (
                 "Make the user's unchanged-parent main checkout clean, then "

@@ -3,6 +3,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from ai.tools import mailbox_daemon
 
@@ -85,6 +86,49 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
                     mailbox_daemon.classify_candidate_scope(
                         changed_paths=changed, path_scope=allowed),
                     expected)
+
+    def test_stale_landing_names_the_narrow_revalidation_evidence(self):
+        candidate = "c" * 40
+        landing = "1" * 40
+        old_main = "0" * 40
+        new_main = "2" * 40
+        with mock.patch.object(
+                mailbox_daemon, "_commit_is_ancestor",
+                side_effect=(False, True)):
+            problem = mailbox_daemon._prepared_landing_main_problem(
+                candidate_commit=candidate, landing_commit=landing,
+                parent_commit=old_main, current_main=new_main)
+
+        self.assertTrue(problem.startswith(
+            mailbox_daemon.STALE_INTEGRATION_REVALIDATION + ":"))
+        for label, commit in (("C", candidate), ("L", landing),
+                              ("M0", old_main), ("M1", new_main)):
+            self.assertIn(label + "=" + commit, problem)
+        self.assertIn("inspect M0-to-M1", problem)
+        self.assertIn("provisional combined result on M1", problem)
+        self.assertIn("complete candidate audit only if", problem)
+
+    def test_stale_landing_is_not_confused_with_recovery_or_divergence(self):
+        commits = dict(candidate_commit="c" * 40,
+                       landing_commit="1" * 40,
+                       parent_commit="0" * 40,
+                       current_main="2" * 40)
+        with mock.patch.object(
+                mailbox_daemon, "_commit_is_ancestor", return_value=True):
+            recovery = mailbox_daemon._prepared_landing_main_problem(
+                **commits)
+        self.assertIn("durable-state recovery", recovery)
+        self.assertNotIn(mailbox_daemon.STALE_INTEGRATION_REVALIDATION,
+                         recovery)
+
+        with mock.patch.object(
+                mailbox_daemon, "_commit_is_ancestor",
+                side_effect=(False, False)):
+            divergence = mailbox_daemon._prepared_landing_main_problem(
+                **commits)
+        self.assertIn("user reconciliation", divergence)
+        self.assertNotIn(mailbox_daemon.STALE_INTEGRATION_REVALIDATION,
+                         divergence)
 
     def test_scope_exceeded_banner_carries_data_not_untrusted_lines(self):
         unsafe_path = "emulator/extra\n\x1b[31m.py"

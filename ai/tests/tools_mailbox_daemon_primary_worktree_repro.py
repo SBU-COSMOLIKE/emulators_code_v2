@@ -4573,15 +4573,14 @@ def arm_architect_go_user_checkout_stop_is_finite(source=None):
                     mode="normal"),
                 encoding="utf-8", newline="")
             stop_rc, stop_stdout, stop_stderr = invoke(root, ["--once"])
+            stop_text = stop_stdout + stop_stderr
             state = daemon.read_ticket_cycle_state()
             active = state["active"].get(cycle_id)
             checks = {
                 "finite-nonzero": stop_rc == 1,
                 "clear-stop": (
-                    "Architect landing needs user action" in (
-                        stop_stdout + stop_stderr)
-                    or "primary worktree error:" in (
-                        stop_stdout + stop_stderr)),
+                    "Architect landing needs user action" in stop_text
+                    or "primary worktree error:" in stop_text),
                 "main-preserved": git(
                     root, "rev-parse", "HEAD").stdout.strip()
                 == expected_main,
@@ -4609,11 +4608,13 @@ def arm_architect_go_user_checkout_stop_is_finite(source=None):
                 checks["clean-restart-idempotent"] = resumed
             else:
                 checks["honest-no-auto-recovery"] = (
-                    "primary worktree error:" in (
-                        stop_stdout + stop_stderr)
-                    and "root Architect GO has no exact target landing ref L"
-                    in (
-                        stop_stdout + stop_stderr))
+                    "primary worktree error:" in stop_text
+                    and daemon.STALE_INTEGRATION_REVALIDATION in stop_text
+                    and all(
+                        label + "=" + commit in stop_text
+                        for label, commit in (
+                            ("C", candidate), ("L", landing),
+                            ("M0", parent), ("M1", expected_main))))
             passed = all(checks.values())
             if not passed:
                 print("landing stop " + case + " checks=" + repr(checks))

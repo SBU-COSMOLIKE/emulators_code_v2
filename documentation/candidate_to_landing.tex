@@ -579,9 +579,27 @@ content merge. It moves the branch and clean checkout from $M$ to $L$.
 \begin{stopbox}[If the folder is not safe]
 The watcher leaves the user's folder untouched and preserves candidate $C$,
 Architect GO, and prepared landing $L$. Unfinished files require the user to
-make the folder clean and restart. If \code{main} moved to another saved
-commit after $L$ was prepared, candidate $C$ requires a new Architect audit.
+make the folder clean and restart.
 \end{stopbox}
+
+If \code{main} moved from landing parent $M_0$ to a newer descendant $M_1$
+after $L$ was prepared, the watcher reports this state:
+\begin{center}
+\footnotesize\bfseries STALE --- REQUIRES\\
+INTEGRATION REVALIDATION
+\end{center}
+It preserves $C$, the old $L$, GO, and the user's files, then stops; it does
+not create a replacement landing automatically.
+
+This check is narrower than a new candidate audit. The Architect compares
+$M_0\mathbin{\rightarrow}M_1$, $C$, and a provisional combined result on
+$M_1$. The original acceptance commands and relevant checks added on $M_1$
+must pass. A complete audit is needed only if the intervening change affects
+$C$'s assumptions, APIs, dependencies, tests, or numerical or scientific
+meaning. The Architect does not approve the intervening commits again.
+
+If $M_1$ already contains $L$, recover the saved state. If $M_1$ does not
+descend from $M_0$, the user must reconcile Git history.
 
 \section{Local landing and GitHub are separate}
 
