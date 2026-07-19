@@ -1087,6 +1087,149 @@ def arm_clipboard_failure():
         assert raised
 
 
+def arm_explicit_route_abandonment():
+    """Release only a named obsolete route while preserving its evidence."""
+    with tempfile.TemporaryDirectory(prefix="router-abandon-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_abandon", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        seq = module.route_sequence(
+            note_path=str(note), note_display="ai/notes/spec.md",
+            base=base, commands=module.DEFAULT_GATE_COMMANDS)
+        reservations = Path(module.RUN_RESERVATIONS_DIR)
+        route = reservations / module.ROUTE_RECORD_NAME
+        reservation = reservations / seq
+        evidence = Path(module.RELAY_DIR) / (seq + "-implementer.md")
+        evidence.write_text("saved evidence\n", encoding="utf-8")
+
+        status_stream = io.StringIO()
+        with contextlib.redirect_stdout(status_stream):
+            module.status_report()
+        status_names_route = (
+            "active manual route:" in status_stream.getvalue()
+            and "sequence: " + seq in status_stream.getvalue())
+
+        original_argv = module.sys.argv
+        try:
+            module.sys.argv = [
+                "handoff_router.py", "--abandon-route", seq + "-wrong"]
+            wrong_stream = io.StringIO()
+            with contextlib.redirect_stdout(wrong_stream):
+                wrong_rc = module.main()
+            wrong_preserved = (
+                wrong_rc == 1 and route.is_file()
+                and reservation.is_dir() and evidence.is_file())
+
+            module.sys.argv = [
+                "handoff_router.py", "--abandon-route", seq]
+            exact_stream = io.StringIO()
+            with contextlib.redirect_stdout(exact_stream):
+                exact_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        exact_released_pointer_only = (
+            exact_rc == 0 and not route.exists()
+            and reservation.is_dir() and evidence.is_file())
+        next_seq = module.route_sequence(
+            note_path=str(note), note_display="ai/notes/spec.md",
+            base=base, commands=module.DEFAULT_GATE_COMMANDS)
+        next_route_started = next_seq != seq and route.is_file()
+        route.write_bytes(b"\xff")
+        malformed_before = route.read_bytes()
+        original_argv = module.sys.argv
+        try:
+            module.sys.argv = ["handoff_router.py", "--status"]
+            malformed_status_stream = io.StringIO()
+            with contextlib.redirect_stdout(malformed_status_stream):
+                malformed_status_rc = module.main()
+            module.sys.argv = [
+                "handoff_router.py", "--abandon-route", next_seq]
+            malformed_abandon_stream = io.StringIO()
+            with contextlib.redirect_stdout(malformed_abandon_stream):
+                malformed_abandon_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        malformed_refused = (
+            malformed_status_rc == 1 and malformed_abandon_rc == 1
+            and "traceback" not in malformed_status_stream.getvalue().lower()
+            and "traceback" not in malformed_abandon_stream.getvalue().lower()
+            and route.read_bytes() == malformed_before
+            and reservation.is_dir() and evidence.is_file())
+
+        print("ARM explicit route abandonment")
+        print("  status names exact active sequence:", status_names_route)
+        print("  wrong sequence preserves all state:", wrong_preserved)
+        print("  exact sequence releases only pointer:",
+              exact_released_pointer_only)
+        print("  a later route gets a new sequence:", next_route_started)
+        print("  malformed record refuses without deleting evidence:",
+              malformed_refused)
+        assert status_names_route
+        assert wrong_preserved
+        assert exact_released_pointer_only
+        assert next_route_started
+        assert malformed_refused
+
+
+def arm_abandonment_is_serialized_with_recovery():
+    """A route cannot use recovery state abandoned before its lock."""
+    with tempfile.TemporaryDirectory(prefix="router-abandon-race-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_abandon_race", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        seq = module.route_sequence(
+            note_path=str(note), note_display="ai/notes/spec.md",
+            base=base, commands=module.DEFAULT_GATE_COMMANDS)
+        run_git(repo, "commit", "--allow-empty", "-q", "-m", "candidate")
+        candidate = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        archive_path = Path(module.REPO_ROOT) / module.archive(
+            seq, "implementer", implementer_handoff(candidate=candidate))
+        route = (Path(module.RUN_RESERVATIONS_DIR)
+                 / module.ROUTE_RECORD_NAME)
+        reservation = Path(module.RUN_RESERVATIONS_DIR) / seq
+
+        real_acquire = module.acquire_router_lock
+
+        def acquire_after_abandonment():
+            lock = real_acquire()
+            module.abandon_active_route(seq)
+            return lock
+
+        module.acquire_router_lock = acquire_after_abandonment
+        copied = []
+        module.copy_to_clipboard = copied.append
+        module.wait_for_block = lambda **_kwargs: implementer_handoff(
+            candidate=candidate)
+        module.run_gates = lambda commands, seq, router_lock: (
+            "ai/notes/relay/unused-gates.md", True)
+        original_argv = module.sys.argv
+        module.sys.argv = [
+            "handoff_router.py", "--note", "ai/notes/spec.md"]
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+            module.acquire_router_lock = real_acquire
+        refused_stale_candidate = (
+            rc == 1 and copied == [] and not route.exists()
+            and reservation.is_dir() and archive_path.is_file()
+            and "Execution checkout Base mismatch" in stream.getvalue())
+
+        print("ARM abandonment serialized with recovery")
+        print("  abandoned candidate cannot authorize a fresh route:",
+              refused_stale_candidate)
+        assert refused_stale_candidate
+
 def arm_integrated_status():
     """Show a Codex branch merged to main is integrated without Claude."""
     with tempfile.TemporaryDirectory(prefix="router-status-") as tmp:
@@ -2582,6 +2725,8 @@ def main():
     arm_sequence_collision()
     arm_atomic_evidence_publication()
     arm_interrupted_implementer_return_resumes()
+    arm_explicit_route_abandonment()
+    arm_abandonment_is_serialized_with_recovery()
     arm_completed_gate_log_resumes()
     arm_clipboard_lock()
     arm_gate_child_keeps_router_lock()

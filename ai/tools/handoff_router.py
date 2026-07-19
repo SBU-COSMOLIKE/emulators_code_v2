@@ -563,35 +563,47 @@ def _read_recovery_file(path, label, maximum_bytes):
     return _read_regular_file(os.path.realpath(path), label, maximum_bytes)
 
 
+def active_route_record():
+    """Return the validated active manual route, or None when idle."""
+    record_path = os.path.join(
+        RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
+    if not os.path.lexists(record_path):
+        return None
+    data = _read_recovery_file(
+        record_path, "router recovery record", 16 * 1024)
+    try:
+        record = tuple(data.decode("utf-8", errors="strict").splitlines())
+    except UnicodeError as exc:
+        raise BacklogLedgerError(
+            "router recovery record is not UTF-8") from exc
+    if (len(record) != 6 or record[0] != "route-v2"
+            or re.fullmatch(
+                r"[0-9]{8}-[0-9]{6}(?:-[0-9]+)?", record[1]) is None
+            or re.fullmatch(r"[0-9a-f]{40}", record[3]) is None
+            or re.fullmatch(r"[0-9a-f]{64}", record[4]) is None
+            or re.fullmatch(r"[0-9a-f]{64}", record[5]) is None
+            or data != ("\n".join(record) + "\n").encode("utf-8")):
+        raise BacklogLedgerError("router recovery record is malformed")
+    try:
+        reservation = os.lstat(os.path.join(
+            RUN_RESERVATIONS_DIR, record[1]))
+    except OSError as exc:
+        raise BacklogLedgerError(
+            "router sequence reservation is missing") from exc
+    if not stat.S_ISDIR(reservation.st_mode):
+        raise BacklogLedgerError(
+            "router sequence reservation must be a plain directory")
+    return record
+
+
 def route_sequence(note_path, note_display, base, commands, create=True):
     """Resume one exact route, or optionally save a new one before work."""
     note_digest = hashlib.sha256(_read_recovery_file(
         note_path, "Architect source note", MAX_BACKLOG_BYTES)).hexdigest()
     commands_digest = gate_commands_digest(commands)
     os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
-    record_path = os.path.join(
-        RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
-    if os.path.lexists(record_path):
-        data = _read_recovery_file(
-            record_path, "router recovery record", 16 * 1024)
-        record = tuple(data.decode("utf-8", errors="strict").splitlines())
-        if (len(record) != 6 or record[0] != "route-v2"
-                or re.fullmatch(
-                    r"[0-9]{8}-[0-9]{6}(?:-[0-9]+)?", record[1]) is None
-                or re.fullmatch(r"[0-9a-f]{40}", record[3]) is None
-                or re.fullmatch(r"[0-9a-f]{64}", record[4]) is None
-                or re.fullmatch(r"[0-9a-f]{64}", record[5]) is None
-                or data != ("\n".join(record) + "\n").encode("utf-8")):
-            raise BacklogLedgerError("router recovery record is malformed")
-        try:
-            reservation = os.lstat(os.path.join(
-                RUN_RESERVATIONS_DIR, record[1]))
-        except OSError as exc:
-            raise BacklogLedgerError(
-                "router sequence reservation is missing") from exc
-        if not stat.S_ISDIR(reservation.st_mode):
-            raise BacklogLedgerError(
-                "router sequence reservation must be a plain directory")
+    record = active_route_record()
+    if record is not None:
         if record[2:] != (
                 note_display, base, note_digest, commands_digest):
             raise BacklogLedgerError(
@@ -604,11 +616,24 @@ def route_sequence(note_path, note_display, base, commands, create=True):
     if os.path.lexists(os.path.join(RELAY_DIR, seq + "-implementer.md")):
         raise BacklogLedgerError(
             "new route collides with existing Implementer evidence")
+    record_path = os.path.join(RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
     fields = (
         "route-v2", seq, note_display, base, note_digest, commands_digest)
     publish_complete_text(
         path=record_path, text="\n".join(fields) + "\n")
     return seq
+
+
+def abandon_active_route(expected_sequence):
+    """Remove only the exact active-route pointer named by the user."""
+    record = active_route_record()
+    if record is None:
+        raise BacklogLedgerError("there is no active manual route")
+    if record[1] != expected_sequence:
+        raise BacklogLedgerError(
+            "requested sequence does not match the active manual route")
+    os.remove(os.path.join(RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME))
+    return record
 
 
 def recovered_implementer_return(seq):
@@ -1138,6 +1163,19 @@ def status_report():
     if not any_open:
         print("  (none open)")
 
+    try:
+        active = active_route_record()
+    except BacklogLedgerError as exc:
+        raise StatusError("cannot read active manual route: " + str(exc))
+    print("\nactive manual route:")
+    if active is None:
+        print("  (none)")
+    else:
+        print("  sequence: " + active[1])
+        print("  source note: " + active[2])
+        print("  base commit: " + active[3])
+        print("  abandon only if obsolete: --abandon-route " + active[1])
+
     # Show the latest saved Architect decisions.
     print("\nlatest Architect records in ai/notes/gates-and-board.md:")
     gb = os.path.join(NOTES_DIR, "gates-and-board.md")
@@ -1182,6 +1220,10 @@ def main():
                         help="show saved AI work, changes not yet on main, "
                              "and recent Architect records, then exit")
     parser.add_argument(
+        "--abandon-route", metavar="sequence", default=None,
+        help="release one obsolete manual route by the exact sequence shown "
+             "by --status; saved evidence remains untouched")
+    parser.add_argument(
         "--architect-notes-admin", metavar="summary", default=None,
         help="Architect-only: queue one dedicated permanent-note update "
              "turn with this plain-language summary, then exit")
@@ -1222,7 +1264,8 @@ def main():
     args = parser.parse_args()
 
     if args.architect_notes_admin is not None:
-        conflicting = (args.status or args.note or args.section
+        conflicting = (args.status or args.abandon_route is not None
+                       or args.note or args.section
                        or args.mode is not None or args.skip_redteam
                        or bool(args.gate_cmd) or args.max is not None
                        or args.severity is not None)
@@ -1238,6 +1281,31 @@ def main():
             return 1
         return (0 if mailbox_daemon.send_architect_notes_admin(
             text=args.architect_notes_admin, dry_run=False) else 1)
+
+    if args.abandon_route is not None:
+        conflicting = (args.status or args.note or args.section
+                       or args.mode is not None or args.skip_redteam
+                       or bool(args.gate_cmd) or args.max is not None
+                       or args.severity is not None)
+        if conflicting:
+            print("--abandon-route is a separate recovery action and cannot "
+                  "be combined with another route")
+            return 1
+        try:
+            router_lock = acquire_router_lock()
+        except RuntimeError as exc:
+            print(str(exc))
+            return 1
+        try:
+            record = abandon_active_route(args.abandon_route)
+        except (BacklogLedgerError, UnicodeError) as exc:
+            print("refused route abandonment: " + str(exc))
+            return 1
+        finally:
+            release_router_lock(router_lock)
+        print("Released obsolete manual route " + record[1] + ".")
+        print("Its sequence reservation and saved evidence were preserved.")
+        return 0
 
     if args.max is not None and (not args.note or args.status):
         print("--max is valid only with a --note run")
@@ -1290,15 +1358,6 @@ def main():
                 "--base", guard["base"],
                 "--max", str(guard["max"]),
             ]))
-        recovered_candidate = recovered_candidate_commit(
-            note_path=note_path, note_display=note_display,
-            base=directive["execution_checkout"]["Base"],
-            commands=commands)
-        verify_execution_checkout(
-            checkout=directive["execution_checkout"],
-            recovered_candidate=recovered_candidate)
-        verify_manual_capability_checkpoint(
-            directive=directive, source_note=note_display)
     except (BacklogLedgerError, DirectiveError) as exc:
         print("refused incomplete Architect directive: " + str(exc))
         return 1
@@ -1356,6 +1415,20 @@ def main():
         router_lock = acquire_router_lock()
     except RuntimeError as exc:
         print(str(exc))
+        return 1
+    try:
+        recovered_candidate = recovered_candidate_commit(
+            note_path=note_path, note_display=note_display,
+            base=directive["execution_checkout"]["Base"],
+            commands=commands)
+        verify_execution_checkout(
+            checkout=directive["execution_checkout"],
+            recovered_candidate=recovered_candidate)
+        verify_manual_capability_checkpoint(
+            directive=directive, source_note=note_display)
+    except (BacklogLedgerError, DirectiveError) as exc:
+        release_router_lock(router_lock)
+        print("refused incomplete Architect directive: " + str(exc))
         return 1
     where = note_display + ', section "Implementation directive"'
     budget_prompt = (
