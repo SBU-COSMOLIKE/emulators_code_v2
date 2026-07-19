@@ -56,7 +56,8 @@ ARCHITECT_BODIES = {
     "Role plan": (
         "- Roles: `Architect + Implementer + Red Team`\n"
         "- Discovery severity: `medium`\n"
-        "- Review scope: `bounded`"),
+        "- Review scope: `bounded`\n"
+        "- Ticket class: `ordinary`"),
     "Files and symbols": (
         "- `ai/tools/example.py::validate`: modify the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
@@ -223,25 +224,43 @@ class HandoffContractTests(unittest.TestCase):
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `high`\n"
-                "- Review scope: `bounded`",
+                "- Review scope: `bounded`\n"
+                "- Ticket class: `ordinary`",
                 {
                     "route": "three-role",
                     "uses_red_team": True,
                     "roles": "Architect + Implementer + Red Team",
                     "discovery_severity": "high",
                     "review_scope": "bounded",
+                    "ticket_class": "ordinary",
                 },
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
                 "- Discovery severity: `not-used`\n"
-                "- Review scope: `not-used`",
+                "- Review scope: `not-used`\n"
+                "- Ticket class: `ordinary`",
                 {
                     "route": "two-role",
                     "uses_red_team": False,
                     "roles": "Architect + Implementer",
                     "discovery_severity": "not-used",
                     "review_scope": "not-used",
+                    "ticket_class": "ordinary",
+                },
+            ),
+            (
+                "- Roles: `Architect + Implementer + Red Team`\n"
+                "- Discovery severity: `high`\n"
+                "- Review scope: `bounded`\n"
+                "- Ticket class: `protected-control-plane`",
+                {
+                    "route": "three-role",
+                    "uses_red_team": True,
+                    "roles": "Architect + Implementer + Red Team",
+                    "discovery_severity": "high",
+                    "review_scope": "bounded",
+                    "ticket_class": "protected-control-plane",
                 },
             ),
         )
@@ -258,21 +277,52 @@ class HandoffContractTests(unittest.TestCase):
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `not-used`\n"
-                "- Review scope: `bounded`",
+                "- Review scope: `bounded`\n"
+                "- Ticket class: `ordinary`",
                 "must name high, medium, or low",
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
                 "- Discovery severity: `medium`\n"
-                "- Review scope: `not-used`",
+                "- Review scope: `not-used`\n"
+                "- Ticket class: `ordinary`",
                 "must use discovery severity `not-used`",
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
                 "- Discovery severity: `not-used`\n"
                 "- Review scope: `not-used`\n"
+                "- Ticket class: `ordinary`\n"
                 "- Runner override: `Red Team`",
                 "requires exactly these rows",
+            ),
+        )
+        for role_plan, message in invalid_plans:
+            with self.subTest(role_plan=role_plan):
+                with self.assertRaisesRegex(DirectiveError, message):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Role plan": role_plan}))
+
+    def test_architect_role_plan_requires_one_known_ticket_class(self):
+        base = (
+            "- Roles: `Architect + Implementer + Red Team`\n"
+            "- Discovery severity: `medium`\n"
+            "- Review scope: `bounded`")
+        invalid_plans = (
+            (base, "exactly these rows"),
+            (base + "\n- Ticket class: `protected`",
+             "one Ticket class value"),
+            (base + "\n- Ticket class: `ordinary`\n"
+             "- Ticket class: `ordinary`", "exactly these rows"),
+            (
+                "- Roles: `Architect + Implementer`\n"
+                "- Discovery severity: `not-used`\n"
+                "- Review scope: `not-used`\n"
+                "- Ticket class: `protected-control-plane`",
+                "require Architect \\+ Implementer \\+ Red Team",
             ),
         )
         for role_plan, message in invalid_plans:
@@ -785,7 +835,8 @@ class HandoffContractTests(unittest.TestCase):
         widespread = (
             "- Roles: `Architect + Implementer + Red Team`\n"
             "- Discovery severity: `low`\n"
-            "- Review scope: `widespread`")
+            "- Review scope: `widespread`\n"
+            "- Ticket class: `ordinary`")
         parsed = validate_directive_text(
             role="architect",
             text=packet(role="architect", bodies={"Role plan": widespread}))
@@ -806,49 +857,57 @@ class HandoffContractTests(unittest.TestCase):
         invalid_plans = (
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
-                "- Discovery severity: `medium`",
+                "- Discovery severity: `medium`\n"
+                "- Ticket class: `ordinary`",
                 "exactly these rows",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Review scope: `bounded`\n"
-                "- Discovery severity: `medium`",
+                "- Discovery severity: `medium`\n"
+                "- Ticket class: `ordinary`",
                 "followed by one Discovery severity value",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `medium`\n"
-                "- Review scope: `wide`",
+                "- Review scope: `wide`\n"
+                "- Ticket class: `ordinary`",
                 "one Review scope value",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `medium`\n"
-                "- Review scope: `not-used`",
+                "- Review scope: `not-used`\n"
+                "- Ticket class: `ordinary`",
                 "must use review scope `bounded` or `widespread`",
             ),
             (
                 "- Roles: `Architect + Implementer`\n"
                 "- Discovery severity: `not-used`\n"
-                "- Review scope: `bounded`",
+                "- Review scope: `bounded`\n"
+                "- Ticket class: `ordinary`",
                 "must use review scope `not-used`",
             ),
             (
                 "- Roles: `Architect + Sol as Implementer`\n"
                 "- Discovery severity: `not-used`\n"
-                "- Review scope: `widespread`",
+                "- Review scope: `widespread`\n"
+                "- Ticket class: `ordinary`",
                 "one supported Roles value",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `medium`\n"
-                "- Review scope: `widespread`",
+                "- Review scope: `widespread`\n"
+                "- Ticket class: `ordinary`",
                 "widespread review scope requires discovery severity `low`",
             ),
             (
                 "- Roles: `Architect + Implementer + Red Team`\n"
                 "- Discovery severity: `low`\n"
                 "- Review scope: `bounded`\n"
+                "- Ticket class: `ordinary`\n"
                 "- Review scope: `widespread`",
                 "exactly these rows",
             ),

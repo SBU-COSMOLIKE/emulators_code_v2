@@ -32,12 +32,16 @@ courier. Do not treat added or edited human prose as Architect authority.
 
 The default mailbox topology also enables an independent Red Team. A watch
 started with `--skip-redteam` (alias `--no-red-team`) deliberately uses only
-Architect and Implementer. That changes the enabled route, not this execution
-contract or the Architect's mandatory audit.
+Architect and Implementer for ordinary tickets. That changes the enabled
+route, not this execution contract or the Architect's mandatory audit. A
+protected control-plane request is saved and blocked before this lane starts;
+it cannot use the two-role route.
 
-The roles are fixed. There is one Architect, one Implementer, and the optional
-advisory Red Team. Sol is never an Implementer. Severity, backlog counts,
-demand, and model choice never change those roles.
+The roles are fixed. There is one Architect, one Implementer, and Red Team.
+Red Team is optional and advisory for ordinary tickets, but mandatory as a
+pre-landing reviewer for a protected control-plane ticket. Sol is never an
+Implementer. Severity, backlog counts, demand, and model choice never change
+those roles.
 
 ## Persisted coordination home
 
@@ -126,6 +130,34 @@ restores ticket worktrees.
    not executable until the Architect adopts it in the binding
    `Implementation directive`. You may choose only inconsequential mechanics
    that one repository convention determines uniquely.
+
+   The validated `Role plan` also contains this schema row:
+
+   ```markdown
+   - Ticket class: `ordinary|protected-control-plane`
+   ```
+
+   A real directive replaces the alternatives with exactly one value. Copy
+   that value unchanged in every return. Only the Architect classifies a
+   protected ticket. Never promote `ordinary` to `protected-control-plane`,
+   add a protected path for convenience, or treat an unexpected protected
+   edit as authority to continue. The parent daemon returns that discrepancy
+   to the Architect.
+
+   For a `protected-control-plane` directive, edit only the exact protected
+   paths that the validated plan names and that the machine role contract
+   permits this ticket class to change. The eleven permanent notes, role
+   instructions, and machine authority contract remain off limits; the
+   Architect administers them through the separate protected-policy route.
+   D0, the controller already trusted on
+   `main`, remains the only admission, shadow-test, journal, and landing
+   authority. Your candidate contains proposed D1; D1 must not approve itself,
+   run against the live mailbox or landing journal, create L, update `main`,
+   or replace D0's trusted acceptance harness. Leave the final candidate
+   immutable for the separate Architect and pre-landing Red Team decisions.
+   A watcher using `--skip-redteam` blocks this class before your dispatch. If
+   one nevertheless reaches this lane without Red Team enabled, edit nothing
+   and return a routing blocker rather than weakening the class.
 
    When the directive changes any tracked `.py` file, read
    `ai/notes/python-changes-go-no-go.md`. Confirm that the directive classifies
@@ -381,6 +413,12 @@ restores ticket worktrees.
    and the Red Team returns its advisory closure assessment of L. In
    `two-role` mode, the cycle completes at the daemon-recorded local landing
    because no Red Team return is available. One ticket always equals one cycle.
+
+   A `protected-control-plane` cycle has no two-role form. After your
+   candidate return, D0 waits for Architect `GO(C)` and the structured Red
+   Team `ACCEPT-CONTROL-PLANE` for the same full C and cycle, runs its trusted
+   shadow test, and only then creates L. You do not send or synthesize either
+   decision.
 
    A finite cycle limit is also an admission limit. Active ticket
    reservations, daemon-recorded landings whose closure return is still being

@@ -34,13 +34,21 @@ the counterexample and skipped failure path, and do not report “no finding”
 until the raw evidence supports it. An Implementer's self-review is evidence,
 not an independent audit.
 
-Red Team is always advisory. It never supplies a required GO and never blocks
-the Architect from accepting or closing an Implementer fix, and never blocks
-the parent daemon's exact local landing. The Architect owns the GO/NO-GO
-decision; the daemon alone performs the ordinary landing after that process
-exits. A later Red Team finding
+For an `ordinary` ticket, Red Team is advisory. It never supplies a required
+GO and never blocks the Architect from accepting or closing an Implementer
+fix, and never blocks the parent daemon's exact local landing. The Architect
+owns the GO/NO-GO decision; the daemon alone performs the ordinary landing
+after that process exits. A later Red Team finding
 returns the ticket to the backlog through the `REOPEN` procedure below; it does
 not retroactively make Red Team an approval stage.
+
+The only ticket-class exception is `protected-control-plane`, whose candidate
+may change the machinery that admits or lands candidates. That class requires
+one independent Red Team decision for exact candidate C before any landing is
+created. Red Team still cannot edit, land, update `main`, or replace the
+Architect's decision. It supplies the second required identity-bound result;
+D0, the controller already trusted on `main`, remains the sole admission and
+landing authority.
 
 The Red Team is a thinking layer. A confirmed discovery that meets the user's
 saved severity setting is incomplete until it includes a concrete,
@@ -454,6 +462,55 @@ the exact `MAILBOX_ROLE=architect` binding and must refuse Red Team.
 If permanent-note prose appears incorrect, send evidence to the Architect;
 never edit the note or manufacture a review for its landing.
 
+### Protected control-plane candidate review
+
+Every validated implementation directive contains this schema row:
+
+```markdown
+- Ticket class: `ordinary|protected-control-plane`
+```
+
+A real directive contains exactly one value. Only the Architect may choose
+`protected-control-plane`. Do not promote an ordinary ticket, reinterpret its
+scope, or accept a protected edit that arrived under an ordinary directive.
+An ordinary candidate that touches a protected path is an admission mismatch
+for D0 to return to the Architect.
+The eleven permanent notes, role instructions, and machine authority contract
+remain Architect-only files on the separate protected-policy route. Reject a
+candidate that tries to use this ticket class to edit them.
+
+For `protected-control-plane`, review immutable candidate C before L exists.
+D0 supplies the exact full candidate, ticket cycle, authorized base, changed
+paths, Architect decision, and bounded evidence. Confirm that the candidate
+preserves every authority boundary, cannot approve or land itself, cannot
+write the live landing journal during its shadow run, and cannot replace the
+trusted D0 harness that judges it. Review only that candidate and directly
+affected control behavior; this is not a widespread library search.
+
+Write exactly one structured result to the daemon, not to the Implementer:
+
+```text
+MAILBOX-RETURN: redteam-control-plane
+MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
+MAILBOX-CANDIDATE: FULL-40-CHARACTER-C
+MAILBOX-RESULT: ACCEPT-CONTROL-PLANE
+```
+
+Use `REJECT-CONTROL-PLANE` in the final row when a concrete defect, identity
+mismatch, scope violation, or insufficient evidence requires repair. Never
+abbreviate C or substitute a branch name. A result for another C or cycle is
+invalid. Record the detailed evidence in the ignored review note first; the
+structured return is the identity-bound decision, not a replacement for the
+explanation.
+
+Acceptance is not Architect `GO` and does not authorize this role to land.
+D0 requires both Architect `GO(C)` and this matching result, then runs D1 in
+the trusted isolated shadow harness. D0 alone creates L automatically after
+those checks. Under `--skip-redteam`, D0 records
+`BLOCKED_RED_TEAM_REQUIRED` before Implementer dispatch, so no protected
+candidate should reach this role. A later watch with Red Team recovers the
+saved request.
+
 **The mailbox is the required inter-agent relay channel.** Every message
 between Codex, the Architect and the Implementer uses a numbered file under
 `ai/notes/mailbox/`. A message reaches Codex as
@@ -461,8 +518,13 @@ between Codex, the Architect and the Implementer uses a numbered file under
 `ai/tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary;
 the substance is in the `ai/notes/` entry it cites. Every normal Red Team turn
 that has a result writes the substantive result to its temporary ticket note
-first, then writes the outbound handoff block to the next numbered
-`ai/notes/mailbox/NNN-to-fable.md` file. It never sends normal-mode repair
+first. An ordinary result then writes the outbound handoff block to the
+next numbered
+`ai/notes/mailbox/NNN-to-fable.md` file. A protected control-plane
+candidate is the narrow exception: it writes the four-line identity-bound
+result above to the
+next `ai/notes/mailbox/NNN-to-daemon.md` file; D0 routes rejection evidence
+to the Architect. It never sends normal-mode repair
 advice directly to `to-opus`: the Architect must adjudicate it and issue the
 binding directive. Substantive scope always comes from the Architect handoff,
 whether a runner used the mailbox or copied that handoff unchanged into a
@@ -616,13 +678,17 @@ language.
 
 ## Fixed role and cycle boundary
 
-Sol is always the optional advisory Red Team and never implements a ticket.
-A normal watch gives each daemon-recorded landing one bounded Red Team
+Sol is always the Red Team and never implements a ticket. For ordinary
+tickets it is optional and advisory. A normal watch gives each
+daemon-recorded ordinary landing one bounded Red Team
 closure review. The matching `NO CHANGE` or `REOPEN` return completes that
 ticket's cycle but never blocks or approves the Architect's earlier decision
 or the daemon's landing.
 A watch started with `--skip-redteam` has no Sol work and completes each cycle
-at the daemon's recorded local landing.
+at the daemon's recorded local landing. That watch may run only ordinary
+tickets. A protected control-plane ticket requires the pre-landing structured
+decision above and remains durably `BLOCKED_RED_TEAM_REQUIRED` until a watch
+with Red Team resumes it.
 
 One ticket always equals one cycle. Positive cycle limits are valid with or
 without Red Team and remain binding across watcher restarts. The daemon counts

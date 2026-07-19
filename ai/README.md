@@ -20,12 +20,15 @@ The work is therefore divided by responsibility:
 - The **Architect** decides the design and writes complete instructions.
 - The **Implementer** follows those instructions and performs the longer
   code-and-test work.
-- The optional **Red Team** checks one named change for mistakes and, if it
-  finds a defect, sends a detailed repair proposal back to the Architect.
+- The **Red Team**, optional for ordinary work, checks one named change for
+  mistakes and sends a detailed repair proposal back to the Architect when it
+  finds a defect.
 
 You describe one small change to the Architect. The Architect plans it, the
 Implementer makes and checks the change, and the Architect decides whether
-the result is ready. Red Team may inspect the accepted change afterward.
+the result is ready. For ordinary work, Red Team may inspect the accepted
+change afterward. Changes to the trusted workflow itself use the protected
+exception explained later in this guide.
 
 The Architect and Red Team do the independent reasoning. Their instructions
 must be detailed enough that a simpler or less expensive Implementer does not
@@ -327,7 +330,7 @@ Models can change from run to run. Authority does not.
 | --- | --- |
 | **Architect / Auditor** | Thinks through the design, writes the complete plan, checks the evidence, and decides `GO` or `NO-GO` |
 | **Implementer** | Follows the ordered plan, changes only the named ticket, and reports the test results |
-| **Independent Red Team** | Reviews one accepted change for a remaining bug and returns detailed advice; it never approves or blocks the accepted change |
+| **Independent Red Team** | For ordinary tickets, reviews an accepted change and returns nonbinding advice. For a protected control-plane ticket, provides the separate pre-landing decision required below. |
 
 The user still sends every request to `architect`. Saved files use older
 internal role names; [FAQ C3](#faq-c3-internal-role-names) explains them only
@@ -394,17 +397,79 @@ AI job is using it and the folder has no edits that Git has not saved.
 
 #### What the optional Red Team adds
 
-The Red Team is deliberately outside that approval path. It reads the exact
-landing after the Architect has decided. Its answer is `NO CHANGE` when the
-review finds no remaining bug, or `REOPEN` when it has concrete evidence that
-the ticket needs more work. It never supplies a required `GO` and cannot veto
-the landing.
+The Red Team is deliberately outside that approval path for an **ordinary
+ticket**. It reads the exact landing after the Architect has decided. Its answer
+is `NO CHANGE` when the review finds no remaining bug, or `REOPEN` when it has
+concrete evidence that the ticket needs more work. It never supplies a
+required `GO` and cannot veto an ordinary landing.
 
 This is why the Red Team is optional. The Architect has already audited the
 candidate before accepting it. Use the extra review when the token budget
 permits it; use `--skip-redteam` when Architect and Implementer must work
 alone. Skipping Red Team does not reduce the Architect's planning or audit
 duties.
+
+#### The protected control-plane exception
+
+Most tickets change scientific code, tests, or ordinary documentation. Those
+are **ordinary tickets** and follow the path above.
+
+A **protected control-plane ticket** changes the tools or rules that decide
+which candidates may run and reach `main`. Examples include the mailbox
+daemon, candidate-admission and landing checks, handoff validators,
+recovery state, protected-policy guard code, and the trusted tests for those
+checks. The eleven permanent notes, role instructions, and machine authority
+contract keep their separate Architect-only policy route; an Implementer
+candidate may never edit them. Only the Architect may assign this ticket
+class. If an ordinary
+candidate unexpectedly changes one of these protected paths, the watcher
+refuses it and returns the mismatch to the Architect; it does not silently
+promote the ticket.
+
+Two controller names make the safety rule easier to see:
+
+- **D0** is the control-plane code already trusted on `main` and running the
+  current watch.
+- **D1** is the proposed replacement contained in candidate C.
+
+D1 cannot judge or install itself. D0 checks the exact changed paths, keeps
+the durable record, runs D1 in a temporary shadow environment, and alone
+creates landing L.
+
+```mermaid
+flowchart TD
+    A["Architect classifies and plans a protected ticket"] --> I["Implementer creates immutable candidate C"]
+    I --> G{"Architect GO for exact C?"}
+    G -->|"No"| I
+    G -->|"Yes"| R{"Red Team accepts exact same C?"}
+    R -->|"No"| I
+    R -->|"Yes"| S["Trusted D0 runs D1 in an isolated shadow test"]
+    S -->|"Fails"| F["Preserve C and evidence; do not land"]
+    S -->|"Passes"| L["D0 creates and lands L automatically"]
+    L --> H{"Bounded control-plane health check"}
+    H -->|"Passes"| C["Cycle complete"]
+    H -->|"Fails"| X["CONTROL_PLANE_HEALTH_FAILED: recovery-only state"]
+```
+
+The protected ticket therefore needs two decisions made before L exists:
+Architect `GO(C)` and Red Team `ACCEPT(C)`. Both name the same full candidate
+hash, ticket, and cycle. A decision for another candidate or cycle does not
+count. The user does not provide a third confirmation; after both decisions
+and the shadow test pass, D0 lands the change automatically.
+
+`--skip-redteam` continues to work for ordinary tickets. It cannot run a
+protected control-plane ticket. The watcher records
+`BLOCKED_RED_TEAM_REQUIRED`, leaves the ticket and earlier records intact,
+does not start the Implementer, and continues handling compatible ordinary
+work. Restart the watcher without `--skip-redteam` to make that protected
+ticket eligible again.
+
+After landing, D0 performs a small health check. A failure records
+`CONTROL_PLANE_HEALTH_FAILED`, preserves L and the logs, and prevents new
+state-changing work. It does not erase Git history or guess that the new
+controller is safe. Follow the deterministic recovery instructions printed
+by the watcher; the maintainer details are in the
+[AI development tools guide](tools/README.md#protected-control-plane-tickets).
 
 #### How work can overlap
 
@@ -416,7 +481,8 @@ why two jobs never edit through the same folder.
 
 #### One cycle means one ticket
 
-With Red Team enabled, a cycle ends after both events below occur:
+For an ordinary ticket with Red Team enabled, a cycle ends after both events
+below occur:
 
 1. the watcher records the Architect-accepted landing; and
 2. Red Team returns `NO CHANGE` or `REOPEN` for that exact landing.
@@ -427,6 +493,10 @@ in the same cycle.
 
 With `--skip-redteam`, the landing finishes the cycle. For example,
 `--skip-redteam --cycle 2` exits after two accepted tickets have landed.
+
+For a protected control-plane ticket, the Red Team decision occurs before
+landing. Its cycle finishes only after D0 lands L and the bounded post-landing
+health check succeeds. `--skip-redteam` cannot start that ticket class.
 
 The `--cycle` examples have exact limits:
 
@@ -660,11 +730,14 @@ those fields for a maintainer who must diagnose this special path.
 The default three-role setup makes Red Team available. Starting the watcher
 does not immediately start Red Team.
 
-Red Team work begins in two ways:
+Red Team work begins in three ways:
 
 1. After the watcher records an accepted ticket on local `main`, it
-   automatically asks Red Team to review that exact saved version.
+   automatically asks Red Team to review that exact saved version. This is
+   the ordinary, advisory review.
 2. The user may ask the Architect to arrange a separate search for a new bug.
+3. Before a protected control-plane candidate can land, D0 asks Red Team for
+   the required identity-bound decision on exact candidate C.
 
 The first review stays focused on the accepted ticket and the behavior it
 directly affects. It is advisory: it does not delay or undo the Architect's
@@ -696,8 +769,10 @@ cannot change code by itself and is not an instruction to the Implementer.
 The Architect decides whether the evidence justifies another ticket or
 repair.
 
-`--skip-redteam` removes that optional role for one watch. It does not weaken
-the Architect's evidence review, and it does not invent a Red Team result.
+`--skip-redteam` removes the optional ordinary review for one watch. It does
+not weaken the Architect's evidence review, and it does not invent a Red Team
+result. A protected control-plane ticket remains saved and blocked until a
+watch with Red Team resumes it.
 
 ## Choose which discoveries may become tickets
 
@@ -1386,11 +1461,14 @@ A complete candidate audit is needed only when that interaction changes what
 C means or invalidates its earlier evidence. Otherwise the narrower
 integration revalidation is sufficient.
 
-Current automation stops safely at this state and preserves C, the old L, the
-Architect's GO, and the user's files. It does not yet create or approve a
-replacement landing automatically. If `main` already contains L and merely
-has later commits, the task is recovery rather than revalidation. If M1 does
-not descend from M0, Git history needs user reconciliation instead.
+For an ordinary ticket, automation stops safely at this state and preserves
+C, the old L, the Architect's GO, and the user's files. For a protected
+control-plane ticket, trusted D0 sends the Architect a same-cycle integration
+check. After a fresh GO for the combined result, D0 retires only the private
+stale L, builds a replacement L on M1, reruns the trusted shadow checks, and
+lands automatically. If `main` already contains L and merely has later
+commits, the task is recovery rather than revalidation. If M1 does not descend
+from M0, Git history needs user reconciliation instead.
 
 #### How the two saved versions are made
 

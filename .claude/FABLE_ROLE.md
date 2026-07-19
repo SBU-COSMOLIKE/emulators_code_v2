@@ -61,10 +61,12 @@ step the metered spend exists to buy.
 
 The default mailbox topology also enables the independent Red Team. A watch
 started with `--skip-redteam` (alias `--no-red-team`) deliberately enables
-only Architect and Implementer. That option removes the Sol lane, never this
-audit: Implementer evidence returns directly to you, and a `NO-GO` repair goes
-back to the Implementer only after you revise and revalidate the complete
-directive.
+only Architect and Implementer for ordinary tickets. That option removes the
+Sol lane, never this audit: Implementer evidence returns directly to you, and
+a `NO-GO` repair goes back to the Implementer only after you revise and
+revalidate the complete directive. A `protected-control-plane` ticket is
+instead saved as `BLOCKED_RED_TEAM_REQUIRED` before Implementer dispatch and
+waits for a watch with Red Team.
 
 ## Persisted coordination home
 
@@ -896,6 +898,22 @@ severity and uses review scope `bounded` or `widespread`. Either plan without
 Red Team uses `not-used` for both discovery severity and review scope. A
 widespread plan must use Low. These are your decisions in the source note. A
 runner's command-line options may confirm them, but may not change them.
+Every plan also contains exactly one validated ticket-class row. Use
+`ordinary` for research source, ordinary tests, and ordinary documentation.
+Use `protected-control-plane` only when the authorized candidate must change
+a path that the machine role contract identifies as trusted or protected.
+Only you may make that classification. The Implementer, Red Team, and daemon
+may detect a mismatch, but none may silently promote an ordinary ticket.
+The eleven permanent notes, role instructions, and machine authority contract
+remain on your separate protected-policy route and are never Implementer
+candidate files.
+The schema row is:
+
+```markdown
+- Ticket class: `ordinary|protected-control-plane`
+```
+
+In a real directive replace the alternatives with exactly one value.
 
 ````markdown
 ## Implementation directive
@@ -921,6 +939,7 @@ the change is needed.]
 - Roles: `Architect + Implementer + Red Team`
 - Discovery severity: `medium`
 - Review scope: `bounded`
+- Ticket class: `ordinary`
 
 ### Files and symbols
 - `repo/path::symbol-or-section`: [State the exact edit and name one owner.
@@ -1054,8 +1073,8 @@ to relay unchanged:
 - **Execution checkout:** [exact MAILBOX_EXECUTION_WORKTREE prepared for this
   cycle + its non-main branch]
 - **Character-change budget:** [binding N + planned K; 0 means no size cap]
-- **Role plan:** [copy the exact Roles, Discovery severity, and Review scope
-  rows from the validated directive]
+- **Role plan:** [copy the exact Roles, Discovery severity, Review scope, and
+  Ticket class rows from the validated directive]
 - **Owned files and symbols:** [compact list; full procedure stays in note]
 - **Directive check:** [exact validator command → VALID]
 - **Validation requirements:** [commands + expected result or threshold]
@@ -1179,6 +1198,31 @@ completes the normal cycle and therefore must arrive before a finite watcher
 exits for that cycle. You may begin another ticket while the advisory return
 waits only when the finite watcher still has an unused ticket reservation. In
 particular, `--cycle 1` never authorizes a second ticket before that return.
+
+The paragraph above governs `ordinary` tickets. A
+`protected-control-plane` ticket is the narrow exception because its
+candidate may change the machinery that admits and lands candidates. For
+this class:
+
+- keep D0, the controller already trusted on `main`, authoritative throughout
+  admission, shadow validation, landing creation, and journal writes;
+- treat D1, the proposed controller inside immutable candidate C, as
+  untrusted data until D0 has landed it and finished the health check;
+- send Architect `GO(C)` only for the exact full candidate and cycle;
+- require one pre-landing Red Team result for that same full C and cycle;
+- do not create L until the result is `ACCEPT-CONTROL-PLANE` and D0's trusted
+  shadow test passes; and
+- let D0 land automatically after those checks. Never request a human
+  confirmation.
+
+`REJECT-CONTROL-PLANE`, a missing or mismatched result, your `NO-GO`, or a
+failed shadow test preserves C and prevents landing. A watch using
+`--skip-redteam` records `BLOCKED_RED_TEAM_REQUIRED` before Implementer
+dispatch. Do not work around that state by changing the class or narrowing
+the declared paths falsely; a later watch with Red Team recovers the saved
+request. If D0 records `CONTROL_PLANE_HEALTH_FAILED` after landing, stop new
+state-changing work and follow the saved recovery evidence without rewriting
+history.
 
 On receiving `Backlog action: REOPEN`, first do bookkeeping only: restore the
 ticket to Open, increment its reopen count, apply the automatic Low priority

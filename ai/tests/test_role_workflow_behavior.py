@@ -1,5 +1,6 @@
 """Exercise role boundaries through code rather than explanatory wording."""
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -86,6 +87,99 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
                     mailbox_daemon.classify_candidate_scope(
                         changed_paths=changed, path_scope=allowed),
                     expected)
+
+    def test_trusted_tool_requires_the_protected_ticket_class_and_scope(self):
+        trusted_tool = "ai/tools/mailbox_daemon.py"
+
+        self.assertEqual(
+            mailbox_daemon.classify_candidate_scope(
+                changed_paths={trusted_tool}, path_scope={trusted_tool},
+                ticket_class="ordinary"),
+            ("PROTECTED_PATH_VIOLATION", {trusted_tool}))
+        self.assertEqual(
+            mailbox_daemon.classify_candidate_scope(
+                changed_paths={trusted_tool}, path_scope={trusted_tool},
+                ticket_class="protected-control-plane"),
+            ("IN_SCOPE", set()))
+        self.assertEqual(
+            mailbox_daemon.classify_candidate_scope(
+                changed_paths={trusted_tool}, path_scope={"ai/tools/other.py"},
+                ticket_class="protected-control-plane"),
+            ("SCOPE_EXCEEDED", {trusted_tool}))
+
+    def test_protected_landing_needs_both_keys_for_the_same_candidate(self):
+        candidate = "c" * 40
+        cases = (
+            ({"architect_candidate": candidate,
+              "redteam_candidate": candidate,
+              "redteam_result": "ACCEPT-CONTROL-PLANE"}, True),
+            ({"architect_candidate": None,
+              "redteam_candidate": candidate,
+              "redteam_result": "ACCEPT-CONTROL-PLANE"}, False),
+            ({"architect_candidate": candidate,
+              "redteam_candidate": "d" * 40,
+              "redteam_result": "ACCEPT-CONTROL-PLANE"}, False),
+            ({"architect_candidate": candidate,
+              "redteam_candidate": candidate,
+              "redteam_result": "REJECT-CONTROL-PLANE"}, False),
+        )
+        for saved, expected in cases:
+            with self.subTest(saved=saved), mock.patch.object(
+                    mailbox_daemon, "control_plane_ticket_state",
+                    return_value=saved):
+                self.assertIs(
+                    mailbox_daemon.protected_landing_ready(
+                        cycle_id="protected-ticket@" + "b" * 40,
+                        candidate_commit=candidate),
+                    expected)
+
+    def test_protected_state_and_completed_history_round_trip(self):
+        active_cycle = "protected-active@" + "1" * 40
+        completed_cycle = "protected-complete@" + "2" * 40
+        active_candidate = "3" * 40
+        completed_candidate = "4" * 40
+        landing = "5" * 40
+        active_control = mailbox_daemon.empty_control_plane_state()
+        active_control.update({
+            "architect_candidate": active_candidate,
+            "redteam_candidate": active_candidate,
+            "redteam_result": "ACCEPT-CONTROL-PLANE",
+            "shadow_status": "PASSED",
+            "shadow_evidence": "relay/shadow.log",
+        })
+        completed_control = dict(active_control)
+        completed_control.update({
+            "architect_candidate": completed_candidate,
+            "redteam_candidate": completed_candidate,
+            "health_status": "HEALTHY",
+            "health_evidence": "relay/health.log",
+        })
+        state = mailbox_daemon.empty_ticket_cycle_state()
+        state["active"][active_cycle] = {
+            "phase": "implementation",
+            "commit": None,
+            "mode": "normal",
+            "route": "primary",
+            "ticket_class": "protected-control-plane",
+            "path_scope": ["ai/tools/mailbox_daemon.py"],
+            "control_plane": active_control,
+        }
+        state["completed"][completed_cycle] = landing
+        state["control_plane_history"][completed_cycle] = {
+            "candidate": completed_candidate,
+            "landing": landing,
+            "control_plane": completed_control,
+        }
+
+        restored = mailbox_daemon.validate_ticket_cycle_state(
+            json.loads(json.dumps(state)))
+
+        self.assertEqual(
+            restored["active"][active_cycle]["control_plane"],
+            active_control)
+        self.assertEqual(
+            restored["control_plane_history"][completed_cycle],
+            state["control_plane_history"][completed_cycle])
 
     def test_stale_landing_names_the_narrow_revalidation_evidence(self):
         candidate = "c" * 40

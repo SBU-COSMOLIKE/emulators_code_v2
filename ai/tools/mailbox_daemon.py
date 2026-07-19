@@ -334,13 +334,28 @@ ARCHITECT_PROTECTED_TRACKED_PATHS = (
 
 
 def candidate_forbidden_files_from_contract(contract):
-    """Return exact protected files from one validated contract value."""
+    """Return paths that no Implementer candidate may change."""
     protected = contract["protected_paths"]
     return frozenset(
-        protected["permanent_notes"] + protected["role_files"]
-        + list(protected["guard_files"].values())
-        + protected["candidate_forbidden_files"]
+        protected["candidate_forbidden_files"]
+        + protected["permanent_notes"]
+        + protected["role_files"]
         + [protected["contract"]])
+
+
+def control_plane_files_from_contract(contract):
+    """Return exact files a protected ticket may name.
+
+    The role contract is the one source for this set. Ordinary tickets may
+    not change these tools. A protected ticket may change them only when its
+    validated directive names each path. Permanent notes, role instructions,
+    and the authority contract keep their Architect-only administration path.
+    """
+    protected = contract["protected_paths"]
+    return frozenset(
+        list(protected["guard_files"].values())
+        + list(protected["trusted_tools"].values())
+    )
 
 
 ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES = tuple(
@@ -3609,7 +3624,8 @@ BACKLOG_REOPENING_RE = re.compile(
     r"(allowed|barred by Architect NO-GO)\.\*\*$")
 BACKLOG_REOPENING_CANDIDATE_RE = re.compile(
     r"Red[ \t]+Team[ \t]+reopening\b", re.IGNORECASE)
-SOL_TICKET_KINDS = ("closure", "discovery", "policy")
+SOL_TICKET_KINDS = (
+    "closure", "discovery", "policy", "control-plane")
 SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
 SOL_TICKET_HEADER = "MAILBOX-TICKET: "
 SOL_SEVERITY_HEADER = "MAILBOX-SEVERITY: "
@@ -3633,6 +3649,10 @@ ARCHITECT_FIX_ONLY_REQUEST = (
 PUBLIC_ARCHITECT_NO_TICKET_RETURN = "architect-no-ticket"
 PUBLIC_ARCHITECT_NO_TICKET_DECISION = "NO TICKET"
 REDTEAM_REVIEW_RESULTS = ("NO CHANGE", "REOPEN")
+CONTROL_PLANE_REVIEW_RESULTS = (
+    "ACCEPT-CONTROL-PLANE", "REJECT-CONTROL-PLANE")
+TICKET_CLASSES = ("ordinary", "protected-control-plane")
+BLOCKED_REDTEAM_DIRECTORY = "blocked-red-team-required"
 ARCHITECT_COMMIT_MODES = ("normal", "two-role")
 TICKET_ANCHOR_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 REDTEAM_REVIEW_TICKET_RE = re.compile(TICKET_ANCHOR_PATTERN)
@@ -3944,6 +3964,7 @@ PREAMBLE = (
     "    MAILBOX-TICKET: closure\n"
     "    MAILBOX-TICKET: discovery\n"
     "    MAILBOX-TICKET: policy\n"
+    "    MAILBOX-TICKET: control-plane\n"
     "Use closure only for work that retires an existing - OPEN ledger line;\n"
     "use discovery when the product is new findings. The daemon refuses to\n"
     "guess a class from prose. A discovery must add these exact second and\n"
@@ -3961,6 +3982,12 @@ PREAMBLE = (
     "and result headers. Result is NO CHANGE or REOPEN, never GO/NO-GO. A\n"
     "matching return completes the cycle. Another ticket may start only when\n"
     "the current watch still has an unused cycle slot.\n"
+    "Control-plane is the mandatory pre-landing review of protected candidate\n"
+    "C. It names MAILBOX-CYCLE and MAILBOX-CANDIDATE. Return to daemon with\n"
+    "MAILBOX-RETURN: redteam-control-plane, those same two identities, and\n"
+    "MAILBOX-RESULT: ACCEPT-CONTROL-PLANE or REJECT-CONTROL-PLANE. This is\n"
+    "the sole exception to ordinary advisory post-landing review: both exact\n"
+    "keys are required, but D0 alone validates, creates L, and advances main.\n"
     "Policy is the cycle-free, one-pass adversarial review of an Architect's\n"
     "exact draft change to a protected role or permanent note. Return one\n"
     "advisory answer. The Architect then makes the final decision; do not\n"
@@ -4157,6 +4184,9 @@ def message_is_enabled_for_topology(path, skip_redteam=False):
     except (OSError, ValueError, TicketCycleStateError):
         return True
     if agent == "daemon":
+        if message.startswith(
+                MAILBOX_RETURN_HEADER + "redteam-control-plane"):
+            return not skip_redteam
         _, _, mode, problem = _architect_go_request(message=message)
         return (True if problem is not None else
                 ticket_cycle_mode_is_enabled(
@@ -4529,9 +4559,15 @@ def prepare_implementer_evidence_contract(message):
                     "capability exception field '" + field
                     + "' does not exactly match the digest-bound blocked "
                     "IMPLEMENTER_HANDOFF")
+    role_plan = directive.get("role_plan")
+    if (not isinstance(role_plan, dict)
+            or role_plan.get("ticket_class") not in TICKET_CLASSES):
+        raise TicketCycleStateError(
+            "Architect source directive has no validated Ticket class")
     return {"contract": contract, "parallel_work_plan": plan,
             "note_path": note_path,
-            "allowed_paths": frozenset(directive["allowed_paths"])}
+            "allowed_paths": frozenset(directive["allowed_paths"]),
+            "ticket_class": role_plan["ticket_class"]}
 
 
 def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
@@ -4635,6 +4671,40 @@ def matching_new_redteam_receipt(cycle_id, accepted_commit, before_inodes):
     if len(matches) != 1:
         return (None, None,
                 "expected exactly one new matching Red Team return; found "
+                + str(len(matches)))
+    return matches[0][0], matches[0][1], None
+
+
+def matching_new_control_plane_receipt(cycle_id, candidate,
+                                       before_inodes):
+    """Prove one new exact Red Team key addressed to D0."""
+    matches = []
+    malformed = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-daemon.md"),
+                          recursive=True):
+        inode = regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError) as exc:
+            malformed.append(os.path.basename(path) + ": " + str(exc))
+            continue
+        if not message.startswith(
+                MAILBOX_RETURN_HEADER + "redteam-control-plane"):
+            continue
+        found_cycle, found_candidate, result, _body, problem = (
+            _control_plane_review_receipt(message=message))
+        if problem is not None:
+            malformed.append(os.path.basename(path) + ": " + problem)
+            continue
+        if found_cycle == cycle_id and found_candidate == candidate:
+            matches.append((path, result))
+    if malformed:
+        return None, None, "; ".join(malformed)
+    if len(matches) != 1:
+        return (None, None,
+                "expected exactly one new exact control-plane return; found "
                 + str(len(matches)))
     return matches[0][0], matches[0][1], None
 
@@ -4958,6 +5028,56 @@ def _redteam_closure_envelope(message):
     if re.search(reserved, body) is not None:
         return None, None, remainder, "duplicate Red Team review header"
     return match.group(1), match.group(2), body, None
+
+
+def _redteam_control_plane_envelope(message):
+    """Parse one mandatory pre-landing review of exact candidate C."""
+    remainder = sol_ticket_body_after_kind(message=message)
+    if sol_ticket_kind(message=message) != "control-plane":
+        return None, None, remainder, None
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_CYCLE_HEADER)
+        + r"(" + CYCLE_ID_RE.pattern + r")\r?\n"
+        + re.escape(MAILBOX_CANDIDATE_HEADER)
+        + r"([0-9a-f]{40})\r?\n\r?\n",
+        remainder)
+    if match is None:
+        return (None, None, remainder,
+                "a control-plane review must name one exact ticket cycle "
+                "and full candidate C")
+    body = remainder[match.end():]
+    reserved = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*(?:cycle|candidate|return|result)"
+        r"[ \t]*:")
+    if re.search(reserved, body) is not None:
+        return None, None, remainder, "duplicate control-plane review header"
+    return match.group(1), match.group(2), body, None
+
+
+def _control_plane_review_receipt(message):
+    """Parse one exact pre-landing Red Team decision addressed to D0."""
+    match = re.match(
+        r"\A" + re.escape(MAILBOX_RETURN_HEADER)
+        + r"redteam-control-plane\r?\n"
+        + re.escape(MAILBOX_CYCLE_HEADER)
+        + r"(" + CYCLE_ID_RE.pattern + r")\r?\n"
+        + re.escape(MAILBOX_CANDIDATE_HEADER)
+        + r"([0-9a-f]{40})\r?\n"
+        + re.escape(MAILBOX_RESULT_HEADER)
+        + r"(" + "|".join(map(re.escape, CONTROL_PLANE_REVIEW_RESULTS))
+        + r")\r?\n\r?\n",
+        message)
+    if match is None:
+        return (None, None, None, message,
+                "a control-plane return needs exact cycle, full candidate, "
+                "and ACCEPT-CONTROL-PLANE or REJECT-CONTROL-PLANE")
+    body = message[match.end():]
+    reserved = (
+        r"(?im)^[ \t]*mailbox[ \t]*-[ \t]*(?:cycle|candidate|return|result)"
+        r"[ \t]*:")
+    if re.search(reserved, body) is not None:
+        return None, None, None, message, "duplicate control-plane receipt"
+    return match.group(1), match.group(2), match.group(3), body, None
 
 
 def redteam_closure_problem(message):
@@ -5320,6 +5440,10 @@ def sol_ticket_body(message):
     if sol_ticket_kind(message=message) == "closure":
         _, _, body, problem = _redteam_closure_envelope(message=message)
         return remainder if problem is not None else body
+    if sol_ticket_kind(message=message) == "control-plane":
+        _, _, body, problem = _redteam_control_plane_envelope(
+            message=message)
+        return remainder if problem is not None else body
     if sol_ticket_kind(message=message) != "discovery":
         return remainder
     _, _, body, problem = _sol_discovery_envelope(message=message)
@@ -5372,7 +5496,7 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
     if ticket_kind == "discovery":
         if review_cycle is not None or review_commit is not None:
             raise ValueError(
-                "review identity is valid only for Red Team closures")
+                "review identity is valid only for Red Team reviews")
         if discovery_severity is None:
             discovery_severity = DEFAULT_DISCOVERY_SEVERITY
         if discovery_severity not in DISCOVERY_SEVERITIES:
@@ -5394,8 +5518,8 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
         if discovery_scope is not None:
             raise ValueError(
                 "discovery scope is valid only for discovery tickets")
-        if ticket_kind == "closure" and (review_cycle is not None
-                                          or review_commit is not None):
+        if ticket_kind in {"closure", "control-plane"} and (
+                review_cycle is not None or review_commit is not None):
             if (not isinstance(review_cycle, str)
                     or CYCLE_ID_RE.fullmatch(review_cycle)
                     is None):
@@ -5405,14 +5529,16 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
                     or FULL_COMMIT_RE.fullmatch(review_commit) is None):
                 raise ValueError("invalid Red Team review commit: "
                                  + repr(review_commit))
+            identity_header = (MAILBOX_COMMIT_HEADER
+                               if ticket_kind == "closure"
+                               else MAILBOX_CANDIDATE_HEADER)
             payload = (SOL_TICKET_HEADER + ticket_kind + "\n"
                        + MAILBOX_CYCLE_HEADER + review_cycle + "\n"
-                       + MAILBOX_COMMIT_HEADER + review_commit + "\n\n"
-                       + text)
+                       + identity_header + review_commit + "\n\n" + text)
         else:
             if review_cycle is not None or review_commit is not None:
                 raise ValueError(
-                    "review identity is valid only for Red Team closures")
+                    "review identity is valid only for Red Team reviews")
             payload = SOL_TICKET_HEADER + ticket_kind + "\n\n" + text
     if not payload.endswith("\n"):
         payload = payload + "\n"
@@ -5439,6 +5565,24 @@ def redteam_review_receipt_payload(review_cycle, review_commit, result,
     if not payload.endswith("\n"):
         payload = payload + "\n"
     return payload
+
+
+def control_plane_review_receipt_payload(review_cycle, candidate, result,
+                                         text):
+    """Build one exact Red Team decision for protected candidate C."""
+    if (not isinstance(review_cycle, str)
+            or CYCLE_ID_RE.fullmatch(review_cycle) is None):
+        raise ValueError("invalid control-plane review cycle")
+    if (not isinstance(candidate, str)
+            or FULL_COMMIT_RE.fullmatch(candidate) is None):
+        raise ValueError("invalid control-plane candidate")
+    if result not in CONTROL_PLANE_REVIEW_RESULTS:
+        raise ValueError("invalid control-plane review result")
+    payload = (MAILBOX_RETURN_HEADER + "redteam-control-plane\n"
+               + MAILBOX_CYCLE_HEADER + review_cycle + "\n"
+               + MAILBOX_CANDIDATE_HEADER + candidate + "\n"
+               + MAILBOX_RESULT_HEADER + result + "\n\n" + text)
+    return payload if payload.endswith("\n") else payload + "\n"
 
 
 def architect_user_request_payload(text, discovery_severity=None):
@@ -5620,7 +5764,8 @@ def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
     if ticket_kind not in SOL_TICKET_KINDS:
         return ("missing or invalid first line; every Sol ticket must start "
                 "with exactly 'MAILBOX-TICKET: closure', "
-                "'MAILBOX-TICKET: discovery', or 'MAILBOX-TICKET: policy'")
+                "'MAILBOX-TICKET: discovery', 'MAILBOX-TICKET: policy', "
+                "or 'MAILBOX-TICKET: control-plane'")
     if ledger_problem is not None:
         return ledger_problem
     if ticket_kind == "discovery":
@@ -5636,7 +5781,8 @@ def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
         return "--severity is valid only for discovery tickets"
     elif discovery_scope is not None:
         return "discovery scope is valid only for discovery tickets"
-    if fix_only and ticket_kind not in {"closure", "policy"}:
+    if fix_only and ticket_kind not in {
+            "closure", "policy", "control-plane"}:
         return ("fix-only watch is closing-only; discovery tickets and new "
                 "backlog lines are forbidden until the watch is restarted "
                 "without --fix-only")
@@ -7422,6 +7568,7 @@ def dispatch_under_main_checkout_lock(
     saved_architect_scope = None
     flow_mode = None
     architect_checkpoint_audit = False
+    integration_revalidation = None
     if message.startswith(MAILBOX_FLOW_HEADER):
         _, flow_mode, flow_body, flow_problem = _ticket_flow_envelope(
             message=message)
@@ -7442,6 +7589,21 @@ def dispatch_under_main_checkout_lock(
                   + ("parked in failed/." if parked else
                      "failed-state move was not verified."))
             return False
+        if (agent == "fable"
+                and flow_body.startswith(
+                    "CONTROL-PLANE-INTEGRATION: REVALIDATE\n")):
+            try:
+                integration_revalidation = (
+                    control_plane_integration_request(message=message))
+            except TicketCycleStateError as exc:
+                if dry_run:
+                    print("[dry-run] would refuse " + name + ": " + str(exc))
+                    return False
+                parked = park_failed_message(dispatch_path=dispatch_path)
+                print("refused " + name + ": " + str(exc) + "; "
+                      + ("parked in failed/." if parked else
+                         "failed-state move was not verified."))
+                return False
         if not ticket_cycle_mode_is_enabled(
                 mode=flow_mode, skip_redteam=skip_redteam):
             reason = ("MAILBOX-MODE: " + flow_mode
@@ -7538,6 +7700,9 @@ def dispatch_under_main_checkout_lock(
                 ledger_problem=severity_counts_before_claim["problem"])
         if reason is None and ticket_kind == "closure":
             reason = redteam_closure_problem(message=message)
+        if reason is None and ticket_kind == "control-plane":
+            _control_cycle, _control_candidate, _body, reason = (
+                _redteam_control_plane_envelope(message=message))
         if reason is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason
@@ -7554,11 +7719,16 @@ def dispatch_under_main_checkout_lock(
 
     implementer_evidence_contract = None
     implementer_return_before = None
+    control_review_cycle = None
+    control_review_candidate = None
+    control_review_before = None
     if agent == "opus" and ACTIVE_TOPOLOGY is not None:
         try:
             implementer_evidence_contract = (
                 prepare_implementer_evidence_contract(message=message))
             implementer_return_before = fable_message_inode_snapshot()
+        except FatalArchitectLandingError:
+            raise
         except (OSError, TicketCycleStateError) as exc:
             reason = "Implementer evidence contract refused: " + str(exc)
             retry_after_note_fix = (
@@ -7581,7 +7751,11 @@ def dispatch_under_main_checkout_lock(
                 skip_redteam=skip_redteam,
                 path_scope=(implementer_evidence_contract.get("allowed_paths")
                             if implementer_evidence_contract is not None
-                            else None))
+                            else None),
+                ticket_class=(implementer_evidence_contract.get(
+                    "ticket_class", "ordinary")
+                    if implementer_evidence_contract is not None
+                    else "ordinary"))
         except TicketCycleStateError as exc:
             reason = "ticket-cycle state refused this message: " + str(exc)
             parked = park_failed_message(dispatch_path=dispatch_path)
@@ -7595,6 +7769,11 @@ def dispatch_under_main_checkout_lock(
         review_accepted_commit = redteam_closure_commit(message=message)
         if not dry_run:
             review_receipt_before = fable_message_inode_snapshot()
+    if agent == "sol" and ticket_kind == "control-plane":
+        control_review_cycle, control_review_candidate, _body, _problem = (
+            _redteam_control_plane_envelope(message=message))
+        if not dry_run:
+            control_review_before = daemon_message_inode_snapshot()
     if agent == "sol":
         placeholder_body = sol_ticket_body(message=message)
     elif message.startswith(MAILBOX_FLOW_HEADER):
@@ -7680,6 +7859,17 @@ def dispatch_under_main_checkout_lock(
         elif agent == "sol" and ticket_kind == "closure":
             audit_cycle_id = review_cycle_id
             audit_commit = review_accepted_commit
+            audit_worktree = create_audit_snapshot(
+                cycle_id=audit_cycle_id, commit=audit_commit, agent="sol")
+        elif agent == "sol" and ticket_kind == "control-plane":
+            audit_cycle_id = control_review_cycle
+            audit_commit = control_review_candidate
+            control = control_plane_ticket_state(
+                cycle_id=audit_cycle_id, candidate_commit=audit_commit)
+            if (control is None
+                    or control["architect_candidate"] != audit_commit):
+                raise TicketCycleStateError(
+                    "control-plane review lacks D0-recorded Architect GO(C)")
             audit_worktree = create_audit_snapshot(
                 cycle_id=audit_cycle_id, commit=audit_commit, agent="sol")
     except (OSError, PrimaryWorktreeError, TicketCycleStateError) as exc:
@@ -8128,6 +8318,43 @@ def dispatch_under_main_checkout_lock(
                   "the Architect may revise the same ticket, but no "
                   "candidate was frozen and no GO boundary advanced.")
 
+    if control_review_cycle is not None:
+        receipt_path, control_result, receipt_problem = (
+            matching_new_control_plane_receipt(
+                cycle_id=control_review_cycle,
+                candidate=control_review_candidate,
+                before_inodes=control_review_before))
+        if receipt_problem is not None:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! Red Team process returned rc=0 but its exact "
+                  "control-plane decision was not proved: "
+                  + receipt_problem + "; "
+                  + ("message parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return False
+        try:
+            # Persist the second key here, where D0 has just proved that the
+            # exact receipt was newly produced by this successful Sol turn.
+            # A structured file that merely appears in the mailbox has no
+            # authority to create this decision.
+            record_control_plane_redteam_decision(
+                cycle_id=control_review_cycle,
+                candidate_commit=control_review_candidate,
+                decision=control_result)
+        except TicketCycleStateError as exc:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("  !! Red Team decision could not be saved: " + str(exc)
+                  + "; " + ("message parked in failed/." if parked else
+                            "failed-state move was not verified."))
+            return False
+        if not archive_consumed_message(dispatch_path=dispatch_path):
+            return False
+        print("authenticated mandatory Red Team decision " + control_result
+              + " for exact protected C " + control_review_candidate
+              + "; D0 will consume " + os.path.basename(receipt_path)
+              + ".")
+        return True
+
     if review_cycle_id is not None:
         receipt_path, review_result, receipt_problem = (
             matching_new_redteam_receipt(
@@ -8249,6 +8476,28 @@ def dispatch_under_main_checkout_lock(
                 write_implementer_delivery_receipt(
                     request_path=dispatch_path,
                     return_path=go_path or handoff_path))
+            if (go_path is not None
+                    and control_plane_ticket_state(
+                        cycle_id=audit_cycle_id,
+                        candidate_commit=audit_commit) is not None):
+                # The delivery hard link is deliberately short-lived. Save
+                # the protected Architect key while D0 can still prove that
+                # this exact Architect turn created this exact GO(C).
+                record_control_plane_architect_go(
+                    cycle_id=audit_cycle_id,
+                    candidate_commit=audit_commit)
+                if integration_revalidation is not None:
+                    if (integration_revalidation["cycle_id"] != audit_cycle_id
+                            or integration_revalidation["candidate"]
+                            != audit_commit):
+                        raise TicketCycleStateError(
+                            "integration audit changed its exact cycle or C")
+                    record_control_plane_integration_go(
+                        cycle_id=audit_cycle_id,
+                        candidate_commit=audit_commit,
+                        new_main=integration_revalidation["new_main"],
+                        evidence=os.path.basename(
+                            architect_delivery_receipt))
         except (OSError, ValueError, TicketCycleStateError) as exc:
             print("  !! validated Architect outcome could not be journaled: "
                   + str(exc) + "; request kept in inflight/.")
@@ -8974,16 +9223,32 @@ def prepare_implementer_cycle_checkout(cycle_id):
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
-def candidate_forbidden_paths(changed_paths, contract=ROLE_CONTRACT):
-    """Return candidate paths forbidden by one validated policy snapshot."""
+def candidate_forbidden_paths(changed_paths, ticket_class="ordinary",
+                              contract=ROLE_CONTRACT):
+    """Return paths forbidden for this validated ticket class."""
+    if ticket_class not in TICKET_CLASSES:
+        raise TicketCycleStateError("invalid ticket class")
     forbidden_files = candidate_forbidden_files_from_contract(contract)
+    control_plane_files = control_plane_files_from_contract(contract)
     forbidden_prefixes = tuple(
         contract["protected_paths"]["candidate_forbidden_prefixes"])
     return {
         path for path in changed_paths
         if (path in forbidden_files
-            or any(path.startswith(prefix)
-                   for prefix in forbidden_prefixes))}
+            or (path in control_plane_files and ticket_class == "ordinary")
+            or (any(path.startswith(prefix)
+                    for prefix in forbidden_prefixes)
+                and not (ticket_class == "protected-control-plane"
+                         and path in control_plane_files)))}
+
+
+def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
+    """Explain why this trusted watcher cannot run one ticket class."""
+    if ticket_class not in TICKET_CLASSES:
+        return "invalid ticket class"
+    if ticket_class == "protected-control-plane" and skip_redteam:
+        return "Protected control-plane tickets require Red Team review"
+    return None
 
 
 def candidate_changed_paths(base_commit, candidate_commit):
@@ -9001,9 +9266,11 @@ def candidate_changed_paths(base_commit, candidate_commit):
             "Implementer candidate contains a non-UTF-8 path") from exc
 
 
-def classify_candidate_scope(changed_paths, path_scope):
+def classify_candidate_scope(changed_paths, path_scope,
+                             ticket_class="ordinary"):
     """Classify C against global protection and its ticket file list."""
-    protected = candidate_forbidden_paths(changed_paths)
+    protected = candidate_forbidden_paths(
+        changed_paths, ticket_class=ticket_class)
     if protected:
         return "PROTECTED_PATH_VIOLATION", protected
     exceeded = set(changed_paths) - set(path_scope or ())
@@ -9018,6 +9285,8 @@ def candidate_scope_for_cycle(cycle_id, candidate_commit):
     try:
         record = read_ticket_cycle_state()["active"].get(cycle_id)
         path_scope = None if record is None else record.get("path_scope")
+        ticket_class = ("ordinary" if record is None else
+                        record.get("ticket_class", "ordinary"))
     finally:
         release_ticket_cycle_lock(lock_file=lock_file)
     # A ticket already running when this field was introduced has no frozen
@@ -9028,7 +9297,8 @@ def candidate_scope_for_cycle(cycle_id, candidate_commit):
     changed = candidate_changed_paths(
         base_commit=cycle_starting_commit(cycle_id),
         candidate_commit=candidate_commit)
-    result, paths = classify_candidate_scope(changed, path_scope)
+    result, paths = classify_candidate_scope(
+        changed, path_scope, ticket_class=ticket_class)
     return {"result": result, "paths": sorted(paths)}
 
 
@@ -9056,8 +9326,10 @@ def record_implementer_candidate(cycle_id, starting_head):
             raise TicketCycleStateError(
                 "candidate commit has no active implementation cycle")
         path_scope = active.get("path_scope")
+        ticket_class = active.get("ticket_class", "ordinary")
         scope_result, scope_paths = classify_candidate_scope(
-            changed_paths, path_scope or changed_paths)
+            changed_paths, path_scope or changed_paths,
+            ticket_class=ticket_class)
         if scope_result == "PROTECTED_PATH_VIOLATION":
             raise TicketCycleStateError(
                 scope_result + ": "
@@ -9071,6 +9343,19 @@ def record_implementer_candidate(cycle_id, starting_head):
                              else cycle_starting_commit(cycle_id)):
             raise TicketCycleStateError(
                 "Implementer result began from another cycle tip")
+        if ticket_class == "protected-control-plane":
+            # A stale prepared L was built from the prior C. Retire only that
+            # private journal before publishing a revised candidate.
+            landing_reference = cycle_landing_ref(cycle_id=cycle_id)
+            prior_landing = git_ref_commit(reference=landing_reference)
+            if prior_landing is not None:
+                _run_git(
+                    repository_root=AGENT_CWD["fable"],
+                    arguments=["update-ref", "-d", landing_reference,
+                               prior_landing])
+                if git_ref_commit(reference=landing_reference) is not None:
+                    raise TicketCycleStateError(
+                        "superseded protected landing was not retired")
         reference = cycle_candidate_ref(cycle_id=cycle_id)
         _run_git(
             repository_root=AGENT_CWD["fable"],
@@ -9078,6 +9363,12 @@ def record_implementer_candidate(cycle_id, starting_head):
         candidate_state["cycles"][cycle_id] = {
             "ref": reference, "commit": candidate}
         write_candidate_state(state=candidate_state)
+        if ticket_class == "protected-control-plane":
+            # Every revision is a new immutable C. Neither earlier key nor
+            # earlier integration or shadow evidence can authorize it.
+            ticket_state["active"][cycle_id] = dict(
+                active, control_plane=empty_control_plane_state())
+            write_ticket_cycle_state(state=ticket_state)
         if scope_result == "SCOPE_EXCEEDED":
             print("  SCOPE_EXCEEDED; candidate preserved for Architect: "
                   + ", ".join(repr(path) for path in sorted(scope_paths)))
@@ -9471,6 +9762,21 @@ def _commit_is_ancestor(ancestor, descendant, label):
 
 STALE_INTEGRATION_REVALIDATION = (
     "STALE — REQUIRES INTEGRATION REVALIDATION")
+STALE_INTEGRATION_RE = re.compile(
+    re.escape(STALE_INTEGRATION_REVALIDATION)
+    + r": C=([0-9a-f]{40}) L=([0-9a-f]{40})"
+      r" M0=([0-9a-f]{40}) M1=([0-9a-f]{40})")
+
+
+def stale_integration_details(problem):
+    """Return exact C, L, M0, and M1 from D0's own stale diagnosis."""
+    match = STALE_INTEGRATION_RE.search(str(problem))
+    if match is None:
+        return None
+    return {
+        "candidate": match.group(1), "stale_landing": match.group(2),
+        "old_main": match.group(3), "new_main": match.group(4),
+    }
 
 
 def _prepared_landing_main_problem(candidate_commit, landing_commit,
@@ -9901,6 +10207,220 @@ def redteam_closure_request_payload(cycle_id, landing):
             "advisory and does not undo the Architect's local landing."))
 
 
+def control_plane_review_request_payload(cycle_id, candidate):
+    """Build D0's mandatory pre-landing Red Team request for exact C."""
+    return sol_ticket_payload(
+        ticket_kind="control-plane", review_cycle=cycle_id,
+        review_commit=candidate,
+        text=(
+            "Review exact protected control-plane candidate " + candidate
+            + " for ticket " + cycle_id + ". D0 has recorded Architect "
+              "GO for this immutable candidate, but no landing exists. "
+              "Inspect the bounded control-plane change adversarially. "
+              "Return exactly one redteam-control-plane receipt addressed "
+              "to daemon with ACCEPT-CONTROL-PLANE or "
+              "REJECT-CONTROL-PLANE. You cannot land the change."))
+
+
+def matching_control_plane_review_request(cycle_id, candidate):
+    """Return the sole saved mandatory review request, when present."""
+    matches = []
+    conflicts = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-sol.md"),
+                          recursive=True):
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        if sol_ticket_kind(message=message) != "control-plane":
+            continue
+        found_cycle, found_candidate, _body, problem = (
+            _redteam_control_plane_envelope(message=message))
+        if found_cycle != cycle_id:
+            continue
+        if problem is None and found_candidate == candidate:
+            matches.append(path)
+        else:
+            conflicts.append(path)
+    if conflicts or len(matches) > 1:
+        raise TicketCycleStateError(
+            "control-plane review identity conflicts with saved work")
+    return matches[0] if matches else None
+
+
+def publish_control_plane_review_request(cycle_id, candidate):
+    """Publish once after D0 has durably recorded Architect GO(C)."""
+    existing = matching_control_plane_review_request(
+        cycle_id=cycle_id, candidate=candidate)
+    if existing is not None:
+        return existing
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        raise RetryableArchitectLandingError(
+            "cannot lock mailbox for protected Red Team review")
+    try:
+        existing = matching_control_plane_review_request(
+            cycle_id=cycle_id, candidate=candidate)
+        if existing is not None:
+            return existing
+        path = publish_message_locked(
+            agent="sol", payload=control_plane_review_request_payload(
+                cycle_id=cycle_id, candidate=candidate))
+        if path is None:
+            raise RetryableArchitectLandingError(
+                "could not publish protected Red Team review")
+        return path
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
+def publish_control_plane_repair_request(cycle_id, candidate, mode):
+    """Return a rejected protected C to the Architect exactly once."""
+    marker = "CONTROL-PLANE-REPAIR: " + candidate
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        try:
+            message = read_cycle_message(path=path)
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        found_cycle, found_mode, body, problem = _ticket_flow_envelope(
+            message=message)
+        if (problem is None and found_cycle == cycle_id
+                and found_mode == mode and marker in body):
+            return path
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        raise RetryableArchitectLandingError(
+            "cannot lock mailbox for protected repair return")
+    try:
+        payload = (MAILBOX_FLOW_HEADER + "ticket\n"
+                   + MAILBOX_CYCLE_HEADER + cycle_id + "\n"
+                   + MAILBOX_MODE_HEADER + mode + "\n\n"
+                   + marker + "\n\n"
+                   + "The mandatory pre-landing Red Team review rejected "
+                     "this exact candidate. Read its saved evidence, reopen "
+                     "the ticket, and send one same-cycle Implementer repair "
+                     "handoff. Do not send another GO for this candidate.\n")
+        path = publish_message_locked(agent="fable", payload=payload)
+        if path is None:
+            raise RetryableArchitectLandingError(
+                "could not publish protected repair return")
+        return path
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
+def control_plane_integration_request_payload(
+        cycle_id, candidate, stale_landing, old_main, new_main, mode):
+    """Build the same-cycle Architect check for one moved main branch."""
+    for label, value in (("candidate", candidate),
+                         ("stale landing", stale_landing),
+                         ("old main", old_main), ("new main", new_main)):
+        if FULL_COMMIT_RE.fullmatch(value) is None:
+            raise ValueError("invalid " + label + " commit")
+    if CYCLE_ID_RE.fullmatch(cycle_id) is None:
+        raise ValueError("invalid integration-revalidation cycle")
+    if mode not in ARCHITECT_COMMIT_MODES:
+        raise ValueError("invalid integration-revalidation mode")
+    return (
+        MAILBOX_FLOW_HEADER + "ticket\n"
+        + MAILBOX_CYCLE_HEADER + cycle_id + "\n"
+        + MAILBOX_MODE_HEADER + mode + "\n\n"
+        + "CONTROL-PLANE-INTEGRATION: REVALIDATE\n"
+        + "INTEGRATION-CANDIDATE: " + candidate + "\n"
+        + "STALE-LANDING: " + stale_landing + "\n"
+        + "OLD-MAIN: " + old_main + "\n"
+        + "NEW-MAIN: " + new_main + "\n\n"
+        + "- **Candidate commit:** `" + candidate + "`\n\n"
+        + "Main advanced after the protected landing was prepared. Audit "
+          "only the interaction of OLD-MAIN to NEW-MAIN with exact C. "
+          "Inspect the provisional combined result and rerun every newly "
+          "relevant acceptance check. The earlier Architect and Red Team "
+          "approvals remain bound to C. If the integration is still safe, "
+          "return the ordinary exact architect-go receipt for C. Otherwise "
+          "return one same-cycle Implementer repair handoff.\n")
+
+
+def control_plane_integration_request(message):
+    """Parse the daemon-owned M0-to-M1 revalidation request."""
+    cycle_id, mode, body, problem = _ticket_flow_envelope(message=message)
+    if problem is not None or not body.startswith(
+            "CONTROL-PLANE-INTEGRATION: REVALIDATE\n"):
+        return None
+    match = re.match(
+        r"\ACONTROL-PLANE-INTEGRATION: REVALIDATE\r?\n"
+        r"INTEGRATION-CANDIDATE: ([0-9a-f]{40})\r?\n"
+        r"STALE-LANDING: ([0-9a-f]{40})\r?\n"
+        r"OLD-MAIN: ([0-9a-f]{40})\r?\n"
+        r"NEW-MAIN: ([0-9a-f]{40})\r?\n\r?\n",
+        body)
+    if match is None:
+        raise TicketCycleStateError(
+            "control-plane integration request has malformed identities")
+    candidate, landing, old_main, new_main = match.groups()
+    if IMPLEMENTER_CANDIDATE_LINE_RE.findall(body) != [candidate]:
+        raise TicketCycleStateError(
+            "control-plane integration request does not bind exact C")
+    return {
+        "cycle_id": cycle_id, "mode": mode, "candidate": candidate,
+        "stale_landing": landing, "old_main": old_main,
+        "new_main": new_main,
+    }
+
+
+def matching_control_plane_integration_request(
+        cycle_id, candidate, stale_landing, old_main, new_main):
+    """Return one already-published request for the same stale event."""
+    expected = (cycle_id, candidate, stale_landing, old_main, new_main)
+    matches = []
+    for path in glob.glob(os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                          recursive=True):
+        try:
+            parsed = control_plane_integration_request(
+                read_cycle_message(path=path))
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        if parsed is None:
+            continue
+        found = (parsed["cycle_id"], parsed["candidate"],
+                 parsed["stale_landing"], parsed["old_main"],
+                 parsed["new_main"])
+        if found == expected:
+            matches.append(path)
+    if len(matches) > 1:
+        raise TicketCycleStateError(
+            "more than one integration request names the same stale event")
+    return matches[0] if matches else None
+
+
+def publish_control_plane_integration_request(
+        cycle_id, candidate, stale_landing, old_main, new_main, mode):
+    """Publish exactly one autonomous Architect integration audit."""
+    arguments = dict(
+        cycle_id=cycle_id, candidate=candidate,
+        stale_landing=stale_landing, old_main=old_main, new_main=new_main)
+    existing = matching_control_plane_integration_request(**arguments)
+    if existing is not None:
+        return existing
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        raise RetryableArchitectLandingError(
+            "cannot lock mailbox for integration revalidation")
+    try:
+        existing = matching_control_plane_integration_request(**arguments)
+        if existing is not None:
+            return existing
+        path = publish_message_locked(
+            agent="fable", payload=control_plane_integration_request_payload(
+                mode=mode, **arguments))
+        if path is None:
+            raise RetryableArchitectLandingError(
+                "could not publish integration revalidation")
+        return path
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
 def matching_redteam_closure_request(cycle_id, landing):
     """Return the sole saved Sol closure request, if one already exists."""
     matches = []
@@ -9958,8 +10478,662 @@ def publish_redteam_closure_request(cycle_id, landing):
         release_mailbox_sequence_lock(lock_file=lock_file)
 
 
+def control_plane_ticket_state(cycle_id, candidate_commit=None):
+    """Return a copy of one protected ticket's durable state."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        if active is None or active.get("ticket_class", "ordinary") != (
+                "protected-control-plane"):
+            return None
+        if candidate_commit is not None:
+            saved = read_candidate_state()["cycles"].get(cycle_id)
+            if saved is None or saved["commit"] != candidate_commit:
+                raise TicketCycleStateError(
+                    "protected decision does not name saved candidate C")
+        return dict(active["control_plane"])
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def require_validated_architect_go_receipt(cycle_id, candidate_commit):
+    """Require D0's saved proof that one Architect turn produced GO(C)."""
+    matches = []
+    pattern = os.path.join(MAILBOX, IMPLEMENTER_DELIVERY_PREFIX + "*")
+    for path in glob.glob(pattern):
+        fields = os.path.basename(path)[len(IMPLEMENTER_DELIVERY_PREFIX):] \
+            .split("@")
+        if len(fields) != 4:
+            continue
+        request_name, request_digest, return_name, return_digest = fields
+        request_match = PENDING_MESSAGE_RE.fullmatch(request_name)
+        return_match = PENDING_MESSAGE_RE.fullmatch(return_name)
+        if (request_match is None or request_match.group(1) != "fable"
+                or return_match is None
+                or return_match.group(1) != "daemon"):
+            continue
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="validated Architect GO receipt")
+            message = raw.decode("utf-8", errors="strict")
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        found_cycle, found_candidate, _mode, problem = (
+            _architect_go_request(message=message))
+        if (problem is None and found_cycle == cycle_id
+                and found_candidate == candidate_commit
+                and hashlib.sha256(raw).hexdigest() == return_digest
+                and re.fullmatch(r"[0-9a-f]{64}", request_digest)):
+            matches.append(path)
+    if len(matches) != 1:
+        raise TicketCycleStateError(
+            "protected Architect GO lacks exactly one D0-validated "
+            "Architect-turn delivery receipt")
+
+
+def record_control_plane_architect_go(cycle_id, candidate_commit):
+    """Persist the first key before publishing mandatory Red Team work."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        saved = read_candidate_state()["cycles"].get(cycle_id)
+        if (active is None or active["phase"] != "implementation"
+                or active.get("ticket_class") != "protected-control-plane"
+                or saved is None or saved["commit"] != candidate_commit):
+            raise TicketCycleStateError(
+                "Architect protected GO does not name active candidate C")
+        control = dict(active["control_plane"])
+        prior = control["architect_candidate"]
+        if prior == candidate_commit:
+            return
+        if prior is not None and prior != candidate_commit:
+            raise TicketCycleStateError(
+                "protected Architect decision changed candidate C")
+        # The receipt is created by D0 only after it validates the fresh
+        # Architect outcome. Check it while holding the state lock, then save
+        # the decision so later recovery no longer depends on the short-lived
+        # delivery hard link.
+        require_validated_architect_go_receipt(
+            cycle_id=cycle_id, candidate_commit=candidate_commit)
+        control["architect_candidate"] = candidate_commit
+        state["active"][cycle_id] = dict(active, control_plane=control)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def record_control_plane_redteam_decision(cycle_id, candidate_commit,
+                                          decision):
+    """Persist the second exact key; it grants no landing by itself."""
+    if decision not in CONTROL_PLANE_REVIEW_RESULTS:
+        raise TicketCycleStateError("invalid protected Red Team decision")
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        saved = read_candidate_state()["cycles"].get(cycle_id)
+        if (active is None or active["phase"] != "implementation"
+                or active.get("ticket_class") != "protected-control-plane"
+                or saved is None or saved["commit"] != candidate_commit):
+            raise TicketCycleStateError(
+                "Red Team protected decision does not name active C")
+        control = dict(active["control_plane"])
+        prior = control["redteam_result"]
+        if (prior is not None
+                and (prior != decision
+                     or control["redteam_candidate"] != candidate_commit)):
+            raise TicketCycleStateError(
+                "protected Red Team decision changed identity")
+        control["redteam_result"] = decision
+        control["redteam_candidate"] = candidate_commit
+        state["active"][cycle_id] = dict(active, control_plane=control)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def record_control_plane_integration_stale(
+        cycle_id, candidate_commit, stale_landing, old_main, new_main):
+    """Preserve both C approvals while recording that prepared L is stale."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        if (active is None
+                or active.get("ticket_class") != "protected-control-plane"
+                or active["phase"] != "implementation"):
+            raise TicketCycleStateError(
+                "stale integration has no active protected ticket")
+        control = dict(active["control_plane"])
+        if not control_plane_keys_ready(
+                control=control, candidate_commit=candidate_commit):
+            raise TicketCycleStateError(
+                "stale integration did not preserve both exact-C approvals")
+        control.update({
+            "integration_status": "STALE",
+            "integration_main": new_main,
+            "stale_landing": stale_landing,
+            "stale_parent": old_main,
+            "integration_evidence": None,
+            # C passed the first shadow, but the replacement landing must be
+            # checked as the exact combined tree on M1.
+            "shadow_status": None,
+            "shadow_evidence": None,
+        })
+        state["active"][cycle_id] = dict(active, control_plane=control)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def record_control_plane_integration_go(
+        cycle_id, candidate_commit, new_main, evidence):
+    """Record a fresh Architect GO for the exact C-on-M1 interaction."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        if (active is None
+                or active.get("ticket_class") != "protected-control-plane"
+                or active["phase"] != "implementation"):
+            raise TicketCycleStateError(
+                "integration GO has no active protected ticket")
+        control = dict(active["control_plane"])
+        if (not control_plane_keys_ready(
+                control=control, candidate_commit=candidate_commit)
+                or control["integration_status"] != "STALE"
+                or control["integration_main"] != new_main):
+            raise TicketCycleStateError(
+                "integration GO changed C, M1, or either approval")
+        current_main = _exact_git_object(
+            arguments=["rev-parse", "--verify",
+                       "refs/heads/main^{commit}"],
+            label="main at integration revalidation")
+        if current_main != new_main:
+            raise TicketCycleStateError(
+                "main advanced again before integration GO was recorded")
+        control["integration_status"] = "REVALIDATED"
+        control["integration_evidence"] = evidence
+        state["active"][cycle_id] = dict(active, control_plane=control)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def prepare_revalidated_control_plane_landing(cycle_id, candidate_commit):
+    """Retire only stale L after proving main still equals approved M1."""
+    control = control_plane_ticket_state(
+        cycle_id=cycle_id, candidate_commit=candidate_commit)
+    if control is None or control["integration_status"] != "REVALIDATED":
+        return
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="main before revalidated protected landing")
+    approved_main = control["integration_main"]
+    stale_landing = control["stale_landing"]
+    old_main = control["stale_parent"]
+    reference = cycle_landing_ref(cycle_id=cycle_id)
+    journaled = git_ref_commit(reference=reference)
+    if current_main != approved_main:
+        # A crash may have occurred after D0 replaced old L with a new
+        # provisional landing on the last revalidated main. Bind the next
+        # stale event to the landing actually in the private journal, not to
+        # an older L that is no longer retryable.
+        if journaled is not None and journaled != stale_landing:
+            stale_landing = journaled
+            old_main = _verify_prepared_landing(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                landing_commit=journaled)
+        problem = _prepared_landing_main_problem(
+            candidate_commit=candidate_commit,
+            landing_commit=stale_landing, parent_commit=old_main,
+            current_main=current_main)
+        raise RetryableArchitectLandingError(
+            problem or "main changed after integration revalidation")
+    if journaled is None:
+        return
+    if journaled != stale_landing:
+        parent = _verify_prepared_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit,
+            landing_commit=journaled)
+        if parent != approved_main:
+            raise TicketCycleStateError(
+                "replacement landing journal has an unapproved parent")
+        return
+    _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["update-ref", "-d", reference, stale_landing])
+    if git_ref_commit(reference=reference) is not None:
+        raise TicketCycleStateError("stale landing journal was not retired")
+
+
+def protected_landing_ready(cycle_id, candidate_commit):
+    """Require both independently persisted decisions for exact C."""
+    control = control_plane_ticket_state(
+        cycle_id=cycle_id, candidate_commit=candidate_commit)
+    if control is None:
+        return True
+    return control_plane_keys_ready(
+        control=control, candidate_commit=candidate_commit)
+
+
+def control_plane_keys_ready(control, candidate_commit):
+    """Pure exact-C two-key decision used by D0 and focused tests."""
+    return (isinstance(control, dict)
+            and FULL_COMMIT_RE.fullmatch(candidate_commit) is not None
+            and control.get("architect_candidate") == candidate_commit
+            and control.get("redteam_candidate") == candidate_commit
+            and control.get("redteam_result") == "ACCEPT-CONTROL-PLANE")
+
+
+def control_plane_redteam_key_matches(control, candidate_commit, decision):
+    """Return whether D0 already saved this exact Sol decision."""
+    return (isinstance(control, dict)
+            and decision in CONTROL_PLANE_REVIEW_RESULTS
+            and control.get("redteam_candidate") == candidate_commit
+            and control.get("redteam_result") == decision)
+
+
+def _live_control_plane_fingerprint():
+    """Hash D0's live state and trusted refs around a shadow run."""
+    digest = hashlib.sha256()
+    for name in (TICKET_CYCLE_STATE_NAME, CANDIDATE_STATE_NAME):
+        path = os.path.join(MAILBOX, name)
+        digest.update(name.encode("utf-8") + b"\0")
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_TICKET_CYCLE_STATE_BYTES,
+                label="live control-plane state", missing_ok=True)
+        except (OSError, ValueError) as exc:
+            raise TicketCycleStateError(str(exc)) from exc
+        digest.update(b"<missing>" if raw is None else raw)
+    if ACTIVE_TOPOLOGY is not None:
+        for name in ("primary_state", "implementer_state", "sol_state"):
+            path = ACTIVE_TOPOLOGY[name]
+            digest.update(path.encode("utf-8") + b"\0")
+            try:
+                raw = stable_regular_bytes(
+                    path=path, maximum_bytes=MAX_PRIMARY_STATE_BYTES,
+                    label="live control-plane topology")
+            except (OSError, ValueError) as exc:
+                raise TicketCycleStateError(str(exc)) from exc
+            digest.update(raw)
+    refs = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["for-each-ref", "--format=%(refname) %(objectname)",
+                   CANDIDATE_REF_ROOT, "refs/heads/main"])
+    digest.update(refs.stdout)
+    return digest.hexdigest()
+
+
+def trusted_control_plane_check(commit, label):
+    """Run D1 in a standalone temporary repository under D0's driver.
+
+    This is protocol isolation, not a hostile-process sandbox.  D1 receives
+    no path to the live mailbox or Git common directory. D0 verifies that its
+    own state and refs are byte-identical after the bounded checks.
+    """
+    if FULL_COMMIT_RE.fullmatch(commit) is None:
+        raise TicketCycleStateError("control-plane check needs a full commit")
+    before = _live_control_plane_fingerprint()
+    os.makedirs(RELAY_DIR, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    log_path = os.path.join(
+        RELAY_DIR, stamp + "-control-plane-" + label + ".log")
+    commands = []
+    with tempfile.TemporaryDirectory(prefix="mailbox-control-plane-") as root:
+        repository = os.path.join(root, "repo")
+        commands.append(["git", "init", "--quiet", repository])
+        commands.append([
+            "git", "-C", repository, "fetch", "--quiet", "--no-tags",
+            AGENT_CWD["fable"], commit])
+        commands.append([
+            "git", "-C", repository, "checkout", "--quiet", "--detach",
+            "FETCH_HEAD"])
+        # This program is D0's harness. It is generated outside the candidate
+        # checkout, while every imported function below comes from D1 at C.
+        # Candidate tests are intentionally not imported or trusted here.
+        probe = """
+import os
+import subprocess
+import sys
+shadow_repository = os.path.realpath(os.getcwd())
+from ai.tools import handoff_contract as h
+from ai.tools import mailbox_daemon as d
+from ai.tools.role_contract import ROLE_CONTRACT
+
+assert os.path.realpath(d.REPO_ROOT) == shadow_repository
+
+base = (
+    '- Roles: `Architect + Implementer + Red Team`\\n'
+    '- Discovery severity: `medium`\\n'
+    '- Review scope: `bounded`\\n')
+assert h._require_architect_role_plan(
+    base + '- Ticket class: `ordinary`')['ticket_class'] == 'ordinary'
+assert h._require_architect_role_plan(
+    base + '- Ticket class: `protected-control-plane`')[
+        'ticket_class'] == 'protected-control-plane'
+assert d.ticket_class_configuration_problem('ordinary', True) is None
+assert 'require Red Team' in d.ticket_class_configuration_problem(
+    'protected-control-plane', True)
+assert d.ticket_class_configuration_problem(
+    'protected-control-plane', False) is None
+
+tool = ROLE_CONTRACT['protected_paths']['trusted_tools']['mailbox_daemon']
+result, paths = d.classify_candidate_scope(
+    {tool}, {tool}, ticket_class='ordinary')
+assert result == 'PROTECTED_PATH_VIOLATION' and paths == {tool}
+result, paths = d.classify_candidate_scope(
+    {tool}, {tool}, ticket_class='protected-control-plane')
+assert result == 'IN_SCOPE' and not paths
+other = 'emulator/unplanned.py'
+result, paths = d.classify_candidate_scope(
+    {other}, {tool}, ticket_class='protected-control-plane')
+assert result == 'SCOPE_EXCEEDED' and paths == {other}
+
+cycle = 'protected-shadow@' + '1' * 40
+c1, c2 = '2' * 40, '3' * 40
+request = d.control_plane_review_request_payload(cycle, c1)
+found_cycle, found_candidate, _body, problem = (
+    d._redteam_control_plane_envelope(request))
+assert problem is None and (found_cycle, found_candidate) == (cycle, c1)
+receipt = d.control_plane_review_receipt_payload(
+    cycle, c1, 'ACCEPT-CONTROL-PLANE', 'accepted')
+found_cycle, found_candidate, result, _body, problem = (
+    d._control_plane_review_receipt(receipt))
+assert problem is None
+assert (found_cycle, found_candidate, result) == (
+    cycle, c1, 'ACCEPT-CONTROL-PLANE')
+
+control = d.empty_control_plane_state()
+assert not d.control_plane_keys_ready(control, c1)
+control['architect_candidate'] = c1
+assert not d.control_plane_keys_ready(control, c1)
+control['redteam_candidate'] = c2
+control['redteam_result'] = 'ACCEPT-CONTROL-PLANE'
+assert not d.control_plane_keys_ready(control, c1)
+control['redteam_candidate'] = c1
+control['redteam_result'] = 'REJECT-CONTROL-PLANE'
+assert not d.control_plane_keys_ready(control, c1)
+control['redteam_result'] = 'ACCEPT-CONTROL-PLANE'
+assert d.control_plane_keys_ready(control, c1)
+assert not d.control_plane_keys_ready(control, c2)
+
+state = d.empty_ticket_cycle_state()
+state['active'][cycle] = {
+    'phase': 'implementation', 'commit': None, 'mode': 'normal',
+    'route': 'primary', 'ticket_class': 'protected-control-plane',
+    'path_scope': [tool], 'control_plane': control}
+normalized = d.validate_ticket_cycle_state(state)
+assert normalized['active'][cycle]['control_plane'] == control
+
+os.makedirs(d.MAILBOX, exist_ok=True)
+owner = d.acquire_dispatch_lock(mode='once')
+assert owner is not None
+try:
+    assert d.acquire_dispatch_lock(mode='once') is None
+finally:
+    d.release_dispatch_lock(owner)
+
+# Drive the real D1 state and landing functions from this D0-owned program.
+# Every Git object, state file, and journal below belongs to the disposable
+# candidate checkout. The outer D0 process separately fingerprints the live
+# state and refs before and after this child exits.
+os.environ['GIT_AUTHOR_NAME'] = 'D0 shadow harness'
+os.environ['GIT_AUTHOR_EMAIL'] = 'shadow@example.invalid'
+os.environ['GIT_COMMITTER_NAME'] = 'D0 shadow harness'
+os.environ['GIT_COMMITTER_EMAIL'] = 'shadow@example.invalid'
+
+def git_result(arguments, stdin=None):
+    return subprocess.run(
+        ['git', '-C', shadow_repository] + list(arguments),
+        input=stdin, text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, check=False)
+
+def git(arguments, stdin=None):
+    result = git_result(arguments, stdin)
+    assert result.returncode == 0, (arguments, result.stderr)
+    return result.stdout.strip()
+
+def ref_or_none(reference):
+    result = git_result(['rev-parse', '--verify', '--quiet',
+                         reference + '^{commit}'])
+    assert result.returncode in (0, 1), result.stderr
+    return result.stdout.strip() if result.returncode == 0 else None
+
+def child_commit(parent, path, content, message):
+    git(['read-tree', parent])
+    blob = git(['hash-object', '-w', '--stdin'], content)
+    git(['update-index', '--add', '--cacheinfo', '100644', blob, path])
+    tree = git(['write-tree'])
+    commit = git(['commit-tree', tree, '-p', parent], message + '\\n')
+    git(['read-tree', 'HEAD'])
+    return commit
+
+base_commit = git(['rev-parse', 'HEAD'])
+git(['update-ref', 'refs/heads/main', base_commit])
+candidate = child_commit(
+    base_commit, 'shadow-candidate.txt', 'candidate\\n',
+    'shadow candidate')
+new_main = child_commit(
+    base_commit, 'shadow-main.txt', 'new main\\n',
+    'concurrent main')
+other_candidate = new_main
+cycle = 'protected-shadow-landing@' + base_commit
+other_cycle = 'protected-shadow-other@' + base_commit
+candidate_ref = d.cycle_candidate_ref(cycle)
+landing_ref = d.cycle_landing_ref(cycle)
+git(['update-ref', candidate_ref, candidate, '0' * 40])
+
+candidate_state = d.empty_candidate_state()
+candidate_state['cycles'][cycle] = {
+    'ref': candidate_ref, 'commit': candidate}
+d.write_candidate_state(candidate_state)
+
+def save_control(control):
+    state = d.empty_ticket_cycle_state()
+    state['active'][cycle] = {
+        'phase': 'implementation', 'commit': None, 'mode': 'normal',
+        'route': 'primary', 'ticket_class': 'protected-control-plane',
+        'path_scope': [tool], 'control_plane': control}
+    d.write_ticket_cycle_state(state)
+
+def landing_must_be_blocked(label):
+    assert ref_or_none(landing_ref) is None, label
+    try:
+        d.execute_architect_go_locked(cycle, candidate, 'normal')
+    except d.TicketCycleStateError:
+        pass
+    else:
+        raise AssertionError(label + ' unexpectedly created a landing')
+    assert ref_or_none(landing_ref) is None, label
+
+# No Architect decision is a NO-GO. Neither no keys nor Architect alone can
+# reach the landing primitive. Red Team acceptance alone is also insufficient.
+control = d.empty_control_plane_state()
+save_control(control)
+landing_must_be_blocked('missing Architect and Red Team decisions')
+control['architect_candidate'] = candidate
+save_control(control)
+landing_must_be_blocked('missing Red Team decision')
+redteam_only = d.empty_control_plane_state()
+redteam_only['redteam_candidate'] = candidate
+redteam_only['redteam_result'] = 'ACCEPT-CONTROL-PLANE'
+assert not d.control_plane_keys_ready(redteam_only, candidate)
+redteam_only_state = d.empty_ticket_cycle_state()
+redteam_only_state['active'][cycle] = {
+    'phase': 'implementation', 'commit': None, 'mode': 'normal',
+    'route': 'primary', 'ticket_class': 'protected-control-plane',
+    'path_scope': [tool], 'control_plane': redteam_only}
+try:
+    d.validate_ticket_cycle_state(redteam_only_state)
+except d.TicketCycleStateError:
+    pass
+else:
+    raise AssertionError('Red Team acceptance survived without Architect GO')
+assert ref_or_none(landing_ref) is None
+no_go = d.architect_go_request_payload(cycle, candidate, 'normal').replace(
+    d.MAILBOX_DECISION_HEADER + 'GO',
+    d.MAILBOX_DECISION_HEADER + 'NO-GO')
+assert d._architect_go_request(no_go)[3] is not None
+
+# Exact cycle and candidate identity are checked by D1's real state writers.
+for wrong_cycle, wrong_candidate in (
+        (other_cycle, candidate), (cycle, other_candidate)):
+    try:
+        d.record_control_plane_redteam_decision(
+            wrong_cycle, wrong_candidate, 'ACCEPT-CONTROL-PLANE')
+    except d.TicketCycleStateError:
+        pass
+    else:
+        raise AssertionError('wrong Red Team identity was accepted')
+try:
+    d.prepare_exact_squash_landing(cycle, other_candidate, 'normal')
+except d.TicketCycleStateError:
+    pass
+else:
+    raise AssertionError('wrong candidate reached landing preparation')
+
+# A rejection names exact C but still cannot create L.
+control['redteam_candidate'] = candidate
+control['redteam_result'] = 'REJECT-CONTROL-PLANE'
+save_control(control)
+landing_must_be_blocked('Red Team rejection')
+
+# Both exact-C decisions survive a fresh import, which represents a daemon
+# restart reading only the serialized files and private candidate ref.
+control['redteam_result'] = 'ACCEPT-CONTROL-PLANE'
+save_control(control)
+restart_probe = '''
+from ai.tools import mailbox_daemon as restarted
+cycle, candidate, candidate_ref = __import__('sys').argv[1:]
+control = restarted.control_plane_ticket_state(cycle, candidate)
+assert restarted.control_plane_keys_ready(control, candidate)
+saved = restarted.read_candidate_state()['cycles'][cycle]
+assert saved == {'ref': candidate_ref, 'commit': candidate}
+assert restarted.git_ref_commit(candidate_ref) == candidate
+'''
+restart = subprocess.run(
+    [sys.executable, '-c', restart_probe, cycle, candidate, candidate_ref],
+    cwd=shadow_repository, stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT, text=True, check=False)
+assert restart.returncode == 0, restart.stdout
+assert d.protected_landing_ready(cycle, candidate)
+
+# D1 may calculate inside this disposable checkout, but only the D0-owned
+# harness decides whether its real landing primitive behaved correctly.
+landing, parent, returned_ref = d.prepare_exact_squash_landing(
+    cycle, candidate, 'normal')
+assert returned_ref == landing_ref
+assert parent == base_commit
+parent_row = git(['rev-list', '--parents', '-n', '1', landing]).split()
+assert parent_row == [landing, base_commit]
+assert ref_or_none(landing_ref) == landing
+landing_tree = git(['rev-parse', landing + '^{tree}'])
+expected_tree = git(['merge-tree', '--write-tree', base_commit, candidate])
+assert landing_tree == expected_tree
+assert git(['rev-parse', 'refs/heads/main']) == base_commit
+
+# If main changes after L was prepared, the existing L and new main remain
+# untouched and the real D1 path must request integration revalidation.
+git(['update-ref', 'refs/heads/main', new_main, base_commit])
+try:
+    d.prepare_exact_squash_landing(cycle, candidate, 'normal')
+except d.RetryableArchitectLandingError as exc:
+    assert d.STALE_INTEGRATION_REVALIDATION in str(exc)
+else:
+    raise AssertionError('changed main reused a stale protected landing')
+assert git(['rev-parse', 'refs/heads/main']) == new_main
+assert ref_or_none(landing_ref) == landing
+print('D0_SHADOW_SCENARIOS_PASSED')
+print('CONTROL_PLANE_HEALTHY', ROLE_CONTRACT['schema_version'])
+"""
+        commands.append([
+            sys.executable, "-m", "py_compile",
+            os.path.join(repository, "ai", "tools", "role_contract.py"),
+            os.path.join(repository, "ai", "tools", "handoff_contract.py"),
+            os.path.join(repository, "ai", "tools", "mailbox_daemon.py")])
+        commands.append([sys.executable, "-c", probe])
+        environment = os.environ.copy()
+        for name in tuple(environment):
+            if name.startswith("MAILBOX_"):
+                del environment[name]
+        environment["PYTHONPATH"] = repository
+        ok = True
+        with open(log_path, "w", encoding="utf-8") as stream:
+            for command in commands:
+                stream.write("$ " + " ".join(command) + "\n")
+                try:
+                    result = subprocess.run(
+                        command, cwd=(repository
+                                      if os.path.isdir(repository) else root),
+                        env=environment, stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT, text=True, check=False,
+                        timeout=120)
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    stream.write(type(exc).__name__ + ": " + str(exc)
+                                 + "\n")
+                    stream.write("rc=not-completed\n")
+                    ok = False
+                    break
+                stream.write(result.stdout)
+                stream.write("rc=" + str(result.returncode) + "\n")
+                if result.returncode != 0:
+                    ok = False
+                    break
+            stream.flush()
+            os.fsync(stream.fileno())
+    after = _live_control_plane_fingerprint()
+    if after != before:
+        raise TicketCycleStateError(
+            "shadow D1 changed D0 live state or private refs")
+    return ok, log_path
+
+
+def record_control_plane_check(cycle_id, candidate_commit, kind, ok,
+                               evidence):
+    """Persist one D0 shadow or post-landing health result."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        saved = read_candidate_state()["cycles"].get(cycle_id)
+        if (active is None
+                or active.get("ticket_class") != "protected-control-plane"
+                or saved is None
+                or saved["commit"] != candidate_commit):
+            raise TicketCycleStateError(
+                "control-plane check does not name exact saved candidate C")
+        control = dict(active["control_plane"])
+        if kind == "shadow":
+            control["shadow_status"] = "PASSED" if ok else "FAILED"
+            control["shadow_evidence"] = evidence
+        elif kind == "health":
+            control["health_status"] = (
+                "HEALTHY" if ok else "CONTROL_PLANE_HEALTH_FAILED")
+            control["health_evidence"] = evidence
+        else:
+            raise TicketCycleStateError("unknown control-plane check kind")
+        state["active"][cycle_id] = dict(active, control_plane=control)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
 def execute_architect_go_locked(cycle_id, candidate_commit, mode):
     """Land C as exact L and durably advance state before any push."""
+    protected = control_plane_ticket_state(
+        cycle_id=cycle_id, candidate_commit=candidate_commit) is not None
+    if protected and not protected_landing_ready(
+            cycle_id=cycle_id, candidate_commit=candidate_commit):
+        raise TicketCycleStateError(
+            "protected landing lacks exact Architect and Red Team keys")
+    if protected:
+        prepare_revalidated_control_plane_landing(
+            cycle_id=cycle_id, candidate_commit=candidate_commit)
     landing = recorded_landing_for_architect_go(
         cycle_id=cycle_id, mode=mode)
     if landing is None:
@@ -9975,6 +11149,21 @@ def execute_architect_go_locked(cycle_id, candidate_commit, mode):
         if journaled is not None and journaled != landing:
             raise TicketCycleStateError(
                 "durable cycle state and landing crash journal disagree")
+    if protected:
+        control = control_plane_ticket_state(
+            cycle_id=cycle_id, candidate_commit=candidate_commit)
+        if (control["integration_status"] == "REVALIDATED"
+                and control["shadow_status"] != "PASSED"):
+            shadow_ok, shadow_log = trusted_control_plane_check(
+                commit=landing, label="integration-shadow")
+            record_control_plane_check(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                kind="shadow", ok=shadow_ok, evidence=shadow_log)
+            if not shadow_ok:
+                raise RetryableArchitectLandingError(
+                    "SHADOW_VALIDATION_FAILED for exact revalidated "
+                    "integration L=" + landing + "; evidence -> "
+                    + shadow_log)
     preflight_role_baseline_sync(
         target=landing, retiring_candidate=candidate_commit)
     land_prepared_commit_in_clean_user_checkout(
@@ -9982,7 +11171,7 @@ def execute_architect_go_locked(cycle_id, candidate_commit, mode):
         candidate_commit=candidate_commit)
     completed_now = record_architect_commit(
         cycle_id=cycle_id, accepted_commit=landing, mode=mode)
-    if mode == "normal":
+    if mode == "normal" and not protected:
         publish_redteam_closure_request(
             cycle_id=cycle_id, landing=landing)
     return landing, completed_now
@@ -10466,6 +11655,10 @@ def message_belongs_to_active_cycle(path, active_cycles):
     if agent == "sol" and sol_ticket_kind(message=message) == "closure":
         cycle_id = redteam_closure_ticket(message=message)
         return cycle_id in active_cycles
+    if agent == "sol" and sol_ticket_kind(message=message) == "control-plane":
+        cycle_id, _candidate, _body, problem = (
+            _redteam_control_plane_envelope(message=message))
+        return problem is None and cycle_id in active_cycles
     return False
 
 
@@ -10474,6 +11667,31 @@ def requeue_retryable_daemon_message(dispatch_path):
     _path, verified = verified_state_move(
         dispatch_path=dispatch_path, directory=MAILBOX)
     return verified
+
+
+def defer_protected_stale_integration(
+        dispatch_path, cycle_id, candidate_commit, mode, problem):
+    """Save a moved-main event and queue its same-cycle Architect audit."""
+    details = stale_integration_details(problem=problem)
+    if details is None or details["candidate"] != candidate_commit:
+        raise TicketCycleStateError(
+            "protected stale diagnosis changed exact candidate C")
+    record_control_plane_integration_stale(
+        cycle_id=cycle_id, candidate_commit=candidate_commit,
+        stale_landing=details["stale_landing"],
+        old_main=details["old_main"], new_main=details["new_main"])
+    request = publish_control_plane_integration_request(
+        cycle_id=cycle_id, candidate=candidate_commit,
+        stale_landing=details["stale_landing"],
+        old_main=details["old_main"], new_main=details["new_main"],
+        mode=mode)
+    deferred = move_without_overwrite(
+        path=dispatch_path,
+        directory=os.path.join(MAILBOX, "integration-stale"))
+    if deferred is None and os.path.lexists(dispatch_path):
+        raise TicketCycleStateError(
+            "stale Architect GO could not enter its durable waiting state")
+    return request
 
 
 def prepared_landing_reached_main(cycle_id):
@@ -10513,6 +11731,63 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
               + "; C and its cycle remain. Close and seal the ticket, then "
               "send a fresh GO; " + state)
         return False, 0, None
+    protected = control_plane_ticket_state(
+        cycle_id=cycle_id, candidate_commit=candidate_commit)
+    if protected is not None:
+        try:
+            record_control_plane_architect_go(
+                cycle_id=cycle_id, candidate_commit=candidate_commit)
+            protected = control_plane_ticket_state(
+                cycle_id=cycle_id, candidate_commit=candidate_commit)
+            if protected["redteam_result"] is None:
+                request = publish_control_plane_review_request(
+                    cycle_id=cycle_id, candidate=candidate_commit)
+                print("protected Architect GO(C) recorded; waiting for the "
+                      "mandatory Red Team decision on exact C; request "
+                      + os.path.basename(request) + ".")
+                return None, 0, None
+            if protected["redteam_result"] == "REJECT-CONTROL-PLANE":
+                publish_control_plane_repair_request(
+                    cycle_id=cycle_id, candidate=candidate_commit,
+                    mode=mode)
+                rejected_path = move_without_overwrite(
+                    path=dispatch_path,
+                    directory=os.path.join(MAILBOX, "redteam-rejected"))
+                if rejected_path is None:
+                    return False, 0, None
+                print("protected candidate C was rejected by Red Team; C "
+                      "was preserved and an Architect repair turn was "
+                      "queued.")
+                return True, 0, None
+            if (protected["health_status"]
+                    == "CONTROL_PLANE_HEALTH_FAILED"):
+                raise FatalArchitectLandingError(
+                    "CONTROL_PLANE_HEALTH_FAILED: D0 is recovery-only; "
+                    "inspect " + protected["health_evidence"]
+                    + " and preserve the recorded landing")
+            if protected["shadow_status"] == "FAILED":
+                print("SHADOW_VALIDATION_FAILED: D0 preserved C, both "
+                      "decisions, and the evidence at "
+                      + protected["shadow_evidence"] + ".")
+                return None, 0, None
+            if (protected["shadow_status"] != "PASSED"
+                    and protected["integration_status"]
+                    != "REVALIDATED"):
+                shadow_ok, shadow_log = trusted_control_plane_check(
+                    commit=candidate_commit, label="shadow")
+                record_control_plane_check(
+                    cycle_id=cycle_id, candidate_commit=candidate_commit,
+                    kind="shadow", ok=shadow_ok, evidence=shadow_log)
+                if not shadow_ok:
+                    print("SHADOW_VALIDATION_FAILED: D0 did not create L; "
+                          "evidence -> " + shadow_log)
+                    return None, 0, None
+        except FatalArchitectLandingError:
+            raise
+        except (OSError, TicketCycleStateError) as exc:
+            print("protected control-plane gate stopped before landing: "
+                  + str(exc) + "; C and GO remain preserved.")
+            return None, 0, None
     main_lock = acquire_main_checkout_turn_lock()
     if main_lock is None:
         requeued = requeue_retryable_daemon_message(
@@ -10528,6 +11803,22 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
             cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
     except RetryableArchitectLandingError as exc:
         release_main_checkout_turn_lock(lock_file=main_lock)
+        if (protected is not None
+                and stale_integration_details(problem=exc) is not None):
+            try:
+                request = defer_protected_stale_integration(
+                    dispatch_path=dispatch_path, cycle_id=cycle_id,
+                    candidate_commit=candidate_commit, mode=mode,
+                    problem=exc)
+            except (OSError, TicketCycleStateError) as recovery_exc:
+                raise FatalArchitectLandingError(
+                    str(exc) + "; C and both approvals remain preserved, "
+                    "but D0 could not queue integration revalidation: "
+                    + str(recovery_exc)) from exc
+            print(STALE_INTEGRATION_REVALIDATION + ": C and both approvals "
+                  "were preserved; Architect integration audit queued as "
+                  + os.path.basename(request) + ".")
+            return None, 0, None
         requeued = requeue_retryable_daemon_message(
             dispatch_path=dispatch_path)
         preserved = ("the exact GO was returned to the mailbox root"
@@ -10539,6 +11830,10 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
                 "keep "
                 "C, L, GO, and the user's work preserved, and do not restart "
                 "this cycle until that recovery is handled explicitly")
+        elif "SHADOW_VALIDATION_FAILED" in str(exc):
+            remedy = (
+                "Keep C, both approvals, the revalidated landing, and its "
+                "named evidence preserved; do not install that landing")
         elif ("durable-state recovery" in str(exc)
               or "history requires user reconciliation" in str(exc)):
             remedy = (
@@ -10584,6 +11879,32 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
               + ("parked in failed/." if parked else
                  "failed-state move was not verified."))
         return False, 0, None
+    if protected is not None:
+        try:
+            health_ok, health_log = trusted_control_plane_check(
+                commit=landing, label="health")
+            record_control_plane_check(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                kind="health", ok=health_ok, evidence=health_log)
+            if not health_ok:
+                release_main_checkout_turn_lock(lock_file=main_lock)
+                raise FatalArchitectLandingError(
+                    "CONTROL_PLANE_HEALTH_FAILED: L is preserved at "
+                    + landing + " and D0 is stopping before new work; "
+                      "inspect " + health_log
+                      + ". Repair with the preserved trusted controller; "
+                        "do not rewrite history")
+            completed = int(complete_protected_ticket_cycle(
+                cycle_id=cycle_id, candidate_commit=candidate_commit,
+                landing=landing))
+        except FatalArchitectLandingError:
+            raise
+        except (OSError, TicketCycleStateError) as exc:
+            release_main_checkout_turn_lock(lock_file=main_lock)
+            raise FatalArchitectLandingError(
+                "CONTROL_PLANE_HEALTH_FAILED: L is preserved at "
+                + landing + "; D0 health state could not finish: "
+                + str(exc)) from exc
     # State first, archive second. A crash in between leaves one inflight GO
     # whose exact landing, state, and closure publication replay idempotently.
     try:
@@ -10629,7 +11950,11 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
             + "; restart to replay the archived GO recovery") from exc
     release_main_checkout_turn_lock(lock_file=main_lock)
     deliver_pending_ticket_cycle_returns()
-    if mode == "two-role":
+    if protected is not None:
+        print("protected ticket cycle complete after exact Architect GO(C), "
+              "Red Team ACCEPT(C), D0 shadow validation, and healthy L: "
+              + cycle_id + ".")
+    elif mode == "two-role":
         if completed:
             print("ticket cycle complete at the exact local landing: "
                   + cycle_id + ".")
@@ -10655,6 +11980,7 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
 
 DAEMON_MESSAGE_CONSUMED = "consumed"
 DAEMON_NOTE_DEFERRED = "retryable-note-deferred"
+DAEMON_CONTROL_PLANE_WAITING = "control-plane-waiting"
 DAEMON_MESSAGE_HARD_STOP = "hard-stop"
 ROLE_CONTRACT_RESTART_REQUIRED = "role-contract-restart-required"
 
@@ -10819,6 +12145,65 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
               + ("parked in failed/." if parked else
                  "failed-state move was not verified."))
         return result(DAEMON_MESSAGE_HARD_STOP)
+    if message.startswith(
+            MAILBOX_RETURN_HEADER + "redteam-control-plane"):
+        cycle_id, candidate_commit, decision, _body, problem = (
+            _control_plane_review_receipt(message=message))
+        if problem is not None:
+            if dry_run:
+                print("[dry-run] would refuse " + name + ": " + problem)
+                return result(DAEMON_MESSAGE_HARD_STOP)
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": " + problem + "; "
+                  + ("parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return result(DAEMON_MESSAGE_HARD_STOP)
+        if dry_run:
+            print("[dry-run] would record " + decision
+                  + " for exact protected candidate " + candidate_commit)
+            return result(DAEMON_MESSAGE_CONSUMED)
+        try:
+            control = control_plane_ticket_state(
+                cycle_id=cycle_id, candidate_commit=candidate_commit)
+            authenticated = control_plane_redteam_key_matches(
+                control=control, candidate_commit=candidate_commit,
+                decision=decision)
+            if not authenticated:
+                raise TicketCycleStateError(
+                    "control-plane receipt lacks a D0-recorded successful "
+                    "Sol dispatch")
+        except TicketCycleStateError as exc:
+            parked = park_failed_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": " + str(exc) + "; "
+                  + ("parked in failed/." if parked else
+                     "failed-state move was not verified."))
+            return result(DAEMON_MESSAGE_HARD_STOP)
+        if not archive_consumed_message(dispatch_path=dispatch_path):
+            return result(DAEMON_MESSAGE_HARD_STOP)
+        go_paths = []
+        for go_path in glob.glob(os.path.join(
+                MAILBOX, "inflight", "*-to-daemon.md")):
+            try:
+                go_message = read_cycle_message(path=go_path)
+            except (OSError, ValueError, TicketCycleStateError):
+                continue
+            found_cycle, found_candidate, found_mode, go_problem = (
+                _architect_go_request(message=go_message))
+            if (go_problem is None and found_cycle == cycle_id
+                    and found_candidate == candidate_commit):
+                go_paths.append((go_path, found_mode))
+        if len(go_paths) != 1:
+            print("protected Red Team decision is durable, but its exact "
+                  "inflight Architect GO was not uniquely found; restart "
+                  "will preserve the decision and recover the same C.")
+            return result(DAEMON_CONTROL_PLANE_WAITING)
+        consumed, _completed, _landing = finish_claimed_architect_go(
+            dispatch_path=go_paths[0][0], cycle_id=cycle_id,
+            candidate_commit=candidate_commit, mode=go_paths[0][1])
+        if consumed is None:
+            return result(DAEMON_CONTROL_PLANE_WAITING)
+        return result(DAEMON_MESSAGE_CONSUMED if consumed
+                      else DAEMON_MESSAGE_HARD_STOP)
     if message.startswith(MAILBOX_RETURN_HEADER + "architect-notes-go"):
         base_commit, notes_commit, problem = (
             _architect_notes_go_request(message=message))
@@ -10858,6 +12243,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
     consumed, _completed, _landing = finish_claimed_architect_go(
         dispatch_path=dispatch_path, cycle_id=cycle_id,
         candidate_commit=candidate_commit, mode=mode)
+    if consumed is None:
+        return result(DAEMON_CONTROL_PLANE_WAITING)
     return result(DAEMON_MESSAGE_CONSUMED if consumed
                   else DAEMON_MESSAGE_HARD_STOP)
 
@@ -11181,8 +12568,61 @@ def recover_interrupted_mailbox_moves():
         release_mailbox_sequence_lock(lock_file=sequence_lock)
 
 
-def recover_before_dispatch(fix_only=False):
+def blocked_redteam_directory():
+    """Return the durable queue for protected work that needs Red Team."""
+    return os.path.join(MAILBOX, BLOCKED_REDTEAM_DIRECTORY)
+
+
+def recover_blocked_redteam_messages(skip_redteam=False):
+    """Requeue protected work when a later watcher enables Red Team."""
+    if skip_redteam:
+        return 0
+    directory = blocked_redteam_directory()
+    recovered = 0
+    for path in sorted(glob.glob(os.path.join(directory, "*-to-opus.md")),
+                       key=message_sequence):
+        destination = move_without_overwrite(path=path, directory=MAILBOX)
+        if destination is not None:
+            recovered += 1
+            print("requeued protected control-plane ticket "
+                  + os.path.basename(path) + " now that Red Team is enabled")
+    return recovered
+
+
+def block_protected_ticket_without_redteam(path):
+    """Durably block one validated protected handoff before reservation."""
+    match = PENDING_MESSAGE_RE.fullmatch(os.path.basename(path))
+    if match is None or match.group(1) != "opus":
+        return False
+    try:
+        message = read_cycle_message(path=path)
+        evidence = prepare_implementer_evidence_contract(message=message)
+    except (OSError, ValueError, TicketCycleStateError):
+        return False
+    if evidence["ticket_class"] != "protected-control-plane":
+        return False
+    blocked = move_without_overwrite(
+        path=path, directory=blocked_redteam_directory())
+    if blocked is None:
+        return False
+    print("BLOCKED_RED_TEAM_REQUIRED: Protected control-plane tickets "
+          "require Red Team review. This daemon was started with "
+          "--skip-redteam, so " + os.path.basename(path)
+          + " was not run. Restart without --skip-redteam; the exact "
+            "request was preserved at " + blocked + ".")
+    return True
+
+
+def recover_before_dispatch(fix_only=False, skip_redteam=False):
     """Recover restart-safe mailbox state before a live dispatch pass."""
+    failed_health = control_plane_health_failure()
+    if failed_health is not None:
+        cycle_id, evidence = failed_health
+        raise TicketCycleStateError(
+            "CONTROL_PLANE_HEALTH_FAILED: protected cycle " + cycle_id
+            + " is recovery-only; inspect " + evidence
+            + ", preserve its recorded landing, and repair it with the "
+              "trusted controller before dispatching new work")
     recover_interrupted_mailbox_moves()
     recover_failed_architect_outcome()
     if fix_only:
@@ -11191,6 +12631,7 @@ def recover_before_dispatch(fix_only=False):
     recover_failed_implementer_preflight()
     recover_prelaunch_messages()
     recover_failed_public_architect_admissions()
+    recover_blocked_redteam_messages(skip_redteam=skip_redteam)
     return reconcile_ticket_cycle_state()
 
 
@@ -11332,14 +12773,28 @@ def reserve_implementer_ticket_before_claim(path, skip_redteam=False):
     if preflight_problem is not None:
         return None, None
     try:
+        evidence = prepare_implementer_evidence_contract(message=message)
+    except (OSError, TicketCycleStateError):
+        # Reserve capacity before claim even when the later dispatch
+        # validator will refuse a malformed ordinary handoff. If no child
+        # starts, drain_lane releases this provisional reservation. A valid
+        # protected handoff always reaches the successful branch below and
+        # therefore freezes its real class and path scope.
+        evidence = {
+            "allowed_paths": None,
+            "ticket_class": "ordinary",
+        }
+    try:
         _, _, created = register_ticket_cycle_message(
             agent="opus", message=message,
             skip_redteam=skip_redteam,
             return_reservation=True,
-            implementer_request_name=os.path.basename(path))
+            implementer_request_name=os.path.basename(path),
+            path_scope=evidence["allowed_paths"],
+            ticket_class=evidence["ticket_class"])
     except TicketCycleLimitDeferred as exc:
         return str(exc), None
-    except TicketCycleStateError:
+    except (OSError, TicketCycleStateError):
         return None, None
     if not created:
         return None, None
@@ -11372,6 +12827,11 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
                            == ARCHITECT_FIX_ONLY_REQUEST)
         except (OSError, ValueError, TicketCycleStateError):
             maintenance = False
+        if skip_redteam and block_protected_ticket_without_redteam(path=path):
+            # This configuration refusal is a consumed queue action, not a
+            # ticket cycle and not an Implementer failure. Continue to any
+            # ordinary two-role work behind it.
+            continue
         if (maintenance
                 and (not fix_only
                      or active_ticket_cycle_count(
@@ -11534,6 +12994,11 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
             if policy_recovery_only:
                 return ROLE_CONTRACT_RESTART_REQUIRED
             daemon_outcome = False
+            continue
+        if outcome == DAEMON_CONTROL_PLANE_WAITING:
+            # The exact GO remains in inflight/ while Sol supplies the
+            # second key. Compatible role work, including that review, may
+            # continue in this watch.
             continue
         if outcome != DAEMON_MESSAGE_CONSUMED:
             if policy_recovery_only:
@@ -12028,7 +13493,125 @@ def empty_ticket_cycle_state():
         "architect_admissions": {},
         "active": {},
         "completed": {},
+        "control_plane_history": {},
     }
+
+
+def empty_control_plane_state():
+    """Return the durable two-key state for one protected candidate."""
+    return {
+        "architect_candidate": None,
+        "redteam_result": None,
+        "redteam_candidate": None,
+        "shadow_status": None,
+        "shadow_evidence": None,
+        "integration_status": None,
+        "integration_main": None,
+        "stale_landing": None,
+        "stale_parent": None,
+        "integration_evidence": None,
+        "health_status": None,
+        "health_evidence": None,
+    }
+
+
+def validate_control_plane_relationships(
+        control, phase=None, completed_candidate=None):
+    """Refuse protected state whose decisions and evidence disagree."""
+    architect = control["architect_candidate"]
+    redteam = control["redteam_candidate"]
+    result = control["redteam_result"]
+    shadow = control["shadow_status"]
+    shadow_evidence = control["shadow_evidence"]
+    integration = control["integration_status"]
+    integration_evidence = control["integration_evidence"]
+    health = control["health_status"]
+    health_evidence = control["health_evidence"]
+
+    if (redteam is None) != (result is None):
+        raise TicketCycleStateError(
+            "protected Red Team candidate and decision must appear together")
+    if result is not None and (architect is None or architect != redteam):
+        raise TicketCycleStateError(
+            "protected decisions do not accept the same exact C")
+    accepted = (architect is not None and redteam == architect
+                and result == "ACCEPT-CONTROL-PLANE")
+
+    if (shadow is None) != (shadow_evidence is None):
+        raise TicketCycleStateError(
+            "protected shadow result and evidence must appear together")
+    if shadow is not None and not accepted:
+        raise TicketCycleStateError(
+            "protected shadow lacks exact-C acceptance")
+
+    integration_values = (
+        control["integration_main"], control["stale_landing"],
+        control["stale_parent"])
+    if integration is None:
+        if any(value is not None for value in
+               integration_values + (integration_evidence,)):
+            raise TicketCycleStateError(
+                "protected ticket has incomplete integration state")
+    elif any(value is None for value in integration_values):
+        raise TicketCycleStateError(
+            "protected ticket lacks stale integration identity")
+    elif not accepted:
+        raise TicketCycleStateError(
+            "protected integration lacks exact-C acceptance")
+    elif integration == "STALE":
+        if integration_evidence is not None or shadow is not None:
+            raise TicketCycleStateError(
+                "stale protected integration carries later evidence")
+    elif integration_evidence is None:
+        raise TicketCycleStateError(
+            "protected integration revalidation lacks evidence")
+
+    if (health is None) != (health_evidence is None):
+        raise TicketCycleStateError(
+            "protected health result and evidence must appear together")
+    if health is not None and (not accepted or shadow != "PASSED"):
+        raise TicketCycleStateError(
+            "protected health check lacks accepted PASSED shadow evidence")
+    if phase == "implementation" and health is not None:
+        raise TicketCycleStateError(
+            "unlanded protected ticket carries a health result")
+    if phase == "awaiting-redteam":
+        raise TicketCycleStateError(
+            "protected ticket cannot enter ordinary Red Team closure")
+    if phase == "committed-awaiting-closure" and (
+            not accepted or shadow != "PASSED"):
+        raise TicketCycleStateError(
+            "landed protected ticket lacks exact-C acceptance and shadow")
+
+    if completed_candidate is not None:
+        if (architect != completed_candidate
+                or redteam != completed_candidate
+                or result != "ACCEPT-CONTROL-PLANE"):
+            raise TicketCycleStateError(
+                "completed control-plane history lacks exact accepted C")
+        if shadow != "PASSED" or shadow_evidence is None:
+            raise TicketCycleStateError(
+                "completed control-plane history lacks PASSED shadow evidence")
+        if health != "HEALTHY" or health_evidence is None:
+            raise TicketCycleStateError(
+                "completed control-plane history lacks HEALTHY evidence")
+        if integration == "STALE":
+            raise TicketCycleStateError(
+                "completed control-plane history retains a stale integration")
+
+
+def control_plane_health_failure(state=None):
+    """Return the first durable failed promotion, if one exists."""
+    current = read_ticket_cycle_state() if state is None else state
+    for cycle_id in sorted(current["active"]):
+        record = current["active"][cycle_id]
+        control = record.get("control_plane")
+        if (record.get("ticket_class") == "protected-control-plane"
+                and isinstance(control, dict)
+                and control.get("health_status")
+                == "CONTROL_PLANE_HEALTH_FAILED"):
+            return cycle_id, control.get("health_evidence") or "saved state"
+    return None
 
 
 def validate_ticket_cycle_state(payload):
@@ -12042,7 +13625,9 @@ def validate_ticket_cycle_state(payload):
     required = {"schema", "generation", "active", "completed",
                 "pending_cycle_returns", "finite_watch",
                 "architect_admissions"}
-    if not isinstance(payload, dict) or set(payload) != required:
+    optional = {"control_plane_history"}
+    if (not isinstance(payload, dict) or not required.issubset(payload)
+            or not set(payload).issubset(required | optional)):
         raise TicketCycleStateError("ticket-cycle state has wrong keys")
     generation = payload.get("generation")
     pending_cycle_returns = payload.get("pending_cycle_returns")
@@ -12061,6 +13646,7 @@ def validate_ticket_cycle_state(payload):
     completed = payload.get("completed")
     architect_admissions = payload.get("architect_admissions")
     finite_watch = payload.get("finite_watch")
+    control_plane_history = payload.get("control_plane_history", {})
     if (not isinstance(active, dict) or not isinstance(completed, dict)
             or not isinstance(architect_admissions, dict)):
         raise TicketCycleStateError("ticket-cycle collections are invalid")
@@ -12090,18 +13676,72 @@ def validate_ticket_cycle_state(payload):
             "mode": mode, "sequence": sequence, "sha256": digest}
     normalized_active = {}
     for cycle_id, record in active.items():
-        record_keys = ({"phase", "commit", "mode", "route"},
-                       {"phase", "commit", "mode", "route", "path_scope"})
+        required_record_keys = {"phase", "commit", "mode", "route"}
+        optional_record_keys = {
+            "path_scope", "ticket_class", "control_plane"}
         if (not isinstance(cycle_id, str)
                 or CYCLE_ID_RE.fullmatch(cycle_id) is None
                 or not isinstance(record, dict)
-                or set(record) not in record_keys):
+                or not required_record_keys.issubset(record)
+                or not set(record).issubset(
+                    required_record_keys | optional_record_keys)):
             raise TicketCycleStateError("invalid active ticket-cycle record")
         phase = record.get("phase")
         commit = record.get("commit")
         mode = record.get("mode")
         route = record.get("route")
         path_scope = record.get("path_scope")
+        ticket_class = record.get("ticket_class", "ordinary")
+        control_plane = record.get("control_plane")
+        if ticket_class not in TICKET_CLASSES:
+            raise TicketCycleStateError("ticket class is invalid")
+        if ticket_class == "protected-control-plane":
+            if mode != "normal" or not isinstance(control_plane, dict) \
+                    or set(control_plane) != set(empty_control_plane_state()):
+                raise TicketCycleStateError(
+                    "protected ticket lacks its exact two-key state")
+            for field in ("architect_candidate", "redteam_candidate"):
+                value = control_plane[field]
+                if (value is not None
+                        and (not isinstance(value, str)
+                             or FULL_COMMIT_RE.fullmatch(value) is None)):
+                    raise TicketCycleStateError(
+                        "protected ticket has an invalid candidate decision")
+            if control_plane["redteam_result"] not in (
+                    None,) + CONTROL_PLANE_REVIEW_RESULTS:
+                raise TicketCycleStateError(
+                    "protected ticket has an invalid Red Team decision")
+            if control_plane["shadow_status"] not in (
+                    None, "PASSED", "FAILED"):
+                raise TicketCycleStateError(
+                    "protected ticket has invalid shadow state")
+            if control_plane["integration_status"] not in (
+                    None, "STALE", "REVALIDATED"):
+                raise TicketCycleStateError(
+                    "protected ticket has invalid integration state")
+            if control_plane["health_status"] not in (
+                    None, "HEALTHY", "CONTROL_PLANE_HEALTH_FAILED"):
+                raise TicketCycleStateError(
+                    "protected ticket has invalid health state")
+            for field in ("integration_main", "stale_landing",
+                          "stale_parent"):
+                value = control_plane[field]
+                if (value is not None
+                        and (not isinstance(value, str)
+                             or FULL_COMMIT_RE.fullmatch(value) is None)):
+                    raise TicketCycleStateError(
+                        "protected ticket has invalid integration identity")
+            for field in ("shadow_evidence", "integration_evidence",
+                          "health_evidence"):
+                value = control_plane[field]
+                if value is not None and (not isinstance(value, str)
+                                          or not value
+                                          or len(value) > 4096):
+                    raise TicketCycleStateError(
+                        "protected ticket has invalid evidence location")
+        elif control_plane is not None:
+            raise TicketCycleStateError(
+                "ordinary ticket unexpectedly has protected state")
         if phase not in {"implementation", "committed-awaiting-closure",
                          "awaiting-redteam"}:
             raise TicketCycleStateError("invalid active ticket-cycle phase")
@@ -12125,6 +13765,9 @@ def validate_ticket_cycle_state(payload):
         }
         if phase != "implementation" and mode not in expected_modes[phase]:
             raise TicketCycleStateError("ticket-cycle mode conflicts with phase")
+        if ticket_class == "protected-control-plane":
+            validate_control_plane_relationships(
+                control=control_plane, phase=phase)
         if path_scope is not None:
             if (not isinstance(path_scope, list) or not path_scope
                     or len(path_scope) > 256
@@ -12140,9 +13783,11 @@ def validate_ticket_cycle_state(payload):
                     raise TicketCycleStateError("ticket path scope is invalid")
         normalized = {
             "phase": phase, "commit": commit, "mode": mode,
-            "route": route}
+            "route": route, "ticket_class": ticket_class}
         if "path_scope" in record:
             normalized["path_scope"] = path_scope
+        if ticket_class == "protected-control-plane":
+            normalized["control_plane"] = dict(control_plane)
         normalized_active[cycle_id] = normalized
     normalized_completed = {}
     for cycle_id, commit in completed.items():
@@ -12155,6 +13800,65 @@ def validate_ticket_cycle_state(payload):
             raise TicketCycleStateError(
                 "ticket cycle is both active and completed")
         normalized_completed[cycle_id] = commit
+    if (not isinstance(control_plane_history, dict)
+            or len(control_plane_history) > MAX_TICKET_CYCLE_RECORDS):
+        raise TicketCycleStateError("control-plane history is invalid")
+    normalized_control_history = {}
+    for cycle_id, record in control_plane_history.items():
+        if (cycle_id not in normalized_completed
+                or not isinstance(record, dict)
+                or set(record) != {"candidate", "landing", "control_plane"}
+                or not isinstance(record.get("candidate"), str)
+                or FULL_COMMIT_RE.fullmatch(record["candidate"]) is None
+                or record.get("landing") != normalized_completed[cycle_id]
+                or not isinstance(record.get("control_plane"), dict)
+                or set(record["control_plane"])
+                != set(empty_control_plane_state())):
+            raise TicketCycleStateError(
+                "completed control-plane record is invalid")
+        control = record["control_plane"]
+        for field in ("architect_candidate", "redteam_candidate"):
+            value = control[field]
+            if (not isinstance(value, str)
+                    or FULL_COMMIT_RE.fullmatch(value) is None):
+                raise TicketCycleStateError(
+                    "completed control-plane decision is invalid")
+        if control["redteam_result"] not in CONTROL_PLANE_REVIEW_RESULTS:
+            raise TicketCycleStateError(
+                "completed control-plane Red Team result is invalid")
+        if control["shadow_status"] not in (None, "PASSED", "FAILED"):
+            raise TicketCycleStateError(
+                "completed control-plane shadow result is invalid")
+        if control["integration_status"] not in (
+                None, "STALE", "REVALIDATED"):
+            raise TicketCycleStateError(
+                "completed control-plane integration result is invalid")
+        if control["health_status"] not in (
+                None, "HEALTHY", "CONTROL_PLANE_HEALTH_FAILED"):
+            raise TicketCycleStateError(
+                "completed control-plane health result is invalid")
+        for field in ("integration_main", "stale_landing",
+                      "stale_parent"):
+            value = control[field]
+            if (value is not None
+                    and (not isinstance(value, str)
+                         or FULL_COMMIT_RE.fullmatch(value) is None)):
+                raise TicketCycleStateError(
+                    "completed control-plane integration identity is invalid")
+        for field in ("shadow_evidence", "integration_evidence",
+                      "health_evidence"):
+            value = control[field]
+            if value is not None and (not isinstance(value, str)
+                                      or not value or len(value) > 4096):
+                raise TicketCycleStateError(
+                    "completed control-plane evidence is invalid")
+        validate_control_plane_relationships(
+            control=control, completed_candidate=record["candidate"])
+        normalized_control_history[cycle_id] = {
+            "candidate": record["candidate"],
+            "landing": record["landing"],
+            "control_plane": dict(control),
+        }
     normalized_finite = None
     if finite_watch is not None:
         if (not isinstance(finite_watch, dict)
@@ -12188,6 +13892,7 @@ def validate_ticket_cycle_state(payload):
         "architect_admissions": normalized_admissions,
         "active": normalized_active,
         "completed": normalized_completed,
+        "control_plane_history": normalized_control_history,
     }
 
 
@@ -12480,7 +14185,7 @@ def finite_cycle_capacity_used(state, skip_redteam=False):
 def register_ticket_cycle_message(
         agent, message, skip_redteam=False, return_reservation=False,
         architect_admission=None, implementer_request_name=None,
-        path_scope=None):
+        path_scope=None, ticket_class="ordinary"):
     """Register a ticket exchange or post-commit review before dispatch.
 
     Returns ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
@@ -12494,6 +14199,10 @@ def register_ticket_cycle_message(
     requested_mode = None
     phase = None
     created = False
+    class_problem = ticket_class_configuration_problem(
+        ticket_class=ticket_class, skip_redteam=skip_redteam)
+    if class_problem is not None:
+        raise TicketCycleStateError(class_problem)
     if agent in {"fable", "opus"} and message.startswith(MAILBOX_FLOW_HEADER):
         cycle_id, requested_mode, _, problem = _ticket_flow_envelope(
             message=message)
@@ -12626,8 +14335,13 @@ def register_ticket_cycle_message(
                 state["active"][cycle_id] = {
                     "phase": "implementation", "commit": None,
                     "mode": requested_mode, "route": requested_route,
+                    "ticket_class": ticket_class,
                     "path_scope": (sorted(path_scope)
-                                   if path_scope is not None else None)}
+                                   if path_scope is not None else None),
+                    "control_plane": (
+                        empty_control_plane_state()
+                        if ticket_class == "protected-control-plane"
+                        else None)}
                 if admission is not None:
                     del state["architect_admissions"][admission_name]
                 created = True
@@ -12643,6 +14357,11 @@ def register_ticket_cycle_message(
                 raise TicketCycleStateError(
                     "ticket exchange changed its saved mode or Implementer "
                     "route")
+            elif (agent == "opus"
+                  and current.get("ticket_class", "ordinary")
+                  != ticket_class):
+                raise TicketCycleStateError(
+                    "ticket exchange changed its frozen Ticket class")
             elif agent == "opus" and path_scope is not None:
                 frozen = current.get("path_scope")
                 proposed = sorted(path_scope)
@@ -12703,6 +14422,47 @@ def complete_ticket_cycle(cycle_id, accepted_commit):
         del state["active"][cycle_id]
         state["completed"][cycle_id] = accepted_commit
         state["generation"] = state["generation"] + 1
+        record_pending_ticket_cycle_return(state=state)
+        write_ticket_cycle_state(state=state)
+        return True
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
+def complete_protected_ticket_cycle(cycle_id, candidate_commit, landing):
+    """Complete one two-key ticket after D0 records healthy L."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        prior = state["completed"].get(cycle_id)
+        if prior is not None:
+            if prior == landing:
+                return False
+            raise TicketCycleStateError(
+                "protected ticket completed at another landing")
+        active = state["active"].get(cycle_id)
+        if (active is None
+                or active.get("ticket_class") != "protected-control-plane"
+                or active["phase"] != "committed-awaiting-closure"
+                or active["commit"] != landing):
+            raise TicketCycleStateError(
+                "protected completion lacks its daemon landing")
+        control = active["control_plane"]
+        if (control["architect_candidate"] != candidate_commit
+                or control["redteam_candidate"] != candidate_commit
+                or control["redteam_result"] != "ACCEPT-CONTROL-PLANE"
+                or control["shadow_status"] != "PASSED"
+                or control["health_status"] != "HEALTHY"):
+            raise TicketCycleStateError(
+                "protected completion lacks both keys and healthy evidence")
+        del state["active"][cycle_id]
+        state["completed"][cycle_id] = landing
+        state["control_plane_history"][cycle_id] = {
+            "candidate": candidate_commit,
+            "landing": landing,
+            "control_plane": dict(control),
+        }
+        state["generation"] += 1
         record_pending_ticket_cycle_return(state=state)
         write_ticket_cycle_state(state=state)
         return True
@@ -13985,7 +15745,8 @@ def main():
             return 1
         try:
             try:
-                recover_before_dispatch(fix_only=fix_only)
+                recover_before_dispatch(
+                    fix_only=fix_only, skip_redteam=skip_redteam)
                 failed_debt = architect_notes_failed_debt_error()
                 if failed_debt is not None:
                     print(failed_debt)
@@ -14073,7 +15834,8 @@ def main():
                       + "; watcher did not start dispatching work.")
                 return 1
             try:
-                recover_before_dispatch(fix_only=fix_only)
+                recover_before_dispatch(
+                    fix_only=fix_only, skip_redteam=skip_redteam)
                 failed_debt = architect_notes_failed_debt_error()
                 if failed_debt is not None:
                     print(failed_debt)

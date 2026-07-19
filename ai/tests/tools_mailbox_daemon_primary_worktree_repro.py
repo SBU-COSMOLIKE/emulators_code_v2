@@ -900,6 +900,10 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
             "phase": "implementation", "commit": None,
             "mode": "normal", "route": "primary"}
         daemon.write_ticket_cycle_state(state=state)
+        # The strict state writer materializes compatibility defaults such as
+        # the ordinary ticket class. Compare recovery with the exact saved
+        # record rather than the caller's pre-normalization dictionary.
+        expected_active = daemon.read_ticket_cycle_state()["active"][cycle]
         daemon.sync_all_clean_role_baselines(target=current_main)
         older_base_was_preserved = (
             git(implementer, "rev-parse", "HEAD").stdout.strip()
@@ -932,7 +936,7 @@ def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
             and git(root, "merge-base", "--is-ancestor",
                     old_base, ticket_base, check=False).returncode == 0
             and daemon.read_ticket_cycle_state()["active"].get(cycle)
-            == state["active"][cycle])
+            == expected_active)
         print("failed handoff survives startup baseline sync=" + str(passed))
         return passed
 

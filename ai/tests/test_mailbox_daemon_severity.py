@@ -1027,9 +1027,10 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
              "        saved_discovery=False,\n",
              saved_value_reaches_child),
             ("high bypasses fix-only",
-             '    if fix_only and ticket_kind not in {"closure", "policy"}:\n',
-             '    if (fix_only and ticket_kind '
-             'not in {"closure", "policy"}\n'
+             '    if fix_only and ticket_kind not in {\n'
+             '            "closure", "policy", "control-plane"}:\n',
+             '    if (fix_only and ticket_kind not in {\n'
+             '            "closure", "policy", "control-plane"}\n'
              '            and discovery_severity != "high"):\n',
              high_still_refuses),
             ("high bypasses demand",

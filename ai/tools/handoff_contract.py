@@ -256,6 +256,8 @@ ROLE_PLAN_ROWS = (
         r"^- Discovery severity: `(high|medium|low|not-used)`$"),
     re.compile(
         r"^- Review scope: `(bounded|widespread|not-used)`$"),
+    re.compile(
+        r"^- Ticket class: `(ordinary|protected-control-plane)`$"),
 )
 REDTEAM_SEVERITY_ROWS = (
     ("User severity setting",
@@ -1062,7 +1064,7 @@ def _require_architect_role_plan(body):
         raise DirectiveError(
             "section 'Role plan' requires exactly these rows in order: "
             "- Roles: `...`; - Discovery severity: `...`; "
-            "- Review scope: `...`")
+            "- Review scope: `...`; - Ticket class: `...`")
     matches = []
     for row, pattern in zip(rows, ROLE_PLAN_ROWS):
         match = pattern.fullmatch(row)
@@ -1070,12 +1072,13 @@ def _require_architect_role_plan(body):
             raise DirectiveError(
                 "section 'Role plan' requires one supported Roles value "
                 "followed by one Discovery severity value and one Review "
-                "scope value")
+                "scope value and one Ticket class value")
         matches.append(match)
 
     roles = matches[0].group(1)
     severity = matches[1].group(1)
     review_scope = matches[2].group(1)
+    ticket_class = matches[3].group(1)
     plan = dict(ARCHITECT_ROLE_PLANS[roles])
     if plan["uses_red_team"] and severity == "not-used":
         raise DirectiveError(
@@ -1097,9 +1100,15 @@ def _require_architect_role_plan(body):
         raise DirectiveError(
             "section 'Role plan' widespread review scope requires discovery "
             "severity `low`")
+    if ticket_class == "protected-control-plane" and not plan[
+            "uses_red_team"]:
+        raise DirectiveError(
+            "section 'Role plan' protected-control-plane tickets require "
+            "Architect + Implementer + Red Team")
     plan["roles"] = roles
     plan["discovery_severity"] = severity
     plan["review_scope"] = review_scope
+    plan["ticket_class"] = ticket_class
     return plan
 
 
