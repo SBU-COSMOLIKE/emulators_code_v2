@@ -86,6 +86,11 @@ ROUTER_LOCK_PATH = os.path.join(
     "cocoa-handoff-router-" + str(os.getuid()) + ".lock",
 )
 IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER = "- **Subagent work:**"
+ROUTE_RECORD_NAME = ".active-route"
+SUPPORTING_COPY_PREFIX = (
+    "<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
+    "     that this block cites remains authoritative.\n"
+    "     Saved by ai/tools/handoff_router.py. -->\n\n")
 
 COCOA_PYTHON = ("/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa"
                 "/.local/bin/python")
@@ -546,6 +551,64 @@ def reserve_run_sequence(stamp=None):
             suffix += 1
 
 
+def _read_recovery_file(path, label, maximum_bytes):
+    """Read a recovery file without accepting a redirected final entry."""
+    if os.path.islink(path):
+        raise BacklogLedgerError(label + " must not be a symlink")
+    return _read_regular_file(os.path.realpath(path), label, maximum_bytes)
+
+
+def route_sequence(note_path, note_display, base):
+    """Resume one exact unfinished route, or save a new route before work."""
+    note_digest = hashlib.sha256(_read_recovery_file(
+        note_path, "Architect source note", MAX_BACKLOG_BYTES)).hexdigest()
+    os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
+    record_path = os.path.join(
+        RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
+    if os.path.lexists(record_path):
+        data = _read_recovery_file(
+            record_path, "router recovery record", 16 * 1024)
+        record = tuple(data.decode("utf-8", errors="strict").splitlines())
+        if (len(record) != 5 or record[0] != "route-v1"
+                or re.fullmatch(
+                    r"[0-9]{8}-[0-9]{6}(?:-[0-9]+)?", record[1]) is None
+                or re.fullmatch(r"[0-9a-f]{40}", record[3]) is None
+                or re.fullmatch(r"[0-9a-f]{64}", record[4]) is None
+                or data != ("\n".join(record) + "\n").encode("utf-8")):
+            raise BacklogLedgerError("router recovery record is malformed")
+        if record[2:] != (note_display, base, note_digest):
+            raise BacklogLedgerError(
+                "an unfinished route names a different note or version")
+        return record[1]
+    seq = reserve_run_sequence()
+    if os.path.lexists(os.path.join(RELAY_DIR, seq + "-implementer.md")):
+        raise BacklogLedgerError(
+            "new route collides with existing Implementer evidence")
+    fields = ("route-v1", seq, note_display, base, note_digest)
+    publish_complete_text(
+        path=record_path, text="\n".join(fields) + "\n")
+    return seq
+
+
+def recovered_implementer_return(seq):
+    """Return one complete saved handoff, or None before it is published."""
+    path = os.path.join(RELAY_DIR, seq + "-implementer.md")
+    if not os.path.lexists(path):
+        return None
+    data = _read_recovery_file(
+        path, "saved Implementer return", MAX_BACKLOG_BYTES)
+    text = data.decode("utf-8", errors="strict")
+    if not text.startswith(SUPPORTING_COPY_PREFIX):
+        raise BacklogLedgerError(
+            "saved Implementer return has no complete supporting-copy header")
+    return text[len(SUPPORTING_COPY_PREFIX):]
+
+
+def finish_route():
+    """Record that this route no longer needs crash recovery."""
+    os.remove(os.path.join(RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME))
+
+
 def acquire_router_lock():
     """Take the machine-wide lock that protects the shared clipboard.
 
@@ -678,9 +741,7 @@ def archive(seq, name, text):
     """
     os.makedirs(RELAY_DIR, exist_ok=True)
     path = os.path.join(RELAY_DIR, seq + "-" + name + ".md")
-    payload = ("<!-- SUPPORTING COPY ONLY. The agent-written source note\n"
-               "     that this block cites remains authoritative.\n"
-               "     Saved by ai/tools/handoff_router.py. -->\n\n"
+    payload = (SUPPORTING_COPY_PREFIX
                + text + ("" if text.endswith("\n") else "\n"))
     publish_complete_text(path=path, text=payload)
     return os.path.relpath(path, REPO_ROOT)
@@ -1249,24 +1310,43 @@ def main():
         "### ENDS\n")
     implementer_name = "Opus"
     archive_name = "implementer"
-
-    copy_to_clipboard(implementer_prompt)
-    print("[1/" + str(total_steps) + "] " + implementer_name
-          + " instruction copied -- paste it unchanged into that session.")
-    implementer_block = wait_for_block(
-        header="### IMPLEMENTER_HANDOFF:",
-        last_copied=implementer_prompt)
+    try:
+        seq = route_sequence(
+            note_path=note_path, note_display=note_display,
+            base=directive["execution_checkout"]["Base"])
+        implementer_block = recovered_implementer_return(seq=seq)
+    except (BacklogLedgerError, UnicodeError) as exc:
+        release_router_lock(router_lock)
+        print("refused router recovery: " + str(exc))
+        return 1
+    path = os.path.relpath(
+        os.path.join(RELAY_DIR, seq + "-implementer.md"), REPO_ROOT)
+    recovered_return = implementer_block is not None
+    if implementer_block is None:
+        copy_to_clipboard(implementer_prompt)
+        print("[1/" + str(total_steps) + "] " + implementer_name
+              + " instruction copied -- paste it unchanged into that "
+              "session.")
+        implementer_block = wait_for_block(
+            header="### IMPLEMENTER_HANDOFF:",
+            last_copied=implementer_prompt)
+    else:
+        print("[1/" + str(total_steps) + "] recovered the complete saved "
+              "Implementer return; no new Implementer work was requested.")
     try:
         evidence_result = validate_implementer_handoff_subagent_evidence(
             parallel_work_plan=directive["parallel_work_plan"],
             handoff_text=implementer_block)
     except DirectiveError as exc:
+        finish_route()
         release_router_lock(router_lock)
         print("refused Implementer subagent evidence: " + str(exc))
         return 1
-    seq = reserve_run_sequence()
-    path = archive(seq, archive_name, implementer_block)
-    print("      returned block saved -> " + path)
+    if not recovered_return:
+        path = archive(seq, archive_name, implementer_block)
+        print("      returned block saved -> " + path)
+    else:
+        print("      using saved return -> " + path)
 
     if not evidence_result["completion_ready"]:
         cycle = manual_capability_cycle(
@@ -1287,6 +1367,7 @@ def main():
             "- Source handoff SHA-256: `" + digest + "`\n\n"
             "### ENDS\n")
         copy_to_clipboard(architect_prompt)
+        finish_route()
         print("[checkpoint] blocked Implementer return copied to the "
               "Architect; no checks or final-GO route were started.")
         release_router_lock(router_lock)
@@ -1339,6 +1420,7 @@ def main():
         "mailbox_daemon.py create and record landing L.\n\n"
         "### ENDS\n")
     copy_to_clipboard(architect_prompt)
+    finish_route()
     print("[" + str(total_steps) + "/" + str(total_steps)
           + "] Architect return prompt copied -- paste it unchanged into "
           "the Architect session for the verdict.")

@@ -395,6 +395,91 @@ def arm_atomic_evidence_publication():
         assert complete_checkpoint
 
 
+def arm_interrupted_implementer_return_resumes():
+    """A saved return survives a stop before local checks begin."""
+    with tempfile.TemporaryDirectory(prefix="router-return-resume-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_return_resume", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        copied = []
+        module.copy_to_clipboard = copied.append
+        module.wait_for_block = lambda **_kwargs: implementer_handoff()
+        module.run_gates = lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated stop after saved return"))
+        original_argv = module.sys.argv
+        module.sys.argv = [
+            "handoff_router.py", "--note", "ai/notes/spec.md"]
+        try:
+            try:
+                module.main()
+            except RuntimeError as exc:
+                stopped = "simulated stop" in str(exc)
+            else:
+                stopped = False
+
+            reservations = Path(module.RUN_RESERVATIONS_DIR)
+            route_path = reservations / module.ROUTE_RECORD_NAME
+            assert route_path.is_file()
+            route_record = route_path.read_text(encoding="utf-8").splitlines()
+            seq = route_record[1]
+            route_directory = reservations / seq
+            archive_path = (repo / "ai" / "notes" / "relay"
+                            / (seq + "-implementer.md"))
+            original_archive = archive_path.read_bytes()
+            original_route = route_path.read_bytes()
+
+            module.wait_for_block = lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("Implementer was asked to work again"))
+            module.run_gates = lambda commands, seq, router_lock: (
+                "ai/notes/relay/" + seq + "-gates-log.md", True)
+            module.archive = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("saved Implementer return was overwritten"))
+
+            archive_path.write_text("partial evidence\n", encoding="utf-8")
+            copied.clear()
+            mutated_archive_rc = module.main()
+            archive_path.write_bytes(original_archive)
+
+            route_record = original_route.decode("utf-8").splitlines()
+            route_record[3] = "f" * 40
+            route_path.write_text(
+                "\n".join(route_record) + "\n",
+                encoding="utf-8")
+            copied.clear()
+            changed_base_rc = module.main()
+            route_path.write_bytes(original_route)
+
+            route_path.write_bytes(original_route + b"duplicate\n")
+            copied.clear()
+            duplicate_rc = module.main()
+            route_path.write_bytes(original_route)
+
+            copied.clear()
+            resumed_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+
+        complete = not route_path.exists()
+        recovered_once = (
+            resumed_rc == 0 and len(copied) == 1
+            and copied[0].startswith("### RELAY FOR AUDIT"))
+        refusals = (
+            mutated_archive_rc == 1 and changed_base_rc == 1
+            and duplicate_rc == 1)
+        print("ARM interrupted Implementer return recovery")
+        print("  first run stopped after complete archive:", stopped)
+        print("  changed archive/base and malformed route refuse:", refusals)
+        print("  restart skips Implementer and reaches Architect:",
+              recovered_once and complete)
+        assert stopped
+        assert refusals
+        assert recovered_once
+        assert complete
+
+
 def arm_clipboard_lock():
     """Show concurrent flows collide and a stale lock file is harmless."""
     with tempfile.TemporaryDirectory(prefix="router-lock-") as tmp:
@@ -821,7 +906,6 @@ def arm_subagent_evidence_validation():
             and result["archived"] == []
             and result["gates"] == []
             and result["released"]
-            and result["reservation_unchanged"]
             and ("refused Implementer subagent evidence"
                  in result["output"]
                  or "refused incomplete Architect directive"
@@ -2376,6 +2460,7 @@ def main():
     arm_cwd()
     arm_sequence_collision()
     arm_atomic_evidence_publication()
+    arm_interrupted_implementer_return_resumes()
     arm_clipboard_lock()
     arm_gate_child_keeps_router_lock()
     arm_handoff_header()
