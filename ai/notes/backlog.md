@@ -3335,6 +3335,30 @@ existing nonce and echoed-prompt tests retain the strict response boundary.
 
 ## AI roles, user controls, and handoffs
 
+### Restart cheap role work without rebuilding the Architect plan
+
+**High-level summary.** Ctrl-C can leave an Implementer or Red Team request
+outside the waiting queue with unfinished work. Recovery should discard that
+role's partial attempt and reuse the Architect's saved plan.
+
+**Current status.** **CLOSED.** This was accepted as a **HIGH BUG FIX** because
+the old manual recovery could halt normal ticket operation and invited unsafe
+file moves.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**What is already fixed.** `--restart-implementer` and `--restart-redteam`
+requeue one exact handoff. They refuse ambiguity or a completed result.
+
+**What is missing.** Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+Tests cover partial edits, exact requeueing, completed-result refusal, and the
+Architect's sealed backlog.
+</details>
+
 ### Explain every Architect candidate review in the terminal
 
 **High-level summary.** A formal `GO` or `NO-GO` says whether work advances,

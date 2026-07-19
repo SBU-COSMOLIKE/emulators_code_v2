@@ -10044,6 +10044,28 @@ def remove_audit_snapshot(cycle_id, commit, agent):
         _release_primary_lock(lock_file=lock_file)
 
 
+def discard_interrupted_audit_snapshot(cycle_id, commit, agent):
+    """Remove one exact interrupted audit checkout, including its edits."""
+    path = audit_snapshot_path(cycle_id=cycle_id, agent=agent)
+    lock_file = _open_primary_lock(repository_root=REPO_ROOT)
+    try:
+        records = registered_worktrees(repository_root=REPO_ROOT)
+        record = _record_at_path(records=records, path=path)
+        if record is None:
+            if os.path.lexists(path):
+                raise PrimaryWorktreeError(
+                    "unregistered audit path remains: " + path)
+            return
+        _validate_audit_record(record=record, path=path, commit=commit)
+        _run_git(REPO_ROOT, ["worktree", "remove", "--force", path])
+        _run_git(REPO_ROOT, ["worktree", "prune"])
+        if os.path.lexists(path):
+            raise PrimaryWorktreeError(
+                "interrupted audit checkout was not removed")
+    finally:
+        _release_primary_lock(lock_file=lock_file)
+
+
 def _exact_git_object(arguments, label):
     """Return one full Git object name from a bounded read-only command."""
     try:
@@ -11769,8 +11791,8 @@ def _symbolic_worktree_branch(worktree, expected_branch, label):
             label + " checkout left its saved branch")
 
 
-def _architect_backlog_matches_target(worktree, target):
-    """Return whether the sealed backlog is the only change and is in L."""
+def _architect_only_sealed_backlog(worktree):
+    """Return a sealed backlog when it is the Architect's only change."""
     changed = _run_git(
         repository_root=worktree,
         arguments=["diff", "--name-only", "-z", "HEAD", "--", "."])
@@ -11785,16 +11807,19 @@ def _architect_backlog_matches_target(worktree, target):
         arguments=["ls-files", "--others", "--exclude-standard", "-z",
                    "--", "."])
     if paths != {BACKLOG_RELATIVE_PATH} or untracked.stdout:
-        return False
-    target_backlog = _landing_backlog(landing_commit=target)
+        return None
     try:
-        working = stable_regular_bytes(
-            path=os.path.join(worktree, BACKLOG_RELATIVE_PATH),
-            maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
-            label="Architect backlog")
-    except (OSError, ValueError) as exc:
+        return _validate_sealed_backlog(primary_worktree=worktree)
+    except PrimaryWorktreeError as exc:
         raise TicketCycleStateError(str(exc)) from exc
-    return working == target_backlog
+
+
+def _architect_backlog_matches_target(worktree, target):
+    """Return whether the sealed backlog is the only change and is in L."""
+    working = _architect_only_sealed_backlog(worktree=worktree)
+    if working is None:
+        return False
+    return working == _landing_backlog(landing_commit=target)
 
 
 def _clear_landed_architect_backlog(worktree, target):
@@ -11866,13 +11891,17 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
             (AGENT_CWD["sol"], SOL_BRANCH, "Red Team")):
         _symbolic_worktree_branch(
             worktree=worktree, expected_branch=branch, label=label)
+        current = worktree_head(worktree=worktree)
+        sealed_overlay = (
+            _architect_only_sealed_backlog(worktree=worktree)
+            if label == "Architect" and current == target else None)
         if (_clean_worktree_status(worktree=worktree)
+                and sealed_overlay is None
                 and not (label == "Architect"
                          and _architect_backlog_matches_target(
                              worktree=worktree, target=target))):
             raise TicketCycleStateError(
                 label + " checkout has work that baseline sync would touch")
-        current = worktree_head(worktree=worktree)
         _require_ancestor_or_same(
             ancestor=current, descendant=target,
             label=label + " baseline is not an ancestor of the landing")
@@ -12968,6 +12997,164 @@ def recover_prelaunch_messages():
             recovered += 1
             print("requeued pre-launch message " + recovered_path)
         return recovered
+    finally:
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
+
+
+def restart_implementer_from_architect_handoff():
+    """Discard interrupted implementation work and requeue its exact plan."""
+    recover_interrupted_mailbox_moves()
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock Implementer restart")
+    try:
+        ticket_state = read_ticket_cycle_state()
+        matches = []
+        for directory in (
+                MAILBOX, os.path.join(MAILBOX, "inflight"),
+                os.path.join(MAILBOX, "failed"),
+                os.path.join(MAILBOX, "prelaunch")):
+            for path in glob.glob(os.path.join(directory, "*-to-opus.md")):
+                message = read_cycle_message(path=path)
+                cycle_id, mode, _body, problem = _ticket_flow_envelope(
+                    message=message)
+                active = ticket_state["active"].get(cycle_id)
+                if (problem is not None or active is None
+                        or active["phase"] != "implementation"
+                        or active["commit"] is not None
+                        or active["mode"] != mode):
+                    continue
+                if architect_handoff_problem(
+                        message=message, cycle_id=cycle_id, mode=mode) is None:
+                    matches.append((path, cycle_id))
+        if len(matches) != 1:
+            raise TicketCycleStateError(
+                "Implementer restart needs exactly one active Architect "
+                "handoff; found " + str(len(matches)))
+        handoff, cycle_id = matches[0]
+        if candidate_commit_for_cycle(cycle_id=cycle_id) is not None:
+            raise TicketCycleStateError(
+                "the Implementer already produced candidate C; return it "
+                "to the Architect instead of restarting")
+        for path in glob.glob(
+                os.path.join(MAILBOX, "**", "*-to-fable.md"),
+                recursive=True):
+            message = read_cycle_message(path=path)
+            returned_cycle, _mode, body, problem = _ticket_flow_envelope(
+                message=message)
+            if (problem is None and returned_cycle == cycle_id
+                    and "### IMPLEMENTER_HANDOFF:" in body):
+                raise TicketCycleStateError(
+                    "the Implementer already returned work for this cycle; "
+                    "send it to the Architect instead of restarting")
+
+        worktree = AGENT_CWD["opus"]
+        _symbolic_worktree_branch(
+            worktree=worktree, expected_branch=IMPLEMENTER_BRANCH,
+            label="Implementer")
+        base = cycle_starting_commit(cycle_id=cycle_id)
+        if not git_commit_exists(commit=base):
+            raise TicketCycleStateError(
+                "the Architect handoff names a missing base commit")
+        _run_git(worktree, ["reset", "--hard", base])
+        _run_git(worktree, ["clean", "-fd", "--", "."])
+        if (worktree_head(worktree=worktree) != base
+                or _clean_worktree_status(worktree=worktree)):
+            raise TicketCycleStateError(
+                "Implementer work could not be discarded cleanly")
+
+        if os.path.dirname(handoff) != MAILBOX:
+            recovered, moved = verified_state_move(
+                dispatch_path=handoff, directory=MAILBOX)
+            if not moved:
+                raise TicketCycleStateError(
+                    "the exact Architect handoff could not be requeued")
+            handoff = recovered
+        print("Architect handoff preserved: " + handoff)
+        print("Interrupted Implementer work discarded; ticket base: " + base)
+        print("Restart ready: launch --watch with the desired Implementer.")
+        return handoff
+    finally:
+        release_mailbox_sequence_lock(lock_file=sequence_lock)
+
+
+def restart_redteam_from_architect_handoff():
+    """Discard interrupted Red Team work and requeue its exact request."""
+    recover_interrupted_mailbox_moves()
+    sequence_lock = acquire_mailbox_sequence_lock()
+    if sequence_lock is None:
+        raise TicketCycleStateError("cannot lock Red Team restart")
+    try:
+        matches = []
+        for directory in (
+                MAILBOX, os.path.join(MAILBOX, "inflight"),
+                os.path.join(MAILBOX, "failed"),
+                os.path.join(MAILBOX, "prelaunch")):
+            for path in glob.glob(os.path.join(directory, "*-to-sol.md")):
+                message = read_cycle_message(path=path)
+                kind = sol_ticket_kind(message=message)
+                if kind in {"closure", "control-plane"}:
+                    matches.append((path, message, kind))
+        if len(matches) != 1:
+            raise TicketCycleStateError(
+                "Red Team restart needs exactly one active handoff; found "
+                + str(len(matches)))
+        handoff, message, kind = matches[0]
+        audit_cycle = None
+        audit_commit = None
+        if kind == "closure":
+            problem = redteam_closure_problem(message=message)
+            if problem is not None:
+                raise TicketCycleStateError(problem)
+            audit_cycle = redteam_closure_ticket(message=message)
+            audit_commit = redteam_closure_commit(message=message)
+            if any_matching_redteam_receipt(
+                    cycle_id=audit_cycle, accepted_commit=audit_commit):
+                raise TicketCycleStateError(
+                    "the Red Team already returned its review; send that "
+                    "result to the Architect instead of restarting")
+        elif kind == "control-plane":
+            audit_cycle, audit_commit, _body, problem = (
+                _redteam_control_plane_envelope(message=message))
+            if problem is not None:
+                raise TicketCycleStateError(problem)
+            control = control_plane_ticket_state(
+                cycle_id=audit_cycle, candidate_commit=audit_commit)
+            if control is None or control["architect_candidate"] != (
+                    audit_commit):
+                raise TicketCycleStateError(
+                    "the protected Red Team handoff lacks Architect GO(C)")
+            if control["redteam_result"] is not None:
+                raise TicketCycleStateError(
+                    "the protected Red Team decision is already recorded")
+
+        if audit_cycle is not None:
+            discard_interrupted_audit_snapshot(
+                cycle_id=audit_cycle, commit=audit_commit, agent="sol")
+        worktree = AGENT_CWD["sol"]
+        _symbolic_worktree_branch(
+            worktree=worktree, expected_branch=SOL_BRANCH, label="Red Team")
+        target = _exact_git_object(
+            arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+            label="current main commit")
+        _run_git(worktree, ["reset", "--hard", target])
+        _run_git(worktree, ["clean", "-fd", "--", "."])
+        if (worktree_head(worktree=worktree) != target
+                or _clean_worktree_status(worktree=worktree)):
+            raise TicketCycleStateError(
+                "Red Team work could not be discarded cleanly")
+
+        if os.path.dirname(handoff) != MAILBOX:
+            recovered, moved = verified_state_move(
+                dispatch_path=handoff, directory=MAILBOX)
+            if not moved:
+                raise TicketCycleStateError(
+                    "the exact Red Team handoff could not be requeued")
+            handoff = recovered
+        print("Architect-to-Red-Team handoff preserved: " + handoff)
+        print("Interrupted Red Team work discarded; baseline: " + target)
+        print("Restart ready: launch --watch with Red Team enabled.")
+        return handoff
     finally:
         release_mailbox_sequence_lock(lock_file=sequence_lock)
 
@@ -15916,6 +16103,14 @@ def main():
         help="permanently discard every local AI worktree and local "
              "claude/*, codex/*, or legacy worktree-agent-* branch; "
              "dirty files and unmerged commits in those worktrees are lost")
+    parser.add_argument(
+        "--restart-implementer", action="store_true",
+        help="after an interrupted Implementer turn, discard its partial "
+             "work and requeue the exact Architect handoff")
+    parser.add_argument(
+        "--restart-redteam", action="store_true",
+        help="after an interrupted Red Team turn, discard its partial work "
+             "and requeue the exact Architect-to-Red-Team handoff")
     parser.add_argument("--watch", action="store_true",
                         help="check the mailbox every 20 seconds and start "
                              "waiting requests")
@@ -16068,12 +16263,14 @@ def main():
         bool(args.once),
         bool(args.watch),
         bool(args.clean_all),
+        bool(args.restart_implementer),
+        bool(args.restart_redteam),
         args.send is not None,
         bool(args.ping),
     ))
     if primary_actions > 1:
         print("choose only one primary action: --once, --watch, --clean-all, "
-              "--send, or --ping")
+              "--restart-implementer, --restart-redteam, --send, or --ping")
         return 1
     if args.watch and args.dry_run:
         print("--dry-run is finite and cannot be combined with --watch")
@@ -16081,6 +16278,11 @@ def main():
     if args.clean_all and args.dry_run:
         print("--clean-all is already an explicit destructive action and "
               "cannot be combined with --dry-run")
+        return 1
+    if ((args.restart_implementer or args.restart_redteam)
+            and args.dry_run):
+        print("restart commands explicitly discard one role's partial work "
+              "and cannot be combined with --dry-run")
         return 1
 
     # Cleanup must run before primary selection: ambiguous old mailbox stores
@@ -16128,6 +16330,24 @@ def main():
         except (OSError, RuntimeError, ValueError) as exc:
             print("role contract error: " + str(exc))
             return 1
+
+    if args.restart_implementer or args.restart_redteam:
+        dispatch_lock = acquire_dispatch_lock(mode="once")
+        if dispatch_lock is None:
+            return 1
+        try:
+            try:
+                if args.restart_implementer:
+                    restart_implementer_from_architect_handoff()
+                else:
+                    restart_redteam_from_architect_handoff()
+            except (OSError, ValueError, PrimaryWorktreeError,
+                    TicketCycleStateError) as exc:
+                print("role restart refused: " + str(exc))
+                return 1
+        finally:
+            release_dispatch_lock(lock_file=dispatch_lock)
+        return 0
 
     fix_only = args.fix_only is True
     skip_redteam = args.skip_redteam
@@ -16517,7 +16737,8 @@ def main():
                     release_cycle_completion_barrier(
                         lock_file=cycle_completion_barrier)
 
-    print("choose one of --dry-run / --once / --watch / --send (see --help)")
+    print("choose an action such as --watch, --send, or --restart-implementer "
+          "(see --help)")
     return 1
 
 

@@ -136,6 +136,26 @@ Do not interrupt while a role is running or the watcher is preparing to start
 one. [FAQ B1](#appendix-b--when-is-it-safe-to-stop-the-watcher) explains each
 stop-related message.
 
+### Restart after an accidental Ctrl-C
+
+If Ctrl-C stopped the Implementer, preserve the Architect's plan and discard
+only the partial implementation:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --restart-implementer
+```
+
+If Ctrl-C stopped the Red Team, preserve its exact review request and discard
+only the interrupted review work:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --restart-redteam
+```
+
+Each command discards partial work only for the named role, requeues the saved
+handoff, and tells the user when `--watch` may start again. It refuses when a
+completed result already exists because that result belongs to the Architect.
+
 ### Choose another program only when needed
 
 | What you want to do | Program | First command | Effect |
@@ -181,6 +201,8 @@ For a first run, remember this shorter rule:
   not write a mailbox file or start a ticket.
 - `--watch` and `--once` may create AI work folders, start roles, move request
   files, and write workflow records.
+- `--restart-implementer` and `--restart-redteam` discard the named role's
+  partial work and requeue its exact saved handoff.
 - `--clean-all` permanently discards the extra local work folders and local
   branches created for AI roles.
 
@@ -852,7 +874,8 @@ The current transcript is kept here for offline reading and regression checks.
 <summary>Current <code>mailbox_daemon.py --help</code> transcript</summary>
 
 ```
-usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all] [--watch]
+usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all]
+                         [--restart-implementer] [--restart-redteam] [--watch]
                          [--cycle count] [--max characters] [--skip-redteam]
                          [--fix-only value] [--send {architect}] [--ping]
                          [--unit UNIT] [--severity {high,medium,low}]
@@ -875,6 +898,12 @@ options:
                         claude/*, codex/*, or legacy worktree-agent-* branch;
                         dirty files and unmerged commits in those worktrees
                         are lost
+  --restart-implementer
+                        after an interrupted Implementer turn, discard its
+                        partial work and requeue the exact Architect handoff
+  --restart-redteam     after an interrupted Red Team turn, discard its
+                        partial work and requeue the exact Architect-to-Red-
+                        Team handoff
   --watch               check the mailbox every 20 seconds and start waiting
                         requests
   --cycle count         with --watch, stop after this many completed ticket
@@ -954,11 +983,14 @@ options:
 
 ### Action rules
 
-- Choose only one of `--once`, `--watch`, `--clean-all`, `--send`, and
-  `--ping` in one command.
+- Choose only one of `--once`, `--watch`, `--clean-all`,
+  `--restart-implementer`, `--restart-redteam`, `--send`, and `--ping` in one
+  command.
 - `--clean-all` cannot be combined with `--dry-run`. The explicit flag is the
   user's instruction to discard all local AI work, including dirty or
   unmerged work.
+- A restart command cannot be combined with `--dry-run`. It is the user's
+  explicit instruction to discard partial work by the named role.
 - `--cycle` accepts an integer from 0 through 1,000,000 and is valid only with
   `--watch`.
 - Omitting `--cycle` watches indefinitely. `--cycle 0` instead waits until the
