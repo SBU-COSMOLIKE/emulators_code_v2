@@ -397,6 +397,201 @@ def arm_atomic_evidence_publication():
         assert complete_checkpoint
 
 
+def arm_recovery_evidence_size_limit():
+    """Never publish a supporting copy that recovery must refuse."""
+    with tempfile.TemporaryDirectory(prefix="router-evidence-size-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+            root, "scratch_router_evidence_size", linked=True)
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+        module.MAX_BACKLOG_BYTES = 4096
+
+        implementer_seq = module.reserve_run_sequence(
+            stamp="20000101-000000")
+        implementer_text = "### IMPLEMENTER_HANDOFF: COMPLETE\n"
+        implementer_path = repo / module.archive(
+            implementer_seq, "implementer", implementer_text)
+        implementer_roundtrip = (
+            module.recovered_implementer_return(implementer_seq)
+            == implementer_text)
+
+        gate_seq = module.reserve_run_sequence(stamp="20000101-000001")
+        router_lock = module.acquire_router_lock()
+        try:
+            gate_path, gate_passed = module.run_gates(
+                ["printf gate-ok"], gate_seq, router_lock)
+        finally:
+            module.release_router_lock(router_lock)
+        gate_roundtrip = (
+            gate_passed
+            and module.recovered_gate_result(
+                gate_seq, ["printf gate-ok"]) == (gate_path, True))
+
+        oversized_seq = module.reserve_run_sequence(
+            stamp="20000101-000002")
+        oversized_path = (Path(module.RELAY_DIR)
+                          / (oversized_seq + "-implementer.md"))
+        try:
+            module.archive(
+                oversized_seq, "implementer",
+                "### IMPLEMENTER_HANDOFF: COMPLETE\n" + "é" * 4096)
+        except module.BacklogLedgerError as exc:
+            oversized_refused = "too large" in str(exc)
+        else:
+            oversized_refused = False
+        no_unreadable_file = (
+            not oversized_path.exists()
+            and not list(Path(module.RELAY_DIR).glob(
+                "." + oversized_path.name + ".tmp-*")))
+
+        print("ARM recovery evidence size limit")
+        print("  Implementer copy can be read after publication:",
+              implementer_roundtrip)
+        print("  gate copy can be read after publication:", gate_roundtrip)
+        print("  oversized UTF-8 copy refuses before publication:",
+              oversized_refused and no_unreadable_file)
+        assert implementer_roundtrip
+        assert gate_roundtrip
+        assert oversized_refused
+        assert no_unreadable_file
+
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        candidate = None
+
+        def commit_then_return_oversized(**_kwargs):
+            nonlocal candidate
+            run_git(repo, "commit", "--allow-empty", "-q", "-m",
+                    "candidate")
+            candidate = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+            return (implementer_handoff(candidate=candidate)
+                    + "\n" + "é" * 4096)
+
+        module.copy_to_clipboard = lambda _text: None
+        original_argv = module.sys.argv
+        module.sys.argv = [
+            "handoff_router.py", "--note", "ai/notes/spec.md",
+            "--gate-cmd", "printf gate-ok"]
+        first_stream = io.StringIO()
+        try:
+            module.wait_for_block = lambda **_kwargs: implementer_handoff(
+                candidate="f" * 40)
+            false_candidate_stream = io.StringIO()
+            with contextlib.redirect_stdout(false_candidate_stream):
+                false_candidate_rc = module.main()
+            false_record = module.active_route_record()
+            false_candidate_refused = (
+                false_candidate_rc == 1 and len(false_record) == 6
+                and run_git(repo, "rev-parse", "HEAD").stdout.strip()
+                == base)
+            module.finish_route()
+
+            module.wait_for_block = commit_then_return_oversized
+            with contextlib.redirect_stdout(first_stream):
+                first_rc = module.main()
+            route_path = (Path(module.RUN_RESERVATIONS_DIR)
+                          / module.ROUTE_RECORD_NAME)
+            saved_route = route_path.read_text(
+                encoding="utf-8").splitlines()
+            routed_seq = saved_route[1]
+            routed_archive = (Path(module.RELAY_DIR)
+                              / (routed_seq + "-implementer.md"))
+            oversized_route_is_retryable = (
+                first_rc == 1 and len(saved_route) == 8
+                and saved_route[0] == "route-v3"
+                and saved_route[6] == candidate
+                and not routed_archive.exists()
+                and "too large" in first_stream.getvalue())
+
+            run_git(repo, "reset", "--hard", "-q", base)
+            module.wait_for_block = lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("reset checkout reached the clipboard"))
+            reset_stream = io.StringIO()
+            with contextlib.redirect_stdout(reset_stream):
+                reset_rc = module.main()
+            reset_checkout_refused = (
+                reset_rc == 1 and not routed_archive.exists()
+                and route_path.read_text(encoding="utf-8").splitlines()
+                == saved_route)
+            run_git(repo, "reset", "--hard", "-q", candidate)
+
+            shorter_return = implementer_handoff(candidate=candidate)
+            module.remember_candidate_return(
+                routed_seq, candidate, shorter_return)
+            module.archive(routed_seq, "implementer", shorter_return)
+            route_before_tamper = route_path.read_bytes()
+            archive_before_tamper = routed_archive.read_bytes()
+
+            def changed_archive_refuses(payload):
+                routed_archive.write_bytes(payload)
+                try:
+                    module.recovered_candidate_commit(
+                        note_path=str(note), note_display="ai/notes/spec.md",
+                        base=base, commands=["printf gate-ok"])
+                except module.BacklogLedgerError:
+                    return route_path.read_bytes() == route_before_tamper
+                return False
+
+            same_candidate_change_refused = changed_archive_refuses(
+                archive_before_tamper + b"changed prose\n")
+            different_archive_candidate_refused = changed_archive_refuses(
+                archive_before_tamper.replace(
+                    candidate.encode("ascii"), b"f" * 40, 1))
+            routed_archive.write_bytes(archive_before_tamper)
+            exact_archive_recovers = (
+                module.recovered_candidate_commit(
+                    note_path=str(note), note_display="ai/notes/spec.md",
+                    base=base, commands=["printf gate-ok"])
+                == candidate)
+            routed_archive.unlink()
+            saved_route = route_path.read_text(
+                encoding="utf-8").splitlines()
+
+            module.wait_for_block = lambda **_kwargs: implementer_handoff(
+                candidate="f" * 40)
+            mismatch_stream = io.StringIO()
+            with contextlib.redirect_stdout(mismatch_stream):
+                mismatch_rc = module.main()
+            different_candidate_refused = (
+                mismatch_rc == 1 and not routed_archive.exists()
+                and route_path.read_text(encoding="utf-8").splitlines()
+                == saved_route)
+
+            module.wait_for_block = lambda **_kwargs: shorter_return
+            final_stream = io.StringIO()
+            with contextlib.redirect_stdout(final_stream):
+                final_rc = module.main()
+            shorter_retry_completed = (
+                final_rc == 0 and not route_path.exists()
+                and module.recovered_implementer_return(routed_seq)
+                == shorter_return)
+        finally:
+            module.sys.argv = original_argv
+
+        print("  oversized candidate survives restart:",
+              oversized_route_is_retryable)
+        print("  uncommitted named candidate refuses:",
+              false_candidate_refused)
+        print("  reset candidate checkout refuses:", reset_checkout_refused)
+        print("  changed saved return refuses:",
+              same_candidate_change_refused
+              and different_archive_candidate_refused
+              and exact_archive_recovers)
+        print("  replacement cannot change candidate:",
+              different_candidate_refused)
+        print("  shorter return for same candidate completes:",
+              shorter_retry_completed)
+        assert oversized_route_is_retryable
+        assert false_candidate_refused
+        assert reset_checkout_refused
+        assert same_candidate_change_refused
+        assert different_archive_candidate_refused
+        assert exact_archive_recovers
+        assert different_candidate_refused
+        assert shorter_retry_completed
+
+
 def arm_interrupted_implementer_return_resumes():
     """A saved return survives a stop before local checks begin."""
     with tempfile.TemporaryDirectory(prefix="router-return-resume-") as tmp:
@@ -2724,6 +2919,7 @@ def main():
     arm_cwd()
     arm_sequence_collision()
     arm_atomic_evidence_publication()
+    arm_recovery_evidence_size_limit()
     arm_interrupted_implementer_return_resumes()
     arm_explicit_route_abandonment()
     arm_abandonment_is_serialized_with_recovery()

@@ -576,12 +576,18 @@ def active_route_record():
     except UnicodeError as exc:
         raise BacklogLedgerError(
             "router recovery record is not UTF-8") from exc
-    if (len(record) != 6 or record[0] != "route-v2"
+    valid_shape = (
+        (len(record) == 6 and record[0] == "route-v2")
+        or (len(record) == 8 and record[0] == "route-v3"))
+    if (not valid_shape
             or re.fullmatch(
                 r"[0-9]{8}-[0-9]{6}(?:-[0-9]+)?", record[1]) is None
             or re.fullmatch(r"[0-9a-f]{40}", record[3]) is None
             or re.fullmatch(r"[0-9a-f]{64}", record[4]) is None
             or re.fullmatch(r"[0-9a-f]{64}", record[5]) is None
+            or (len(record) == 8 and (
+                re.fullmatch(r"[0-9a-f]{40}", record[6]) is None
+                or re.fullmatch(r"[0-9a-f]{64}", record[7]) is None))
             or data != ("\n".join(record) + "\n").encode("utf-8")):
         raise BacklogLedgerError("router recovery record is malformed")
     try:
@@ -604,7 +610,7 @@ def route_sequence(note_path, note_display, base, commands, create=True):
     os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
     record = active_route_record()
     if record is not None:
-        if record[2:] != (
+        if record[2:6] != (
                 note_display, base, note_digest, commands_digest):
             raise BacklogLedgerError(
                 "an unfinished route names a different note, version, or "
@@ -670,10 +676,35 @@ def recovered_candidate_commit(note_path, note_display, base, commands):
         note_path, note_display, base, commands, create=False)
     if seq is None:
         return None
+    record = active_route_record()
     handoff = recovered_implementer_return(seq)
     if handoff is None:
-        return None
-    return implementer_candidate_commit(handoff)
+        return record[6] if len(record) == 8 else None
+    candidate = implementer_candidate_commit(handoff)
+    if (len(record) == 8 and (
+            candidate != record[6]
+            or hashlib.sha256(handoff.encode("utf-8")).hexdigest()
+            != record[7])):
+        raise BacklogLedgerError(
+            "saved Implementer return changed after candidate binding")
+    return candidate
+
+
+def remember_candidate_return(seq, candidate, handoff):
+    """Bind an accepted candidate before publishing its full return."""
+    record = active_route_record()
+    if record is None or record[1] != seq:
+        raise BacklogLedgerError("active route changed before candidate save")
+    if len(record) == 8 and record[6] != candidate:
+        raise BacklogLedgerError(
+            "replacement Implementer return names a different candidate")
+    saved_handoff = handoff if handoff.endswith("\n") else handoff + "\n"
+    fields = ("route-v3",) + record[1:6] + (
+        candidate,
+        hashlib.sha256(saved_handoff.encode("utf-8")).hexdigest())
+    publish_complete_text(
+        path=os.path.join(RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME),
+        text="\n".join(fields) + "\n")
 
 
 def finish_route():
@@ -844,6 +875,9 @@ def archive(seq, name, text):
     path = os.path.join(RELAY_DIR, seq + "-" + name + ".md")
     payload = (SUPPORTING_COPY_PREFIX
                + text + ("" if text.endswith("\n") else "\n"))
+    if len(payload.encode("utf-8")) > MAX_BACKLOG_BYTES:
+        raise BacklogLedgerError(
+            "supporting copy is too large for safe recovery")
     publish_complete_text(path=path, text=payload)
     return os.path.relpath(path, REPO_ROOT)
 
@@ -1049,12 +1083,16 @@ def verify_execution_checkout(checkout, recovered_candidate=None):
             + checkout["Branch"] + ", found " + actual_ref)
     base = checkout["Base"].lower()
     actual_head = git_value(["rev-parse", "HEAD"], "base").lower()
-    if actual_head == base:
-        return
-    if actual_head != recovered_candidate:
+    if recovered_candidate is None:
+        if actual_head == base:
+            return
         raise DirectiveError(
             "Execution checkout Base mismatch: expected "
             + checkout["Base"] + ", found " + actual_head)
+    if actual_head != recovered_candidate:
+        raise DirectiveError(
+            "Execution checkout Base mismatch: expected "
+            + recovered_candidate + ", found " + actual_head)
     merge_base = git_value(
         ["merge-base", base, recovered_candidate], "candidate ancestry")
     if merge_base.lower() != base:
@@ -1534,8 +1572,30 @@ def main():
         release_router_lock(router_lock)
         print("refused Implementer subagent evidence: " + str(exc))
         return 1
+    if evidence_result["completion_ready"]:
+        try:
+            candidate = implementer_candidate_commit(implementer_block)
+            if (recovered_candidate is not None
+                    and candidate != recovered_candidate):
+                raise BacklogLedgerError(
+                    "replacement Implementer return names a different "
+                    "candidate")
+            if candidate is not None:
+                verify_execution_checkout(
+                    checkout=directive["execution_checkout"],
+                    recovered_candidate=candidate)
+                remember_candidate_return(seq, candidate, implementer_block)
+        except (BacklogLedgerError, DirectiveError) as exc:
+            release_router_lock(router_lock)
+            print("refused Implementer candidate: " + str(exc))
+            return 1
     if not recovered_return:
-        path = archive(seq, archive_name, implementer_block)
+        try:
+            path = archive(seq, archive_name, implementer_block)
+        except BacklogLedgerError as exc:
+            release_router_lock(router_lock)
+            print("refused Implementer return: " + str(exc))
+            return 1
         print("      returned block saved -> " + path)
     else:
         print("      using saved return -> " + path)
@@ -1575,8 +1635,13 @@ def main():
         return 1
     if saved_gates is None:
         print("[2/" + str(total_steps) + "] running the local checks:")
-        log_path, all_green = run_gates(
-            commands=commands, seq=seq, router_lock=router_lock)
+        try:
+            log_path, all_green = run_gates(
+                commands=commands, seq=seq, router_lock=router_lock)
+        except BacklogLedgerError as exc:
+            release_router_lock(router_lock)
+            print("refused local check log: " + str(exc))
+            return 1
     else:
         log_path, all_green = saved_gates
         print("[2/" + str(total_steps) + "] recovered the complete saved "
