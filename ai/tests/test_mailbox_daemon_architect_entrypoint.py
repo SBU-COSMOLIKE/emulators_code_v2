@@ -49,6 +49,33 @@ def install_maintenance_architect_child(daemon, mailbox, plan_count):
         sys.executable, "-c", child, str(mailbox), str(plan_count)]
 
 
+def install_architect_child_with_concurrent_user_requests(
+        daemon, mailbox, user_requests):
+    """Publish one bound plan while independent user requests arrive."""
+    daemon.capture_persistent_role_state = (
+        lambda agent: {"base": BASE_COMMIT, "agent": agent})
+    daemon.recheck_persistent_role_state = lambda proof: proof
+    daemon.worktree_head = lambda worktree: BASE_COMMIT
+    daemon._validate_current_protected_primary_state = (
+        lambda primary_worktree: None)
+    cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+    child = (
+        "import os, pathlib, sys\n"
+        "mailbox = pathlib.Path(sys.argv[1])\n"
+        "token = os.environ['MAILBOX_ARCHITECT_ADMISSION']\n"
+        "plan = ('MAILBOX-FLOW: ticket\\nMAILBOX-CYCLE: "
+        + cycle
+        + "\\nMAILBOX-MODE: normal\\n\\nMAILBOX-ADMISSION: ' "
+        "+ token + '\\nImplement the selected bug.\\n')\n"
+        "(mailbox / '0014-to-opus.md').write_text("
+        "plan, encoding='utf-8', newline='')\n"
+        "for index, payload in enumerate(sys.argv[2:], start=14):\n"
+        "    (mailbox / ('%04d-to-fable.md' % index)).write_text(\n"
+        "        payload, encoding='utf-8', newline='')\n")
+    daemon.AGENT_COMMANDS["fable"] = [
+        sys.executable, "-c", child, str(mailbox), *user_requests]
+
+
 class MailboxArchitectEntrypointTests(unittest.TestCase):
     """Pin the public role boundary without narrowing internal routing."""
 
@@ -661,6 +688,123 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 "[dry-run] would dispatch 0004-to-fable.md ->",
                 stream.getvalue())
             self.assertTrue(continuation.is_file())
+
+    def test_concurrent_user_requests_are_not_architect_outputs(self):
+        requests = [
+            "Explain the README sentence.",
+            "Open the ordinary-send idempotency bug.",
+            "Correct that bug's severity to High.",
+        ]
+        payloads = [
+            "MAILBOX-SEVERITY: high\nMAILBOX-SCOPE: bounded\n\n"
+            + request + "\n"
+            for request in requests
+        ]
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            admitted = mailbox / "0013-to-fable.md"
+            admitted.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            install_architect_child_with_concurrent_user_requests(
+                daemon=daemon, mailbox=mailbox, user_requests=payloads)
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=5, ticket_cycle_topology="normal")
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=5, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[str(admitted)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertTrue(outcome)
+            self.assertTrue((mailbox / "done" / admitted.name).is_file())
+            self.assertTrue((mailbox / "0014-to-opus.md").is_file())
+            for index, payload in enumerate(payloads, start=14):
+                path = mailbox / ("%04d-to-fable.md" % index)
+                self.assertEqual(read_text_exact(path), payload)
+                self.assertFalse(
+                    (mailbox / "failed" / path.name).exists())
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["architect_admissions"], {})
+            self.assertIn(
+                "scratch-high-bug-fix-1@" + BASE_COMMIT,
+                daemon.read_ticket_cycle_state()["active"])
+
+    def test_restart_recovers_bound_plan_and_concurrent_user_requests(self):
+        with scratch_daemon(open_count=1) as (daemon, root, mailbox, _):
+            failed = mailbox / "failed"
+            failed.mkdir()
+            admitted = failed / "0013-to-fable.md"
+            admitted.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            digest = daemon.hashlib.sha256(admitted.read_bytes()).hexdigest()
+            token = daemon.architect_admission_token(
+                request_name=admitted.name, digest=digest)
+            plan = failed / "0014-to-opus.md"
+            plan.write_text(
+                "MAILBOX-FLOW: ticket\n"
+                "MAILBOX-CYCLE: scratch-high-bug-fix-1@" + BASE_COMMIT
+                + "\nMAILBOX-MODE: normal\n\n"
+                "MAILBOX-ADMISSION: " + token + "\n"
+                "- **Directive:** [ai/notes/ticket.md, section "
+                "Implementation directive]\n",
+                encoding="utf-8", newline="")
+            payloads = [
+                daemon.architect_user_request_payload(text)
+                for text in (
+                    "Explain the README sentence.",
+                    "Open the ordinary-send idempotency bug.",
+                    "Correct that bug's severity to High.",
+                )
+            ]
+            collateral = []
+            for index, payload in enumerate(payloads, start=14):
+                path = failed / ("%04d-to-fable.md" % index)
+                path.write_text(payload, encoding="utf-8", newline="")
+                collateral.append(path)
+            state = daemon.read_ticket_cycle_state()
+            state["architect_admissions"][admitted.name] = {
+                "mode": "normal", "sequence": 13, "sha256": digest}
+            daemon.write_ticket_cycle_state(state=state)
+
+            call_order = []
+            recover_outcome = daemon.recover_failed_architect_outcome
+            recover_maintenance = daemon.recover_failed_maintenance_admission
+
+            def recorded_outcome():
+                call_order.append("outcome")
+                return recover_outcome()
+
+            def recorded_maintenance():
+                call_order.append("maintenance")
+                return recover_maintenance()
+
+            daemon.recover_failed_architect_outcome = recorded_outcome
+            daemon.recover_failed_maintenance_admission = recorded_maintenance
+            daemon.recover_before_dispatch(fix_only=True)
+
+            self.assertEqual(call_order[:2], ["outcome", "maintenance"])
+            self.assertTrue((mailbox / "done" / admitted.name).is_file())
+            self.assertTrue((mailbox / plan.name).is_file())
+            for failed_path, payload in zip(collateral, payloads):
+                restored = mailbox / failed_path.name
+                self.assertEqual(read_text_exact(restored), payload)
+                self.assertFalse(failed_path.exists())
+            recovered_state = daemon.read_ticket_cycle_state()
+            self.assertEqual(recovered_state["architect_admissions"], {})
+            self.assertIn(
+                "scratch-high-bug-fix-1@" + BASE_COMMIT,
+                recovered_state["active"])
+            self.assertFalse(admitted.exists())
+            self.assertFalse(plan.exists())
+
+            before_repeat = tree_snapshot(root)
+            call_order.clear()
+            daemon.recover_before_dispatch(fix_only=True)
+            self.assertEqual(call_order[:2], ["outcome", "maintenance"])
+            self.assertEqual(tree_snapshot(root), before_repeat)
 
     def test_fix_only_request_refuses_two_implementer_plans(self):
         with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):

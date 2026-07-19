@@ -5542,6 +5542,15 @@ def split_architect_admission_token(token):
     return request_name, digest
 
 
+def message_claims_architect_admission(path, token):
+    """Return whether one mailbox file names this exact public request."""
+    try:
+        message = read_cycle_message(path=path)
+    except (OSError, ValueError, TicketCycleStateError):
+        return False
+    return MAILBOX_ADMISSION_HEADER + token in message.splitlines()
+
+
 def architect_admission_prompt(token):
     """Tell one public Architect turn how to bind its single outcome."""
     if token is None:
@@ -8315,6 +8324,10 @@ def dispatch_under_main_checkout_lock(
                          "failed-state move was not verified."))
                 return False
             if architect_admission is not None:
+                fresh_fable = [
+                    path for path in fresh_fable
+                    if message_claims_architect_admission(
+                        path=path, token=architect_admission)]
                 fresh_outputs = (
                     fresh_opus + fresh_sol + fresh_user
                     + fresh_fable + fresh_daemon)
@@ -10884,6 +10897,75 @@ def recover_failed_public_architect_admissions():
     return recovered
 
 
+def recover_failed_architect_outcome():
+    """Restore paid work parked with newer user mail."""
+    lock_file = acquire_mailbox_sequence_lock()
+    if lock_file is None:
+        raise TicketCycleStateError("cannot lock outcome recovery")
+    try:
+        admissions = read_ticket_cycle_state()["architect_admissions"]
+        recovered = 0
+        failed = os.path.join(MAILBOX, "failed")
+        for request_name, record in admissions.items():
+            request_path = os.path.join(failed, request_name)
+            if not os.path.lexists(request_path):
+                continue
+            request = read_cycle_message(path=request_path)
+            if request != ARCHITECT_FIX_ONLY_REQUEST:
+                continue
+            if (hashlib.sha256(request.encode("utf-8")).hexdigest()
+                    != record["sha256"]):
+                raise TicketCycleStateError("failed request changed identity")
+            token = architect_admission_token(
+                request_name=request_name, digest=record["sha256"])
+            outcomes = [
+                path for directory in (failed,
+                    os.path.join(MAILBOX, "prelaunch"))
+                for path in glob.glob(os.path.join(directory, "*-to-opus.md"))
+                if message_claims_architect_admission(path, token)]
+            if not outcomes:
+                continue
+            if len(outcomes) != 1:
+                raise TicketCycleStateError(
+                    "multiple bound outcomes")
+            outcome_path = outcomes[0]
+            outcome = read_cycle_message(path=outcome_path)
+            if os.path.dirname(outcome_path) == failed:
+                outcome_path, moved = verified_state_move(
+                    dispatch_path=outcome_path,
+                    directory=os.path.join(MAILBOX, "prelaunch"))
+                if not moved:
+                    raise TicketCycleStateError(
+                        "could not preserve recovered plan")
+            for path in glob.glob(os.path.join(failed, "*-to-fable.md")):
+                name = os.path.basename(path)
+                if (name in admissions or message_sequence(path)
+                        < message_sequence(outcome_path)):
+                    continue
+                message = read_cycle_message(path=path)
+                if architect_user_request_problem(message) is not None:
+                    continue
+                _restored, moved = verified_state_move(
+                    dispatch_path=path, directory=MAILBOX)
+                if not moved:
+                    raise TicketCycleStateError(
+                        "could not restore user request " + name)
+            register_ticket_cycle_message(
+                agent="opus", message=outcome,
+                skip_redteam=(record["mode"] == "two-role"),
+                architect_admission=token,
+                implementer_request_name=os.path.basename(outcome_path))
+            if not archive_consumed_message(dispatch_path=request_path):
+                raise TicketCycleStateError(
+                    "could not archive completed request")
+            recovered += 1
+            print("recovered " + os.path.basename(outcome_path)
+                  + " without rerunning " + request_name)
+        return recovered
+    finally:
+        release_mailbox_sequence_lock(lock_file=lock_file)
+
+
 def recover_prelaunch_messages():
     """Requeue requests durably retained before any agent process started."""
     sequence_lock = acquire_mailbox_sequence_lock()
@@ -10990,6 +11072,7 @@ def recover_interrupted_mailbox_moves():
 def recover_before_dispatch(fix_only=False):
     """Recover restart-safe mailbox state before a live dispatch pass."""
     recover_interrupted_mailbox_moves()
+    recover_failed_architect_outcome()
     if fix_only:
         recover_failed_maintenance_admission()
     recover_implementer_deliveries()
