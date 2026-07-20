@@ -3962,6 +3962,8 @@ IMPLEMENTER_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: CHECKPOINT")
 IMPLEMENTER_BUDGET_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: BUDGET BLOCKED")
+ARCHITECT_BUDGET_REPAIR_HEADING = (
+    "### ARCHITECT_HANDOFF: BUDGET CHECKPOINT — REVISED DIRECTIVE")
 CONTEXT_HANDOFF_HEADING = "### IMPLEMENTER_HANDOFF: CONTEXT HANDOFF"
 CONTEXT_HANDOFF_FIELDS = (
     "Ticket and cycle",
@@ -4421,7 +4423,9 @@ def agent_preamble(agent, message=None):
                     "IMPLEMENTER BUDGET CHECKPOINT: the exact candidate is "
                     "preserved but cannot receive GO. Inspect why it exceeds "
                     "the binding character limit. Send one same-cycle "
-                    "Implementer handoff with exactly one Directive row and "
+                    "Implementer handoff beginning exactly `"
+                    + ARCHITECT_BUDGET_REPAIR_HEADING
+                    + "`, with exactly one Directive row and "
                     "exactly `- **Checkpoint decision:** `NO-GO``. Revise "
                     "the plan to reduce the change; do not raise the saved "
                     "limit or discard required behavior silently.\n\n")
@@ -4709,6 +4713,8 @@ def architect_handoff_problem(message, cycle_id, mode, checkpoint=False,
     if len(decision_rows) != 1 or decision_rows[0] not in accepted_rows:
         return "checkpoint handoff requires exactly one GO or NO-GO row"
     if budget:
+        if not is_architect_budget_repair(body):
+            return "budget checkpoint requires its exact revised-plan heading"
         if decision_rows[0] != (IMPLEMENTER_CHECKPOINT_DECISION_PREFIX
                                 + " `NO-GO`"):
             return "budget checkpoint requires a NO-GO repair decision"
@@ -5327,6 +5333,12 @@ def is_implementer_budget_checkpoint(body):
     """Return whether a clean candidate exceeded the binding size limit."""
     return (isinstance(body, str) and body.splitlines()[:1]
             == [IMPLEMENTER_BUDGET_CHECKPOINT_HEADING])
+
+
+def is_architect_budget_repair(body):
+    """Return whether the Architect replaced an over-limit plan."""
+    return (isinstance(body, str) and body.splitlines()[:1]
+            == [ARCHITECT_BUDGET_REPAIR_HEADING])
 
 
 def is_implementer_time_checkpoint(body):
@@ -8277,6 +8289,7 @@ def dispatch_under_main_checkout_lock(
     flow_mode = None
     architect_checkpoint_audit = False
     architect_budget_audit = False
+    implementer_budget_repair = False
     integration_revalidation = None
     if message.startswith(MAILBOX_FLOW_HEADER):
         _, flow_mode, flow_body, flow_problem = _ticket_flow_envelope(
@@ -8291,6 +8304,8 @@ def dispatch_under_main_checkout_lock(
         architect_budget_audit = (
             architect_checkpoint_audit
             and is_implementer_budget_checkpoint(flow_body))
+        implementer_budget_repair = (
+            agent == "opus" and is_architect_budget_repair(flow_body))
         if flow_problem is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": "
@@ -8595,7 +8610,8 @@ def dispatch_under_main_checkout_lock(
                 cycle_id=registered_cycle_id, mode=flow_mode)
             implementer_starting_head = prepare_implementer_cycle_checkout(
                 cycle_id=registered_cycle_id,
-                preserve_current=replacement_context_path is not None)
+                preserve_current=replacement_context_path is not None,
+                restart_from_base=implementer_budget_repair)
             implementer_authority_before = implementer_authority_snapshot()
         elif (agent == "fable" and registered_cycle_id is not None):
             audit_commit = candidate_commit_for_cycle(
@@ -9089,7 +9105,8 @@ def dispatch_under_main_checkout_lock(
                             return_path=implementer_return))
                 candidate = record_implementer_candidate(
                     cycle_id=registered_cycle_id,
-                    starting_head=implementer_starting_head)
+                    starting_head=implementer_starting_head,
+                    replace_prior=implementer_budget_repair)
             except (OSError, ValueError, PrimaryWorktreeError,
                     TicketCycleStateError) as exc:
                 if implementer_delivery_receipt is not None:
@@ -10033,7 +10050,8 @@ def worktree_head(worktree):
     return commit
 
 
-def prepare_implementer_cycle_checkout(cycle_id, preserve_current=False):
+def prepare_implementer_cycle_checkout(
+        cycle_id, preserve_current=False, restart_from_base=False):
     """Select the cycle tip, or preserve a validated context checkpoint."""
     lock_file = acquire_ticket_cycle_lock()
     try:
@@ -10047,6 +10065,7 @@ def prepare_implementer_cycle_checkout(cycle_id, preserve_current=False):
             cycle_id=cycle_id, ticket_state=ticket_state,
             candidate_state=candidate_state)
         target = (record["commit"] if record is not None
+                  and not restart_from_base
                   else cycle_starting_commit(cycle_id))
         worktree = AGENT_CWD["opus"]
         if preserve_current:
@@ -10165,7 +10184,8 @@ def candidate_scope_for_cycle(cycle_id, candidate_commit):
     return {"result": result, "paths": sorted(paths)}
 
 
-def record_implementer_candidate(cycle_id, starting_head):
+def record_implementer_candidate(
+        cycle_id, starting_head, replace_prior=False):
     """Atomically preserve a successful clean Opus commit for its cycle."""
     worktree = AGENT_CWD["opus"]
     if _clean_worktree_status(worktree=worktree):
@@ -10202,8 +10222,11 @@ def record_implementer_candidate(cycle_id, starting_head):
             cycle_id=cycle_id, ticket_state=ticket_state,
             candidate_state=candidate_state)
         expected = (prior["commit"] if prior is not None else "0" * 40)
-        if starting_head != (prior["commit"] if prior is not None
-                             else cycle_starting_commit(cycle_id)):
+        expected_start = (cycle_starting_commit(cycle_id)
+                          if replace_prior else
+                          (prior["commit"] if prior is not None
+                           else cycle_starting_commit(cycle_id)))
+        if starting_head != expected_start:
             raise TicketCycleStateError(
                 "Implementer result began from another cycle tip")
         if ticket_class == "protected-control-plane":
@@ -10458,8 +10481,11 @@ def recover_implementer_deliveries():
             raise TicketCycleStateError(
                 "saved Implementer return is not a completed handoff")
         candidate = candidates[0]
-        starting_head = candidate_commit_for_cycle(cycle_id=cycle_id)
-        if starting_head != candidate:
+        budget_repair = is_architect_budget_repair(request_body)
+        prior_candidate = candidate_commit_for_cycle(cycle_id=cycle_id)
+        if prior_candidate != candidate:
+            starting_head = (cycle_starting_commit(cycle_id=cycle_id)
+                             if budget_repair else prior_candidate)
             if starting_head is None:
                 starting_head = cycle_starting_commit(cycle_id=cycle_id)
             if worktree_head(worktree=AGENT_CWD["opus"]) != candidate:
@@ -10468,7 +10494,8 @@ def recover_implementer_deliveries():
                     "candidate")
             if record_implementer_candidate(
                     cycle_id=cycle_id,
-                    starting_head=starting_head) != candidate:
+                    starting_head=starting_head,
+                    replace_prior=budget_repair) != candidate:
                 raise TicketCycleStateError(
                     "delivered candidate was not preserved")
         if os.path.dirname(request_path) != os.path.abspath(DONE):

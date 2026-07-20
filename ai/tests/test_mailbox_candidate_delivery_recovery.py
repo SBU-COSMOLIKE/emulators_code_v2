@@ -94,7 +94,8 @@ class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
             self.assertTrue(returned.is_file())
             self.assertFalse(receipt.exists())
             preserve.assert_called_once_with(
-                cycle_id=cycle, starting_head=BASE_COMMIT)
+                cycle_id=cycle, starting_head=BASE_COMMIT,
+                replace_prior=False)
 
             self.assertEqual(daemon.recover_implementer_deliveries(), 0)
             self.assertEqual(preserve.call_count, 1)

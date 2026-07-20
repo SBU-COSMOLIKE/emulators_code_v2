@@ -639,6 +639,35 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 label="Implementer HEAD is not an ancestor of the "
                       "ticket base")
 
+    def test_budget_repair_restarts_from_base_not_rejected_candidate(self):
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            prior = "2" * 40
+            cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "implementation", "commit": None,
+                "mode": "normal", "route": "primary"}
+            daemon.write_ticket_cycle_state(state=state)
+            current = [prior]
+            daemon._clean_worktree_status = lambda worktree: b""
+            daemon.worktree_head = lambda worktree: current[0]
+            daemon.candidate_record_locked = lambda **kwargs: {
+                "commit": prior}
+            daemon.read_candidate_state = lambda: {
+                "cycles": {cycle: {"commit": prior}}}
+
+            def reset(repository_root, arguments, check=True):
+                self.assertEqual(arguments, ["reset", "--hard", BASE_COMMIT])
+                current[0] = BASE_COMMIT
+                return mock.Mock(returncode=0, stdout=b"", stderr=b"")
+
+            daemon._run_git = reset
+            prepared = daemon.prepare_implementer_cycle_checkout(
+                cycle_id=cycle, restart_from_base=True)
+
+            self.assertEqual(prepared, BASE_COMMIT)
+            self.assertEqual(current[0], BASE_COMMIT)
+
     def test_divergent_implementer_head_is_still_preserved(self):
         with scratch_daemon(open_count=1) as (daemon, _, _, _):
             old_head = "0" * 40

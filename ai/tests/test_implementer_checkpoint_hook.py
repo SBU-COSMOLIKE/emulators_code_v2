@@ -407,7 +407,7 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
         directive = (
             "- **Directive:** [ai/notes/example.md, revised "
             "Implementation directive]\n")
-        no_go = (envelope + "### ARCHITECT_HANDOFF: REPAIR\n\n"
+        no_go = (envelope + daemon.ARCHITECT_BUDGET_REPAIR_HEADING + "\n\n"
                  + "- **Checkpoint decision:** `NO-GO`\n" + directive)
         go = no_go.replace("`NO-GO`", "`GO`")
         no_directive = no_go.replace(directive, "")
