@@ -11,8 +11,11 @@ import unittest
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 CONTROLLER_FILES = (
+    "ai/tools/candidate_admission.py",
     "ai/tools/mailbox_daemon.py",
     "ai/tools/handoff_contract.py",
+    "ai/tools/provider_health.py",
+    "ai/tools/reopen_transition.py",
     "ai/tools/role_contract.py",
     "ai/notes/role-contract.yaml",
     "ai/notes/implementer-failure-modes.yaml",
