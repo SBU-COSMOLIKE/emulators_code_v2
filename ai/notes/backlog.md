@@ -2752,15 +2752,32 @@ changes the analytic linear-power baseline by about 77 percent.
 
 **Ticket type: BUG FIX.**
 
-**Red Team reopen count: 0.**
+**Red Team reopen count: 1.**
 
-**Red Team reopening: allowed.**
+**Red Team reopening: barred by Architect NO-GO.**
+
+**Red Team reopen 1 — Architect NO-GO (2026-07-19).** The Red Team correctly
+observed that `emul_mps.calculate` calls the linear learned predictor
+(`p_lin.predict`) once before `syren_params_from` raises, so the earlier
+"before any learned predictor" wording overstated the boundary (corrected
+below). The durable acceptance authority (`artifacts-inference-warmstart.md`,
+"Syren parameter aliases must agree", rules 2 and 9 and the amplitude
+paragraph) requires refusal before either Syren analytic formula and leaves no
+`Pk_grid`/interpolator/derived state on failure; the landing meets both — both
+`base_pklin`/`base_boost` and the boost predictor never run and `state` stays
+empty. The finding is Red-Team Low, below the ticket's user-set High severity,
+and causes no wrong science, data loss, or halt; the "unmeasurable"
+exact-landing budget is a squash-measurement artifact (the binding pre-landing
+candidate budget was `within limit`: added 8625, deleted 20, total 8645, limit
+15000). Reopening is permanently barred. Full adjudication in
+`ai/notes/ticket-syren-amplitude-aliases.md`.
 
 **CLOSED.** Accepted candidate `f30f406ee826a1a1222282370933e62b9837031b` adds
 the both-present amplitude-agreement guard to
 `emulator/syren_base.py::syren_params_from`, so a conflicting `As_1e9`/`As`
-pair raises a `ValueError` that names both values before any Syren formula,
-learned predictor, generator row write, or Cobaya derived result. Single-name
+pair raises a `ValueError` that names both values before either Syren analytic
+formula (`base_pklin`/`base_boost`) runs and before any `Pk_grid`,
+interpolator, generator row, or Cobaya derived state is written. Single-name
 and consistent two-name inputs keep their previous numerics. The complete
 directive and audit record are in `ai/notes/ticket-syren-amplitude-aliases.md`.
 
@@ -2804,6 +2821,8 @@ ticket-change guard reporting `within limit` (added 8625, deleted 20, total
 `ai/notes/artifacts-inference-warmstart.md` ("Syren parameter aliases must
 agree"), so no permanent note changed.
 </details>
+
+<a id="closed-syren-amplitude-aliases"></a>
 
 ## Documentation and teaching
 
