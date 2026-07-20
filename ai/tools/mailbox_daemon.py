@@ -4619,7 +4619,7 @@ def prove_blocked_implementer_checkpoint(cycle_id, handoff_sha256,
     return matches[0]
 
 
-def prepare_implementer_evidence_contract(message):
+def prepare_implementer_evidence_contract(message, use_saved_limit=False):
     """Freeze the Architect's parsed subagent plan before Opus launches."""
     matches = ARCHITECT_DIRECTIVE_LINE_RE.findall(message)
     if len(matches) != 1:
@@ -4636,7 +4636,8 @@ def prepare_implementer_evidence_contract(message):
     contract = _authoritative_handoff_contract_module()
     try:
         directive = contract.validate_directive_file(
-            role="architect", path=note_path, expected_max=MAX_CHARACTERS)
+            role="architect", path=note_path,
+            expected_max=(None if use_saved_limit else MAX_CHARACTERS))
     except contract.DirectiveError as exc:
         raise TicketCycleStateError(
             "Architect source directive is invalid: " + str(exc)) from exc
@@ -12853,7 +12854,8 @@ def recover_failed_implementer_returns():
             if (candidate == cycle_starting_commit(cycle_id)
                     or _clean_worktree_status(AGENT_CWD["opus"])):
                 continue
-            contract = prepare_implementer_evidence_contract(message=request)
+            contract = prepare_implementer_evidence_contract(
+                message=request, use_saved_limit=True)
             return_path, _invalid, evidence_problem, ready = (
                 matching_new_implementer_handoff(
                     cycle_id=cycle_id, mode=mode,

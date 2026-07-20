@@ -998,9 +998,10 @@ def _require_character_change_budget(body, expected_max):
     reasoning belongs in the readability-plan row rather than in free-form
     fields that a lower-capability Implementer would have to interpret.
     """
-    if (isinstance(expected_max, bool)
-            or not isinstance(expected_max, int)
-            or expected_max < 0):
+    if (expected_max is not None
+            and (isinstance(expected_max, bool)
+                 or not isinstance(expected_max, int)
+                 or expected_max < 0)):
         raise DirectiveError(
             "expected character-change limit must be a nonnegative integer")
     structural = _binding_markdown_text(text=body)
@@ -1028,7 +1029,7 @@ def _require_character_change_budget(body, expected_max):
         raise DirectiveError(
             "section 'Character-change budget' decimal values must use "
             "their exact canonical spelling without leading zeros")
-    if limit != expected_max:
+    if expected_max is not None and limit != expected_max:
         raise DirectiveError(
             "section 'Character-change budget' limit " + str(limit)
             + " does not match the run-time --max value "
@@ -2117,7 +2118,9 @@ def validate_directive_text(role, text, expected_max=0,
       role = ``architect`` for a binding implementation directive, or
              ``redteam`` for an advisory repair directive.
       text = complete Markdown note text.
-      expected_max = exact nonnegative run-time character-change limit.
+      expected_max = exact nonnegative run-time character-change limit. None
+                     accepts the canonical limit saved by an interrupted
+                     Architect directive during restart recovery.
       expected_severity = exact user setting for a Red Team discovery. When
                           omitted, only the row's internal consistency is
                           checked.
@@ -2162,6 +2165,7 @@ def validate_directive_text(role, text, expected_max=0,
     result["character_change_budget"] = _require_character_change_budget(
         body=bodies["Character-change budget"],
         expected_max=expected_max)
+    effective_max = result["character_change_budget"]["limit"]
     execution_checkout = None
     if role == "architect":
         execution_checkout = _require_execution_checkout(
@@ -2215,7 +2219,7 @@ def validate_directive_text(role, text, expected_max=0,
             validation_commands_body=bodies["Validation commands"])
     guard = _require_ticket_change_guard(
         bodies=bodies,
-        expected_max=expected_max,
+        expected_max=effective_max,
         execution_checkout=execution_checkout)
     if guard is not None:
         result["ticket_change_guard"] = guard

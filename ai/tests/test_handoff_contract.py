@@ -1030,6 +1030,10 @@ class HandoffContractTests(unittest.TestCase):
         mismatch = packet(
             role="architect",
             bodies=bounded)
+        recovered = validate_directive_text(
+            role="architect", text=mismatch, expected_max=None)
+        self.assertEqual(
+            recovered["character_change_budget"]["limit"], 1200)
         with self.assertRaisesRegex(DirectiveError, "does not match.*--max"):
             validate_directive_text(
                 role="architect", text=mismatch, expected_max=1199)
