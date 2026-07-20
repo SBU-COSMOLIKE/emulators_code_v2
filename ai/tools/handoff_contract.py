@@ -654,16 +654,23 @@ def _require_evidence_destination(text, packet_title):
         raise DirectiveError(
             "'## " + packet_title + "' must be followed immediately by "
             "the sibling '## " + expected + "' heading")
-    matches = [heading for _line, level, heading in boundary_rows
-               if (level == 2
-                   and heading.casefold() == expected.casefold())]
-    if len(matches) != 1:
+    evidence_rows = [
+        index for index, (_line, level, heading) in enumerate(boundary_rows)
+        if level == 2 and heading.casefold() == expected.casefold()]
+    consecutive = []
+    index = packet_index + 1
+    while (index < len(boundary_rows)
+           and boundary_rows[index][1] == 2
+           and boundary_rows[index][2].casefold() == expected.casefold()):
+        consecutive.append(index)
+        index += 1
+    if evidence_rows != consecutive:
         raise DirectiveError(
-            "expected exactly one sibling '## " + expected
-            + "' heading; found " + str(len(matches)))
-    evidence_line = boundary_rows[packet_index + 1][0]
+            "'## " + expected + "' may repeat only consecutively after the "
+            "directive packet")
+    evidence_line = boundary_rows[consecutive[-1]][0]
     end_line = len(text.split("\n")) + 1
-    for line_number, _level, _heading in boundary_rows[packet_index + 2:]:
+    for line_number, _level, _heading in boundary_rows[index:]:
         end_line = line_number
         break
     lines = text.split("\n")

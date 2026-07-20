@@ -2022,6 +2022,12 @@ class HandoffContractTests(unittest.TestCase):
 
     def test_architect_packet_requires_one_immediate_evidence_destination(self):
         valid = packet(role="architect")
+        validate_directive_text(
+            role="architect",
+            text=valid.replace(
+                "## Implementation evidence / resume state",
+                "## Implementation evidence / resume state\n\n"
+                "## Implementation evidence / resume state", 1))
         missing = valid.replace(
             "## Implementation evidence / resume state",
             "## Evidence log", 1)
@@ -2029,8 +2035,9 @@ class HandoffContractTests(unittest.TestCase):
             validate_directive_text(role="architect", text=missing)
 
         duplicate = valid + (
+            "\n## Other evidence\nSeparate section.\n"
             "\n## Implementation evidence / resume state\nDuplicate.\n")
-        with self.assertRaisesRegex(DirectiveError, "exactly one sibling"):
+        with self.assertRaisesRegex(DirectiveError, "repeat only consecutively"):
             validate_directive_text(role="architect", text=duplicate)
 
         wrong_parent = valid.replace(
