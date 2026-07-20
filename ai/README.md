@@ -49,13 +49,14 @@ rules still apply when an AI role makes a change.
 
 1. [Why split the work into three roles?](#why-split-the-work-into-three-roles)
 2. [Start here](#start-here)
-3. [Complete one small ticket](#complete-one-small-ticket)
-4. [Roles, models, and decisions](#roles-models-and-decisions)
-5. [Choose which discoveries may become tickets](#choose-which-discoveries-may-become-tickets)
-6. [Close or reopen a ticket](#close-or-reopen-a-ticket)
-7. [Notes, tests, and gates](#notes-tests-and-gates)
-8. [Fix-only maintenance](#fix-only-watches)
-9. [Choose and run a command-line tool](tools/README.md)
+3. [Quick start: fix one High-severity bug](#quick-start-fix-one-high-severity-bug)
+4. [Complete one small ticket](#complete-one-small-ticket)
+5. [Roles, models, and decisions](#roles-models-and-decisions)
+6. [Choose which discoveries may become tickets](#choose-which-discoveries-may-become-tickets)
+7. [Close or reopen a ticket](#close-or-reopen-a-ticket)
+8. [Notes, tests, and gates](#notes-tests-and-gates)
+9. [Fix-only maintenance](#fix-only-watches)
+10. [Choose and run a command-line tool](tools/README.md)
 
 ### Common questions raised by developers
 
@@ -137,6 +138,162 @@ Please instruct the Red Team to do a widespread search for ...
 
 The tools carry the Architect's instructions to the other roles. The user does
 not have to learn the internal addresses or rewrite those instructions.
+
+## Quick start: fix one High-severity bug
+
+This recipe repairs one existing Critical or High bug from
+`ai/notes/backlog.md`, the file that lists recorded work. Critical and High
+are the two most urgent bug levels. Run every command from the repository
+folder containing `ai/`. The final `--cycle 1` means one ticket is allowed to
+finish; after that ticket finishes, the watcher exits.
+
+### Claude Architect, Ollama Implementer, and Sol Red Team
+
+First, reset the AI work folders and create clean replacements:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --clean-all
+python3 ai/tools/mailbox_daemon.py --once
+```
+
+`--clean-all` permanently discards unfinished edits and saved AI work that has
+not reached `main`. Use it only when none of that work needs to be kept. If
+work must be preserved, skip `--clean-all` and run only `--once`; the tool will
+either reuse the extra AI work folders or explain what must be recovered.
+
+Check the exact three services that the watch will use:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping \
+  --architect-model opus --architect-context 300000 \
+  --implementer-provider ollama \
+  --implementer-model kimi-k2.7-code:cloud \
+  --implementer-context 250000
+```
+
+A successful check names the Claude Architect, Ollama Implementer, and Sol as
+online. The Architect's 300000-token setting is independent of the
+Implementer's 250000-token setting. `--claude-context` is an Architect-only
+compatibility name; this recipe uses the explicit role names.
+
+Queue one request to repair the highest-priority eligible bug:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --send architect --fix-only true
+```
+
+Then start the watcher:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch \
+  --architect-model opus --fable-effort high \
+  --architect-context 300000 \
+  --implementer-provider ollama \
+  --implementer-model kimi-k2.7-code:cloud \
+  --implementer-context 250000 \
+  --sol-effort high --sol-context 300000 \
+  --review-effort medium \
+  --cycle 1 --max 20000 --fix-only true --severity high
+```
+
+The Architect selects one existing Critical or High bug. The Implementer
+repairs it, the Architect checks the exact saved version, and the watcher
+records the accepted change on local `main`. Sol then reviews that saved
+change. The watcher exits after that one ticket and its Red Team review result.
+If no eligible bug exists, the Architect reports that there is no ticket to
+start; press Ctrl-C during the next printed safe interval.
+
+### Claude Implementer instead of Ollama
+
+If Claude and Sol are available but Ollama is not, keep the setup and
+fix-only send above. Replace the ping with:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping \
+  --architect-model opus --architect-context 300000 \
+  --implementer-model sonnet --implementer-context 250000
+```
+
+Replace the watcher with:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch \
+  --architect-model opus --fable-effort high \
+  --architect-context 300000 \
+  --implementer-model sonnet --opus-effort high \
+  --implementer-context 250000 \
+  --sol-effort high --sol-context 300000 \
+  --review-effort medium \
+  --cycle 1 --max 20000 --fix-only true --severity high
+```
+
+Here Claude Opus is the Architect, Claude Sonnet is the Implementer, and Sol
+remains the Red Team.
+
+### Claude only
+
+If Sol is unavailable too, add `--skip-redteam`. Keep the setup and fix-only
+send above, then check only the two Claude roles:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
+  --architect-model opus --architect-context 300000 \
+  --implementer-model sonnet --implementer-context 250000
+```
+
+Start the two-role watcher:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --skip-redteam \
+  --architect-model opus --fable-effort high \
+  --architect-context 300000 \
+  --implementer-model sonnet --opus-effort high \
+  --implementer-context 250000 \
+  --review-effort medium \
+  --cycle 1 --max 20000 --fix-only true --severity high
+```
+
+The cycle ends after the Architect accepts the Implementer's saved version and
+the watcher records that change on local `main`. No Red Team search or review
+runs in this mode.
+
+### If no High-severity bug is waiting
+
+Fix-only mode never searches for new bugs. When Sol is available, ask the
+Architect for one **bounded** High-severity search. Bounded means that Sol
+checks only the file or subsystem named in the request:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --send architect --severity high \
+  --unit "Please ask the Red Team to perform a bounded search for High-severity bugs in compute_data_vectors/generator_core.py."
+```
+
+The example searches `compute_data_vectors/generator_core.py`. Replace that
+path with another concrete file or subsystem when needed. Then start this
+discovery watcher:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch \
+  --architect-model opus --fable-effort high \
+  --architect-context 300000 \
+  --implementer-provider ollama \
+  --implementer-model kimi-k2.7-code:cloud \
+  --implementer-context 250000 \
+  --sol-effort high --sol-context 300000 \
+  --review-effort medium --severity high
+```
+
+For a Claude Sonnet Implementer, replace the two Ollama lines with
+`--implementer-model sonnet --opus-effort high`. Do not add `--fix-only`:
+that setting deliberately forbids discovery. Do not use `--skip-redteam`:
+the Red Team performs this search.
+
+The Red Team searches only that named area. When every role is idle and the
+watcher prints the safe 20-second interval, press Ctrl-C. If the Architect
+accepts a finding as High, it appears in `ai/notes/backlog.md`. Run the
+fix-only recipe again to repair it. A widespread search is different: it is
+automatically Low and will not start while Critical, High, or Medium work is
+open.
 
 ## Complete one small ticket
 
