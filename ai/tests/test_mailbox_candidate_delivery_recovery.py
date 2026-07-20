@@ -124,6 +124,29 @@ class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
                 "'emulator/model.py'",
                 output.getvalue())
 
+    def test_authenticated_architect_repair_replaces_the_file_scope(self):
+        """A repair plan may authorize a different bounded file layout."""
+        with scratch_daemon() as (daemon, _, _, _):
+            cycle = prepare_active_scope(
+                daemon, allowed_paths={"ai/tests/old_layout.py"})
+            evidence = {
+                "allowed_paths": frozenset({
+                    "ai/tests/new_layout.py", "ai/tests/support.py"}),
+                "ticket_class": "ordinary",
+            }
+            with mock.patch.object(
+                    daemon, "prepare_implementer_evidence_contract",
+                    return_value=evidence), mock.patch.object(
+                    daemon, "candidate_record_locked",
+                    return_value={"commit": ACCEPTED_COMMIT}):
+                daemon.record_architect_repair_scope(
+                    cycle_id=cycle, handoff_message="authenticated repair")
+
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["active"][cycle][
+                    "path_scope"],
+                ["ai/tests/new_layout.py", "ai/tests/support.py"])
+
     def test_global_protected_path_is_refused_even_when_ticket_lists_it(self):
         protected = ".claude/FABLE_ROLE.md"
         with scratch_daemon() as (daemon, _, _, _):
@@ -434,6 +457,8 @@ class ArchitectDeliveryRecoveryTests(unittest.TestCase):
                 original_outcome = outcome.read_bytes()
                 daemon.candidate_commit_for_cycle = mock.Mock(
                     return_value=ACCEPTED_COMMIT)
+                repair_scope = mock.Mock()
+                daemon.record_architect_repair_scope = repair_scope
 
                 self.assertEqual(daemon.recover_implementer_deliveries(), 1)
 
@@ -442,6 +467,9 @@ class ArchitectDeliveryRecoveryTests(unittest.TestCase):
                 self.assertEqual(outcome.read_bytes(), original_outcome)
                 self.assertFalse(receipt.exists())
                 self.assertEqual(daemon.recover_implementer_deliveries(), 0)
+                self.assertEqual(
+                    repair_scope.call_count,
+                    1 if outcome_agent == "opus" else 0)
 
     def test_wrong_saved_candidate_keeps_recovery_evidence(self):
         with scratch_daemon() as (daemon, _, mailbox, _):

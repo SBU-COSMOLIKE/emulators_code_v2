@@ -9309,6 +9309,10 @@ def dispatch_under_main_checkout_lock(
                 write_implementer_delivery_receipt(
                     request_path=dispatch_path,
                     return_path=go_path or handoff_path))
+            if handoff_path is not None:
+                record_architect_repair_scope(
+                    cycle_id=audit_cycle_id,
+                    handoff_message=read_cycle_message(path=handoff_path))
             if (go_path is not None
                     and control_plane_ticket_state(
                         cycle_id=audit_cycle_id,
@@ -10250,6 +10254,31 @@ def candidate_commit_for_cycle(cycle_id):
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
+def record_architect_repair_scope(cycle_id, handoff_message):
+    """Replace the file list after one authenticated Architect repair."""
+    evidence = prepare_implementer_evidence_contract(
+        message=handoff_message)
+    proposed = sorted(evidence["allowed_paths"])
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        candidate = candidate_record_locked(
+            cycle_id=cycle_id, ticket_state=state,
+            candidate_state=read_candidate_state())
+        if (active is None or active["phase"] != "implementation"
+                or candidate is None):
+            raise TicketCycleStateError(
+                "Architect repair scope has no preserved active candidate")
+        if active.get("ticket_class", "ordinary") != evidence["ticket_class"]:
+            raise TicketCycleStateError(
+                "Architect repair changed the frozen Ticket class")
+        state["active"][cycle_id] = dict(active, path_scope=proposed)
+        write_ticket_cycle_state(state=state)
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
 def write_implementer_delivery_receipt(request_path, return_path):
     """Hard-link a validated role return before its request is archived."""
     request = stable_regular_bytes(
@@ -10405,11 +10434,14 @@ def recover_implementer_deliveries():
                 problem = architect_handoff_problem(
                     message=returned_message, cycle_id=cycle_id, mode=mode,
                     checkpoint=is_implementer_checkpoint_request(
-                        body=request_body))
+                        body=request_body),
+                    budget=is_implementer_budget_checkpoint(request_body))
                 if problem is not None:
                     raise TicketCycleStateError(
                         "saved Architect repair is invalid: "
                         + problem)
+                record_architect_repair_scope(
+                    cycle_id=cycle_id, handoff_message=returned_message)
             if os.path.dirname(request_path) != os.path.abspath(DONE):
                 if not archive_consumed_message(dispatch_path=request_path):
                     raise TicketCycleStateError(
