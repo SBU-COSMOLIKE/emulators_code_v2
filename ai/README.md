@@ -906,6 +906,12 @@ landing L. If Red Team is enabled, it reviews exact L after the landing; it
 cannot delay or undo that landing. The [earlier diagram](#how-does-an-accepted-change-reach-main)
 shows C and L.
 
+The Architect normally closes and seals the backlog entry immediately before
+sending `GO`. If that bookkeeping step is accidentally omitted, the watcher
+keeps C and the accepted `GO`, asks the Architect only to close the backlog
+entry, and then resumes the landing. It does not rerun the Implementer or ask
+the Architect to repeat the candidate review.
+
 `NO CHANGE` means no remaining bug was found. `REOPEN` means the Red Team has
 concrete evidence that the same ticket still needs work.
 

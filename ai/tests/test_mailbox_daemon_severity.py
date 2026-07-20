@@ -504,16 +504,33 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             dispatch.parent.mkdir(parents=True)
             dispatch.write_text("saved GO\n", encoding="utf-8")
             with mock.patch.object(
-                    daemon, "_validate_sealed_backlog"), \
+                    daemon, "_validate_sealed_backlog",
+                    return_value=b"# Open tickets\n"), \
+                    mock.patch.object(
+                        daemon, "read_ticket_cycle_state",
+                        return_value={"active": {
+                            anchor + "@" + BASE_COMMIT: {
+                                "mode": "normal"}}}), \
+                    mock.patch.object(
+                        daemon, "candidate_commit_for_cycle",
+                        return_value="2" * 40), \
                     mock.patch.object(
                         daemon, "park_failed_message", return_value=True), \
+                    mock.patch.object(
+                        daemon, "publish_backlog_close_request",
+                        return_value=str(
+                            mailbox / "0002-to-fable.md")) as publish, \
                     mock.patch.object(
                         daemon, "acquire_main_checkout_turn_lock") as lock:
                 result = daemon.finish_claimed_architect_go(
                     dispatch_path=str(dispatch),
                     cycle_id=anchor + "@" + BASE_COMMIT,
                     candidate_commit="2" * 40, mode="normal")
-            self.assertEqual(result, (False, 0, None))
+            self.assertEqual(result, (True, 0, None))
+            publish.assert_called_once_with(
+                cycle_id=anchor + "@" + BASE_COMMIT,
+                candidate_commit="2" * 40, mode="normal")
+            self.assertTrue((mailbox / "done" / dispatch.name).is_file())
             lock.assert_not_called()
 
             valid_closed = (
@@ -554,6 +571,58 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                     with self.assertRaises(daemon.TicketCycleStateError):
                         daemon.require_closed_backlog_ticket(
                             anchor, backlog.read_bytes())
+
+    def test_open_ticket_go_recovery_preserves_candidate_and_audit(self):
+        anchor = "scratch-high-bug-fix-1"
+        cycle = anchor + "@" + BASE_COMMIT
+        candidate = "2" * 40
+        with scratch_daemon(open_count=1) as (
+                daemon, _, mailbox, _backlog):
+            failed = mailbox / "failed"
+            failed.mkdir(parents=True)
+            go = failed / "0001-to-daemon.md"
+            go.write_text(
+                daemon.architect_go_request_payload(
+                    cycle_id=cycle, candidate_commit=candidate,
+                    mode="normal"),
+                encoding="utf-8")
+            active = {
+                cycle: {"phase": "implementation", "commit": None,
+                        "mode": "normal"}}
+            with mock.patch.object(
+                    daemon, "read_ticket_cycle_state",
+                    return_value={"active": active}), \
+                    mock.patch.object(
+                        daemon, "candidate_commit_for_cycle",
+                        return_value=candidate):
+                recovered = daemon.recover_failed_open_ticket_go()
+            self.assertEqual(recovered, 1)
+            restored = mailbox / "inflight" / go.name
+            self.assertTrue(restored.is_file())
+            self.assertFalse(go.exists())
+
+    def test_active_recovery_precedes_older_unrelated_architect_mail(self):
+        anchor = "scratch-high-bug-fix-1"
+        cycle = anchor + "@" + BASE_COMMIT
+        with scratch_daemon(open_count=1) as (daemon, _, _, _):
+            daemon.register_ticket_cycle_message(
+                agent="opus", message=ticket_flow(
+                    "Implement the fix.", anchor=anchor))
+            older = write_pending(
+                daemon, "0001-to-fable.md",
+                daemon.architect_user_request_payload("Unrelated request."))
+            recovery = write_pending(
+                daemon, "0002-to-fable.md",
+                daemon.backlog_close_request_payload(
+                    cycle_id=cycle, candidate_commit="2" * 40,
+                    mode="normal"))
+            order = []
+            daemon.drain_lane = lambda paths, **kwargs: (
+                order.extend(os.path.basename(path) for path in paths)
+                or True)
+            self.assertTrue(daemon.process_backlog(dry_run=False))
+            self.assertEqual(
+                order, [recovery.name, older.name])
 
     def test_reopen_count_five_keeps_severity_but_six_forces_low(self):
         classifications = (

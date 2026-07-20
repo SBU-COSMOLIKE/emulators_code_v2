@@ -3654,8 +3654,17 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
                 cycle_id=cycle_id, candidate_commit=candidate,
                 mode="normal"),
             encoding="utf-8", newline="")
-        open_go_refused = not daemon.consume_daemon_message(
-            path=str(open_go))
+        open_go_deferred = daemon.consume_daemon_message(path=str(open_go))
+        corrections = list(mailbox.glob("*-to-fable.md"))
+        open_go_recovered = (
+            open_go_deferred and len(corrections) == 1
+            and daemon.BACKLOG_CLOSE_REQUIRED_HEADER
+            in corrections[0].read_text(encoding="utf-8")
+            and (mailbox / "done" / open_go.name).is_file())
+        # This arm supplies the corrected fresh GO below. Remove the synthetic
+        # Architect request so it cannot outlive the cycle under test.
+        for correction in corrections:
+            correction.unlink()
         open_candidate_preserved = (
             daemon.candidate_commit_for_cycle(cycle_id) == candidate
             and git(root, "rev-parse", "HEAD").stdout.strip() == base)
@@ -3688,6 +3697,9 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
         expected_tree = git(
             root, "merge-tree", "--write-tree", landing_parent,
             candidate).stdout.strip()
+        expected_tree = daemon._tree_with_backlog(
+            expected_tree,
+            daemon._validate_sealed_backlog(primary_worktree=str(primary)))
         git(root, "reset", "--hard", candidate)
         candidate_as_landing_refused = False
         try:
@@ -3753,8 +3765,8 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
             consumed = daemon.consume_daemon_message(path=str(go_path))
         finally:
             daemon.retire_superseded_failed_architect_go = real_retire
-        rejected_go_waited_for_recovery = (
-            mailbox / "failed" / open_go.name).is_file()
+        old_go_remained_archived = (
+            mailbox / "done" / open_go.name).is_file()
         landing = git(root, "rev-parse", "HEAD").stdout.strip()
         landing_object = git_bytes(
             root, "cat-file", "commit", landing).stdout
@@ -3796,12 +3808,12 @@ def arm_architect_receipt_binds_candidate_to_squash_landing(source=None):
         finally:
             daemon.subprocess.run = real_run
         checks = {
-            "open-go-refused": open_go_refused,
+            "open-go-recovery-queued": open_go_recovered,
             "wrong-mode-go-remains-explicit-debt": (
                 wrong_mode_refused
                 and (mailbox / "failed" / wrong_mode_go.name).is_file()),
-            "rejected-go-retired-after-fresh-go": (
-                rejected_go_waited_for_recovery
+            "old-go-archived-after-fresh-go": (
+                old_go_remained_archived
                 and not (mailbox / "failed" / open_go.name).exists()
                 and (mailbox / "done" / open_go.name).is_file()),
             "open-candidate-preserved": open_candidate_preserved,

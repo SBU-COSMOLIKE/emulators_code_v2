@@ -3722,6 +3722,7 @@ MAILBOX_RETURN_HEADER = "MAILBOX-RETURN: "
 MAILBOX_RESULT_HEADER = "MAILBOX-RESULT: "
 MAILBOX_MODE_HEADER = "MAILBOX-MODE: "
 MAILBOX_DECISION_HEADER = "MAILBOX-DECISION: "
+BACKLOG_CLOSE_REQUIRED_HEADER = "BACKLOG-CLOSE-REQUIRED: "
 ARCHITECT_FIX_ONLY_REQUEST = (
     "MAILBOX-MAINTENANCE: existing-bug-fixes\n\n"
     "Select the next Open BUG FIX allowed by watch severity. Exclude "
@@ -5446,6 +5447,21 @@ def architect_go_request_payload(cycle_id, candidate_commit, mode):
             + MAILBOX_CANDIDATE_HEADER + candidate_commit + "\n"
             + MAILBOX_MODE_HEADER + mode + "\n"
             + MAILBOX_DECISION_HEADER + "GO\n")
+
+
+def backlog_close_request_payload(cycle_id, candidate_commit, mode):
+    """Ask the Architect to close the backlog and repeat its exact GO."""
+    architect_go_request_payload(cycle_id, candidate_commit, mode)
+    return (
+        MAILBOX_FLOW_HEADER + "ticket\n"
+        + MAILBOX_CYCLE_HEADER + cycle_id + "\n"
+        + MAILBOX_MODE_HEADER + mode + "\n\n"
+        + BACKLOG_CLOSE_REQUIRED_HEADER + candidate_commit + "\n\n"
+        + "- **Candidate commit:** " + candidate_commit + "\n\n"
+        + "Your completed audit already accepted this exact candidate. Do "
+          "not repeat the audit or rerun the Implementer. Close and seal "
+          "this ticket in backlog.md, then send one fresh exact GO for the "
+          "same C. This is bookkeeping recovery only.\n")
 
 
 def _architect_notes_go_request(message):
@@ -7420,10 +7436,10 @@ def require_closed_backlog_ticket(ticket_anchor, sealed_backlog):
     if (lines.count("# Closed tickets") != 1 or lines.count(marker) != 1
             or any(OPEN_BACKLOG_CANDIDATE_RE.match(line)
                    and "(#" + ticket_anchor + ")" in line for line in lines)):
-        raise TicketCycleStateError("ticket is Open: " + ticket_anchor)
+        raise BacklogTicketOpenError("ticket is Open: " + ticket_anchor)
     start = lines.index(marker) + 1
     if start <= lines.index("# Closed tickets"):
-        raise TicketCycleStateError("ticket is Open: " + ticket_anchor)
+        raise BacklogTicketOpenError("ticket is Open: " + ticket_anchor)
     end = next((index for index in range(start + 1, len(lines))
                 if lines[index].startswith(("## ", '<a id="'))), len(lines))
     section = lines[start:end]
@@ -12182,6 +12198,30 @@ def requeue_retryable_daemon_message(dispatch_path):
     return verified
 
 
+def publish_backlog_close_request(cycle_id, candidate_commit, mode):
+    """Queue one exact Architect correction while preserving accepted C."""
+    payload = backlog_close_request_payload(
+        cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
+    for directory in (MAILBOX, os.path.join(MAILBOX, "inflight"),
+                      os.path.join(MAILBOX, "prelaunch")):
+        for path in glob.glob(os.path.join(directory, "*-to-fable.md")):
+            try:
+                if read_cycle_message(path=path) == payload:
+                    return path
+            except (OSError, ValueError, TicketCycleStateError):
+                continue
+    if not send(agent="fable", text=payload, dry_run=False):
+        raise RetryableArchitectLandingError(
+            "could not publish backlog-close recovery")
+    matches = [path for path in glob.glob(
+        os.path.join(MAILBOX, "*-to-fable.md"))
+        if read_cycle_message(path=path) == payload]
+    if len(matches) != 1:
+        raise RetryableArchitectLandingError(
+            "backlog-close recovery was not published exactly once")
+    return matches[0]
+
+
 def defer_protected_stale_integration(
         dispatch_path, cycle_id, candidate_commit, mode, problem):
     """Save a moved-main event and queue its same-cycle Architect audit."""
@@ -12232,11 +12272,27 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
     """Finish or replay one already-claimed, well-formed Architect GO."""
     name = os.path.basename(dispatch_path)
     try:
+        active = read_ticket_cycle_state()["active"].get(cycle_id)
+        if (active is None or active["mode"] != mode
+                or candidate_commit_for_cycle(cycle_id) != candidate_commit):
+            raise TicketCycleStateError(
+                "Architect GO changed the active cycle, mode, or candidate")
         sealed_backlog = _validate_sealed_backlog(
             primary_worktree=AGENT_CWD["fable"])
         require_closed_backlog_ticket(
             ticket_anchor=cycle_ticket_anchor(cycle_id),
             sealed_backlog=sealed_backlog)
+    except BacklogTicketOpenError:
+        request = publish_backlog_close_request(
+            cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
+        if not archive_consumed_message(dispatch_path=dispatch_path):
+            raise RetryableArchitectLandingError(
+                "accepted GO could not enter backlog-close recovery")
+        print("backlog closure required before landing " + candidate_commit
+              + "; preserved C and the prior audit; queued "
+              + os.path.basename(request) + " for bookkeeping and one "
+                "fresh exact GO.")
+        return True, 0, None
     except (PrimaryWorktreeError, TicketCycleStateError) as exc:
         parked = park_failed_message(dispatch_path=dispatch_path)
         state = "parked." if parked else "move failed."
@@ -13043,6 +13099,34 @@ def recover_failed_architect_outcome():
         release_mailbox_sequence_lock(lock_file=lock_file)
 
 
+def recover_failed_open_ticket_go():
+    """Retry an exact GO parked by the retired Open-ticket behavior."""
+    active = read_ticket_cycle_state()["active"]
+    recovered = 0
+    paths = glob.glob(os.path.join(MAILBOX, "failed", "*-to-daemon.md"))
+    for path in sorted(paths, key=message_sequence):
+        try:
+            cycle_id, candidate, mode, problem = _architect_go_request(
+                message=read_cycle_message(path=path))
+            record = active.get(cycle_id)
+            if (problem is not None or record is None
+                    or record["phase"] != "implementation"
+                    or record["mode"] != mode
+                    or candidate_commit_for_cycle(cycle_id) != candidate):
+                continue
+        except (OSError, ValueError, TicketCycleStateError):
+            continue
+        path, moved = verified_state_move(
+            dispatch_path=path, directory=os.path.join(MAILBOX, "inflight"))
+        if not moved:
+            raise TicketCycleStateError(
+                "accepted GO could not be restored for recovery")
+        recovered += 1
+        print("recovered accepted GO " + os.path.basename(path)
+              + " without repeating the candidate audit")
+    return recovered
+
+
 def recover_prelaunch_messages():
     """Requeue requests durably retained before any agent process started."""
     sequence_lock = acquire_mailbox_sequence_lock()
@@ -13361,6 +13445,7 @@ def recover_before_dispatch(fix_only=False, skip_redteam=False):
               "trusted controller before dispatching new work")
     recover_interrupted_mailbox_moves()
     recover_failed_architect_outcome()
+    recover_failed_open_ticket_go()
     if fix_only:
         recover_failed_maintenance_admission()
     recover_failed_implementer_returns()
@@ -13822,6 +13907,13 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         backlog = [candidate for candidate in backlog
                    if message_belongs_to_active_cycle(
                        path=candidate, active_cycles=active)]
+    # Finish an admitted ticket before an older, unrelated user request in
+    # the same role lane. Otherwise recovery mail can wait forever behind a
+    # request that the finite cycle limit cannot yet admit.
+    active = read_ticket_cycle_state()["active"]
+    backlog.sort(key=lambda path: (
+        not message_belongs_to_active_cycle(path=path, active_cycles=active),
+        message_sequence(path)))
     if all_backlog or daemon_paths:
         if skip_redteam:
             report_demand(backlog=all_backlog, skip_redteam=True)
@@ -14168,6 +14260,10 @@ def unique_json_object(pairs):
 
 class TicketCycleStateError(RuntimeError):
     """The daemon-owned ticket-cycle record is unsafe or inconsistent."""
+
+
+class BacklogTicketOpenError(TicketCycleStateError):
+    """An accepted candidate still needs Architect backlog bookkeeping."""
 
 
 class RetryableArchitectLandingError(TicketCycleStateError):
