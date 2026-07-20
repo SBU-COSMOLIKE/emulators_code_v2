@@ -692,7 +692,8 @@ below occur:
 
 1. the watcher records the Architect-accepted landing; and
 2. Red Team returns `NO CHANGE`, or the Architect decides GO or NO-GO after a
-   Red Team `REOPEN`, for that exact landing.
+   Red Team `REOPEN`, for that exact landing. A GO or NO-GO decision ends the
+   cycle only after its backlog update receives a separate commit on `main`.
 
 A `REOPEN` does not finish the cycle by itself. The Architect reads the
 evidence immediately. GO reopens the ticket at the same severity. NO-GO keeps
@@ -1090,8 +1091,8 @@ later rejects the evidence.
 | --- | --- |
 | Red Team returns `NO CHANGE` | The ticket stays closed. |
 | Red Team returns `REOPEN` | The same cycle stays active while the Architect reads the evidence. |
-| Architect gives `GO` | The count increases and the ticket returns to Open at the same severity. The cycle then ends. |
-| Architect gives `NO-GO` | The count increases, the ticket stays closed with a reason, and that objection is permanently barred. The cycle then ends. |
+| Architect gives `GO` | The count increases and the ticket returns to Open at the same severity. The watcher commits that backlog decision to `main`; only then does the cycle end. |
+| Architect gives `NO-GO` | The count increases, the ticket stays closed with a reason, and that objection is permanently barred. The watcher commits that backlog decision to `main`; only then does the cycle end. |
 
 This required decision keeps the report from being lost. With `--cycle 1`, the
 watcher does not exit between the Red Team `REOPEN` and the Architect's answer.

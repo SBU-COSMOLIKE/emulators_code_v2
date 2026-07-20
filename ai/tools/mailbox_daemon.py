@@ -9116,10 +9116,13 @@ def dispatch_under_main_checkout_lock(
         try:
             decision = architect_reopen_decision(
                 cycle_id=reopen_decision_cycle, before=reopen_before)
-            completed_now = complete_ticket_cycle(
+            decision_landing, completed_now = land_architect_reopen_decision(
+                dispatch_path=dispatch_path,
                 cycle_id=reopen_decision_cycle,
-                accepted_commit=reopen_decision_commit)
-        except (PrimaryWorktreeError, TicketCycleStateError) as exc:
+                reviewed_landing=reopen_decision_commit,
+                decision=decision)
+        except (OSError, PrimaryWorktreeError,
+                TicketCycleStateError) as exc:
             requeued = requeue_retryable_daemon_message(
                 dispatch_path=dispatch_path)
             print("  !! Architect REOPEN decision was not accepted: "
@@ -9128,14 +9131,11 @@ def dispatch_under_main_checkout_lock(
                      if requeued else
                      "the inflight request remains preserved."))
             return False
-        if not archive_consumed_message(dispatch_path=dispatch_path):
-            print("  !! Architect REOPEN decision is durable, but its input "
-                  "could not be archived.")
-            return False
         deliver_pending_ticket_cycle_returns()
         print("ticket cycle complete: Architect returned " + decision
               + " to Red Team REOPEN for " + reopen_decision_cycle
-              + " at " + reopen_decision_commit + ".")
+              + " at " + reopen_decision_commit + "; backlog decision "
+                "landed as " + decision_landing + ".")
         return bool(completed_now or decision)
 
     if (agent == "fable" and audit_cycle_id is not None
@@ -10643,6 +10643,77 @@ def cycle_landing_ref(cycle_id):
     """Return the private crash-journal ref for one prepared landing."""
     return cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
         + "/landing"
+
+
+def reopen_decision_ref(cycle_id):
+    """Return the crash-journal ref for one backlog-only reopening decision."""
+    return cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
+        + "/reopen-decision"
+
+
+def _reopen_decision_message(cycle_id, reviewed_landing, decision):
+    """Name the reviewed landing and the Architect's final advice decision."""
+    return (
+        "Record Architect " + decision + " on Red Team reopening\n\n"
+        + "Mailbox-Cycle: " + cycle_id + "\n"
+        + "Mailbox-Reviewed-Landing: " + reviewed_landing + "\n")
+
+
+def prepare_reopen_decision_landing(cycle_id, reviewed_landing, decision,
+                                    backlog):
+    """Create or reuse a backlog-only landing for one Red Team decision."""
+    reference = reopen_decision_ref(cycle_id=cycle_id)
+    prepared = git_ref_commit(reference=reference)
+    current_main = _exact_git_object(
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"],
+        label="current main commit")
+    if prepared is not None:
+        parent = _single_commit_parent(commit=prepared)
+        if _landing_backlog(landing_commit=prepared) != backlog:
+            raise TicketCycleStateError(
+                "saved reopening decision has different backlog bytes")
+        problem = _prepared_landing_main_problem(
+            candidate_commit=None, landing_commit=prepared,
+            parent_commit=parent, current_main=current_main)
+        if problem is not None:
+            raise RetryableArchitectLandingError(problem)
+        return prepared, parent
+    _require_ancestor_or_same(
+        ancestor=reviewed_landing, descendant=current_main,
+        label="current main does not preserve the Red Team-reviewed landing")
+    if worktree_head(worktree=AGENT_CWD["fable"]) != current_main:
+        raise RetryableArchitectLandingError(
+            "Architect primary must match current main before its reopening "
+            "decision can land")
+    parent_tree = _exact_git_object(
+        arguments=["rev-parse", "--verify", current_main + "^{tree}"],
+        label="reopening decision parent tree")
+    tree = _tree_with_backlog(tree=parent_tree, backlog=backlog)
+    if tree == parent_tree:
+        raise TicketCycleStateError(
+            "Architect reopening decision did not change the backlog")
+    result = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["commit-tree", tree, "-p", current_main, "-F", "-"],
+        input_bytes=_reopen_decision_message(
+            cycle_id=cycle_id, reviewed_landing=reviewed_landing,
+            decision=decision).encode("utf-8"), check=False)
+    try:
+        landing = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise TicketCycleStateError(
+            "reopening decision commit is not ASCII") from exc
+    if result.returncode != 0 or FULL_COMMIT_RE.fullmatch(landing) is None:
+        raise TicketCycleStateError(
+            "cannot create the backlog-only reopening decision landing")
+    update = _run_git(
+        repository_root=AGENT_CWD["fable"],
+        arguments=["update-ref", reference, landing, "0" * 40],
+        check=False)
+    if update.returncode != 0:
+        raise TicketCycleStateError(
+            "cannot save the reopening decision landing for recovery")
+    return landing, current_main
 
 
 def _candidate_commit_message(candidate_commit):
@@ -15785,6 +15856,33 @@ def complete_ticket_cycle(cycle_id, accepted_commit):
         release_ticket_cycle_lock(lock_file=lock_file)
 
 
+def complete_reopen_ticket_cycle(cycle_id, reviewed_landing,
+                                 decision_landing):
+    """Complete a reopened review only after its backlog decision lands."""
+    lock_file = acquire_ticket_cycle_lock()
+    try:
+        state = read_ticket_cycle_state()
+        prior = state["completed"].get(cycle_id)
+        if prior is not None:
+            if prior == decision_landing:
+                return False
+            raise TicketCycleStateError(
+                "reopening decision completed at another landing")
+        current = state["active"].get(cycle_id)
+        if (current is None or current["phase"] != "awaiting-redteam"
+                or current["commit"] != reviewed_landing):
+            raise TicketCycleStateError(
+                "reopening decision does not match its reviewed landing")
+        del state["active"][cycle_id]
+        state["completed"][cycle_id] = decision_landing
+        state["generation"] += 1
+        record_pending_ticket_cycle_return(state=state)
+        write_ticket_cycle_state(state=state)
+        return True
+    finally:
+        release_ticket_cycle_lock(lock_file=lock_file)
+
+
 def complete_protected_ticket_cycle(cycle_id, candidate_commit, landing):
     """Complete one two-key ticket after D0 records healthy L."""
     lock_file = acquire_ticket_cycle_lock()
@@ -15978,6 +16076,52 @@ def architect_reopen_decision(cycle_id, before):
     except (UnicodeDecodeError,
             _REOPEN_TRANSITION.ReopenTransitionError) as exc:
         raise TicketCycleStateError(str(exc)) from exc
+
+
+def land_architect_reopen_decision(dispatch_path, cycle_id,
+                                   reviewed_landing, decision):
+    """Land, record, and push one sealed GO/NO-GO backlog decision."""
+    backlog = _validate_sealed_backlog(
+        primary_worktree=AGENT_CWD["fable"])
+    main_lock = acquire_main_checkout_turn_lock()
+    if main_lock is None:
+        raise RetryableArchitectLandingError(
+            "reopening decision landing lock is unavailable")
+    landing = None
+    try:
+        landing, parent = prepare_reopen_decision_landing(
+            cycle_id=cycle_id, reviewed_landing=reviewed_landing,
+            decision=decision, backlog=backlog)
+        preflight_role_baseline_sync(target=landing)
+        land_prepared_commit_in_clean_user_checkout(
+            landing=landing, parent=parent)
+        completed = complete_reopen_ticket_cycle(
+            cycle_id=cycle_id, reviewed_landing=reviewed_landing,
+            decision_landing=landing)
+        write_push_debt(
+            landing=landing,
+            detail="reopening decision landed; remote push not yet attempted")
+        if not archive_consumed_message(dispatch_path=dispatch_path):
+            raise RetryableArchitectLandingError(
+                "reopening decision landed but its input was not archived")
+        sync_all_clean_role_baselines(target=landing)
+        reference = reopen_decision_ref(cycle_id=cycle_id)
+        if git_ref_commit(reference=reference) == landing:
+            _run_git(
+                repository_root=AGENT_CWD["fable"],
+                arguments=["update-ref", "-d", reference, landing])
+    finally:
+        release_main_checkout_turn_lock(lock_file=main_lock)
+    try:
+        pushed, detail = push_exact_landing_or_record_debt(landing=landing)
+    except (OSError, ValueError) as exc:
+        pushed, detail = False, str(exc)
+    if pushed:
+        print("verified remote main at reopening decision " + landing + ".")
+    else:
+        print("reopening decision is local; remote push remains follow-up "
+              "debt for " + landing + (": " + detail if detail else "."))
+    return landing, completed
 
 
 def _matching_journaled_notes_go(base_commit, notes_commit,

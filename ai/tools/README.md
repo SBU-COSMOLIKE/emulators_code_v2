@@ -1469,9 +1469,10 @@ If the process stops after C but before L, recovery uses that ticket's saved
 candidate and landing records. It does not compare the separate Architect
 coordination branch with `main` or create work from a changed-line threshold.
 
-The Red Team return completes a three-role cycle. It never blocks the local
-landing, but a finite watcher waits for that return before it exits for the
-cycle count. Without Red Team, the cycle ends when the watcher records L.
+The Red Team return completes a three-role cycle when it says `NO CHANGE`.
+After `REOPEN`, the watcher also waits for the Architect's GO or NO-GO and a
+separate `main` commit containing that backlog decision. Without Red Team, the
+cycle ends when the watcher records L.
 
 </details>
 

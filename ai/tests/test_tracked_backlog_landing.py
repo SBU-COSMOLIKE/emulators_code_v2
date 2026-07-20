@@ -78,6 +78,62 @@ class TrackedBacklogLandingTests(unittest.TestCase):
                 git(default_sol(root), "rev-parse", "HEAD").stdout.strip(),
                 landing)
 
+    def test_reopen_decision_gets_its_own_backlog_landing(self):
+        with scratch_repository() as root:
+            rc, output, error = invoke(root, ["--once"])
+            self.assertEqual(rc, 0, output + error)
+            backlog = root / "ai/notes/backlog.md"
+            backlog.write_text(
+                "# Closed tickets\n\n<a id=\"reopen-landing\"></a>\n"
+                "## Reopen landing\n\n**Red Team reopen count: 0.**\n\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            git(root, "add", "ai/notes/backlog.md")
+            git(root, "commit", "-m", "Add closed ticket")
+            rc, output, error = invoke(root, ["--once"])
+            self.assertEqual(rc, 0, output + error)
+
+            primary = default_primary(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            reviewed = git(root, "rev-parse", "HEAD").stdout.strip()
+            cycle = "reopen-landing@" + reviewed
+            state = daemon.read_ticket_cycle_state()
+            state["active"][cycle] = {
+                "phase": "awaiting-redteam", "commit": reviewed,
+                "mode": "normal", "route": "primary",
+                "ticket_class": "ordinary"}
+            daemon.write_ticket_cycle_state(state=state)
+
+            primary_backlog = primary / "ai/notes/backlog.md"
+            primary_backlog.write_text(
+                primary_backlog.read_text(encoding="utf-8").replace(
+                    "reopen count: 0", "reopen count: 1").replace(
+                    "reopening: allowed",
+                    "reopening: barred by Architect NO-GO"),
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+            inflight = primary / "ai/notes/mailbox/inflight/0001-to-fable.md"
+            inflight.parent.mkdir(parents=True, exist_ok=True)
+            inflight.write_text("reopen decision\n", encoding="utf-8")
+
+            landing, completed = daemon.land_architect_reopen_decision(
+                dispatch_path=str(inflight), cycle_id=cycle,
+                reviewed_landing=reviewed, decision="NO-GO")
+            changed = git(
+                root, "diff", "--name-only", reviewed, landing).stdout
+            final = daemon.read_ticket_cycle_state()
+            self.assertTrue(completed)
+            self.assertEqual(changed, "ai/notes/backlog.md\n")
+            self.assertEqual(final["completed"][cycle], landing)
+            self.assertEqual(git(root, "rev-parse", "HEAD").stdout.strip(),
+                             landing)
+            self.assertEqual(git(primary, "status", "--porcelain").stdout,
+                             "")
+            self.assertIn(
+                "barred by Architect NO-GO",
+                git(root, "show", landing + ":ai/notes/backlog.md").stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
