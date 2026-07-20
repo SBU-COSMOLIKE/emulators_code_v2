@@ -3335,6 +3335,24 @@ existing nonce and echoed-prompt tests retain the strict response boundary.
 
 ## AI roles, user controls, and handoffs
 
+### Recover a completed Implementer return after validation refuses it
+
+**High-level summary.** The Implementer completed candidate C, but harmless
+Markdown list formatting made the evidence validator reject the return. The
+watcher then stayed idle instead of preserving the completed work.
+
+**Current status.** **CLOSED. HIGH BUG FIX.** A restart now revalidates the
+saved return and sends it to the Architect without rerunning the Implementer.
+The evidence parser accepts the same required heading inside a Markdown list.
+
+**Red Team reopen count: 0. Red Team reopening: allowed.**
+
+**What is already fixed.** Candidate identity, planned subagent names, fields,
+scope, and clean Git state remain exact. The character guard can also measure
+the existing 8,645-character candidate within the selected 15,000 limit.
+
+**What is missing.** Nothing for this ticket.
+
 ### Restart cheap role work without rebuilding the Architect plan
 
 **High-level summary.** Ctrl-C can leave an Implementer or Red Team request

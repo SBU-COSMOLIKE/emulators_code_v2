@@ -118,7 +118,7 @@ CAPABILITY_CHECKPOINT_CYCLE_RE = re.compile(
 CAPABILITY_CHECKPOINT_SHA256_RE = re.compile(
     r"^- Source handoff SHA-256: `([0-9a-f]{64})`$")
 SUBAGENT_EVIDENCE_HEADING_RE = re.compile(
-    r"^#### Subagent return `([a-z][a-z0-9-]{1,47})`$")
+    r"^(?:-[ \t]+)?#### Subagent return `([a-z][a-z0-9-]{1,47})`$")
 SUBAGENT_EVIDENCE_FIELD_RE = re.compile(
     r"^- (Returned artifact|Acceptance|Evidence):[ \t]+(.+)$")
 IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER = "- **Subagent work:**"
@@ -1526,8 +1526,8 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
         heading = SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(lines[index])
         if heading is None:
             raise DirectiveError(
-                "subagent evidence requires the exact heading #### "
-                "Subagent return `name`")
+                "subagent evidence requires #### Subagent return `name`, "
+                "optionally as one Markdown list item")
         name = heading.group(1)
         returned.append(name)
         index += 1

@@ -715,6 +715,11 @@ class HandoffContractTests(unittest.TestCase):
             ["failure-reproducer", "regression-writer"])
         self.assertTrue(parsed["completion_ready"])
 
+        listed = evidence.replace(
+            "#### Subagent return `", "- #### Subagent return `")
+        self.assertTrue(validate_implementer_subagent_evidence(
+            plan, listed)["completion_ready"])
+
         blocked = validate_implementer_subagent_evidence(
             plan, evidence.replace(
                 "- Acceptance: `pass`", "- Acceptance: `blocked`", 1))

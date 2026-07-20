@@ -149,6 +149,47 @@ class MailboxRoleRestartTests(unittest.TestCase):
       self.assertEqual(
         (repo / "tracked.txt").read_text(encoding="utf-8"), "returned work\n")
 
+  def test_valid_failed_return_is_recovered_without_rerunning(self):
+    """A newly readable handoff preserves C and returns to Architect."""
+    with scratch_restart() as (repo, mailbox, base):
+      cycle_id = "recover-return@" + base
+      active_implementation(cycle_id=cycle_id)
+      request = mailbox / "failed" / "0001-to-opus.md"
+      request.write_text(
+        architect_handoff(cycle_id=cycle_id), encoding="utf-8")
+      (repo / "tracked.txt").write_text("candidate\n", encoding="utf-8")
+      git(repo, "add", "tracked.txt")
+      git(repo, "commit", "-q", "-m", "candidate")
+      candidate = git(repo, "rev-parse", "HEAD")
+      returned = mailbox / "failed" / "0002-to-fable.md"
+      returned.write_text(
+        "MAILBOX-FLOW: ticket\n"
+        "MAILBOX-CYCLE: " + cycle_id + "\n"
+        "MAILBOX-MODE: normal\n\n"
+        "### IMPLEMENTER_HANDOFF: READY FOR AUDIT\n"
+        "- **Candidate commit:** `" + candidate + "`\n",
+        encoding="utf-8",
+      )
+      contract = mock.Mock()
+      contract.DirectiveError = RuntimeError
+      contract.validate_implementer_handoff_subagent_evidence.return_value = {
+        "completion_ready": True}
+      evidence = {
+        "contract": contract,
+        "parallel_work_plan": {"mode": "subagents"},
+      }
+
+      with mock.patch.object(
+          daemon, "prepare_implementer_evidence_contract",
+          return_value=evidence):
+        self.assertEqual(daemon.recover_failed_implementer_returns(), 1)
+        self.assertEqual(daemon.recover_implementer_deliveries(), 1)
+
+      self.assertEqual(
+        daemon.candidate_commit_for_cycle(cycle_id=cycle_id), candidate)
+      self.assertTrue((mailbox / "0002-to-fable.md").exists())
+      self.assertTrue((mailbox / "done" / "0001-to-opus.md").exists())
+
   def test_redteam_restart_discards_work_and_requeues_request(self):
     """A failed Red Team request returns without preserving its edits."""
     with scratch_restart() as (repo, mailbox, base):

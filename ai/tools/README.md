@@ -156,6 +156,10 @@ Each command discards partial work only for the named role, requeues the saved
 handoff, and tells the user when `--watch` may start again. It refuses when a
 completed result already exists because that result belongs to the Architect.
 
+If a role already completed its return but a structural check refused it, the
+next watcher revalidates the saved return. A now-valid Implementer candidate
+continues to the Architect without paying for the implementation again.
+
 ### Choose another program only when needed
 
 | What you want to do | Program | First command | Effect |

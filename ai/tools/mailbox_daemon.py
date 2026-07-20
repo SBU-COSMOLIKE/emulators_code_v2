@@ -12827,6 +12827,69 @@ def recover_failed_implementer_preflight():
     return recovered
 
 
+def recover_failed_implementer_returns():
+    """Revalidate a completed return without rerunning the Implementer."""
+    recovered = 0
+    requests = [
+        path for directory in (os.path.join(MAILBOX, "failed"),
+                               os.path.join(MAILBOX, "inflight"))
+        for path in glob.glob(os.path.join(directory, "*-to-opus.md"))]
+    for request_path in sorted(requests, key=message_sequence):
+        try:
+            request = read_cycle_message(path=request_path)
+            cycle_id, mode, _body, problem = _ticket_flow_envelope(
+                message=request)
+            active = read_ticket_cycle_state()["active"].get(cycle_id)
+            if (problem is not None or active is None
+                    or active["phase"] != "implementation"
+                    or active["commit"] is not None
+                    or active["mode"] != mode
+                    or architect_handoff_problem(
+                        message=request, cycle_id=cycle_id,
+                        mode=mode) is not None
+                    or candidate_commit_for_cycle(cycle_id) is not None):
+                continue
+            candidate = worktree_head(worktree=AGENT_CWD["opus"])
+            if (candidate == cycle_starting_commit(cycle_id)
+                    or _clean_worktree_status(AGENT_CWD["opus"])):
+                continue
+            contract = prepare_implementer_evidence_contract(message=request)
+            return_path, _invalid, evidence_problem, ready = (
+                matching_new_implementer_handoff(
+                    cycle_id=cycle_id, mode=mode,
+                    candidate_commit=candidate,
+                    before_inodes=frozenset(), evidence_contract=contract))
+            if evidence_problem is not None or not ready:
+                continue
+            if os.path.dirname(request_path) != os.path.join(
+                    MAILBOX, "inflight"):
+                request_path, moved = verified_state_move(
+                    dispatch_path=request_path,
+                    directory=os.path.join(MAILBOX, "inflight"))
+                if not moved:
+                    raise TicketCycleStateError(
+                        "validated Implementer request could not be restored "
+                        "for delivery")
+            if os.path.dirname(return_path) != MAILBOX:
+                return_path, moved = verified_state_move(
+                    dispatch_path=return_path, directory=MAILBOX)
+                if not moved:
+                    raise TicketCycleStateError(
+                        "validated Implementer return could not be restored "
+                        "for Architect review")
+            write_implementer_delivery_receipt(
+                request_path=request_path, return_path=return_path)
+            recovered += 1
+            print("revalidated completed Implementer return "
+                  + os.path.basename(return_path)
+                  + "; candidate will be preserved without rerunning the "
+                    "Implementer")
+        except (OSError, ValueError, PrimaryWorktreeError,
+                TicketCycleStateError):
+            continue
+    return recovered
+
+
 def live_implementer_owns_architect_admission(token):
     """Return whether a valid queued Implementer handoff owns ``token``."""
     request_name, digest = split_architect_admission_token(token=token)
@@ -13298,6 +13361,7 @@ def recover_before_dispatch(fix_only=False, skip_redteam=False):
     recover_failed_architect_outcome()
     if fix_only:
         recover_failed_maintenance_admission()
+    recover_failed_implementer_returns()
     recover_implementer_deliveries()
     recover_failed_implementer_preflight()
     recover_prelaunch_messages()
