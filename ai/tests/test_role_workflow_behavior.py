@@ -88,7 +88,7 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
                         changed_paths=changed, path_scope=allowed),
                     expected)
 
-    def test_trusted_tool_requires_the_protected_ticket_class_and_scope(self):
+    def test_trusted_tool_is_never_a_mailbox_candidate(self):
         trusted_tool = "ai/tools/mailbox_daemon.py"
 
         self.assertEqual(
@@ -100,12 +100,12 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
             mailbox_daemon.classify_candidate_scope(
                 changed_paths={trusted_tool}, path_scope={trusted_tool},
                 ticket_class="protected-control-plane"),
-            ("IN_SCOPE", set()))
+            ("PROTECTED_PATH_VIOLATION", {trusted_tool}))
         self.assertEqual(
             mailbox_daemon.classify_candidate_scope(
                 changed_paths={trusted_tool}, path_scope={"ai/tools/other.py"},
                 ticket_class="protected-control-plane"),
-            ("SCOPE_EXCEEDED", {trusted_tool}))
+            ("PROTECTED_PATH_VIOLATION", {trusted_tool}))
 
     def test_protected_landing_needs_both_keys_for_the_same_candidate(self):
         candidate = "c" * 40

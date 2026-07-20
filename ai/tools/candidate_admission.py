@@ -13,17 +13,15 @@ def forbidden_paths(
         forbidden_prefixes, protected_control_plane):
     """Return candidate paths that the selected ticket class may not change.
 
-    Ordinary tickets cannot change any control-plane file. A protected
-    control-plane ticket may change the control files named by its directive,
-    but it still cannot change other globally forbidden files or paths.
+    A forbidden prefix wins. The retired protected-control-plane class
+    cannot reopen ``ai/tools/`` or another prefix that the machine contract
+    reserves for external maintenance.
     """
     return {
         path for path in changed_paths
         if (path in forbidden_files
             or (path in control_plane_files and not protected_control_plane)
-            or (any(path.startswith(prefix) for prefix in forbidden_prefixes)
-                and not (protected_control_plane
-                         and path in control_plane_files)))}
+            or any(path.startswith(prefix) for prefix in forbidden_prefixes))}
 
 
 def classify(changed_paths, path_scope, protected_paths):

@@ -1108,11 +1108,10 @@ def _require_architect_role_plan(body):
         raise DirectiveError(
             "section 'Role plan' widespread review scope requires discovery "
             "severity `low`")
-    if ticket_class == "protected-control-plane" and not plan[
-            "uses_red_team"]:
+    if ticket_class == "protected-control-plane":
         raise DirectiveError(
-            "section 'Role plan' protected-control-plane tickets require "
-            "Architect + Implementer + Red Team")
+            "section 'Role plan' protected-control-plane execution is "
+            "retired; keep the ticket Open for external ai/tools maintenance")
     plan["roles"] = roles
     plan["discovery_severity"] = severity
     plan["review_scope"] = review_scope
@@ -2209,6 +2208,12 @@ def validate_directive_text(role, text, expected_max=0,
         test_rows = _require_locator(bodies=bodies, heading="Tests to write")
         result["allowed_paths"] = sorted({
             path for path, _symbol in file_rows + test_rows})
+        tool_paths = [path for path in result["allowed_paths"]
+                      if path.startswith("ai/tools/")]
+        if tool_paths:
+            raise DirectiveError(
+                "ai/tools/ is external-maintainer-only; keep the backlog "
+                "ticket Open and do not send it to the Implementer")
         evidence_body = _require_evidence_destination(
             text=text, packet_title=title)
         if result["parallel_work_plan"]["mode"] == "capability-unavailable":

@@ -383,13 +383,7 @@ def candidate_forbidden_files_from_contract(contract):
 
 
 def control_plane_files_from_contract(contract):
-    """Return exact files a protected ticket may name.
-
-    The role contract is the one source for this set. Ordinary tickets may
-    not change these tools. A protected ticket may change them only when its
-    validated directive names each path. Permanent notes, role instructions,
-    and the authority contract keep their Architect-only administration path.
-    """
+    """Return the historical tool set needed to refuse old saved work."""
     protected = contract["protected_paths"]
     return frozenset(
         list(protected["guard_files"].values())
@@ -9704,15 +9698,18 @@ def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
     """Explain why this trusted watcher cannot run one ticket class."""
     if ticket_class not in TICKET_CLASSES:
         return "invalid ticket class"
-    if ticket_class == "protected-control-plane" and skip_redteam:
-        return "Protected control-plane tickets require Red Team review"
+    if ticket_class == "protected-control-plane":
+        return ("protected-control-plane implementation is retired; keep the "
+                "ticket Open for external ai/tools maintenance")
     return None
 
 
-def candidate_changed_paths(base_commit, candidate_commit):
+def candidate_changed_paths(base_commit, candidate_commit, repository=None):
     """Return every repository path changed from ticket base B to C."""
+    if repository is None:
+        repository = AGENT_CWD["opus"]
     changed = _run_git(
-        repository_root=AGENT_CWD["opus"],
+        repository_root=repository,
         arguments=["diff", "--name-only", "-z", "--no-renames",
                    base_commit, candidate_commit, "--", "."])
     try:
@@ -10453,6 +10450,16 @@ def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
 def prepare_exact_squash_landing(cycle_id, candidate_commit, mode,
                                  sealed_backlog=None):
     """Create or reuse exact L without touching any checkout or branch."""
+    tool_changes = sorted(
+        path for path in candidate_changed_paths(
+            base_commit=cycle_starting_commit(cycle_id),
+            candidate_commit=candidate_commit,
+            repository=AGENT_CWD["fable"])
+        if path.startswith("ai/tools/"))
+    if tool_changes:
+        raise TicketCycleStateError(
+            "external-maintainer-only ai/tools change cannot land: "
+            + ", ".join(repr(path) for path in tool_changes))
     lock_file = acquire_ticket_cycle_lock()
     try:
         ticket_state = read_ticket_cycle_state()
@@ -11343,14 +11350,18 @@ base = (
     '- Review scope: `bounded`\\n')
 assert h._require_architect_role_plan(
     base + '- Ticket class: `ordinary`')['ticket_class'] == 'ordinary'
-assert h._require_architect_role_plan(
-    base + '- Ticket class: `protected-control-plane`')[
-        'ticket_class'] == 'protected-control-plane'
+try:
+    h._require_architect_role_plan(
+        base + '- Ticket class: `protected-control-plane`')
+except h.DirectiveError as exc:
+    assert 'execution is retired' in str(exc)
+else:
+    raise AssertionError('protected-control-plane plan was accepted')
 assert d.ticket_class_configuration_problem('ordinary', True) is None
-assert 'require Red Team' in d.ticket_class_configuration_problem(
-    'protected-control-plane', True)
-assert d.ticket_class_configuration_problem(
-    'protected-control-plane', False) is None
+for skip_redteam in (False, True):
+    problem = d.ticket_class_configuration_problem(
+        'protected-control-plane', skip_redteam)
+    assert 'retired' in problem and 'ticket Open' in problem
 
 tool = ROLE_CONTRACT['protected_paths']['trusted_tools']['mailbox_daemon']
 result, paths = d.classify_candidate_scope(
@@ -11358,7 +11369,7 @@ result, paths = d.classify_candidate_scope(
 assert result == 'PROTECTED_PATH_VIOLATION' and paths == {tool}
 result, paths = d.classify_candidate_scope(
     {tool}, {tool}, ticket_class='protected-control-plane')
-assert result == 'IN_SCOPE' and not paths
+assert result == 'PROTECTED_PATH_VIOLATION' and paths == {tool}
 other = 'emulator/unplanned.py'
 result, paths = d.classify_candidate_scope(
     {other}, {tool}, ticket_class='protected-control-plane')

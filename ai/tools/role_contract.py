@@ -66,7 +66,8 @@ _MINIMUM_FORBIDDEN_FILES = {
     "ai/notes/.backlog-guard.lock",
 }
 _MINIMUM_FORBIDDEN_PREFIXES = {
-    ".claude/", ".codex/", "ai/notes/mailbox/", "ai/notes/relay/",
+    ".claude/", ".codex/", "ai/tools/", "ai/notes/mailbox/",
+    "ai/notes/relay/",
 }
 
 

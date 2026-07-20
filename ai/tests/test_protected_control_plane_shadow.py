@@ -73,7 +73,7 @@ class ProtectedControlPlaneShadowTests(unittest.TestCase):
       passed, log_path = d0.trusted_control_plane_check(
           commit=candidate, label="focused-pass")
 
-      self.assertTrue(passed)
+      self.assertTrue(passed, Path(log_path).read_text(encoding="utf-8"))
       log = Path(log_path).read_text(encoding="utf-8")
       self.assertIn("D0_SHADOW_SCENARIOS_PASSED", log)
       self.assertEqual(
@@ -125,7 +125,7 @@ class ProtectedControlPlaneShadowTests(unittest.TestCase):
       passed, log_path = d0.trusted_control_plane_check(
           commit=candidate, label="focused-untrusted-test")
 
-      self.assertTrue(passed)
+      self.assertTrue(passed, Path(log_path).read_text(encoding="utf-8"))
       log = Path(log_path).read_text(encoding="utf-8")
       self.assertIn("D0_SHADOW_SCENARIOS_PASSED", log)
       self.assertNotIn("candidate test must not be imported", log)

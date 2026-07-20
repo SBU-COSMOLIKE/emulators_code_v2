@@ -293,6 +293,10 @@ class RoleContractTests(unittest.TestCase):
         forbidden_prefix["protected_paths"][
             "candidate_forbidden_prefixes"].remove(".claude/")
         cases.append(("control prefix", forbidden_prefix))
+        tools_prefix = copy.deepcopy(ROLE_CONTRACT)
+        tools_prefix["protected_paths"][
+            "candidate_forbidden_prefixes"].remove("ai/tools/")
+        cases.append(("external tool prefix", tools_prefix))
         backlog = copy.deepcopy(ROLE_CONTRACT)
         backlog["backlog"]["path"] = "ai/notes/another-backlog.md"
         cases.append(("backlog path", backlog))

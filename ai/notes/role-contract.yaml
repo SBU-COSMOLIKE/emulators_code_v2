@@ -35,6 +35,7 @@
     "candidate_forbidden_prefixes": [
       ".claude/",
       ".codex/",
+      "ai/tools/",
       "ai/notes/mailbox/",
       "ai/notes/relay/"
     ],

@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from ai.tools import mailbox_daemon as daemon
 
@@ -54,18 +55,18 @@ class ProtectedPathTests(unittest.TestCase):
             changed_paths={path}, path_scope={path}, ticket_class="ordinary"),
         ("PROTECTED_PATH_VIOLATION", {path}))
 
-  def test_protected_ticket_may_change_its_declared_trusted_tool(self):
-    """The protected class opens only the control-plane path it names."""
+  def test_retired_protected_ticket_cannot_change_a_trusted_tool(self):
+    """A ticket label cannot reopen external-maintainer-only tools."""
     path = "ai/tools/mailbox_daemon.py"
 
     self.assertEqual(
         daemon.classify_candidate_scope(
             changed_paths={path}, path_scope={path},
             ticket_class="protected-control-plane"),
-        ("IN_SCOPE", set()))
+        ("PROTECTED_PATH_VIOLATION", {path}))
 
-  def test_protected_ticket_cannot_silently_expand_its_file_list(self):
-    """Changing an unnamed ordinary file still requires Architect review."""
+  def test_tool_violation_wins_over_an_ordinary_scope_expansion(self):
+    """The tool refusal is stricter than an undeclared ordinary path."""
     declared = "ai/tools/mailbox_daemon.py"
     extra = "emulator/model.py"
 
@@ -73,7 +74,7 @@ class ProtectedPathTests(unittest.TestCase):
         daemon.classify_candidate_scope(
             changed_paths={declared, extra}, path_scope={declared},
             ticket_class="protected-control-plane"),
-        ("SCOPE_EXCEEDED", {extra}))
+        ("PROTECTED_PATH_VIOLATION", {declared}))
 
   def test_protected_class_does_not_open_always_forbidden_files(self):
     """The backlog remains Architect-owned even during protected work."""
@@ -110,13 +111,25 @@ class ProtectedPathTests(unittest.TestCase):
       daemon.classify_candidate_scope(
           changed_paths={path}, path_scope={path}, ticket_class="invented")
 
-  def test_skip_redteam_blocks_only_the_protected_class(self):
+  def test_protected_class_is_blocked_with_or_without_redteam(self):
     self.assertIsNone(daemon.ticket_class_configuration_problem(
         ticket_class="ordinary", skip_redteam=True))
-    self.assertIn(
-        "require Red Team",
-        daemon.ticket_class_configuration_problem(
-            ticket_class="protected-control-plane", skip_redteam=True))
+    for skip_redteam in (False, True):
+      with self.subTest(skip_redteam=skip_redteam):
+        problem = daemon.ticket_class_configuration_problem(
+            ticket_class="protected-control-plane",
+            skip_redteam=skip_redteam)
+        self.assertIn("retired", problem)
+        self.assertIn("keep the ticket Open", problem)
+
+  def test_landing_rechecks_ai_tools_even_for_old_saved_candidates(self):
+    with mock.patch.object(
+        daemon, "candidate_changed_paths",
+        return_value={"ai/tools/mailbox_daemon.py"}):
+      with self.assertRaisesRegex(
+          daemon.TicketCycleStateError, "cannot land"):
+        daemon.prepare_exact_squash_landing(
+            cycle_id=CYCLE, candidate_commit=CANDIDATE, mode="normal")
 
 
 class ControlPlaneMessageTests(unittest.TestCase):

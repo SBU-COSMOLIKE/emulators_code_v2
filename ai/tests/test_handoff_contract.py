@@ -43,7 +43,7 @@ NO_HELPER_EVIDENCE = NO_HELPER_PLAN
 ARCHITECT_BODIES = {
     "Outcome": "Add one bounded read-only directive validation command.",
     "Starting point": (
-        "At commit 0123456, ai/tools/example.py accepts unchecked notes."),
+        "At commit 0123456, emulator/example.py accepts unchecked notes."),
     "Execution checkout": (
         "- Worktree: `" + WORKTREE + "`\n"
         "- Branch: `claude/mailbox-primary`\n"
@@ -59,7 +59,7 @@ ARCHITECT_BODIES = {
         "- Review scope: `bounded`\n"
         "- Ticket class: `ordinary`"),
     "Files and symbols": (
-        "- `ai/tools/example.py::validate`: modify the validator.\n"
+        "- `emulator/example.py::validate`: modify the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
         "regression cases."),
     "Ordered implementation steps": (
@@ -156,7 +156,7 @@ REDTEAM_BODIES = {
         "- Readability plan: Preserve descriptive names and explicit repair "
         "steps for the lower-capability Implementer."),
     "Files and symbols": (
-        "- `ai/tools/example.py::validate`: repair the validator.\n"
+        "- `emulator/example.py::validate`: repair the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
         "regression cases."),
     "Ordered repair steps": (
@@ -217,7 +217,20 @@ class HandoffContractTests(unittest.TestCase):
 
         self.assertEqual(
             result["allowed_paths"],
-            ["ai/tests/test_example.py", "ai/tools/example.py"])
+            ["ai/tests/test_example.py", "emulator/example.py"])
+
+    def test_architect_cannot_dispatch_ai_tools_work(self):
+        body = (
+            "- `ai/tools/mailbox_daemon.py::main`: add the named refusal "
+            "before provider dispatch and preserve the Open ticket.\n"
+            "- `ai/tests/test_example.py::ExampleTests`: add a focused "
+            "test that proves no Implementer process starts.")
+        with self.assertRaisesRegex(
+                DirectiveError, "external-maintainer-only"):
+            validate_directive_text(
+                role="architect",
+                text=packet(
+                    role="architect", bodies={"Files and symbols": body}))
 
     def test_architect_role_plan_selects_roles_and_severity(self):
         cases = (
@@ -247,20 +260,6 @@ class HandoffContractTests(unittest.TestCase):
                     "discovery_severity": "not-used",
                     "review_scope": "not-used",
                     "ticket_class": "ordinary",
-                },
-            ),
-            (
-                "- Roles: `Architect + Implementer + Red Team`\n"
-                "- Discovery severity: `high`\n"
-                "- Review scope: `bounded`\n"
-                "- Ticket class: `protected-control-plane`",
-                {
-                    "route": "three-role",
-                    "uses_red_team": True,
-                    "roles": "Architect + Implementer + Red Team",
-                    "discovery_severity": "high",
-                    "review_scope": "bounded",
-                    "ticket_class": "protected-control-plane",
                 },
             ),
         )
@@ -322,7 +321,7 @@ class HandoffContractTests(unittest.TestCase):
                 "- Discovery severity: `not-used`\n"
                 "- Review scope: `not-used`\n"
                 "- Ticket class: `protected-control-plane`",
-                "require Architect \\+ Implementer \\+ Red Team",
+                "execution is retired",
             ),
         )
         for role_plan, message in invalid_plans:
@@ -1566,22 +1565,22 @@ class HandoffContractTests(unittest.TestCase):
         weak_locators = (
             "- `repo/path::symbol-or-section`: exact edit",
             "- `repo/path::test-name`: exact test",
-            "- `ai/tools/example.py::validate`: x",
-            "- `ai/tools/example.py::validate`: !!!!!!!!!!!!",
-            "- `ai/tools/example.py::validate`: fix",
-            "- `ai/tools/example.py::validate`: edit",
-            "- `ai/tools/example.py::validate`: add",
-            "- `ai/tools/example.py::validate`: test",
-            "- `ai/tools/example.py::validate`: change it",
-            "- `ai/tools/example.py::validate`: edit code",
-            "- `ai/tools/example.py::validate`: update code",
+            "- `emulator/example.py::validate`: x",
+            "- `emulator/example.py::validate`: !!!!!!!!!!!!",
+            "- `emulator/example.py::validate`: fix",
+            "- `emulator/example.py::validate`: edit",
+            "- `emulator/example.py::validate`: add",
+            "- `emulator/example.py::validate`: test",
+            "- `emulator/example.py::validate`: change it",
+            "- `emulator/example.py::validate`: edit code",
+            "- `emulator/example.py::validate`: update code",
             "- `ai/tests/test_example.py::test_validator`: add coverage",
             "- `path/to/source::function-name`: change validator",
             "- `some/path::some_symbol`: update code",
             "- `your/file.py::your_symbol`: modify behavior",
             "- `ai/tools/*.py::all_functions`: replace each parser with "
             "exact validated behavior",
-            "- `ai/tools/example.py::*`: replace the parser with exact "
+            "- `emulator/example.py::*`: replace the parser with exact "
             "validated behavior",
             "- `some_file.py::some_function`: replace the parser with "
             "exact validated behavior",
@@ -1589,9 +1588,9 @@ class HandoffContractTests(unittest.TestCase):
             "exact validated behavior",
             "- `example.py::whatever`: replace the parser with exact "
             "validated behavior",
-            "- `ai/tools/example.py::anything`: replace the parser with "
+            "- `emulator/example.py::anything`: replace the parser with "
             "exact validated behavior",
-            "- `ai/tools/example.py::relevant function`: replace the "
+            "- `emulator/example.py::relevant function`: replace the "
             "parser with exact validated behavior",
             "- `http://example.py::validate`: replace the parser with exact "
             "validated behavior",
@@ -1619,7 +1618,7 @@ class HandoffContractTests(unittest.TestCase):
             ARCHITECT_BODIES["Files and symbols"]
             + "\nAlso edit `../../outside.py::whatever` to keep behavior "
             "aligned.",
-            "- `ai/tools/example.py::validate`: replace the parser and edit "
+            "- `emulator/example.py::validate`: replace the parser and edit "
             "`../../outside.py::whatever` too.",
         )
         for locator_body in extra_scope_locators:
@@ -1724,7 +1723,7 @@ class HandoffContractTests(unittest.TestCase):
         fenced = (
             ("Files and symbols",
              "The exact locator is unspecified.\n"
-             "```text\n`ai/tools/example.py::validate`\n```",
+             "```text\n`emulator/example.py::validate`\n```",
              "visible bullet locator"),
             ("Execution checkout",
              "The exact checkout is unspecified.\n```text\n"
@@ -1761,7 +1760,7 @@ class HandoffContractTests(unittest.TestCase):
             role="architect",
             bodies={"Files and symbols":
                     "No exact binding source locator is visible.\n"
-                    "[fake]: `ai/tools/example.py::validate`"})
+                    "[fake]: `emulator/example.py::validate`"})
         with self.assertRaisesRegex(
                 DirectiveError, "visible bullet locator"):
             validate_directive_text(
@@ -1770,10 +1769,10 @@ class HandoffContractTests(unittest.TestCase):
         indented = (
             ("Files and symbols",
              "The exact locator is unspecified.\n"
-             "    `ai/tools/example.py::validate`"),
+             "    `emulator/example.py::validate`"),
             ("Files and symbols",
              "The exact locator is unspecified.\n"
-             " \t`ai/tools/example.py::validate`"),
+             " \t`emulator/example.py::validate`"),
             ("Execution checkout",
              "The exact checkout is unspecified.\n"
              "    - Worktree: `/repo/.claude/worktrees/worker`\n"
@@ -1787,10 +1786,10 @@ class HandoffContractTests(unittest.TestCase):
              "    - [ ] This is only a quoted example."),
             ("Files and symbols",
              "The exact locator is unspecified.\n"
-             "> `ai/tools/example.py::quoted_example`"),
+             "> `emulator/example.py::quoted_example`"),
             ("Files and symbols",
              "> This quoted paragraph names only an example.\n"
-             "`ai/tools/example.py::lazy_quoted_locator`"),
+             "`emulator/example.py::lazy_quoted_locator`"),
         )
         for heading, body in indented:
             with self.subTest(kind="indented", heading=heading):
@@ -1824,12 +1823,12 @@ class HandoffContractTests(unittest.TestCase):
                             role="architect", bodies={"Outcome": outcome}))
 
         hidden_locators = (
-            "- ![`ai/tools/example.py::validate`]"
+            "- ![`emulator/example.py::validate`]"
             "(ai/notes/assets/role-model-agent-loop.svg)",
             "- [No visible locator](unused "
-            "\"`ai/tools/example.py::validate`\")",
-            "- [No visible locator](`ai/tools/example.py::validate`)",
-            "- The locator appears later: `ai/tools/example.py::validate`",
+            "\"`emulator/example.py::validate`\")",
+            "- [No visible locator](`emulator/example.py::validate`)",
+            "- The locator appears later: `emulator/example.py::validate`",
         )
         for locator in hidden_locators:
             with self.subTest(locator=locator):
@@ -1867,7 +1866,7 @@ class HandoffContractTests(unittest.TestCase):
     def test_container_hidden_markers_cannot_supply_structure(self):
         nested_cases = (
             ("Files and symbols",
-             "- `ai/tools/example.py::validate`: fake edit only."),
+             "- `emulator/example.py::validate`: fake edit only."),
             ("Ordered implementation steps",
              "1. Fake plan inside code."),
             ("Acceptance checklist",
@@ -1890,7 +1889,7 @@ class HandoffContractTests(unittest.TestCase):
 
         math_cases = (
             ("Files and symbols",
-             "- `ai/tools/example.py::validate`: fake edit only."),
+             "- `emulator/example.py::validate`: fake edit only."),
             ("Ordered implementation steps", "1. Fake plan inside math."),
             ("Acceptance checklist", "- [ ] Fake check inside math."),
         )
