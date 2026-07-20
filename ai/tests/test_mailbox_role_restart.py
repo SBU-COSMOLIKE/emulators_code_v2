@@ -266,6 +266,54 @@ class MailboxRoleRestartTests(unittest.TestCase):
       plan,
     )
 
+  def test_baseline_sync_preserves_unrecorded_active_implementer_commit(self):
+    """Startup must not erase a clean commit made for an active ticket."""
+    target = "a" * 40
+    base = "b" * 40
+    candidate = "c" * 40
+    paths = {
+      "fable": "/roles/architect",
+      "opus": "/roles/implementer",
+      "sol": "/roles/redteam",
+    }
+    state = daemon.empty_ticket_cycle_state()
+    state["active"]["active-ticket@" + base] = {
+      "phase": "implementation", "commit": None,
+      "mode": "normal", "route": "primary",
+    }
+
+    def head(worktree):
+      return candidate if worktree == paths["opus"] else target
+
+    def descends(starting_commit, accepted_commit):
+      return starting_commit == base and accepted_commit == candidate
+
+    with mock.patch.multiple(
+        daemon,
+        AGENT_CWD=paths,
+        AGENT_BRANCH={"fable": "refs/heads/architect"},
+        IMPLEMENTER_BRANCH="refs/heads/implementer",
+        SOL_BRANCH="refs/heads/redteam"), \
+        mock.patch.object(daemon, "read_candidate_state", return_value={
+          "schema": daemon.CANDIDATE_STATE_SCHEMA, "cycles": {}}), \
+        mock.patch.object(daemon, "read_ticket_cycle_state", return_value=state), \
+        mock.patch.object(daemon, "_symbolic_worktree_branch"), \
+        mock.patch.object(daemon, "worktree_head", side_effect=head), \
+        mock.patch.object(daemon, "_clean_worktree_status", return_value=b""), \
+        mock.patch.object(daemon, "_architect_only_sealed_backlog",
+                          return_value=None), \
+        mock.patch.object(daemon, "_architect_backlog_matches_target",
+                          return_value=False), \
+        mock.patch.object(daemon, "_require_ancestor_or_same"), \
+        mock.patch.object(daemon, "git_commit_descends_from",
+                          side_effect=descends):
+      plan = daemon._role_baseline_plan_locked(target=target)
+
+    self.assertIn(
+      (paths["opus"], "refs/heads/implementer", "Implementer active work", False),
+      plan,
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

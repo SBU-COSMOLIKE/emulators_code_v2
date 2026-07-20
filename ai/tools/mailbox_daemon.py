@@ -12568,6 +12568,11 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
         plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
                      "Implementer preserved work", False))
     elif any(git_commit_descends_from(
+            starting_commit=base, accepted_commit=opus_head)
+            for base in active_bases):
+        plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
+                     "Implementer active work", False))
+    elif any(git_commit_descends_from(
             starting_commit=opus_head, accepted_commit=base)
             for base in active_bases):
         plan.append((AGENT_CWD["opus"], IMPLEMENTER_BRANCH,
