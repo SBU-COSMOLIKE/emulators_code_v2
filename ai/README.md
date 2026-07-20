@@ -118,6 +118,8 @@ evidence.
 For a closure review, the daemon also supplies the exact ticket title, landing
 commit, severity, reopen count, and legal `NO CHANGE` or `REOPEN` outputs. The
 small script supplies facts; it does not decide whether a bug remains.
+The shorter prompt also omits discovery rules that do not apply to this
+bounded review.
 
 This guide calls one requested change a **ticket**. A ticket can be a bug fix,
 a small feature, or a documentation repair. It should be small enough for one

@@ -241,6 +241,18 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
         self.assertNotIn("\x1b", banner)
         self.assertIn(repr(unsafe_path), banner)
 
+    def test_routine_review_banner_omits_discovery_lecture(self):
+        banner = mailbox_daemon.dispatch_banner(
+            store_max=4, newer_in_lane=0,
+            previous_timeout_minutes=None,
+            routine_review="Red Team closure")
+
+        self.assertIn("kind: Red Team closure", banner)
+        self.assertIn("named ticket and commit only", banner)
+        self.assertNotIn("DISCOVERY SEVERITY", banner)
+        self.assertNotIn("DISCOVERY SCOPE", banner)
+        self.assertIn("ticket character limit:", banner)
+
 
 if __name__ == "__main__":
     unittest.main()

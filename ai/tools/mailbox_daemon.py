@@ -6362,7 +6362,7 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                     discovery_severity=None, discovery_scope=None,
                     saved_discovery=False,
                     saved_architect_request=False,
-                    candidate_scope=None):
+                    candidate_scope=None, routine_review=None):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -6401,6 +6401,17 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                 "ticket. Architect GO explicitly accepts this expansion; a "
                 "repair handoff rejects it. Audit the listed paths.")
         lines.extend(("--- END CANDIDATE TICKET SCOPE ---", ""))
+    if routine_review is not None:
+        lines.extend((
+            "--- ROUTINE REVIEW (binding) ---",
+            "kind: " + routine_review,
+            "Review the named ticket and commit only. This is not a new "
+            "discovery search.",
+            "ticket character limit: "
+            + ("none (--max 0)" if MAX_CHARACTERS == 0 else
+               str(MAX_CHARACTERS) + " added plus deleted characters"),
+            "--- END ROUTINE REVIEW ---"))
+        return "\n".join(lines) + "\n\n"
     lines.append("--- DISCOVERY SEVERITY (binding) ---")
     if discovery_severity is None:
         discovery_severity = DISCOVERY_SEVERITY
@@ -8274,6 +8285,15 @@ def dispatch_under_main_checkout_lock(
                  "failed-state move was not verified."))
         return False
 
+    command_prefix = list(AGENT_COMMANDS[agent])
+    command_prefix, routine_review = routine_review_command(
+        command_prefix,
+        agent=agent,
+        ticket_kind=ticket_kind,
+        candidate_audit=(audit_commit is not None),
+        reopening=(reopen_decision_cycle is not None),
+        checkpoint=architect_checkpoint_audit,
+        integration=(integration_revalidation is not None))
     banner = dispatch_banner(
         store_max=currency[0],
         newer_in_lane=currency[1],
@@ -8284,7 +8304,8 @@ def dispatch_under_main_checkout_lock(
         discovery_scope=effective_discovery_scope,
         saved_discovery=(ticket_kind == "discovery"),
         saved_architect_request=(saved_architect_severity is not None),
-        candidate_scope=candidate_scope)
+        candidate_scope=candidate_scope,
+        routine_review=routine_review)
     if replacement_context_path is not None:
         banner += replacement_context_notice(path=replacement_context_path)
     # The dynamic banner precedes the byte-unchanged PREAMBLE. The
@@ -8297,15 +8318,6 @@ def dispatch_under_main_checkout_lock(
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
     checkpoint_state_path = None
-    command_prefix = list(AGENT_COMMANDS[agent])
-    command_prefix, routine_review = routine_review_command(
-        command_prefix,
-        agent=agent,
-        ticket_kind=ticket_kind,
-        candidate_audit=(audit_commit is not None),
-        reopening=(reopen_decision_cycle is not None),
-        checkpoint=architect_checkpoint_audit,
-        integration=(integration_revalidation is not None))
     if agent == "opus":
         checkpoint_state_path = log_path + "." + name + ".checkpoint"
         settings = implementer_checkpoint_settings(
