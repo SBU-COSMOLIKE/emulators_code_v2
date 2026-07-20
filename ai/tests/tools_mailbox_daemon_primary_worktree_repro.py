@@ -846,6 +846,45 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
             return False
         primary = default_primary(root)
         implementer = default_implementer(root)
+        base = git(root, "rev-parse", "HEAD").stdout.strip()
+        cycle = "candidate-before-user-update@" + base
+        primary_daemon = load_scratch_daemon(primary)
+        state = primary_daemon.read_ticket_cycle_state()
+        state["active"][cycle] = {
+            "phase": "implementation", "commit": None,
+            "mode": "normal", "route": "primary",
+            "ticket_class": "ordinary"}
+        primary_daemon.write_ticket_cycle_state(state=state)
+        reference = primary_daemon.cycle_candidate_ref(cycle_id=cycle)
+        git(root, "update-ref", reference, base)
+        candidates = primary_daemon.empty_candidate_state()
+        candidates["cycles"][cycle] = {"ref": reference, "commit": base}
+        primary_daemon.write_candidate_state(state=candidates)
+
+        marker = root / "user-update-with-saved-candidate.txt"
+        marker.write_text("user update\n", encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "user update with saved candidate")
+        target = git(root, "rev-parse", "HEAD").stdout.strip()
+        root_daemon = load_scratch_daemon(root)
+        advanced = root_daemon.bootstrap_sync_primary_from_main_authority(
+            primary_path=str(primary), primary_branch=PRIMARY_BRANCH)
+        candidate_preserved = (
+            advanced
+            and git(primary, "rev-parse", "HEAD").stdout.strip() == target
+            and git(implementer, "rev-parse", "HEAD").stdout.strip() == base
+            and git(root, "rev-parse", reference).stdout.strip() == base
+            and primary_daemon.read_candidate_state() == candidates)
+        outcomes.append(candidate_preserved)
+        print("clean user-main commit preserves candidate="
+              + str(candidate_preserved))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
         sol = default_sol(root)
         base = git(root, "rev-parse", "HEAD").stdout.strip()
         daemon = load_scratch_daemon(primary)
@@ -929,7 +968,7 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         outcomes.append(refused)
         print("Implementer-only main ref move refused=" + str(refused))
 
-    return outcomes == [True, True, True, True, True]
+    return outcomes == [True, True, True, True, True, True]
 
 
 def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
