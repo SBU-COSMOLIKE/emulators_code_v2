@@ -718,6 +718,13 @@ class HandoffContractTests(unittest.TestCase):
             "#### Subagent return `", "- #### Subagent return `")
         self.assertTrue(validate_implementer_subagent_evidence(
             plan, listed)["completion_ready"])
+        plain_names = evidence.replace(
+            "return `failure-reproducer`", "return failure-reproducer"
+        ).replace(
+            "return `regression-writer`", "return regression-writer"
+        ).replace("- Acceptance: `pass`", "- Acceptance: pass")
+        self.assertTrue(validate_implementer_subagent_evidence(
+            plan, plain_names)["completion_ready"])
         wrapped = listed.replace(
             "complete pre-edit failing assertion output.",
             "complete pre-edit\nfailing assertion output.").replace(

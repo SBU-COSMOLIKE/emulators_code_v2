@@ -501,6 +501,20 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
         self.assertIn("within limit; authoritative recovery check", rewritten)
         self.assertIn("changed characters: 13026", rewritten)
 
+    def test_restart_ignores_history_after_the_directive_evidence_block(self):
+        """Later progress notes cannot make the frozen directive unreadable."""
+        source = (
+            "## Implementation directive\nDirective body.\n"
+            "## Implementation evidence / resume state\nFirst evidence.\n"
+            "## Prior attempt record\nHistorical detail.\n"
+            "## Implementation evidence / resume state\nLater evidence.\n")
+
+        recovered = daemon.directive_before_later_history(source)
+
+        self.assertIn("First evidence.", recovered)
+        self.assertNotIn("Prior attempt record", recovered)
+        self.assertNotIn("Later evidence", recovered)
+
     def test_daemon_installs_only_the_three_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(
             python="/usr/bin/python3", hook_path="/repo/hook.py")

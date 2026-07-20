@@ -118,7 +118,8 @@ CAPABILITY_CHECKPOINT_CYCLE_RE = re.compile(
 CAPABILITY_CHECKPOINT_SHA256_RE = re.compile(
     r"^- Source handoff SHA-256: `([0-9a-f]{64})`$")
 SUBAGENT_EVIDENCE_HEADING_RE = re.compile(
-    r"^(?:-[ \t]+)?#### Subagent return `([a-z][a-z0-9-]{1,47})`$")
+    r"^(?:-[ \t]+)?#### Subagent return (?:`([a-z][a-z0-9-]{1,47})`|"
+    r"([a-z][a-z0-9-]{1,47}))$")
 SUBAGENT_EVIDENCE_FIELD_RE = re.compile(
     r"^- (Returned artifact|Acceptance|Evidence):[ \t]+(.+)$")
 IMPLEMENTER_SUBAGENT_EVIDENCE_MARKER = "- **Subagent work:**"
@@ -1580,12 +1581,13 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
             raise DirectiveError(
                 "subagent evidence requires #### Subagent return `name`, "
                 "optionally as one Markdown list item")
-        name = heading.group(1)
+        name = heading.group(1) or heading.group(2)
         returned.append(name)
         index += 1
         fields, index = _subagent_evidence_fields(
             lines=lines, index=index, name=name)
-        if fields["Acceptance"] not in ("`pass`", "`blocked`"):
+        if fields["Acceptance"] not in (
+                "`pass`", "`blocked`", "pass", "blocked"):
             raise DirectiveError(
                 "Subagent return '" + name
                 + "' Acceptance must be exactly `pass` or `blocked`")
@@ -1598,7 +1600,7 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
         records.append({
             "name": name,
             "returned_artifact": fields["Returned artifact"],
-            "acceptance": fields["Acceptance"][1:-1],
+            "acceptance": fields["Acceptance"].strip("`"),
             "evidence": fields["Evidence"],
         })
     if index != len(lines):
@@ -1693,7 +1695,7 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
         handoff_text=handoff_text)
     visible_evidence = _visible_subagent_evidence(text=evidence)
     has_blocked_return = any(
-        line.strip() == "- Acceptance: `blocked`"
+        line.strip() in ("- Acceptance: `blocked`", "- Acceptance: blocked")
         for line in _binding_markdown_text(
             text=visible_evidence).split("\n"))
     structural = _binding_markdown_text(text=visible_evidence)
@@ -1706,7 +1708,7 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
         heading = SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(lines[index])
         if heading is None:
             break
-        name = heading.group(1)
+        name = heading.group(1) or heading.group(2)
         if name in names:
             raise DirectiveError(
                 "blocked IMPLEMENTER_HANDOFF repeats Subagent return '"
@@ -1715,7 +1717,8 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
         index += 1
         fields, index = _subagent_evidence_fields(
             lines=lines, index=index, name=name)
-        if fields["Acceptance"] not in ("`pass`", "`blocked`"):
+        if fields["Acceptance"] not in (
+                "`pass`", "`blocked`", "pass", "blocked"):
             raise DirectiveError(
                 "Subagent return '" + name
                 + "' Acceptance must be exactly `pass` or `blocked`")
@@ -1728,7 +1731,7 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
         records.append({
             "name": name,
             "returned_artifact": fields["Returned artifact"],
-            "acceptance": fields["Acceptance"][1:-1],
+            "acceptance": fields["Acceptance"].strip("`"),
             "evidence": fields["Evidence"],
         })
     if not records:

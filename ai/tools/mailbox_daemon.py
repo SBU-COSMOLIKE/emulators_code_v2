@@ -4833,7 +4833,7 @@ def _authoritative_handoff_contract_module():
             "cannot load authoritative handoff contract: " + str(exc)) \
             from exc
     required = (
-        "DirectiveError", "validate_directive_file",
+        "DirectiveError", "validate_directive_file", "validate_directive_text",
         "extract_implementer_subagent_evidence",
         "extract_blocked_implementer_capability_evidence",
         "validate_implementer_handoff_subagent_evidence")
@@ -4841,6 +4841,20 @@ def _authoritative_handoff_contract_module():
         raise TicketCycleStateError(
             "authoritative handoff contract lacks Implementer evidence API")
     return module
+
+
+def directive_before_later_history(text):
+    """Keep one directive and its first evidence block for restart recovery."""
+    evidence = "## Implementation evidence / resume state"
+    lines = text.splitlines()
+    found_evidence = False
+    for index, line in enumerate(lines):
+        if line.casefold() == evidence.casefold():
+            found_evidence = True
+            continue
+        if found_evidence and re.match(r"^#{1,2}(?:\s|$)", line):
+            return "\n".join(lines[:index]) + "\n"
+    return text
 
 
 def prove_blocked_implementer_checkpoint(cycle_id, handoff_sha256,
@@ -4899,8 +4913,27 @@ def prepare_implementer_evidence_contract(message, use_saved_limit=False):
             role="architect", path=note_path,
             expected_max=(None if use_saved_limit else MAX_CHARACTERS))
     except contract.DirectiveError as exc:
-        raise TicketCycleStateError(
-            "Architect source directive is invalid: " + str(exc)) from exc
+        if (use_saved_limit
+                and "may repeat only consecutively" in str(exc)):
+            try:
+                source = stable_regular_bytes(
+                    path=note_path,
+                    maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                    label="saved Architect source directive").decode(
+                        "utf-8", errors="strict")
+                directive = contract.validate_directive_text(
+                    role="architect",
+                    text=directive_before_later_history(source),
+                    expected_max=None)
+            except (UnicodeDecodeError, OSError, ValueError,
+                    contract.DirectiveError) as recovery_exc:
+                raise TicketCycleStateError(
+                    "Architect source directive is invalid: "
+                    + str(recovery_exc)) from recovery_exc
+        else:
+            raise TicketCycleStateError(
+                "Architect source directive is invalid: " + str(exc)) \
+                from exc
     plan = directive.get("parallel_work_plan")
     if not isinstance(plan, dict):
         raise TicketCycleStateError(
