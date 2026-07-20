@@ -725,6 +725,13 @@ class HandoffContractTests(unittest.TestCase):
                 "the named assertion.", "the named\nassertion.")
         self.assertTrue(validate_implementer_subagent_evidence(
             plan, wrapped)["completion_ready"])
+        nested = "\n".join(
+            ("  " + line if line.startswith("- ####")
+             else "    " + line if line.startswith("- ")
+             else line)
+            for line in listed.split("\n"))
+        self.assertTrue(validate_implementer_subagent_evidence(
+            plan, nested)["completion_ready"])
 
         blocked = validate_implementer_subagent_evidence(
             plan, evidence.replace(

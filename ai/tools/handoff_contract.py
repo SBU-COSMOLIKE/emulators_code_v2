@@ -1496,6 +1496,21 @@ def _subagent_evidence_fields(lines, index, name):
     return fields, index
 
 
+def _visible_subagent_evidence(text):
+    """Expose only canonical evidence rows nested in a Markdown list."""
+    rows = []
+    for line in text.split("\n"):
+        stripped = line.lstrip(" ")
+        if (len(line) - len(stripped) <= 4
+                and (SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(stripped)
+                     is not None
+                     or SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(stripped)
+                     is not None)):
+            line = stripped
+        rows.append(line)
+    return "\n".join(rows)
+
+
 def validate_implementer_subagent_evidence(parallel_work_plan, text):
     """Validate an Implementer return against its parsed Architect plan.
 
@@ -1516,7 +1531,8 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
             "parallel_work_plan must be the parsed Architect plan")
     if not isinstance(text, str):
         raise DirectiveError("subagent evidence text must be a native string")
-    structural = _binding_markdown_text(text=text)
+    structural = _binding_markdown_text(
+        text=_visible_subagent_evidence(text=text))
     lines = [line.strip() for line in structural.split("\n") if line.strip()]
 
     if parallel_work_plan.get("mode") == "capability-unavailable":
@@ -1674,10 +1690,12 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
     """
     evidence = extract_implementer_subagent_evidence(
         handoff_text=handoff_text)
+    visible_evidence = _visible_subagent_evidence(text=evidence)
     has_blocked_return = any(
         line.strip() == "- Acceptance: `blocked`"
-        for line in _binding_markdown_text(text=evidence).split("\n"))
-    structural = _binding_markdown_text(text=evidence)
+        for line in _binding_markdown_text(
+            text=visible_evidence).split("\n"))
+    structural = _binding_markdown_text(text=visible_evidence)
     lines = [line.strip() for line in structural.split("\n")
              if line.strip()]
     records = []
@@ -1736,7 +1754,8 @@ def validate_implementer_handoff_subagent_evidence(parallel_work_plan,
         handoff_text=handoff_text)
     has_blocked_return = any(
         line.strip() == "- Acceptance: `blocked`"
-        for line in _binding_markdown_text(text=evidence).split("\n"))
+        for line in _binding_markdown_text(
+            text=_visible_subagent_evidence(text=evidence)).split("\n"))
     ordinary = None
     ordinary_error = None
     try:
