@@ -107,6 +107,14 @@ That is the whole mental model needed to begin. The next section walks through
 one small change. It introduces each tool word only when that word becomes
 useful.
 
+The first Architect plan and the Implementer's coding turn use the effort
+chosen for those roles. Later checks are narrower: the Architect audits one
+saved candidate, the Red Team reviews one landing, and the Architect may
+decide one reopening. By default, those routine checks use `medium` reasoning
+effort through `--review-effort`. Their machine-generated identity and state
+records remove repeated bookkeeping, but the reviewing role still judges the
+evidence.
+
 This guide calls one requested change a **ticket**. A ticket can be a bug fix,
 a small feature, or a documentation repair. It should be small enough for one
 clear plan and one final decision.

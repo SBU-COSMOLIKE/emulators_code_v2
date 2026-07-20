@@ -175,6 +175,9 @@ class RoleContractTests(unittest.TestCase):
             mailbox_daemon.DEFAULT_DISPATCH_TIMEOUT_MINUTES,
             ROLE_CONTRACT["runtime"]["dispatch_timeout_default_minutes"])
         self.assertEqual(
+            mailbox_daemon.DEFAULT_REVIEW_EFFORT,
+            ROLE_CONTRACT["runtime"]["routine_review_effort"])
+        self.assertEqual(
             mailbox_daemon.ARCHITECT_CANDIDATE_FORBIDDEN_PREFIXES,
             tuple(ROLE_CONTRACT["protected_paths"][
                 "candidate_forbidden_prefixes"]))
@@ -186,6 +189,7 @@ class RoleContractTests(unittest.TestCase):
         cases = (
             ("implementer_review_minutes", 91),
             ("dispatch_timeout_default_minutes", 121),
+            ("routine_review_effort", "low"),
         )
         for name, value in cases:
             with self.subTest(control=name):

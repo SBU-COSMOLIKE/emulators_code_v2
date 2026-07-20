@@ -173,6 +173,7 @@ continues to the Architect without paying for the implementation again.
 | Classify the files changed by one candidate | `candidate_admission.py` | Called automatically by `mailbox_daemon.py` | Separates an in-scope candidate, an ordinary scope expansion that needs the Architect, and a protected-path violation. It cannot read Git or accept, reject, or land a candidate. |
 | Check one Red Team reopening before and after the Architect decides | `reopen_transition.py` | Called automatically by `mailbox_daemon.py` | Reads verified backlog lines, prints the two legal outcomes, and refuses a wrong counter, severity, or status. It never edits the backlog or decides whether the evidence is persuasive. |
 | Check that the selected AI services answer | `provider_health.py` | Called automatically by `mailbox_daemon.py --ping` | Makes the small Claude, Ollama, and Sol connection requests. It cannot read the mailbox, change a worktree, or make a ticket decision. |
+| Select the cheaper effort for a routine review | `review_dispatch.py` | Called automatically by `mailbox_daemon.py` | Recognizes later Architect checks and bounded Red Team ticket reviews, then changes only the provider's reasoning-effort option. It cannot classify evidence or change the effort of planning, implementation, or discovery. |
 | Package unfinished backlog work and its local supporting files for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
 ## Where do I run these commands?
@@ -732,6 +733,7 @@ text formats, unsaved files, and other counting details.
 | Implementer service | `--implementer-provider` | `claude`; choose `ollama` for an Ollama-served open-weight model |
 | Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max`; Implementer effort is left to Ollama when that provider is selected |
 | Sol effort | `--sol-effort` | `xhigh` |
+| Routine review effort | `--review-effort` | `medium`; applies to later Architect checks and bounded Red Team ticket reviews, not the first plan, implementation, or discovery |
 | Roles used | `--skip-redteam`, `--no-red-team` | Architect + Implementer + advisory Sol Red Team |
 | Implementer complexity review | automatic | pause after 90 minutes |
 | Implementer context replacement | automatic | save an exact handoff before automatic compaction |
@@ -972,6 +974,11 @@ options:
   --sol-effort {none,low,medium,high,xhigh}
                         codex CLI reasoning effort for Sol as Red Team
                         (default: xhigh)
+  --review-effort {low,medium,high,xhigh}
+                        reasoning effort for routine Architect rechecks and
+                        bounded Red Team ticket reviews; the first Architect
+                        plan, every Implementer turn, and Red Team discovery
+                        keep their role effort (default: medium)
   --dispatch-timeout MINUTES
                         stop a running role after this many minutes and try to
                         move its request file to failed/; if the result or

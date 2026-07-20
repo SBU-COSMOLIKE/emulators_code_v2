@@ -155,6 +155,9 @@ _PROVIDER_HEALTH = _load_local_tool(
 _CANDIDATE_ADMISSION = _load_local_tool(
     "candidate_admission.py", "_mailbox_local_candidate_admission",
     "cannot load the candidate admission checker")
+_REVIEW_DISPATCH = _load_local_tool(
+    "review_dispatch.py", "_mailbox_local_review_dispatch",
+    "cannot load the routine review dispatcher")
 
 
 def repo_root_of(worktree):
@@ -242,6 +245,8 @@ CODEX_EFFORT_CHOICES = ["none", "low", "medium", "high", "xhigh"]
 DEFAULT_FABLE_EFFORT = "xhigh"
 DEFAULT_OPUS_EFFORT = "max"
 DEFAULT_SOL_EFFORT = "xhigh"
+DEFAULT_REVIEW_EFFORT = ROLE_CONTRACT["runtime"]["routine_review_effort"]
+REVIEW_EFFORT = DEFAULT_REVIEW_EFFORT
 
 # Model choice is independent of role. The fable/opus mailbox addresses are
 # stable legacy route keys, while these defaults preserve existing launches.
@@ -3609,6 +3614,21 @@ def check_provider_connectivity(
         sol_model=SOL_MODEL,
         timeout=PROVIDER_PING_TIMEOUT_SECONDS,
         run=subprocess.run)
+
+
+def routine_review_command(
+        command, *, agent, ticket_kind=None, candidate_audit=False,
+        reopening=False, checkpoint=False, integration=False, effort=None):
+    """Return the exact command and label for one lower-cost review turn."""
+    kind = _REVIEW_DISPATCH.review_kind(
+        agent=agent, ticket_kind=ticket_kind,
+        candidate_audit=candidate_audit, reopening=reopening,
+        checkpoint=checkpoint, integration=integration)
+    if kind is None:
+        return list(command), None
+    selected = REVIEW_EFFORT if effort is None else effort
+    return (_REVIEW_DISPATCH.command_with_effort(
+                command, agent=agent, effort=selected), kind)
 
 
 def implementer_checkpoint_settings(python, hook_path):
@@ -8261,6 +8281,14 @@ def dispatch_under_main_checkout_lock(
     log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
     checkpoint_state_path = None
     command_prefix = list(AGENT_COMMANDS[agent])
+    command_prefix, routine_review = routine_review_command(
+        command_prefix,
+        agent=agent,
+        ticket_kind=ticket_kind,
+        candidate_audit=(audit_commit is not None),
+        reopening=(reopen_decision_cycle is not None),
+        checkpoint=architect_checkpoint_audit,
+        integration=(integration_revalidation is not None))
     if agent == "opus":
         checkpoint_state_path = log_path + "." + name + ".checkpoint"
         settings = implementer_checkpoint_settings(
@@ -8290,6 +8318,9 @@ def dispatch_under_main_checkout_lock(
                      "failed-state move was not verified."))
             return False
 
+    if routine_review is not None:
+        print("routine review: " + routine_review + " at "
+              + REVIEW_EFFORT + " effort.")
     print("dispatching " + name + " -> " + agent + " ...")
     # Stream the agent's output straight into the relay log AS IT RUNS
     # (stderr folded in -- the codex CLI narrates its progress there), and
@@ -8304,7 +8335,7 @@ def dispatch_under_main_checkout_lock(
     timed_out = False
     timeout_history_error = None
     with open(log_path, "w", encoding="utf-8") as f:
-        f.write("$ " + " ".join(AGENT_COMMANDS[agent]) + " <message>\n")
+        f.write("$ " + " ".join(command_prefix) + " <message>\n")
         f.write("--- live output (stdout+stderr interleaved) ---\n")
         f.flush()
         # the claude CLI takes its context budget from the environment
@@ -16301,6 +16332,7 @@ def main():
     global DISPATCH_TIMEOUT_MINUTES
     global CLAUDE_CONTEXT_BUDGET
     global MAX_CHARACTERS
+    global REVIEW_EFFORT
     global DISCOVERY_SEVERITY
     global _ACTIVE_WATCH_RENDEZVOUS
 
@@ -16416,6 +16448,13 @@ def main():
                         help="codex CLI reasoning effort for Sol as Red Team "
                              "(default: "
                              + DEFAULT_SOL_EFFORT + ")")
+    parser.add_argument(
+        "--review-effort", default=DEFAULT_REVIEW_EFFORT,
+        choices=_REVIEW_DISPATCH.REVIEW_EFFORTS,
+        help="reasoning effort for routine Architect rechecks and bounded "
+             "Red Team ticket reviews; the first Architect plan, every "
+             "Implementer turn, and Red Team discovery keep their role "
+             "effort (default: " + DEFAULT_REVIEW_EFFORT + ")")
     parser.add_argument("--dispatch-timeout", metavar="MINUTES",
                         type=positive_int, default=DISPATCH_TIMEOUT_MINUTES,
                         help="stop a running role after this many minutes and "
@@ -16581,6 +16620,7 @@ def main():
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
+    REVIEW_EFFORT = args.review_effort
 
     if args.watch or args.once:
         report_ticket_character_limit()
@@ -16614,7 +16654,7 @@ def main():
                                   else "provider default (ollama)")
             print("effort levels: architect/fable=" + args.fable_effort
                   + " implementer/opus=" + implementer_effort
-                  + " sol=disabled")
+                  + " sol=disabled routine-review=" + args.review_effort)
             print("context budgets: architect/implementer="
                   + str(args.claude_context)
                   + " sol=disabled (a Claude turn compacts at its budget)")
@@ -16627,7 +16667,8 @@ def main():
                                   else "provider default (ollama)")
             print("effort levels: architect/fable=" + args.fable_effort
                   + " implementer/opus=" + implementer_effort
-                  + " sol=" + args.sol_effort)
+                  + " sol=" + args.sol_effort
+                  + " routine-review=" + args.review_effort)
             print("context budgets: architect/implementer="
                   + str(args.claude_context)
                   + " sol=" + str(args.sol_context)

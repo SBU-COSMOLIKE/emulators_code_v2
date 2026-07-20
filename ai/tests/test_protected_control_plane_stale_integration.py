@@ -32,7 +32,7 @@ def isolated_daemon(root):
   source = Path(daemon.__file__).resolve().parent
   for name in (
       "candidate_admission.py", "mailbox_daemon.py", "provider_health.py",
-      "reopen_transition.py", "role_contract.py"):
+      "reopen_transition.py", "review_dispatch.py", "role_contract.py"):
     shutil.copy2(source / name, tools / name)
   shutil.copy2(
       source.parent / "notes/role-contract.yaml",

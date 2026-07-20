@@ -2,6 +2,7 @@
 
 import unittest
 
+from ai.tools import mailbox_daemon
 from ai.tools import review_dispatch
 
 
@@ -68,6 +69,28 @@ class ReviewDispatchTests(unittest.TestCase):
             review_dispatch.command_with_effort(
                 ["claude", "--effort", "max"],
                 agent="fable", effort="max")
+
+    def test_daemon_wires_candidate_audit_to_review_effort(self):
+        """The coordinator uses the helper for C without changing its model."""
+        original = mailbox_daemon.AGENT_COMMANDS["fable"]
+        changed, kind = mailbox_daemon.routine_review_command(
+            original, agent="fable", candidate_audit=True, effort="low")
+        self.assertEqual(kind, "Architect candidate audit")
+        effort_index = changed.index("--effort") + 1
+        self.assertEqual(changed[effort_index], "low")
+        self.assertEqual(
+            changed[changed.index("--model") + 1],
+            original[original.index("--model") + 1])
+
+    def test_daemon_leaves_first_plan_and_implementation_unchanged(self):
+        """Only review-shaped dispatches may enter the cheaper path."""
+        for agent in ("fable", "opus"):
+            with self.subTest(agent=agent):
+                original = mailbox_daemon.AGENT_COMMANDS[agent]
+                changed, kind = mailbox_daemon.routine_review_command(
+                    original, agent=agent, effort="low")
+                self.assertIsNone(kind)
+                self.assertEqual(changed, original)
 
 if __name__ == "__main__":
     unittest.main()
