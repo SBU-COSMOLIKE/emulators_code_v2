@@ -26,6 +26,7 @@ _BOOTSTRAP_TRUSTED_TOOLS = {
     "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
     "mailbox_daemon": "ai/tools/mailbox_daemon.py",
     "provider_health": "ai/tools/provider_health.py",
+    "review_dispatch": "ai/tools/review_dispatch.py",
     "reopen_transition": "ai/tools/reopen_transition.py",
     "ticket_change_guard": "ai/tools/ticket_change_guard.py",
 }
@@ -143,7 +144,8 @@ def validate_role_contract(value):
         "evidence": ("red_team_advisory", "protected_policy_review_rounds"),
         "limits": ("protected_policy_file_bytes", "role_contract_bytes"),
         "runtime": ("implementer_review_minutes",
-                    "dispatch_timeout_default_minutes"),
+                    "dispatch_timeout_default_minutes",
+                    "routine_review_effort"),
         "protected_paths": ("candidate_forbidden_files",
                             "candidate_forbidden_prefixes", "contract",
                             "guard_files", "permanent_notes",
@@ -185,6 +187,12 @@ def validate_role_contract(value):
         _type(value["runtime"][name], int, "runtime." + name)
         if value["runtime"][name] <= 0:
             raise RoleContractError("runtime." + name + " must be positive")
+    _type(value["runtime"]["routine_review_effort"], str,
+          "runtime.routine_review_effort")
+    if value["runtime"]["routine_review_effort"] not in {
+            "low", "medium", "high", "xhigh"}:
+        raise RoleContractError(
+            "runtime.routine_review_effort has an unsupported value")
 
     for name in ("architect_branch", "architect_name", "claude_branch_prefix",
                  "cleanup_action", "implementer_branch", "implementer_name",
@@ -220,8 +228,8 @@ def validate_role_contract(value):
     _path_map(protected["trusted_tools"],
               ("backlog_bundle", "backlog_guard", "candidate_admission",
                "handoff_contract", "handoff_router", "implementer_checkpoint",
-               "mailbox_daemon", "provider_health", "reopen_transition",
-               "ticket_change_guard"),
+               "mailbox_daemon", "provider_health", "review_dispatch",
+               "reopen_transition", "ticket_change_guard"),
               "protected_paths.trusted_tools")
     tool_paths = (list(protected["guard_files"].values())
                   + list(protected["trusted_tools"].values()))

@@ -42,6 +42,7 @@ OTHER_TRUSTED_TOOLS = (
     "handoff_router.py",
     "implementer_checkpoint_hook.py",
     "provider_health.py",
+    "review_dispatch.py",
     "reopen_transition.py",
 )
 PERMANENT_NOTES = (

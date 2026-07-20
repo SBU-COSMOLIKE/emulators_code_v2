@@ -15,6 +15,7 @@ CONTROLLER_FILES = (
     "ai/tools/mailbox_daemon.py",
     "ai/tools/handoff_contract.py",
     "ai/tools/provider_health.py",
+    "ai/tools/review_dispatch.py",
     "ai/tools/reopen_transition.py",
     "ai/tools/role_contract.py",
     "ai/notes/role-contract.yaml",

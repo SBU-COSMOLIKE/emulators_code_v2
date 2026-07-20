@@ -74,6 +74,7 @@
       "mailbox_daemon": "ai/tools/mailbox_daemon.py",
       "provider_health": "ai/tools/provider_health.py",
       "reopen_transition": "ai/tools/reopen_transition.py",
+      "review_dispatch": "ai/tools/review_dispatch.py",
       "ticket_change_guard": "ai/tools/ticket_change_guard.py"
     }
   },
@@ -102,7 +103,8 @@
   },
   "runtime": {
     "dispatch_timeout_default_minutes": 120,
-    "implementer_review_minutes": 90
+    "implementer_review_minutes": 90,
+    "routine_review_effort": "medium"
   },
   "schema_version": 2,
   "worktrees": {
