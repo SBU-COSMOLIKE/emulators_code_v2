@@ -2616,6 +2616,50 @@ def _tracked_worktree_changes(worktree):
     return result.stdout
 
 
+def _optional_ref_commit(repository_root, reference):
+    """Return one full ref commit, or ``None`` when the ref is absent."""
+    result = _run_git(
+        repository_root=repository_root,
+        arguments=["rev-parse", "--verify", "--quiet",
+                   reference + "^{commit}"], check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        commit = result.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(reference + " is not ASCII") from exc
+    if FULL_COMMIT_RE.fullmatch(commit) is None:
+        raise PrimaryWorktreeError(reference + " is not a full commit")
+    return commit
+
+
+def implementer_authority_snapshot(repository_root=None):
+    """Snapshot Git state that an Implementer turn has no authority to move."""
+    repository_root = REPO_ROOT if repository_root is None else repository_root
+    symbolic = _run_git(
+        repository_root=repository_root,
+        arguments=["symbolic-ref", "-q", "HEAD"], check=False)
+    if symbolic.returncode not in (0, 1):
+        raise PrimaryWorktreeError(
+            "cannot inspect the user's checked-out branch")
+    return {
+        "local main": _optional_ref_commit(
+            repository_root, "refs/heads/main"),
+        "origin/main": _optional_ref_commit(
+            repository_root, "refs/remotes/origin/main"),
+        "user checkout branch": (
+            symbolic.stdout if symbolic.returncode == 0 else None),
+        "user checkout HEAD": worktree_head(worktree=repository_root),
+        "user checkout status": _tracked_worktree_changes(repository_root),
+    }
+
+
+def implementer_authority_changes(before, repository_root=None):
+    """Name protected Git state that moved during one Implementer turn."""
+    after = implementer_authority_snapshot(repository_root=repository_root)
+    return [name for name in before if before[name] != after[name]]
+
+
 def provision_or_reuse_implementer(repository_root, primary_state):
     """Create or validate the one fixed Implementer checkout."""
     paths = implementer_state_paths(repository_root=repository_root)
@@ -8215,6 +8259,7 @@ def dispatch_under_main_checkout_lock(
         return True
 
     implementer_starting_head = None
+    implementer_authority_before = None
     audit_cycle_id = None
     audit_commit = None
     audit_worktree = None
@@ -8244,6 +8289,7 @@ def dispatch_under_main_checkout_lock(
             implementer_starting_head = prepare_implementer_cycle_checkout(
                 cycle_id=registered_cycle_id,
                 preserve_current=replacement_context_path is not None)
+            implementer_authority_before = implementer_authority_snapshot()
         elif (agent == "fable" and registered_cycle_id is not None):
             audit_commit = candidate_commit_for_cycle(
                 cycle_id=registered_cycle_id)
@@ -8522,6 +8568,32 @@ def dispatch_under_main_checkout_lock(
                     if proc.poll() is not None:
                         _rendezvous_turn_finished()
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
+
+    authority_changes = []
+    if proc is not None and agent == "opus" \
+            and implementer_authority_before is not None:
+        try:
+            authority_changes = implementer_authority_changes(
+                before=implementer_authority_before)
+        except (OSError, PrimaryWorktreeError,
+                TicketCycleStateError) as exc:
+            authority_changes = ["snapshot could not be verified: " + str(exc)]
+    if authority_changes:
+        for return_path in glob.glob(os.path.join(MAILBOX, "*-to-fable.md")):
+            inode = regular_inode(path=return_path)
+            if (implementer_return_before is not None
+                    and inode is not None
+                    and inode not in implementer_return_before):
+                park_failed_message(dispatch_path=return_path)
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        print("IMPLEMENTER AUTHORITY VIOLATION:")
+        for changed in authority_changes:
+            print("- " + changed + " changed during the Implementer turn.")
+        print("Candidate or partial work preserved in " + AGENT_CWD["opus"]
+              + "; nothing landed. "
+              + ("Request parked in failed/." if parked else
+                 "Request state needs manual inspection."))
+        raise ImplementerAuthorityViolationError(authority_changes)
 
     persistent_role_error = None
     if proc is not None and agent in {"fable", "opus", "sol"}:
@@ -14032,6 +14104,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     workers = []
     lane_outcomes = {}
     token_errors = []
+    authority_errors = []
     outcome_lock = threading.Lock()
 
     def drain_and_record(cwd, paths, dry_run, fix_only, skip_redteam):
@@ -14047,6 +14120,10 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         except RoleTokenExhaustionError as exc:
             with outcome_lock:
                 token_errors.append(exc)
+            consumed = False
+        except ImplementerAuthorityViolationError as exc:
+            with outcome_lock:
+                authority_errors.append(exc)
             consumed = False
         except Exception as exc:
             print("  !! dispatch lane failed: " + str(exc)
@@ -14081,6 +14158,8 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         ordered = sorted(token_errors, key=lambda error: order[error.agent])
         ordered[0].other_errors = ordered[1:]
         raise ordered[0]
+    if authority_errors:
+        raise authority_errors[0]
     return (daemon_outcome and not blockers
             and len(lane_outcomes) == len(lanes)
             and all(lane_outcomes.values()))
@@ -14360,6 +14439,14 @@ class RetryableArchitectLandingError(TicketCycleStateError):
 
 class FatalArchitectLandingError(TicketCycleStateError):
     """Stop this process after preserving a valid GO for a later retry."""
+
+
+class ImplementerAuthorityViolationError(RuntimeError):
+    """The Implementer turn coincided with forbidden Git-state movement."""
+
+    def __init__(self, changes):
+        self.changes = tuple(changes)
+        super().__init__("Implementer authority boundary changed")
 
 
 class RoleTokenExhaustionError(RuntimeError):
@@ -16771,6 +16858,9 @@ def main():
             except RoleTokenExhaustionError as exc:
                 report_role_token_exhaustion(error=exc)
                 return 1
+            except ImplementerAuthorityViolationError:
+                print("watcher stopped before candidate admission or landing.")
+                return 1
             except FatalArchitectLandingError as exc:
                 print("Architect landing needs user action: " + str(exc))
                 return 1
@@ -16897,6 +16987,10 @@ def main():
                         skip_redteam=skip_redteam)
                 except RoleTokenExhaustionError as exc:
                     report_role_token_exhaustion(error=exc)
+                    return 1
+                except ImplementerAuthorityViolationError:
+                    print("watcher stopped before candidate admission or "
+                          "landing.")
                     return 1
                 except FatalArchitectLandingError as exc:
                     print("Architect landing needs user action: " + str(exc))

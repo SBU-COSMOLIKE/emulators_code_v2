@@ -1090,9 +1090,11 @@ def arm_truthy_values_and_watch_scope():
 
 
 def captured_dispatch(daemon, path, fix_only, launches,
-                      review_receipt=None):
+                      review_receipt=None, authority_changes=None):
     """Dispatch one scratch message with a harmless Popen replacement."""
     original_popen = daemon.subprocess.Popen
+    original_snapshot = daemon.implementer_authority_snapshot
+    original_changes = daemon.implementer_authority_changes
 
     def fake_popen(command, stdout, stderr, cwd, env):
         del stderr
@@ -1102,6 +1104,9 @@ def captured_dispatch(daemon, path, fix_only, launches,
         return clean_process(stdout, launches, command, cwd, env)
 
     daemon.subprocess.Popen = fake_popen
+    daemon.implementer_authority_snapshot = lambda: {"scratch": "stable"}
+    daemon.implementer_authority_changes = (
+        lambda before: list(authority_changes or []))
     stream = io.StringIO()
     try:
         with contextlib.redirect_stdout(stream):
@@ -1109,6 +1114,8 @@ def captured_dispatch(daemon, path, fix_only, launches,
                                       fix_only=fix_only)
     finally:
         daemon.subprocess.Popen = original_popen
+        daemon.implementer_authority_snapshot = original_snapshot
+        daemon.implementer_authority_changes = original_changes
     return outcome, stream.getvalue()
 
 

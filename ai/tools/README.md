@@ -1147,6 +1147,22 @@ globally protected file is stricter. The watcher reports
 accidentally named that file. No ticket label can authorize `ai/tools/`. A
 proposal containing only planned ordinary files is reported as `IN_SCOPE`.
 
+Immediately before an Implementer turn, the daemon records local `main`,
+`origin/main`, and the branch, commit, and visible Git status of the user's
+checkout. It compares them after the turn. Any movement prints:
+
+```text
+IMPLEMENTER AUTHORITY VIOLATION:
+- local main changed during the Implementer turn.
+Candidate or partial work preserved in WORKTREE; nothing landed.
+```
+
+The request and any new Architect handoff are parked in `failed/`, and the
+watcher exits. Inspect who changed the repository before retrying. The check
+detects movement; it cannot attribute that movement or provide isolation from
+a deliberately hostile process using the same account. A separate clone is
+the stronger boundary if that threat becomes relevant.
+
 <a id="protected-control-plane-tickets"></a>
 #### Who may change `ai/tools/`?
 

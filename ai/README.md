@@ -483,6 +483,14 @@ This hard boundary applies only to `ai/tools/`. Protected changes under
 Architect-only guarded route and its required review; they are never sent to
 the Implementer.
 
+The watcher also records local `main`, `origin/main`, and the user's checkout
+immediately before an Implementer starts. It compares those Git facts after
+the turn. If one moved, the watcher parks the request and any new Architect
+handoff, preserves the Implementer worktree, lands nothing, and stops. This
+catches an ordinary attempt to bypass the workflow. It cannot prove which
+process moved Git state or defend against a deliberately hostile process
+running as the same operating-system user.
+
 #### How work can overlap
 
 The Implementer may edit ticket 3 while the Architect checks ticket 2 and Red

@@ -328,6 +328,36 @@ class MailboxCandidateDeliveryRecoveryTests(unittest.TestCase):
             self.assertTrue((mailbox / "failed" / request.name).is_file())
             preserve.assert_not_called()
 
+    def test_implementer_authority_movement_stops_before_candidate_freeze(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            cycle = SCRATCH_HIGH_ANCHOR + "@" + BASE_COMMIT
+            flow = ("MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                    + "\nMAILBOX-MODE: normal\n\n")
+            request = mailbox / "0001-to-opus.md"
+            request.write_text(flow + "Implement the exact ticket.\n",
+                               encoding="utf-8")
+            returned = mailbox / "0999-to-fable.md"
+            daemon.ACTIVE_TOPOLOGY = {"scratch": True}
+            daemon.prepare_implementer_evidence_contract = mock.Mock(
+                return_value={})
+            daemon.prepare_implementer_cycle_checkout = mock.Mock(
+                return_value=BASE_COMMIT)
+            preserve = mock.Mock(return_value=ACCEPTED_COMMIT)
+            daemon.record_implementer_candidate = preserve
+
+            with self.assertRaises(
+                    daemon.ImplementerAuthorityViolationError):
+                captured_dispatch(
+                    daemon=daemon, path=request, fix_only=False, launches=[],
+                    review_receipt=(
+                        flow + "- **Candidate commit:** `" + ACCEPTED_COMMIT
+                        + "`\n"),
+                    authority_changes=["local main"])
+
+            self.assertTrue((mailbox / "failed" / request.name).is_file())
+            self.assertTrue((mailbox / "failed" / returned.name).is_file())
+            preserve.assert_not_called()
+
 
 class MailboxStateMoveRecoveryTests(unittest.TestCase):
     """Recover only exact hardlinks left by an interrupted mailbox move."""
