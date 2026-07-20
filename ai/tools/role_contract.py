@@ -24,6 +24,7 @@ _BOOTSTRAP_TRUSTED_TOOLS = {
     "handoff_router": "ai/tools/handoff_router.py",
     "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
     "mailbox_daemon": "ai/tools/mailbox_daemon.py",
+    "reopen_transition": "ai/tools/reopen_transition.py",
     "ticket_change_guard": "ai/tools/ticket_change_guard.py",
 }
 _MINIMUM_PERMANENT_NOTES = {
@@ -217,7 +218,7 @@ def validate_role_contract(value):
     _path_map(protected["trusted_tools"],
               ("backlog_bundle", "backlog_guard", "handoff_contract",
                "handoff_router", "implementer_checkpoint", "mailbox_daemon",
-               "ticket_change_guard"),
+               "reopen_transition", "ticket_change_guard"),
               "protected_paths.trusted_tools")
     tool_paths = (list(protected["guard_files"].values())
                   + list(protected["trusted_tools"].values()))

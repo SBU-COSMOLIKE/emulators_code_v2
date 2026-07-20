@@ -933,6 +933,12 @@ later rejects the evidence.
 This required decision keeps the report from being lost. With `--cycle 1`, the
 watcher does not exit between the Red Team `REOPEN` and the Architect's answer.
 
+Before the Architect reasons, the watcher prints a short checked record: the
+ticket title, landing, severity, reopen count, and the exact effects of GO and
+NO-GO. After the Architect seals the backlog, it checks that the count changed
+once and that the chosen outcome preserved the required severity and status.
+The program checks bookkeeping; the Architect still judges the evidence.
+
 ### Stop repeated reopen requests
 
 - A different defect uses `NEW TICKET`; it does not reopen the old ticket.

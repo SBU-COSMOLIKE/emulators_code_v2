@@ -654,9 +654,13 @@ prerequisite requires moving to the next ticket.
 Every ticket also keeps an integer named **Red Team reopen count**. It starts
 at `0` and never resets. This number records how many Red Team reviews in the
 final step of a normal cycle said `REOPEN`. That return keeps the same cycle
-active until the Architect assesses the evidence. The Architect increments the
-count and records one decision: GO restores the ticket to Open at the same
-severity; NO-GO keeps it Closed and bars that same objection. This prevents an
+active until the Architect assesses the evidence. Before that reasoning, the
+trusted reopening checker prints the exact ticket, landing, severity, count,
+and legal outcomes. After the backlog is sealed, it proves that the counter
+changed once and that the selected state is exact. It never judges the finding
+or edits the backlog. The Architect records one decision: GO restores the
+ticket to Open at the same severity, except for the existing sixth-reopening
+Low rule; NO-GO keeps it Closed and bars that same objection. This prevents an
 advisory finding from disappearing between work cycles.
 
 The Architect has the final word before the cycle ends. When the count is

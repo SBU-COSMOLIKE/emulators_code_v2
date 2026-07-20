@@ -71,6 +71,7 @@
       "handoff_router": "ai/tools/handoff_router.py",
       "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
       "mailbox_daemon": "ai/tools/mailbox_daemon.py",
+      "reopen_transition": "ai/tools/reopen_transition.py",
       "ticket_change_guard": "ai/tools/ticket_change_guard.py"
     }
   },

@@ -131,6 +131,22 @@ _ROLE_CONTRACT_TOOL = _load_local_role_contract_tool()
 ROLE_CONTRACT = _ROLE_CONTRACT_TOOL.ROLE_CONTRACT
 
 
+def _load_local_reopen_transition_tool():
+    """Load the reopening checker beside this exact daemon file."""
+    path = os.path.join(SCRIPT_DIR, "reopen_transition.py")
+    spec = importlib.util.spec_from_file_location(
+        "_mailbox_local_reopen_transition", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load the reopening transition checker")
+    tool = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tool
+    spec.loader.exec_module(tool)
+    return tool
+
+
+_REOPEN_TRANSITION = _load_local_reopen_transition_tool()
+
+
 def repo_root_of(worktree):
     """Return the shared repository root that owns a worktree directory.
 
@@ -4205,32 +4221,13 @@ REDTEAM_ROLE_PREAMBLE = (
 def agent_preamble(agent, message=None):
     """Return role-specific standing text that precedes the common wrapper."""
     if agent == "fable":
-        barred_notice = ""
-        reopen_notice = ""
         checkpoint_notice = ""
         checkpoint_audit = False
+        reopen_turn = False
         if message is not None and message.startswith(MAILBOX_RETURN_HEADER):
-            cycle_id, _, result, _, problem = _redteam_review_receipt(
+            _cycle_id, _, result, _, problem = _redteam_review_receipt(
                 message=message)
-            if (problem is None and result == "REOPEN"
-                    and backlog_reopening_status(
-                        cycle_ticket_anchor(cycle_id))
-                    == "barred by Architect NO-GO"):
-                barred_notice = (
-                    "FINAL REOPEN DECISION: the Architect already gave "
-                    "NO-GO to this objection. Do not change its status or "
-                    "reopen count. End with exactly `REOPEN decision: "
-                    "NO-GO` on its own line. A different defect requires "
-                    "NEW TICKET.\n\n")
-            elif problem is None and result == "REOPEN":
-                reopen_notice = (
-                    "FINAL REOPEN DECISION: Assess the Red Team evidence "
-                    "now. Increment the reopen count. GO restores this "
-                    "ticket to Open at the same severity; NO-GO keeps it "
-                    "Closed and permanently bars another reopening. Seal "
-                    "the backlog and do not dispatch an Implementer in "
-                    "this turn. End with exactly `REOPEN decision: GO` or "
-                    "`REOPEN decision: NO-GO` on its own line.\n\n")
+            reopen_turn = problem is None and result == "REOPEN"
         if message is not None and message.startswith(MAILBOX_FLOW_HEADER):
             cycle_id, _mode, body, problem = _ticket_flow_envelope(
                 message=message)
@@ -4266,10 +4263,9 @@ def agent_preamble(agent, message=None):
                     "- Source handoff SHA-256: `"
                     + hashlib.sha256(body.encode("utf-8")).hexdigest()
                     + "`\n\n")
-        landing = ("" if checkpoint_audit or reopen_notice
+        landing = ("" if checkpoint_audit or reopen_turn
                    else ARCHITECT_LANDING_PREAMBLE)
-        return (barred_notice + reopen_notice + checkpoint_notice
-                + ARCHITECT_ROLE_PREAMBLE + landing)
+        return checkpoint_notice + ARCHITECT_ROLE_PREAMBLE + landing
     if agent == "opus":
         return (IMPLEMENTER_ROLE_PREAMBLE
                 + "AUTHORITATIVE IMPLEMENTER ROLE FILE:\n    "
@@ -7985,6 +7981,8 @@ def dispatch_under_main_checkout_lock(
     review_receipt_before = None
     reopen_decision_cycle = None
     reopen_decision_commit = None
+    reopen_before = None
+    reopen_brief = ""
     effective_discovery_severity = DISCOVERY_SEVERITY
     effective_discovery_scope = DEFAULT_DISCOVERY_SCOPE
     saved_architect_severity = None
@@ -8073,6 +8071,19 @@ def dispatch_under_main_checkout_lock(
         if returned_result == "REOPEN":
             reopen_decision_cycle = returned_cycle
             reopen_decision_commit = returned_commit
+            try:
+                reopen_before = current_reopen_ticket(
+                    cycle_id=returned_cycle)
+                reopen_brief = _REOPEN_TRANSITION.architect_brief(
+                    ticket=reopen_before, cycle=returned_cycle,
+                    landing=returned_commit)
+            except TicketCycleStateError as exc:
+                parked = park_prelaunch_message(dispatch_path=dispatch_path)
+                print("refused " + name + ": reopening state could not be "
+                      "proved (" + str(exc) + "); "
+                      + ("retained in prelaunch/." if parked else
+                         "failed-state move was not verified."))
+                return False
     if agent == "fable" and message.startswith(SOL_SEVERITY_HEADER):
         architect_request_problem = architect_user_request_problem(
             message=message)
@@ -8347,7 +8358,7 @@ def dispatch_under_main_checkout_lock(
     common_preamble = common_preamble_for_dispatch(
         checkpoint_audit=architect_checkpoint_audit)
     command = command_prefix + ["--",
-        banner + agent_preamble(agent=agent, message=message)
+        banner + reopen_brief + agent_preamble(agent=agent, message=message)
         + architect_admission_prompt(token=architect_admission)
         + common_preamble + message]
 
@@ -8844,7 +8855,7 @@ def dispatch_under_main_checkout_lock(
     if reopen_decision_cycle is not None:
         try:
             decision = architect_reopen_decision(
-                cycle_id=reopen_decision_cycle)
+                cycle_id=reopen_decision_cycle, before=reopen_before)
             completed_now = complete_ticket_cycle(
                 cycle_id=reopen_decision_cycle,
                 accepted_commit=reopen_decision_commit)
@@ -15531,24 +15542,32 @@ def redteam_review_completes_cycle(result):
     return result == "NO CHANGE"
 
 
-def architect_reopen_decision(cycle_id):
-    """Read GO or NO-GO from the Architect's sealed backlog state."""
+def current_reopen_ticket(cycle_id):
+    """Read one mechanically checked ticket before Architect reasoning."""
+    try:
+        sealed = _validate_sealed_backlog(
+            primary_worktree=AGENT_CWD["fable"])
+        lines = sealed.decode("utf-8", errors="strict").splitlines()
+        return _REOPEN_TRANSITION.inspect_backlog(
+            lines=lines, anchor=cycle_ticket_anchor(cycle_id))
+    except (UnicodeDecodeError, PrimaryWorktreeError,
+            _REOPEN_TRANSITION.ReopenTransitionError) as exc:
+        raise TicketCycleStateError(str(exc)) from exc
+
+
+def architect_reopen_decision(cycle_id, before):
+    """Verify the exact backlog transition and return GO or NO-GO."""
     sealed = _validate_sealed_backlog(
         primary_worktree=AGENT_CWD["fable"])
-    anchor = cycle_ticket_anchor(cycle_id)
     try:
-        require_open_backlog_ticket(ticket_anchor=anchor)
-        if backlog_reopening_status(anchor) != "allowed":
-            raise TicketCycleStateError(
-                "Architect GO did not leave reopening allowed")
-        return "GO"
-    except TicketCycleStateError:
-        pass
-    require_closed_backlog_ticket(ticket_anchor=anchor, sealed_backlog=sealed)
-    if backlog_reopening_status(anchor) != "barred by Architect NO-GO":
-        raise TicketCycleStateError(
-            "Architect NO-GO did not bar another reopening")
-    return "NO-GO"
+        lines = sealed.decode("utf-8", errors="strict").splitlines()
+        after = _REOPEN_TRANSITION.inspect_backlog(
+            lines=lines, anchor=cycle_ticket_anchor(cycle_id))
+        return _REOPEN_TRANSITION.validate_after(
+            before=before, after=after)
+    except (UnicodeDecodeError,
+            _REOPEN_TRANSITION.ReopenTransitionError) as exc:
+        raise TicketCycleStateError(str(exc)) from exc
 
 
 def _matching_journaled_notes_go(base_commit, notes_commit,

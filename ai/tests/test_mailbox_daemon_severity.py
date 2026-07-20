@@ -78,20 +78,14 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
         cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
         with scratch_daemon() as (daemon, _, _, _):
             daemon._validate_sealed_backlog = lambda primary_worktree: b"ok"
-            daemon.require_open_backlog_ticket = lambda ticket_anchor: None
-            daemon.backlog_reopening_status = lambda ticket_anchor: "allowed"
-            self.assertEqual(daemon.architect_reopen_decision(cycle), "GO")
-
-            def not_open(ticket_anchor):
-                raise daemon.TicketCycleStateError("closed")
-
-            daemon.require_open_backlog_ticket = not_open
-            daemon.require_closed_backlog_ticket = (
-                lambda ticket_anchor, sealed_backlog: None)
-            daemon.backlog_reopening_status = (
-                lambda ticket_anchor: "barred by Architect NO-GO")
+            before = object()
+            after = object()
+            daemon._REOPEN_TRANSITION.inspect_backlog = (
+                lambda lines, anchor: after)
+            daemon._REOPEN_TRANSITION.validate_after = (
+                lambda before, after: "GO")
             self.assertEqual(
-                daemon.architect_reopen_decision(cycle), "NO-GO")
+                daemon.architect_reopen_decision(cycle, before), "GO")
 
     def test_send_saves_default_and_each_explicit_value(self):
         for supplied, expected in (

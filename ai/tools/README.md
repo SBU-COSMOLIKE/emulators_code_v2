@@ -170,6 +170,7 @@ continues to the Architect without paying for the implementation again.
 | Check that eleven protected project notes and the machine role contract still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the protected files. It changes nothing and does not issue `GO` or `NO-GO`. |
 | Detect an accidental change to the tracked backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
+| Check one Red Team reopening before and after the Architect decides | `reopen_transition.py` | Called automatically by `mailbox_daemon.py` | Reads verified backlog lines, prints the two legal outcomes, and refuses a wrong counter, severity, or status. It never edits the backlog or decides whether the evidence is persuasive. |
 | Package unfinished backlog work and its local supporting files for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
 ## Where do I run these commands?

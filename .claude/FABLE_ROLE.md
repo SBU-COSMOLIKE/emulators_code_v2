@@ -1252,6 +1252,10 @@ state-changing work and follow the saved recovery evidence without rewriting
 history.
 
 On receiving `Backlog action: REOPEN`, assess the evidence in that turn.
+Begin with the daemon's `ARCHITECT REOPENING CHECK`; do not spend model effort
+reconstructing the ticket identity, current count, severity, or legal state
+changes that this checked block already names. The check does not judge the
+Red Team evidence: that GO / NO-GO decision remains yours.
 Increment the reopen count and preserve the Red Team note path in the exact
 backlog line `See further instructions at
 ai/notes/<plain-ticket-slug>-red-team-finding.md`. GO restores the ticket to
