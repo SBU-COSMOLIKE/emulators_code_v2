@@ -13486,19 +13486,13 @@ def blocked_redteam_directory():
 
 
 def recover_blocked_redteam_messages(skip_redteam=False):
-    """Requeue protected work when a later watcher enables Red Team."""
-    if skip_redteam:
-        return 0
+    """Keep retired protected requests parked for external maintenance."""
     directory = blocked_redteam_directory()
-    recovered = 0
-    for path in sorted(glob.glob(os.path.join(directory, "*-to-opus.md")),
-                       key=message_sequence):
-        destination = move_without_overwrite(path=path, directory=MAILBOX)
-        if destination is not None:
-            recovered += 1
-            print("requeued protected control-plane ticket "
-                  + os.path.basename(path) + " now that Red Team is enabled")
-    return recovered
+    parked = glob.glob(os.path.join(directory, "*-to-opus.md"))
+    if parked and not skip_redteam:
+        print("retired protected requests remain parked for external "
+              "ai/tools maintenance; their backlog tickets stay Open")
+    return 0
 
 
 def block_protected_ticket_without_redteam(path):

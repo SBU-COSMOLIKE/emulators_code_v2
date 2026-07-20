@@ -570,8 +570,8 @@ class ProtectedStateTests(unittest.TestCase):
     self.assertEqual(
         daemon.recover_blocked_redteam_messages(skip_redteam=True), 0)
 
-  def test_restart_with_redteam_requeues_the_same_blocked_bytes(self):
-    """Enabling Red Team recovers the preserved handoff, not a new request."""
+  def test_restart_never_requeues_old_protected_work(self):
+    """Historical bytes stay parked for external maintenance."""
     with tempfile.TemporaryDirectory(prefix="protected-ticket-blocked-") as tmp:
       isolated = load_isolated_daemon(tmp)
       blocked = Path(isolated.blocked_redteam_directory())
@@ -586,10 +586,9 @@ class ProtectedStateTests(unittest.TestCase):
       with redirect_stdout(io.StringIO()):
         recovered = isolated.recover_blocked_redteam_messages(
             skip_redteam=False)
-      self.assertEqual(recovered, 1)
-      self.assertFalse(saved.exists())
-      self.assertEqual(
-          (Path(isolated.MAILBOX) / saved.name).read_bytes(), payload)
+      self.assertEqual(recovered, 0)
+      self.assertEqual(saved.read_bytes(), payload)
+      self.assertFalse((Path(isolated.MAILBOX) / saved.name).exists())
 
 
 if __name__ == "__main__":
