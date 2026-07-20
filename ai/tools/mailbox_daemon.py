@@ -159,6 +159,9 @@ _CANDIDATE_ADMISSION = _load_local_tool(
 _REVIEW_DISPATCH = _load_local_tool(
     "review_dispatch.py", "_mailbox_local_review_dispatch",
     "cannot load the routine review dispatcher")
+_CONTROL_PLANE_HANDOFF = _load_local_tool(
+    "control_plane_handoff.py", "_mailbox_local_control_plane_handoff",
+    "cannot load the control-plane handoff checker")
 
 
 def repo_root_of(worktree):
@@ -343,6 +346,14 @@ MAX_TICKET_CYCLE_RECORDS = 10000
 CANDIDATE_STATE_NAME = ".ticket-candidate-state.json"
 CANDIDATE_STATE_SCHEMA = 1
 MAX_CANDIDATE_STATE_BYTES = 1024 * 1024
+CONTROL_PLANE_MIGRATION_PATH = (
+    "ai/tools/control-plane-state-migration.yaml")
+CONTROL_PLANE_PRESERVED_INVARIANTS = (
+    "active_ticket_identity",
+    "candidate_identity",
+    "completed_landing_identity",
+    "recovery_state",
+)
 IMPLEMENTER_DELIVERY_PREFIX = ".validated-implementer-return-for-"
 ARCHITECT_NOTES_ADMIN_JOURNAL_SCHEMA = 1
 MAX_ARCHITECT_NOTES_ADMIN_JOURNAL_BYTES = 16 * 1024
@@ -11460,6 +11471,33 @@ def _live_control_plane_fingerprint():
         except (OSError, ValueError) as exc:
             raise TicketCycleStateError(str(exc)) from exc
         digest.update(b"<missing>" if raw is None else raw)
+    notes = os.path.join(WORKTREE, "ai", "notes")
+    for name, maximum in (
+            ("backlog.md", MAX_BACKLOG_LEDGER_BYTES),
+            (BACKLOG_GUARD_STATE_NAME, MAX_BACKLOG_GUARD_STATE_BYTES),
+            (BACKLOG_SYNC_RECOVERY_NAME, MAX_BACKLOG_LEDGER_BYTES)):
+        path = os.path.join(notes, name)
+        digest.update(path.encode("utf-8") + b"\0")
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=maximum,
+                label="live control-plane recovery", missing_ok=True)
+        except (OSError, ValueError) as exc:
+            raise TicketCycleStateError(str(exc)) from exc
+        digest.update(b"<missing>" if raw is None else raw)
+    relay_state = []
+    for pattern in (".pending-notes-admin-*.json",
+                    "pending-main-push-*.txt"):
+        relay_state.extend(glob.glob(os.path.join(RELAY_DIR, pattern)))
+    for path in sorted(relay_state):
+        digest.update(path.encode("utf-8") + b"\0")
+        try:
+            raw = stable_regular_bytes(
+                path=path, maximum_bytes=MAX_PRIMARY_ARCHIVE_FILE_BYTES,
+                label="live relay recovery state")
+        except (OSError, ValueError) as exc:
+            raise TicketCycleStateError(str(exc)) from exc
+        digest.update(raw)
     if ACTIVE_TOPOLOGY is not None:
         for name in ("primary_state", "implementer_state", "sol_state"):
             path = ACTIVE_TOPOLOGY[name]
@@ -11495,14 +11533,54 @@ def trusted_control_plane_check(commit, label):
         RELAY_DIR, stamp + "-control-plane-" + label + ".log")
     commands = []
     with tempfile.TemporaryDirectory(prefix="mailbox-control-plane-") as root:
+        handoff_repository = os.path.join(root, "handoff")
         repository = os.path.join(root, "repo")
-        commands.append(["git", "init", "--quiet", repository])
-        commands.append([
-            "git", "-C", repository, "fetch", "--quiet", "--no-tags",
-            AGENT_CWD["fable"], commit])
-        commands.append([
-            "git", "-C", repository, "checkout", "--quiet", "--detach",
-            "FETCH_HEAD"])
+        setup = (
+            ["git", "init", "--quiet"],
+            ["git", "fetch", "--quiet", "--no-tags",
+             AGENT_CWD["fable"], commit],
+            ["git", "checkout", "--quiet", "--detach", "FETCH_HEAD"],
+        )
+        for checkout in (handoff_repository, repository):
+            os.makedirs(checkout, exist_ok=True)
+            for command in setup:
+                result = subprocess.run(
+                    command, cwd=checkout, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, check=False)
+                if result.returncode != 0:
+                    raise TicketCycleStateError(
+                        "cannot create disposable control-plane checkout: "
+                        + result.stderr.decode(
+                            "utf-8", errors="replace").strip()[:500])
+
+        expected = _CONTROL_PLANE_HANDOFF.copy_d0_state(
+            controller=sys.modules[__name__],
+            repository=handoff_repository)
+        expected_path = os.path.join(root, "d0-expected.json")
+        with open(expected_path, "w", encoding="utf-8") as stream:
+            json.dump(expected, stream, sort_keys=True, indent=2)
+            stream.write("\n")
+        for reference, inherited_commit in expected["refs"].items():
+            fetch = subprocess.run(
+                ["git", "fetch", "--quiet", "--no-tags",
+                 AGENT_CWD["fable"], inherited_commit],
+                cwd=handoff_repository, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False)
+            if fetch.returncode != 0:
+                raise TicketCycleStateError(
+                    "cannot copy D0 Git identity into shadow checkout")
+            update = subprocess.run(
+                ["git", "update-ref", reference, inherited_commit],
+                cwd=handoff_repository, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False)
+            if update.returncode != 0:
+                raise TicketCycleStateError(
+                    "cannot publish copied D0 Git identity in shadow checkout")
+
+        commands.append((
+            [sys.executable, "-c", _CONTROL_PLANE_HANDOFF.TAKEOVER_PROBE,
+             expected_path],
+            handoff_repository))
         # This program is D0's harness. It is generated outside the candidate
         # checkout, while every imported function below comes from D1 at C.
         # Candidate tests are intentionally not imported or trusted here.
@@ -11767,25 +11845,24 @@ assert ref_or_none(landing_ref) == landing
 print('D0_SHADOW_SCENARIOS_PASSED')
 print('CONTROL_PLANE_HEALTHY', ROLE_CONTRACT['schema_version'])
 """
-        commands.append([
+        commands.append(([
             sys.executable, "-m", "py_compile",
             os.path.join(repository, "ai", "tools", "role_contract.py"),
             os.path.join(repository, "ai", "tools", "handoff_contract.py"),
-            os.path.join(repository, "ai", "tools", "mailbox_daemon.py")])
-        commands.append([sys.executable, "-c", probe])
+            os.path.join(repository, "ai", "tools", "mailbox_daemon.py")],
+            repository))
+        commands.append(([sys.executable, "-c", probe], repository))
         environment = os.environ.copy()
         for name in tuple(environment):
             if name.startswith("MAILBOX_"):
                 del environment[name]
-        environment["PYTHONPATH"] = repository
         ok = True
         with open(log_path, "w", encoding="utf-8") as stream:
-            for command in commands:
+            for command, command_cwd in commands:
                 stream.write("$ " + " ".join(command) + "\n")
                 try:
                     result = subprocess.run(
-                        command, cwd=(repository
-                                      if os.path.isdir(repository) else root),
+                        command, cwd=command_cwd,
                         env=environment, stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT, text=True, check=False,
                         timeout=120)

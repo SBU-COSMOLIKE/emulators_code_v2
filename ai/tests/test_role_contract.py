@@ -232,6 +232,9 @@ class RoleContractTests(unittest.TestCase):
                 REPO_ROOT / "ai/tools/candidate_admission.py",
                 tools / "candidate_admission.py")
             shutil.copy2(
+                REPO_ROOT / "ai/tools/control_plane_handoff.py",
+                tools / "control_plane_handoff.py")
+            shutil.copy2(
                 REPO_ROOT / "ai/tools/review_dispatch.py",
                 tools / "review_dispatch.py")
             extended = copy.deepcopy(ROLE_CONTRACT)

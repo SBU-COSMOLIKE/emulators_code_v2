@@ -171,6 +171,7 @@ continues to the Architect without paying for the implementation again.
 | Detect an accidental change to the tracked backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
 | Classify the files changed by one candidate | `candidate_admission.py` | Called automatically by `mailbox_daemon.py` | Separates an in-scope candidate, an ordinary scope expansion that needs the Architect, and a protected-path violation. It cannot read Git or accept, reject, or land a candidate. |
+| Test whether a replacement controller understands D0's saved work | `control_plane_handoff.py` | Called automatically by `mailbox_daemon.py` for an external controller update | Copies bounded records into a temporary checkout and supplies D0's takeover probe. It never edits the live state or decides that D1 may land. |
 | Check one Red Team closure or reopening | `reopen_transition.py` | Called automatically by `mailbox_daemon.py` | Reads verified backlog lines and supplies the ticket state and legal outcomes. It refuses a wrong counter, severity, or status. It never edits the backlog or decides whether the evidence is persuasive. |
 | Check that the selected AI services answer | `provider_health.py` | Called automatically by `mailbox_daemon.py --ping` | Makes the small Claude, Ollama, and Sol connection requests. It cannot read the mailbox, change a worktree, or make a ticket decision. |
 | Select the cheaper effort for a routine review | `review_dispatch.py` | Called automatically by `mailbox_daemon.py` | Recognizes later Architect checks and bounded Red Team ticket reviews, changes only the reasoning-effort option, and lets the daemon omit unrelated discovery instructions. It cannot classify evidence or change planning, implementation, or discovery effort. |
@@ -1212,6 +1213,28 @@ The protected exception exists for `ai/notes/`. That is its purpose. The
 Architect proposes and saves those note or policy changes through the guarded
 notes route, and Red Team performs the required review. The Implementer does
 not edit them.
+
+#### Test a replacement controller with the current saved work
+
+Call the controller on `main` **D0** and the proposed replacement **D1**. A
+clean-start test is not enough: D1 must also understand the work D0 has already
+saved.
+
+Before an external maintainer may land D1, D0 makes disposable copies of the
+current ticket and candidate records, the three worktree records, backlog
+recovery files, pending push records, and private candidate or landing Git
+names. D1 reads those copies in a fresh Python process. D0 then checks that the
+active tickets, completed landings, candidate identities, recovery bytes, and
+Git names still mean exactly the same thing. The live files are fingerprinted
+before and after this test and are never used as the test workspace.
+
+If D1 changes a saved-state schema, it must include the JSON-compatible YAML
+file `ai/tools/control-plane-state-migration.yaml`. The declaration names the
+exact old schemas, new schemas, migration function, and four preserved facts.
+D0 runs that function only on the disposable copies, starts D1 again, and
+compares the reread result with D0's original interpretation. A missing or
+incorrect declaration, a lost ticket, or altered recovery state refuses the
+replacement before a landing commit is created.
 
 #### Record whether helpers add value
 

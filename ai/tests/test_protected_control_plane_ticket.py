@@ -30,8 +30,8 @@ def load_isolated_daemon(root):
   shutil.copy2(source_tools / "mailbox_daemon.py", tools)
   shutil.copy2(source_tools / "role_contract.py", tools)
   for name in (
-      "candidate_admission.py", "provider_health.py", "reopen_transition.py",
-      "review_dispatch.py"):
+      "candidate_admission.py", "control_plane_handoff.py",
+      "provider_health.py", "reopen_transition.py", "review_dispatch.py"):
     shutil.copy2(source_tools / name, tools)
   shutil.copy2(
       source_tools.parent / "notes/role-contract.yaml",

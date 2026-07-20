@@ -39,6 +39,7 @@ OTHER_TRUSTED_TOOLS = (
     "backlog_bundle.py",
     "backlog_guard.py",
     "candidate_admission.py",
+    "control_plane_handoff.py",
     "handoff_router.py",
     "implementer_checkpoint_hook.py",
     "provider_health.py",
