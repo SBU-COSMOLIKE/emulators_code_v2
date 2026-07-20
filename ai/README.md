@@ -115,6 +115,10 @@ effort through `--review-effort`. Their machine-generated identity and state
 records remove repeated bookkeeping, but the reviewing role still judges the
 evidence.
 
+For a closure review, the daemon also supplies the exact ticket title, landing
+commit, severity, reopen count, and legal `NO CHANGE` or `REOPEN` outputs. The
+small script supplies facts; it does not decide whether a bug remains.
+
 This guide calls one requested change a **ticket**. A ticket can be a bug fix,
 a small feature, or a documentation repair. It should be small enough for one
 clear plan and one final decision.

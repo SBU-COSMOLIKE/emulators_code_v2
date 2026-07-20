@@ -68,6 +68,25 @@ class ReopenTransitionTests(unittest.TestCase):
         self.assertIn("NO-GO: count 1, remain Closed", brief)
         self.assertNotIn("Another group", brief)
 
+    def test_redteam_brief_supplies_bookkeeping_without_judgment(self):
+        ticket = reopen_transition.inspect_backlog(ticket_lines(), ANCHOR)
+        brief = reopen_transition.redteam_brief(
+            ticket=ticket, cycle=CYCLE, landing=LANDING)
+        self.assertIn("Ticket: Example ticket", brief)
+        self.assertIn("Severity: HIGH", brief)
+        self.assertIn("Reopen count: 0", brief)
+        self.assertIn("NO CHANGE", brief)
+        self.assertIn("REOPEN only with concrete, persuasive evidence", brief)
+        self.assertNotIn("GO", brief)
+
+        open_ticket = reopen_transition.inspect_backlog(
+            ticket_lines(state="OPEN"), ANCHOR)
+        with self.assertRaisesRegex(
+                reopen_transition.ReopenTransitionError,
+                "requires a Closed ticket"):
+            reopen_transition.redteam_brief(
+                ticket=open_ticket, cycle=CYCLE, landing=LANDING)
+
     def test_go_preserves_severity_and_increments_once(self):
         before = reopen_transition.inspect_backlog(ticket_lines(), ANCHOR)
         after = reopen_transition.inspect_backlog(

@@ -155,6 +155,34 @@ def architect_brief(ticket, cycle, landing):
     raise ReopenTransitionError("ticket has no legal reopening action")
 
 
+def redteam_brief(ticket, cycle, landing):
+    """Render the checked backlog facts needed for one closure review."""
+    if ticket.state != "CLOSED":
+        raise ReopenTransitionError(
+            "Red Team closure review requires a Closed ticket")
+    heading = (
+        "RED TEAM CLOSURE CHECK\n\n"
+        "Ticket: " + ticket.title + "\n"
+        "Cycle: " + cycle + "\n"
+        "Reviewed landing: " + landing + "\n"
+        "Severity: " + ticket.severity + "\n"
+        "Reopen count: " + str(ticket.count) + "\n"
+        "Reopening permission: " + ticket.reopening + "\n\n")
+    if ticket.reopening == "allowed":
+        return heading + (
+            "Allowed outcomes:\n"
+            "- NO CHANGE when no concrete bug remains.\n"
+            "- REOPEN only with concrete, persuasive evidence that the "
+            "named landing still leaves this ticket's bug.\n\n"
+            "The daemon supplied the ticket bookkeeping. Review the exact "
+            "landing and do not edit the backlog.\n\n")
+    if ticket.reopening == "barred by Architect NO-GO":
+        return heading + (
+            "Allowed outcome: NO CHANGE. An earlier Architect NO-GO "
+            "permanently barred another reopening.\n\n")
+    raise ReopenTransitionError("ticket has no legal closure-review action")
+
+
 def validate_after(before, after):
     """Return GO or NO-GO only when the Architect left an exact legal state."""
     if not isinstance(before, ReopenTicket) or not isinstance(

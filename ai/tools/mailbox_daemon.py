@@ -8140,6 +8140,23 @@ def dispatch_under_main_checkout_lock(
     if agent == "sol" and ticket_kind == "closure":
         review_cycle_id = redteam_closure_ticket(message=message)
         review_accepted_commit = redteam_closure_commit(message=message)
+        try:
+            review_ticket = current_reopen_ticket(cycle_id=review_cycle_id)
+            reopen_brief = _REOPEN_TRANSITION.redteam_brief(
+                ticket=review_ticket, cycle=review_cycle_id,
+                landing=review_accepted_commit)
+        except (TicketCycleStateError,
+                _REOPEN_TRANSITION.ReopenTransitionError) as exc:
+            if dry_run:
+                print("[dry-run] would refuse " + name + ": closure state "
+                      "could not be proved (" + str(exc) + ")")
+                return False
+            parked = park_prelaunch_message(dispatch_path=dispatch_path)
+            print("refused " + name + ": closure state could not be proved ("
+                  + str(exc) + "); "
+                  + ("retained in prelaunch/." if parked else
+                     "failed-state move was not verified."))
+            return False
         if not dry_run:
             review_receipt_before = fable_message_inode_snapshot()
     if agent == "sol" and ticket_kind == "control-plane":
