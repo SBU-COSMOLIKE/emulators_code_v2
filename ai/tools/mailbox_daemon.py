@@ -2069,6 +2069,51 @@ def clean_user_main_matches(target):
             and not _tracked_worktree_changes(worktree=REPO_ROOT))
 
 
+def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
+    """Preserve one sealed Architect backlog while its branch advances."""
+    if not _clean_worktree_status(worktree=primary_path):
+        return None
+    try:
+        sealed = _architect_only_sealed_backlog(worktree=primary_path)
+    except TicketCycleStateError as exc:
+        raise PrimaryWorktreeError(str(exc)) from exc
+    if sealed is None:
+        raise PrimaryWorktreeError(
+            "stale Architect primary has work beyond its sealed backlog; "
+            "landing authority cannot advance it automatically")
+    old = _run_git(
+        repository_root=primary_path,
+        arguments=["show", primary_head + ":" + BACKLOG_RELATIVE_PATH],
+        check=False)
+    new = _run_git(
+        repository_root=primary_path,
+        arguments=["show", target + ":" + BACKLOG_RELATIVE_PATH],
+        check=False)
+    if old.returncode != 0 or new.returncode != 0 or old.stdout != new.stdout:
+        raise PrimaryWorktreeError(
+            "main and the sealed Architect backlog both changed; preserve "
+            "both versions and reconcile them before startup")
+    backlog = os.path.join(primary_path, BACKLOG_RELATIVE_PATH)
+    recovery = os.path.join(
+        primary_path, "ai", "notes", BACKLOG_SYNC_RECOVERY_NAME)
+    if os.path.lexists(recovery):
+        raise PrimaryWorktreeError(
+            "backlog sync recovery already exists; restart once to recover "
+            "it before advancing the Architect primary")
+    os.replace(backlog, recovery)
+    restored = _run_git(
+        repository_root=primary_path,
+        arguments=["restore", "--source=HEAD", "--staged", "--worktree",
+                   "--", BACKLOG_RELATIVE_PATH],
+        check=False)
+    if restored.returncode != 0 or _clean_worktree_status(primary_path):
+        os.replace(recovery, backlog)
+        raise PrimaryWorktreeError(
+            "sealed Architect backlog could not be prepared for primary "
+            "synchronization")
+    return sealed, recovery
+
+
 def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
     """
     Advance a stale clean Architect worktree to an accepted main commit.
@@ -2120,10 +2165,6 @@ def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
                 "tracked backlog migration conflicts with the sealed local "
                 "backlog; both versions were preserved")
         os.unlink(working_backlog)
-    if _clean_worktree_status(worktree=primary_path):
-        raise PrimaryWorktreeError(
-            "stale Architect primary has work; landing authority cannot "
-            "advance it automatically")
     ahead = _run_git(
         repository_root=REPO_ROOT,
         arguments=["merge-base", "--is-ancestor", target, primary_head],
@@ -2236,15 +2277,34 @@ def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
         authority_label = "clean user main update"
     else:
         authority_label = "daemon-recorded landing"
+    backlog_overlay = _prepare_primary_backlog_overlay(
+        primary_path=primary_path, primary_head=primary_head, target=target)
     result = _run_git(
         repository_root=primary_path,
         arguments=["merge", "--ff-only", target], check=False)
-    if (result.returncode != 0
-            or worktree_head(worktree=primary_path) != target
-            or _clean_worktree_status(worktree=primary_path)):
+    if result.returncode != 0:
+        if backlog_overlay is not None:
+            os.replace(backlog_overlay[1], working_backlog)
         raise PrimaryWorktreeError(
             "accepted main authority could not fast-forward the clean "
             "Architect primary")
+    if backlog_overlay is not None:
+        os.replace(backlog_overlay[1], working_backlog)
+        try:
+            restored_overlay = _architect_only_sealed_backlog(
+                worktree=primary_path)
+        except TicketCycleStateError as exc:
+            raise PrimaryWorktreeError(str(exc)) from exc
+        if restored_overlay != backlog_overlay[0]:
+            raise PrimaryWorktreeError(
+                "sealed Architect backlog was not restored after primary "
+                "synchronization")
+    elif _clean_worktree_status(worktree=primary_path):
+        raise PrimaryWorktreeError(
+            "accepted main authority did not leave a clean Architect primary")
+    if worktree_head(worktree=primary_path) != target:
+        raise PrimaryWorktreeError(
+            "accepted main authority did not advance the Architect primary")
     print("advanced saved Architect primary to " + authority_label + " "
           + target, flush=True)
     return True

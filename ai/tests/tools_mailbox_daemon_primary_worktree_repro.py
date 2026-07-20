@@ -710,18 +710,16 @@ def arm_reuse_and_cross_checkout_converge(source=None):
 
 
 def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
-    """Accept a clean user commit, but refuse an Implementer-only ref move.
+    """Accept clean user commits without discarding an Architect backlog.
 
     The first scratch repository reproduces the ordinary user workflow. The
     user commits through the checkout attached to ``main`` and then starts the
     daemon again. All three idle AI worktrees must advance to that exact
     commit without changing the user's checkout or the saved topology files.
 
-    The second repository moves only the ``main`` branch reference to a commit
-    authored in the Implementer worktree. The user's checkout still contains
-    the older files and is therefore visibly inconsistent with ``main``. The
-    daemon must refuse that state without treating it as user authorization or
-    modifying any checkout.
+    Further repositories prove that a sealed Architect backlog survives the
+    advance and its recovery cut, that an active but unstarted ticket remains
+    pinned, and that an Implementer-only ref move is refused.
 
     Arguments:
       source = optional mailbox-daemon source used by mutation witnesses.
@@ -776,6 +774,71 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
             and file_identity(sol_state_path(root)) == saved_states["sol"])
         outcomes.append(accepted)
         print("clean user-main commit advances idle roles=" + str(accepted))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        implementer = default_implementer(root)
+        sol = default_sol(root)
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_bytes(backlog.read_bytes() + b"Architect record\n")
+        seal_backlog(primary=primary)
+        sealed = backlog.read_bytes()
+
+        marker = root / "user-update-beside-architect-backlog.txt"
+        marker.write_text("user update\n", encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "user update beside Architect backlog")
+        user_commit = git(root, "rev-parse", "HEAD").stdout.strip()
+
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        status = git(
+            primary, "status", "--porcelain=v1",
+            "--untracked-files=all").stdout
+        preserved = (
+            rc == 0 and stderr == ""
+            and git(primary, "rev-parse", "HEAD").stdout.strip()
+            == user_commit
+            and backlog.read_bytes() == sealed
+            and status == " M ai/notes/backlog.md\n"
+            and git(implementer, "rev-parse", "HEAD").stdout.strip()
+            == user_commit
+            and git(sol, "rev-parse", "HEAD").stdout.strip()
+            == user_commit)
+        outcomes.append(preserved)
+        print("clean user-main commit preserves sealed backlog="
+              + str(preserved))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        backlog = primary / "ai" / "notes" / "backlog.md"
+        backlog.write_bytes(backlog.read_bytes() + b"Recover this record\n")
+        seal_backlog(primary=primary)
+        sealed = backlog.read_bytes()
+        marker = root / "user-update-before-recovery-cut.txt"
+        marker.write_text("user update\n", encoding="utf-8", newline="")
+        git(root, "add", marker.name)
+        git(root, "commit", "-m", "user update before recovery cut")
+        target = git(root, "rev-parse", "HEAD").stdout.strip()
+
+        daemon = load_scratch_daemon(primary)
+        recovery = daemon._prepare_primary_backlog_overlay(
+            primary_path=str(primary),
+            primary_head=git(primary, "rev-parse", "HEAD").stdout.strip(),
+            target=target)
+        daemon._bridge_local_sealed_backlog(
+            primary_worktree=str(primary))
+        recovered = (
+            recovery is not None and backlog.read_bytes() == sealed
+            and not (primary / "ai" / "notes"
+                     / daemon.BACKLOG_SYNC_RECOVERY_NAME).exists())
+        outcomes.append(recovered)
+        print("interrupted backlog preparation recovers=" + str(recovered))
 
     with scratch_repository(source=source) as root:
         rc, _stdout, stderr = invoke(root, ["--once"])
@@ -866,7 +929,7 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         outcomes.append(refused)
         print("Implementer-only main ref move refused=" + str(refused))
 
-    return outcomes == [True, True, True]
+    return outcomes == [True, True, True, True, True]
 
 
 def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
