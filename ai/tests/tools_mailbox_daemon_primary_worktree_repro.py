@@ -819,6 +819,71 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
               + str(preserved))
 
     with scratch_repository(source=source) as root:
+        main_backlog = root / "ai" / "notes" / "backlog.md"
+        main_backlog.write_bytes(
+            b"# Open tickets\n\nBase open\n\n# Closed tickets\n")
+        git(root, "add", "ai/notes/backlog.md")
+        git(root, "commit", "-m", "add mergeable backlog sections")
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        primary_backlog = primary / "ai" / "notes" / "backlog.md"
+        base = primary_backlog.read_bytes()
+        architect = base.replace(
+            b"# Closed tickets", b"# Closed tickets\n\nArchitect decision", 1)
+        primary_backlog.write_bytes(architect)
+        seal_backlog(primary=primary)
+        main = base.replace(
+            b"# Open tickets", b"# Open tickets\n\nMain ticket", 1)
+        main_backlog.write_bytes(main)
+        git(root, "add", "ai/notes/backlog.md")
+        git(root, "commit", "-m", "main adds another ticket")
+        target = git(root, "rev-parse", "HEAD").stdout.strip()
+
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        combined = primary_backlog.read_bytes()
+        merged = (
+            rc == 0 and stderr == ""
+            and git(primary, "rev-parse", "HEAD").stdout.strip() == target
+            and b"Main ticket" in combined
+            and b"Architect decision" in combined
+            and load_scratch_daemon(primary)._validate_sealed_backlog(
+                primary_worktree=str(primary)) == combined)
+        outcomes.append(merged)
+        print("independent tracked backlog edits merge=" + str(merged))
+
+    with scratch_repository(source=source) as root:
+        main_backlog = root / "ai" / "notes" / "backlog.md"
+        main_backlog.write_bytes(
+            b"# Open tickets\n\nBase open\n\n# Closed tickets\n")
+        git(root, "add", "ai/notes/backlog.md")
+        git(root, "commit", "-m", "add conflicting backlog section")
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        if rc != 0 or stderr != "" or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        primary_backlog = primary / "ai" / "notes" / "backlog.md"
+        base = primary_backlog.read_bytes()
+        architect = base.replace(
+            b"# Open tickets", b"# Architect Open tickets", 1)
+        primary_backlog.write_bytes(architect)
+        seal_backlog(primary=primary)
+        main_backlog.write_bytes(base.replace(
+            b"# Open tickets", b"# Main Open tickets", 1))
+        git(root, "add", "ai/notes/backlog.md")
+        git(root, "commit", "-m", "main edits the same backlog heading")
+        old_head = git(primary, "rev-parse", "HEAD").stdout.strip()
+
+        rc, _stdout, stderr = invoke(root, ["--once"])
+        refused = (
+            rc != 0 and "edit the same text" in (_stdout + stderr)
+            and primary_backlog.read_bytes() == architect
+            and git(primary, "rev-parse", "HEAD").stdout.strip() == old_head)
+        outcomes.append(refused)
+        print("overlapping tracked backlog edits stop=" + str(refused))
+
+    with scratch_repository(source=source) as root:
         rc, _stdout, stderr = invoke(root, ["--once"])
         if rc != 0 or stderr != "" or not validate_topology(root):
             return False

@@ -2107,8 +2107,64 @@ def clean_user_main_matches(target):
             and not _tracked_worktree_changes(worktree=REPO_ROOT))
 
 
+def _merge_primary_backlog(base, main, architect):
+    """Combine independent main and Architect edits to the tracked backlog."""
+    with tempfile.TemporaryDirectory(prefix="mailbox-backlog-merge-") as tmp:
+        paths = []
+        for name, content in (("main", main), ("base", base),
+                              ("architect", architect)):
+            path = os.path.join(tmp, name)
+            with open(path, "wb") as stream:
+                stream.write(content)
+            paths.append(path)
+        result = subprocess.run(
+            ["git", "merge-file", "--stdout"] + paths,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if result.returncode == 0:
+        if len(result.stdout) > MAX_BACKLOG_LEDGER_BYTES:
+            raise PrimaryWorktreeError(
+                "combined Architect backlog exceeds its size limit")
+        return result.stdout
+    if result.returncode == 1:
+        raise PrimaryWorktreeError(
+            "main and the sealed Architect backlog edit the same text; "
+            "both versions remain preserved for manual reconciliation")
+    detail = result.stderr.decode("utf-8", errors="replace").strip()[:500]
+    raise PrimaryWorktreeError(
+        "Git could not compare the main and Architect backlog edits"
+        + (": " + detail if detail else ""))
+
+
+def _saved_backlog_digest(primary_path):
+    """Read the accepted digest from the small local guard record."""
+    raw = stable_regular_bytes(
+        path=os.path.join(primary_path, "ai", "notes",
+                          BACKLOG_GUARD_STATE_NAME),
+        maximum_bytes=MAX_BACKLOG_GUARD_STATE_BYTES,
+        label="backlog guard state")
+    try:
+        state = json.loads(raw, object_pairs_hook=_duplicate_key_refusal)
+        digest = state["sha256"]
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise PrimaryWorktreeError("invalid backlog guard state") from exc
+    if (not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None):
+        raise PrimaryWorktreeError("invalid backlog guard digest")
+    return digest
+
+
+def _reseal_recovered_backlog(primary_path, previous_digest, backlog):
+    """Bind the guard to backlog bytes combined by the trusted daemon."""
+    _atomic_write_primary_state(
+        state={"backlog": BACKLOG_RELATIVE_PATH,
+               "previous_sha256": previous_digest,
+               "sha256": hashlib.sha256(backlog).hexdigest(), "version": 2},
+        path=os.path.join(primary_path, "ai", "notes",
+                          BACKLOG_GUARD_STATE_NAME))
+
+
 def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
-    """Preserve one sealed Architect backlog while its branch advances."""
+    """Preserve and, when needed, merge one sealed Architect backlog."""
     if not _clean_worktree_status(worktree=primary_path):
         return None
     try:
@@ -2127,10 +2183,12 @@ def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
         repository_root=primary_path,
         arguments=["show", target + ":" + BACKLOG_RELATIVE_PATH],
         check=False)
-    if old.returncode != 0 or new.returncode != 0 or old.stdout != new.stdout:
+    if old.returncode != 0 or new.returncode != 0:
         raise PrimaryWorktreeError(
-            "main and the sealed Architect backlog both changed; preserve "
-            "both versions and reconcile them before startup")
+            "cannot read both tracked backlog versions before primary sync")
+    merged = (sealed if old.stdout == new.stdout else
+              _merge_primary_backlog(
+                  base=old.stdout, main=new.stdout, architect=sealed))
     backlog = os.path.join(primary_path, BACKLOG_RELATIVE_PATH)
     recovery = os.path.join(
         primary_path, "ai", "notes", BACKLOG_SYNC_RECOVERY_NAME)
@@ -2138,7 +2196,23 @@ def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
         raise PrimaryWorktreeError(
             "backlog sync recovery already exists; restart once to recover "
             "it before advancing the Architect primary")
+    merged_temporary = None
+    if merged != sealed:
+        descriptor, merged_temporary = tempfile.mkstemp(
+            prefix=".backlog-sync-merged-",
+            dir=os.path.dirname(recovery))
+        try:
+            with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                descriptor = -1
+                stream.write(merged)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
     os.replace(backlog, recovery)
+    if merged_temporary is not None:
+        os.replace(merged_temporary, recovery)
     restored = _run_git(
         repository_root=primary_path,
         arguments=["restore", "--source=HEAD", "--staged", "--worktree",
@@ -2149,7 +2223,7 @@ def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
         raise PrimaryWorktreeError(
             "sealed Architect backlog could not be prepared for primary "
             "synchronization")
-    return sealed, recovery
+    return merged, recovery, hashlib.sha256(sealed).hexdigest()
 
 
 def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
@@ -2323,6 +2397,9 @@ def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
             "Architect primary")
     if backlog_overlay is not None:
         os.replace(backlog_overlay[1], working_backlog)
+        _reseal_recovered_backlog(
+            primary_path=primary_path,
+            previous_digest=backlog_overlay[2], backlog=backlog_overlay[0])
         try:
             restored_overlay = _architect_only_sealed_backlog(
                 worktree=primary_path)
@@ -7606,17 +7683,23 @@ def _bridge_local_sealed_backlog(primary_worktree):
     targets = [os.path.join(target_notes, name) for name in names]
     recovery = os.path.join(target_notes, BACKLOG_SYNC_RECOVERY_NAME)
     if os.path.lexists(recovery):
+        previous_digest = _saved_backlog_digest(
+            primary_path=primary_worktree)
+        restored_recovery = False
         saved = stable_regular_bytes(
             path=recovery, maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
             label="backlog sync recovery")
         if not os.path.lexists(targets[0]):
             os.replace(recovery, targets[0])
+            restored_recovery = True
         else:
             working = stable_regular_bytes(
                 path=targets[0], maximum_bytes=MAX_BACKLOG_LEDGER_BYTES,
                 label="Architect backlog")
             if working == saved:
                 os.unlink(recovery)
+                restored_recovery = (
+                    hashlib.sha256(saved).hexdigest() != previous_digest)
             else:
                 head = _run_git(
                     repository_root=primary_worktree,
@@ -7626,6 +7709,11 @@ def _bridge_local_sealed_backlog(primary_worktree):
                     raise PrimaryWorktreeError(
                         "backlog sync recovery conflicts with visible work")
                 os.replace(recovery, targets[0])
+                restored_recovery = True
+        if restored_recovery:
+            _reseal_recovered_backlog(
+                primary_path=primary_worktree,
+                previous_digest=previous_digest, backlog=saved)
     if os.path.lexists(targets[0]) and not os.path.lexists(targets[1]):
         committed = _run_git(
             repository_root=primary_worktree,
