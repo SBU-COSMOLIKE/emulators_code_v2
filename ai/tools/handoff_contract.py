@@ -1469,6 +1469,33 @@ def _require_integrator_validation_command(parallel_work_plan,
             "from the directive's Validation commands section")
 
 
+def _subagent_evidence_fields(lines, index, name):
+    """Read the three ordered fields, including wrapped prose lines."""
+    fields = {}
+    for expected in ("Returned artifact", "Acceptance", "Evidence"):
+        if index >= len(lines):
+            raise DirectiveError(
+                "Subagent return '" + name + "' is missing field '"
+                + expected + "'")
+        match = SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index])
+        if match is None or match.group(1) != expected:
+            raise DirectiveError(
+                "Subagent return '" + name + "' requires exactly the "
+                "ordered fields Returned artifact, Acceptance, Evidence")
+        parts = [match.group(2).strip()]
+        index += 1
+        while index < len(lines):
+            if (SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index]) is not None
+                    or SUBAGENT_EVIDENCE_HEADING_RE.fullmatch(
+                        lines[index]) is not None
+                    or lines[index].startswith(("- ", "#### "))):
+                break
+            parts.append(lines[index])
+            index += 1
+        fields[expected] = " ".join(parts)
+    return fields, index
+
+
 def validate_implementer_subagent_evidence(parallel_work_plan, text):
     """Validate an Implementer return against its parsed Architect plan.
 
@@ -1539,19 +1566,8 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
         name = heading.group(1)
         returned.append(name)
         index += 1
-        fields = {}
-        for expected_field in ("Returned artifact", "Acceptance", "Evidence"):
-            if index >= len(lines):
-                raise DirectiveError(
-                    "Subagent return '" + name + "' is missing field '"
-                    + expected_field + "'")
-            match = SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index])
-            if match is None or match.group(1) != expected_field:
-                raise DirectiveError(
-                    "Subagent return '" + name + "' requires exactly the "
-                    "ordered fields Returned artifact, Acceptance, Evidence")
-            fields[expected_field] = match.group(2).strip()
-            index += 1
+        fields, index = _subagent_evidence_fields(
+            lines=lines, index=index, name=name)
         if fields["Acceptance"] not in ("`pass`", "`blocked`"):
             raise DirectiveError(
                 "Subagent return '" + name
@@ -1678,19 +1694,8 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
                 + name + "'")
         names.add(name)
         index += 1
-        fields = {}
-        for expected_field in ("Returned artifact", "Acceptance", "Evidence"):
-            if index >= len(lines):
-                raise DirectiveError(
-                    "Subagent return '" + name + "' is missing field '"
-                    + expected_field + "'")
-            match = SUBAGENT_EVIDENCE_FIELD_RE.fullmatch(lines[index])
-            if match is None or match.group(1) != expected_field:
-                raise DirectiveError(
-                    "Subagent return '" + name + "' requires exactly the "
-                    "ordered fields Returned artifact, Acceptance, Evidence")
-            fields[expected_field] = match.group(2).strip()
-            index += 1
+        fields, index = _subagent_evidence_fields(
+            lines=lines, index=index, name=name)
         if fields["Acceptance"] not in ("`pass`", "`blocked`"):
             raise DirectiveError(
                 "Subagent return '" + name
