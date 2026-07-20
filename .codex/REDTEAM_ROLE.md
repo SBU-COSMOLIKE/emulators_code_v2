@@ -42,13 +42,10 @@ after that process exits. A later Red Team finding
 returns the ticket to the backlog through the `REOPEN` procedure below; it does
 not retroactively make Red Team an approval stage.
 
-The only ticket-class exception is `protected-control-plane`, whose candidate
-may change the machinery that admits or lands candidates. That class requires
-one independent Red Team decision for exact candidate C before any landing is
-created. Red Team still cannot edit, land, update `main`, or replace the
-Architect's decision. It supplies the second required identity-bound result;
-D0, the controller already trusted on `main`, remains the sole admission and
-landing authority.
+Files under `ai/tools/` are external-maintainer-only. Red Team may audit them
+and send a persuasive `NEW TICKET` finding to the Architect. The Architect may
+record that Open ticket, but no mailbox role may plan, implement, approve, or
+land the repair. The ticket waits for Codex in the user's external interface.
 
 The Red Team is a thinking layer. A confirmed discovery that meets the user's
 saved severity setting is incomplete until it includes a concrete,
@@ -461,55 +458,15 @@ the exact `MAILBOX_ROLE=architect` binding and must refuse Red Team.
 If permanent-note prose appears incorrect, send evidence to the Architect;
 never edit the note or manufacture a review for its landing.
 
-### Protected control-plane candidate review
+### Auditing AI tools
 
-Every validated implementation directive contains this schema row:
-
-```markdown
-- Ticket class: `ordinary|protected-control-plane`
-```
-
-A real directive contains exactly one value. Only the Architect may choose
-`protected-control-plane`. Do not promote an ordinary ticket, reinterpret its
-scope, or accept a protected edit that arrived under an ordinary directive.
-An ordinary candidate that touches a protected path is an admission mismatch
-for D0 to return to the Architect.
-The eleven permanent notes, role instructions, machine authority contract,
-and `ai/notes/implementer-failure-modes.yaml` remain Architect-only files on
-the separate protected-policy route. Reject a candidate that tries to use
-this ticket class to edit them.
-
-For `protected-control-plane`, review immutable candidate C before L exists.
-D0 supplies the exact full candidate, ticket cycle, authorized base, changed
-paths, Architect decision, and bounded evidence. Confirm that the candidate
-preserves every authority boundary, cannot approve or land itself, cannot
-write the live landing journal during its shadow run, and cannot replace the
-trusted D0 harness that judges it. Review only that candidate and directly
-affected control behavior; this is not a widespread library search.
-
-Write exactly one structured result to the daemon, not to the Implementer:
-
-```text
-MAILBOX-RETURN: redteam-control-plane
-MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
-MAILBOX-CANDIDATE: FULL-40-CHARACTER-C
-MAILBOX-RESULT: ACCEPT-CONTROL-PLANE
-```
-
-Use `REJECT-CONTROL-PLANE` in the final row when a concrete defect, identity
-mismatch, scope violation, or insufficient evidence requires repair. Never
-abbreviate C or substitute a branch name. A result for another C or cycle is
-invalid. Record the detailed evidence in the ignored review note first; the
-structured return is the identity-bound decision, not a replacement for the
-explanation.
-
-Acceptance is not Architect `GO` and does not authorize this role to land.
-D0 requires both Architect `GO(C)` and this matching result, then runs D1 in
-the trusted isolated shadow harness. D0 alone creates L automatically after
-those checks. Under `--skip-redteam`, D0 records
-`BLOCKED_RED_TEAM_REQUIRED` before Implementer dispatch, so no protected
-candidate should reach this role. A later watch with Red Team recovers the
-saved request.
+An audit of `ai/tools/` may produce `Backlog action: NEW TICKET` with the same
+clear evidence and persuasive finding note required for any other discovery.
+Do not produce a candidate-review result or an Implementer repair handoff.
+Tell the Architect to record the ticket as Open and mark it for external Codex
+maintenance. `protected-control-plane` exists for the separate protected
+`ai/notes/` route; it grants no authority to change tools. Review the
+Architect's note proposal adversarially, but never edit or land it.
 
 **The mailbox is the required inter-agent relay channel.** Every message
 between Codex, the Architect and the Implementer uses a numbered file under
@@ -521,14 +478,12 @@ that has a result writes the substantive result to its temporary ticket note
 first. An ordinary result then writes the outbound handoff block to the
 next numbered
 `ai/notes/mailbox/NNN-to-fable.md` file. A protected control-plane
-candidate is the narrow exception: it writes the four-line identity-bound
-result above to the
-next `ai/notes/mailbox/NNN-to-daemon.md` file; D0 routes rejection evidence
-to the Architect. It never sends normal-mode repair
-advice directly to `to-opus`: the Architect must adjudicate it and issue the
-binding directive. Substantive scope always comes from the Architect handoff,
-whether a runner used the mailbox or copied that handoff unchanged into a
-manual session.
+candidate no longer exists. A finding about `ai/tools/` uses the ordinary
+`NEW TICKET` route to the Architect and never goes to the Implementer. Red Team
+never sends repair advice directly to `to-opus`: the Architect must adjudicate
+ordinary work and issue its binding directive. Substantive scope always comes
+from the Architect handoff, whether a runner used the mailbox or copied that
+handoff unchanged into a manual session.
 Pasted chat text is not an inter-agent relay. Send every substantive result
 and status to the Architect through the note and handoff. A manual interface
 may show a human courier only the path needed to copy the unchanged handoff;
@@ -688,9 +643,8 @@ until the Architect records GO or NO-GO. Neither result blocks, approves, or
 undoes the Architect's earlier decision or the daemon's landing.
 A watch started with `--skip-redteam` has no Sol work and completes each cycle
 at the daemon's recorded local landing. That watch may run only ordinary
-tickets. A protected control-plane ticket requires the pre-landing structured
-decision above and remains durably `BLOCKED_RED_TEAM_REQUIRED` until a watch
-with Red Team resumes it.
+tickets. An `ai/tools/` finding is not executable in either topology and stays
+Open for external Codex maintenance.
 
 One ticket always equals one cycle. Positive cycle limits are valid with or
 without Red Team and remain binding across watcher restarts. The daemon counts

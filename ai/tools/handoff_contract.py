@@ -1110,8 +1110,10 @@ def _require_architect_role_plan(body):
             "severity `low`")
     if ticket_class == "protected-control-plane":
         raise DirectiveError(
-            "section 'Role plan' protected-control-plane execution is "
-            "retired; keep the ticket Open for external ai/tools maintenance")
+            "section 'Role plan' protected-control-plane is reserved for "
+            "Architect-owned ai/notes administration and is not an "
+            "Implementer ticket class; keep an ai/tools ticket Open for "
+            "external maintenance")
     plan["roles"] = roles
     plan["discovery_severity"] = severity
     plan["review_scope"] = review_scope

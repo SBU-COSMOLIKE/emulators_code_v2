@@ -9699,8 +9699,9 @@ def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
     if ticket_class not in TICKET_CLASSES:
         return "invalid ticket class"
     if ticket_class == "protected-control-plane":
-        return ("protected-control-plane implementation is retired; keep the "
-                "ticket Open for external ai/tools maintenance")
+        return ("protected-control-plane is reserved for Architect-owned "
+                "ai/notes administration and cannot dispatch an Implementer; "
+                "keep an ai/tools ticket Open for external maintenance")
     return None
 
 
@@ -11354,14 +11355,15 @@ try:
     h._require_architect_role_plan(
         base + '- Ticket class: `protected-control-plane`')
 except h.DirectiveError as exc:
-    assert 'execution is retired' in str(exc)
+    assert 'reserved for Architect-owned ai/notes administration' in str(exc)
 else:
     raise AssertionError('protected-control-plane plan was accepted')
 assert d.ticket_class_configuration_problem('ordinary', True) is None
 for skip_redteam in (False, True):
     problem = d.ticket_class_configuration_problem(
         'protected-control-plane', skip_redteam)
-    assert 'retired' in problem and 'ticket Open' in problem
+    assert 'Architect-owned ai/notes administration' in problem
+    assert 'ticket Open' in problem
 
 tool = ROLE_CONTRACT['protected_paths']['trusted_tools']['mailbox_daemon']
 result, paths = d.classify_candidate_scope(
@@ -13486,11 +13488,11 @@ def blocked_redteam_directory():
 
 
 def recover_blocked_redteam_messages(skip_redteam=False):
-    """Keep retired protected requests parked for external maintenance."""
+    """Keep old tool-edit requests parked for external maintenance."""
     directory = blocked_redteam_directory()
     parked = glob.glob(os.path.join(directory, "*-to-opus.md"))
     if parked and not skip_redteam:
-        print("retired protected requests remain parked for external "
+        print("old protected tool requests remain parked for external "
               "ai/tools maintenance; their backlog tickets stay Open")
     return 0
 

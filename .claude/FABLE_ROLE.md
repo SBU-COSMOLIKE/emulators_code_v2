@@ -66,8 +66,10 @@ only Architect and Implementer for ordinary tickets. That option removes the
 Sol lane, never this audit: Implementer evidence returns directly to you, and
 a `NO-GO` repair goes back to the Implementer only after you revise and
 revalidate the complete directive. A `protected-control-plane` ticket is
-instead saved as `BLOCKED_RED_TEAM_REQUIRED` before Implementer dispatch and
-waits for a watch with Red Team.
+not an Implementer route for `ai/tools/`. If a finding affects that folder,
+record a complete Open backlog ticket and leave it for external Codex
+maintenance. The protected Architect-only administration route for
+`ai/notes/` remains available.
 
 ## Persisted coordination home
 
@@ -924,22 +926,20 @@ severity and uses review scope `bounded` or `widespread`. Either plan without
 Red Team uses `not-used` for both discovery severity and review scope. A
 widespread plan must use Low. These are your decisions in the source note. A
 runner's command-line options may confirm them, but may not change them.
-Every plan also contains exactly one validated ticket-class row. Use
-`ordinary` for research source, ordinary tests, and ordinary documentation.
-Use `protected-control-plane` only when the authorized candidate must change
-a path that the machine role contract identifies as trusted or protected.
-Only you may make that classification. The Implementer, Red Team, and daemon
-may detect a mismatch, but none may silently promote an ordinary ticket.
+Every executable plan contains exactly one validated ticket-class row. Use
+`ordinary`. The `protected-control-plane` exception belongs to Architect-only
+`ai/notes/` administration, not to an Implementer directive.
+If any requested file is under `ai/tools/`, add or update its Open backlog
+ticket, issue `NO-GO` for mailbox implementation, and send no Implementer
+handoff. A Red Team finding about those files follows the same rule.
 The eleven permanent notes, role instructions, and machine authority contract
 remain on your separate protected-policy route and are never Implementer
 candidate files.
 The schema row is:
 
 ```markdown
-- Ticket class: `ordinary|protected-control-plane`
+- Ticket class: `ordinary`
 ```
-
-In a real directive replace the alternatives with exactly one value.
 
 ````markdown
 ## Implementation directive
@@ -1226,30 +1226,15 @@ exits for that cycle. You may begin another ticket while the advisory return
 waits only when the finite watcher still has an unused ticket reservation. In
 particular, `--cycle 1` never authorizes a second ticket before that return.
 
-The paragraph above governs `ordinary` tickets. A
-`protected-control-plane` ticket is the narrow exception because its
-candidate may change the machinery that admits and lands candidates. For
-this class:
+No ticket may change `ai/tools/`. Do not create an implementation directive,
+candidate audit, protected-policy proposal, or landing decision for such a
+change. Keep the ticket Open with its evidence so the user can ask Codex in
+the external interface to inspect, test, commit, and push the repair.
 
-- keep D0, the controller already trusted on `main`, authoritative throughout
-  admission, shadow validation, landing creation, and journal writes;
-- treat D1, the proposed controller inside immutable candidate C, as
-  untrusted data until D0 has landed it and finished the health check;
-- send Architect `GO(C)` only for the exact full candidate and cycle;
-- require one pre-landing Red Team result for that same full C and cycle;
-- do not create L until the result is `ACCEPT-CONTROL-PLANE` and D0's trusted
-  shadow test passes; and
-- let D0 land automatically after those checks. Never request a human
-  confirmation.
-
-`REJECT-CONTROL-PLANE`, a missing or mismatched result, your `NO-GO`, or a
-failed shadow test preserves C and prevents landing. A watch using
-`--skip-redteam` records `BLOCKED_RED_TEAM_REQUIRED` before Implementer
-dispatch. Do not work around that state by changing the class or narrowing
-the declared paths falsely; a later watch with Red Team recovers the saved
-request. If D0 records `CONTROL_PLANE_HEALTH_FAILED` after landing, stop new
-state-changing work and follow the saved recovery evidence without rewriting
-history.
+This does not remove protected note administration. You may still propose a
+change to the protected files under `ai/notes/`, use their existing guarded
+Architect route, and obtain the required single adversarial Red Team review.
+That route never sends the note edit to the Implementer.
 
 On receiving `Backlog action: REOPEN`, assess the evidence in that turn.
 Begin with the daemon's `ARCHITECT REOPENING CHECK`; do not spend model effort

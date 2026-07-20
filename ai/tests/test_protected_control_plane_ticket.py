@@ -55,8 +55,8 @@ class ProtectedPathTests(unittest.TestCase):
             changed_paths={path}, path_scope={path}, ticket_class="ordinary"),
         ("PROTECTED_PATH_VIOLATION", {path}))
 
-  def test_retired_protected_ticket_cannot_change_a_trusted_tool(self):
-    """A ticket label cannot reopen external-maintainer-only tools."""
+  def test_protected_notes_label_cannot_change_a_trusted_tool(self):
+    """The protected notes route cannot open maintainer-only tools."""
     path = "ai/tools/mailbox_daemon.py"
 
     self.assertEqual(
@@ -119,8 +119,21 @@ class ProtectedPathTests(unittest.TestCase):
         problem = daemon.ticket_class_configuration_problem(
             ticket_class="protected-control-plane",
             skip_redteam=skip_redteam)
-        self.assertIn("retired", problem)
-        self.assertIn("keep the ticket Open", problem)
+        self.assertIn("Architect-owned ai/notes administration", problem)
+        self.assertIn("keep an ai/tools ticket Open", problem)
+
+  def test_protected_notes_route_remains_architect_owned(self):
+    """Blocking tool candidates does not remove protected note updates."""
+    contract = daemon.ROLE_CONTRACT
+
+    self.assertTrue(
+        contract["roles"]["architect"]["may_edit_protected_policy"])
+    self.assertFalse(
+        contract["roles"]["implementer"]["may_edit_protected_policy"])
+    self.assertEqual(
+        daemon.architect_notes_admin_payload("Clarify one permanent note."),
+        "MAILBOX-ADMIN: permanent-notes\n\n"
+        "Clarify one permanent note.\n")
 
   def test_landing_rechecks_ai_tools_even_for_old_saved_candidates(self):
     with mock.patch.object(

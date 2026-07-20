@@ -321,7 +321,7 @@ class HandoffContractTests(unittest.TestCase):
                 "- Discovery severity: `not-used`\n"
                 "- Review scope: `not-used`\n"
                 "- Ticket class: `protected-control-plane`",
-                "execution is retired",
+                "reserved for Architect-owned ai/notes administration",
             ),
         )
         for role_plan, message in invalid_plans:

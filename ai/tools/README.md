@@ -930,11 +930,9 @@ options:
                         limit (default: 0)
   --skip-redteam, --no-red-team
                         with --watch, start Architect and Implementer jobs but
-                        no Red Team job for ordinary tickets; protected
-                        control-plane tickets become BLOCKED_RED_TEAM_REQUIRED
-                        before Implementer dispatch and resume on a later
-                        watch without this option; with --ping, check the
-                        Architect and Implementer providers but not Sol
+                        no Red Team job; Red Team messages remain waiting for
+                        a later watch without this option; with --ping, check
+                        the Architect and Implementer providers but not Sol
   --fix-only value      with --send architect, save a backlog-repair request;
                         with --watch, run existing bug fixes at the watcher's
                         severity; the value accepts 1, true, or yes in any
@@ -1012,9 +1010,8 @@ options:
 - `--max` accepts digits from 0 through 9 and is valid with `--watch` or
   `--once`. Omitting it or writing `--max 0` sets no character limit.
 - `--skip-redteam` and `--no-red-team` are two names for the same setting.
-  With `--watch`, they disable Red Team for ordinary tickets; a protected
-  control-plane ticket is saved as `BLOCKED_RED_TEAM_REQUIRED`. With `--ping`,
-  they omit the Sol connection check.
+  With `--watch`, they disable Red Team. With `--ping`, they omit the Sol
+  connection check.
 - Positive cycle limits work with both role setups. In a two-role watch, the
   daemon's recorded local landing completes that one-ticket cycle.
 - A two-role watch preserves waiting internal Sol files and refuses new
@@ -1100,9 +1097,9 @@ example uses all three roles:
 - Ticket class: `ordinary`
 ```
 
-Only the Architect may replace the final value with
-`protected-control-plane`. The row is validated data, not a label the
-Implementer may add after editing begins.
+Every Implementer directive uses `ordinary`. `protected-control-plane` is
+reserved for Architect-owned `ai/notes/` administration and cannot authorize
+an Implementer candidate.
 
 For a Red Team directive, replace `medium` with the setting chosen for the
 run. A mailbox job supplies the same setting through
@@ -1145,115 +1142,37 @@ paths: 'emulator/model.py'
 
 The Architect must then accept that exact expansion or send the ticket back
 for repair. The Implementer cannot silently enlarge the plan. A change to a
-globally protected control file is stricter. An `ordinary` ticket reports
+globally protected file is stricter. The watcher reports
 `PROTECTED_PATH_VIOLATION` and refuses the proposal, even if the directive
-accidentally named that file. The watcher never turns an ordinary ticket into
-a protected ticket after seeing the Implementer's edits. A proposal
-containing only planned files is reported as `IN_SCOPE`.
+accidentally named that file. No ticket label can authorize `ai/tools/`. A
+proposal containing only planned ordinary files is reported as `IN_SCOPE`.
 
 <a id="protected-control-plane-tickets"></a>
-#### How does a protected control-plane ticket work?
+#### Who may change `ai/tools/`?
 
-A **protected control-plane ticket** changes the code or policy that enforces
-the workflow itself. The protected set comes from
-`ai/notes/role-contract.yaml` and its trusted path groups. It includes the
-mailbox daemon, candidate-admission and C-to-L landing code, role and handoff
-validators, durable recovery logic, permanent-note guard code, and trusted
-workflow test harnesses. The eleven permanent notes, role instructions,
-machine authority contract, and protected failure-mode catalog remain on the
-separate Architect-only protected policy route. An Implementer candidate may
-never edit those files.
+Only an external maintainer may change these files. The watcher, Architect,
+Implementer, and Red Team never create or land an `ai/tools/` candidate.
 
-The validated Architect directive adds one exact row under `### Role plan`:
+Red Team may audit the folder and report a bug. The Architect records the
+finding as an Open backlog ticket, adds the evidence path, and stops there. It
+does not write an implementation directive or send the ticket to the
+Implementer. The user then asks Codex in the external interface to inspect,
+test, commit, and push the repair.
 
-```markdown
-- Ticket class: `protected-control-plane`
-```
+The machine enforces this rule at three points:
 
-An ordinary directive uses the same row with the value `ordinary`. Only the
-Architect chooses the value. The Implementer copies it unchanged and cannot
-promote an ordinary ticket after discovering that a protected file would be
-convenient to edit.
+1. The handoff validator refuses an Architect directive naming `ai/tools/`.
+2. Candidate admission reports `PROTECTED_PATH_VIOLATION` for any such path,
+   even when an old tool request uses the `protected-control-plane` label.
+3. Landing preparation rechecks the complete candidate and refuses it again.
 
-##### Why the guide calls the controllers D0 and D1
+Historical protected request files remain parked so evidence is not lost.
+Restarting with Red Team enabled does not make them executable.
 
-- **D0** is the daemon and validators from the trusted `main` commit that
-  started the watch.
-- **D1** is the proposed replacement code inside immutable candidate C.
-
-D1 is untrusted until the protected workflow finishes. It cannot approve C,
-write the live landing journal, create L, update `main`, or replace the tests
-that decide whether it is safe. D0 independently checks the changed paths,
-decision identities, test result, landing parent, and final delta.
-
-##### The two pre-landing decisions
-
-The Architect first audits immutable C and sends `GO(C)`. D0 then asks Red
-Team to inspect that same candidate before any landing exists. A Red Team
-acceptance has these exact structured fields:
-
-```text
-MAILBOX-RETURN: redteam-control-plane
-MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
-MAILBOX-CANDIDATE: FULL-40-CHARACTER-C
-MAILBOX-RESULT: ACCEPT-CONTROL-PLANE
-```
-
-Use `REJECT-CONTROL-PLANE` in the final row when the evidence requires repair.
-Another candidate hash, another cycle, a shortened hash, a missing decision,
-or Architect `NO-GO` cannot satisfy the gate. Red Team cannot land the
-candidate; it supplies only the second required key for this ticket class.
-For ordinary tickets, Red Team remains advisory and reviews L after landing.
-
-After both exact decisions exist, D0 runs D1 in an isolated temporary Git and
-mailbox environment. The trusted test driver comes from D0, so candidate C
-cannot weaken the test that judges C. D0 checks identity mismatches, scope,
-restart behavior, skipped-Red-Team behavior, safe landing, and isolation from
-the live journal. A failure preserves C and the evidence and creates no L.
-
-When the shadow test passes, D0 creates L with the existing safe landing
-mechanism and advances `main` automatically. The user is not asked to approve
-the landing. If `main` advanced meanwhile, the candidate and both decisions
-remain saved and the watcher reports
-`STALE — REQUIRES INTEGRATION REVALIDATION`; it never overwrites newer work.
-D0 sends the Architect a same-cycle check of C on the newer main. After a
-fresh GO for that combined result, D0 retires only the private stale L,
-rebuilds L on the approved main version, reruns the trusted shadow checks,
-and lands automatically.
-
-##### What happens with `--skip-redteam`?
-
-Ordinary tickets keep their existing two-role behavior. A protected ticket
-cannot start without Red Team. Before dispatching the Implementer, D0 records:
-
-```text
-BLOCKED_RED_TEAM_REQUIRED
-```
-
-The source request and the exact Architect handoff remain saved. No
-Implementer process starts, and no candidate, landing, trusted ref, or
-landing-journal entry is created for the blocked attempt. The watcher explains
-the setting and continues with compatible ordinary work. Restart the watcher
-without `--skip-redteam`; D0 then recovers the saved protected handoff instead
-of requiring the user to rewrite it.
-
-##### What if the newly landed controller fails its health check?
-
-After L reaches `main`, D0 performs a bounded, non-destructive check: the role
-contract loads, enforcement agrees with it, durable state parses, the daemon
-recognizes both ticket classes, and ownership still prevents two live writers.
-A failure records:
-
-```text
-CONTROL_PLANE_HEALTH_FAILED
-```
-
-This state preserves L and every log, refuses new state-changing work, and
-leaves the trusted recovery path available. It does not reset `main`, rewrite
-history, repeat the landing, or crash. Read the exact health log named by the
-watcher, correct the reported condition through the recovery command it
-prints, and restart. A restart must find the saved landing and health state;
-missing Red Team evidence is never reinterpreted as acceptance.
+The protected exception exists for `ai/notes/`. That is its purpose. The
+Architect proposes and saves those note or policy changes through the guarded
+notes route, and Red Team performs the required review. The Implementer does
+not edit them.
 
 #### Record whether helpers add value
 
@@ -1691,10 +1610,8 @@ still the final completion step for that cycle, so `--cycle 1` neither starts
 ticket B nor exits while ticket A's review is waiting. In a run without Red
 Team, step 3 completes the cycle.
 
-A protected control-plane ticket uses the earlier
-[two-key path](#protected-control-plane-tickets): its Red Team decision occurs
-before landing, and the cycle finishes only after automatic landing and the
-bounded health check succeed. It cannot start in a `--skip-redteam` watch.
+An Open ticket about `ai/tools/` is not an executable cycle. It waits for
+external Codex maintenance and does not consume a cycle reservation.
 
 An Architect-only update to the eleven permanent notes or the protected
 machine role contract is not a ticket. It does not use a cycle and receives no
