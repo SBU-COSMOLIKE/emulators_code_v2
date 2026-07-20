@@ -545,10 +545,6 @@ def prepare_character_delta(old_text, new_text):
             raise GuardError(
                 "changed text exceeds the comparison size limit of "
                 + str(MAX_COMPARISON_MIDDLE_CODEPOINTS) + " code points")
-        if old_length > MAX_LCS_CELLS_PER_FILE // new_length:
-            raise GuardError(
-                "changed text exceeds the per-file exact-match work limit of "
-                + str(MAX_LCS_CELLS_PER_FILE) + " character pairs")
         cells = old_length * new_length
 
     return PreparedDelta(
@@ -609,11 +605,66 @@ def count_prepared_delta(prepared):
         added=new_length - common, deleted=old_length - common)
 
 
+def count_low_change_delta(prepared, maximum_work, limit_name):
+    """Count an exact low-change edit without building a full LCS table."""
+    old = prepared.old_text[prepared.old_start:prepared.old_end]
+    new = prepared.new_text[prepared.new_start:prepared.new_end]
+    frontier = {1: 0}
+    work = 0
+    displayed_limit = (MAX_TOTAL_LCS_CELLS
+                       if limit_name == "aggregate" else maximum_work)
+
+    for distance in range(len(old) + len(new) + 1):
+        for diagonal in range(-distance, distance + 1, 2):
+            work += 1
+            if work > maximum_work:
+                raise GuardError(
+                    "changed text exceeds the " + limit_name
+                    + " exact-match work limit of "
+                    + str(displayed_limit) + " comparison steps")
+            if (diagonal == -distance
+                    or (diagonal != distance
+                        and frontier.get(diagonal - 1, -1)
+                        < frontier.get(diagonal + 1, -1))):
+                old_index = frontier.get(diagonal + 1, 0)
+            else:
+                old_index = frontier.get(diagonal - 1, 0) + 1
+            new_index = old_index - diagonal
+            while (old_index < len(old) and new_index < len(new)
+                   and old[old_index] == new[new_index]):
+                work += 1
+                if work > maximum_work:
+                    raise GuardError(
+                        "changed text exceeds the " + limit_name
+                        + " exact-match work limit of "
+                        + str(displayed_limit) + " comparison steps")
+                old_index += 1
+                new_index += 1
+            frontier[diagonal] = old_index
+            if old_index == len(old) and new_index == len(new):
+                length_difference = len(new) - len(old)
+                return (CharacterCount(
+                    added=(distance + length_difference) // 2,
+                    deleted=(distance - length_difference) // 2), work)
+    raise GuardError("exact character comparison did not finish")
+
+
+def count_bounded_delta(prepared, maximum_work, limit_name):
+    """Use the cheaper exact method that fits the remaining work budget."""
+    if prepared.cells <= maximum_work:
+        return count_prepared_delta(prepared=prepared), prepared.cells
+    return count_low_change_delta(
+        prepared=prepared, maximum_work=maximum_work, limit_name=limit_name)
+
+
 def character_delta(old_text, new_text):
     """Count one exact, symmetric Unicode-character change."""
     prepared = prepare_character_delta(
         old_text=old_text, new_text=new_text)
-    return count_prepared_delta(prepared=prepared)
+    count, _ = count_bounded_delta(
+        prepared=prepared, maximum_work=MAX_LCS_CELLS_PER_FILE,
+        limit_name="per-file")
+    return count
 
 
 def measure_characters(repository, base, candidate):
@@ -635,7 +686,6 @@ def measure_characters(repository, base, candidate):
 
     cache = {}
     prepared_deltas = []
-    total_cells = 0
     for entry in entries:
         # An identical object moved to a new path, including a binary or a
         # non-UTF-8 object, changes no characters and needs no blob read.
@@ -649,17 +699,28 @@ def measure_characters(repository, base, candidate):
             object_id=entry.new_object, path=entry.new_path, cache=cache)
         prepared = prepare_character_delta(
             old_text=old_text, new_text=new_text)
-        if prepared.cells > MAX_TOTAL_LCS_CELLS - total_cells:
+        prepared_deltas.append(prepared)
+
+    if all(delta.cells <= MAX_LCS_CELLS_PER_FILE
+           for delta in prepared_deltas):
+        planned_work = sum(delta.cells for delta in prepared_deltas)
+        if planned_work > MAX_TOTAL_LCS_CELLS:
             raise GuardError(
                 "changed files exceed the aggregate exact-match work limit of "
                 + str(MAX_TOTAL_LCS_CELLS) + " character pairs")
-        total_cells += prepared.cells
-        prepared_deltas.append(prepared)
 
+    total_cells = 0
     added = 0
     deleted = 0
     for prepared in prepared_deltas:
-        count = count_prepared_delta(prepared=prepared)
+        remaining = MAX_TOTAL_LCS_CELLS - total_cells
+        maximum_work = min(MAX_LCS_CELLS_PER_FILE, remaining)
+        limit_name = ("aggregate" if remaining < MAX_LCS_CELLS_PER_FILE
+                      else "per-file")
+        count, work = count_bounded_delta(
+            prepared=prepared, maximum_work=maximum_work,
+            limit_name=limit_name)
+        total_cells += work
         added += count.added
         deleted += count.deleted
     return CharacterCount(added=added, deleted=deleted)

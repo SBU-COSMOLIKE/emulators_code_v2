@@ -383,6 +383,22 @@ class TicketChangeGuardTests(unittest.TestCase):
         self.assertEqual(return_code, 0)
         self.assertIn("changed characters: 0 (0 added + 0 deleted)", output)
 
+    def test_large_mostly_unchanged_rename_uses_bounded_exact_fallback(self):
+        """A renamed long file with four changed characters remains measurable."""
+        old_payload = ("A" + "x" * 8000 + "B").encode("utf-8")
+        new_payload = ("C" + "x" * 8000 + "D").encode("utf-8")
+        with repository(files={"old-name.txt": old_payload}) as (root, base):
+            git(root, "mv", "old-name.txt", "new-name.txt")
+            write_bytes(
+                repository=root, name="new-name.txt", payload=new_payload)
+            commit_all(repository=root, message="edit renamed long file")
+
+            return_code, output = run_guard(
+                repository=root, base=base, maximum=4)
+
+        self.assertEqual(return_code, 0)
+        self.assertIn("changed characters: 4 (2 added + 2 deleted)", output)
+
     def test_unchanged_uncountable_renames_do_not_read_blobs(self):
         """A pure move is zero even when its unchanged blob is not text."""
         cases = (

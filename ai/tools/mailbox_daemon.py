@@ -4933,6 +4933,7 @@ def prepare_implementer_evidence_contract(message, use_saved_limit=False):
     return {"contract": contract, "parallel_work_plan": plan,
             "note_path": note_path,
             "allowed_paths": frozenset(directive["allowed_paths"]),
+            "character_limit": directive["character_change_budget"]["limit"],
             "ticket_class": role_plan["ticket_class"]}
 
 
@@ -13586,6 +13587,72 @@ def recover_failed_implementer_preflight():
     return recovered
 
 
+def revalidate_unmeasurable_budget_handoff(
+        path, cycle_id, candidate, maximum):
+    """Promote a saved return when the trusted size guard can now count it."""
+    message = read_cycle_message(path=path)
+    _cycle, _mode, body, problem = _ticket_flow_envelope(message=message)
+    result_line = "- **Character-change result:**"
+    if (problem is not None or not is_implementer_budget_checkpoint(body)
+            or result_line not in body
+            or not re.search(r"(?i)cannot measure|unmeasurable", body)):
+        return False
+
+    guard = os.path.join(
+        AGENT_CWD["fable"], "ai", "tools", "ticket_change_guard.py")
+    command = [
+        sys.executable, guard, "--repo", AGENT_CWD["opus"],
+        "--base", cycle_starting_commit(cycle_id),
+        "--architect-audit", "--candidate", candidate,
+        "--max", str(maximum)]
+    environment = os.environ.copy()
+    environment[MAX_CHARACTERS_ENVIRONMENT] = str(maximum)
+    environment["MAILBOX_TICKET_CHANGE_GUARD"] = guard
+    try:
+        result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, check=False, env=environment, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    count_rows = [line for line in result.stdout.splitlines()
+                  if line.startswith("changed characters: ")]
+    if len(count_rows) != 1:
+        return False
+
+    message = message.replace(
+        IMPLEMENTER_BUDGET_CHECKPOINT_HEADING,
+        "### IMPLEMENTER_HANDOFF: REQUESTING REVIEW", 1)
+    message = message.replace(
+        result_line,
+        result_line + " within limit; authoritative recovery check: "
+        + count_rows[0], 1)
+    directory = os.path.dirname(path)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".budget-recheck-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) \
+                as stream:
+            descriptor = -1
+            stream.write(message)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(directory=directory)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+    print("rechecked formerly unmeasurable Implementer return "
+          + os.path.basename(path) + "; the trusted guard now reports "
+          "within limit")
+    return True
+
+
 def recover_failed_implementer_returns():
     """Revalidate a completed return without rerunning the Implementer."""
     recovered = 0
@@ -13614,6 +13681,25 @@ def recover_failed_implementer_returns():
                 continue
             contract = prepare_implementer_evidence_contract(
                 message=request, use_saved_limit=True)
+            saved_returns = []
+            for return_path in glob.glob(os.path.join(
+                    MAILBOX, "failed", "*-to-fable.md")):
+                try:
+                    returned = read_cycle_message(path=return_path)
+                    returned_cycle, returned_mode, returned_body, error = (
+                        _ticket_flow_envelope(message=returned))
+                except (OSError, ValueError, TicketCycleStateError):
+                    continue
+                if (error is None and returned_cycle == cycle_id
+                        and returned_mode == mode
+                        and IMPLEMENTER_CANDIDATE_LINE_RE.findall(
+                            returned_body) == [candidate]):
+                    saved_returns.append(return_path)
+            if len(saved_returns) == 1:
+                revalidate_unmeasurable_budget_handoff(
+                    path=saved_returns[0], cycle_id=cycle_id,
+                    candidate=candidate,
+                    maximum=contract.get("character_limit", MAX_CHARACTERS))
             return_path, _invalid, evidence_problem, ready = (
                 matching_new_implementer_handoff(
                     cycle_id=cycle_id, mode=mode,

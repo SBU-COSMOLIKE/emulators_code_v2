@@ -464,6 +464,43 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
 
         self.assertEqual(result, (str(path), [], None, True))
 
+    def test_recovery_rechecks_an_unmeasurable_saved_candidate(self):
+        """A repaired trusted guard promotes saved work without rerunning it."""
+        cycle = "open-example@" + "a" * 40
+        candidate = "b" * 40
+        message = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n"
+            + daemon.IMPLEMENTER_BUDGET_CHECKPOINT_HEADING + "\n\n"
+            + "- **Candidate commit:** `" + candidate + "`\n"
+            + "- **Character-change result:**\n"
+            + "  - Authoritative guard: cannot measure\n")
+        guard_output = (
+            "ticket change guard: within limit\n"
+            "changed characters: 13026 (8515 added + 4511 deleted)\n")
+
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.dict(
+                    daemon.AGENT_CWD, {"fable": folder, "opus": folder}), \
+                mock.patch.object(daemon, "MAX_CHARACTERS", 20000), \
+                mock.patch.object(
+                    daemon, "cycle_starting_commit", return_value="a" * 40), \
+                mock.patch.object(
+                    daemon.subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout=guard_output)):
+            path = Path(folder) / "0001-to-fable.md"
+            path.write_text(message, encoding="utf-8", newline="")
+            recovered = daemon.revalidate_unmeasurable_budget_handoff(
+                path=str(path), cycle_id=cycle, candidate=candidate,
+                maximum=20000)
+            rewritten = path.read_text(encoding="utf-8")
+
+        self.assertTrue(recovered)
+        self.assertIn("IMPLEMENTER_HANDOFF: REQUESTING REVIEW", rewritten)
+        self.assertIn("within limit; authoritative recovery check", rewritten)
+        self.assertIn("changed characters: 13026", rewritten)
+
     def test_daemon_installs_only_the_three_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(
             python="/usr/bin/python3", hook_path="/repo/hook.py")
