@@ -3960,6 +3960,8 @@ IMPLEMENTER_CANDIDATE_LINE_RE = re.compile(
     re.MULTILINE)
 IMPLEMENTER_CHECKPOINT_HEADING = (
     "### IMPLEMENTER_HANDOFF: CHECKPOINT")
+IMPLEMENTER_BUDGET_CHECKPOINT_HEADING = (
+    "### IMPLEMENTER_HANDOFF: BUDGET BLOCKED")
 CONTEXT_HANDOFF_HEADING = "### IMPLEMENTER_HANDOFF: CONTEXT HANDOFF"
 CONTEXT_HANDOFF_FIELDS = (
     "Ticket and cycle",
@@ -4374,7 +4376,11 @@ IMPLEMENTER_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the Implementer. Read and obey\n"
     ".claude/OPUS_ROLE.md before acting. Run the cited Architect directive\n"
     "check before editing. Follow the ordered plan; if design is missing or\n"
-    "contradictory, return a blocker instead of making that decision.\n\n")
+    "contradictory, return a blocker instead of making that decision. If a\n"
+    "clean candidate exceeds a positive ticket character limit, preserve it\n"
+    "and return exactly `### IMPLEMENTER_HANDOFF: BUDGET BLOCKED`, one exact\n"
+    "Candidate commit row, and one Character-change result row beginning\n"
+    "`over limit`. The Architect, not the Implementer, revises the plan.\n\n")
 
 REDTEAM_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the bounded Red Team. Read and obey the exact\n"
@@ -4409,6 +4415,16 @@ def agent_preamble(agent, message=None):
                     "one **Checkpoint decision:** `GO` or `NO-GO` row. GO "
                     "continues from this record; NO-GO parks or revises the "
                     "work. Do not rewrite the record as a summary.\n\n")
+            elif (checkpoint_audit
+                  and is_implementer_budget_checkpoint(body)):
+                checkpoint_notice = (
+                    "IMPLEMENTER BUDGET CHECKPOINT: the exact candidate is "
+                    "preserved but cannot receive GO. Inspect why it exceeds "
+                    "the binding character limit. Send one same-cycle "
+                    "Implementer handoff with exactly one Directive row and "
+                    "exactly `- **Checkpoint decision:** `NO-GO``. Revise "
+                    "the plan to reduce the change; do not raise the saved "
+                    "limit or discard required behavior silently.\n\n")
             elif checkpoint_audit:
                 checkpoint_notice = (
                     "90-MINUTE IMPLEMENTER CHECKPOINT: inspect the saved "
@@ -4668,7 +4684,8 @@ def matching_new_architect_go(cycle_id, candidate_commit, mode,
     return (fresh[0] if fresh else None), [], None
 
 
-def architect_handoff_problem(message, cycle_id, mode, checkpoint=False):
+def architect_handoff_problem(message, cycle_id, mode, checkpoint=False,
+                              budget=False):
     """Return why one same-cycle Architect repair is not authorized."""
     returned_cycle, returned_mode, body, problem = (
         _ticket_flow_envelope(message=message))
@@ -4691,6 +4708,12 @@ def architect_handoff_problem(message, cycle_id, mode, checkpoint=False):
     }
     if len(decision_rows) != 1 or decision_rows[0] not in accepted_rows:
         return "checkpoint handoff requires exactly one GO or NO-GO row"
+    if budget:
+        if decision_rows[0] != (IMPLEMENTER_CHECKPOINT_DECISION_PREFIX
+                                + " `NO-GO`"):
+            return "budget checkpoint requires a NO-GO repair decision"
+        if len(ARCHITECT_DIRECTIVE_LINE_RE.findall(message)) != 1:
+            return "budget checkpoint requires exactly one revised Directive row"
     return None
 
 
@@ -4701,7 +4724,8 @@ def checkpoint_architect_handoff_problem(message, cycle_id, mode):
 
 
 def matching_new_architect_handoff(cycle_id, mode, before_inodes,
-                                   checkpoint=False, required=True):
+                                   checkpoint=False, required=True,
+                                   budget=False):
     """Find one fresh same-cycle repair handoff from the Architect."""
     fresh = []
     invalid = []
@@ -4719,7 +4743,7 @@ def matching_new_architect_handoff(cycle_id, mode, before_inodes,
             continue
         problem = architect_handoff_problem(
             message=message, cycle_id=cycle_id, mode=mode,
-            checkpoint=checkpoint)
+            checkpoint=checkpoint, budget=budget)
         if os.path.dirname(path) != MAILBOX:
             problem = "handoff was not published in the mailbox root"
         if problem is not None:
@@ -4736,11 +4760,12 @@ def matching_new_architect_handoff(cycle_id, mode, before_inodes,
     return (fresh[0] if fresh else None), [], None
 
 
-def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes):
+def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes,
+                                    budget=False):
     """Compatibility name for a required checkpoint decision."""
     return matching_new_architect_handoff(
         cycle_id=cycle_id, mode=mode, before_inodes=before_inodes,
-        checkpoint=True, required=True)
+        checkpoint=True, required=True, budget=budget)
 
 
 def matching_new_architect_notes_go(base_commit, notes_commit,
@@ -5284,7 +5309,15 @@ def is_implementer_checkpoint_request(body):
         return False
     lines = body.splitlines()
     return bool(lines) and lines[0] in {
-        IMPLEMENTER_CHECKPOINT_HEADING, CONTEXT_HANDOFF_HEADING}
+        IMPLEMENTER_CHECKPOINT_HEADING,
+        IMPLEMENTER_BUDGET_CHECKPOINT_HEADING,
+        CONTEXT_HANDOFF_HEADING}
+
+
+def is_implementer_budget_checkpoint(body):
+    """Return whether a clean candidate exceeded the binding size limit."""
+    return (isinstance(body, str) and body.splitlines()[:1]
+            == [IMPLEMENTER_BUDGET_CHECKPOINT_HEADING])
 
 
 def is_implementer_time_checkpoint(body):
@@ -5470,6 +5503,20 @@ def checkpoint_handoff_problem(message):
                 "checkpoint handoff")
     if is_implementer_context_handoff(body):
         return context_handoff_problem(message=message)
+    if is_implementer_budget_checkpoint(body):
+        candidate_rows = IMPLEMENTER_CANDIDATE_LINE_RE.findall(body)
+        result_rows = [
+            line for line in body.splitlines()
+            if line.startswith("- **Character-change result:**")]
+        if MAX_CHARACTERS <= 0:
+            return "budget checkpoint requires a positive ticket limit"
+        if len(candidate_rows) != 1:
+            return "budget checkpoint requires one exact Candidate commit row"
+        if (len(result_rows) != 1
+                or not result_rows[0].startswith(
+                    "- **Character-change result:** over limit")):
+            return "budget checkpoint requires one over limit result row"
+        return None
     current_state_rows = [
         line for line in body.splitlines()
         if line.startswith("- **Current state:**")]
@@ -8220,6 +8267,7 @@ def dispatch_under_main_checkout_lock(
     saved_architect_scope = None
     flow_mode = None
     architect_checkpoint_audit = False
+    architect_budget_audit = False
     integration_revalidation = None
     if message.startswith(MAILBOX_FLOW_HEADER):
         _, flow_mode, flow_body, flow_problem = _ticket_flow_envelope(
@@ -8231,6 +8279,9 @@ def dispatch_under_main_checkout_lock(
                               if checkpoint_request else None)
         architect_checkpoint_audit = (
             checkpoint_request and checkpoint_problem is None)
+        architect_budget_audit = (
+            architect_checkpoint_audit
+            and is_implementer_budget_checkpoint(flow_body))
         if flow_problem is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": "
@@ -9196,7 +9247,8 @@ def dispatch_under_main_checkout_lock(
             handoff_path, invalid_handoffs, handoff_problem = (
                 matching_new_checkpoint_handoff(
                     cycle_id=audit_cycle_id, mode=flow_mode,
-                    before_inodes=architect_opus_before))
+                    before_inodes=architect_opus_before,
+                    budget=architect_budget_audit))
             checkpoint_outputs = invalid_handoffs
             if handoff_path is not None:
                 checkpoint_outputs.append(handoff_path)

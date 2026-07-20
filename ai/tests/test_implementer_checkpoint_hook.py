@@ -389,6 +389,50 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
                     daemon.checkpoint_architect_handoff_problem(
                         message=message, cycle_id=cycle, mode="normal"))
 
+    def test_budget_block_returns_to_architect_for_a_smaller_plan(self):
+        cycle = "open-example@" + "a" * 40
+        envelope = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n")
+        budget = (
+            envelope + daemon.IMPLEMENTER_BUDGET_CHECKPOINT_HEADING + "\n\n"
+            + "- **Candidate commit:** `" + "b" * 40 + "`\n"
+            + "- **Character-change result:** over limit (21510 > 20000)\n")
+        with mock.patch.object(daemon, "MAX_CHARACTERS", 20000):
+            self.assertIsNone(daemon.checkpoint_handoff_problem(budget))
+            preamble = daemon.agent_preamble(agent="fable", message=budget)
+        self.assertIn("IMPLEMENTER BUDGET CHECKPOINT", preamble)
+        self.assertIn("cannot receive GO", preamble)
+
+        directive = (
+            "- **Directive:** [ai/notes/example.md, revised "
+            "Implementation directive]\n")
+        no_go = (envelope + "### ARCHITECT_HANDOFF: REPAIR\n\n"
+                 + "- **Checkpoint decision:** `NO-GO`\n" + directive)
+        go = no_go.replace("`NO-GO`", "`GO`")
+        no_directive = no_go.replace(directive, "")
+        self.assertIsNone(daemon.architect_handoff_problem(
+            no_go, cycle, "normal", checkpoint=True, budget=True))
+        self.assertIn("NO-GO", daemon.architect_handoff_problem(
+            go, cycle, "normal", checkpoint=True, budget=True))
+        self.assertIn("Directive", daemon.architect_handoff_problem(
+            no_directive, cycle, "normal", checkpoint=True, budget=True))
+
+    def test_budget_block_rejects_ambiguous_or_unlimited_reports(self):
+        cycle = "open-example@" + "a" * 40
+        message = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n"
+            + daemon.IMPLEMENTER_BUDGET_CHECKPOINT_HEADING + "\n\n"
+            + "- **Candidate commit:** `" + "b" * 40 + "`\n"
+            + "- **Character-change result:** over limit\n")
+        with mock.patch.object(daemon, "MAX_CHARACTERS", 0):
+            self.assertIn("positive", daemon.checkpoint_handoff_problem(
+                message))
+        with mock.patch.object(daemon, "MAX_CHARACTERS", 20000):
+            self.assertIn("over limit", daemon.checkpoint_handoff_problem(
+                message.replace("over limit", "within limit")))
+
     def test_daemon_installs_only_the_three_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(
             python="/usr/bin/python3", hook_path="/repo/hook.py")
