@@ -50,6 +50,27 @@ def install_maintenance_architect_child(daemon, mailbox, plan_count):
         sys.executable, "-c", child, str(mailbox), str(plan_count)]
 
 
+def install_maintenance_no_ticket_child(daemon, mailbox):
+    """Use a tiny Architect child that claims no eligible ticket exists."""
+    daemon.capture_persistent_role_state = (
+        lambda agent: {"base": BASE_COMMIT, "agent": agent})
+    daemon.recheck_persistent_role_state = lambda proof: proof
+    daemon.worktree_head = lambda worktree: BASE_COMMIT
+    daemon._validate_current_protected_primary_state = (
+        lambda primary_worktree: None)
+    child = (
+        "import os, pathlib, sys\n"
+        "mailbox = pathlib.Path(sys.argv[1])\n"
+        "token = os.environ['MAILBOX_ARCHITECT_ADMISSION']\n"
+        "body = ('MAILBOX-RETURN: architect-no-ticket\\n' "
+        "+ 'MAILBOX-ADMISSION: ' + token + '\\n' "
+        "+ 'MAILBOX-DECISION: NO TICKET\\n')\n"
+        "(mailbox / '0002-to-user.md').write_text("
+        "body, encoding='utf-8', newline='')\n")
+    daemon.AGENT_COMMANDS["fable"] = [
+        sys.executable, "-c", child, str(mailbox)]
+
+
 def install_architect_child_with_concurrent_user_requests(
         daemon, mailbox, user_requests):
     """Publish one bound plan while independent user requests arrive."""
@@ -690,6 +711,96 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
             self.assertIsNotNone(token)
             self.assertIsNotNone(later_deferred)
             self.assertIsNone(later_token)
+
+    def test_maintenance_admission_is_current_watch_authority(self):
+        token = "0001-to-fable.md@" + "a" * 64
+        with scratch_daemon() as (daemon, _, _, _):
+            prompt = daemon.architect_admission_prompt(token)
+
+        self.assertIn("slot is free now", prompt)
+        self.assertIn("decision is authoritative", prompt)
+        self.assertIn("Past tickets", prompt)
+        self.assertIn("do not consume it", prompt)
+
+    def test_maintenance_no_ticket_requeues_when_high_bug_remains(self):
+        with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            install_maintenance_no_ticket_child(
+                daemon=daemon, mailbox=mailbox)
+            daemon.DISCOVERY_SEVERITY = "high"
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            output = io.StringIO()
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                with contextlib.redirect_stdout(output):
+                    outcome = daemon.drain_lane(
+                        paths=[str(request)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertFalse(outcome)
+            self.assertTrue(request.is_file())
+            self.assertTrue(
+                (mailbox / "failed" / "0002-to-user.md").is_file())
+            self.assertIn(
+                request.name,
+                daemon.read_ticket_cycle_state()["architect_admissions"])
+            self.assertIn("eligible Open BUG FIX remains", output.getvalue())
+            self.assertIn("same admitted slot", output.getvalue())
+
+    def test_maintenance_no_ticket_stops_only_when_no_bug_is_eligible(self):
+        with scratch_daemon() as (daemon, _, mailbox, _):
+            request = mailbox / "0001-to-fable.md"
+            request.write_text(
+                daemon.ARCHITECT_FIX_ONLY_REQUEST,
+                encoding="utf-8", newline="")
+            install_maintenance_no_ticket_child(
+                daemon=daemon, mailbox=mailbox)
+            daemon.DISCOVERY_SEVERITY = "high"
+            daemon._ACTIVE_WATCH_RENDEZVOUS = daemon.SafeKillRendezvous(
+                ticket_cycle_limit=1, ticket_cycle_topology="normal")
+            try:
+                daemon.prepare_finite_watch_progress(
+                    limit=1, topology="normal")
+                outcome = daemon.drain_lane(
+                    paths=[str(request)], dry_run=False, fix_only=True)
+            finally:
+                daemon._ACTIVE_WATCH_RENDEZVOUS = None
+
+            self.assertTrue(outcome)
+            self.assertTrue((mailbox / "done" / request.name).is_file())
+            self.assertEqual(
+                daemon.read_ticket_cycle_state()["architect_admissions"], {})
+            self.assertTrue(daemon._NO_ELIGIBLE_MAINTENANCE_WORK.is_set())
+
+    def test_finite_watch_exits_after_truthful_maintenance_no_ticket(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            daemon.recover_before_dispatch = lambda **_kwargs: None
+            daemon.deliver_pending_ticket_cycle_returns = lambda: 0
+            daemon.role_contract_exit_status = lambda: None
+            daemon.architect_notes_failed_debt_error = lambda: None
+            daemon.active_ticket_cycle_count = lambda **_kwargs: 0
+            daemon.enabled_pending_messages = lambda **_kwargs: []
+
+            def report_no_work(**_kwargs):
+                daemon._NO_ELIGIBLE_MAINTENANCE_WORK.set()
+                return True
+
+            daemon.process_backlog = report_no_work
+            rc, output, error = run_main(
+                daemon,
+                ["--watch", "--cycle", "1", "--fix-only", "true",
+                 "--severity", "high"])
+
+            self.assertEqual(rc, 0, output + error)
+            self.assertIn("no eligible Open BUG FIX remains", output)
+            self.assertIsNone(
+                daemon.read_ticket_cycle_state()["finite_watch"])
 
     def test_fix_only_plan_creates_one_waiting_continuation(self):
         with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):

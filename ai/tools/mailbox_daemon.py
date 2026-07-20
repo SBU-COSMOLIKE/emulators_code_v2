@@ -3312,6 +3312,7 @@ class SafeKillRendezvous:
 _ACTIVE_WATCH_RENDEZVOUS = None
 _RENDEZVOUS_LOCAL = threading.local()
 _TOKEN_EXHAUSTION_STOP = threading.Event()
+_NO_ELIGIBLE_MAINTENANCE_WORK = threading.Event()
 
 
 def _rendezvous_turn_started():
@@ -4126,6 +4127,31 @@ def backlog_severity_counts():
         if severity == "high":
             counts["high_" + ticket_type] += 1
     return counts
+
+
+def eligible_fix_only_bug_anchors(minimum_severity=None):
+    """Return eligible Open bug anchors for this severity."""
+    minimum = (DISCOVERY_SEVERITY if minimum_severity is None
+               else minimum_severity)
+    if minimum not in DISCOVERY_SEVERITIES:
+        raise TicketCycleStateError("invalid severity")
+    counts = backlog_severity_counts()
+    problem = counts["problem"]
+    if problem is None and counts["unclassified"]:
+        problem = "unclassified Open backlog work"
+    if problem is not None:
+        raise TicketCycleStateError(problem)
+    lines, problem = verified_backlog_lines()
+    if problem is not None:
+        raise TicketCycleStateError(problem)
+    order = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+    allowed = order[:order.index(minimum.upper()) + 1]
+    return [
+        match.group(4) for line in lines
+        for match in [OPEN_BACKLOG_TICKET_RE.fullmatch(line)]
+        if (match is not None and match.group(1) in allowed
+            and match.group(2) == "BUG FIX")
+    ]
 
 
 def verified_backlog_lines():
@@ -6185,6 +6211,9 @@ def architect_admission_prompt(token):
     return (
         "PUBLIC REQUEST ADMISSION:\n"
         "This public request provisionally occupies one finite ticket slot. "
+        "The daemon proved this slot is free now; its decision is "
+        "authoritative. Past tickets do not consume it. "
+        "Maintenance must choose an eligible Open bug when one remains. "
         "Produce exactly ONE fresh outcome and never remain silent:\n"
         "1. For one Implementer ticket, put this exact line first in the "
         "body immediately after the ticket flow headers and blank line:\n"
@@ -9379,6 +9408,7 @@ def dispatch_under_main_checkout_lock(
                                     except TicketCycleStateError as exc:
                                         outcome_problem = str(exc)
                                     else:
+                                        _NO_ELIGIBLE_MAINTENANCE_WORK.clear()
                                         outcome_kind = (
                                             "Implementer ticket "
                                             + str(converted_cycle))
@@ -9402,6 +9432,19 @@ def dispatch_under_main_checkout_lock(
                                         message=outcome_message,
                                         expected_token=(
                                             architect_admission)))
+                                if (outcome_problem is None
+                                        and maintenance_request):
+                                    try:
+                                        eligible = (
+                                            eligible_fix_only_bug_anchors())
+                                    except TicketCycleStateError as exc:
+                                        outcome_problem = str(exc)
+                                    else:
+                                        if eligible:
+                                            outcome_problem = (
+                                                "maintenance no-ticket refused: "
+                                                "eligible Open BUG FIX remains "
+                                                + eligible[0])
                                 if outcome_problem is None:
                                     try:
                                         release_architect_ticket_admission(
@@ -9409,18 +9452,30 @@ def dispatch_under_main_checkout_lock(
                                     except TicketCycleStateError as exc:
                                         outcome_problem = str(exc)
                                     else:
+                                        if maintenance_request:
+                                            _NO_ELIGIBLE_MAINTENANCE_WORK.set()
                                         outcome_kind = "no-ticket receipt"
                 if outcome_problem is not None:
                     for invalid_path in fresh_outputs:
                         park_failed_message(dispatch_path=invalid_path)
-                    parked = park_failed_message(
-                        dispatch_path=dispatch_path)
+                    retry_maintenance = (
+                        maintenance_request
+                        and outcome_problem.startswith(
+                            "maintenance no-ticket refused:"))
+                    if retry_maintenance:
+                        parked = requeue_retryable_daemon_message(
+                            dispatch_path=dispatch_path)
+                    else:
+                        parked = park_failed_message(
+                            dispatch_path=dispatch_path)
                     print("  !! Architect returned rc=0 but its public "
                           "request outcome was refused: "
                           + outcome_problem + "; the provisional admission "
                           "was retained; "
-                          + ("message parked in failed/." if parked else
-                             "failed-state move was not verified."))
+                          + (("request requeued for the same admitted slot."
+                              if retry_maintenance else
+                              "message parked in failed/.") if parked else
+                             "recovery-state move was not verified."))
                     return False
                 print("  authenticated public Architect outcome: "
                       + outcome_kind + "; exact output "
@@ -17489,6 +17544,7 @@ def main():
                 watch_topology
                 if args.cycle is not None and args.cycle > 0 else None))
         _ACTIVE_WATCH_RENDEZVOUS = rendezvous
+        _NO_ELIGIBLE_MAINTENANCE_WORK.clear()
         first_pass = True
         completed_cycles = 0
         cycle_completion_barrier = None
@@ -17574,6 +17630,18 @@ def main():
                 completed_cycles = rendezvous.completed_ticket_cycles()
                 active_cycles = active_ticket_cycle_count(
                     skip_redteam=skip_redteam)
+                if (_NO_ELIGIBLE_MAINTENANCE_WORK.is_set()
+                        and rendezvous.all_idle() and active_cycles == 0
+                        and not enabled_pending_messages(
+                            skip_redteam=skip_redteam)):
+                    if args.cycle is not None and args.cycle > 0:
+                        clear_finite_watch_progress(
+                            topology=watch_topology)
+                    print("no eligible Open BUG FIX remains at or above "
+                          + DISCOVERY_SEVERITY
+                          + "; watcher stopped while every role is idle.",
+                          flush=True)
+                    return 0
                 if (args.cycle is not None and args.cycle > 0
                         and completed_cycles >= args.cycle
                         and rendezvous.all_idle() and active_cycles):
