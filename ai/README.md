@@ -275,18 +275,43 @@ files, run tests, and return the same evidence as a Claude Implementer. Claude
 Code is the tool shell in this setup; the Implementer model and its inference
 service are Ollama, not Anthropic.
 
+An Ollama model must always be named explicitly. The watcher never sends the
+Claude default model name to Ollama. Before it starts ticket work, it creates
+a disposable Git folder and tests the real `ollama launch claude` route. It
+also reads the model's reported context. The disposable check cannot edit the
+CoCoA checkout.
+
+Two context numbers appear in this example:
+
+- The **Ollama model context** is the maximum text the selected model can
+  hold. Ollama reports this value.
+- `--claude-context 64000` tells the Claude Code shell when to summarize an
+  unusually long Implementer conversation. It does not enlarge or configure
+  the Ollama model.
+
+The watcher stops before implementation if the model context cannot be
+verified, is below 32768 tokens, or is smaller than the requested compaction
+point.
+
 Before starting a long run, check the selected services without opening a
 ticket:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
-  --implementer-model glm-5.2:cloud
+  --implementer-model glm-5.2:cloud \
+  --claude-context 64000
 ```
 
-This checks the Claude Architect and Ollama Implementer. Remove
+This checks the Claude Architect and Ollama Implementer through the same
+Claude Code integration used for ticket work. Remove
 `--skip-redteam` to check Sol as well. The old `to-opus` mailbox name still
 means “Implementer”; it does not mean that Opus or any Claude model is required.
+
+When a ticket begins, its provider, model, verified model context, and
+compaction point are saved with that ticket. A restart must select those same
+values. This prevents an unfinished Ollama ticket from silently becoming a
+Claude ticket—or changing Ollama models—after the watcher restarts.
 
 The default watch makes the optional Sol Red Team available. For an
 Architect-and-Implementer run only:

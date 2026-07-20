@@ -74,7 +74,8 @@ Usage:
                                                     # context budgets: a turn
         compacts (summarizes its own history and continues) whenever its
         live context reaches the budget; --claude-context covers the
-        Architect and Implementer, --sol-context covers Sol; both default
+        Architect and the Implementer's Claude Code shell (it does not set
+        an Ollama model's context); --sol-context covers Sol; both default
         to 500000
 """
 
@@ -262,6 +263,7 @@ CLAUDE_EXECUTABLE = "/Users/vivianmiranda/.local/bin/claude"
 OLLAMA_EXECUTABLE = "ollama"
 CODEX_EXECUTABLE = "/Applications/ChatGPT.app/Contents/Resources/codex"
 PROVIDER_PING_TIMEOUT_SECONDS = 120
+MINIMUM_OLLAMA_CONTEXT = 32768
 
 # Context budgets per dispatched turn (USER 2026-07-14: no bot runs
 # with a context window above X tokens, where X is a command-line key
@@ -301,6 +303,7 @@ DEFAULT_DISCOVERY_SCOPE = "bounded"
 # dispatch() reads this for the claude environment; main() rebinds it
 # from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
 CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
+IMPLEMENTER_RUNTIME = None
 
 # A dispatched turn that runs past this many minutes is killed and its
 # message parked in failed/ for inspection. The guard exists because a
@@ -3543,6 +3546,55 @@ def validate_model_name(value):
     return value
 
 
+def implementer_runtime_record(
+        *, provider, model, context_limit, compaction_limit):
+    """Return one validated runtime identity for the stable ``opus`` role."""
+    if provider not in IMPLEMENTER_PROVIDERS:
+        raise ValueError("Implementer provider must be claude or ollama")
+    model = validate_model_name(value=model)
+    for label, value in (("context limit", context_limit),
+                         ("compaction limit", compaction_limit)):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("Implementer " + label + " must be positive")
+    if compaction_limit > context_limit:
+        raise ValueError(
+            "Implementer compaction limit exceeds its model context")
+    return {
+        "role_address": "opus",
+        "provider": provider,
+        "model": model,
+        "context_limit": context_limit,
+        "compaction_limit": compaction_limit,
+    }
+
+
+def verified_implementer_runtime(
+        *, provider, model, compaction_limit, dry_run=False):
+    """Build the canonical runtime, verifying Ollama before a live watch."""
+    if provider == "claude":
+        return implementer_runtime_record(
+            provider=provider, model=model, context_limit=compaction_limit,
+            compaction_limit=compaction_limit)
+    if provider != "ollama":
+        raise ValueError("Implementer provider must be claude or ollama")
+    if dry_run:
+        return implementer_runtime_record(
+            provider=provider, model=model, context_limit=compaction_limit,
+            compaction_limit=compaction_limit)
+    context_limit, _problem = _PROVIDER_HEALTH.check_ollama_implementer(
+        model=model, compaction_limit=compaction_limit,
+        minimum_context=MINIMUM_OLLAMA_CONTEXT,
+        preamble=agent_preamble(agent="opus"),
+        nonce=secrets.token_hex(16), ollama_executable=OLLAMA_EXECUTABLE,
+        timeout=PROVIDER_PING_TIMEOUT_SECONDS, run=subprocess.run)
+    if context_limit is None:
+        raise ValueError(
+            "Ollama Implementer preflight failed; no ticket was started")
+    return implementer_runtime_record(
+        provider=provider, model=model, context_limit=context_limit,
+        compaction_limit=compaction_limit)
+
+
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
                          sol_context_budget,
                          architect_model=DEFAULT_ARCHITECT_MODEL,
@@ -3637,7 +3689,8 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
 def check_provider_connectivity(
         architect_model, include_sol, dry_run=False,
         implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER,
-        implementer_model=DEFAULT_IMPLEMENTER_MODEL):
+        implementer_model=DEFAULT_IMPLEMENTER_MODEL,
+        implementer_compaction_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET):
     """Check every distinct provider selected for this watch."""
     return _PROVIDER_HEALTH.check_connectivity(
         architect_model=architect_model,
@@ -3651,7 +3704,10 @@ def check_provider_connectivity(
         codex_executable=CODEX_EXECUTABLE,
         sol_model=SOL_MODEL,
         timeout=PROVIDER_PING_TIMEOUT_SECONDS,
-        run=subprocess.run)
+        run=subprocess.run,
+        implementer_compaction_limit=implementer_compaction_limit,
+        ollama_minimum_context=MINIMUM_OLLAMA_CONTEXT,
+        implementer_preamble=agent_preamble(agent="opus"))
 
 
 def routine_review_command(
@@ -3691,6 +3747,11 @@ AGENT_COMMANDS = build_agent_commands(
     opus_effort=DEFAULT_OPUS_EFFORT,
     sol_effort=DEFAULT_SOL_EFFORT,
     sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
+IMPLEMENTER_RUNTIME = implementer_runtime_record(
+    provider=DEFAULT_IMPLEMENTER_PROVIDER,
+    model=DEFAULT_IMPLEMENTER_MODEL,
+    context_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET,
+    compaction_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET)
 
 # The working directory each dispatched agent starts in. CLI bootstrap proves
 # WORKTREE is replaced with the three validated saved paths at the CLI
@@ -7749,9 +7810,13 @@ SOL_TOKEN_EXHAUSTION_MARKERS = (
     "you hit your spend cap", '"usage_limit_exceeded"',
     '_credits_depleted"', '_usage_limit_reached"',
 )
+OLLAMA_TOKEN_EXHAUSTION_MARKERS = (
+    "usage limit", "rate limit exceeded", "insufficient credits",
+    "credit balance is too low", "quota exceeded",
+)
 
 
-def provider_is_out_of_tokens(agent, reply_lines):
+def provider_is_out_of_tokens(agent, reply_lines, implementer_provider=None):
     """Recognize terminal account exhaustion, not transient API failures.
 
     Arguments:
@@ -7763,9 +7828,15 @@ def provider_is_out_of_tokens(agent, reply_lines):
     """
     if agent not in {"fable", "opus", "sol"}:
         return False
-    markers = (CLAUDE_TOKEN_EXHAUSTION_MARKERS
-               if agent in {"fable", "opus"}
-               else SOL_TOKEN_EXHAUSTION_MARKERS)
+    provider = (IMPLEMENTER_RUNTIME["provider"]
+                if agent == "opus" and implementer_provider is None
+                else implementer_provider)
+    if agent == "sol":
+        markers = SOL_TOKEN_EXHAUSTION_MARKERS
+    elif agent == "opus" and provider == "ollama":
+        markers = OLLAMA_TOKEN_EXHAUSTION_MARKERS
+    else:
+        markers = CLAUDE_TOKEN_EXHAUSTION_MARKERS
     tail = "\n".join(reply_lines[-24:]).replace("’", "'").casefold()
     if (agent != "sol" and re.search(
             r"you've hit your (5-hour|five-hour|7-day|seven-day) "
@@ -7773,6 +7844,37 @@ def provider_is_out_of_tokens(agent, reply_lines):
             tail)):
         return True
     return any(marker in tail for marker in markers)
+
+
+def provider_failure_guidance(agent, reply_lines):
+    """Return provider-specific recovery text for a failed role process."""
+    text = "\n".join(reply_lines[-40:]).replace("’", "'").casefold()
+    if agent != "opus" or IMPLEMENTER_RUNTIME["provider"] != "ollama":
+        if "not logged in" in text:
+            return ("the Claude CLI is logged out; run `claude` in a "
+                    "terminal, type /login, then requeue from failed/.")
+        return "dispatch failed; inspect the relay log before requeueing."
+    model = IMPLEMENTER_RUNTIME["model"]
+    if any(mark in text for mark in (
+            "connection refused", "could not connect", "service unavailable",
+            "dial tcp", "ollama is not running")):
+        return ("the Ollama service is unavailable; start it, then requeue "
+                "from failed/.")
+    if any(mark in text for mark in (
+            "pull model manifest", "model not found", "does not exist")):
+        return ("the Ollama model is unavailable; run `ollama pull "
+                + model + "`, then requeue from failed/.")
+    if any(mark in text for mark in (
+            "out of memory", "cannot allocate memory", "resource exhausted")):
+        return ("the Ollama runtime ran out of local resources; preserve the "
+                "candidate, free resources, then requeue from failed/.")
+    if "not logged in" in text or "authentication" in text:
+        return ("the Ollama/Claude Code integration reported an authentication "
+                "failure; verify `ollama launch claude --model " + model
+                + "` directly, then requeue from failed/.")
+    return ("the Ollama/Claude Code integration failed; inspect the relay "
+            "log, verify `ollama launch claude --model " + model
+            + "`, then requeue from failed/.")
 
 
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
@@ -8690,12 +8792,10 @@ def dispatch_under_main_checkout_lock(
             print("  !! dispatch failed and its failed/ state was not "
                   "verified; inspect inflight/ and failed/; log -> "
                   + log_path)
-        elif "Not logged in" in "\n".join(reply_lines):
-            print("  !! the headless CLI is logged out; run `claude` in a "
-                  "terminal, type /login, then requeue from failed/.")
         else:
-            print("  !! dispatch failed; message parked in failed/, see "
-                  "the log above.")
+            print("  !! " + provider_failure_guidance(
+                agent=agent, reply_lines=reply_lines))
+            print("  !! message parked in failed/; see the log above.")
         return False
 
     implementer_delivery_receipt = None
@@ -14687,7 +14787,8 @@ def validate_ticket_cycle_state(payload):
     for cycle_id, record in active.items():
         required_record_keys = {"phase", "commit", "mode", "route"}
         optional_record_keys = {
-            "path_scope", "ticket_class", "control_plane"}
+            "path_scope", "ticket_class", "control_plane",
+            "implementer_runtime"}
         if (not isinstance(cycle_id, str)
                 or CYCLE_ID_RE.fullmatch(cycle_id) is None
                 or not isinstance(record, dict)
@@ -14702,6 +14803,25 @@ def validate_ticket_cycle_state(payload):
         path_scope = record.get("path_scope")
         ticket_class = record.get("ticket_class", "ordinary")
         control_plane = record.get("control_plane")
+        implementer_runtime = record.get("implementer_runtime")
+        if implementer_runtime is not None:
+            if (not isinstance(implementer_runtime, dict)
+                    or set(implementer_runtime) != {
+                        "role_address", "provider", "model",
+                        "context_limit", "compaction_limit"}):
+                raise TicketCycleStateError(
+                    "ticket Implementer runtime has wrong keys")
+            try:
+                implementer_runtime = implementer_runtime_record(
+                    provider=implementer_runtime["provider"],
+                    model=implementer_runtime["model"],
+                    context_limit=implementer_runtime["context_limit"],
+                    compaction_limit=implementer_runtime[
+                        "compaction_limit"])
+            except (ValueError, argparse.ArgumentTypeError) as exc:
+                raise TicketCycleStateError(
+                    "ticket Implementer runtime is invalid: "
+                    + str(exc)) from exc
         if ticket_class not in TICKET_CLASSES:
             raise TicketCycleStateError("ticket class is invalid")
         if ticket_class == "protected-control-plane":
@@ -14795,6 +14915,8 @@ def validate_ticket_cycle_state(payload):
             "route": route, "ticket_class": ticket_class}
         if "path_scope" in record:
             normalized["path_scope"] = path_scope
+        if implementer_runtime is not None:
+            normalized["implementer_runtime"] = dict(implementer_runtime)
         if ticket_class == "protected-control-plane":
             normalized["control_plane"] = dict(control_plane)
         normalized_active[cycle_id] = normalized
@@ -14925,6 +15047,27 @@ def read_ticket_cycle_state():
         raise TicketCycleStateError(
             "ticket-cycle state is invalid JSON") from exc
     return validate_ticket_cycle_state(payload=payload)
+
+
+def active_implementer_runtime_problem(
+        *, provider, model, compaction_limit, context_limit=None):
+    """Refuse a restart that would silently change an active ticket."""
+    for cycle_id, record in read_ticket_cycle_state()["active"].items():
+        saved = record.get("implementer_runtime")
+        if record["phase"] != "implementation" or saved is None:
+            continue
+        if (saved["provider"] != provider or saved["model"] != model
+                or saved["compaction_limit"] != compaction_limit
+                or (context_limit is not None
+                    and saved["context_limit"] != context_limit)):
+            return ("active ticket " + cycle_id + " is bound to "
+                    + saved["provider"] + "/" + saved["model"]
+                    + " with context " + str(saved["context_limit"])
+                    + " and compaction "
+                    + str(saved["compaction_limit"])
+                    + "; restart with that exact Implementer runtime or "
+                    "begin a new Architect-visible cycle")
+    return None
 
 
 def write_ticket_cycle_state(state):
@@ -15345,6 +15488,7 @@ def register_ticket_cycle_message(
                     "phase": "implementation", "commit": None,
                     "mode": requested_mode, "route": requested_route,
                     "ticket_class": ticket_class,
+                    "implementer_runtime": dict(IMPLEMENTER_RUNTIME),
                     "path_scope": (sorted(path_scope)
                                    if path_scope is not None else None),
                     "control_plane": (
@@ -15361,26 +15505,44 @@ def register_ticket_cycle_message(
             elif architect_admission is not None:
                 raise TicketCycleStateError(
                     "public Architect admission was already converted")
-            elif (current["mode"] != requested_mode
-                  or current["route"] != requested_route):
-                raise TicketCycleStateError(
-                    "ticket exchange changed its saved mode or Implementer "
-                    "route")
-            elif (agent == "opus"
-                  and current.get("ticket_class", "ordinary")
-                  != ticket_class):
-                raise TicketCycleStateError(
-                    "ticket exchange changed its frozen Ticket class")
-            elif agent == "opus" and path_scope is not None:
-                frozen = current.get("path_scope")
-                proposed = sorted(path_scope)
-                if frozen is not None and frozen != proposed:
+            else:
+                saved_runtime = current.get("implementer_runtime")
+                if (saved_runtime is not None
+                        and saved_runtime != IMPLEMENTER_RUNTIME):
                     raise TicketCycleStateError(
-                        "Implementer handoff changed the frozen ticket path "
-                        "scope")
-                if frozen is None:
+                        "active ticket is bound to Implementer "
+                        + saved_runtime["provider"] + "/"
+                        + saved_runtime["model"] + " with model context "
+                        + str(saved_runtime["context_limit"])
+                        + " and compaction "
+                        + str(saved_runtime["compaction_limit"])
+                        + "; start this watch with the same runtime or create "
+                        "a new Architect-visible cycle")
+                if saved_runtime is None and agent == "opus":
                     state["active"][cycle_id] = dict(
-                        current, path_scope=proposed)
+                        current,
+                        implementer_runtime=dict(IMPLEMENTER_RUNTIME))
+                    current = state["active"][cycle_id]
+                if (current["mode"] != requested_mode
+                        or current["route"] != requested_route):
+                    raise TicketCycleStateError(
+                        "ticket exchange changed its saved mode or "
+                        "Implementer route")
+                if (agent == "opus"
+                        and current.get("ticket_class", "ordinary")
+                        != ticket_class):
+                    raise TicketCycleStateError(
+                        "ticket exchange changed its frozen Ticket class")
+                if agent == "opus" and path_scope is not None:
+                    frozen = current.get("path_scope")
+                    proposed = sorted(path_scope)
+                    if frozen is not None and frozen != proposed:
+                        raise TicketCycleStateError(
+                            "Implementer handoff changed the frozen ticket "
+                            "path scope")
+                    if frozen is None:
+                        state["active"][cycle_id] = dict(
+                            current, path_scope=proposed)
         else:
             if current is None:
                 raise TicketCycleStateError(
@@ -16454,6 +16616,7 @@ def main():
     global AGENT_COMMANDS
     global DISPATCH_TIMEOUT_MINUTES
     global CLAUDE_CONTEXT_BUDGET
+    global IMPLEMENTER_RUNTIME
     global MAX_CHARACTERS
     global REVIEW_EFFORT
     global DISCOVERY_SEVERITY
@@ -16547,12 +16710,13 @@ def main():
                              + DEFAULT_ARCHITECT_MODEL + ")")
     parser.add_argument("--implementer-model", metavar="MODEL",
                         type=validate_model_name,
-                        default=DEFAULT_IMPLEMENTER_MODEL,
+                        default=None,
                         help="model name used for the Implementer; select "
                              "its service with --implementer-provider; "
                              "mailbox filenames still contain opus "
-                             "(default: "
-                             + DEFAULT_IMPLEMENTER_MODEL + ")")
+                             "(Claude default: "
+                             + DEFAULT_IMPLEMENTER_MODEL
+                             + "; required explicitly for Ollama)")
     parser.add_argument(
         "--implementer-provider", choices=IMPLEMENTER_PROVIDERS,
         default=DEFAULT_IMPLEMENTER_PROVIDER,
@@ -16588,9 +16752,10 @@ def main():
     parser.add_argument("--claude-context", metavar="TOKENS",
                         type=positive_int,
                         default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-                        help="inside one Architect or Implementer turn, ask "
-                             "the coding runtime to replace older context "
-                             "with a shorter summary at this many tokens "
+                        help="inside one Architect turn or the Implementer's "
+                             "Claude Code shell, replace older context with "
+                             "a shorter summary at this many tokens; this "
+                             "does not configure an Ollama model context "
                              "(default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
@@ -16600,6 +16765,13 @@ def main():
                              "at this many tokens (default: "
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
+    if args.implementer_model is None:
+        if args.implementer_provider == "ollama" and (
+                args.watch or args.once or args.ping or args.dry_run):
+            print("--implementer-provider ollama requires an explicit "
+                  "--implementer-model")
+            return 1
+        args.implementer_model = DEFAULT_IMPLEMENTER_MODEL
     maintenance_send = (
         args.send == "architect" and args.fix_only is True)
 
@@ -16680,7 +16852,8 @@ def main():
             implementer_provider=args.implementer_provider,
             implementer_model=args.implementer_model,
             include_sol=not args.skip_redteam,
-            dry_run=args.dry_run) else 1
+            dry_run=args.dry_run,
+            implementer_compaction_limit=args.claude_context) else 1
 
     selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
     severity_action = args.watch or args.once or args.send == "architect"
@@ -16746,6 +16919,40 @@ def main():
     REVIEW_EFFORT = args.review_effort
 
     if args.watch or args.once:
+        try:
+            selection_problem = active_implementer_runtime_problem(
+                provider=args.implementer_provider,
+                model=args.implementer_model,
+                compaction_limit=args.claude_context)
+        except (OSError, TicketCycleStateError) as exc:
+            print("Implementer runtime state error: " + str(exc))
+            return 1
+        if selection_problem is not None:
+            print("Implementer runtime state error: " + selection_problem)
+            return 1
+        try:
+            IMPLEMENTER_RUNTIME = verified_implementer_runtime(
+                provider=args.implementer_provider,
+                model=args.implementer_model,
+                compaction_limit=args.claude_context,
+                dry_run=args.dry_run)
+        except (OSError, ValueError) as exc:
+            print("Implementer provider error: " + str(exc))
+            return 1
+        try:
+            runtime_problem = active_implementer_runtime_problem(
+                provider=IMPLEMENTER_RUNTIME["provider"],
+                model=IMPLEMENTER_RUNTIME["model"],
+                context_limit=IMPLEMENTER_RUNTIME["context_limit"],
+                compaction_limit=IMPLEMENTER_RUNTIME["compaction_limit"])
+        except (OSError, TicketCycleStateError) as exc:
+            print("Implementer runtime state error: " + str(exc))
+            return 1
+        if runtime_problem is not None:
+            print("Implementer runtime state error: " + runtime_problem)
+            return 1
+
+    if args.watch or args.once:
         report_ticket_character_limit()
         report_discovery_severity(
             fix_only=fix_only, skip_redteam=skip_redteam)
@@ -16778,9 +16985,18 @@ def main():
             print("effort levels: architect/fable=" + args.fable_effort
                   + " implementer/opus=" + implementer_effort
                   + " sol=disabled routine-review=" + args.review_effort)
-            print("context budgets: architect/implementer="
-                  + str(args.claude_context)
-                  + " sol=disabled (a Claude turn compacts at its budget)")
+            if args.implementer_provider == "ollama":
+                print("context: Architect compacts at "
+                      + str(args.claude_context)
+                      + "; Ollama model context="
+                      + str(IMPLEMENTER_RUNTIME["context_limit"])
+                      + "; Implementer shell compacts at "
+                      + str(args.claude_context) + "; Sol disabled")
+            else:
+                print("context budgets: architect/implementer="
+                      + str(args.claude_context)
+                      + " sol=disabled (a Claude turn compacts at its "
+                      "budget)")
             print("two-role watch: Red Team and the entire Sol route are "
                   "disabled; existing to-sol messages stay queued and "
                   "untouched")
@@ -16792,10 +17008,19 @@ def main():
                   + " implementer/opus=" + implementer_effort
                   + " sol=" + args.sol_effort
                   + " routine-review=" + args.review_effort)
-            print("context budgets: architect/implementer="
-                  + str(args.claude_context)
-                  + " sol=" + str(args.sol_context)
-                  + " tokens (a turn compacts at its budget)")
+            if args.implementer_provider == "ollama":
+                print("context: Architect compacts at "
+                      + str(args.claude_context)
+                      + "; Ollama model context="
+                      + str(IMPLEMENTER_RUNTIME["context_limit"])
+                      + "; Implementer shell compacts at "
+                      + str(args.claude_context) + "; Sol compacts at "
+                      + str(args.sol_context))
+            else:
+                print("context budgets: architect/implementer="
+                      + str(args.claude_context)
+                      + " sol=" + str(args.sol_context)
+                      + " tokens (a turn compacts at its budget)")
         if args.cycle == 0:
             if skip_redteam:
                 print("cycle 0: wait until no Architect or Implementer "

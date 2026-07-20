@@ -229,7 +229,7 @@ For a first run, remember this shorter rule:
 | `backlog_bundle.py pack --dry-run` | No | Lists the proposed package without writing it. |
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
 | `mailbox_daemon.py --send architect` | Yes | Saves one numbered request for the Architect. The command may create or reuse the AI work folders first. |
-| `mailbox_daemon.py --ping` | No repository change; uses AI credits | Makes one small live request to Claude and one to Sol, then prints whether each service answered. Add `--skip-redteam` to check Claude without contacting Sol. |
+| `mailbox_daemon.py --ping` | No repository change; uses AI credits | Checks each different selected provider/model pair. This normally means the Claude Architect model, the Claude or Ollama Implementer model, and Sol. Add `--skip-redteam` to omit Sol. |
 | `mailbox_daemon.py --once` or `--watch` | Yes | May create or reuse AI work folders, start roles, move mailbox files, and write relay or saved workflow records. |
 | `mailbox_daemon.py --clean-all` | Yes—destructive | Removes every extra local CoCoA-Flow worktree and every matching local AI branch, even when that AI folder contains unfinished or unmerged work. It does not alter remote branches, tags, or stashes. |
 | `handoff_router.py --architect-notes-admin "SUMMARY"` | Yes | Architect-only internal operation. From an already bound Architect process, queues one later permanent-note admin self-route. It refuses from a normal user, Implementer, or Red Team process and cannot be combined with another router operation. |
@@ -381,16 +381,19 @@ Architect later writes the internal `to-sol` request beginning with
 python3 ai/tools/mailbox_daemon.py --ping
 ```
 
-This makes one small, no-tool request to the configured Claude Architect and
-one read-only request to Sol. When the Implementer uses Ollama, it also checks
-that Ollama model independently. The command checks installed programs,
-current login, selected models, and service responses. It does not write a
-mailbox message or start a ticket.
+This checks every different provider-and-model pair selected for the run. A
+default run checks the Claude Architect model, the different Claude
+Implementer model, and Sol. When the Implementer uses Ollama, the second check
+instead creates a disposable Git repository and starts the real
+`ollama launch claude` integration. The disposable check receives the normal
+Implementer preamble but performs no source edit. It cannot read the mailbox
+or modify the CoCoA checkout.
 
-A successful run ends with:
+A default successful run includes:
 
 ```text
 Claude Architect: online and answered the connection test.
+Claude Implementer: online and answered the connection test.
 Sol: online and answered the connection test.
 connection check passed: Claude and Sol responded.
 ```
@@ -407,12 +410,15 @@ Implementer, add the same provider and model selected for the watch:
 ```bash
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
-  --implementer-model glm-5.2:cloud
+  --implementer-model glm-5.2:cloud \
+  --claude-context 64000
 ```
 
 A failed check returns a nonzero status and names the affected service. The
 check has a two-minute limit for each service and continues checking the other
-selected services after one fails.
+selected services after one fails. An Ollama check also reads
+`ollama show MODEL --verbose`. It stops if the context cannot be verified, is
+below 32768 tokens, or is smaller than the Claude Code compaction point.
 
 ## Choose the minimum discovery severity
 
@@ -729,7 +735,7 @@ text formats, unsaved files, and other counting details.
 
 | Concern | Options | Default |
 | --- | --- | --- |
-| Architect and Implementer models | `--architect-model`, `--implementer-model` | `claude-fable-5`, `claude-opus-4-8` |
+| Architect and Implementer models | `--architect-model`, `--implementer-model` | `claude-fable-5`, `claude-opus-4-8`; an Ollama Implementer model must be written explicitly |
 | Implementer service | `--implementer-provider` | `claude`; choose `ollama` for an Ollama-served open-weight model |
 | Claude effort | `--fable-effort`, `--opus-effort` | `xhigh`, `max`; Implementer effort is left to Ollama when that provider is selected |
 | Sol effort | `--sol-effort` | `xhigh` |
@@ -738,7 +744,7 @@ text formats, unsaved files, and other counting details.
 | Implementer complexity review | automatic | pause after 90 minutes |
 | Implementer context replacement | automatic | save an exact handoff before automatic compaction |
 | AI job emergency timeout | `--dispatch-timeout` | 120 minutes |
-| Compaction point inside one long role turn | `--claude-context`, `--sol-context` | 500000 tokens each |
+| Compaction point inside one long role turn | `--claude-context`, `--sol-context` | 500000 tokens each; `--claude-context` controls the Claude Code shell and does not configure an Ollama model |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
@@ -799,7 +805,22 @@ passed to an Ollama Implementer.
 Each model option accepts one nonempty value containing no spaces, tabs, line
 breaks, or hidden zero character, such as `sonnet` or `glm-5.2:cloud`. This checks
 only the name's format. The selected provider confirms whether the model
-exists when a live check or role starts.
+exists when a live check or role starts. Claude retains its documented default.
+Ollama has no default: selecting `--implementer-provider ollama` without an
+explicit `--implementer-model` stops before the watcher or ping begins.
+
+For an Ollama Implementer, startup verifies two independent limits. Ollama's
+reported **model context** is the maximum context supported by that model.
+`--claude-context` remains the **Claude Code compaction point**: it tells the
+coding shell when to summarize an unusually long turn. It does not change the
+model context. Startup refuses an unverifiable context, a context below 32768,
+or a compaction point larger than the verified model context.
+
+The ticket-cycle record saves the stable `opus` address together with the
+selected provider, model, verified model context, and compaction point. A
+restart with different values stops and names the saved values. To change the
+runtime deliberately, finish or replace the ticket through an
+Architect-visible new cycle; do not reinterpret the active cycle.
 
 The mailbox addresses `fable` and `opus` continue to mean Architect and
 Implementer even when the Implementer comes from Ollama. There is no
@@ -959,7 +980,8 @@ options:
   --implementer-model MODEL
                         model name used for the Implementer; select its
                         service with --implementer-provider; mailbox filenames
-                        still contain opus (default: claude-opus-4-8)
+                        still contain opus (Claude default: claude-opus-4-8;
+                        required explicitly for Ollama)
   --implementer-provider {claude,ollama}
                         service used for the Implementer: claude or ollama;
                         the Architect remains on Claude (default: claude)
@@ -983,9 +1005,10 @@ options:
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
   --claude-context TOKENS
-                        inside one Architect or Implementer turn, ask the
-                        coding runtime to replace older context with a shorter
-                        summary at this many tokens (default: 500000)
+                        inside one Architect turn or the Implementer's Claude
+                        Code shell, replace older context with a shorter
+                        summary at this many tokens; this does not configure
+                        an Ollama model context (default: 500000)
   --sol-context TOKENS  inside one Red Team turn, ask Codex to replace older
                         conversation text with a shorter summary at this many
                         tokens (default: 500000)
@@ -1907,6 +1930,12 @@ Ollama's `launch claude` integration supplies the coding tool shell. The model
 that reasons about and performs the Implementer work is served by Ollama. A
 raw Ollama chat request is not used because it could not edit the isolated
 worktree or run the Architect's acceptance commands.
+
+The watcher runs that exact integration once in a disposable Git repository
+before admitting long Ollama work. It verifies a unique response, the normal
+Implementer preamble, nonpersistent operation, and the model context reported
+by Ollama. The real mailbox, backlog, and role worktrees are not used by this
+preflight.
 
 Model names, reasoning levels, and conversation-length limits are command-line
 choices for each run. The coding permission mode and Sol's service tier remain

@@ -275,6 +275,9 @@ def arm_role_chatter_does_not_complete_cycle():
                 "commit": None,
                 "mode": "normal",
                 "route": "primary",
+                "ticket_class": "ordinary",
+                "implementer_runtime": daemon.IMPLEMENTER_RUNTIME,
+                "path_scope": None,
             }
             and controller.completed_ticket_cycles() == 0)
     print("A/I chatter is not a cycle=" + str(passed))
