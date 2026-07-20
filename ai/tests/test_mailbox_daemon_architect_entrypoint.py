@@ -906,7 +906,7 @@ class MailboxArchitectEntrypointTests(unittest.TestCase):
                 implementer_model=daemon.DEFAULT_IMPLEMENTER_MODEL,
                 include_sol=True, dry_run=False,
                 implementer_compaction_limit=(
-                    daemon.DEFAULT_CLAUDE_CONTEXT_BUDGET))
+                    daemon.DEFAULT_IMPLEMENTER_CONTEXT_BUDGET))
 
     def test_removed_public_targets_and_ticket_kind_are_zero_write_errors(self):
         commands = []

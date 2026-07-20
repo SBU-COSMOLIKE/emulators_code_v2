@@ -2629,6 +2629,50 @@ Closed tickets are grouped by subject. A closed ticket has no missing work of
 its own. If later work is still required, **What is missing** links to one of
 the open tickets above.
 
+<a id="closed-role-context-separation"></a>
+## Give each AI role its own context limit
+
+### High-level summary
+
+The Architect and Implementer previously shared one context setting. A large
+Architect allowance could therefore exceed an Ollama Implementer's smaller
+model context and make even the connection check fail before work began.
+
+Each role now has an independent command-line setting. Choosing a large
+Architect context no longer changes the Implementer threshold.
+
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**CLOSED. Severity: CRITICAL.** The shared setting prevented the selected
+three-role configuration from starting. Ping, runtime validation, saved ticket
+identity, dispatch environments, terminal reports, tests, and guides now use
+the Implementer's own value.
+
+### What is already fixed
+
+`--architect-context`, `--implementer-context`, and `--sol-context` control
+only their named roles. The older `--claude-context` spelling remains as an
+Architect-only compatibility name. Ollama still reports the model's actual
+maximum separately and refuses an Implementer threshold above that maximum.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+
+Focused tests prove that a 300000-token Architect threshold and a 64000-token
+Implementer threshold remain distinct during ping, Ollama preflight, saved
+runtime validation, and dispatch selection.
+
+</details>
+
 <a id="closed-control-plane-live-state-compatibility"></a>
 ## Test a proposed controller against the saved state it must inherit
 

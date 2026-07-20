@@ -634,6 +634,8 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
         ("misplaced-two-role", ["--once", "--skip-redteam"], 1),
         ("bad-model", ["--once", "--architect-model", "bad model"], 1),
         ("bad-claude-context", ["--once", "--claude-context", "0"], 1),
+        ("bad-implementer-context",
+         ["--once", "--implementer-context", "0"], 1),
         ("bad-sol-context", ["--once", "--sol-context", "-1"], 1),
     ]
     with scratch_repository(source=source) as root:

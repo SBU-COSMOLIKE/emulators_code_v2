@@ -69,14 +69,14 @@ Usage:
                                                     # choose Claude models by role
     python ai/tools/mailbox_daemon.py --watch --dispatch-timeout 180
                                                     # extend emergency limit
-    python ai/tools/mailbox_daemon.py --watch --claude-context 400000 \
+    python ai/tools/mailbox_daemon.py --watch --architect-context 400000 \
+                                           --implementer-context 64000 \
                                            --sol-context 300000
                                                     # context budgets: a turn
         compacts (summarizes its own history and continues) whenever its
-        live context reaches the budget; --claude-context covers the
-        Architect and the Implementer's Claude Code shell (it does not set
-        an Ollama model's context); --sol-context covers Sol; both default
-        to 500000
+        live context reaches its own budget; the three roles have separate
+        options; --implementer-context controls the coding shell and does
+        not set an Ollama model's maximum context
 """
 
 import argparse
@@ -268,18 +268,16 @@ CODEX_EXECUTABLE = "/Applications/ChatGPT.app/Contents/Resources/codex"
 PROVIDER_PING_TIMEOUT_SECONDS = 120
 MINIMUM_OLLAMA_CONTEXT = 32768
 
-# Context budgets per dispatched turn (USER 2026-07-14: no bot runs
-# with a context window above X tokens, where X is a command-line key
-# and Sol's key is separate). Neither CLI takes a hard cap, so both are
-# told to COMPACT (summarize their own history and continue) whenever
-# the live context reaches the budget, instead of growing toward their
-# native 1M windows: the Architect and Implementer coding runtimes read
-# CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the Codex CLI
-# (Sol) takes -c model_auto_compact_token_limit (accepted live,
-# 2026-07-14). Override per launch with --claude-context / --sol-context.
+# Each role has an independent point at which it summarizes an unusually
+# long turn. Architect and Implementer shells read
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW. Sol receives
+# model_auto_compact_token_limit in its command. Override the defaults with
+# the three role-specific context options.
 # Each dispatch is also explicitly non-persistent, so a later turn cannot
 # inherit an earlier ticket's provider conversation.
-DEFAULT_CLAUDE_CONTEXT_BUDGET = 500000
+DEFAULT_ARCHITECT_CONTEXT_BUDGET = 500000
+DEFAULT_IMPLEMENTER_CONTEXT_BUDGET = 500000
+DEFAULT_OLLAMA_IMPLEMENTER_CONTEXT_BUDGET = 64000
 DEFAULT_SOL_CONTEXT_BUDGET = 500000
 
 # A run may limit the text changed by one ticket. Zero is deliberately
@@ -303,9 +301,10 @@ DISCOVERY_SEVERITY = DEFAULT_DISCOVERY_SEVERITY
 DISCOVERY_SCOPES = ("bounded", "widespread")
 DEFAULT_DISCOVERY_SCOPE = "bounded"
 
-# dispatch() reads this for the claude environment; main() rebinds it
-# from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
-CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
+# dispatch() reads this for the Architect's Claude environment; main()
+# rebinds it from --architect-context. The Implementer limit is saved in
+# IMPLEMENTER_RUNTIME, and Sol's limit rides inside AGENT_COMMANDS.
+ARCHITECT_CONTEXT_BUDGET = DEFAULT_ARCHITECT_CONTEXT_BUDGET
 IMPLEMENTER_RUNTIME = None
 
 # A dispatched turn that runs past this many minutes is killed and its
@@ -3557,6 +3556,15 @@ def validate_model_name(value):
     return value
 
 
+def default_implementer_context(provider):
+    """Return the provider-safe default for one Implementer shell."""
+    if provider == "claude":
+        return DEFAULT_IMPLEMENTER_CONTEXT_BUDGET
+    if provider == "ollama":
+        return DEFAULT_OLLAMA_IMPLEMENTER_CONTEXT_BUDGET
+    raise ValueError("Implementer provider must be claude or ollama")
+
+
 def implementer_runtime_record(
         *, provider, model, context_limit, compaction_limit):
     """Return one validated runtime identity for the stable ``opus`` role."""
@@ -3701,7 +3709,7 @@ def check_provider_connectivity(
         architect_model, include_sol, dry_run=False,
         implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER,
         implementer_model=DEFAULT_IMPLEMENTER_MODEL,
-        implementer_compaction_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET):
+        implementer_compaction_limit=DEFAULT_IMPLEMENTER_CONTEXT_BUDGET):
     """Check every distinct provider selected for this watch."""
     return _PROVIDER_HEALTH.check_connectivity(
         architect_model=architect_model,
@@ -3751,6 +3759,15 @@ def implementer_checkpoint_settings(python, hook_path):
     }}
 
 
+def claude_compaction_limit(agent):
+    """Return the independent Claude Code limit for one Claude-backed role."""
+    if agent == "fable":
+        return ARCHITECT_CONTEXT_BUDGET
+    if agent == "opus":
+        return IMPLEMENTER_RUNTIME["compaction_limit"]
+    raise ValueError("Claude compaction limit has no role " + repr(agent))
+
+
 # main() rebuilds this from the command-line flags; the module-level
 # value keeps imports and direct function calls working at the defaults.
 AGENT_COMMANDS = build_agent_commands(
@@ -3761,8 +3778,8 @@ AGENT_COMMANDS = build_agent_commands(
 IMPLEMENTER_RUNTIME = implementer_runtime_record(
     provider=DEFAULT_IMPLEMENTER_PROVIDER,
     model=DEFAULT_IMPLEMENTER_MODEL,
-    context_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-    compaction_limit=DEFAULT_CLAUDE_CONTEXT_BUDGET)
+    context_limit=DEFAULT_IMPLEMENTER_CONTEXT_BUDGET,
+    compaction_limit=DEFAULT_IMPLEMENTER_CONTEXT_BUDGET)
 
 # The working directory each dispatched agent starts in. CLI bootstrap proves
 # WORKTREE is replaced with the three validated saved paths at the CLI
@@ -8520,12 +8537,15 @@ def dispatch_under_main_checkout_lock(
         f.write("$ " + " ".join(command_prefix) + " <message>\n")
         f.write("--- live output (stdout+stderr interleaved) ---\n")
         f.flush()
-        # the claude CLI takes its context budget from the environment
-        # (Sol's rides its own -c flag in the command instead): compact
-        # whenever the live context reaches the budget, rather than
-        # growing to the native 1M-token window.
+        # Claude Code reads the active role's compaction point from this
+        # environment variable. The Architect and Implementer have separate
+        # limits. Sol receives its independent value in the Codex command.
         env = os.environ.copy()
-        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
+        if agent in {"fable", "opus"}:
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(
+                claude_compaction_limit(agent=agent))
+        else:
+            env.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
         env[MAX_CHARACTERS_ENVIRONMENT] = str(MAX_CHARACTERS)
         env[DISCOVERY_SEVERITY_ENVIRONMENT] = effective_discovery_severity
         env[DISCOVERY_SCOPE_ENVIRONMENT] = effective_discovery_scope
@@ -16692,7 +16712,7 @@ def main():
     # the global declaration before the first mention of either name.
     global AGENT_COMMANDS
     global DISPATCH_TIMEOUT_MINUTES
-    global CLAUDE_CONTEXT_BUDGET
+    global ARCHITECT_CONTEXT_BUDGET
     global IMPLEMENTER_RUNTIME
     global MAX_CHARACTERS
     global REVIEW_EFFORT
@@ -16826,15 +16846,22 @@ def main():
                              "result or move cannot be verified, the file may "
                              "remain in inflight/ for inspection (default: "
                              + str(DISPATCH_TIMEOUT_MINUTES) + ")")
-    parser.add_argument("--claude-context", metavar="TOKENS",
-                        type=positive_int,
-                        default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-                        help="inside one Architect turn or the Implementer's "
-                             "Claude Code shell, replace older context with "
-                             "a shorter summary at this many tokens; this "
-                             "does not configure an Ollama model context "
-                             "(default: "
-                             + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
+    parser.add_argument(
+        "--architect-context", "--claude-context",
+        dest="architect_context", metavar="TOKENS", type=positive_int,
+        default=DEFAULT_ARCHITECT_CONTEXT_BUDGET,
+        help="inside one Architect turn, replace older context with a "
+             "shorter summary at this many tokens; --claude-context is a "
+             "compatibility name for this Architect-only option (default: "
+             + str(DEFAULT_ARCHITECT_CONTEXT_BUDGET) + ")")
+    parser.add_argument(
+        "--implementer-context", metavar="TOKENS", type=positive_int,
+        default=None,
+        help="inside one Implementer turn, ask its Claude Code shell to "
+             "replace older context with a shorter summary at this many "
+             "tokens; for Ollama this must not exceed the model context "
+             "reported by Ollama (default: 500000 with Claude, 64000 with "
+             "Ollama)")
     parser.add_argument("--sol-context", metavar="TOKENS",
                         type=positive_int, default=DEFAULT_SOL_CONTEXT_BUDGET,
                         help="inside one Red Team turn, ask Codex to replace "
@@ -16849,6 +16876,9 @@ def main():
                   "--implementer-model")
             return 1
         args.implementer_model = DEFAULT_IMPLEMENTER_MODEL
+    implementer_context = (
+        default_implementer_context(provider=args.implementer_provider)
+        if args.implementer_context is None else args.implementer_context)
     maintenance_send = (
         args.send == "architect" and args.fix_only is True)
 
@@ -16930,7 +16960,7 @@ def main():
             implementer_model=args.implementer_model,
             include_sol=not args.skip_redteam,
             dry_run=args.dry_run,
-            implementer_compaction_limit=args.claude_context) else 1
+            implementer_compaction_limit=implementer_context) else 1
 
     selected_discovery_severity = DEFAULT_DISCOVERY_SEVERITY
     severity_action = args.watch or args.once or args.send == "architect"
@@ -16992,7 +17022,7 @@ def main():
     DISCOVERY_SEVERITY = selected_discovery_severity
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
-    CLAUDE_CONTEXT_BUDGET = args.claude_context
+    ARCHITECT_CONTEXT_BUDGET = args.architect_context
     REVIEW_EFFORT = args.review_effort
 
     if args.watch or args.once:
@@ -17000,7 +17030,7 @@ def main():
             selection_problem = active_implementer_runtime_problem(
                 provider=args.implementer_provider,
                 model=args.implementer_model,
-                compaction_limit=args.claude_context)
+                compaction_limit=implementer_context)
         except (OSError, TicketCycleStateError) as exc:
             print("Implementer runtime state error: " + str(exc))
             return 1
@@ -17011,7 +17041,7 @@ def main():
             IMPLEMENTER_RUNTIME = verified_implementer_runtime(
                 provider=args.implementer_provider,
                 model=args.implementer_model,
-                compaction_limit=args.claude_context,
+                compaction_limit=implementer_context,
                 dry_run=args.dry_run)
         except (OSError, ValueError) as exc:
             print("Implementer provider error: " + str(exc))
@@ -17064,14 +17094,15 @@ def main():
                   + " sol=disabled routine-review=" + args.review_effort)
             if args.implementer_provider == "ollama":
                 print("context: Architect compacts at "
-                      + str(args.claude_context)
+                      + str(args.architect_context)
                       + "; Ollama model context="
                       + str(IMPLEMENTER_RUNTIME["context_limit"])
                       + "; Implementer shell compacts at "
-                      + str(args.claude_context) + "; Sol disabled")
+                      + str(implementer_context) + "; Sol disabled")
             else:
-                print("context budgets: architect/implementer="
-                      + str(args.claude_context)
+                print("context budgets: architect="
+                      + str(args.architect_context) + " implementer="
+                      + str(implementer_context)
                       + " sol=disabled (a Claude turn compacts at its "
                       "budget)")
             print("two-role watch: Red Team and the entire Sol route are "
@@ -17087,15 +17118,16 @@ def main():
                   + " routine-review=" + args.review_effort)
             if args.implementer_provider == "ollama":
                 print("context: Architect compacts at "
-                      + str(args.claude_context)
+                      + str(args.architect_context)
                       + "; Ollama model context="
                       + str(IMPLEMENTER_RUNTIME["context_limit"])
                       + "; Implementer shell compacts at "
-                      + str(args.claude_context) + "; Sol compacts at "
+                      + str(implementer_context) + "; Sol compacts at "
                       + str(args.sol_context))
             else:
-                print("context budgets: architect/implementer="
-                      + str(args.claude_context)
+                print("context budgets: architect="
+                      + str(args.architect_context) + " implementer="
+                      + str(implementer_context)
                       + " sol=" + str(args.sol_context)
                       + " tokens (a turn compacts at its budget)")
         if args.cycle == 0:

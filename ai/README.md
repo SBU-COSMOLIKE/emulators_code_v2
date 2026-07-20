@@ -261,7 +261,8 @@ python3 ai/tools/mailbox_daemon.py --watch \
   --architect-model opus \
   --implementer-provider ollama \
   --implementer-model glm-5.2:cloud \
-  --claude-context 64000
+  --architect-context 300000 \
+  --implementer-context 64000
 ```
 
 The documentation uses `glm-5.2:cloud` whenever an Ollama model is not
@@ -281,13 +282,15 @@ a disposable Git folder and tests the real `ollama launch claude` route. It
 also reads the model's reported context. The disposable check cannot edit the
 CoCoA checkout.
 
-Two context numbers appear in this example:
+The Architect and Implementer have separate context settings:
 
 - The **Ollama model context** is the maximum text the selected model can
   hold. Ollama reports this value.
-- `--claude-context 64000` tells the Claude Code shell when to summarize an
-  unusually long Implementer conversation. It does not enlarge or configure
-  the Ollama model.
+- `--architect-context 300000` tells the Architect when to summarize its own
+  unusually long conversation.
+- `--implementer-context 64000` tells the Implementer's Claude Code shell
+  when to summarize that separate conversation. It does not enlarge or
+  configure the Ollama model.
 
 The watcher stops before implementation if the model context cannot be
 verified, is below 32768 tokens, or is smaller than the requested compaction
@@ -300,7 +303,8 @@ ticket:
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
   --implementer-model glm-5.2:cloud \
-  --claude-context 64000
+  --architect-context 300000 \
+  --implementer-context 64000
 ```
 
 This checks the Claude Architect and Ollama Implementer through the same

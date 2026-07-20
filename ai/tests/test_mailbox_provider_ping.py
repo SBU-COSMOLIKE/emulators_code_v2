@@ -328,7 +328,22 @@ class MailboxProviderPingTests(unittest.TestCase):
                     check.call_args.kwargs["include_sol"], include_sol)
                 self.assertEqual(
                     check.call_args.kwargs["implementer_compaction_limit"],
-                    daemon.DEFAULT_CLAUDE_CONTEXT_BUDGET)
+                    daemon.DEFAULT_IMPLEMENTER_CONTEXT_BUDGET)
+
+    def test_ping_uses_only_the_implementer_context_for_ollama(self):
+        with scratch_daemon() as (daemon, _root, _mailbox, _relay):
+            check = mock.Mock(return_value=True)
+            daemon.check_provider_connectivity = check
+
+            rc, output, error = run_main(daemon, [
+                "--ping", "--implementer-provider", "ollama",
+                "--implementer-model", "kimi-k2.7-code:cloud",
+                "--claude-context", "300000"])
+
+        self.assertEqual(rc, 0, output + error)
+        self.assertEqual(
+            check.call_args.kwargs["implementer_compaction_limit"],
+            daemon.DEFAULT_OLLAMA_IMPLEMENTER_CONTEXT_BUDGET)
 
     def test_ping_conflicts_refuse_before_any_provider_starts(self):
         conflicts = (

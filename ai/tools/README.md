@@ -412,7 +412,7 @@ Implementer, add the same provider and model selected for the watch:
 python3 ai/tools/mailbox_daemon.py --ping --skip-redteam \
   --implementer-provider ollama \
   --implementer-model glm-5.2:cloud \
-  --claude-context 64000
+  --implementer-context 64000
 ```
 
 A failed check returns a nonzero status and names the affected service. The
@@ -745,7 +745,7 @@ text formats, unsaved files, and other counting details.
 | Implementer complexity review | automatic | pause after 90 minutes |
 | Implementer context replacement | automatic | save an exact handoff before automatic compaction |
 | AI job emergency timeout | `--dispatch-timeout` | 120 minutes |
-| Compaction point inside one long role turn | `--claude-context`, `--sol-context` | 500000 tokens each; `--claude-context` controls the Claude Code shell and does not configure an Ollama model |
+| Compaction point inside one long role turn | `--architect-context`, `--implementer-context`, `--sol-context` | Architect and Sol: 500000. Implementer: 500000 with Claude or 64000 with Ollama. Each option controls only its named role; the Implementer value does not configure an Ollama model. |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop after N completed ticket cycles; `0`: finish all recorded work and then stop |
 | Text changed by one ticket | `--max` | `0`: no character limit |
 | Minimum severity for new discovery tickets | `--severity` | `medium` |
@@ -812,10 +812,11 @@ explicit `--implementer-model` stops before the watcher or ping begins.
 
 For an Ollama Implementer, startup verifies two independent limits. Ollama's
 reported **model context** is the maximum context supported by that model.
-`--claude-context` remains the **Claude Code compaction point**: it tells the
-coding shell when to summarize an unusually long turn. It does not change the
-model context. Startup refuses an unverifiable context, a context below 32768,
-or a compaction point larger than the verified model context.
+`--implementer-context` is the **Implementer compaction point**: it tells that
+role's coding shell when to summarize an unusually long turn. It does not
+change the model context. `--architect-context` controls the Architect alone.
+Startup refuses an unverifiable Ollama context, a context below 32768, or an
+Implementer compaction point larger than the verified model context.
 
 The ticket-cycle record saves the stable `opus` address together with the
 selected provider, model, verified model context, and compaction point. A
@@ -915,7 +916,9 @@ usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all]
                          [--opus-effort {low,medium,high,xhigh,max}]
                          [--sol-effort {none,low,medium,high,xhigh}]
                          [--dispatch-timeout MINUTES]
-                         [--claude-context TOKENS] [--sol-context TOKENS]
+                         [--architect-context TOKENS]
+                         [--implementer-context TOKENS]
+                         [--sol-context TOKENS]
 
 save mailbox requests and start the assigned role for each request
 
@@ -1005,11 +1008,17 @@ options:
                         move its request file to failed/; if the result or
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
-  --claude-context TOKENS
-                        inside one Architect turn or the Implementer's Claude
-                        Code shell, replace older context with a shorter
-                        summary at this many tokens; this does not configure
-                        an Ollama model context (default: 500000)
+  --architect-context, --claude-context TOKENS
+                        inside one Architect turn, replace older context with
+                        a shorter summary at this many tokens; --claude-
+                        context is a compatibility name for this Architect-
+                        only option (default: 500000)
+  --implementer-context TOKENS
+                        inside one Implementer turn, ask its Claude Code shell
+                        to replace older context with a shorter summary at
+                        this many tokens; for Ollama this must not exceed the
+                        model context reported by Ollama (default: 500000 with
+                        Claude, 64000 with Ollama)
   --sol-context TOKENS  inside one Red Team turn, ask Codex to replace older
                         conversation text with a shorter summary at this many
                         tokens (default: 500000)
@@ -1048,7 +1057,7 @@ options:
 - `--severity` accepts `high`, `medium`, or `low`. An ordinary Architect send
   may save it for a discovery request. The fix-only shorthand forbids it;
   the later watcher supplies the maintenance threshold.
-- `--dispatch-timeout`, `--claude-context`, and `--sol-context` accept integers
+- `--dispatch-timeout` and the three role context options accept integers
   from 1 through 1,000,000.
 - For actions that exit on their own, `--dry-run` prints the proposed action
   without writing workflow files.
@@ -1941,7 +1950,8 @@ python3 ai/tools/mailbox_daemon.py --watch \
   --architect-model opus \
   --implementer-provider ollama \
   --implementer-model glm-5.2:cloud \
-  --claude-context 64000
+  --architect-context 300000 \
+  --implementer-context 64000
 ```
 
 The documentation uses `glm-5.2:cloud` as the standard Ollama choice. This is

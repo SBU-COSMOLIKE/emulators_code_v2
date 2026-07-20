@@ -42,12 +42,24 @@ class OllamaImplementerRuntimeTests(unittest.TestCase):
             rc, output, error = run_main(daemon, [
                 "--once", "--implementer-provider", "ollama",
                 "--implementer-model", "qwen3.5",
-                "--claude-context", "64000"])
+                "--architect-context", "300000",
+                "--implementer-context", "64000"])
 
         self.assertEqual(rc, 0, output + error)
         check.assert_called_once_with(
             provider="ollama", model="qwen3.5", compaction_limit=64000,
             dry_run=False)
+        self.assertEqual(daemon.ARCHITECT_CONTEXT_BUDGET, 300000)
+
+    def test_each_claude_code_role_gets_its_own_compaction_limit(self):
+        with scratch_daemon() as (daemon, _root, _mailbox, _relay):
+            daemon.ARCHITECT_CONTEXT_BUDGET = 300000
+            daemon.IMPLEMENTER_RUNTIME = daemon.implementer_runtime_record(
+                provider="ollama", model="kimi-k2.7-code:cloud",
+                context_limit=262144, compaction_limit=64000)
+
+            self.assertEqual(daemon.claude_compaction_limit("fable"), 300000)
+            self.assertEqual(daemon.claude_compaction_limit("opus"), 64000)
 
     def test_cycle_saves_runtime_and_refuses_silent_replacement(self):
         with cycle_daemon() as (daemon, _mailbox):
