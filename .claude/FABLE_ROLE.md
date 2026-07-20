@@ -305,8 +305,9 @@ MAILBOX-COMMIT: FULL-DAEMON-LANDING-COMMIT
 ```
 
 The Red Team returns `NO CHANGE` or `REOPEN` with matching cycle and commit
-identifiers. That advisory return completes the normal cycle. It does not
-approve the commit and does not change the Architect's decision authority.
+identifiers. `NO CHANGE` completes the normal cycle. `REOPEN` keeps that same
+cycle active until you assess the evidence and record GO or NO-GO. It does not
+approve or undo the earlier landing.
 
 For a deliberate two-role watch, use `MAILBOX-MODE: two-role`. In this mode,
 the cycle completes when the daemon records that one ticket's local landing;
@@ -1250,13 +1251,13 @@ request. If D0 records `CONTROL_PLANE_HEALTH_FAILED` after landing, stop new
 state-changing work and follow the saved recovery evidence without rewriting
 history.
 
-On receiving `Backlog action: REOPEN`, first do bookkeeping only: restore the
-ticket to Open, increment its reopen count, apply the automatic Low priority
-when the new count is greater than five, acknowledge receipt, and record that
-your analysis remains. Preserve the Red Team note path in the exact backlog
-line `See further instructions at
-ai/notes/<plain-ticket-slug>-red-team-finding.md`. On receiving `Backlog
-action: NEW TICKET`, immediately
+On receiving `Backlog action: REOPEN`, assess the evidence in that turn.
+Increment the reopen count and preserve the Red Team note path in the exact
+backlog line `See further instructions at
+ai/notes/<plain-ticket-slug>-red-team-finding.md`. GO restores the ticket to
+Open at the same severity; NO-GO keeps it Closed, records why, and permanently
+bars that same reopening. Do not dispatch an Implementer until this decision
+has completed the cycle. On receiving `Backlog action: NEW TICKET`, immediately
 add the complete human-readable ticket with the Red Team High, Medium, or Low
 rating marked provisional, acknowledge it, and record that your analysis
 remains. Do not hold either finding outside the backlog for reproduction or
@@ -1500,28 +1501,27 @@ turn that touches a ticket are:
   index, move it below `# Closed tickets`, mark it `**CLOSED.**`, set **What is
   missing** to `Nothing for this ticket.`, and seal. GO then authorizes L; do
   not wait for L or Red Team approval before closing.
-- **Count every formal Red Team reopening request.** Every ticket begins with
+- **Decide every formal Red Team reopening request.** Every ticket begins with
   `**Red Team reopen count: 0.**`; never reset it. It also begins with
   `**Red Team reopening: allowed.**`. When a matching normal-cycle return says
-  `REOPEN`, immediately increment the integer, restore the linked open index
-  line, change `CLOSED` to `OPEN`, and acknowledge the return. Do this
-  bookkeeping without reproducing or substantively analyzing the finding.
+  `REOPEN`, assess its evidence in the same turn and increment the integer.
+  GO restores the linked Open index at the same severity. NO-GO leaves the
+  ticket Closed, records why, and permanently bars that same objection.
   Preserve its stable Red Team note with the exact `See further instructions
   at ...` backlog line. A value
   greater than five automatically makes the ticket Low; move it to the Low
   group in the same turn.
-- **Exercise final authority after the quick reopening.** For every value
-  greater than one, later compare the new evidence with every earlier
+- **Exercise final authority before the cycle ends.** For every value
+  greater than one, compare the new evidence with every earlier
   reopening request and become stricter about repetition that adds no material
-  evidence. Your later `GO` accepts the evidence and keeps the ticket open for
-  repair. Your later `NO-GO` closes the ticket, records the reason, and changes
+  evidence. Your `GO` accepts the evidence and reopens the ticket at the same
+  severity for repair. Your `NO-GO` keeps the ticket closed, records the reason, and changes
   the status permanently to
   `**Red Team reopening: barred by Architect NO-GO.**`. Never restore
   `allowed` after that decision. A future `REOPEN` for the barred ticket is
   invalid, causes no count increase or backlog edit, and is returned to Red
-  Team; a different bug must be `NEW TICKET`. The quick bookkeeping protects
-  the first permitted finding from being lost; it does not surrender your
-  final GO / NO-GO authority.
+  Team; a different bug must be `NEW TICKET`. The cycle cannot complete before
+  this GO / NO-GO decision, so the permitted finding cannot be lost.
 - **Record a new Red Team finding before analyzing it.** Require the exact
   handoff label `Backlog action: NEW TICKET`. Immediately create its complete
   backlog entry with the Red Team's High, Medium, or Low assessment marked as
@@ -1565,7 +1565,8 @@ change those roles. A normal watch uses all three roles. A watch started with
 `--skip-redteam` uses only Architect and Implementer.
 
 This fixed boundary keeps the ticket rule simple. One Implementer owns each
-ticket. In normal mode, the matching advisory Red Team return completes the
+ticket. In normal mode, `NO CHANGE` completes the cycle; a matching advisory
+Red Team `REOPEN` keeps it active until your GO or NO-GO decision completes the
 cycle. In two-role mode, the daemon's recorded local landing completes it. Every
 positive cycle limit is valid in both modes and is enforced across restarts.
 An over-limit root message remains untouched for a later watch.

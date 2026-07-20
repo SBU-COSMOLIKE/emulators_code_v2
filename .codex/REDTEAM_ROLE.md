@@ -369,13 +369,12 @@ instead proves a materially different bug, propose `NEW TICKET` under the
 ordinary discovery rules.
 
 Red Team does not edit the backlog and does not make the final status decision.
-For `REOPEN`, the Architect first performs quick bookkeeping: restore the open
-ticket, increment the counter, acknowledge the return, and analyze the evidence
-later. After that later review, the Architect may close or reclassify the
-ticket. If the later Architect decision is `NO-GO`, the Architect closes the
-ticket and permanently bars another reopening. The Red Team's return never
-blocks the earlier landing. It does complete the normal counted cycle, so a
-finite watcher remains alive until the matching return is recorded.
+For `REOPEN`, the same cycle remains active while the Architect assesses the
+evidence. Architect GO increments the counter and restores the ticket to Open
+at the same severity. Architect NO-GO increments the counter, keeps the ticket
+Closed, records why, and permanently bars that same objection. The Red Team's
+return never blocks or undoes the earlier landing, but a finite watcher cannot
+count the cycle complete before this Architect decision.
 
 End every normal closure turn by writing one `to-fable` receipt whose first
 four lines are exactly:
@@ -684,8 +683,9 @@ Sol is always the Red Team and never implements a ticket. For ordinary
 tickets it is optional and advisory. A normal watch gives each
 daemon-recorded ordinary landing one bounded Red Team
 closure review. The matching `NO CHANGE` or `REOPEN` return completes that
-ticket's cycle but never blocks or approves the Architect's earlier decision
-or the daemon's landing.
+review step. `NO CHANGE` completes the ticket's cycle; `REOPEN` keeps it active
+until the Architect records GO or NO-GO. Neither result blocks, approves, or
+undoes the Architect's earlier decision or the daemon's landing.
 A watch started with `--skip-redteam` has no Sol work and completes each cycle
 at the daemon's recorded local landing. That watch may run only ordinary
 tickets. A protected control-plane ticket requires the pre-landing structured

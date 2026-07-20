@@ -67,6 +67,32 @@ def captured_role_dispatch(daemon, path, launches):
 class MailboxDiscoverySeverityTests(unittest.TestCase):
     """Pin the saved user setting and the two thinking-role decisions."""
 
+    def test_reopen_requires_architect_before_cycle_completion(self):
+        with scratch_daemon() as (daemon, _, _, _):
+            self.assertTrue(
+                daemon.redteam_review_completes_cycle("NO CHANGE"))
+            self.assertFalse(
+                daemon.redteam_review_completes_cycle("REOPEN"))
+
+    def test_architect_reopen_decision_reads_the_sealed_backlog(self):
+        cycle = "scratch-high-bug-fix-1@" + BASE_COMMIT
+        with scratch_daemon() as (daemon, _, _, _):
+            daemon._validate_sealed_backlog = lambda primary_worktree: b"ok"
+            daemon.require_open_backlog_ticket = lambda ticket_anchor: None
+            daemon.backlog_reopening_status = lambda ticket_anchor: "allowed"
+            self.assertEqual(daemon.architect_reopen_decision(cycle), "GO")
+
+            def not_open(ticket_anchor):
+                raise daemon.TicketCycleStateError("closed")
+
+            daemon.require_open_backlog_ticket = not_open
+            daemon.require_closed_backlog_ticket = (
+                lambda ticket_anchor, sealed_backlog: None)
+            daemon.backlog_reopening_status = (
+                lambda ticket_anchor: "barred by Architect NO-GO")
+            self.assertEqual(
+                daemon.architect_reopen_decision(cycle), "NO-GO")
+
     def test_send_saves_default_and_each_explicit_value(self):
         for supplied, expected in (
                 (None, "medium"),

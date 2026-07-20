@@ -414,7 +414,8 @@ restores ticket worktrees.
    an ancestor as the implemented result.
    Implementer messages do not complete a cycle. In normal mode, the cycle
    completes after the Architect accepts C, the daemon records distinct L,
-   and the Red Team returns its advisory closure assessment of L. In
+   and either Red Team returns `NO CHANGE` or the Architect decides GO or
+   NO-GO after Red Team returns `REOPEN` for L. In
    `two-role` mode, the cycle completes at the daemon-recorded local landing
    because no Red Team return is available. One ticket always equals one cycle.
 

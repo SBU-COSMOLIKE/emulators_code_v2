@@ -523,11 +523,13 @@ For an ordinary ticket with Red Team enabled, a cycle ends after both events
 below occur:
 
 1. the watcher records the Architect-accepted landing; and
-2. Red Team returns `NO CHANGE` or `REOPEN` for that exact landing.
+2. Red Team returns `NO CHANGE`, or the Architect decides GO or NO-GO after a
+   Red Team `REOPEN`, for that exact landing.
 
-A `REOPEN` return finishes this review cycle and leaves evidence for the
-Architect. It does not edit the backlog, undo the landing, or trap the watcher
-in the same cycle.
+A `REOPEN` does not finish the cycle by itself. The Architect reads the
+evidence immediately. GO reopens the ticket at the same severity. NO-GO keeps
+it closed and bars that same objection from reopening it again. The accepted
+landing remains on `main` in either case.
 
 With `--skip-redteam`, the landing finishes the cycle. For example,
 `--skip-redteam --cycle 2` exits after two accepted tickets have landed.
@@ -924,12 +926,12 @@ later rejects the evidence.
 | Event | What happens next |
 | --- | --- |
 | Red Team returns `NO CHANGE` | The ticket stays closed. |
-| Red Team returns `REOPEN` | The Architect moves the ticket to Open, adds one to the count, and saves the evidence link without investigating it yet. |
-| Architect later gives `GO` to the reopening evidence | The ticket stays Open for repair. |
-| Architect later gives `NO-GO` to that evidence | The ticket closes with a reason, and another Red Team reopening of that ticket is permanently barred. |
+| Red Team returns `REOPEN` | The same cycle stays active while the Architect reads the evidence. |
+| Architect gives `GO` | The count increases and the ticket returns to Open at the same severity. The cycle then ends. |
+| Architect gives `NO-GO` | The count increases, the ticket stays closed with a reason, and that objection is permanently barred. The cycle then ends. |
 
-This quick first step keeps the report from being lost. The Architect studies
-it only when the ticket reaches the correct backlog priority.
+This required decision keeps the report from being lost. With `--cycle 1`, the
+watcher does not exit between the Red Team `REOPEN` and the Architect's answer.
 
 ### Stop repeated reopen requests
 

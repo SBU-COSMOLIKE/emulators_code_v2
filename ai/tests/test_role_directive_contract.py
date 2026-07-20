@@ -957,11 +957,12 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Every ticket also keeps an integer named **Red Team "
                       "reopen count**", normalized)
         self.assertIn("It starts at `0` and never resets", normalized)
-        self.assertIn("quick bookkeeping", normalized)
-        self.assertIn("leave the deeper evidence review for a later "
-                      "Architect turn", normalized)
-        self.assertIn("The Architect still has the final word after that "
-                      "immediate bookkeeping", normalized)
+        self.assertIn("keeps the same cycle active until the Architect "
+                      "assesses the evidence", normalized)
+        self.assertIn("GO restores the ticket to Open at the same severity",
+                      normalized)
+        self.assertIn("The Architect has the final word before the cycle "
+                      "ends", normalized)
         self.assertIn("When the count becomes `6`", normalized)
         self.assertIn("automatically Low", normalized)
         self.assertIn("Red Team is always advisory", normalized)
@@ -980,15 +981,15 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Backlog action: NEW TICKET", normalized)
         self.assertIn("provisional priority", normalized)
 
-        self.assertIn("Count every formal Red Team reopening request",
+        self.assertIn("Decide every formal Red Team reopening request",
                       architect)
-        self.assertIn("immediately increment the integer", architect)
-        self.assertIn(
-            "Do this bookkeeping without reproducing or substantively "
-            "analyzing the finding", architect)
+        self.assertIn("assess its evidence in the same turn and increment "
+                      "the integer", architect)
+        self.assertIn("GO restores the linked Open index at the same severity",
+                      architect)
         self.assertIn("A value greater than five automatically makes the "
                       "ticket Low", architect)
-        self.assertIn("Exercise final authority after the quick reopening",
+        self.assertIn("Exercise final authority before the cycle ends",
                       architect)
         self.assertIn("Red Team is advisory and never supplies a required "
                       "GO", architect)
@@ -1000,7 +1001,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.redteam)
         self.assertIn("Backlog action: REOPEN", redteam)
         self.assertIn("Backlog action: NO CHANGE", redteam)
-        self.assertIn("restore the open ticket, increment the counter",
+        self.assertIn("same cycle remains active while the Architect assesses",
                       redteam)
         self.assertIn("never supplies a required GO", redteam)
         self.assertIn("never blocks the Architect", redteam)
@@ -1052,11 +1053,13 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 self.assertIn("One ticket always equals one cycle", source)
 
         self.assertIn(
-            "That advisory return completes the normal cycle", architect)
+            "`NO CHANGE` completes the normal cycle", architect)
         self.assertIn(
-            "In normal mode, the cycle completes after the Architect accepts C, "
-            "the daemon records distinct L, and the Red Team returns its "
-            "advisory closure assessment of L", implementer)
+            "`REOPEN` keeps that same cycle active until you assess the "
+            "evidence and record GO or NO-GO", architect)
+        self.assertIn(
+            "either Red Team returns `NO CHANGE` or the Architect decides GO "
+            "or NO-GO after Red Team returns `REOPEN` for L", implementer)
         self.assertIn(
             "For one normal cycle, review exactly one ticket and the exact "
             "landing commit L that the parent daemon created after Architect "

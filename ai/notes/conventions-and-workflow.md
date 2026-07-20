@@ -653,14 +653,14 @@ prerequisite requires moving to the next ticket.
 
 Every ticket also keeps an integer named **Red Team reopen count**. It starts
 at `0` and never resets. This number records how many Red Team reviews in the
-final step of a normal cycle said `REOPEN`. The Architect performs that state
-change as quick bookkeeping: increment the count, restore the open ticket,
-acknowledge the return, and leave the deeper evidence review for a later
-Architect turn. This prevents an advisory finding from disappearing merely
-because the Architect was busy when the return arrived.
+final step of a normal cycle said `REOPEN`. That return keeps the same cycle
+active until the Architect assesses the evidence. The Architect increments the
+count and records one decision: GO restores the ticket to Open at the same
+severity; NO-GO keeps it Closed and bars that same objection. This prevents an
+advisory finding from disappearing between work cycles.
 
-The Architect still has the final word after that immediate bookkeeping. When
-the count is greater than `1`, the Architect later compares the new evidence
+The Architect has the final word before the cycle ends. When the count is
+greater than `1`, the Architect compares the new evidence
 with the ticket's earlier reopening reports and becomes stricter after each
 additional attempt. The review asks whether the Red Team found a materially
 new failure or is repeating an old objection without new evidence. The
@@ -939,18 +939,14 @@ ticket.
 
 As the final step of each normal cycle, Red Team reviews the one ticket and
 daemon-recorded landing L from that cycle. A no-finding result is advisory and
-changes
-nothing. If the bug remains and reopening is still allowed,
-the handoff says `Backlog action: REOPEN`. The Architect does not stop to audit
-or reproduce the bug: immediately increment the reopen count, apply the
-greater-than-five Low rule, move the full section back to the matching open
-priority group, restore its index line, change `**CLOSED.**` to `**OPEN.**`,
-replace `Nothing for this ticket.` with the concrete reopened work, and cite
-the stable finding note with the exact `See further instructions at ...` line.
-Record that evidence and priority will be assessed only when the ticket later
-reaches the front of its priority group. If the reopening state is barred, the
-Architect records no ticket change and tells the Red Team that a different
-defect must use `NEW TICKET`.
+changes nothing. If the bug remains and reopening is still allowed, the
+handoff says `Backlog action: REOPEN`. The same cycle stays active while the
+Architect assesses that evidence. The Architect increments the reopen count
+and cites the stable finding note with the exact `See further instructions at
+...` line. GO restores the complete ticket to Open at the same severity.
+NO-GO keeps it Closed, records why, and permanently bars that same objection.
+A count greater than five still applies the automatic Low rule. Only after
+this decision may the cycle complete.
 
 A new Red Team discovery uses the exact handoff label `Backlog action: NEW
 TICKET`. On receipt, the Architect performs the same short bookkeeping step:

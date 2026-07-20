@@ -4206,6 +4206,7 @@ def agent_preamble(agent, message=None):
     """Return role-specific standing text that precedes the common wrapper."""
     if agent == "fable":
         barred_notice = ""
+        reopen_notice = ""
         checkpoint_notice = ""
         checkpoint_audit = False
         if message is not None and message.startswith(MAILBOX_RETURN_HEADER):
@@ -4216,10 +4217,20 @@ def agent_preamble(agent, message=None):
                         cycle_ticket_anchor(cycle_id))
                     == "barred by Architect NO-GO"):
                 barred_notice = (
-                    "PERMANENT REOPENING BAR: the Architect already gave "
-                    "NO-GO to further reopening of this ticket. Read the "
-                    "evidence, but do not change its backlog status or "
-                    "reopen count. A different defect requires NEW TICKET.\n\n")
+                    "FINAL REOPEN DECISION: the Architect already gave "
+                    "NO-GO to this objection. Do not change its status or "
+                    "reopen count. End with exactly `REOPEN decision: "
+                    "NO-GO` on its own line. A different defect requires "
+                    "NEW TICKET.\n\n")
+            elif problem is None and result == "REOPEN":
+                reopen_notice = (
+                    "FINAL REOPEN DECISION: Assess the Red Team evidence "
+                    "now. Increment the reopen count. GO restores this "
+                    "ticket to Open at the same severity; NO-GO keeps it "
+                    "Closed and permanently bars another reopening. Seal "
+                    "the backlog and do not dispatch an Implementer in "
+                    "this turn. End with exactly `REOPEN decision: GO` or "
+                    "`REOPEN decision: NO-GO` on its own line.\n\n")
         if message is not None and message.startswith(MAILBOX_FLOW_HEADER):
             cycle_id, _mode, body, problem = _ticket_flow_envelope(
                 message=message)
@@ -4255,9 +4266,10 @@ def agent_preamble(agent, message=None):
                     "- Source handoff SHA-256: `"
                     + hashlib.sha256(body.encode("utf-8")).hexdigest()
                     + "`\n\n")
-        landing = "" if checkpoint_audit else ARCHITECT_LANDING_PREAMBLE
-        return (barred_notice + checkpoint_notice + ARCHITECT_ROLE_PREAMBLE
-                + landing)
+        landing = ("" if checkpoint_audit or reopen_notice
+                   else ARCHITECT_LANDING_PREAMBLE)
+        return (barred_notice + reopen_notice + checkpoint_notice
+                + ARCHITECT_ROLE_PREAMBLE + landing)
     if agent == "opus":
         return (IMPLEMENTER_ROLE_PREAMBLE
                 + "AUTHORITATIVE IMPLEMENTER ROLE FILE:\n    "
@@ -7971,6 +7983,8 @@ def dispatch_under_main_checkout_lock(
     review_cycle_id = None
     review_accepted_commit = None
     review_receipt_before = None
+    reopen_decision_cycle = None
+    reopen_decision_commit = None
     effective_discovery_severity = DISCOVERY_SEVERITY
     effective_discovery_scope = DEFAULT_DISCOVERY_SCOPE
     saved_architect_severity = None
@@ -8042,8 +8056,10 @@ def dispatch_under_main_checkout_lock(
                  "failed-state move was not verified."))
         return False
     if agent == "fable" and message.startswith(MAILBOX_RETURN_HEADER):
-        _, _, _, _, receipt_problem = _redteam_review_receipt(
+        returned_cycle, returned_commit, returned_result, _, receipt_problem = (
+            _redteam_review_receipt(
             message=message)
+        )
         if receipt_problem is not None:
             if dry_run:
                 print("[dry-run] would refuse " + name + ": "
@@ -8054,6 +8070,9 @@ def dispatch_under_main_checkout_lock(
                   + ("parked in failed/." if parked else
                      "failed-state move was not verified."))
             return False
+        if returned_result == "REOPEN":
+            reopen_decision_cycle = returned_cycle
+            reopen_decision_commit = returned_commit
     if agent == "fable" and message.startswith(SOL_SEVERITY_HEADER):
         architect_request_problem = architect_user_request_problem(
             message=message)
@@ -8172,7 +8191,6 @@ def dispatch_under_main_checkout_lock(
                   + ("parked in failed/." if parked else
                      "failed-state move was not verified."))
             return False
-
     if agent == "sol" and ticket_kind == "closure":
         review_cycle_id = redteam_closure_ticket(message=message)
         review_accepted_commit = redteam_closure_commit(message=message)
@@ -8801,6 +8819,12 @@ def dispatch_under_main_checkout_lock(
             return False
         if not archive_consumed_message(dispatch_path=dispatch_path):
             return False
+        if not redteam_review_completes_cycle(review_result):
+            print("Red Team returned REOPEN for " + review_cycle_id
+                  + " at " + review_accepted_commit
+                  + "; the same cycle remains active until the Architect "
+                    "records GO or NO-GO.")
+            return True
         try:
             completed_now = complete_ticket_cycle(
                 cycle_id=review_cycle_id,
@@ -8812,19 +8836,36 @@ def dispatch_under_main_checkout_lock(
                   + str(exc))
             return False
         deliver_pending_ticket_cycle_returns()
-        ticket_anchor = review_cycle_id.split("@", 1)[0]
-        if (review_result == "REOPEN"
-                and backlog_reopening_status(ticket_anchor)
-                == "barred by Architect NO-GO"):
-            print("Red Team returned REOPEN for a ticket whose Architect "
-                  "NO-GO permanently barred another reopening; the pass "
-                  "still completed this cycle, but the Architect must make "
-                  "no backlog status change. A different defect requires "
-                  "NEW TICKET.")
         print("ticket cycle complete: Red Team returned " + review_result
               + " for " + review_cycle_id + " at "
               + review_accepted_commit + ".")
         return True
+
+    if reopen_decision_cycle is not None:
+        try:
+            decision = architect_reopen_decision(
+                cycle_id=reopen_decision_cycle)
+            completed_now = complete_ticket_cycle(
+                cycle_id=reopen_decision_cycle,
+                accepted_commit=reopen_decision_commit)
+        except (PrimaryWorktreeError, TicketCycleStateError) as exc:
+            requeued = requeue_retryable_daemon_message(
+                dispatch_path=dispatch_path)
+            print("  !! Architect REOPEN decision was not accepted: "
+                  + str(exc) + "; "
+                  + ("the exact request was requeued."
+                     if requeued else
+                     "the inflight request remains preserved."))
+            return False
+        if not archive_consumed_message(dispatch_path=dispatch_path):
+            print("  !! Architect REOPEN decision is durable, but its input "
+                  "could not be archived.")
+            return False
+        deliver_pending_ticket_cycle_returns()
+        print("ticket cycle complete: Architect returned " + decision
+              + " to Red Team REOPEN for " + reopen_decision_cycle
+              + " at " + reopen_decision_commit + ".")
+        return bool(completed_now or decision)
 
     if (agent == "fable" and audit_cycle_id is not None
             and audit_commit is not None
@@ -12236,6 +12277,11 @@ def message_belongs_to_active_cycle(path, active_cycles):
         cycle_id, _mode, _body, problem = _ticket_flow_envelope(
             message=message)
         return problem is None and cycle_id in active_cycles
+    if agent == "fable" and message.startswith(MAILBOX_RETURN_HEADER):
+        cycle_id, _commit, result, _body, problem = (
+            _redteam_review_receipt(message=message))
+        return (problem is None and result == "REOPEN"
+                and cycle_id in active_cycles)
     if agent == "sol" and sol_ticket_kind(message=message) == "closure":
         cycle_id = redteam_closure_ticket(message=message)
         return cycle_id in active_cycles
@@ -15480,6 +15526,31 @@ def any_matching_redteam_receipt(cycle_id, accepted_commit):
     return bool(matches)
 
 
+def redteam_review_completes_cycle(result):
+    """Only NO CHANGE ends a cycle without an Architect decision."""
+    return result == "NO CHANGE"
+
+
+def architect_reopen_decision(cycle_id):
+    """Read GO or NO-GO from the Architect's sealed backlog state."""
+    sealed = _validate_sealed_backlog(
+        primary_worktree=AGENT_CWD["fable"])
+    anchor = cycle_ticket_anchor(cycle_id)
+    try:
+        require_open_backlog_ticket(ticket_anchor=anchor)
+        if backlog_reopening_status(anchor) != "allowed":
+            raise TicketCycleStateError(
+                "Architect GO did not leave reopening allowed")
+        return "GO"
+    except TicketCycleStateError:
+        pass
+    require_closed_backlog_ticket(ticket_anchor=anchor, sealed_backlog=sealed)
+    if backlog_reopening_status(anchor) != "barred by Architect NO-GO":
+        raise TicketCycleStateError(
+            "Architect NO-GO did not bar another reopening")
+    return "NO-GO"
+
+
 def _matching_journaled_notes_go(base_commit, notes_commit,
                                   receipt_sha256):
     """Return one exact B/P receipt whose bytes match an admin journal."""
@@ -15905,15 +15976,15 @@ def reconcile_ticket_cycle_state():
                         "completed Red Team request could not be archived: "
                         + os.path.basename(path))
             continue
-        if not any_matching_redteam_receipt(
-                cycle_id=cycle_id, accepted_commit=commit):
-            raise TicketCycleStateError(
-                "archived Red Team request lacks its matching return: "
-                + os.path.basename(path))
+        _receipt_path, review_result, problem = matching_new_redteam_receipt(
+            cycle_id=cycle_id, accepted_commit=commit, before_inodes=set())
+        if problem is not None:
+            raise TicketCycleStateError(problem)
         register_ticket_cycle_message(agent="sol", message=message)
-        if complete_ticket_cycle(cycle_id=cycle_id,
-                                 accepted_commit=commit):
-            completed_now = completed_now + 1
+        if redteam_review_completes_cycle(review_result):
+            if complete_ticket_cycle(cycle_id=cycle_id,
+                                     accepted_commit=commit):
+                completed_now = completed_now + 1
         if os.path.dirname(path) != DONE:
             if not archive_consumed_message(dispatch_path=path):
                 raise TicketCycleStateError(
