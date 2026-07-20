@@ -131,35 +131,30 @@ _ROLE_CONTRACT_TOOL = _load_local_role_contract_tool()
 ROLE_CONTRACT = _ROLE_CONTRACT_TOOL.ROLE_CONTRACT
 
 
-def _load_local_reopen_transition_tool():
-    """Load the reopening checker beside this exact daemon file."""
-    path = os.path.join(SCRIPT_DIR, "reopen_transition.py")
+def _load_local_tool(filename, module_name, error, register=False):
+    """Load one protected helper beside this exact daemon file."""
+    path = os.path.join(SCRIPT_DIR, filename)
     spec = importlib.util.spec_from_file_location(
-        "_mailbox_local_reopen_transition", path)
+        module_name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("cannot load the reopening transition checker")
+        raise RuntimeError(error)
     tool = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = tool
+    if register:
+        # dataclasses resolves the reopening record through sys.modules.
+        sys.modules[spec.name] = tool
     spec.loader.exec_module(tool)
     return tool
 
 
-_REOPEN_TRANSITION = _load_local_reopen_transition_tool()
-
-
-def _load_local_provider_health_tool():
-    """Load the provider checker beside this exact daemon file."""
-    path = os.path.join(SCRIPT_DIR, "provider_health.py")
-    spec = importlib.util.spec_from_file_location(
-        "_mailbox_local_provider_health", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("cannot load the provider health checker")
-    tool = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(tool)
-    return tool
-
-
-_PROVIDER_HEALTH = _load_local_provider_health_tool()
+_REOPEN_TRANSITION = _load_local_tool(
+    "reopen_transition.py", "_mailbox_local_reopen_transition",
+    "cannot load the reopening transition checker", register=True)
+_PROVIDER_HEALTH = _load_local_tool(
+    "provider_health.py", "_mailbox_local_provider_health",
+    "cannot load the provider health checker")
+_CANDIDATE_ADMISSION = _load_local_tool(
+    "candidate_admission.py", "_mailbox_local_candidate_admission",
+    "cannot load the candidate admission checker")
 
 
 def repo_root_of(worktree):
@@ -9637,14 +9632,12 @@ def candidate_forbidden_paths(changed_paths, ticket_class="ordinary",
     control_plane_files = control_plane_files_from_contract(contract)
     forbidden_prefixes = tuple(
         contract["protected_paths"]["candidate_forbidden_prefixes"])
-    return {
-        path for path in changed_paths
-        if (path in forbidden_files
-            or (path in control_plane_files and ticket_class == "ordinary")
-            or (any(path.startswith(prefix)
-                    for prefix in forbidden_prefixes)
-                and not (ticket_class == "protected-control-plane"
-                         and path in control_plane_files)))}
+    return _CANDIDATE_ADMISSION.forbidden_paths(
+        changed_paths,
+        forbidden_files=forbidden_files,
+        control_plane_files=control_plane_files,
+        forbidden_prefixes=forbidden_prefixes,
+        protected_control_plane=(ticket_class == "protected-control-plane"))
 
 
 def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
@@ -9676,12 +9669,8 @@ def classify_candidate_scope(changed_paths, path_scope,
     """Classify C against global protection and its ticket file list."""
     protected = candidate_forbidden_paths(
         changed_paths, ticket_class=ticket_class)
-    if protected:
-        return "PROTECTED_PATH_VIOLATION", protected
-    exceeded = set(changed_paths) - set(path_scope or ())
-    if exceeded:
-        return "SCOPE_EXCEEDED", exceeded
-    return "IN_SCOPE", set()
+    return _CANDIDATE_ADMISSION.classify(
+        changed_paths, path_scope, protected)
 
 
 def candidate_scope_for_cycle(cycle_id, candidate_commit):

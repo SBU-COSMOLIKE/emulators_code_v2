@@ -67,6 +67,7 @@
     "trusted_tools": {
       "backlog_bundle": "ai/tools/backlog_bundle.py",
       "backlog_guard": "ai/tools/backlog_guard.py",
+      "candidate_admission": "ai/tools/candidate_admission.py",
       "handoff_contract": "ai/tools/handoff_contract.py",
       "handoff_router": "ai/tools/handoff_router.py",
       "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",

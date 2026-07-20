@@ -224,6 +224,9 @@ class RoleContractTests(unittest.TestCase):
             shutil.copy2(
                 REPO_ROOT / "ai/tools/provider_health.py",
                 tools / "provider_health.py")
+            shutil.copy2(
+                REPO_ROOT / "ai/tools/candidate_admission.py",
+                tools / "candidate_admission.py")
             extended = copy.deepcopy(ROLE_CONTRACT)
             extended["protected_paths"][
                 "candidate_forbidden_prefixes"].append(".ai-secrets/")

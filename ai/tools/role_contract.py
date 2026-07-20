@@ -20,6 +20,7 @@ _BOOTSTRAP_GUARD_FILES = {
 _BOOTSTRAP_TRUSTED_TOOLS = {
     "backlog_bundle": "ai/tools/backlog_bundle.py",
     "backlog_guard": "ai/tools/backlog_guard.py",
+    "candidate_admission": "ai/tools/candidate_admission.py",
     "handoff_contract": "ai/tools/handoff_contract.py",
     "handoff_router": "ai/tools/handoff_router.py",
     "implementer_checkpoint": "ai/tools/implementer_checkpoint_hook.py",
@@ -217,9 +218,10 @@ def validate_role_contract(value):
               ("permanent_note_guard", "role_contract_reader"),
               "protected_paths.guard_files")
     _path_map(protected["trusted_tools"],
-              ("backlog_bundle", "backlog_guard", "handoff_contract",
-               "handoff_router", "implementer_checkpoint", "mailbox_daemon",
-               "provider_health", "reopen_transition", "ticket_change_guard"),
+              ("backlog_bundle", "backlog_guard", "candidate_admission",
+               "handoff_contract", "handoff_router", "implementer_checkpoint",
+               "mailbox_daemon", "provider_health", "reopen_transition",
+               "ticket_change_guard"),
               "protected_paths.trusted_tools")
     tool_paths = (list(protected["guard_files"].values())
                   + list(protected["trusted_tools"].values()))

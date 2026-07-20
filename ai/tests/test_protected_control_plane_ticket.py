@@ -28,6 +28,9 @@ def load_isolated_daemon(root):
   source_tools = Path(daemon.__file__).resolve().parent
   shutil.copy2(source_tools / "mailbox_daemon.py", tools)
   shutil.copy2(source_tools / "role_contract.py", tools)
+  for name in (
+      "candidate_admission.py", "provider_health.py", "reopen_transition.py"):
+    shutil.copy2(source_tools / name, tools)
   shutil.copy2(
       source_tools.parent / "notes/role-contract.yaml",
       notes / "role-contract.yaml")

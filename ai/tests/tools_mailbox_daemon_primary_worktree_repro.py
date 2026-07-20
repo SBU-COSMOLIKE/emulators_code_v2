@@ -38,6 +38,7 @@ GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 OTHER_TRUSTED_TOOLS = (
     "backlog_bundle.py",
     "backlog_guard.py",
+    "candidate_admission.py",
     "handoff_router.py",
     "implementer_checkpoint_hook.py",
     "provider_health.py",
