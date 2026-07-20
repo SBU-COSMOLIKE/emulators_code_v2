@@ -194,6 +194,15 @@ def resolve_dark_energy_coordinates(
   return float(w0), float(wa)
 
 
+# Both Syren amplitude spellings may appear in one Cobaya run. When both
+# are supplied they must name the same amplitude, checked in As_1e9
+# units with the same float32-storage tolerance used for dark-energy
+# aliases. A relative term scales the allowance with the converted value
+# because a pure absolute tolerance would be too strict near As_1e9 ~ 1.
+SYREN_AMPLITUDE_RTOL = float(4.0 * np.finfo(np.float32).eps)
+SYREN_AMPLITUDE_ATOL = float(4.0 * np.finfo(np.float32).eps)
+
+
 def syren_params_from(params, *, dark_energy_law=None):
   """Read the seven Syren-base arguments from resolved parameters.
 
@@ -202,8 +211,12 @@ def syren_params_from(params, *, dark_energy_law=None):
   use this one mapping from named parameters to the formula arguments.
 
     As_1e9 = params["As_1e9"] if present, else params["As"] * 1e9
-             (the linear amplitude either way; a missing amplitude is
-             loud).
+             if only "As" is present. When both names are present they
+             must agree: As_1e9 must equal 1e9 * As within the combined
+             absolute-and-relative float32-storage tolerance. A
+             disagreement raises a ValueError that names both supplied
+             values; agreement leaves the supplied As_1e9 as the
+             canonical value.
     ns / H0 / omegab / omegam = read by exactly those names, loud when
              absent (the base cannot be formed without them).
     w0 / wa = resolved together by ``resolve_dark_energy_coordinates``.
@@ -235,9 +248,28 @@ def syren_params_from(params, *, dark_energy_law=None):
     where="syren_params_from dark-energy coordinates")
 
   missing = []
-  if "As_1e9" in params:
+  as_1e9 = None
+  has_as_1e9 = "As_1e9" in params
+  has_as = "As" in params
+  if has_as_1e9 and has_as:
+    as_1e9_direct = float(params["As_1e9"])
+    as_1e9_from_as = float(params["As"]) * 1e9
+    difference = abs(as_1e9_direct - as_1e9_from_as)
+    allowed = SYREN_AMPLITUDE_ATOL + SYREN_AMPLITUDE_RTOL * abs(as_1e9_from_as)
+    if difference > allowed:
+      raise ValueError(
+        "syren_params_from: conflicting primordial amplitudes; "
+        "params['As_1e9']=" + repr(as_1e9_direct)
+        + " but 1e9 * params['As']=1e9 * " + repr(float(params["As"]))
+        + "=" + repr(as_1e9_from_as) + " differ by " + repr(difference)
+        + " beyond tolerance " + repr(allowed) + " (absolute "
+        + repr(SYREN_AMPLITUDE_ATOL) + " plus relative "
+        + repr(SYREN_AMPLITUDE_RTOL) + " of the converted value); supply "
+        "one amplitude name or make As_1e9 equal 1e9 * As")
+    as_1e9 = as_1e9_direct
+  elif has_as_1e9:
     as_1e9 = float(params["As_1e9"])
-  elif "As" in params:
+  elif has_as:
     as_1e9 = float(params["As"]) * 1e9
   else:
     missing.append("As_1e9 (or As)")

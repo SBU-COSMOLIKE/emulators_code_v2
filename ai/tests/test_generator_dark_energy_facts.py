@@ -479,6 +479,54 @@ class GeneratorDarkEnergyFactsTests(unittest.TestCase):
         self.assertEqual(result["pklin_base"].shape, (4,))
         self.assertEqual(result["boost_base"].shape, (4,))
 
+  def test_conflicting_amplitudes_refuse(self):
+    """Both As_1e9 and As present must be rejected as contradictory."""
+    class Parameterization:
+      @staticmethod
+      def to_input(sampled_params_values):
+        del sampled_params_values
+        return {
+          "As_1e9": 2.1,
+          "As": 9e-9,
+          "ns": 0.965,
+          "H0": 67.0,
+          "omegab": 0.05,
+          "omegam": 0.3,
+          "w": -1.0,
+          "wa": 0.0,
+        }
+
+    class Interpolator:
+      @staticmethod
+      def P(z, k):
+        return np.ones((len(z), len(k)), dtype=np.float64)
+
+    provider = SimpleNamespace(
+      set_current_input_params=lambda value: None,
+      get_Pk_interpolator=lambda *args, **kwargs: Interpolator())
+    model = SimpleNamespace(
+      parameterization=Parameterization(),
+      provider=provider,
+      prior=SimpleNamespace(logp=lambda value: 0.0),
+      _component_order={},
+      _params_of_dependencies=[],
+    )
+    core = object.__new__(self.mps_class)
+    core.model = model
+    core.names = ["sample"]
+    core.sampled_params = ["sample"]
+    core.derived = False
+    core.reorder_idx_from_ord_to_yaml = lambda: np.asarray([0])
+    core.extrap_kmax = 1.0
+    core.z_mps = np.asarray([0.0, 1.0])
+    core.k_mps = np.asarray([0.1, 0.2])
+    core.dtype = np.float32
+    core.write_base = True
+    core.dark_energy_law = "cosmological-constant"
+
+    with self.assertRaisesRegex(ValueError, "conflicting primordial amplitudes"):
+      core._compute_dvs_from_sample(np.asarray([0.0]))
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -170,7 +170,6 @@ High new functionality appears before High bug fixes. No High feature is
 currently open.
 
 - OPEN **HIGH** **BUG FIX** — [Test a proposed controller against the saved state it must inherit](#open-control-plane-live-state-compatibility)
-- OPEN **HIGH** **BUG FIX** — [Refuse conflicting amplitude names before calculating Syren matter power](#open-syren-amplitude-aliases)
 - OPEN **HIGH** **BUG FIX** — [Isolate the matter-power adapter test without replacing imported modules](#open-mps-test-import-isolation)
 - OPEN **HIGH** **BUG FIX** — [Test saved activation defaults without replacing a live function](#open-artifact-drift-import-isolation)
 
@@ -1516,64 +1515,6 @@ closed serving-domain ticket: it concerns when configuration errors are
 reported, not interpolation mathematics.
 </details>
 
-<a id="open-syren-amplitude-aliases"></a>
-## Refuse conflicting amplitude names before calculating Syren matter power
-
-### High-level summary
-
-The Syren matter-power formulas accept the primordial amplitude either as
-`As`, the usual small number, or as `As_1e9 = 10^9 As`. A Cobaya run may make
-both names available because different theory components use different
-spellings.
-
-When both names are present, the current helper chooses `As_1e9` without
-checking whether it agrees with `As`. A saved network can therefore read one
-amplitude while its analytic Syren starting surface uses another. Both results
-remain finite, but their combination describes no single cosmology.
-
-This affects the central matter-power prediction rather than a plot or
-optional report. A concrete conflicting pair in the permanent scientific note
-changes the analytic linear-power baseline by about 77 percent.
-
-### Current status
-
-**Ticket type: BUG FIX.**
-
-**Red Team reopen count: 0.**
-
-**Red Team reopening: allowed.**
-
-**OPEN.** The permanent rule requires agreement, but
-`emulator/syren_base.py::syren_params_from` still selects the first amplitude
-spelling when both are supplied.
-
-**Severity: HIGH.** The mismatch can silently change the analytic starting
-surface used in a central matter-power result. Medium is insufficient because
-the current public EMUL2 configuration makes both amplitude names a normal
-input shape, and the numerical error remains finite instead of stopping.
-
-### What is already fixed
-
-Either amplitude name works when supplied alone. Requirement construction also
-avoids asking Cobaya for a redundant second spelling, and the shipped bridge
-normally calculates consistent values.
-
-### What is missing
-
-Use one documented absolute and relative comparison policy after converting
-`As` to `As_1e9`. Refuse inconsistent repeated values before either Syren
-formula, learned predictor, generator row write, or Cobaya derived result.
-Add direct, generator, adapter, and real public-configuration witnesses for
-single-name, consistent-two-name, and conflicting-two-name inputs.
-
-<details><summary>Technical record for development tools</summary>
-Owner: `emulator/syren_base.py::syren_params_from` and the MPS generator and
-adapter call sites. The accepted repair must keep `As`-only and `As_1e9`-only
-numerics unchanged, compare `As_1e9` with `1e9 * As`, name both supplied
-values on refusal, and prove no raw/base row or partial `Pk` state survives a
-conflict.
-</details>
-
 <a id="open-implementer-blocked-outcome"></a>
 ## Let the Implementer stop honestly when a ticket cannot proceed
 
@@ -2764,6 +2705,82 @@ independently`.
 Closed tickets are grouped by subject. A closed ticket has no missing work of
 its own. If later work is still required, **What is missing** links to one of
 the open tickets above.
+
+<a id="open-syren-amplitude-aliases"></a>
+## Refuse conflicting amplitude names before calculating Syren matter power
+
+### High-level summary
+
+The Syren matter-power formulas accept the primordial amplitude either as
+`As`, the usual small number, or as `As_1e9 = 10^9 As`. A Cobaya run may make
+both names available because different theory components use different
+spellings.
+
+When both names are present, the current helper chooses `As_1e9` without
+checking whether it agrees with `As`. A saved network can therefore read one
+amplitude while its analytic Syren starting surface uses another. Both results
+remain finite, but their combination describes no single cosmology.
+
+This affects the central matter-power prediction rather than a plot or
+optional report. A concrete conflicting pair in the permanent scientific note
+changes the analytic linear-power baseline by about 77 percent.
+
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**CLOSED.** Accepted candidate `f30f406ee826a1a1222282370933e62b9837031b` adds
+the both-present amplitude-agreement guard to
+`emulator/syren_base.py::syren_params_from`, so a conflicting `As_1e9`/`As`
+pair raises a `ValueError` that names both values before any Syren formula,
+learned predictor, generator row write, or Cobaya derived result. Single-name
+and consistent two-name inputs keep their previous numerics. The complete
+directive and audit record are in `ai/notes/ticket-syren-amplitude-aliases.md`.
+
+**Severity: HIGH.** The mismatch can silently change the analytic starting
+surface used in a central matter-power result. Medium is insufficient because
+the current public EMUL2 configuration makes both amplitude names a normal
+input shape, and the numerical error remains finite instead of stopping.
+
+### What is already fixed
+
+`syren_params_from` compares `As_1e9` with `1e9 * As` under one documented
+absolute-and-relative tolerance sized to float32 storage and refuses a
+disagreeing pair with a `ValueError` that names both supplied values and the
+conversion. Because both production call sites invoke this one function before
+any Syren formula, the generator refuses a conflicting sample before a raw or
+base row is written and the adapter refuses before any `Pk_grid` or derived
+state exists. `As`-only and `As_1e9`-only inputs keep their previous numerics.
+
+### What is missing
+
+Nothing for this ticket.
+
+<details><summary>Technical record for development tools</summary>
+Severity: HIGH BUG FIX. Accepted candidate
+`f30f406ee826a1a1222282370933e62b9837031b` on cycle
+`open-syren-amplitude-aliases@23d0340587bde038008ddcfa71eea2f2d658ed54`. Owner:
+`emulator/syren_base.py::syren_params_from`; witnesses in
+`ai/tests/test_syren_dark_energy_coordinates.py`,
+`ai/tests/test_generator_dark_energy_facts.py`, and the new
+`ai/tests/test_mps_amplitude_aliases.py`. The repair keeps `As`-only and
+`As_1e9`-only numerics unchanged, compares `As_1e9` with `1e9 * As` under
+module constants `SYREN_AMPLITUDE_ATOL`/`SYREN_AMPLITUDE_RTOL`, names both
+supplied values on refusal, and proves no raw/base row or partial `Pk` state
+survives a conflict. The two production call sites and the MPS generator and
+adapter code are unchanged; the guard lives only in `syren_base.py`.
+The audit re-ran every check against the immutable candidate: `py_compile` on
+all four changed files; 18, 15, and 2 tests in the three affected modules;
+`permanent_note_guard.py` PASS at the base; and the architect-audit
+ticket-change guard reporting `within limit` (added 8625, deleted 20, total
+8645, limit 15000). The durable rule already existed in
+`ai/notes/artifacts-inference-warmstart.md` ("Syren parameter aliases must
+agree"), so no permanent note changed.
+</details>
 
 ## Documentation and teaching
 

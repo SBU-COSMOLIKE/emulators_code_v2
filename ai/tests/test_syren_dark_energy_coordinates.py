@@ -11,6 +11,8 @@ import unittest
 import numpy as np
 
 from emulator.syren_base import DARK_ENERGY_COORDINATE_ATOL
+from emulator.syren_base import SYREN_AMPLITUDE_ATOL
+from emulator.syren_base import SYREN_AMPLITUDE_RTOL
 from emulator.syren_base import resolve_dark_energy_coordinates
 from emulator.syren_base import syren_params_from
 
@@ -176,6 +178,76 @@ class DarkEnergyCoordinateTests(unittest.TestCase):
   def test_syren_tuple_reports_alias_conflict_before_other_missing_values(self):
     with self.assertRaisesRegex(ValueError, "aliases 'w'.*'w0'.*disagree"):
       syren_params_from({"w": -1.0, "w0": -0.7})
+
+
+class SyrenAmplitudeAliasTests(unittest.TestCase):
+
+  def _base_params(self):
+    return {
+      "ns": 0.966,
+      "H0": 67.3,
+      "omegab": 0.049,
+      "omegam": 0.31,
+      "w0": -1.0,
+      "wa": 0.0,
+    }
+
+  def test_as_1e9_only_is_unchanged(self):
+    params = self._base_params()
+    params["As_1e9"] = 2.1
+    values = syren_params_from(params)
+    self.assertEqual(values[0], 2.1)
+
+  def test_as_only_is_unchanged(self):
+    params = self._base_params()
+    params["As"] = 2.1e-9
+    values = syren_params_from(params)
+    self.assertEqual(values[0], 2.1e-9 * 1e9)
+
+  def test_consistent_two_names_canonicalize_to_as_1e9(self):
+    params = self._base_params()
+    params["As_1e9"] = 2.1
+    params["As"] = 2.1e-9
+    values = syren_params_from(params)
+    self.assertEqual(values[0], 2.1)
+
+  def test_conflicting_two_names_refuse_naming_both(self):
+    params = self._base_params()
+    params["As_1e9"] = 2.1
+    params["As"] = 9e-9
+    message = "conflicting primordial amplitudes"
+    expected_left = repr(2.1)
+    expected_right = repr(9e-9 * 1e9)
+    try:
+      syren_params_from(params)
+      self.fail("expected ValueError for conflicting amplitude names")
+    except ValueError as error:
+      text = str(error)
+      self.assertIn(message, text)
+      self.assertIn(expected_left, text)
+      self.assertIn(expected_right, text)
+
+  def test_amplitude_tolerance_is_absolute_and_relative(self):
+    self.assertEqual(
+      SYREN_AMPLITUDE_ATOL,
+      4.0 * np.finfo(np.float32).eps)
+    self.assertEqual(
+      SYREN_AMPLITUDE_RTOL,
+      4.0 * np.finfo(np.float32).eps)
+    base = 2.1
+    allowance = SYREN_AMPLITUDE_ATOL + SYREN_AMPLITUDE_RTOL * base
+    inside_offset = 0.5 * allowance
+    outside_offset = 2.0 * allowance
+    consistent = self._base_params()
+    consistent["As_1e9"] = base
+    consistent["As"] = (base + inside_offset) * 1e-9
+    values = syren_params_from(consistent)
+    self.assertEqual(values[0], base)
+    conflicting = self._base_params()
+    conflicting["As_1e9"] = base
+    conflicting["As"] = (base + outside_offset) * 1e-9
+    with self.assertRaisesRegex(ValueError, "conflicting primordial amplitudes"):
+      syren_params_from(conflicting)
 
 
 if __name__ == "__main__":
