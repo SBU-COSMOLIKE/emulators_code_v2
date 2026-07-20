@@ -171,6 +171,7 @@ continues to the Architect without paying for the implementation again.
 | Detect an accidental change to the tracked backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
 | Check one Red Team reopening before and after the Architect decides | `reopen_transition.py` | Called automatically by `mailbox_daemon.py` | Reads verified backlog lines, prints the two legal outcomes, and refuses a wrong counter, severity, or status. It never edits the backlog or decides whether the evidence is persuasive. |
+| Check that the selected AI services answer | `provider_health.py` | Called automatically by `mailbox_daemon.py --ping` | Makes the small Claude, Ollama, and Sol connection requests. It cannot read the mailbox, change a worktree, or make a ticket decision. |
 | Package unfinished backlog work and its local supporting files for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
 ## Where do I run these commands?

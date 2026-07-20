@@ -147,6 +147,21 @@ def _load_local_reopen_transition_tool():
 _REOPEN_TRANSITION = _load_local_reopen_transition_tool()
 
 
+def _load_local_provider_health_tool():
+    """Load the provider checker beside this exact daemon file."""
+    path = os.path.join(SCRIPT_DIR, "provider_health.py")
+    spec = importlib.util.spec_from_file_location(
+        "_mailbox_local_provider_health", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load the provider health checker")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+_PROVIDER_HEALTH = _load_local_provider_health_tool()
+
+
 def repo_root_of(worktree):
     """Return the shared repository root that owns a worktree directory.
 
@@ -3581,119 +3596,24 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
     return commands
 
 
-def _provider_ping_prompt(marker):
-    """Ask for one exact reply without assigning repository work."""
-    return ("This is a connection test. Do not use tools, read files, or "
-            "explain. Reply with exactly this one line:\n" + marker)
-
-
-def _provider_answered(command, marker, directory, response_path=None):
-    """Return whether one live provider produced the requested reply."""
-    try:
-        result = subprocess.run(
-            command, cwd=directory, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, check=False,
-            timeout=PROVIDER_PING_TIMEOUT_SECONDS)
-        if result.returncode != 0:
-            return False
-        if response_path is None:
-            answer = result.stdout.decode("utf-8").strip()
-        else:
-            with open(response_path, encoding="utf-8") as stream:
-                answer = stream.read().strip()
-    except (OSError, UnicodeError, subprocess.TimeoutExpired):
-        return False
-    return answer == marker
-
-
 def check_provider_connectivity(
         architect_model, include_sol, dry_run=False,
         implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER,
         implementer_model=DEFAULT_IMPLEMENTER_MODEL):
     """Check every distinct provider selected for this watch."""
-    if implementer_provider not in IMPLEMENTER_PROVIDERS:
-        raise ValueError("Implementer provider must be claude or ollama")
-    nonce = secrets.token_hex(16)
-    if dry_run:
-        print("[dry-run] would check Claude Architect model "
-              + architect_model + ".")
-        if implementer_provider == "ollama":
-            print("[dry-run] would check Ollama Implementer model "
-                  + implementer_model + ".")
-        if include_sol:
-            print("[dry-run] would check Sol model " + SOL_MODEL + ".")
-        else:
-            print("Sol: skipped by --skip-redteam.")
-        return True
-
-    with tempfile.TemporaryDirectory(prefix="cocoa-flow-ping-") as directory:
-        claude_marker = "COCOA-FLOW-PONG-CLAUDE-" + nonce
-        claude_command = [
-            CLAUDE_EXECUTABLE, "-p", "--model", architect_model,
-            "--effort", "low", "--permission-mode", "plan",
-            "--tools", "", "--safe-mode", "--no-session-persistence",
-            "--output-format", "text", _provider_ping_prompt(claude_marker),
-        ]
-        claude_ok = _provider_answered(
-            claude_command, claude_marker, directory)
-        print("Claude Architect: "
-              + ("online and answered the connection test."
-                 if claude_ok else "unavailable."))
-        ollama_ok = True
-        if implementer_provider == "ollama":
-            ollama_marker = "COCOA-FLOW-PONG-OLLAMA-" + nonce
-            ollama_command = [
-                OLLAMA_EXECUTABLE, "run", implementer_model,
-                "--hidethinking",
-                _provider_ping_prompt(ollama_marker)]
-            ollama_ok = _provider_answered(
-                ollama_command, ollama_marker, directory)
-            print("Ollama Implementer: "
-                  + ("online and answered the connection test."
-                     if ollama_ok else "unavailable."))
-        if include_sol:
-            sol_marker = "COCOA-FLOW-PONG-SOL-" + nonce
-            sol_output = os.path.join(directory, "sol-response.txt")
-            sol_command = [
-                CODEX_EXECUTABLE, "exec", "--model", SOL_MODEL,
-                "-c", "model_reasoning_effort=none",
-                "-c", "service_tier=standard", "--sandbox", "read-only",
-                "--cd", directory, "--skip-git-repo-check", "--ephemeral",
-                "--ignore-rules", "--ignore-user-config",
-                "--output-last-message", sol_output,
-                _provider_ping_prompt(sol_marker),
-            ]
-            sol_ok = _provider_answered(
-                sol_command, sol_marker, directory, sol_output)
-            print("Sol: " + ("online and answered the connection test."
-                              if sol_ok else "unavailable."))
-        else:
-            print("Sol: skipped by --skip-redteam.")
-
-    if claude_ok and ollama_ok and (not include_sol or sol_ok):
-        checked_services = ["Claude"]
-        if implementer_provider == "ollama":
-            checked_services.append("Ollama")
-        if include_sol:
-            checked_services.append("Sol")
-        if len(checked_services) == 1:
-            checked = checked_services[0]
-        elif len(checked_services) == 2:
-            checked = " and ".join(checked_services)
-        else:
-            checked = (", ".join(checked_services[:-1])
-                       + ", and " + checked_services[-1])
-        print("connection check passed: " + checked + " responded.")
-        return True
-    print("connection check failed; check login and service availability.")
-    if not claude_ok:
-        print("Claude login: " + CLAUDE_EXECUTABLE + " auth status")
-    if not ollama_ok:
-        print("Ollama: start the Ollama service and run `ollama pull "
-              + implementer_model + "`.")
-    if include_sol and not sol_ok:
-        print("Sol login: " + CODEX_EXECUTABLE + " login status")
-    return False
+    return _PROVIDER_HEALTH.check_connectivity(
+        architect_model=architect_model,
+        implementer_provider=implementer_provider,
+        implementer_model=implementer_model,
+        include_sol=include_sol,
+        dry_run=dry_run,
+        nonce=secrets.token_hex(16),
+        claude_executable=CLAUDE_EXECUTABLE,
+        ollama_executable=OLLAMA_EXECUTABLE,
+        codex_executable=CODEX_EXECUTABLE,
+        sol_model=SOL_MODEL,
+        timeout=PROVIDER_PING_TIMEOUT_SECONDS,
+        run=subprocess.run)
 
 
 def implementer_checkpoint_settings(python, hook_path):
