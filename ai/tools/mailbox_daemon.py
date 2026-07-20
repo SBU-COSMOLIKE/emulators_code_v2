@@ -4973,6 +4973,15 @@ def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
                 + ": Candidate commit does not name the exact Opus HEAD")
             malformed_paths.append(path)
             continue
+        if is_implementer_budget_checkpoint(body):
+            problem = checkpoint_handoff_problem(message=message)
+            if problem is not None:
+                malformed.append(os.path.basename(path) + ": " + problem)
+                malformed_paths.append(path)
+                continue
+            matches.append(path)
+            evidence_results.append({"completion_ready": True})
+            continue
         try:
             evidence_result = evidence_contract["contract"].\
                 validate_implementer_handoff_subagent_evidence(

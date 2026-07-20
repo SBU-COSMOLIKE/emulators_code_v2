@@ -433,6 +433,37 @@ class ImplementerCheckpointHookTests(unittest.TestCase):
             self.assertIn("over limit", daemon.checkpoint_handoff_problem(
                 message.replace("over limit", "within limit")))
 
+    def test_budget_block_does_not_require_completion_evidence(self):
+        """An over-limit checkpoint is preserved before final review."""
+        cycle = "open-example@" + "a" * 40
+        candidate = "b" * 40
+        message = (
+            "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+            + "\nMAILBOX-MODE: normal\n\n"
+            + daemon.IMPLEMENTER_BUDGET_CHECKPOINT_HEADING + "\n\n"
+            + "- **Candidate commit:** `" + candidate + "`\n"
+            + "- **Character-change result:** over limit\n")
+
+        class CompletionValidatorMustNotRun:
+            class DirectiveError(Exception):
+                pass
+
+            def validate_implementer_handoff_subagent_evidence(self, **_):
+                raise AssertionError("completion validator ran")
+
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(daemon, "MAILBOX", folder), \
+                mock.patch.object(daemon, "MAX_CHARACTERS", 20000):
+            path = Path(folder) / "0001-to-fable.md"
+            path.write_text(message, encoding="utf-8", newline="")
+            result = daemon.matching_new_implementer_handoff(
+                cycle_id=cycle, mode="normal", candidate_commit=candidate,
+                before_inodes=frozenset(), evidence_contract={
+                    "contract": CompletionValidatorMustNotRun(),
+                    "parallel_work_plan": {}})
+
+        self.assertEqual(result, (str(path), [], None, True))
+
     def test_daemon_installs_only_the_three_checkpoint_hooks(self):
         settings = daemon.implementer_checkpoint_settings(
             python="/usr/bin/python3", hook_path="/repo/hook.py")
