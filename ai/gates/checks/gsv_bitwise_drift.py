@@ -315,13 +315,18 @@ def report_saved_state_cpu(save_root, aid):
   """
   n0 = len(FAILURES)
   try:
-    state = torch.load(str(save_root) + ".emul", weights_only=True)
+    payload = torch.load(str(save_root) + ".emul", weights_only=True)
   except Exception as exc:
     report("saved state is a nonempty tensor-only CPU dict",
            False,
            type(exc).__name__ + ": " + str(exc))
   else:
-    is_dict = type(state) is dict
+    # the checkpoint is the {"pair_token", "state_dict"} container the
+    # save writes; the tensor assertions below inspect the inner dict.
+    container_ok = (type(payload) is dict
+                    and set(payload) == {"pair_token", "state_dict"})
+    state = payload["state_dict"] if container_ok else payload
+    is_dict = container_ok and type(state) is dict
     is_nonempty = is_dict and len(state) > 0
     non_tensors = []
     non_cpu = []

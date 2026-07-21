@@ -815,26 +815,33 @@ sampled input is named `p0`.
 `test_results_artifact_pair.py` checks the two files that together make one
 saved emulator. The `.emul` file contains the learned tensors. The `.h5` file
 explains how those tensors must be interpreted: the scientific facts and the
-model instructions.
+model instructions. Each save also writes one fresh random string — the pair
+token — into both files, so rebuilding can prove the two files were saved
+together.
 
 - **Example used:** one small two-input, one-output model with deterministic
   weights, saved as a complete pair in a temporary folder.
 - **What the test does:** it rebuilds an unchanged pair. It then tries to save
   over a complete pair, either lone member, and either symbolic-link member.
-  It injects an ordinary HDF5 failure into a fresh save, replaces a checkpoint
-  value with an unrestricted pickle operation that would create a file, and
-  replaces the checkpoint with a non-tensor text value.
-- **Pass means:** the unchanged pair rebuilds. Every occupied name refuses
-  before any temporary file is created and remains byte-for-byte unchanged;
-  a refused symbolic link keeps both the link and its target. An ordinary
-  failure on a new name removes the new partial files, so a failed save
-  leaves nothing behind.
-- **A refusal it proves:** a checkpoint containing a text value or an unsafe
-  pickle operation is opened with `weights_only=True`, performs no side
-  effect, and is refused before a model is constructed.
+  It pairs one save's record with another save's checkpoint, injects an
+  ordinary HDF5 failure into a fresh save, replaces a checkpoint value with
+  an unrestricted pickle operation that would create a file, and replaces the
+  checkpoint with a non-tensor text value.
+- **Pass means:** the unchanged pair rebuilds and both files carry the same
+  pair token. Every occupied name refuses before any temporary file is
+  created and remains byte-for-byte unchanged; a refused symbolic link keeps
+  both the link and its target. An ordinary failure on a new name removes
+  the new partial files, so a failed save leaves nothing behind.
+- **A refusal it proves:** two mixed members — files from different saves
+  under one name — refuse with both tokens named, before any model is
+  constructed. A checkpoint containing a text value or an unsafe pickle
+  operation is opened with `weights_only=True`, performs no side effect, and
+  is refused the same way.
 - **Why it matters:** an occupied name may hold an accepted scientific result,
-  so a later run must never replace it. Loading unrestricted pickle data can
-  also run code instead of merely reading model tensors.
+  so a later run must never replace it, and weights quietly paired with the
+  wrong scientific record would answer with the wrong physics. Loading
+  unrestricted pickle data can also run code instead of merely reading model
+  tensors.
 
 #### Padded-head coordinates preserved across save and rebuild
 

@@ -4,7 +4,9 @@ save_learning_curves writes a whitespace-delimited table (row per N_train,
 column per curve, "#"-comment header carrying the config) that np.loadtxt
 reads back, the format the sweep and bake-off drivers save, so several
 runs can be overlaid later. save_emulator saves a trained run as two
-files: <root>.emul, the model weights (a torch state_dict, cpu tensors),
+files: <root>.emul, the model weights (a torch state_dict, cpu tensors,
+stored beside one fresh random pair token that the .h5 also carries, so
+the two files can prove they were saved together),
 and <root>.h5, everything inference or a paper trail needs (both
 whitening geometries, the training histories, the full config, and the
 scientific record the dataset was born under, copied unchanged from the
@@ -348,23 +350,28 @@ def _validate_saved_recipe_geometry_widths(
       + " has no inert width contract")
 
 
-def _load_tensor_state_dict(checkpoint, *, device, where):
-  """Load one checkpoint as a plain name-to-tensor state dict, or refuse.
+def _load_tensor_state_dict(checkpoint, *, device, where, expected_token):
+  """Load one checkpoint's state dict and prove it belongs to its record.
 
   The read runs under ``weights_only=True``, PyTorch's restricted-pickle
   mode: a checkpoint whose bytes were rewritten to smuggle executable
-  pickle payloads fails to load instead of running them. What survives
-  the load must still LOOK like a model state: exactly a plain dict,
-  nonempty, string keys, tensor values -- anything else is refused before
-  a model is even constructed around it.
+  pickle payloads fails to load instead of running them. The loaded
+  object must be the container save_emulator writes -- a plain dict with
+  exactly the keys ``pair_token`` and ``state_dict`` -- and its token
+  must equal the one the ``.h5`` record carries, so a ``.emul`` mixed in
+  from a different run refuses before any model is constructed. The
+  inner state dict must then LOOK like a model state: exactly a plain
+  dict, nonempty, string keys, tensor values.
 
   Arguments:
-    checkpoint = the open binary file object of ``<root>.emul``; its
-                 position is rewound before and after the read.
-    device     = the torch device the restored tensors are mapped onto
-                 (the ``map_location``), so a GPU-trained model loads on
-                 a CPU-only machine.
-    where      = the checkpoint's identity, named in every refusal.
+    checkpoint     = the open binary file object of ``<root>.emul``; its
+                     position is rewound before and after the read.
+    device         = the torch device the restored tensors are mapped
+                     onto (the ``map_location``), so a GPU-trained model
+                     loads on a CPU-only machine.
+    where          = the checkpoint's identity, named in every refusal.
+    expected_token = the ``pair_token`` string read off the ``.h5``
+                     record this checkpoint claims to belong to.
 
   Returns:
     the state dict: a plain dict mapping parameter names to tensors on
@@ -372,8 +379,9 @@ def _load_tensor_state_dict(checkpoint, *, device, where):
 
   Raises:
     ValueError when the bytes are not a tensor-only checkpoint, the
-    mapping is empty or not a plain dict, a key is not a nonempty
-    string, or a value is not a tensor.
+    container or its token is missing or mismatched, the mapping is
+    empty or not a plain dict, a key is not a nonempty string, or a
+    value is not a tensor.
   """
   checkpoint.seek(0)
   try:
@@ -384,6 +392,24 @@ def _load_tensor_state_dict(checkpoint, *, device, where):
       where + " cannot be read as a tensor-only PyTorch state dict") from exc
   finally:
     checkpoint.seek(0)
+  if type(state) is not dict or set(state) != {"pair_token", "state_dict"}:
+    raise ValueError(
+      where + " does not hold the {'pair_token', 'state_dict'} container "
+      "save_emulator writes. A checkpoint saved before the pair token "
+      "existed must be re-saved (retrain, or re-run save_emulator on the "
+      "run) before it can be rebuilt.")
+  found_token = state["pair_token"]
+  if type(found_token) is not str or not found_token:
+    raise ValueError(
+      where + " pair_token must be a nonempty string; it read as "
+      + repr(found_token))
+  if found_token != expected_token:
+    raise ValueError(
+      where + " and its .h5 record are not from the same save: the .h5 "
+      "carries pair_token " + repr(expected_token) + " but the checkpoint "
+      "carries " + repr(found_token) + ". The two files were mixed from "
+      "different runs; restore the matching pair, or retrain.")
+  state = state["state_dict"]
   if type(state) is not dict or not state:
     raise ValueError(
       where + " must contain one nonempty plain state-dict mapping")
@@ -1154,10 +1180,12 @@ def save_emulator(path_root,
     train_args_yaml  the collapsed train_args actually used (search
                      ranges resolved to their defaults), as YAML.
   plus one root attribute per entry of `attrs` (run identity: model name,
-  activation, rescale, N_train, best epoch, ...), a "created" timestamp, the
-  torch version, the git commit, and the schema version. Every successful save
-  carries both resolved recipes and the scientific record, and it always
-  writes schema 3.
+  activation, rescale, N_train, best epoch, ...), the pair token (one fresh
+  random string per save, also stored inside the .emul, so a rebuild can
+  prove the two files were saved together), a "created" timestamp, the
+  torch version, the git commit, and the schema version. Every successful
+  save carries both resolved recipes and the scientific record, and it
+  always writes schema 3.
   save_emulator has no option for writing an older format.
 
   Reversible map (write here -> read in rebuild_emulator):
@@ -1175,9 +1203,10 @@ def save_emulator(path_root,
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
-      <root>.emul (state_dict,      | weights-only torch.load through the
-        cpu, compile-prefix         |   handle opened at the start, then
-        stripped)                   |   strict _rebuild_model
+      <root>.emul ({"pair_token",   | weights-only torch.load through the
+        "state_dict"}: cpu tensors, |   handle opened at the start; the
+        compile-prefix stripped)    |   token must equal the .h5 attr,
+                                    |   then strict _rebuild_model
       param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
         its "cls" attr              |   -> <cls>.from_state; "cls" is
                                     |   required (missing = loud re-save)
@@ -1478,8 +1507,14 @@ def save_emulator(path_root,
   # public names.
   tmp_emul = emul_path + ".tmp"
   tmp_h5 = h5_path + ".tmp"
+  # One fresh random pair token per save, stored in BOTH members. Rebuild
+  # compares the two copies, so a .emul placed beside another run's .h5
+  # (or the reverse) refuses instead of pairing weights with the wrong
+  # scientific record. Two saves never share a token, even from identical
+  # settings, so any cross-run mix is caught.
+  pair_token = uuid.uuid4().hex
   try:
-    torch.save(sd, tmp_emul)
+    torch.save({"pair_token": pair_token, "state_dict": sd}, tmp_emul)
   except BaseException:
     _unlink_if_present(tmp_emul)
     raise
@@ -1661,6 +1696,9 @@ def save_emulator(path_root,
         f.attrs[k] = str(v) if isinstance(v, str) else v
     f.attrs[_COMPOSITION_MODE_ATTR] = composition_mode
     f.attrs[_TRANSFER_REFINED_ATTR] = transfer_refined
+    # the same random string written into the .emul container above; the
+    # rebuild compares the two copies to prove the pair was saved together.
+    f.attrs["pair_token"]    = pair_token
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
     # the version decided at the top of this function, written once, here. It
@@ -2405,8 +2443,20 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # preserving their more useful refusal messages.  The checkpoint handle is
     # still the same one opened before those checks began, so no pathname swap
     # can occur between the validation and this explicit tensor-only load.
+    # The pair token is the same random string save_emulator wrote into both
+    # members of this pair; comparing the two copies proves these exact files
+    # came from one save. A file without it predates the token and is refused
+    # with re-save guidance, never guessed about.
+    stored_token = f.attrs.get("pair_token")
+    if type(stored_token) is not str or not stored_token:
+      raise ValueError(
+        f"{path_root}.h5 carries no pair_token root attribute, so the "
+        ".h5/.emul pair cannot be checked as coming from one save. It was "
+        "saved before the pair token existed; re-save the emulator "
+        "(retrain, or re-run save_emulator on the run) to add it.")
     sd = _load_tensor_state_dict(
-      checkpoint, device=device, where=path_root + ".emul")
+      checkpoint, device=device, where=path_root + ".emul",
+      expected_token=stored_token)
 
   def _rebuild_model(rc, geom_for_needs, state, want_compile):
     """Reconstruct one module from its saved recipe and state dict.

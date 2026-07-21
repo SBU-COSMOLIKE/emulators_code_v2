@@ -15,19 +15,17 @@ Primary code owners are `emulator/results.py`, `emulator/inference.py`,
 ## Vocabulary used throughout this note
 
 An **artifact** is one complete saved emulator result with a shared path root.
-**Publication** moves a complete, checked result into the final saved path
-that readers use. **Provenance** records the inputs, source, and resolved
+**Provenance** records the inputs, source, and resolved
 settings that produced a result; provenance records origin but is not by
-itself proof that the result is correct. A publication **transaction** treats
-both artifact files as one update. An **atomic artifact pair** never lets a
-reader accept one old member together with one new member.
-The `<root>.emul` file is a PyTorch checkpoint: its `state_dict` maps stable
+itself proof that the result is correct.
+The `<root>.emul` file is a PyTorch checkpoint holding the **pair token** —
+one fresh random string minted at save time and written into both files —
+beside its `state_dict`, the mapping from stable
 names to model-parameter and registered-buffer tensors stored on the central
 processing unit (CPU). The matching `<root>.h5` file uses Hierarchical Data
 Format version 5 (HDF5) to store reconstruction metadata and scientific
-arrays. A **schema** is the versioned list and meaning of those saved fields.
-SHA-256 is the cryptographic digest used to bind the exact checkpoint bytes to
-the HDF5 record.
+arrays, and carries the same pair token as a root attribute. A **schema** is
+the versioned list and meaning of those saved fields.
 
 A **random-engine policy** names every random-number algorithm and the saved
 state needed to continue its sequence exactly. It is different from a seed,
@@ -97,9 +95,11 @@ separate:
    rows, one record for training and one for validation, saved in the run's
    configuration. The scientific description of the dataset itself lives in
    the generator's `.facts.yaml` record beside the chain.
-2. **Artifact identity** binds the saved model pair, resolved model and
-   training recipes, output decoder and loss composition, staged-selection
-   identity, composition mode, and any source artifact or analytic base.
+2. **Artifact identity**: the artifact record carries the resolved model
+   and training recipes, output decoder and loss composition, the
+   staged-selection record, composition mode, and any source artifact or
+   analytic base, so a rebuilt emulator proves compatibility from the
+   file alone.
 
 An artifact records the exact staged selection for provenance. Public
 inference does not need the original training files, but it must prove that
@@ -124,7 +124,8 @@ saved model remains in use.
 ## Schema 3 artifact contract
 
 - One emulator uses one path root and two files. Here `<root>` is the shared
-  filename stem. `<root>.emul` is a PyTorch checkpoint containing a
+  filename stem. `<root>.emul` is a PyTorch checkpoint containing the pair
+  token beside a
   `state_dict`, the mapping from parameter or registered-buffer names to
   tensors. Every checkpoint tensor is moved to CPU host memory, and the
   compiled-model `_orig_mod.` prefix is removed.
@@ -155,7 +156,7 @@ saved model remains in use.
   uses known class, activation, normalization, and compile names. The trusted
   constructors and factories check their own numerical values later. The
   structural checks run before
-  `model.state_dict`, temporary-file creation, pair markers, or replacement of
+  `model.state_dict`, temporary-file creation, or replacement of
   an existing artifact. Every successful new save writes schema 3. There is no
   flag that writes schema 1, schema 2, or a file without a schema.
 - **Legacy data are regenerated explicitly.** A missing `.facts.yaml` record
@@ -174,7 +175,7 @@ saved model remains in use.
   refuses.
 - **The saved recipe must describe the live object.** Each supported model
   constructor attaches the canonical recipe for the object it actually made.
-  Before publication, `save_emulator` compares that live recipe with the
+  Before writing any file, `save_emulator` compares that live recipe with the
   claimed root recipe and, for transfer, with the claimed embedded-base
   recipe. A caller cannot save ordinary `ReLU` behavior under a registered
   gated-activation name, change the number of residual layers, or substitute a
@@ -250,14 +251,20 @@ existing chain's results meant.
 rewritten checkpoint cannot execute pickle payloads or masquerade a
 non-tensor mapping as a model state. Every saved string passes its closed
 schema (the model recipe, composition record, and scientific record) before
-any dynamic import or weight load. The user owns keeping a pair's two files
-together; the library does not carry a cryptographic pair binding.
+any dynamic import or weight load. The loader also compares the two copies
+of the pair token: each save mints one fresh random string and writes it
+into both members, so a `.emul` placed beside another run's `.h5` (or the
+reverse) refuses with both tokens named. The token proves the two files
+came from one save; it is not a cryptographic binding of the file bytes,
+and a deliberately edited file remains outside its job.
 
-**Acceptance evidence.** A valid save rebuilds and leaves exactly the two
-public members; complete, partial, and symbolic-link roots refuse before
-staging with their bytes preserved; an injected HDF5 failure removes every
+**Acceptance evidence.** A valid save rebuilds, leaves exactly the two
+public members, and carries one shared pair token; complete, partial, and
+symbolic-link roots refuse before
+staging with their bytes preserved; two members mixed from different saves
+refuse before model construction; an injected HDF5 failure removes every
 temporary file; an unsafe pickle value and a non-tensor checkpoint refuse
-before model construction (`ai/tests/test_results_artifact_pair.py`).
+the same way (`ai/tests/test_results_artifact_pair.py`).
 
 ### Run tags name output files readably
 
@@ -853,9 +860,9 @@ enumeration, never on optional-group presence.
 The CPU/HDF5 gate proves the four valid rows, thirty focused forgeries,
 writer/read agreement on the native form-and-space grammar, and the
 pre-construction call order. The child command emits one final evidence result
-named `artifact-composition.contract` for that assertion. Whole-pair
-cryptographic binding remains the
-separate artifact-integrity unit; this enumeration contract does not claim that an
+named `artifact-composition.contract` for that assertion. The pair token
+proves only that the two files came from one save; this enumeration
+contract does not claim that an
 attacker cannot rewrite every corroborating HDF5 surface together.
 
 ## `config_resolved_yaml` records what the run consumed
@@ -886,7 +893,7 @@ training: reopening treats the pass plan and history arrays as provenance.
 the complete pass records in `emulator/training.py::run_emulator`. The artifact
 writer persists those records and `total_epochs` without becoming a second
 training-policy engine. `emulator/results.py::_history_arrays_for_save` performs
-the narrow publication check on array finiteness and shape. Reconstruction
+the narrow pre-save check on array finiteness and shape. Reconstruction
 does not read the `history` group or validate pass grammar.
 
 A two-phase run with two trunk epochs and three head epochs records contiguous
@@ -902,7 +909,7 @@ overrides produce two complete pass records; a null EMA setting records that
 EMA is disabled for that phase; refinement becomes a third complete record;
 and each pass names its exact history slice.
 `ai/tests/test_artifact_recipe_preflight.py` proves that incompatible or
-nonfinite histories fail before publication. It also removes the entire
+nonfinite histories fail before the save. It also removes the entire
 history group from a valid saved artifact and requires model reconstruction to
 succeed, proving that historical curves are not prediction inputs.
 
@@ -922,7 +929,8 @@ numerator and reference norms, or absolute drift plus a named status, beside
 any relative value. If `||W0|| == 0`, report exact zero only when the drift
 norm is also zero. Otherwise report the absolute drift and a
 `zero-reference` status, never relative `0.0`. Verify parameter-key equality
-between the two states before publication. The declared key set and the two
+between the two states before the summary is saved. The declared key set
+and the two
 persisted states must reproduce the stored summary exactly. If the metric
 includes non-parameter state, name it state drift rather than weight drift.
 
@@ -930,7 +938,7 @@ includes non-parameter state, name it state drift rather than weight drift.
 matches a hand calculation and is invariant to buffer magnitude. An unchanged
 zero-reference parameter reports exact zero; a moved zero-reference parameter
 reports absolute drift and status. Missing or extra keys refuse before
-publication. A multi-parameter known answer and artifact readback both
+the summary is saved. A multi-parameter known answer and artifact readback both
 recompute the summary.
 
 ## Syren parameter aliases must agree
@@ -1183,8 +1191,9 @@ do not reveal the write/read inverse as one system.
   Distinguish pretrained base weights used as reference from drifted base
   weights used for prediction.
 - Prose must match executable behavior. Documentation may describe the
-  `.emul` and `.h5` pair as one atomic publication only when the public writer
-  and reader implement and test that property. Otherwise the direct-write
+  `.emul` and `.h5` pair as saved together only to the extent the public
+  writer and reader implement and test that property (temporary names
+  renamed into place; one shared pair token). Beyond that, the direct-write
   behavior and its interruption limit are stated explicitly.
 - Gates exercise the public save/rebuild pair and inspect the actual on-disk
   type, dtype, and device transitions. A test double is a small substitute
@@ -1469,7 +1478,7 @@ artifact corruption.
    `block_opts` and every optional lookup on the rebuild path.
 5. Embedded transfer-base recipes validate under the same schema.
 6. The live root model and live transfer base each expose their constructor
-   recipe. Publication requires exact equality between those recipes
+   recipe. Saving requires exact equality between those recipes
    and the corresponding claimed recipes.
 7. Recipe dimensions agree with class-specific geometry facts before any
    model, geometry, activation, normalization, or Torch implementation is
@@ -1809,7 +1818,8 @@ schema cannot honour is refused.**
   directory. The child also reads the configured deployment data files.
 - subprocess: `ai/gates/checks/gsv_bitwise_drift.py`.
 - metric: exact tensor equality between the live and rebuilt outputs; exact CPU
-  device type for every value in a nonempty tensor-only raw state dict; a raise
+  device type for every value in the checkpoint container's nonempty
+  tensor-only state dict; a raise
   (with the message named) for each refusal.
 - legs: 9, named `save-rebuild-drift.plain-rebuild-matches-live`,
   `.cpu-normalized-state`, `.factored-rebuild-matches-live`,

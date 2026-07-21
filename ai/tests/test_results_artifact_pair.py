@@ -3,8 +3,10 @@
 A trained emulator is saved in two files.  ``<root>.emul`` contains the
 learned tensors, while ``<root>.h5`` explains how those tensors must be
 interpreted.  These tests check that an occupied name is never replaced,
-that a failed save leaves no partial file, and that a corrupted checkpoint
-cannot execute code or masquerade as a model state.
+that a failed save leaves no partial file, that a corrupted checkpoint
+cannot execute code or masquerade as a model state, and that the two
+members prove they were saved together: each save writes one fresh random
+pair token into both files, and rebuilding refuses when the copies differ.
 
 The fixture is deliberately small: it is the same two-input, one-output model
 used by the compile-recipe gate.  No training data, CosmoLike installation, or
@@ -14,6 +16,7 @@ GPU is required.
 import os
 from pathlib import Path
 import shlex
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -106,7 +109,12 @@ class ArtifactPairTests(unittest.TestCase):
       members = sorted(path.name for path in Path(temp).iterdir())
       self.assertEqual(members, ["saved.emul", "saved.h5"])
 
-      direct_state = torch.load(_checkpoint_path(root), weights_only=True)
+      container = torch.load(_checkpoint_path(root), weights_only=True)
+      self.assertIs(type(container), dict)
+      self.assertEqual(set(container), {"pair_token", "state_dict"})
+      self.assertIsInstance(container["pair_token"], str)
+      self.assertTrue(container["pair_token"])
+      direct_state = container["state_dict"]
       self.assertIs(type(direct_state), dict)
       self.assertTrue(direct_state)
       self.assertTrue(all(torch.is_tensor(value)
@@ -174,6 +182,23 @@ class ArtifactPairTests(unittest.TestCase):
           _save(root, "default")
 
       self.assertEqual(_directory_snapshot(temp), before)
+
+  def test_mixed_pair_members_refuse(self):
+    """A checkpoint from another save cannot serve beside this record."""
+    with tempfile.TemporaryDirectory(prefix="artifact-pair-mixed-") as temp:
+      root_a = Path(temp) / "saved-a"
+      root_b = Path(temp) / "saved-b"
+      _save(root_a)
+      _save(root_b)
+
+      # both artifacts are individually valid; the mix pairs a's record
+      # with b's weights, which no single save ever produced together.
+      mixed = Path(temp) / "mixed"
+      shutil.copy2(_record_path(root_a), _record_path(mixed))
+      shutil.copy2(_checkpoint_path(root_b), _checkpoint_path(mixed))
+
+      with self.assertRaisesRegex(ValueError, "not from the same save"):
+        _rebuild(mixed)
 
   def test_unsafe_pickle_global_is_blocked_without_running_it(self):
     """A rewritten checkpoint cannot execute an unsafe pickle value."""

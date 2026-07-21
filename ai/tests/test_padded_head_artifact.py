@@ -192,9 +192,9 @@ def _rewrite_checkpoint(root, change_state):
   level; the tests below require the structured-head comparison to catch it.
   """
   checkpoint = _checkpoint_path(root)
-  state = torch.load(checkpoint, map_location=CPU, weights_only=True)
-  change_state(state)
-  torch.save(state, checkpoint)
+  container = torch.load(checkpoint, map_location=CPU, weights_only=True)
+  change_state(container["state_dict"])
+  torch.save(container, checkpoint)
 
 
 class PaddedHeadArtifactTests(unittest.TestCase):
