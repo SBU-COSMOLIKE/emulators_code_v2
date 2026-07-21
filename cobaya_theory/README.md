@@ -308,10 +308,9 @@ Do not write a literal `$ROOTDIR` inside the YAML. YAML does not ask the shell
 to expand that variable. Source `start_cocoa.sh` and run from `$ROOTDIR`
 instead.
 
-If `$ROOTDIR` is unset or does not name an existing absolute folder, the
-adapter refuses a relative root. It does not guess from the folder where
-`cobaya-run` happened to start. Source `start_cocoa.sh` first, or use an
-absolute saved-emulator root.
+If `$ROOTDIR` is unset, a relative root has nothing to join onto and the two
+saved files will not be found, so loading stops with a file error. Source
+`start_cocoa.sh` first, or use an absolute saved-emulator root.
 
 `python_path` follows Cobaya's external-class rule. From `$ROOTDIR`, use:
 
@@ -335,20 +334,23 @@ adapter Python file.
 
 The adapter reads the saved output description, so list order does not choose
 the physical order of cosmic-shear sections or the meaning of either
-exactly-two pair. Giving two roots with the same output name, the same
-canonical path, or an overlapping cosmic-shear block is refused.
+exactly-two pair. Giving two roots with the same output name or an
+overlapping cosmic-shear block is refused.
 
 ## FAQ A4. What does the adapter check when it loads files? <a id="faq-a4"></a>
 
-The adapter checks that every root belongs to its physical family. When several
-roots are used together, it also checks that they came from the same generated
-dataset and agree on saved scientific settings and parameter coordinates.
+The adapter checks that every root belongs to its physical family. When
+several roots are used together, it also checks that they agree on their
+saved scientific settings and parameter coordinates: two saved emulators that
+record different fixed cosmology values, different conventions, or different
+sampled-parameter lists refuse to be served together.
 
-Configuration values are checked before a saved model opens. For example,
-`compile` must be the YAML Boolean `true` or `false`; the text `"false"` is
-not accepted as a substitute. A device must be exactly `cpu`, `cuda`, or
-`mps`. Saved roots must be nonempty path strings, and two spellings that point
-to the same path cannot load one model twice.
+The `extra_args` block is checked before a saved model opens. A key the
+adapter does not document stops the run with the accepted keys named, and
+`emulators` must be a nonempty list — exactly two entries for `emul_baosn`
+and `emul_mps`. The requested `device` is one of `cpu`, `cuda`, or `mps`,
+and a requested accelerator that is unavailable on the machine falls back
+toward the CPU.
 
 After Cobaya has assembled the model, the adapter compares the saved fixed
 settings with the active Cobaya settings. A **fixed setting** is a quantity
@@ -470,7 +472,7 @@ configuration may still define `As` for another component, as shown in
 | `emul_scalars` | `device`, `emulators`, `provides`, `compile` |
 | `emul_cmb` | `device`, `emulators`, `compile` |
 | `emul_baosn` | `device`, `emulators`, `compile` |
-| `emul_mps` | `device`, `emulators`, `compile` |
+| `emul_mps` | `device`, `emulators`, `compile`, `allow_k_extrapolation` |
 
 An unknown key stops initialization and prints the allowed list. Values also
 keep their documented types: for example, `compile` is a Boolean rather than
@@ -661,9 +663,8 @@ satisfy $(C_\ell^{TE})^2 \le C_\ell^{TT}C_\ell^{EE}$. TE may have either
 sign. A refusal leaves Cobaya's sampled-point state unchanged.
 
 A likelihood cannot request a missing spectrum or a multipole above the
-stored maximum. Its requested maximum must be an integer in the stored range;
-a Boolean, decimal number, or quoted number is refused instead of being
-rounded or converted.
+stored maximum: a saved network has no accuracy beyond its training grid, so
+an out-of-range request stops the run instead of being truncated or padded.
 
 ## FAQ C4. Why does `emul_baosn` need two redshift ranges? <a id="faq-c4"></a>
 
@@ -736,11 +737,10 @@ wavenumber axis is in inverse Mpc. The stored surface must contain an exact
 $z=0$ row; a nearby redshift is not renamed as zero.
 
 Before returning the number, the adapter checks the positive contribution to
-the integral across the stored wavenumber grid. The contribution must decrease
-toward both missing ends, its estimated tails must be small, and two
-lower-resolution recalculations must agree with the full grid. A short or
-poorly sampled grid therefore stops with an explanation instead of returning
-a finite but incomplete value. A sigma-eight request adds `H0` only for this
+the integral across the stored wavenumber grid. The contribution must have
+decayed to a negligible level at both ends of the stored grid. A wavenumber
+range that cuts the integral short therefore stops with an explanation
+instead of returning a finite but incomplete value. A sigma-eight request adds `H0` only for this
 derived calculation. A saved emulator or a Syren formula may independently
 use `H0` as one of its own inputs.
 
@@ -837,7 +837,7 @@ Move to an MCMC only after all of these are true:
   custom renamed or derived parameters have been checked by the user;
 - background-expansion runs are flat; a matter-power run that requests
   `sigma8` supplies `H0`, contains an exact `z = 0` row, and passes the
-  adapter's wavenumber-tail and resolution checks;
+  adapter's wavenumber-tail check;
 - the MCMC uses a new output prefix.
 
 The conversion steps are in [FAQ B8](#faq-b8). The main README appendices

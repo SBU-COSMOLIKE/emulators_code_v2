@@ -86,7 +86,7 @@ LEG_AIDS = ("fixed-facts-schema.record-round-trip",
             "fixed-facts-schema.legacy-version-refused",
             "fixed-facts-schema.sampled-and-fixed-refused",
             "fixed-facts-schema.parameter-order-enforced",
-            "fixed-facts-schema.dataset-identity-is-the-chain",
+            "fixed-facts-schema.mutation-arms-red",
             "fixed-facts-schema.vertical-law-enforced",
             "fixed-facts-schema.horizontal-law-enforced",
             "fixed-facts-schema.domain-law-enforced",
@@ -188,7 +188,7 @@ def emit_unavailable(aid, blocker):
     print("##AID " + aid + " UNAVAILABLE " + reason)
 
 
-def facts_sidecar(dataset_id, names, requested, resolved):
+def facts_sidecar(names, requested, resolved):
     """Build a record under the fixture's one cosmology, over the given names.
 
     The equation-of-state parameter w is SAMPLED by this fixture, so it must not
@@ -202,8 +202,6 @@ def facts_sidecar(dataset_id, names, requested, resolved):
     to test, and the leg would still be green.
 
     Arguments:
-      dataset_id = the identity to record, so a caller can build two records
-                   that agree or disagree about which dataset they came from.
       names      = the sampled parameters, in the generator's canonical order.
       requested  = mapping name -> (low, high), the support the prior asked for.
       resolved   = mapping name -> (low, high), the support drawn from.
@@ -212,7 +210,6 @@ def facts_sidecar(dataset_id, names, requested, resolved):
       the sidecar's text.
     """
     return fixed_facts.build_sidecar(
-        dataset_id=dataset_id,
         generator="dataset_generator_mps",
         family="grid2d",
         cosmology_fixed={"mnu":  0.06,
@@ -231,31 +228,23 @@ def facts_sidecar(dataset_id, names, requested, resolved):
         resolved=resolved)
 
 
-def sample_sidecar(dataset_id="sha256:" + "a" * 64):
+def sample_sidecar():
     """Build the record a real matter-power dataset would publish.
-
-    Arguments:
-      dataset_id = the identity to record, so a caller can build two records
-                   that agree or disagree about which dataset they came from.
 
     Returns:
       the sidecar's text.
     """
-    return facts_sidecar(dataset_id=dataset_id,
-                         names=NAMES,
+    return facts_sidecar(names=NAMES,
                          requested=REQUESTED,
                          resolved=RESOLVED)
 
 
-def half_without_w_sidecar(dataset_id):
+def half_without_w_sidecar():
     """Build the record a half that never sampled the equation of state writes.
 
     Every fixed fact is identical to the record above, on purpose. The two
     differ in one thing only, the list of sampled coordinates, so the only law
     that can refuse the pair is the one that compares those lists.
-
-    Arguments:
-      dataset_id = the identity to record.
 
     Returns:
       the sidecar's text.
@@ -263,13 +252,12 @@ def half_without_w_sidecar(dataset_id):
     support = {}
     for name in NAMES_WITHOUT_W:
         support[name] = RESOLVED[name]
-    return facts_sidecar(dataset_id=dataset_id,
-                         names=NAMES_WITHOUT_W,
+    return facts_sidecar(names=NAMES_WITHOUT_W,
                          requested=support,
                          resolved=support)
 
 
-def box_sidecar(dataset_id, omegam_support):
+def box_sidecar(omegam_support):
     """Build a record whose omegam was drawn from the caller's interval.
 
     The served-support law reads the RESOLVED support only, so the requested one
@@ -277,7 +265,6 @@ def box_sidecar(dataset_id, omegam_support):
     a real dataset plays no part in this law.
 
     Arguments:
-      dataset_id     = the identity to record.
       omegam_support = (low, high), the interval omegam was drawn from.
 
     Returns:
@@ -287,13 +274,12 @@ def box_sidecar(dataset_id, omegam_support):
     for name in NAMES:
         support[name] = RESOLVED[name]
     support["omegam"] = omegam_support
-    return facts_sidecar(dataset_id=dataset_id,
-                         names=NAMES,
+    return facts_sidecar(names=NAMES,
                          requested=support,
                          resolved=support)
 
 
-def pinned_w_sidecar(dataset_id, w_value):
+def pinned_w_sidecar(w_value):
     """Build a record that HELD the equation of state fixed rather than sampling.
 
     The fixture above samples w, and the schema refuses a coordinate that is
@@ -302,8 +288,7 @@ def pinned_w_sidecar(dataset_id, w_value):
     coordinate, which means this record cannot sample it.
 
     Arguments:
-      dataset_id = the identity to record.
-      w_value    = the equation of state this record was generated under.
+      w_value = the equation of state this record was generated under.
 
     Returns:
       the sidecar's text.
@@ -312,7 +297,6 @@ def pinned_w_sidecar(dataset_id, w_value):
     for name in NAMES_WITHOUT_W:
         support[name] = RESOLVED[name]
     return fixed_facts.build_sidecar(
-        dataset_id=dataset_id,
         generator="dataset_generator_mps",
         family="grid2d",
         cosmology_fixed={"mnu":  0.06,
@@ -336,8 +320,7 @@ def double_sidecar(label):
     """Build the record a gate's test double publishes.
 
     Arguments:
-      label = what the double is for. Two doubles built under one label carry
-              one identity; two built under different labels do not.
+      label = what the double is for, named in the record's own bookkeeping.
 
     Returns:
       the sidecar's text.
@@ -536,7 +519,7 @@ def check_rewritten_record(work):
         del f[fixed_facts.SIDECAR_DATASET]
         dt = h5py.string_dtype(encoding="utf-8")
         f.create_dataset(fixed_facts.SIDECAR_DATASET,
-                         data=sample_sidecar(dataset_id="sha256:" + "b" * 64),
+                         data=half_without_w_sidecar(),
                          dtype=dt)
     swapped = refusal_of(lambda: read_artifact(other))
     report("a producer text swapped under its blocks is refused",
@@ -633,7 +616,6 @@ def check_sampled_and_fixed():
     """
     message = refusal_of(
         lambda: fixed_facts.build_sidecar(
-            dataset_id="sha256:" + "c" * 64,
             generator="dataset_generator_mps",
             family="grid2d",
             # w is sampled below, and pinned here. That is the contradiction.
@@ -693,57 +675,6 @@ def check_parameter_order():
            message is not None and repr(permuted) in message
            and repr(NAMES) in message,
            "both orders named")
-
-
-def check_dataset_identity(work):
-    """The dataset's identity is the digest of the chain that was published.
-
-    Two independent generator runs can agree on every fixed fact and every
-    bound and still be different datasets: same cosmology, same priors, a
-    different seed. Comparing the facts cannot tell them apart. The chain's own
-    bytes can, because they are the drawn sample.
-
-    Arguments:
-      work = a scratch directory to write into.
-
-    Returns:
-      None.
-    """
-    first = os.path.join(work, "params.1.txt")
-    with open(first, "w") as f:
-        f.write("# weights lnp omegam H0 ns logA w chi2*\n")
-        f.write("1.0 1.0 3.0e-01 7.0e+01 9.6e-01 3.0e+00 -1.0e+00 0.0\n")
-
-    # the same facts, the same bounds, a different draw. This is the pair the
-    # identity exists to tell apart.
-    second = os.path.join(work, "other.1.txt")
-    with open(second, "w") as f:
-        f.write("# weights lnp omegam H0 ns logA w chi2*\n")
-        f.write("1.0 1.0 3.1e-01 7.0e+01 9.6e-01 3.0e+00 -1.0e+00 0.0\n")
-
-    one = fixed_facts.chain_digest(first)
-    again = fixed_facts.chain_digest(first)
-    two = fixed_facts.chain_digest(second)
-
-    report("the identity recomputes to the same digest from the same bytes",
-           one == again,
-           one[:23] + "...")
-    report("two different draws carry different identities",
-           one != two,
-           "the digests differ")
-    report("the identity is a digest, and says so",
-           one.startswith("sha256:") and len(one) == len("sha256:") + 64,
-           "sha256, 64 hex digits")
-
-    # and it survives the copy into the artifact, which is the whole point: the
-    # emulator carries the identity of the dataset it was trained on.
-    path = os.path.join(work, "identity.h5")
-    write_artifact(path=path, text=sample_sidecar(dataset_id=one))
-    blocks = read_artifact(path)
-    stored = blocks[fixed_facts.FIXED_FACTS_GROUP]["dataset_id"]
-    report("the emulator carries its dataset's identity, unchanged",
-           stored == one,
-           "recomputed from the chain and matched")
 
 
 def check_mutation_arms(work):
@@ -887,50 +818,30 @@ def check_horizontal_law():
 
     Two emulators are served together all the time: a Hubble rate beside an
     angular diameter distance, a linear power spectrum beside its nonlinear
-    boost. Each pair is combined into ONE prediction, so each pair must come
-    from one dataset and one cosmology. Nothing checked that. The consumers
-    compared parameter-axis names, which agree between two runs that share a
-    prior and differ in every number that matters.
+    boost. Each pair is combined into ONE prediction, so each pair must
+    describe one cosmology, sampled over one set of coordinates. Nothing
+    checked that. The consumers compared parameter-axis names, which agree
+    between two runs that share a prior and differ in every number that
+    matters.
 
     Returns:
       None.
     """
-    first_dump = "sha256:" + "a" * 64
-    fresh_seed = "sha256:" + "b" * 64
-    one_dump   = "sha256:" + "d" * 64
-
-    one = blocks_of(sample_sidecar(dataset_id=first_dump))
-    two = blocks_of(sample_sidecar(dataset_id=first_dump))
+    one = blocks_of(sample_sidecar())
+    two = blocks_of(sample_sidecar())
     same = refusal_of(
         lambda: fixed_facts.check_horizontal(blocks_a=one,
                                              blocks_b=two,
                                              where_a="the first half",
                                              where_b="the second half"))
-    report("two halves of one dump may be served together",
+    report("two records with one cosmology may be served together",
            same is None,
-           "one identity, one cosmology, one coordinate list")
-
-    # the case comparing the facts cannot catch: the same YAML run again with a
-    # fresh seed. Every fact agrees, every bound agrees, and the two are still
-    # different datasets, because they drew different points.
-    rerun = blocks_of(sample_sidecar(dataset_id=fresh_seed))
-    message = refusal_of(
-        lambda: fixed_facts.check_horizontal(blocks_a=one,
-                                             blocks_b=rerun,
-                                             where_a="the first half",
-                                             where_b="a re-run of the same YAML"))
-    report("a re-run with a new seed is refused, though every fact agrees",
-           message is not None and "different datasets" in message,
-           (message or "accepted, which is the defect").splitlines()[0][:66])
-    report("the refusal names both dataset identities",
-           message is not None and first_dump in message
-           and fresh_seed in message,
-           "both digests printed")
+           "one cosmology, one coordinate list")
 
     # two records that pin the same coordinate at two values. They describe two
     # universes, and a prediction built from both halves is built from neither.
-    left = blocks_of(pinned_w_sidecar(dataset_id=one_dump, w_value=-1.0))
-    right = blocks_of(pinned_w_sidecar(dataset_id=one_dump, w_value=-0.9))
+    left = blocks_of(pinned_w_sidecar(w_value=-1.0))
+    right = blocks_of(pinned_w_sidecar(w_value=-0.9))
     message = refusal_of(
         lambda: fixed_facts.check_horizontal(blocks_a=left,
                                              blocks_b=right,
@@ -951,7 +862,7 @@ def check_horizontal_law():
     # never the union of the two halves: the half that never saw w would answer
     # as though it were pinned, and the two halves would be evaluated at
     # different points inside one prediction.
-    half = blocks_of(half_without_w_sidecar(dataset_id=first_dump))
+    half = blocks_of(half_without_w_sidecar())
     message = refusal_of(
         lambda: fixed_facts.check_horizontal(blocks_a=one,
                                              blocks_b=half,
@@ -966,8 +877,9 @@ def check_horizontal_law():
            and repr(NAMES_WITHOUT_W) in message,
            "both orders named")
 
-    # the schema semantics the gates' own served pairs rely on: a double's
-    # identity is the digest of its label, so a pair built to match matches.
+    # the schema semantics the gates' own served pairs rely on: two doubles
+    # declare the same all-"n/a" facts over one coordinate list, so a pair of
+    # them may be served together in a gate's fixture.
     pair_one = blocks_of(double_sidecar(label="one served pair"))
     pair_two = blocks_of(double_sidecar(label="one served pair"))
     same = refusal_of(
@@ -975,19 +887,9 @@ def check_horizontal_law():
                                              blocks_b=pair_two,
                                              where_a="one half of a double pair",
                                              where_b="the other half"))
-    report("two doubles built under one label are one dataset",
+    report("two doubles with one coordinate list pair up",
            same is None,
-           "the label's digest is the identity")
-
-    other = blocks_of(double_sidecar(label="a different double"))
-    message = refusal_of(
-        lambda: fixed_facts.check_horizontal(blocks_a=pair_one,
-                                             blocks_b=other,
-                                             where_a="a double",
-                                             where_b="an unrelated double"))
-    report("two doubles built under different labels are refused on identity",
-           message is not None and "different datasets" in message,
-           (message or "accepted, which is the defect").splitlines()[0][:66])
+           "the synthetic facts agree")
 
 
 def check_domain_law():
@@ -1130,10 +1032,8 @@ def check_served_support():
     Returns:
       None.
     """
-    lower = blocks_of(box_sidecar(dataset_id="sha256:" + "e" * 64,
-                                  omegam_support=(0.1, 0.5)))
-    upper = blocks_of(box_sidecar(dataset_id="sha256:" + "f" * 64,
-                                  omegam_support=(0.3, 0.9)))
+    lower = blocks_of(box_sidecar(omegam_support=(0.1, 0.5)))
+    upper = blocks_of(box_sidecar(omegam_support=(0.3, 0.9)))
 
     support = fixed_facts.served_support(blocks_a=lower,
                                          blocks_b=upper,
@@ -1156,8 +1056,7 @@ def check_served_support():
 
     # two regions that never met. The union would hand back the gap between
     # them, where neither half has ever seen a training point.
-    disjoint = blocks_of(box_sidecar(dataset_id="sha256:" + "0" * 64,
-                                     omegam_support=(0.6, 0.9)))
+    disjoint = blocks_of(box_sidecar(omegam_support=(0.6, 0.9)))
     message = refusal_of(
         lambda: fixed_facts.served_support(blocks_a=lower,
                                            blocks_b=disjoint,
@@ -1194,13 +1093,12 @@ def check_served_support():
 
 
 def weakened_horizontal(blocks_a, blocks_b, where_a, where_b):
-    """The horizontal law with the identity comparison taken out.
+    """The horizontal law with the fixed-facts comparison taken out.
 
-    This is the law as a reasonable person writes it the first time: compare the
-    facts, compare the coordinate lists, and trust that two records agreeing on
-    every fact came from one dataset. They did not. A re-run of the same YAML
-    with a fresh seed agrees on every fact and every bound and is a different
-    dataset, because it drew different points.
+    This is the law as a reasonable person writes it the first time: compare
+    the coordinate lists and trust that two records sampled over the same
+    coordinates describe one universe. They need not: two records can pin the
+    same coordinate at two different values and still sample identical lists.
 
     Arguments:
       blocks_a, blocks_b = the two artifacts' blocks.
@@ -1210,19 +1108,8 @@ def weakened_horizontal(blocks_a, blocks_b, where_a, where_b):
       None.
 
     Raises:
-      ValueError when a fact other than the identity, or the coordinate list,
-      disagrees.
+      ValueError when the coordinate lists disagree.
     """
-    facts_a = blocks_a[fixed_facts.FIXED_FACTS_GROUP]
-    facts_b = blocks_b[fixed_facts.FIXED_FACTS_GROUP]
-    for key in fixed_facts.FIXED_FACTS_KEYS:
-        if key == "dataset_id":
-            continue
-        if facts_a[key] != facts_b[key]:
-            raise ValueError(
-                where_a + " and " + where_b + " disagree about " + repr(key)
-                + ". Regenerate both halves from one generator run.")
-
     names_a = list(blocks_a[fixed_facts.INPUT_DOMAIN_GROUP]["names"])
     names_b = list(blocks_b[fixed_facts.INPUT_DOMAIN_GROUP]["names"])
     if names_a != names_b:
@@ -1357,47 +1244,43 @@ def check_comparison_mutations():
     Returns:
       None.
     """
-    first_dump = "sha256:" + "a" * 64
-    fresh_seed = "sha256:" + "b" * 64
-
-    one = blocks_of(sample_sidecar(dataset_id=first_dump))
-    rerun = blocks_of(sample_sidecar(dataset_id=fresh_seed))
+    one = blocks_of(sample_sidecar())
+    w_left = blocks_of(pinned_w_sidecar(w_value=-1.0))
+    w_right = blocks_of(pinned_w_sidecar(w_value=-0.9))
     blocks = blocks_of(sample_sidecar())
     double = blocks_of(double_sidecar(label="a gate's double"))
-    lower = blocks_of(box_sidecar(dataset_id="sha256:" + "e" * 64,
-                                  omegam_support=(0.1, 0.5)))
-    upper = blocks_of(box_sidecar(dataset_id="sha256:" + "f" * 64,
-                                  omegam_support=(0.3, 0.9)))
-    disjoint = blocks_of(box_sidecar(dataset_id="sha256:" + "0" * 64,
-                                     omegam_support=(0.6, 0.9)))
+    lower = blocks_of(box_sidecar(omegam_support=(0.1, 0.5)))
+    upper = blocks_of(box_sidecar(omegam_support=(0.3, 0.9)))
+    disjoint = blocks_of(box_sidecar(omegam_support=(0.6, 0.9)))
 
     outside = dict(INTERIOR)
     outside["omegam"] = 0.6
 
-    # ARM ONE: a horizontal law that never compares the identity. The re-run with
-    # a fresh seed agrees on every fact, so nothing else in the law can catch it.
+    # ARM ONE: a horizontal law that never compares the fixed facts. The two
+    # halves pin w at different values, so only the facts comparison can catch
+    # them: their coordinate lists agree.
     real_horizontal = fixed_facts.check_horizontal
     fixed_facts.check_horizontal = weakened_horizontal
     try:
         leaked = refusal_of(
-            lambda: fixed_facts.check_horizontal(blocks_a=one,
-                                                 blocks_b=rerun,
-                                                 where_a="the first half",
-                                                 where_b="a re-run"))
+            lambda: fixed_facts.check_horizontal(blocks_a=w_left,
+                                                 blocks_b=w_right,
+                                                 where_a="the half pinning w = -1.0",
+                                                 where_b="the half pinning w = -0.9"))
     finally:
         fixed_facts.check_horizontal = real_horizontal
-    report("mutation: a horizontal law blind to the identity reds its leg",
+    report("mutation: a horizontal law blind to the facts reds its leg",
            leaked is None,
-           "the re-run was served beside the original")
+           "two pinned cosmologies were served together")
 
     caught = refusal_of(
-        lambda: fixed_facts.check_horizontal(blocks_a=one,
-                                             blocks_b=rerun,
-                                             where_a="the first half",
-                                             where_b="a re-run"))
-    report("the identity comparison is back after the mutation",
-           caught is not None and "different datasets" in caught,
-           "the re-run refuses again")
+        lambda: fixed_facts.check_horizontal(blocks_a=w_left,
+                                             blocks_b=w_right,
+                                             where_a="the half pinning w = -1.0",
+                                             where_b="the half pinning w = -0.9"))
+    report("the facts comparison is back after the mutation",
+           caught is not None and "different universes" in caught,
+           "the disagreeing pair refuses again")
 
     # ARM TWO: a domain law that never reads the constraint. This is the arm the
     # float("n/a") trap lives in, so it is worth being precise about what red
@@ -1496,7 +1379,7 @@ def check_comparison_mutations():
     # The closing control. Every strict law is restored, and the faithful record
     # still passes all four comparisons: the arms red the mutation, not the
     # record.
-    twin = blocks_of(sample_sidecar(dataset_id=first_dump))
+    twin = blocks_of(sample_sidecar())
     ok_pair = refusal_of(
         lambda: fixed_facts.check_horizontal(blocks_a=one,
                                              blocks_b=twin,
@@ -1711,11 +1594,10 @@ def main():
             blocker = aid
         emitted.add(aid)
 
-        print("\n-- the identity is the published chain's digest --")
+        print("\n-- the record's own laws red when broken on purpose --")
         n0 = len(FAILURES)
-        check_dataset_identity(work)
         check_mutation_arms(work)
-        aid = "fixed-facts-schema.dataset-identity-is-the-chain"
+        aid = "fixed-facts-schema.mutation-arms-red"
         if not emit_leg(aid, n0):
             blocker = aid
         emitted.add(aid)

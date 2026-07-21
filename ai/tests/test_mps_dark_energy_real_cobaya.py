@@ -10,9 +10,9 @@ This file uses the installed Cobaya parameter engine rather than the small
 stand-ins used by the fast adapter tests.  The light Cobaya-only environment
 does not contain PyTorch, so two imports that are irrelevant to parameter
 routing are replaced while this test module loads: the saved neural-network
-reader and the device-option helpers.  The production matter-power adapter,
-its dark-energy reconstruction helper, and the shared Syren coordinate
-resolver remain the real repository code.
+reader and the torch module the device pick touches.  The production
+matter-power adapter, its dark-energy reconstruction helper, and the shared
+Syren coordinate resolver remain the real repository code.
 """
 
 import importlib.util
@@ -40,11 +40,7 @@ def _load_adapter_without_neural_network_runtime():
   inference.check_artifacts_fixed_values = lambda **kwargs: None
   inference.check_artifacts_pair_up = lambda **kwargs: None
 
-  contract = types.ModuleType("cobaya_theory._adapter_contract")
-  contract.exact_bool = lambda *args, **kwargs: False
-  contract.pick_device = lambda *args, **kwargs: None
-  contract.resolve_emulator_roots = lambda *args, **kwargs: []
-  contract.validate_extra_args = lambda *args, **kwargs: None
+  torch_stub = types.ModuleType("torch")
 
   module_name = "real_cobaya_dark_energy_mps_adapter"
   path = ROOT / "cobaya_theory" / "emul_mps.py"
@@ -53,7 +49,7 @@ def _load_adapter_without_neural_network_runtime():
   sys.modules[module_name] = module
   replacements = {
     "emulator.inference": inference,
-    "cobaya_theory._adapter_contract": contract,
+    "torch": torch_stub,
   }
   try:
     with mock.patch.dict(sys.modules, replacements):

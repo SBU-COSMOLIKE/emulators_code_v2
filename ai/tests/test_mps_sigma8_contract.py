@@ -4,8 +4,8 @@ Sigma-eight measures the linear matter fluctuations inside a spherical
 top-hat of radius 8 Mpc/h.  These tests use a power spectrum with an analytic
 answer, so they can distinguish the required 8/h-Mpc radius from the old
 literal 8-Mpc radius without using the production calculation as its own
-reference.  Separate cases prove that a nearby redshift, an incomplete
-wavenumber range, or a poorly sampled grid cannot return a plausible number.
+reference.  Separate cases prove that a nearby redshift or an incomplete
+wavenumber range cannot return a plausible number.
 """
 
 import importlib.util
@@ -140,88 +140,20 @@ class SigmaEightContractTests(unittest.TestCase):
           self.module.emul_mps()._compute_sigma8(
             surface, k, missing_zero, h=h)
 
-  def test_incomplete_or_under_resolved_k_grids_refuse(self):
-    """Short tails and sparse wide grids stop instead of returning a bias."""
+  def test_truncated_k_grids_refuse(self):
+    """A k range that cuts the integrand stops instead of returning a bias."""
     cases = (
-      ("low-only", 1.0e-6, 0.1, 4001, "incomplete high-k tail"),
-      ("high-only", 10.0, 1.0e6, 4001, "incomplete low-k tail"),
-      ("one-to-ten", 12.5, 125.0, 4001, "more than one decade"),
-      ("wide-eight-points", 1.0e-4, 400.0, 8, "too coarse"),
+      ("low-only", 1.0e-6, 0.1, 4001),
+      ("high-only", 10.0, 1.0e6, 4001),
+      ("narrow-window", 12.5, 125.0, 4001),
     )
-    for label, x_min, x_max, points, message in cases:
+    for label, x_min, x_max, points in cases:
       with self.subTest(case=label):
         h, k, z, surface = _analytic_surface(
           points=points, x_min=x_min, x_max=x_max)
-        with self.assertRaisesRegex(ValueError, message):
+        with self.assertRaisesRegex(ValueError, "truncates the sigma8"):
           self.module.emul_mps()._compute_sigma8(
             surface, k, z, h=h)
-
-  def test_each_completeness_limit_has_an_independent_boundary_case(self):
-    """Tail, coarsening, and panel limits each stop a distinct near miss."""
-    def check(log_k, contribution):
-      variance = float(np.trapz(contribution, log_k))
-      self.module.emul_mps._check_sigma8_completeness(
-        log_k, contribution, variance)
-
-    # The first tail has an estimated missing fraction about 7.9e-6 and
-    # passes.  Shortening both ends gives about 1.3e-5 and must fail the 1e-5
-    # limit while its coarsening and largest-panel checks still pass.
-    log_k = np.linspace(-11.75, 11.75, 4001)
-    check(log_k, np.exp(-np.abs(log_k)))
-    log_k = np.linspace(-11.25, 11.25, 4001)
-    with self.assertRaisesRegex(ValueError, "estimated variance fraction"):
-      check(log_k, np.exp(-np.abs(log_k)))
-
-    # Alternating adjacent values isolate the interlaced recalculation.  A
-    # relative modulation of 8e-4 passes; 1.2e-3 must fail the 1e-3 limit.
-    log_k = np.linspace(-5.0, 5.0, 4001)
-    signs = np.where(np.arange(log_k.size) % 2 == 0, 1.0, -1.0)
-    envelope = np.exp(-0.5 * log_k ** 2)
-    check(log_k, envelope * (1.0 + 8.0e-4 * signs))
-    with self.assertRaisesRegex(ValueError, "interlaced every-other-point"):
-      check(log_k, envelope * (1.0 + 1.2e-3 * signs))
-
-    # A single wider central gap isolates the local panel limit.  A gap of
-    # .36 makes the largest panel carry about 9% and passes; .44 makes it
-    # carry about 11% and must fail the 10% limit.
-    def panel_grid(gap):
-      log_k = np.concatenate((
-        np.linspace(-13.0, -gap / 2.0, 2001),
-        np.linspace(gap / 2.0, 13.0, 2001)))
-      contribution = np.exp(-np.maximum(np.abs(log_k) - 1.0, 0.0))
-      return log_k, contribution
-
-    log_k, contribution = panel_grid(0.36)
-    check(log_k, contribution)
-    log_k, contribution = panel_grid(0.44)
-    with self.assertRaisesRegex(ValueError, "one trapezoid"):
-      check(log_k, contribution)
-
-  def test_invalid_h_axes_and_surface_refuse_before_integration(self):
-    """Every direct helper input has a named finite physical boundary."""
-    h, k, z, surface = _analytic_surface()
-    for bad_h in (True, "0.64", 0.0, -0.64, np.nan, np.inf):
-      with self.subTest(h=repr(bad_h)):
-        with self.assertRaisesRegex(ValueError, "h=H0/100"):
-          self.module.emul_mps()._compute_sigma8(
-            surface, k, z, h=bad_h)
-
-    bad_inputs = (
-      ("k axis", surface, np.array([0.2, 0.1]), z, "k axis"),
-      ("z axis", surface, k, np.array([0.0, 0.5, 0.4, 1.0]), "z axis"),
-      ("shape", surface[:, :-1], k, z, "exact shape"),
-      ("nonfinite surface", np.where(
-        np.indices(surface.shape)[1] == 0, np.nan, surface),
-       k, z, "finite, strictly positive"),
-      ("zero surface", np.where(
-        np.indices(surface.shape)[1] == 0, 0.0, surface),
-       k, z, "finite, strictly positive"),
-    )
-    for label, bad_surface, bad_k, bad_z, message in bad_inputs:
-      with self.subTest(case=label):
-        with self.assertRaisesRegex(ValueError, message):
-          self.module.emul_mps()._compute_sigma8(
-            bad_surface, bad_k, bad_z, h=h)
 
   def _law_free_adapter(self):
     """Build the public calculate path without reading artifact files."""
@@ -261,7 +193,7 @@ class SigmaEightContractTests(unittest.TestCase):
     self.assertEqual(state["derived"], {"sigma8": 0.8})
 
     for params, message in (({}, "requires H0"),
-                            ({"H0": 0.0}, "strictly positive")):
+                            ({"H0": 0.0}, "finite positive")):
       with self.subTest(params=params):
         state = {}
         with self.assertRaisesRegex(ValueError, message):

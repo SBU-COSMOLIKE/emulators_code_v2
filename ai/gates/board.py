@@ -1896,11 +1896,10 @@ def gate_fixed_facts_schema(ctx):
   after the write disagrees with the producer text stored beside it and is
   refused; a missing record, an unknown grammar, a coordinate both sampled and
   held fixed, and a whitening geometry that disagrees with the record about the
-  parameter order are each refused with the way out named; the dataset's
-  identity recomputes from the published chain's bytes. Two mutation arms red
-  the legs that guard the version law and the verbatim copy. The live proof that
-  a REAL emulator with trained weights survives the same round trip needs torch
-  and is owned by the save/rebuild gate (spec: gates-and-board.md).
+  parameter order are each refused with the way out named. Two mutation arms
+  red the legs that guard the version law and the verbatim copy. The live proof
+  that a REAL emulator with trained weights survives the same round trip needs
+  torch and is owned by the save/rebuild gate (spec: gates-and-board.md).
   """
   # the legs are asserted IN the child, which emits one ##AID each; this rc
   # check is the child's single aggregate verdict, so it carries no aid of its
@@ -1951,12 +1950,12 @@ def gate_adapter_contracts(ctx):
   """adapter-contracts: shared input and publication rules on the CPU.
 
   The child runs focused tests for all five Cobaya emulator adapters.  Its
-  first group checks strict YAML values, canonical model paths, and safe
-  cosmic-shear section composition.  Its second group checks scalar and CMB
-  publication, matter-power dependencies, and copies at every public array
-  boundary.  Most tests use small stand-ins, and one scalar test uses the
-  installed Cobaya lifecycle.  No model is trained and no scientific dataset
-  is needed.
+  first group checks that a malformed extra_args block is refused loudly and
+  that cosmic-shear section composition is safe.  Its second group checks
+  scalar and CMB publication, matter-power dependencies, and copies at every
+  public array boundary.  Most tests use small stand-ins, and one scalar test
+  uses the installed Cobaya lifecycle.  No model is trained and no scientific
+  dataset is needed.
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("ai/gates/checks/adapter_contracts.py")
@@ -2522,13 +2521,12 @@ BOARD = [
             "beside it and is refused; a missing record, a grammar this code "
             "does not know, a coordinate both sampled and held fixed, and a "
             "whitening geometry that disagrees with the record about the "
-            "parameter order are each refused with the way out named; the "
-            "dataset's identity recomputes from the published chain's bytes. "
+            "parameter order are each refused with the way out named. "
             "On top of the record, the THREE comparison laws it exists to "
             "serve: a concrete fixed value exposed under the same name by the "
             "artifact and resolved model is refused if it differs (vertical); "
-            "two artifacts fitted to "
-            "different datasets, or describing different universes, may not be "
+            "two artifacts "
+            "describing different universes may not be "
             "served together (horizontal); a point outside the region an "
             "artifact was trained over is refused rather than extrapolated "
             "into (domain), and a served pair's region is the INTERSECTION of "
@@ -2548,8 +2546,8 @@ BOARD = [
                            "artifacts-inference-warmstart.md#fixed-facts-schema-sampled-and-fixed-refused"),
                  Assertion("fixed-facts-schema.parameter-order-enforced",
                            "artifacts-inference-warmstart.md#fixed-facts-schema-parameter-order-enforced"),
-                 Assertion("fixed-facts-schema.dataset-identity-is-the-chain",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-dataset-identity-is-the-chain"),
+                 Assertion("fixed-facts-schema.mutation-arms-red",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-mutation-arms-red"),
                  Assertion("fixed-facts-schema.vertical-law-enforced",
                            "artifacts-inference-warmstart.md#fixed-facts-schema-vertical-law-enforced"),
                  Assertion("fixed-facts-schema.horizontal-law-enforced",
@@ -2575,7 +2573,7 @@ BOARD = [
             "required parameters and its served section from the artifact "
             "rather than from the YAML, refuses a wrong-kind artifact by name, "
             "and runs the record's three comparison laws at its own site -- a "
-            "pair fitted to different datasets is refused, a concrete fixed "
+            "pair describing different universes is refused, a concrete fixed "
             "value exposed under the same name by the artifact and resolved "
             "model is refused if it differs when cobaya hands over the provider; "
             "a provider without named constants leaves that limited check "
@@ -2601,11 +2599,11 @@ BOARD = [
        title="Shared Cobaya adapter inputs and public results",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="focused CPU checks cover the shared rules used by all five "
-            "Cobaya adapters. Actual booleans, documented device names, "
-            "known YAML keys, and distinct model paths are required. "
+       maps="focused CPU checks cover the rules shared by all five "
+            "Cobaya adapters. Unknown YAML keys and malformed emulator "
+            "lists are refused loudly. "
             "Cosmic-shear sections follow physical block order and refuse "
-            "overlaps or inconsistent widths. The gate validates exact "
+            "overlaps or inconsistent widths. The gate validates "
             "scalar and CMB request forms, matter power keeps "
             "one amplitude name and a valid quantity/unit/law tuple, and "
             "each covered public array result is an owned copy",
@@ -2619,8 +2617,7 @@ BOARD = [
                    "publication-and-owned-results")),
        run=gate_adapter_contracts,
        manifest=Manifest(
-         code=("cobaya_theory/_adapter_contract.py",
-               "cobaya_theory/emul_cosmic_shear.py",
+         code=("cobaya_theory/emul_cosmic_shear.py",
                "cobaya_theory/emul_scalars.py",
                "cobaya_theory/emul_cmb.py",
                "cobaya_theory/emul_baosn.py",

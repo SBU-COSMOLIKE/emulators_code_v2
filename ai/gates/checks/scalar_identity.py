@@ -217,17 +217,28 @@ def scalar_recipe():
     }
 
 
+def pinned_record(text, fixed_mnu):
+    """Pin one cosmology value in a record's text, for the horizontal leg."""
+    if fixed_mnu is None:
+        return text
+    blocks = yaml.safe_load(text)
+    blocks[fixed_facts.FIXED_FACTS_GROUP]["cosmology_fixed"]["mnu"] = fixed_mnu
+    fixed_facts.validate(blocks, where="the scalar-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
+
+
 def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
-                          in_names=None, out_names=None, support=None):
+                          in_names=None, out_names=None, support=None,
+                          fixed_mnu=None):
     """Build, then save, a tiny synthetic scalar emulator under `root`.
 
     A ParamGeometry over the written covmat (inputs), a ScalarGeometry over
     synthetic targets (outputs), and a freshly initialized ResMLP. No
     training runs, the identity path only needs consistent weights.
 
-    `label` is what this double is for. It fixes the identity of the scientific
-    record the saved file carries; the comment at the save below says why the
-    file carries one at all.
+    `label` is what this double is for, named in the record's bookkeeping.
+    `fixed_mnu` pins one cosmology value, so a pair mixing two values of it
+    disagrees about a fixed fact and refuses to be served together.
 
     `support` is the region the double stands for, as a mapping name -> (low,
     high). A double the gate PREDICTS THROUGH declares one, because a real
@@ -275,10 +286,7 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
     recipe["output_dim"] = len(out_names)
     # A saved emulator now carries the science it was born under. This one was
     # born under nothing: no generator produced it, so it declares itself a
-    # test double rather than carrying no record at all. The label says what
-    # the double is for, and it fixes the identity the record holds: doubles
-    # that belong to one dataset are handed the same label, doubles that must
-    # be told apart are handed different ones.
+    # test double rather than carrying no record at all.
     save_emulator(path_root=str(root),
                   model=model,
                   param_geometry=pgeom,
@@ -293,16 +301,18 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=(fixed_facts.synthetic_sidecar(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="scalar",
-                      support=None)
-                    if support is None else supported_test_record(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="scalar",
-                      support=support)),
+                  facts_yaml=pinned_record(
+                      fixed_facts.synthetic_sidecar(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="scalar",
+                          support=None)
+                      if support is None else supported_test_record(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="scalar",
+                          support=support),
+                      fixed_mnu=fixed_mnu),
                   # rescale rides the run-identity attrs so the artifact is
                   # a valid finetune source (load_source refuses an
                   # ambiguous one — the never-trust-defaults rule).
@@ -691,10 +701,9 @@ def check_adapter(tmp, device):
                        needle="not a scalar",
                        law="the wrong-kind law")
 
-    # two artifacts fitted to DIFFERENT datasets -> loud. The served set is
-    # unioned into one theory block, so it has to be one dataset; two runs that
-    # agree on every fact and every bound still drew different points, and only
-    # the identity can tell them apart.
+    # two artifacts describing DIFFERENT universes -> loud. The served set is
+    # unioned into one theory block, so it has to describe one cosmology; this
+    # half pins the neutrino mass at another value.
     #
     # The pair handed over is topologically VALID on purpose: distinct outputs,
     # no input that is another's output, both scalar. The adapter runs those
@@ -703,16 +712,17 @@ def check_adapter(tmp, device):
     # that never ran.
     root_e = os.path.join(tmp, "emul_e")
     save_synthetic_scalar(root_e, device, os.path.join(tmp, "e.covmat"),
-                          label="scalar-identity/adapter-foreign-dataset",
+                          label="scalar-identity/adapter-foreign-universe",
                           seed=50, in_names=["omegabh2", "omegach2"],
-                          out_names=["rdrag"])
+                          out_names=["rdrag"],
+                          fixed_mnu=0.15)
     try:
         _build(cls, [root_a, root_e])
-        report("mismatched dataset identity raises", False, "no raise")
+        report("mismatched fixed facts raise", False, "no raise")
     except ValueError as e:
-        report_refusal("mismatched dataset identity raises", e,
-                       needle="different datasets",
-                       law="the dataset-identity law")
+        report_refusal("mismatched fixed facts raise", e,
+                       needle="different universes",
+                       law="the horizontal facts law")
 
 
 def _save_tiny_dv(root, device):

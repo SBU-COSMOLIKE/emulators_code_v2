@@ -141,7 +141,7 @@ def supported_test_record(names, label, family, support):
     CoCoA uses NumPy 1. A validation environment may contain NumPy 2, whose
     float32 representation includes ``np.float32(...)``. That text is not a
     decimal number. Keeping this conversion inside the synthetic gate avoids
-    changing production formatting or the scientific-record digest.
+    changing production formatting.
     """
     blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
         names=names, label=label, family=family, support=None))
@@ -277,13 +277,24 @@ def cmb_recipe(n_ell):
     }
 
 
+def pinned_record(text, fixed_mnu):
+    """Pin one cosmology value in a record's text, for the horizontal leg."""
+    if fixed_mnu is None:
+        return text
+    blocks = yaml.safe_load(text)
+    blocks[fixed_facts.FIXED_FACTS_GROUP]["cosmology_fixed"]["mnu"] = fixed_mnu
+    fixed_facts.validate(blocks, where="the CMB-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
+
+
 def save_synthetic_cmb(root, device, tmp, label, spectrum="tt",
-                       law="as_exp2tau_ref", n_ell=200, seed=0, support=None):
+                       law="as_exp2tau_ref", n_ell=200, seed=0, support=None,
+                       fixed_mnu=None):
     """Build, then save, a tiny synthetic CMB emulator under `root`.
 
-    `label` is what this double is for. It fixes the identity of the scientific
-    record the saved file carries; the comment at the save below says why the
-    file carries one at all.
+    `label` is what this double is for, named in the record's bookkeeping.
+    `fixed_mnu` pins one cosmology value, so a pair mixing two values of it
+    disagrees about a fixed fact and refuses to be served together.
 
     `support` is the region the double stands for, as a mapping name -> (low,
     high). A double the gate PREDICTS through declares one -- the box a real
@@ -360,16 +371,18 @@ def save_synthetic_cmb(root, device, tmp, label, spectrum="tt",
                   transfer_refined=False,
                   resolved_pce=None,
                   resolved_transfer=None,
-                  facts_yaml=(fixed_facts.synthetic_sidecar(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="cmb",
-                      support=None)
-                    if support is None else supported_test_record(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="cmb",
-                      support=support)),
+                  facts_yaml=pinned_record(
+                      fixed_facts.synthetic_sidecar(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="cmb",
+                          support=None)
+                      if support is None else supported_test_record(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="cmb",
+                          support=support),
+                      fixed_mnu=fixed_mnu),
                   attrs={"rescale": "none", "spectrum": spectrum})
     return pgeom, geom, model, chi2fn
 
@@ -851,27 +864,27 @@ def check_adapter(tmp, device):
                        needle="two emulators provide the spectrum",
                        law="the duplicate-spectrum law")
 
-    # the dataset-identity law: everything the adapter serves is combined into
-    # one theory block, so it must all come from ONE generator dump. This pair
+    # the horizontal facts law: everything the adapter serves is combined
+    # into one theory block, so it must all describe ONE cosmology. This pair
     # is topologically PERFECT -- a TT emulator and an EE emulator, one spectrum
     # each, one units convention -- so every configuration law the adapter runs
-    # first passes and the refusal that fires is the identity one. The only
-    # thing wrong with the pair is what the arm is about: the EE double was
-    # saved under a label of its own, so its record carries a different dataset
-    # identity, and two emulators fitted to different datasets describe two
-    # different universes however well their axes line up.
+    # first passes and the refusal that fires is the facts one. The only thing
+    # wrong with the pair is what the arm is about: the EE double pins the
+    # neutrino mass at another value, so the two records describe two different
+    # universes however well their axes line up.
     root_ee2 = os.path.join(tmp, "ad_ee_other")
     save_synthetic_cmb(root_ee2, device, tmp,
-                       label="cmb-identity/adapter-other-dataset",
+                       label="cmb-identity/adapter-other-universe",
                        spectrum="ee",
-                       law="none", n_ell=100, seed=115)
+                       law="none", n_ell=100, seed=115,
+                       fixed_mnu=0.15)
     try:
         _build_adapter(cls, [root_tt, root_ee2])
-        report("two datasets served together raise", False, "no raise")
+        report("two universes served together raise", False, "no raise")
     except ValueError as e:
-        report_refusal("two datasets served together raise", e,
-                       needle="different datasets",
-                       law="the dataset-identity law")
+        report_refusal("two universes served together raise", e,
+                       needle="different universes",
+                       law="the horizontal facts law")
 
 
 def check_roughness(device):

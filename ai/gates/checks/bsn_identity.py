@@ -91,13 +91,15 @@ GRID_SUPPORT = {"omegam": (0.26, 0.36),
 
 
 def background_test_record(names, label, family, support=None,
-                           flat_only=True):
+                           flat_only=True, fixed_mnu=None):
     """Write one synthetic background record with explicit curvature."""
     blocks = yaml.safe_load(fixed_facts.synthetic_sidecar(
         names=names, label=label, family=family, support=None))
     facts = blocks[fixed_facts.FIXED_FACTS_GROUP]
     facts["flat_only"] = flat_only
     facts["cosmology_fixed"]["omk"] = 0.0 if flat_only else 0.01
+    if fixed_mnu is not None:
+        facts["cosmology_fixed"]["mnu"] = fixed_mnu
     if support is not None:
         domain = blocks[fixed_facts.INPUT_DOMAIN_GROUP]
         domain["constraint"] = "box"
@@ -624,12 +626,13 @@ def grid_recipe(nz):
 
 def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=None, seed=0, support=None, flat_only=True):
+                        z=None, seed=0, support=None, flat_only=True,
+                        fixed_mnu=None):
     """Build, then save, a tiny synthetic grid emulator under `root`.
 
-    `label` fixes the identity of the scientific record the file carries:
-    doubles that belong to one dataset are handed the same label, doubles that
-    must be told apart are handed different ones.
+    `label` names what the double is for in the record's bookkeeping;
+    `fixed_mnu` pins one cosmology value, so a pair mixing two values of it
+    disagrees about a fixed fact and refuses to be served together.
 
     `support` is the region the double stands for, as a mapping name -> (low,
     high). A double the gate PREDICTS THROUGH declares one, because a real
@@ -674,10 +677,7 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
     # A saved emulator now carries the science it was born under. This one was
     # born under nothing: no generator produced it, so it declares itself a
-    # test double rather than carrying no record at all. The label says what
-    # the double is for, and it fixes the identity the record holds: doubles
-    # that belong to one dataset are handed the same label, doubles that must
-    # be told apart are handed different ones.
+    # test double rather than carrying no record at all.
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
@@ -693,7 +693,8 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                       label=label,
                       family="grid",
                       support=support,
-                      flat_only=flat_only),
+                      flat_only=flat_only,
+                      fixed_mnu=fixed_mnu),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -1073,17 +1074,17 @@ def check_adapter(tmp, device):
     except ValueError as e:
         # NOTE the needle names the pair-COUNT law, not the missing-quantity
         # one. A one-root emulators list is refused by the "exactly TWO" guard
-        # (cobaya_theory/emul_baosn.py:90) before any artifact is loaded, so
-        # the by-quantity scan that would say "no loaded artifact declares
-        # quantity 'D_M'" (:134) is never reached from here. Needling that
-        # message would demand text this call site cannot produce; needling the
-        # one that does fire is what makes the leg refuse an identity error.
-        # The missing-quantity guard has a leg of its own (the
+        # in emul_baosn.initialize before any artifact is loaded, so the
+        # by-quantity scan that would say "no loaded artifact declares
+        # quantity 'D_M'" is never reached from here. Needling that message
+        # would demand text this call site cannot produce; needling the one
+        # that does fire is what makes the leg refuse an identity error. The
+        # missing-quantity guard has a leg of its own (the
         # check_missing_quantity leg below): reaching it needs a TWO-root list
         # of distinct quantities with no D_M among them, which is exactly the
         # fixture that leg builds.
         report_refusal("missing D_M raises", e,
-                       needle="exactly 2",
+                       needle="exactly TWO",
                        law="the pair-count law")
     root_h2 = os.path.join(tmp, "ad_h2")
     # a second Hubble emulator, built to be refused beside the first. It carries
@@ -1106,10 +1107,9 @@ def check_adapter(tmp, device):
                        needle="two artifacts both declare quantity",
                        law="the duplicate-quantity law")
 
-    # two artifacts fitted to DIFFERENT datasets -> loud. The pair is combined
-    # into ONE expansion history, so it has to come from one dataset: two runs
-    # of the same YAML agree on every fixed fact and every bound and still drew
-    # different points, and only the identity can tell them apart.
+    # two artifacts describing DIFFERENT universes -> loud. The pair is
+    # combined into ONE expansion history, so it has to describe one cosmology;
+    # this half pins the neutrino mass at another value.
     #
     # The pair handed over is topologically VALID on purpose -- one 'Hubble' and
     # one 'D_M', the units each half is served in, windows that do not overlap
@@ -1118,17 +1118,18 @@ def check_adapter(tmp, device):
     # would be naming a law that never ran.
     root_h_other = os.path.join(tmp, "ad_h_other")
     save_synthetic_grid(root_h_other, device, tmp,
-                        label="bsn-identity/adapter-foreign-dataset",
+                        label="bsn-identity/adapter-foreign-universe",
                         quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=np.linspace(0.0, 3.0, 64), seed=110)
+                        z=np.linspace(0.0, 3.0, 64), seed=110,
+                        fixed_mnu=0.15)
     try:
         _build(cls, [root_h_other, root_dm])
-        report("mismatched dataset identity raises", False, "no raise")
+        report("mismatched fixed facts raise", False, "no raise")
     except ValueError as e:
-        report_refusal("mismatched dataset identity raises", e,
-                       needle="different datasets",
-                       law="the dataset-identity law")
+        report_refusal("mismatched fixed facts raise", e,
+                       needle="different universes",
+                       law="the horizontal facts law")
 
 
 def check_missing_quantity(tmp, device):

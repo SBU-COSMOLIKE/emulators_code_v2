@@ -2,8 +2,8 @@
 """Run the CPU checks shared by all five Cobaya emulator adapters.
 
 The first group checks the values read from YAML and the order used when
-several cosmic-shear sections form one result.  For example, the quoted text
-``"false"`` is refused instead of being treated as true, and two sections are
+several cosmic-shear sections form one result.  For example, a misspelled
+extra_args key is refused instead of being ignored, and two sections are
 placed in physical data-vector order rather than YAML order.
 
 The second group checks what the adapters publish to Cobaya.  For example, a

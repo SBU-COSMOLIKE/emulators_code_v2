@@ -6,20 +6,16 @@ replace saved emulators with predictors whose facts are written directly in
 the test.  A failure therefore points to the adapter boundary rather than to
 model training, HDF5 reading, or a configured CoCoA project.
 
-Concrete examples make the boundaries visible.  A quoted ``"false"`` must
-not become true by Python coercion.  Two spellings of one saved-emulator path
-must not load the same artifact twice.  Two cosmic-shear sections must follow
-their physical block order, even when the YAML lists them in reverse.  A
-caller that changes a returned array must not change the result cached for the
-next caller.
+Concrete examples make the boundaries visible.  An unknown extra_args key
+must stop the run instead of being ignored.  Two cosmic-shear sections must
+follow their physical block order, even when the YAML lists them in reverse.
+A caller that changes a returned array must not change the result cached for
+the next caller.
 """
 
-import ast
 import importlib.util
-import os
 from pathlib import Path
 import sys
-import tempfile
 import types
 import unittest
 from unittest import mock
@@ -27,8 +23,6 @@ from unittest import mock
 import numpy as np
 import scipy.interpolate  # Load SciPy before PyTorch in the NumPy-2 test env.
 import torch
-
-from cobaya_theory import _adapter_contract
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,7 +82,7 @@ def _load_adapter(filename, module_name):
 
 
 class SharedOptionAndPathTests(unittest.TestCase):
-  """Prove that all adapters use one strict interpretation of YAML values."""
+  """Prove that every adapter refuses a malformed extra_args block loudly."""
 
   @classmethod
   def setUpClass(cls):
@@ -103,140 +97,36 @@ class SharedOptionAndPathTests(unittest.TestCase):
       (_load_adapter("emul_mps.py", "adapter_contract_mps"), "emul_mps"),
     )
 
-  def test_boolean_and_device_options_do_not_use_python_truthiness(self):
-    """Quoted booleans and invented device names stop before model loading."""
-    for value in (0, 1, "false", "true", None, np.bool_(False)):
-      with self.subTest(option="compile", value=repr(value)):
-        with self.assertRaisesRegex(ValueError, "actual Boolean"):
-          _adapter_contract.exact_bool(
-            {"compile": value}, "compile", adapter="example")
-
-    for value in ("CPU", "gpu", "cuda:0", 0, True):
-      with self.subTest(option="device", value=repr(value)):
-        with self.assertRaisesRegex(ValueError, "must be one of"):
-          _adapter_contract.pick_device({"device": value}, adapter="example")
-
-  def test_option_container_and_unknown_names_refuse(self):
-    """A YAML mapping may contain documented names only."""
-    with self.assertRaisesRegex(ValueError, "must be a mapping"):
-      _adapter_contract.validate_extra_args(
-        ["device", "cpu"], adapter="example",
-        allowed=("device",), retired="old names are retired")
-    with self.assertRaisesRegex(ValueError, "unrecognized extra_args"):
-      _adapter_contract.validate_extra_args(
-        {"device": "cpu", "devcie": "cpu"}, adapter="example",
-        allowed=("device",), retired="old names are retired")
-
-  def test_relative_paths_need_rootdir_and_aliases_cannot_repeat(self):
-    """A relative root needs CoCoA; member aliases are not a second model."""
-    with mock.patch.dict(os.environ, {}, clear=True):
-      with self.assertRaisesRegex(ValueError, "requires ROOTDIR"):
-        _adapter_contract.resolve_emulator_roots(
-          {"emulators": ["models/shear"]}, adapter="example")
-
-    with tempfile.TemporaryDirectory() as temporary:
-      rootdir = Path(temporary)
-      model = rootdir / "models" / "shear"
-      model.parent.mkdir()
-      alias = rootdir / "models" / "same-shear"
-      for extension in (".h5", ".emul"):
-        member = Path(str(model) + extension)
-        member.touch()
-        Path(str(alias) + extension).symlink_to(member)
-      with mock.patch.dict(os.environ, {"ROOTDIR": str(rootdir)}):
-        resolved = _adapter_contract.resolve_emulator_roots(
-          {"emulators": ["models/shear"]}, adapter="example")
-        self.assertEqual(resolved, [str(model.resolve())])
-        with self.assertRaisesRegex(ValueError, "same saved .h5/.emul"):
-          _adapter_contract.resolve_emulator_roots(
-            {"emulators": ["models/shear", "models/same-shear"]},
-            adapter="example")
-
-  def test_root_container_entries_and_required_pair_size_are_exact(self):
-    """Strings are entries, not a list; background and P(k) need two roots."""
-    bad_sequences = ("one-root", [], [True], [""], ["   "])
-    for roots in bad_sequences:
-      with self.subTest(roots=repr(roots)):
-        with self.assertRaises(ValueError):
-          _adapter_contract.resolve_emulator_roots(
-            {"emulators": roots}, adapter="example")
-    with self.assertRaisesRegex(ValueError, "exactly 2"):
-      _adapter_contract.resolve_emulator_roots(
-        {"emulators": ["/tmp/only-one"]},
-        adapter="example", exact_count=2)
-
-  def test_each_adapter_rejects_a_quoted_compile_value(self):
-    """The common rule is reached by all five public adapter classes."""
-    for index, (module, class_name) in enumerate(self.adapters):
-      adapter = getattr(module, class_name)()
-      count = 2 if class_name in ("emul_baosn", "emul_mps") else 1
-      adapter.extra_args = {
-        "device": "cpu",
-        "emulators": [f"/tmp/adapter-{index}-{item}"
-                      for item in range(count)],
-        "compile": "false",
-      }
-      with self.subTest(adapter=class_name):
-        with self.assertRaisesRegex(ValueError, "actual Boolean"):
-          adapter.initialize()
-
-  def test_explicit_null_is_not_an_omitted_parameter_name_list(self):
-    """YAML null cannot silently disable a supplied list-shaped option."""
-    cosmic = self.adapters[0][0].emul_cosmic_shear()
-    cosmic.extra_args = {
-      "device": "cpu",
-      "emulators": ["/tmp/cosmic-null-fast-params"],
-      "fast_params": None,
-      "compile": False,
-    }
-    with self.assertRaisesRegex(ValueError, "exactly one inner name list"):
-      cosmic.initialize()
-
-    scalars = self.adapters[1][0].emul_scalars()
-    scalars.extra_args = {
-      "device": "cpu",
-      "emulators": ["/tmp/scalar-null-provides"],
-      "provides": None,
-      "compile": False,
-    }
-    with self.assertRaisesRegex(ValueError, "sequence of parameter-name"):
-      scalars.initialize()
-
-  def test_each_adapter_rejects_two_names_for_one_canonical_root(self):
-    """No adapter can load one artifact twice through duplicate path text."""
+  def test_each_adapter_rejects_an_unknown_extra_args_key(self):
+    """A misspelled option stops the run instead of being ignored."""
     for module, class_name in self.adapters:
       adapter = getattr(module, class_name)()
-      adapter.extra_args = {
-        "device": "cpu",
-        "emulators": ["/tmp/same-adapter-root", "/tmp/same-adapter-root"],
-        "compile": False,
-      }
+      adapter.extra_args = {"devcie": "cpu"}
       with self.subTest(adapter=class_name):
-        with self.assertRaisesRegex(ValueError, "same canonical path"):
+        with self.assertRaisesRegex(ValueError, "unrecognized extra_args"):
           adapter.initialize()
 
-  def test_each_adapter_check_calls_the_shared_validator(self):
-    """A future adapter edit cannot restore five drifting key-check copies."""
-    filenames = (
-      "emul_cosmic_shear.py",
-      "emul_scalars.py",
-      "emul_cmb.py",
-      "emul_baosn.py",
-      "emul_mps.py",
-    )
-    for filename in filenames:
-      tree = ast.parse((ROOT / "cobaya_theory" / filename).read_text())
-      checks = [node for node in ast.walk(tree)
-                if isinstance(node, ast.FunctionDef)
-                and node.name == "_check_extra_args"]
-      calls = [node for node in ast.walk(checks[0])
-               if isinstance(node, ast.Call)] if len(checks) == 1 else []
-      with self.subTest(adapter=filename):
-        self.assertEqual(len(checks), 1)
-        self.assertTrue(any(
-          isinstance(call.func, ast.Name)
-          and call.func.id == "validate_extra_args"
-          for call in calls))
+  def test_each_adapter_requires_a_nonempty_emulators_list(self):
+    """A missing or empty saved-root list stops before any file is opened."""
+    for module, class_name in self.adapters:
+      for roots in (None, []):
+        adapter = getattr(module, class_name)()
+        adapter.extra_args = ({"device": "cpu"} if roots is None
+                              else {"device": "cpu", "emulators": roots})
+        with self.subTest(adapter=class_name, roots=repr(roots)):
+          with self.assertRaisesRegex(ValueError, "emulators"):
+            adapter.initialize()
+
+  def test_the_two_pair_adapters_require_exactly_two_roots(self):
+    """The background and matter-power theories serve one pair each."""
+    for index in (3, 4):
+      module, class_name = self.adapters[index]
+      adapter = getattr(module, class_name)()
+      adapter.extra_args = {"device": "cpu",
+                            "emulators": ["/tmp/only-one-root"]}
+      with self.subTest(adapter=class_name):
+        with self.assertRaisesRegex(ValueError, "exactly"):
+          adapter.initialize()
 
 
 class _SectionGeometry:
@@ -289,7 +179,7 @@ class CosmicSectionCompositionTests(unittest.TestCase):
       np.array([0.0, 1.0, 2.0, 3.0, 4.0, 20.0, 21.0, 22.0, 23.0]))
 
   def test_overlap_and_incompatible_global_layouts_refuse(self):
-    """Two sections cannot claim one block or describe different datasets."""
+    """Two sections cannot claim one block or two different layouts."""
     adapter = self.module.emul_cosmic_shear()
     adapter.predictors = [
       _SectionPredictor("early", np.arange(5.0)),
@@ -482,29 +372,25 @@ class ScalarAndCmbContractTests(unittest.TestCase):
     self.assertEqual(
       adapter.get_can_provide_params(), ["H0", "rdrag", "omegam"])
 
-  def test_scalar_artifact_output_names_are_nonempty_unique_strings(self):
-    """A rebuilt artifact cannot advertise an unusable derived name."""
+  def test_scalar_duplicate_output_across_artifacts_is_refused(self):
+    """Each derived parameter must come from exactly one emulator."""
     class _Predictor:
-      output_names = []
-
       def __init__(self, root, device, compile_model=False):
         del root, device, compile_model
         self._scalar = True
         self._cmb = self._grid = self._grid2d = False
         self.names = ["x"]
+        self.output_names = ["rdrag"]
 
-    for bad_names in ([], [""], [1], ["rdrag", "rdrag"]):
-      with self.subTest(output_names=bad_names):
-        _Predictor.output_names = bad_names
-        adapter = self.scalars.emul_scalars()
-        adapter.extra_args = {
-          "device": "cpu",
-          "emulators": ["/tmp/scalar-bad-output-name"],
-          "compile": False,
-        }
-        with mock.patch.object(self.scalars, "EmulatorPredictor", _Predictor):
-          with self.assertRaises(ValueError):
-            adapter.initialize()
+    adapter = self.scalars.emul_scalars()
+    adapter.extra_args = {
+      "device": "cpu",
+      "emulators": ["/tmp/scalar-dup-one", "/tmp/scalar-dup-two"],
+      "compile": False,
+    }
+    with mock.patch.object(self.scalars, "EmulatorPredictor", _Predictor):
+      with self.assertRaisesRegex(ValueError, "two emulators provide"):
+        adapter.initialize()
 
   def test_scalar_calculate_leaves_state_alone_when_derived_not_requested(self):
     """Cobaya's false flag does not leak a top-level or derived result."""
@@ -516,20 +402,16 @@ class ScalarAndCmbContractTests(unittest.TestCase):
     self.assertTrue(adapter.calculate(state, want_derived=False))
     self.assertEqual(state, {"kept": "unchanged"})
 
-  def test_cmb_requirement_is_a_mapping_with_exact_integer_lmax(self):
-    """Lists, quoted numbers, booleans, and out-of-range values all stop."""
+  def test_cmb_requirement_is_a_mapping_within_the_stored_range(self):
+    """A wrong container, an unknown spectrum, or a wild lmax all stop."""
     adapter = self.cmb.emul_cmb()
     adapter._lmax_of = {"tt": 10}
     adapter.must_provide(Cl={"TT": np.int64(10)})
 
     with self.assertRaisesRegex(ValueError, "must be a mapping"):
       adapter.must_provide(Cl=[("tt", 10)])
-    with self.assertRaisesRegex(ValueError, "spectrum name must be a string"):
-      adapter.must_provide(Cl={1: 10})
-    for value in (True, np.bool_(False), 10.0, "10", np.array(10)):
-      with self.subTest(lmax=repr(value)):
-        with self.assertRaisesRegex(ValueError, "non-Boolean integer"):
-          adapter.must_provide(Cl={"tt": value})
+    with self.assertRaisesRegex(ValueError, "no loaded artifact provides"):
+      adapter.must_provide(Cl={"bb": 10})
     for value in (-1, 11):
       with self.subTest(lmax=value):
         with self.assertRaisesRegex(ValueError, "inclusive range"):

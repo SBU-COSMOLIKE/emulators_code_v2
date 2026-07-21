@@ -81,11 +81,10 @@ class FinetuneSource:
 
   ``load_source`` constructs one ``FinetuneSource`` object per experiment.
   Later geometry and training steps reuse that object. A successful
-  construction performs one authenticated read of ``<root>.h5`` inside
-  ``rebuild_emulator`` and one matching weight-file load. That read returns
-  the rebuilt network and geometries together with the saved model recipe and
-  resolved data configuration, so ``load_source`` never reopens a pathname
-  that another publication could replace between reads.
+  construction performs one read of ``<root>.h5`` inside ``rebuild_emulator``
+  and one matching weight-file load. That read returns the rebuilt network
+  and geometries together with the saved model recipe and resolved data
+  configuration, so ``load_source`` never has to reopen the pathname.
 
   Attributes:
     root       = resolved absolute source path root (<root>.h5 + <root>.emul).
@@ -333,10 +332,9 @@ def load_source(
   The HDF5 read is owned by ``rebuild_emulator``. It reconstructs the
   eager source network and both source geometries, then loads the weights from
   ``<root>.emul``. Eager means that ``torch.compile`` has not wrapped the
-  network, so state-dict keys carry no compile prefix. The same authenticated
-  read returns the recipe, saved rescale value, and resolved data block needed
-  below. This function does not reopen the HDF5 pathname: doing so could mix a
-  model from one publication with metadata from a replacement publication.
+  network, so state-dict keys carry no compile prefix. The same read returns
+  the recipe, saved rescale value, and resolved data block needed below, so
+  this function never has to reopen the HDF5 pathname.
 
   The function then enforces the source-artifact constraints: a plain
   ParamGeometry input geometry, no PCE base, no embedded transfer base and a
@@ -361,16 +359,16 @@ def load_source(
 
   Returns:
     a FinetuneSource carrying the parity-reference model, both geometries,
-    the recipe, the exact authenticated pair identity, and the values later
-    steps validate against (its .ia is the factored design or None).
+    the recipe, the resolved source root, and the values later steps
+    validate against (its .ia is the factored design or None).
 
   Raises:
     ValueError / KeyError naming any constraint the source artifact breaks.
   """
-  # Rebuild the source network and both geometries from the authenticated
-  # saved recipe and geometry records. rebuild_emulator also loads the weight
-  # file once. compile_model=False keeps the module eager, so its state_dict
-  # keys carry no "_orig_mod." compile prefix.
+  # Rebuild the source network and both geometries from the saved recipe
+  # and geometry records. rebuild_emulator also loads the weight file once.
+  # compile_model=False keeps the module eager, so its state_dict keys carry
+  # no "_orig_mod." compile prefix.
   model, pgeom, geom, info = rebuild_emulator(
     path_root=root,
     device=device,

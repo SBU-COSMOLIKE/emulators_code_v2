@@ -28,6 +28,7 @@ network.
 import os
 import sys
 
+import torch
 from cobaya.theory import Theory
 
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so the
@@ -37,13 +38,6 @@ from emulator.inference import (                               # noqa: E402
     EmulatorPredictor,
     check_artifacts_fixed_values,
     check_artifacts_pair_up,
-)
-from cobaya_theory._adapter_contract import (                   # noqa: E402
-    exact_bool,
-    name_sequence,
-    pick_device,
-    resolve_emulator_roots,
-    validate_extra_args,
 )
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
@@ -74,17 +68,17 @@ class emul_scalars(Theory):
         """Build the predictors and assemble the requirements + provides."""
         super().initialize()
         self._check_extra_args()
-        self.device = pick_device(self.extra_args, adapter="emul_scalars")
-        roots = resolve_emulator_roots(
-            self.extra_args, adapter="emul_scalars")
-        compile_model = exact_bool(
-            self.extra_args, "compile", adapter="emul_scalars")
-        if "provides" in self.extra_args:
-            declared = name_sequence(
-                self.extra_args["provides"], adapter="emul_scalars",
-                option="provides")
-        else:
-            declared = None
+        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
+
+        roots = self.extra_args.get("emulators")
+        if not roots:
+            raise ValueError(
+                "emul_scalars: extra_args needs a non-empty 'emulators' list "
+                "of saved scalar-emulator path roots (each root -> <root>.h5 "
+                "+ <root>.emul).")
+        compile_model = bool(self.extra_args.get("compile", False))
+        declared = self.extra_args.get("provides")
+        rootdir = os.environ.get("ROOTDIR", "")
 
         # one predictor per root. The requirements are the union of the
         # predictors' stored input names; the provides the union of their
@@ -94,7 +88,8 @@ class emul_scalars(Theory):
         provided_by = {}       # output name -> the root that provides it
         req = {}               # required input names (a cobaya dict)
         for root in roots:
-            predictor = EmulatorPredictor(root, self.device,
+            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
+            predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard: a data-vector artifact rebuilds without
             # output_names, so reject it loudly here rather than dying
@@ -116,14 +111,7 @@ class emul_scalars(Theory):
             self.predictors.append(predictor)
             # duplicate output across two artifacts = loud: a derived
             # parameter must be produced by exactly one emulator.
-            output_names = name_sequence(
-                predictor.output_names,
-                adapter="emul_scalars",
-                option="output_names",
-                allow_empty=False,
-                label="artifact " + repr(root) + " output_names",
-            )
-            for name in output_names:
+            for name in predictor.output_names:
                 if name in provided_by:
                     raise ValueError(
                         "emul_scalars: two emulators provide the output "
@@ -176,9 +164,9 @@ class emul_scalars(Theory):
                 "emul_scalars: output name(s) " + repr(collisions)
                 + " are reserved by Cobaya state and cannot be published")
 
-        # horizontal law, LAST: every configuration law above has passed, so
-        # the served set is a well-formed one. Only now is it worth asking
-        # whether those artifacts are ONE dataset.
+        # cross-artifact law, LAST: every configuration law above has passed,
+        # so the served set is a well-formed one. Only now is it worth asking
+        # whether those artifacts describe one cosmology over one region.
         check_artifacts_pair_up(predictors=self.predictors)
 
     def initialize_with_provider(self, provider):
@@ -190,11 +178,38 @@ class emul_scalars(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        validate_extra_args(
-            self.extra_args, adapter="emul_scalars",
-            allowed=_ALLOWED_EXTRA_ARGS,
-            retired=("the legacy ord / extrapar / extra / file keys are "
-                     "retired because the artifact stores those facts"))
+        unknown = []
+        for key in self.extra_args:
+            if key not in _ALLOWED_EXTRA_ARGS:
+                unknown.append(key)
+        if unknown:
+            raise ValueError(
+                "emul_scalars: unrecognized extra_args key(s) "
+                f"{sorted(unknown)}. The schema-v2 convention accepts only "
+                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
+                "extra / file keys are retired (the h5 recipe + stored names "
+                "replace them, the emulator file IS the emulator).")
+
+    @staticmethod
+    def _pick_device(requested):
+        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
+
+        Arguments:
+          requested = the extra_args 'device' string (cpu / cuda / mps).
+
+        Returns:
+          a torch.device, falling back to cpu when the requested accelerator
+          is unavailable (cuda -> mps -> cpu, matching emul_cosmic_shear).
+        """
+        req = str(requested).lower()
+        if req == "cuda" and torch.cuda.is_available():
+            return torch.device("cuda")
+        if (req in ("cuda", "mps")
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()):
+            return torch.device("mps")
+        return torch.device("cpu")
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""

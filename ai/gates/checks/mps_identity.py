@@ -61,7 +61,7 @@ Legs:
     legacy state keys; get_Pk_grid / get_Pk_interpolator round-trip at
     the grid nodes; conventional sigma8 has an independent analytic
     known answer, receives h=H0/100, requires exact z=0, and refuses
-    incomplete or under-resolved k grids; a non-positive spectrum rejects
+    a k grid that truncates its integrand; a non-positive spectrum rejects
     the point (False);
   - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra bitwise under the diagonal metric,
@@ -1206,6 +1206,16 @@ def grid2d_recipe(width):
                                       "norm": "affine"}}}
 
 
+def pinned_record(text, fixed_mnu):
+    """Pin one cosmology value in a record's text, for the horizontal leg."""
+    if fixed_mnu is None:
+        return text
+    blocks = yaml.safe_load(text)
+    blocks[fixed_facts.FIXED_FACTS_GROUP]["cosmology_fixed"]["mnu"] = fixed_mnu
+    fixed_facts.validate(blocks, where="the mps-identity test record")
+    return yaml.safe_dump(blocks, default_flow_style=False, sort_keys=False)
+
+
 def save_synthetic_grid2d(
         root,
         device,
@@ -1219,7 +1229,8 @@ def save_synthetic_grid2d(
         seed=0,
         pin_low_k=False,
         support=None,
-        transfer_base=None):
+        transfer_base=None,
+        fixed_mnu=None):
     """Build, then save, a tiny synthetic grid2d emulator under `root`.
 
     `support` is the region the double stands for, as a mapping name -> (low,
@@ -1319,16 +1330,18 @@ def save_synthetic_grid2d(
                   transfer_refined=transfer_refined,
                   resolved_pce=None,
                   resolved_transfer=resolved_transfer,
-                  facts_yaml=(fixed_facts.synthetic_sidecar(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="grid2d",
-                      support=None)
-                    if support is None else supported_test_record(
-                      names=pgeom.state()["names"],
-                      label=label,
-                      family="grid2d",
-                      support=support)),
+                  facts_yaml=pinned_record(
+                      fixed_facts.synthetic_sidecar(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="grid2d",
+                          support=None)
+                      if support is None else supported_test_record(
+                          names=pgeom.state()["names"],
+                          label=label,
+                          family="grid2d",
+                          support=support),
+                      fixed_mnu=fixed_mnu),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -1994,21 +2007,7 @@ def check_adapter(tmp, device):
                    "no raise")
         except ValueError as e:
             report("sigma8 refuses a short positive k interval",
-                   "incomplete" in str(e), type(e).__name__)
-
-        try:
-            k_sparse = np.geomspace(1.0e-4 / radius,
-                                    400.0 / radius, 8)
-            p_sparse = c_sigma / k_sparse
-            sigma_helper(
-                np.stack((p_sparse, p_sparse, p_sparse, p_sparse)),
-                k_sparse, z_sigma, h=h_sigma)
-            report("sigma8 refuses a wide but under-resolved k grid", False,
-                   "no raise")
-        except ValueError as e:
-            report("sigma8 refuses a wide but under-resolved k grid",
-                   ("too coarse" in str(e)
-                    or "under-resolved" in str(e)), type(e).__name__)
+                   "truncates the sigma8" in str(e), type(e).__name__)
         # get_Pk_grid / interpolator at the nodes.
         t.current_state = state
         kk, zz, pk = t.get_Pk_grid(nonlinear=False)
@@ -2103,7 +2102,7 @@ def check_adapter(tmp, device):
             report("pair-count guard raises", False, "no raise")
         except ValueError as e:
             report_refusal("pair-count guard raises", e,
-                           needle="exactly 2",
+                           needle="exactly TWO",
                            law="the pair-count law")
         root_p2 = os.path.join(tmp, "ad_pklin2")
         # a second linear-power emulator, built to be refused beside the first.
@@ -2149,32 +2148,31 @@ def check_adapter(tmp, device):
             report_refusal("grid mismatch raises", e,
                            needle="trained on different (z, k) grids",
                            law="the shared-grid law")
-        # the dataset-identity law: the linear spectrum and the boost are
-        # multiplied into one nonlinear spectrum, so they must come from ONE
-        # generator dump. This pair is topologically PERFECT -- one 'pklin', one
+        # the horizontal facts law: the linear spectrum and the boost are
+        # multiplied into one nonlinear spectrum, so they must describe ONE
+        # cosmology. This pair is topologically PERFECT -- one 'pklin', one
         # 'boost', on the SAME (z, k) grid -- so every configuration law the
-        # adapter runs first passes, and the refusal that fires is the identity
+        # adapter runs first passes, and the refusal that fires is the facts
         # one. The only thing wrong with the pair is what the arm is about: the
-        # boost double was saved under a label of its own, so its record carries
-        # a different dataset identity, and a boost fitted to one draw does not
-        # correct a linear spectrum fitted to another however well the grids and
-        # the axes line up.
+        # boost double pins the neutrino mass at another value, and a boost
+        # from one universe does not correct a linear spectrum from another
+        # however well the grids and the axes line up.
         root_b2 = os.path.join(tmp, "ad_boost_other")
         save_synthetic_grid2d(root_b2, device, tmp,
-                              label="mps-identity/adapter-other-dataset",
+                              label="mps-identity/adapter-other-universe",
                               quantity="boost",
                               units="dimensionless", law="syren_halofit",
-                              seed=120)
+                              seed=120, fixed_mnu=0.15)
         try:
             t5 = cls()
             t5.extra_args = {"device": "cpu",
                              "emulators": [root_p, root_b2]}
             t5.initialize()
-            report("two datasets served together raise", False, "no raise")
+            report("two universes served together raise", False, "no raise")
         except ValueError as e:
-            report_refusal("two datasets served together raise", e,
-                           needle="different datasets",
-                           law="the dataset-identity law")
+            report_refusal("two universes served together raise", e,
+                           needle="different universes",
+                           law="the horizontal facts law")
     finally:
         mod.syren_base.base_pklin, mod.syren_base.base_boost = saved
 

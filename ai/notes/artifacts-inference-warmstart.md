@@ -351,33 +351,23 @@ the bridge is not part of the adapter's scientific requirement.
 <a id="adapter-contracts-strict-inputs-and-composition"></a>
 #### Focused input and cosmic-shear composition evidence
 
-`adapter-contracts.strict-inputs-and-composition` checks the shared value and
-path rules below, then constructs concrete cosmic-shear section plans. It
+`adapter-contracts.strict-inputs-and-composition` checks the extra_args
+refusals below, then constructs concrete cosmic-shear section plans. It
 requires disjoint sections to follow physical block order and requires
 overlaps, incompatible layouts, repeated full vectors, and wrong widths to
 stop before they can become a likelihood vector.
 
 #### Adapter values, multi-emulator assembly, and CMB requests
 
-All five adapters validate both extra-argument keys and values. Forbidden
-coercion patterns illustrate the failure:
-
-- `bool(extra_args.get("compile", False))` treats the nonempty string
-  `"false"` as true and enables compilation.
-- `os.environ.get("ROOTDIR", "")` turns a missing CoCoA root into a path
-  relative to the current directory.
-- An unchecked `emulators` string is iterated one character at a time; a
-  two-character string can even satisfy a length-of-two check.
-- `str(...)` around `dv_return` converts an invalid type instead of refusing
-  it.
-
-**Rule.** One adapter-value validator serves all five classes. `compile` is
-an exact Boolean. `device` is an exact registered string, and an invalid name
-is distinct from a valid but unavailable accelerator. `emulators` is a
-nonempty sequence of unique, nonempty path strings and has exactly two entries
-for BAOSN or MPS. Relative paths require a valid `ROOTDIR`. Canonical roots
-cannot repeat. `provides`, `fast_params`, and `dv_return` must have their
-documented types and shapes before any artifact is loaded.
+**Rule.** Each adapter checks its own extra_args inline, in a few direct
+lines. An unknown key is refused loudly, naming the accepted keys and the
+retired legacy ones. `emulators` must be a nonempty list, with exactly two
+entries for BAOSN or MPS. A relative root is joined onto `ROOTDIR`. The
+device pick resolves `cpu` / `cuda` / `mps` and falls back toward the CPU
+when the requested accelerator is unavailable. Values are otherwise read
+with the plain YAML types the sampler configuration produces; the deleted
+shared strict-value validator module is not restored (ruled
+over-engineering and removed).
 
 **Composition rule.** Multi-emulator mode must never concatenate full-vector
 predictions blindly. Under `dv_return: 3x2pt`, multiple predictors are refused
@@ -390,17 +380,18 @@ disjoint multi-probe case preserves its defined ordering. Blind
 serve an overlapping likelihood block twice.
 
 **CMB request rule.** `must_provide` requires the angular-spectrum (`Cl`)
-request to be a mapping. Every maximum multipole, `lmax`, is an exact
-non-Boolean integer in the supported range. Applying `int(lmax)` is forbidden
-because it would truncate fractions and accept Booleans or quoted integers.
+request to be a mapping, requires every requested spectrum to be one a
+loaded artifact provides, and requires the requested maximum multipole to
+sit inside the artifact's stored range — an emulator has no accuracy beyond
+its training grid, so an out-of-range request is refused rather than
+truncated or zero-padded.
 
-**Acceptance evidence.** The adapter-value checks must refuse a quoted-false
-compile value, an unknown device, a relative root when `ROOTDIR` is missing, a
-string supplied as `emulators`, duplicate canonical roots, and malformed
-`fast_params` or `provides`. Composition checks must refuse two full vectors,
+**Acceptance evidence.** The adapter-value checks must refuse an unknown
+extra_args key, a missing or empty `emulators` list, and a one-root list
+handed to a pair adapter. Composition checks must refuse two full vectors,
 duplicate sections, and overlapping sections while accepting one disjoint
-section pair. CMB request checks must refuse fractional, Boolean, quoted, or
-otherwise malformed `lmax` values.
+section pair. CMB request checks must refuse a non-mapping request, an
+unknown spectrum, and an out-of-range `lmax`.
 
 The MPS pair validator enforces the serving tuples
 `pklin/Mpc3/(none|syren_linear)` and
@@ -1275,18 +1266,16 @@ let a permutation through, and a permutation silently pairs every incoming value
 with the wrong parameter's column: the predictions are then confidently wrong
 and nothing about the numbers looks unusual.
 
-<a id="fixed-facts-schema-dataset-identity-is-the-chain"></a>
-The stable evidence name `fixed-facts-schema.dataset-identity-is-the-chain`
-records one narrow durable rule: the chain fingerprint in the scientific
-record must be recomputed from the saved chain bytes. Two different draws
-carry different chain fingerprints, while the staged-selection records saved
-with the run say which rows of that draw actually trained.
-Two negative controls establish that the rule matters: accepting a legacy
-schema must fail the version leg, and deriving a bound even slightly wider
-than the recorded value must fail the verbatim-copy leg. A valid control
-confirms that the faithful file still reads. Two runs can agree on fixed facts
-and bounds while differing in chain, payload, axes, failure state, or
-continuation state, so no single member can identify the complete dataset.
+<a id="fixed-facts-schema-mutation-arms-red"></a>
+`fixed-facts-schema.mutation-arms-red` breaks the record's own laws on
+purpose and requires the guarding legs to go red: accepting a legacy schema
+must fail the version leg, and a stored block edited away from the producer
+text beside it must fail the verbatim-copy leg. A valid control confirms
+that the faithful file still reads. (The chain-digest dataset identity
+this leg once carried was ruled over-engineering and removed: which rows
+trained is recorded by the staged-selection records, and which universe an
+artifact belongs to is recorded by its facts — a byte digest of the chain
+added only an identity layer on top of both.)
 
 <a id="fixed-facts-schema-vertical-law-enforced"></a>
 `fixed-facts-schema.vertical-law-enforced` provides a basic fixed-value check.
@@ -1301,10 +1290,11 @@ the user's responsibility.
 
 <a id="fixed-facts-schema-horizontal-law-enforced"></a>
 `fixed-facts-schema.horizontal-law-enforced` verifies that artifacts combined
-in one prediction use the same `dataset_id`, fixed cosmology, and
-sampled-coordinate set. `dataset_id` is compared as an opaque string. This
-distinguishes independent chains that used the same cosmology and bounds but
-different random draws. A mismatch is refused with both values named.
+in one prediction record the same fixed cosmology, the same conventions, and
+the same sampled-coordinate set. A mismatch is refused with the disagreeing
+fact and both values named. Two artifacts trained on different draws of the
+same design pass: they approximate the same physical maps, so serving them
+together is sound.
 
 <a id="fixed-facts-schema-domain-law-enforced"></a>
 `fixed-facts-schema.domain-law-enforced` verifies each requested point before
@@ -1323,7 +1313,7 @@ compared by equality.
 
 <a id="fixed-facts-schema-comparison-laws-are-load-bearing"></a>
 `fixed-facts-schema.comparison-laws-are-load-bearing` requires targeted
-negative controls. The checks must fail when `dataset_id` comparison is
+negative controls. The checks must fail when the fixed-facts comparison is
 removed, undeclared support is accepted, an outside point is accepted, or
 support union replaces intersection. Direct fixed-value match, mismatch,
 missing-name, renamed-name, and `n/a` controls state the deliberately limited
@@ -1354,8 +1344,8 @@ gate may claim the other's capability boundary or evidence.
 <a id="cs-adapter-identity-record-laws-refuse"></a>
 `cs-adapter-identity.record-laws-refuse` requires the cosmic-shear adapter to
 enforce all three comparison laws at their owning boundaries. After
-configuration validation, initialization refuses artifacts from different
-datasets. When Cobaya supplies the provider, the adapter compares directly
+configuration validation, initialization refuses artifacts that describe
+different universes. When Cobaya supplies the provider, the adapter compares directly
 named artifact constants with directly named model constants. An unavailable
 or renamed value is inconclusive rather than a refusal. Before encoding each
 point, `predict` refuses values outside stored support and records with

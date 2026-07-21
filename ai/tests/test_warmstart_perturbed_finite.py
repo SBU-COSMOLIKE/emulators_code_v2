@@ -361,7 +361,7 @@ class WarmstartPerturbedFiniteTests(unittest.TestCase):
       if field_name == "self":
         continue
       self.assertIn(field_name, doc)
-    self.assertIn("one authenticated read", doc)
+    self.assertIn("one read of", doc)
     self.assertIn("one matching weight-file load", doc)
     self.assertIn("``nla``", doc)
     self.assertIn("``tatt``", doc)

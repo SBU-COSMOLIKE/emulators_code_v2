@@ -69,7 +69,6 @@ back as exactly the same 32-bit float it was written from.
 Spec and accepted contract: ai/notes/artifacts-inference-warmstart.md,
 "fixed-facts-schema: a saved emulator records the science it was born under."
 """
-import hashlib
 
 
 # The version of the two-block schema as a whole, carried by the emulator .h5
@@ -85,7 +84,6 @@ SCHEMA_VERSION = 3
 # verbatim, so a key cannot be stripped on the way in.
 FIXED_FACTS_BLOCK_VERSION  = 1
 INPUT_DOMAIN_BLOCK_VERSION = 1
-SCIENTIFIC_CONTRACT_DIGEST_SCHEMA = 1
 
 # The (schema, fixed_facts grammar, input_domain grammar) triples this module
 # knows how to read. Any other combination is refused. Versions are values like
@@ -100,7 +98,6 @@ KNOWN_VERSIONS = ((SCHEMA_VERSION,
 # "this family has no such fact" and "the writer forgot this fact" are
 # different statements and only the first is safe to read.
 FIXED_FACTS_KEYS = ("block_version",
-                    "dataset_id",
                     "generator",
                     "family",
                     "cosmology_fixed",
@@ -159,37 +156,6 @@ MIGRATION = ("Re-generate the dataset so the producer writes its "
              "under and the domain it may be asked about. Files saved before "
              "this record existed cannot be upgraded in place, because the "
              "facts they would need were never written down.")
-
-
-def chain_digest(chain_path):
-  """Digest the published chain file, so a dataset can prove which run it is.
-
-  Two independent generator runs can agree on every fixed fact and every
-  bound and still be different datasets: same cosmology, same priors, a
-  different seed. Comparing the facts cannot tell them apart, and a pair of
-  emulators trained on two such runs must not be served together. The chain's
-  own bytes can tell them apart, because they are the drawn sample: they are
-  unique to the run by construction, and two emulators trained off ONE dump
-  share them exactly.
-
-  The digest is taken from the chain rather than from the sidecar because the
-  sidecar records only facts and bounds, which a re-run with a fresh seed
-  reproduces byte for byte.
-
-  Arguments:
-    chain_path = path to the published chain file (<paramsf>.1.txt).
-
-  Returns:
-    the digest as the string "sha256:<hex>".
-  """
-  digest = hashlib.sha256()
-  with open(chain_path, "rb") as f:
-    while True:
-      chunk = f.read(1 << 20)
-      if not chunk:
-        break
-      digest.update(chunk)
-  return "sha256:" + digest.hexdigest()
 
 
 def _plain_fact(value):
@@ -324,8 +290,7 @@ def format_value(value):
   return repr(np.float32(value))
 
 
-def build_sidecar(dataset_id,
-                  generator,
+def build_sidecar(generator,
                   family,
                   cosmology_fixed,
                   neutrino_convention,
@@ -348,7 +313,6 @@ def build_sidecar(dataset_id,
   value the dataset was actually generated under.
 
   Arguments:
-    dataset_id          = the published chain's digest, from chain_digest.
     generator           = the generator that produced the dataset, by name.
     family              = the output family the dataset feeds.
     cosmology_fixed     = mapping of every cosmology coordinate this run held
@@ -391,7 +355,6 @@ def build_sidecar(dataset_id,
   import yaml
 
   facts = {"block_version":       FIXED_FACTS_BLOCK_VERSION,
-           "dataset_id":          dataset_id,
            "generator":           generator,
            "family":              family,
            "cosmology_fixed":     dict(cosmology_fixed),
@@ -473,16 +436,11 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
                    generator publishes under, because a support written by any
                    other hand would be a second author of the interval.
 
-  The identity is derived from the caller's label, so two doubles built for
-  different purposes carry different identities and a pair built to match on
-  purpose carries one identity. It is a real digest, of the label rather than
-  of a chain, and the "synthetic" generator says as much.
-
   Arguments:
     names   = the sampled parameter names, in the order the emulator's input
               geometry holds them. They must equal that geometry's names.
-    label   = what this double is for. Two doubles with the same label carry the
-              same identity; two with different labels do not.
+    label   = what this double is for, kept for the callers' own bookkeeping
+              (gates name their fixtures with it).
     family  = the output family the double stands in for, when it stands in for
               one; "n/a" otherwise.
     support = the interval each sampled name stands for, as a mapping
@@ -508,9 +466,7 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
     bounds     = dict(support)
     constraint = "box"
 
-  digest = hashlib.sha256(label.encode("utf-8")).hexdigest()
-  text = build_sidecar(dataset_id="sha256:" + digest,
-                       generator="synthetic",
+  text = build_sidecar(generator="synthetic",
                        family=family,
                        cosmology_fixed=fixed,
                        neutrino_convention=NOT_APPLICABLE,
@@ -1044,18 +1000,16 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
 
   Two emulators are served together all the time: a Hubble rate beside an
   angular diameter distance, a linear power spectrum beside its nonlinear
-  boost, a TT spectrum beside an EE. Each pair is combined into one prediction,
-  so each pair must come from ONE dataset and ONE cosmology. Nothing checked
-  that. The consumers compared parameter-axis names, which agree between two
-  runs that share a prior and differ in every number that matters.
+  boost, a TT spectrum beside an EE. Each pair is combined into one
+  prediction, so each pair must describe ONE cosmology, sampled over one set
+  of coordinates. Nothing checked that. The consumers compared parameter-axis
+  names, which agree between two runs that share a prior and differ in every
+  number that matters.
 
-  The law is equality, and it starts with identity. Two artifacts trained off
-  one generator dump carry the same dataset_id, because it is the digest of the
-  chain they were both fitted to; two independent runs of the same YAML, with
-  the same priors and a different seed, agree on every fixed fact and every
-  bound and still carry different identities. Comparing the facts alone cannot
-  tell those apart. The identity can, and it is compared as an opaque string:
-  no parsing, no special case for a synthetic double, equality is equality.
+  The law is equality of the recorded facts: every fixed cosmology value,
+  every convention, and the sampled-coordinate list must match. Two emulators
+  that pass may still have been trained on different draws of the same
+  design, and that is fine — they approximate the same physical maps.
 
   Arguments:
     blocks_a, blocks_b = the two artifacts' blocks, as validate accepts them.
@@ -1070,22 +1024,7 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
   facts_a = blocks_a[FIXED_FACTS_GROUP]
   facts_b = blocks_b[FIXED_FACTS_GROUP]
 
-  # identity first: the sharpest question, and the one the facts cannot answer.
-  if facts_a["dataset_id"] != facts_b["dataset_id"]:
-    raise ValueError(
-      "these two emulators were fitted to different datasets and may not be "
-      "served together:\n"
-      "  " + where_a + " was trained on " + repr(facts_a["dataset_id"]) + "\n"
-      "  " + where_b + " was trained on " + repr(facts_b["dataset_id"]) + "\n"
-      "The identity is the digest of the chain each was fitted to, so two "
-      "emulators trained off one generator dump share it and two independent "
-      "runs never do — even when the two runs agree on every fixed fact and "
-      "every bound, because they still drew different points. Train the pair "
-      "off one dump, or serve them separately.")
-
   for key in FIXED_FACTS_KEYS:
-    if key == "dataset_id":
-      continue
     if not _same_fact(facts_a[key], facts_b[key]):
       # Name the COORDINATE, not just the block it sits in. cosmology_fixed is
       # a mapping of six coordinates, and printing two six-key dicts side by

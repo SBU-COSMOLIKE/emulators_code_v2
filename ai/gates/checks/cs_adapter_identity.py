@@ -18,8 +18,8 @@ ResMLP), saves it, and drives the shipped adapter over it with cobaya stubbed:
     stored geometry names (never from the YAML), serves the section the geometry
     declares, and refuses each of the four wrong-kind artifacts by name;
 
-  - the three comparison laws, at the adapter's own site: two emulators fitted to
-    different datasets are refused as a pair (the horizontal law, at the end of
+  - the three comparison laws, at the adapter's own site: two emulators
+    describing different universes are refused as a pair (the horizontal law, at the end of
     initialize); a concrete fixed value that the artifact and resolved model both
     call ``mnu`` is compared when cobaya hands over the provider (the vertical
     law); a point outside the region the generator sampled is refused at predict,
@@ -87,8 +87,8 @@ SUPPORT = {"omegabh2": (-1.0, 1.0),
 INSIDE   = {"omegabh2": 0.10, "omegach2": -0.20, "As": 0.30}
 OUTSIDE  = {"omegabh2": 0.10, "omegach2": -0.20, "As": 4.00}
 
-# Two doubles fitted to ONE dump share one label, and so one dataset identity.
-# Two doubles that must be told apart carry their own.
+# The labels name what each double is for; the facts on the record are what
+# the horizontal law compares.
 ONE_DUMP_LABEL   = "cs-adapter-identity/one-dump"
 OTHER_DUMP_LABEL = "cs-adapter-identity/a-second-dump"
 NO_REGION_LABEL  = "cs-adapter-identity/declares-no-region"
@@ -96,7 +96,10 @@ SCALAR_LABEL     = "cs-adapter-identity/scalar-double"
 
 # The vertical check is deliberately narrow: both records state ``mnu`` under
 # that exact name, so their different concrete values can be compared directly.
+# The horizontal check pins a THIRD value, so a pair mixing the two fixtures
+# disagrees about a fixed fact and must refuse.
 ARTIFACT_MNU = 0.12
+OTHER_UNIVERSE_MNU = 0.15
 SAMPLED_MODEL = {"mnu": 0.06}
 
 
@@ -135,7 +138,7 @@ def report_refusal(label, error, needle, law):
 
     A bare `except ValueError` accepts ANY refusal, and this adapter has several
     laws that refuse the same call. One of them fires first: a pair of artifacts
-    whose records disagree is refused on IDENTITY before the law a leg meant to
+    whose records disagree is refused on the FACTS before the law a leg meant to
     test is ever reached. A leg that only asks "did something raise?" goes green
     on that unrelated refusal, and the law it names goes untested forever.
 
@@ -181,8 +184,7 @@ def save_synthetic_dv(root, device, label, support, seed=11, fixed_mnu=None):
     Arguments:
       root    = the artifact's path root (<root>.h5 + <root>.emul).
       device  = the torch device to build on.
-      label   = what this double is for. Two doubles sharing a label share one
-                dataset identity, which is what a pair off one dump has.
+      label   = what this double is for, named in the record's bookkeeping.
       support = the region the double declares, name -> (low, high), or None for
                 a double that declares no region and refuses every point.
       seed    = the seed of the synthetic covariances.
@@ -262,7 +264,7 @@ def save_synthetic_scalar(root, device, label, seed=31):
     Arguments:
       root   = the artifact's path root.
       device = the torch device to build on.
-      label  = the double's label, hence its dataset identity.
+      label  = the double's label, named in the record's bookkeeping.
       seed   = the seed of the synthetic covariances.
 
     Returns:
@@ -481,11 +483,11 @@ def check_record_laws(tmp, device):
     save_synthetic_dv(root=twin, device=device, label=ONE_DUMP_LABEL,
                       support=SUPPORT, seed=21, fixed_mnu=ARTIFACT_MNU)
     save_synthetic_dv(root=other, device=device, label=OTHER_DUMP_LABEL,
-                      support=SUPPORT, seed=41, fixed_mnu=ARTIFACT_MNU)
+                      support=SUPPORT, seed=41, fixed_mnu=OTHER_UNIVERSE_MNU)
 
-    # HORIZONTAL. Sharing a dataset is necessary but not sufficient: these two
-    # doubles both claim the xi block, so serving them together would count the
-    # same scientific segment twice. The adapter must reject that overlap.
+    # HORIZONTAL. Sharing a cosmology is necessary but not sufficient: these
+    # two doubles both claim the xi block, so serving them together would count
+    # the same scientific segment twice. The adapter must reject that overlap.
     try:
         build(cls, [one, twin])
         report("two emulators claiming one block are refused", False,
@@ -497,13 +499,14 @@ def check_record_laws(tmp, device):
 
     try:
         build(cls, [one, other])
-        report("two emulators off different dumps are refused as a pair", False,
-               "no raise")
+        report("two emulators describing different universes are refused as a "
+               "pair", False, "no raise")
     except ValueError as exc:
-        report_refusal("two emulators off different dumps are refused as a pair",
+        report_refusal("two emulators describing different universes are "
+                       "refused as a pair",
                        exc,
-                       needle="different datasets",
-                       law="the dataset-identity law")
+                       needle="different universes",
+                       law="the horizontal facts law")
 
     # VERTICAL. The chain hands its provider over once, at setup. The artifact
     # and model both state mnu directly, and their concrete values disagree.

@@ -30,9 +30,9 @@ l(l+1)/2pi plotting factor.
 import os
 import sys
 from collections.abc import Mapping
-import numbers
 
 import numpy as np
+import torch
 from cobaya.theory import Theory
 
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so the
@@ -43,12 +43,6 @@ from emulator.inference import (                               # noqa: E402
     EmulatorPredictor,
     check_artifacts_fixed_values,
     check_artifacts_pair_up,
-)
-from cobaya_theory._adapter_contract import (                   # noqa: E402
-    exact_bool,
-    pick_device,
-    resolve_emulator_roots,
-    validate_extra_args,
 )
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
@@ -77,11 +71,16 @@ class emul_cmb(Theory):
         """Build the predictors and assemble requirements + the Cl layout."""
         super().initialize()
         self._check_extra_args()
-        self.device = pick_device(self.extra_args, adapter="emul_cmb")
-        roots = resolve_emulator_roots(
-            self.extra_args, adapter="emul_cmb")
-        compile_model = exact_bool(
-            self.extra_args, "compile", adapter="emul_cmb")
+        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
+
+        roots = self.extra_args.get("emulators")
+        if not roots:
+            raise ValueError(
+                "emul_cmb: extra_args needs a non-empty 'emulators' list of "
+                "saved CMB-emulator path roots (each root -> <root>.h5 + "
+                "<root>.emul).")
+        compile_model = bool(self.extra_args.get("compile", False))
+        rootdir = os.environ.get("ROOTDIR", "")
 
         # one predictor per root. The requirements are the union of the
         # predictors' stored input names; the served spectra and their
@@ -90,7 +89,8 @@ class emul_cmb(Theory):
         provided_by = {}       # spectrum name -> the root that provides it
         req = {}               # required input names (a cobaya dict)
         for root in roots:
-            predictor = EmulatorPredictor(root, self.device,
+            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
+            predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard (caught one layer up): this theory
             # serves CMB spectrum artifacts only.
@@ -154,10 +154,10 @@ class emul_cmb(Theory):
 
         self._req = req
 
-        # horizontal law, LAST: no two artifacts claim the same spectrum and
-        # the tt/te/ee units agree -- every configuration law above has
-        # passed. Only now is it worth asking whether the loaded spectra are
-        # ONE dataset.
+        # cross-artifact law, LAST: no two artifacts claim the same spectrum
+        # and the tt/te/ee units agree -- every configuration law above has
+        # passed. Only now is it worth asking whether the loaded spectra
+        # describe one cosmology over one region.
         check_artifacts_pair_up(predictors=self.predictors)
 
     def initialize_with_provider(self, provider):
@@ -169,10 +169,38 @@ class emul_cmb(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        validate_extra_args(
-            self.extra_args, adapter="emul_cmb", allowed=_ALLOWED_EXTRA_ARGS,
-            retired=("the legacy ord / extrapar / extra / file keys are "
-                     "retired because the artifact stores those facts"))
+        unknown = []
+        for key in self.extra_args:
+            if key not in _ALLOWED_EXTRA_ARGS:
+                unknown.append(key)
+        if unknown:
+            raise ValueError(
+                "emul_cmb: unrecognized extra_args key(s) "
+                f"{sorted(unknown)}. The schema-v2 convention accepts only "
+                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
+                "extra / file keys are retired (the h5 recipe + stored names "
+                "replace them, the emulator file IS the emulator).")
+
+    @staticmethod
+    def _pick_device(requested):
+        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
+
+        Arguments:
+          requested = the extra_args 'device' string (cpu / cuda / mps).
+
+        Returns:
+          a torch.device, falling back to cpu when the requested accelerator
+          is unavailable (cuda -> mps -> cpu, matching emul_cosmic_shear).
+        """
+        req = str(requested).lower()
+        if req == "cuda" and torch.cuda.is_available():
+            return torch.device("cuda")
+        if (req in ("cuda", "mps")
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()):
+            return torch.device("mps")
+        return torch.device("cpu")
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""
@@ -204,11 +232,7 @@ class emul_cmb(Theory):
                 "emul_cmb: the Cl requirement must be a mapping from "
                 "spectrum name to integer lmax, got " + repr(cl_req))
         for spectrum, lmax in cl_req.items():
-            if type(spectrum) is not str:
-                raise ValueError(
-                    "emul_cmb: every requested spectrum name must be a "
-                    "string, got " + repr(spectrum))
-            spec = spectrum.lower()
+            spec = str(spectrum).lower()
             if spec not in self._lmax_of:
                 raise ValueError(
                     "emul_cmb: a likelihood requests the spectrum "
@@ -216,12 +240,6 @@ class emul_cmb(Theory):
                     "it; the loaded spectra are "
                     + repr(sorted(self._lmax_of)) + " (one emulator path "
                     "root per spectrum in extra_args.emulators)")
-            if (isinstance(lmax, (bool, np.bool_))
-                    or not isinstance(lmax, numbers.Integral)):
-                raise ValueError(
-                    "emul_cmb: requested lmax for " + spec
-                    + " must be an exact non-Boolean integer, got "
-                    + repr(lmax))
             lmax_value = int(lmax)
             if lmax_value < 0 or lmax_value > self._lmax_of[spec]:
                 raise ValueError(

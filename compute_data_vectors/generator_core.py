@@ -822,10 +822,8 @@ class GeneratorCore:
     The record is the pair of blocks emulator/fixed_facts.py defines: the
     cosmology this run held fixed, and the parameter region it sampled
     (both the support the prior requested and the support the sampler
-    actually drew from). It is keyed by the digest of the chain file as
-    that file stands on disk, so the chain must already be written when
-    this is called; training staging pairs the two files and refuses a
-    chain whose record is missing or stale.
+    actually drew from). Training staging pairs the two files and refuses
+    a chain whose record is missing.
 
     Arguments:
       names = the sampled parameters in train_args.ord order — the same
@@ -849,7 +847,6 @@ class GeneratorCore:
       resolved[name] = (self.bounds[index, 0],
                         self.bounds[index, 1])
     text = fixed_facts.build_sidecar(
-      dataset_id=fixed_facts.chain_digest(chain_path=f"{self.paramsf}.1.txt"),
       generator=facts["generator"],
       family=facts["family"],
       cosmology_fixed=facts["cosmology_fixed"],

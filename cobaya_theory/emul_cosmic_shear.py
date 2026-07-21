@@ -28,6 +28,7 @@ import os
 import sys
 
 import numpy as np
+import torch
 from cobaya.theory import Theory
 
 # The adapter lives in <root>/cobaya_theory/; put <root> on sys.path so the
@@ -39,14 +40,6 @@ from emulator.inference import (                               # noqa: E402
     EmulatorPredictor,
     check_artifacts_fixed_values,
     check_artifacts_pair_up,
-)
-from cobaya_theory._adapter_contract import (                   # noqa: E402
-    exact_bool,
-    exact_choice,
-    fast_parameter_groups,
-    pick_device,
-    resolve_emulator_roots,
-    validate_extra_args,
 )
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
@@ -83,31 +76,28 @@ class emul_cosmic_shear(Theory):
         """Build the predictors and assemble the requirements from the h5s."""
         super().initialize()
         self._check_extra_args()
-        self.device = pick_device(
-            self.extra_args, adapter="emul_cosmic_shear")
-        roots = resolve_emulator_roots(
-            self.extra_args, adapter="emul_cosmic_shear")
-        compile_model = exact_bool(
-            self.extra_args, "compile", adapter="emul_cosmic_shear")
+        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
+
+        roots = self.extra_args.get("emulators")
+        if not roots:
+            raise ValueError(
+                "emul_cosmic_shear: extra_args needs a non-empty 'emulators' "
+                "list of saved-emulator path roots (each root -> <root>.h5 + "
+                "<root>.emul).")
+        compile_model = bool(self.extra_args.get("compile", False))
         # the returned shape, passed to every predictor (default 'section':
         # the per-probe block the likelihood glues; '3x2pt' for the full
         # scattered vector). The predictor validates the value.
-        dv_return = exact_choice(
-            self.extra_args, "dv_return", adapter="emul_cosmic_shear",
-            choices=("section", "3x2pt"), default="section")
-        if "fast_params" in self.extra_args:
-            fast_groups = fast_parameter_groups(
-                self.extra_args["fast_params"],
-                adapter="emul_cosmic_shear", emulator_count=len(roots))
-        else:
-            fast_groups = [[] for _ in roots]
+        dv_return = str(self.extra_args.get("dv_return", "section"))
+        rootdir = os.environ.get("ROOTDIR", "")
 
         # one predictor per root; the requirements are the union of the
         # predictors' stored geometry names -- the YAML never re-declares them.
         self.predictors = []
         req = {}
         for root in roots:
-            predictor = EmulatorPredictor(root, self.device,
+            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
+            predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model,
                                           dv_return=dv_return)
             # wrong-kind guard: this theory serves data-vector emulators
@@ -142,15 +132,16 @@ class emul_cosmic_shear(Theory):
         # sampler provides and blocks them as fast (this theory is cheap), but
         # they never enter a network input -- an in-theory analytic use (e.g.
         # applying shear calibration to the dv) is a flagged future step.
-        for group in fast_groups:
-            for name in group:
+        for group in (self.extra_args.get("fast_params") or []):
+            names = [group] if isinstance(group, str) else list(group)
+            for name in names:
                 req[name] = None
         self._req = req
 
-        # horizontal law, LAST: every configuration law above has passed, so
-        # the served set is a well-formed one (data-vector artifacts, nothing
-        # from another family). Only now is it worth asking whether those
-        # artifacts are ONE dataset.
+        # cross-artifact law, LAST: every configuration law above has passed,
+        # so the served set is a well-formed one (data-vector artifacts,
+        # nothing from another family). Only now is it worth asking whether
+        # those artifacts describe one cosmology over one parameter region.
         check_artifacts_pair_up(predictors=self.predictors)
         self._composition = self._build_composition(dv_return)
 
@@ -173,20 +164,8 @@ class emul_cosmic_shear(Theory):
                 raise ValueError(
                     "emul_cosmic_shear: dv_return='section' requires every "
                     "artifact to store section_sizes and probe")
-            if (not predictor.section_sizes
-                    or any(type(value) is not int or value <= 0
-                           for value in predictor.section_sizes)):
-                raise ValueError(
-                    "emul_cosmic_shear: section_sizes must be nonempty "
-                    "positive native integers, got "
-                    + repr(predictor.section_sizes))
-            sizes = tuple(predictor.section_sizes)
-            if (type(predictor.total_size) is not int
-                    or predictor.total_size <= 0):
-                raise ValueError(
-                    "emul_cosmic_shear: total_size must be a positive "
-                    "native integer, got " + repr(predictor.total_size))
-            total = predictor.total_size
+            sizes = tuple(int(value) for value in predictor.section_sizes)
+            total = int(predictor.total_size)
             if sum(sizes) != total:
                 raise ValueError(
                     "emul_cosmic_shear: section_sizes sum to "
@@ -206,12 +185,7 @@ class emul_cosmic_shear(Theory):
                     "emul_cosmic_shear: artifact probe "
                     + repr(predictor.probe)
                     + " is not registered in its stored layout") from error
-            if not blocks:
-                raise ValueError(
-                    "emul_cosmic_shear: artifact probe "
-                    + repr(predictor.probe) + " serves no global blocks")
-            if (any(type(block) is not int for block in blocks)
-                    or min(blocks) < 0 or max(blocks) >= len(sizes)):
+            if not blocks or min(blocks) < 0 or max(blocks) >= len(sizes):
                 raise ValueError(
                     "emul_cosmic_shear: probe " + repr(predictor.probe)
                     + " names invalid global blocks " + repr(blocks)
@@ -238,11 +212,38 @@ class emul_cosmic_shear(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        validate_extra_args(
-            self.extra_args, adapter="emul_cosmic_shear",
-            allowed=_ALLOWED_EXTRA_ARGS,
-            retired=("the legacy ord / extrapar / extra / file keys are "
-                     "retired because the artifact stores those facts"))
+        unknown = []
+        for key in self.extra_args:
+            if key not in _ALLOWED_EXTRA_ARGS:
+                unknown.append(key)
+        if unknown:
+            raise ValueError(
+                "emul_cosmic_shear: unrecognized extra_args key(s) "
+                f"{sorted(unknown)}. The schema-v2 convention accepts only "
+                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
+                "extra / file keys are retired (the h5 recipe + stored names "
+                "replace them, the emulator file IS the emulator).")
+
+    @staticmethod
+    def _pick_device(requested):
+        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
+
+        Arguments:
+          requested = the extra_args 'device' string (cpu / cuda / mps).
+
+        Returns:
+          a torch.device, falling back to cpu when the requested accelerator
+          is unavailable (cuda -> mps -> cpu, matching the legacy Theory).
+        """
+        req = str(requested).lower()
+        if req == "cuda" and torch.cuda.is_available():
+            return torch.device("cuda")
+        if (req in ("cuda", "mps")
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()):
+            return torch.device("mps")
+        return torch.device("cpu")
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""

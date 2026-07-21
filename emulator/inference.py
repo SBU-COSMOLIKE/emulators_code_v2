@@ -218,21 +218,18 @@ def check_artifacts_fixed_values(predictors, provider):
 
 
 def check_artifacts_pair_up(predictors):
-  """Horizontal law at the cobaya site: the served set is ONE dataset.
+  """Cross-artifact law at the cobaya site: one cosmology, one region.
 
   Every artifact an adapter serves is combined into one prediction, so all of
-  them must come from one generator dump and one cosmology. The law is an
-  equality, so it is transitive: comparing every artifact against the first
-  proves the whole set agrees, and each refusal still names the two files it
-  refused between.
+  them must record the same fixed cosmology, the same conventions, and the
+  same sampled coordinates. The law is an equality, so it is transitive:
+  comparing every artifact against the first proves the whole set agrees, and
+  each refusal still names the two files it refused between.
 
   It runs LAST, after the adapter's own configuration laws (wrong kind, pair
-  count, duplicate output, no chaining, one shared grid). A misconfigured set is
-  a misconfiguration, and it must be refused as one: told that two emulators
-  were fitted to different datasets, the reader of a scalar chain whose input
-  was accidentally another emulator's output would go off to regenerate both
-  halves from one run, which is impossible advice — the two halves were never
-  one dataset to begin with.
+  count, duplicate output, no chaining, one shared grid). A misconfigured set
+  is a misconfiguration, and it must be refused as one before the science
+  question is worth asking.
 
   Arguments:
     predictors = the EmulatorPredictors this adapter is serving, in load order.
@@ -566,15 +563,15 @@ class EmulatorPredictor:
       where=self._where)
 
   def check_pairs_with(self, other):
-    """Horizontal: do these two emulators belong to each other?
+    """Cross-artifact: do these two emulators belong to each other?
 
     Emulators are served in pairs all the time: a Hubble rate beside an angular
     diameter distance, a linear power spectrum beside its nonlinear boost, a TT
     spectrum beside an EE. Each pair is combined into ONE prediction, so each
-    pair must come from one dataset and one cosmology. Two independent
-    generator runs of the same YAML agree on every fixed fact and every bound
-    and still drew different points, so comparing their facts cannot tell them
-    apart. The dataset identity can, and the law compares it first.
+    pair must record the same fixed cosmology, the same conventions, and the
+    same sampled coordinates. Two emulators that pass may have been trained on
+    different draws of the same design; they approximate the same physical
+    maps, so serving them together is sound.
 
     This comparison does not inspect the chain's parameterization or the point
     being evaluated. Those are separate checks.

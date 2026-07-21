@@ -764,7 +764,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   compacts both after the transform.
     verbose     = if True (default), print a one-line summary
                   (shapes, rows, in-RAM).
-    failure_mask_path = authenticated generator failure-mask file. Rows marked
+    failure_mask_path = the generator's failure-mask file. Rows marked
                   ``1`` are removed before the physical cuts and shuffle
                   selection. A missing path is refused; chain-only data use
                   ``load_scalar_source`` instead.

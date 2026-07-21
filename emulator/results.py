@@ -28,7 +28,6 @@ to a data file and sharing its name stem.
 """
 
 import contextlib
-import hashlib
 import os
 import stat
 import subprocess
@@ -784,9 +783,7 @@ def save_emulator(path_root,
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
-  The .emul holds only the model weights. Its ZIP metadata carries the same
-  artifact identifier as the .h5 root, and the .h5 root records the exact
-  .emul SHA-256. Before ``torch.save``,
+  The .emul holds only the model weights. Before ``torch.save``,
   ``save_emulator`` detaches every state_dict tensor and moves it to
   the CPU. Loading therefore does not require the accelerator used
   during training. ``rebuild_emulator`` passes ``map_location=device``
@@ -807,8 +804,8 @@ def save_emulator(path_root,
                      dest_idx, evecs, sqrt_ev, Cinv, center, dtype),
                      plus a "cls" attr, so from_state rebuilds the
                      exact geometry class with no cosmolike. A Grid2D state
-                     also has a writer-derived ordered-mask SHA-256 declaration
-                     on the enclosing file attributes.
+                     carries its low-k constant mask inside the geometry
+                     state itself (const_mask).
     pce/             (NPCE runs only) the frozen PCEEmulator base's
                      buffers (PCEEmulator.state(): lo / hi /
                      multi_index / C / Vk / Ybar) plus a "form" attr, so
@@ -820,9 +817,7 @@ def save_emulator(path_root,
                      dv_geometry/ states with cls markers, and form / space
                      attrs. The main model above is then the correction net and
                      the main geometries are the run's; rebuild composes the
-                     two. An embedded Grid2D base carries its mask declaration
-                     on the transfer_base attributes. Self-contained: no
-                     reference to the base file.
+                     two. Self-contained: no reference to the base file.
     history/         per-epoch training curves: train_losses,
                      val_medians, val_means, val_fracs (one row per
                      epoch, one column per threshold), thresholds.
@@ -880,9 +875,8 @@ def save_emulator(path_root,
       param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
         its "cls" attr              |   -> <cls>.from_state; "cls" is
                                     |   required (missing = loud re-save)
-      dv_geometry/ group +          | declaration validation, then
-        its "cls" attr + root       |   _rebuild_geometry(f["dv_geometry"])
-        Grid2D mask declaration     |   -> <cls>.from_state; the info-dict
+      dv_geometry/ group +          | _rebuild_geometry(f["dv_geometry"])
+        its "cls" attr              |   -> <cls>.from_state; the info-dict
                                     |   family flags and the CMB / grid /
                                     |   grid2d facts below are read off
                                     |   this rebuilt geometry object, not
@@ -900,8 +894,7 @@ def save_emulator(path_root,
         model_recipe, state/,       |   tb_geom rebuilt, then _rebuild_model
         param_geometry/,            |   builds the frozen base; form / space
         dv_geometry/,               |   -> transfer_form / transfer_space;
-        "form" + "space" attrs,     |   an embedded Grid2D declaration is
-        Grid2D mask declaration     |   validated before its output geometry
+        "form" + "space" attrs      |   -> transfer_form / transfer_space
       transfer_base/drifted_state/  | validated transfer_refined == True
         (refined runs only)         |   selects _read_group(drifted_state);
                                     |   membership never selects the mode
@@ -963,8 +956,7 @@ def save_emulator(path_root,
                      (search ranges resolved), or None to omit.
     attrs          = optional mapping of scalar run metadata, each
                      written as one h5 root attribute. It may not replace the
-                     writer-owned Grid2D mask, composition declarations,
-                     artifact identifier, or checkpoint SHA-256.
+                     writer-owned composition declarations.
     pce            = fitted PCEEmulator base for an NPCE run, else None.
     pce_form       = NPCE recombination form, required with pce, else None.
     resolved_train = materialized training recipe consumed by the run.
@@ -1030,9 +1022,8 @@ def save_emulator(path_root,
       + ". Remove them; save_emulator derives these declarations from the "
       "executed run.")
 
-  # A completed name is immutable.  This first check is intentionally before
-  # serializer imports, model-state inspection, or temporary-file allocation.
-  # The publication lock repeats it later to close a concurrent-writer race.
+  # A completed name is immutable.  This check runs before serializer
+  # imports, model-state inspection, or temporary-file allocation.
   _refuse_existing_artifact_root(path_root)
 
   # A public reader accepts only the current schema, so a new training run must
@@ -1874,25 +1865,23 @@ def rebuild_emulator(path_root, device, compile_model=True):
       "pce_form"     = the NPCE recombination form (residual / ratio) stored
                        on the pce group, else None;
       "model_recipe" and "config_resolved" = warm-start metadata copied from
-                       this same authenticated HDF5 handle, so a caller never
-                       has to reopen the pathname and risk mixing publications;
+                       the same open HDF5 handle, so a caller never has to
+                       reopen the pathname;
       "rescale"      = the required native string "none". Public rebuild
                        refuses every transformed form because schema 3 lacks
                        the parameter-dependent inverse.
 
   Raises:
-    ValueError when a pending marker exists; when either file lacks its native
-    artifact identifier or the identifiers disagree; when the exact checkpoint
-    SHA-256 differs; or when the checkpoint is not a plain tensor-only state
-    dict. These refusals occur before model construction. ValueError from
+    ValueError when the checkpoint is not a plain tensor-only state dict,
+    refused before model construction. ValueError from
     read_artifact_schema when the .h5 announces no schema version, announces
     one this code does not know, or breaks any law of the scientific record;
     ValueError when the rebuilt input geometry disagrees with that record's
-    sampled-parameter order or a Grid2D mask differs from its declaration;
-    KeyError naming a missing rescale fact, current schema-v3 Grid2D mask
-    declaration, or recipe / geometry / pce key (never a code-default
-    fallback); ValueError when rescale is not native "none" because public
-    inference cannot reconstruct a parameter-dependent inverse transform.
+    sampled-parameter order;
+    KeyError naming a missing rescale fact or recipe / geometry / pce key
+    (never a code-default fallback); ValueError when rescale is not native
+    "none" because public inference cannot reconstruct a parameter-dependent
+    inverse transform.
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -2152,10 +2141,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
     "transfer_base":  transfer_base,
     "transfer_form":  tb_form,
     "transfer_space": tb_space,
-    # Warm-start needs these three values from the SAME already authenticated
-    # HDF5 member. Returning them prevents a second pathname open from mixing a
-    # rebuilt model from artifact A with metadata from a concurrently published
-    # artifact B.
+    # Warm-start needs these values from the same open HDF5 handle, so a
+    # caller never has to reopen the pathname.
     "model_recipe":   recipe,
     "config_resolved": resolved_config,
     "rescale":        saved_rescale,

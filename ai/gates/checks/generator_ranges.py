@@ -386,7 +386,6 @@ def _record_resolved_text(
       held_fixed[key] = fixed_facts.NOT_APPLICABLE
 
   text = fixed_facts.build_sidecar(
-    dataset_id="sha256:" + "b" * 64,
     generator="generator-ranges-check",
     family=fixed_facts.NOT_APPLICABLE,
     cosmology_fixed=held_fixed,

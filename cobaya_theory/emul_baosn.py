@@ -39,6 +39,7 @@ import os
 import sys
 
 import numpy as np
+import torch
 from cobaya.theory import Theory
 from scipy import interpolate
 
@@ -54,12 +55,6 @@ from emulator.background import distance_interpolators, C_KMS  # noqa: E402
 from emulator.geometries.grid import (                     # noqa: E402
     BACKGROUND_QUANTITY_UNITS,
     validate_background_quantity_units,
-)
-from cobaya_theory._adapter_contract import (                   # noqa: E402
-    exact_bool,
-    pick_device,
-    resolve_emulator_roots,
-    validate_extra_args,
 )
 
 # The only extra_args the schema-v2 convention accepts (the legacy ord /
@@ -117,16 +112,23 @@ class emul_baosn(Theory):
         """Build the two predictors and assemble the window layout."""
         super().initialize()
         self._check_extra_args()
-        self.device = pick_device(self.extra_args, adapter="emul_baosn")
-        roots = resolve_emulator_roots(
-            self.extra_args, adapter="emul_baosn", exact_count=2)
-        compile_model = exact_bool(
-            self.extra_args, "compile", adapter="emul_baosn")
+        self.device = self._pick_device(self.extra_args.get("device", "cpu"))
+
+        roots = self.extra_args.get("emulators")
+        if not roots or len(roots) != 2:
+            raise ValueError(
+                "emul_baosn: extra_args needs an 'emulators' list of exactly "
+                "TWO saved grid-emulator path roots (one 'Hubble' + one "
+                "'D_M'; each root -> <root>.h5 + <root>.emul), got "
+                + repr(roots))
+        compile_model = bool(self.extra_args.get("compile", False))
+        rootdir = os.environ.get("ROOTDIR", "")
 
         by_quantity = {}
         req = {}
         for root in roots:
-            predictor = EmulatorPredictor(root, self.device,
+            path = root if os.path.isabs(root) else os.path.join(rootdir, root)
+            predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
             # wrong-kind guard: grid artifacts only.
             if not predictor._grid:
@@ -207,10 +209,10 @@ class emul_baosn(Theory):
 
         self._req = req
 
-        # horizontal law, LAST: the pair is one 'Hubble' + one 'D_M', in the
-        # right units, on disjoint windows -- every configuration law above
-        # has passed. Only now is it worth asking whether the two artifacts
-        # are ONE dataset.
+        # cross-artifact law, LAST: the pair is one 'Hubble' + one 'D_M', in
+        # the right units, on disjoint windows -- every configuration law
+        # above has passed. Only now is it worth asking whether the two
+        # artifacts describe one cosmology over one region.
         check_artifacts_pair_up(predictors=[self.p_h, self.p_dm])
 
     def initialize_with_provider(self, provider):
@@ -231,12 +233,38 @@ class emul_baosn(Theory):
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""
-        validate_extra_args(
-            self.extra_args, adapter="emul_baosn",
-            allowed=_ALLOWED_EXTRA_ARGS,
-            retired=("the legacy ord / extrapar / extra / file / TMAT / "
-                     "ZLIN keys are retired because the artifacts store "
-                     "those facts"))
+        unknown = []
+        for key in self.extra_args:
+            if key not in _ALLOWED_EXTRA_ARGS:
+                unknown.append(key)
+        if unknown:
+            raise ValueError(
+                "emul_baosn: unrecognized extra_args key(s) "
+                f"{sorted(unknown)}. The schema-v2 convention accepts only "
+                f"{list(_ALLOWED_EXTRA_ARGS)}; the legacy ord / extrapar / "
+                "extra / file / TMAT / ZLIN keys are retired (the h5 recipe "
+                "+ stored grid/quantity/units replace them).")
+
+    @staticmethod
+    def _pick_device(requested):
+        """Resolve the requested device to cpu / cuda / mps (TPU dropped).
+
+        Arguments:
+          requested = the extra_args 'device' string (cpu / cuda / mps).
+
+        Returns:
+          a torch.device, falling back to cpu when the requested accelerator
+          is unavailable (cuda -> mps -> cpu, matching emul_cosmic_shear).
+        """
+        req = str(requested).lower()
+        if req == "cuda" and torch.cuda.is_available():
+            return torch.device("cuda")
+        if (req in ("cuda", "mps")
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()):
+            return torch.device("mps")
+        return torch.device("cpu")
 
     def get_requirements(self):
         """The sampled parameters the emulators need (a cobaya dict)."""
@@ -354,9 +382,6 @@ class emul_baosn(Theory):
                                       kind='cubic',
                                       assume_sorted=True,
                                       fill_value="extrapolate")
-        _require_finite_background_vector(
-            dm_itp(z_dm), name="the D_M interpolation grid",
-            length=len(z_dm))
         state["baosn"] = {"itp": itp, "dm_itp": dm_itp}
         return True
 
