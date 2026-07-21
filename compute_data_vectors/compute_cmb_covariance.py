@@ -647,7 +647,37 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
 
 
 def main():
-  """Compute the covariance per the YAML and write the .npz interface."""
+  """
+  Compute the covariance per the YAML and write the .npz interface.
+
+  The flow, top to bottom:
+
+      YAML (theory + params + cov_args)
+         │  validate_lcdm_params: fixed flat-LCDM only
+         ▼
+      fiducial_spectra          one high-accuracy CAMB solve via cobaya
+         │                      -> raw C_ell (TT/TE/EE/PP) + CAMBdata
+         ▼
+      noise_spectrum (eq 1)     per-spectrum N_l from the YAML noise block
+         ▼
+      gaussian_blocks (eq 3)    the l-diagonal variances + cross blocks
+         ▼
+      [nongaussian_blocks]      eq 6 dense blocks, only when
+         │                      cov_args.nongaussian.enabled
+         ▼
+      <root>/chains/<output>.npz   sigmas, cross blocks, fiducial C_ell,
+                                   dense NG blocks (if on), provenance
+
+  The write refuses an existing output (an emulator may be trained
+  against it), requires every array finite, and goes through a
+  temporary name plus one atomic rename — see the inline comments at
+  the write site.
+
+  Raises:
+    FileExistsError when the output name is taken; ValueError when a
+    computed array is nonfinite or the YAML breaks the LCDM contract;
+    KeyError when a required YAML block is missing.
+  """
   parser = argparse.ArgumentParser(prog="compute_cmb_covariance")
   parser.add_argument("--root", dest="root", type=str, required=True,
                       help="project folder under $ROOTDIR "

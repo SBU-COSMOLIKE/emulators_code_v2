@@ -93,34 +93,30 @@ import os
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
-from emulator.output_identity import build_experiment_output_identity
 from emulator.results import executed_composition, save_emulator
 from emulator.warmstart import finetune_provenance_attrs
 
 
-def run_tag(cfg, exp, output_identity=None):
+def run_tag(cfg, exp):
   """
   The run's identity tag for output filenames.
 
-  The tag contains ``scalar`` and the ordered output names followed by a short
-  digest of the completed model, training instructions, staged rows,
-  composition, and authenticated fine-tune source.  It is derived from
-  resolved values rather than a data filename.
+  <model>_ntrain<N>: the resolved model name and the N_train actually
+  staged (cfg is retained for interface symmetry with the cosmic-shear
+  driver's run_tag). Appended to the --diagnostic and --save name roots
+  so runs do not overwrite each other and a file says what produced it.
 
   Arguments:
-    cfg = retained for interface parity with the shared data-vector driver.
-    exp = the completed EmulatorExperiment.
-    output_identity = optional identity already built for this run. The main
-          driver passes the same object to the saved pair and diagnostic.
+    cfg = the resolved config mapping (unused; interface symmetry).
+    exp = the staged EmulatorExperiment (reads exp.arch + exp.train_set).
 
   Returns:
-    a tag such as
-    ``scalar-h0-omegam-0123456789abcdef0123456789abcdef``.
+    the tag string, e.g. "resmlp_ntrain50000".
   """
   del cfg
-  if output_identity is None:
-    output_identity = build_experiment_output_identity(exp)
-  return output_identity["tag"]
+  tags = [str(exp.arch or "resmlp").lower()]
+  tags.append(f"ntrain{exp.train_set['idx'].shape[0]}")
+  return "_".join(tags)
 
 
 def main():
@@ -206,8 +202,7 @@ def main():
   # <save>_<tag>.emul = the best-epoch weights (torch state_dict, cpu);
   # <save>_<tag>.h5   = the input ParamGeometry + output ScalarGeometry (both
   # from_state-ready), the per-epoch histories, and the full resolved config.
-  output_identity = build_experiment_output_identity(exp)
-  identity_tag = run_tag(cfg, exp, output_identity=output_identity)
+  identity_tag = run_tag(cfg, exp)
   save_root = cocoa_output(chains, f"{args.save}_{identity_tag}")
   # run-identity root attrs (no train_dv / val_dv: a scalar run reads only
   # parameter .txt files, so it records their basenames and its outputs).
@@ -265,7 +260,6 @@ def main():
                   if exp.pce_opts is not None else None),
     resolved_transfer=None,
     resolved_rescale=exp.rescale,
-    output_identity=output_identity,
     # The generator's required scientific record, carried here verbatim from
     # the staged training source. Indexing is intentional: staging cannot
     # produce a train set without this record, and a missing key is a broken

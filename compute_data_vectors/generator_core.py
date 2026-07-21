@@ -361,8 +361,30 @@ class GeneratorCore:
   """
   Base class for dataset-generator drivers (subclass surface: see the
   module docstring). A driver instantiates it with the parsed CLI args;
-  construction runs the whole job (sampling on rank 0, then the MPI
-  data-vector farm unless --chain 1).
+  construction runs the whole job:
+
+      __init__(cli_args)
+         │  __setup_flags     resolve flags, YAML, cobaya model, bounds,
+         │                    covariance, output stems (every rank)
+         ▼
+      rank 0: __run_mcmc      load a checkpoint or draw the parameter
+         │                    table; write .1.txt/.paramnames/.ranges/
+         │                    .covmat/.facts.yaml
+         ▼
+      all ranks: __generate_datavectors   one physics call per row,
+         │                    farmed over MPI (skipped when --chain 1)
+         ▼
+      files in <root>/chains/   the complete dataset
+
+  (legend: rank = one MPI process; rank 0 is the master that samples,
+  assigns rows, and writes files; the other ranks only compute data
+  vectors. cli_args = the argparse namespace from make_cli_parser.)
+
+  PS: a "driver" is one of the thin dataset_generator_*.py scripts; it
+  subclasses this core and fills in the family physics (which cobaya
+  products to request, how to compute one row, how the row store is
+  laid out on disk). Everything the drivers share — sampling, seeding,
+  checkpointing, MPI, the sidecar files — lives here once.
   """
   VALID_PROBES = ()      # driver MUST override: accepted train_args.probe
   EXTRA_TRAIN_KEYS = ()  # driver MAY override: extra required train_args keys
@@ -385,6 +407,42 @@ class GeneratorCore:
       self.__generate_datavectors()
 
   def __setup_flags(self):
+    """
+    Resolve everything a run needs before any sampling or physics.
+
+    Runs on every MPI rank, in this order:
+
+      1. resolve $ROOTDIR + --root/--fileroot into the project paths;
+      2. validate the command-line flags (ranges, legal flag pairs) and
+         seed the owned random Generator from --seed;
+      3. load the training YAML and require its params / likelihood /
+         train_args blocks;
+      4. build the cobaya model (get_model), check train_args.probe
+         against the driver's whitelist, and hand the driver its own
+         train_args keys (_read_train_args — this is also where a
+         driver registers its cobaya requirements);
+      5. Gaussian mode only: load the fiducial point and the parameter
+         covariance, reduce its correlations to --maxcorr, and build a
+         stabilized inverse for the tempered posterior;
+      6. read the prior bounds off the model, reorder them into
+         train_args.ord order, keep a copy of the requested support
+         (bounds_requested), then stretch infinite endpoints by the
+         temperature and trim the --boundary margin;
+      7. build the three output stems (data vectors, parameters,
+         failures) under <root>/chains/, suffixed _chain_only when
+         --chain 1;
+      8. Gaussian mode only: check the fiducial point sits inside the
+         resolved sampling bounds.
+
+    Everything later reads the attributes set here; nothing here writes
+    an output file, so any refusal in this method leaves the disk
+    untouched.
+
+    Raises:
+      ValueError / KeyError / FileNotFoundError / RuntimeError naming
+      the flag, YAML block, file, or bound that is wrong — always
+      before any output path is created.
+    """
     #---------------------------------------------------------------------------
     # Basic definitions
     #---------------------------------------------------------------------------
@@ -810,13 +868,36 @@ class GeneratorCore:
   #-----------------------------------------------------------------------------
   # reorder indexes to match YAML original ordering
   #-----------------------------------------------------------------------------
+  # Two parameter orders coexist: cobaya's own sampled order (self.names,
+  # the YAML's order) and the canonical column order the dumps use
+  # (self.sampled_params = train_args.ord). The two helpers below build
+  # the index arrays that translate a row between them; both orders hold
+  # the same names, so each map is a permutation.
+
   def reorder_idx_from_yaml_to_ord(self):
+    """
+    Index array taking a cobaya-ordered row into train_args.ord order.
+
+    Returns:
+      an int array `idx` with row_ord = row_yaml[idx]; equivalently,
+      idx[k] is where ord's k-th parameter sits in cobaya's order.
+    """
     pidx = {p : i for i, p in enumerate(self.names)}
     return np.array([pidx[p] for p in self.sampled_params],
                     copy=True,
                     dtype=int)
 
   def reorder_idx_from_ord_to_yaml(self):
+    """
+    Index array taking a train_args.ord row into cobaya's order.
+
+    The inverse permutation of reorder_idx_from_yaml_to_ord; used
+    whenever a stored sample must be handed back to cobaya (prior
+    evaluation, the physics call).
+
+    Returns:
+      an int array `idx` with row_yaml = row_ord[idx].
+    """
     pidx = {p : i for i, p in enumerate(self.sampled_params)}
     return np.array([pidx[p] for p in self.names],
                     copy=True,
@@ -825,6 +906,21 @@ class GeneratorCore:
   #-----------------------------------------------------------------------------
   # data-vector store (default: the single 2D array at {dvsf}.npy)
   #-----------------------------------------------------------------------------
+  # The seven _dv_* hooks below are the STORE: how computed payload rows
+  # live on disk and in memory. This default implements the simplest
+  # layout — one 2D float32 array, one row per sample, saved whole at
+  # {dvsf}.npy — which is exactly what the lensing driver needs (its
+  # payload is one flat vector). A driver whose payload is richer (four
+  # CMB spectra, two background quantities, the mps quantity set)
+  # overrides all seven hooks together; the rest of the core never
+  # looks inside the store, it only calls the hooks.
+  #
+  # Every implementation is RAM-aware in the same way: if the full store
+  # fits comfortably in memory (< 75% of what is available) it lives in
+  # RAM and is saved atomically at checkpoints; otherwise it is a memmap
+  # (a NumPy array backed by the file on disk, read and written in
+  # slices) and checkpoints just flush it.
+
   def _load_axis_checkpoint(self, path, expected, label):
     """
     Load one axis sidecar (a saved coordinate grid) and require an exact
@@ -901,7 +997,18 @@ class GeneratorCore:
       os.replace(f"{self.dvsf}.tmp.npy", f"{self.dvsf}.npy")
 
   def _dv_append(self, nparams):
-    """Grow the store by nparams zero rows (append mode; RAM-aware)."""
+    """
+    Grow the store by nparams zero rows (append mode; RAM-aware).
+
+    The old rows are preserved byte-for-byte; the new rows start zeroed
+    with their failure flags set, so the physics farm treats them
+    exactly like a resume's unfinished rows. When the grown store no
+    longer fits in RAM, it is rebuilt as an on-disk memmap in bounded
+    row chunks (never materializing old + new in memory at once).
+
+    Arguments:
+      nparams = the number of appended rows (the append run's --nparams).
+    """
     nrows = self.datavectors.shape[0]
     ncols = self.datavectors.shape[1]
 
@@ -986,6 +1093,38 @@ class GeneratorCore:
   # save/load checkpoint
   #-----------------------------------------------------------------------------
   def __load_chk(self):
+    """
+    Load a saved run's files when --loadchk 1, refusing a partial set.
+
+    The checkpoint is nothing more than the run's own output files read
+    back: the chain (.1.txt) supplies the parameter rows, the failure
+    file says which rows still need computing, and the family stores
+    hold the finished payload rows. What counts as "the complete set"
+    depends on the mode:
+
+      full run        chain + .covmat + .ranges + failfile
+                      + every family store and axis sidecar
+                      (_dv_chk_files)
+      chain-only run  chain + .covmat + .ranges only
+
+    A missing file refuses (naming every missing file) rather than
+    quietly starting fresh: a mistyped output name would otherwise
+    regenerate — and overwrite — instead of resuming. The family
+    loader (_dv_load_chk) additionally checks the loaded stores against
+    the YAML: row counts against the chain, column counts and axis
+    sidecars against the configured grids, so a checkpoint from one
+    configuration can never continue under another.
+
+    Returns:
+      True when a checkpoint was loaded (self.samples / self.failed /
+      the family stores are populated); False when --loadchk is 0 and
+      the run is fresh.
+
+    Raises:
+      FileNotFoundError naming the missing checkpoint files, or
+      ValueError when a loaded file disagrees with the chain or the
+      YAML grids.
+    """
     rtnvar = False
     if self.loadchk == 1:
       # a chain-only run owns only the parameter-side files; a full run also
@@ -1038,6 +1177,18 @@ class GeneratorCore:
     return rtnvar
 
   def __save_chk(self):
+    """
+    Flush the failure flags and the family stores to disk, atomically.
+
+    Called every --freqchk computed rows and once at the end. The
+    failure file and each in-RAM store are written to a temporary name
+    first and renamed into place (os.replace is atomic on one
+    filesystem), so a crash mid-save leaves the previous complete
+    checkpoint, never a truncated file; a memory-mapped store is
+    flushed in place instead (its bytes already live in the file).
+    The flags and the stores are saved together on purpose: they
+    describe the same rows and must never drift apart on disk.
+    """
     # save data vector file (store-specific) ------------------------------------
     self._dv_save()
     # save fail file -----------------------------------------------------------
@@ -1050,6 +1201,20 @@ class GeneratorCore:
   # likelihood
   #-----------------------------------------------------------------------------
   def __param_logprior(self, x):
+    """
+    0 inside the RESOLVED sampling bounds, -inf outside.
+
+    The resolved bounds differ from cobaya's own prior wherever setup
+    stretched an infinite endpoint or trimmed the --boundary margin, so
+    cobaya's prior alone cannot enforce them; this extra top-hat does.
+
+    Arguments:
+      x = one parameter row in train_args.ord order.
+
+    Returns:
+      0.0 when every coordinate sits inside [bounds_lo, bounds_hi],
+      else -inf (the row is rejected).
+    """
     # because we shrink the prior, we need to do this check
     if np.all((x >= self.bounds[:, 0]) & (x <= self.bounds[:, 1])):
       return 0.0
@@ -1057,6 +1222,27 @@ class GeneratorCore:
       return -np.inf
 
   def __param_logpost(self,x):
+    """
+    The tempered Gaussian log-posterior emcee samples in --unif 0 mode.
+
+        log p(x) = [ -(x-fid)^T C^-1 (x-fid) / 2  +  log prior(x) ] / T
+
+    (legend: fid = train_args.fiducial, C = the correlation-reduced
+    parameter covariance from setup, T = --temp. Dividing by T flattens
+    the distribution, so the training cloud extends well past the
+    posterior it was built from — an emulator must stay accurate where
+    a future chain explores, not only where it converges.)
+
+    The row is rejected (-inf) when cobaya's own prior rejects it or
+    when it leaves the resolved bounds (__param_logprior), which
+    matters exactly when --boundary < 1 trimmed the support.
+
+    Arguments:
+      x = one parameter row in train_args.ord order.
+
+    Returns:
+      the tempered log-posterior (float), or -inf for a rejected row.
+    """
     y = x - self.fiducial
     logprior = self.model.prior.logp(x[self.reorder_idx_from_ord_to_yaml()])
     if math.isinf(logprior):
@@ -1072,6 +1258,40 @@ class GeneratorCore:
   # run mcmc
   #-----------------------------------------------------------------------------
   def __run_mcmc(self):
+    """
+    Produce the parameter table and its sidecar files (rank 0 only).
+
+    Despite the name, this method covers BOTH sampling modes; the flow
+    for a fresh run is:
+
+        --unif 1                          --unif 0
+        uniform draws from the           emcee on the tempered Gaussian
+        nextafter-resolved bounds        posterior (covmat / T), then
+           │                             unique rows, seeded thinning
+           ▼                                │
+        xf (nparams, ndim)  ◄───────────────┘
+           │  w = 1, chi2* = -2 lnp
+           ▼
+        .1.txt  .paramnames  .ranges  .covmat  .facts.yaml
+        (chain)  (labels)    (bounds) (getdist  (scientific
+                                       cov)      record)
+
+    (legend: xf = the sampled parameter rows in train_args.ord order;
+    lnp = the log-probability column (1 as a placeholder in uniform
+    mode); chi2* = the derived getdist column -2 lnp; T = --temp.)
+
+    A resume run (--loadchk 1, --append 0) only reads the files back.
+    An append run draws nparams NEW rows — from a stream derived from
+    the seed plus the existing row count, so the fresh rows are never
+    repeated — extends the chain and the family stores, refreshes the
+    .covmat, and rewrites the .facts.yaml (the chain's bytes changed,
+    so the digest naming it changed too).
+
+    Side effects: writes the five parameter-side files; sets
+    self.samples (the float32 rows the physics farm consumes) and, for
+    fresh full runs, leaves self.failed / the stores to
+    __generate_datavectors.
+    """
     # a load failure propagates: a requested resume or append must never
     # silently fall back to fresh generation over the same output paths.
     loadedfromchk = self.__load_chk()
@@ -1317,6 +1537,36 @@ class GeneratorCore:
   # datavectors
   #-----------------------------------------------------------------------------
   def __generate_datavectors(self):
+    """
+    Compute one data-vector payload per parameter row, farmed over MPI.
+
+    Serial (one process): rank 0 walks the rows itself. Parallel: rank 0
+    is the master and every other rank a worker in a task farm —
+
+        rank 0 (master)                      rank w (worker)
+        send (row j, params[j]) ──TTAG──►    compute payload
+        recv ("ok"/"err", j, payload) ◄─RTAG─ send result
+           │  bind: the reply's j must be the j assigned to rank w
+           │  write payload at row j, or zero the row + flag it failed
+           │  checkpoint every --freqchk completed rows
+           ▼
+        when no tasks remain: send STAG stop, await DTAG acknowledgments
+
+    (legend: TTAG/RTAG/STAG/DTAG = the four MPI message tags: task,
+    result, stop, done. params[j] = row j of self.samples. A payload is
+    whatever the driver's _compute_dvs_from_sample returns — one flat
+    vector, a (4, nell) spectrum block, a per-quantity dict.)
+
+    Failure handling: a worker exception zeroes the row and sets its
+    failure flag (the run continues; resume recomputes flagged rows); a
+    worker silent for TASK_TIMEOUT seconds aborts the whole job after a
+    final checkpoint, because its row can no longer be trusted to
+    arrive. The first row is always computed on rank 0 before the farm
+    starts: its payload sizes the on-disk stores (_dv_alloc).
+
+    Side effects: fills the family stores and self.failed; saves
+    checkpoints along the way and once at the end.
+    """
     if not self.setup:
       raise RuntimeError(f"Initial Setup not successful")
     TTAG = 1      # Task tag

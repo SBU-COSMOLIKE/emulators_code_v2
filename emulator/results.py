@@ -45,25 +45,15 @@ from . import fixed_facts
 from .model_recipe import check_model_matches_recipe
 from .model_recipe import set_runtime_compile_mode
 from .model_recipe import validate_model_recipe
-from .output_identity import build_output_identity
-from .output_identity import require_same_output_identity
-from .output_identity import validate_saved_output_identity
 
 
 _GRID2D_CLASS = "emulator.geometries.grid2d.Grid2DGeometry"
-_GRID2D_MASK_DECLARATION = "dv_geometry_const_mask_sha256"
 _COMPOSITION_MODE_ATTR = "composition_mode"
 _TRANSFER_REFINED_ATTR = "transfer_refined"
 _COMPOSITION_MODES = ("plain", "npce", "transfer")
 _PCE_FORMS = ("residual", "ratio")
 _TRANSFER_FORMS = ("gain", "sum")
 _TRANSFER_SPACES = ("physical", "whitened")
-_ARTIFACT_ID_ATTR = "artifact_id"
-_CHECKPOINT_SHA256_ATTR = "checkpoint_sha256"
-_OUTPUT_IDENTITY_SHA256_ATTR = "output_identity_sha256"
-_OUTPUT_IDENTITY_DATASET = "output_identity_json"
-_CHECKPOINT_COMMENT_PREFIX = b"emulators_code_v2 artifact_id v1:"
-_PAIR_PENDING_SUFFIX = ".pair-pending"
 
 
 def _validate_live_recipe_geometry_widths(
@@ -285,159 +275,6 @@ def _validate_saved_recipe_geometry_widths(
       + " has no inert width contract")
 
 
-def _require_lower_hex(value, *, length, where):
-  """Return one native lowercase hexadecimal declaration or refuse it.
-
-  HDF5 attributes can contain bytes, numbers, or strings.  Converting all of
-  them with ``str`` would make malformed metadata look valid, so pair identity
-  uses one narrow representation: a native string of the exact expected
-  length containing only lowercase hexadecimal digits.
-  """
-  if type(value) is not str:
-    raise ValueError(
-      where + " must be native text, not " + type(value).__name__)
-  if len(value) != length or any(ch not in "0123456789abcdef" for ch in value):
-    raise ValueError(
-      where + " must be exactly " + str(length)
-      + " lowercase hexadecimal characters, got " + repr(value))
-  return value
-
-
-def _read_native_hex_attr(attrs, key, *, length, where):
-  """Read one variable-length native HDF5 text declaration."""
-  value = _require_lower_hex(
-    attrs[key], length=length, where=where + " " + key)
-  # h5py exposes get_id; plain mappings used by narrow helper tests do not.
-  # When storage information is available, bytes or fixed-width strings may
-  # not impersonate the writer's native variable-length UTF-8 declaration.
-  get_id = getattr(attrs, "get_id", None)
-  if get_id is not None:
-    dtype = get_id(key).dtype
-    storage = (dtype.metadata or {}).get("vlen")
-    if storage is not str:
-      raise ValueError(
-        where + " " + key
-        + " must be stored as native variable-length HDF5 text")
-  return value
-
-
-def _checkpoint_artifact_id(checkpoint, where):
-  """Read the pair identifier from a PyTorch ZIP comment.
-
-  ``torch.save`` writes a ZIP archive and ``torch.load`` ignores the standard
-  ZIP comment.  Keeping the identifier there preserves the public checkpoint
-  value: loading ``<root>.emul`` still returns the plain tensor state dict.
-  The reader can nevertheless compare the identifier with the HDF5 member
-  before asking PyTorch to deserialize anything.
-  """
-  checkpoint.seek(0)
-  try:
-    with zipfile.ZipFile(checkpoint, "r") as archive:
-      comment = archive.comment
-  except (OSError, zipfile.BadZipFile) as exc:
-    raise ValueError(
-      where + " is not a readable PyTorch ZIP checkpoint with an artifact "
-      "identifier; re-save the emulator with the current save_emulator") \
-      from exc
-  finally:
-    checkpoint.seek(0)
-  if not comment.startswith(_CHECKPOINT_COMMENT_PREFIX):
-    raise ValueError(
-      where + " has no current artifact identifier; re-save the emulator "
-      "with the current save_emulator")
-  raw = comment[len(_CHECKPOINT_COMMENT_PREFIX):]
-  try:
-    value = raw.decode("ascii")
-  except UnicodeDecodeError as exc:
-    raise ValueError(where + " has a non-ASCII artifact identifier") from exc
-  return _require_lower_hex(
-    value, length=32, where=where + " artifact identifier")
-
-
-def _stamp_checkpoint_artifact_id(path, artifact_id):
-  """Put one checked pair identifier in a newly staged checkpoint."""
-  artifact_id = _require_lower_hex(
-    artifact_id, length=32, where=path + " artifact identifier")
-  try:
-    with zipfile.ZipFile(path, "a") as archive:
-      if archive.comment:
-        raise ValueError(
-          path + " unexpectedly has a ZIP comment before its artifact "
-          "identifier is written")
-      archive.comment = _CHECKPOINT_COMMENT_PREFIX + artifact_id.encode("ascii")
-  except zipfile.BadZipFile as exc:
-    raise ValueError(
-      path + " was not written as the expected PyTorch ZIP checkpoint") \
-      from exc
-
-
-def _sha256_stream(stream):
-  """Hash the exact bytes in an open file and rewind it for the next reader."""
-  stream.seek(0)
-  digest = hashlib.sha256()
-  while True:
-    block = stream.read(1024 * 1024)
-    if not block:
-      break
-    digest.update(block)
-  stream.seek(0)
-  return digest.hexdigest()
-
-
-def _validate_artifact_binding(attrs, checkpoint, *, h5_where, emul_where):
-  """Prove that one open checkpoint is the member named by one HDF5 file."""
-  missing = [key for key in (_ARTIFACT_ID_ATTR, _CHECKPOINT_SHA256_ATTR)
-             if key not in attrs]
-  if missing:
-    raise ValueError(
-      h5_where + " is missing artifact-pair declaration(s) " + repr(missing)
-      + "; re-save the emulator with the current save_emulator")
-  h5_artifact_id = _read_native_hex_attr(
-    attrs, _ARTIFACT_ID_ATTR, length=32, where=h5_where)
-  declared_digest = _read_native_hex_attr(
-    attrs, _CHECKPOINT_SHA256_ATTR, length=64, where=h5_where)
-  checkpoint_artifact_id = _checkpoint_artifact_id(checkpoint, emul_where)
-  actual_digest = _sha256_stream(checkpoint)
-  if checkpoint_artifact_id != h5_artifact_id:
-    raise ValueError(
-      h5_where + " names artifact " + h5_artifact_id + " but " + emul_where
-      + " names artifact " + checkpoint_artifact_id
-      + "; the two files are not one saved emulator")
-  if actual_digest != declared_digest:
-    raise ValueError(
-      h5_where + " declares checkpoint SHA-256 " + declared_digest + " but "
-      + emul_where + " has " + actual_digest
-      + "; the weights and scientific record are not one saved emulator")
-  return h5_artifact_id, actual_digest
-
-
-def _read_output_identity(artifact, *, where):
-  """Read the required canonical output-identity pair."""
-  has_digest = _OUTPUT_IDENTITY_SHA256_ATTR in artifact.attrs
-  has_record = _OUTPUT_IDENTITY_DATASET in artifact
-  if has_digest != has_record:
-    raise ValueError(
-      where + " has only one output-identity member; restore the intact pair "
-      "or re-save it with the current writer")
-  if not has_digest:
-    raise ValueError(
-      where + " is missing the required output-identity pair; re-save the "
-      "emulator with the current writer")
-  digest = _read_native_hex_attr(
-    artifact.attrs,
-    _OUTPUT_IDENTITY_SHA256_ATTR,
-    length=64,
-    where=where)
-  value = artifact[_OUTPUT_IDENTITY_DATASET][()]
-  if isinstance(value, bytes):
-    try:
-      value = value.decode("ascii")
-    except UnicodeDecodeError as exc:
-      raise ValueError(where + " output identity is not ASCII JSON") from exc
-  subject = validate_saved_output_identity(value, digest)
-  return digest, subject
-
-
 def _load_tensor_state_dict(checkpoint, *, device, where):
   """Load only a plain name-to-tensor state dict from an open checkpoint."""
   checkpoint.seek(0)
@@ -466,20 +303,10 @@ def _load_tensor_state_dict(checkpoint, *, device, where):
   return state
 
 
-def _output_directory(path):
-  """Return the directory containing a final artifact path."""
-  return os.path.dirname(os.path.abspath(path))
-
-
-def _artifact_destination_paths(path_root):
-  """Return the two final members and the in-progress publication marker."""
-  root = os.fspath(path_root)
-  return (root + ".emul", root + ".h5", root + _PAIR_PENDING_SUFFIX)
-
-
 def _refuse_existing_artifact_root(path_root):
   """Protect every byte already associated with one output name root."""
-  occupied = [path for path in _artifact_destination_paths(path_root)
+  root = os.fspath(path_root)
+  occupied = [path for path in (root + ".emul", root + ".h5")
               if os.path.lexists(path)]
   if occupied:
     raise FileExistsError(
@@ -488,43 +315,17 @@ def _refuse_existing_artifact_root(path_root):
       "different --save name, or move the complete earlier result first.")
 
 
-def _fsync_file(path):
-  """Ask the operating system to finish writing one staged regular file."""
-  with open(path, "rb") as stream:
-    os.fsync(stream.fileno())
-
-
-def _fsync_directory(directory):
-  """Ask the operating system to finish same-directory rename operations."""
-  descriptor = os.open(directory, os.O_RDONLY)
-  try:
-    os.fsync(descriptor)
-  finally:
-    os.close(descriptor)
-
-
 def _unlink_if_present(path):
-  """Remove one transaction-owned path when it still exists."""
+  """Remove one temporary path when it still exists."""
   try:
     os.unlink(path)
   except FileNotFoundError:
     pass
 
 
-def _new_staging_path(final_path, artifact_id, member):
-  """Reserve a unique temporary pathname beside the final artifact."""
-  directory = _output_directory(final_path)
-  descriptor, path = tempfile.mkstemp(
-    prefix="." + os.path.basename(final_path) + "." + artifact_id + ".",
-    suffix="." + member + ".tmp",
-    dir=directory)
-  os.close(descriptor)
-  return path
-
-
 @contextlib.contextmanager
-def _staged_h5_file(h5py, h5_path, cleanup_paths):
-  """Open a staged HDF5 file and clean both stages if its write fails."""
+def _tmp_h5_file(h5py, h5_path, cleanup_paths):
+  """Open a temporary HDF5 file, removing the temporaries on a failed write."""
   try:
     with h5py.File(h5_path, "w") as handle:
       yield handle
@@ -548,242 +349,6 @@ def _open_regular_checkpoint(path):
   except BaseException:
     os.close(descriptor)
     raise
-
-
-def _publish_artifact_pair(staged_emul, staged_h5, emul_path, h5_path,
-                           artifact_id):
-  """Publish two checked stages while readers are blocked by one marker.
-
-  This function is reached only for a previously unused root. Ordinary
-  exceptions remove any new final member. A process kill or another
-  ``BaseException`` may interrupt the two final renames; the marker remains,
-  so rebuild refuses that root rather than accepting a partial pair.
-  """
-  artifact_id = _require_lower_hex(
-    artifact_id, length=32, where="publication artifact identifier")
-  directory = _output_directory(emul_path)
-  if directory != _output_directory(h5_path):
-    raise ValueError("artifact pair members must share one output directory")
-  marker = os.path.splitext(emul_path)[0] + _PAIR_PENDING_SUFFIX
-  if os.path.lexists(marker):
-    raise ValueError(
-      marker + " already exists, so an earlier publication may have stopped; "
-      "inspect or recover that root before saving it again")
-
-  def create_marker():
-    marker_fd = None
-    marker_created = False
-    try:
-      marker_fd = os.open(
-        marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-      marker_created = True
-      os.write(marker_fd, (artifact_id + "\n").encode("ascii"))
-      os.fsync(marker_fd)
-    except Exception:
-      if marker_created:
-        _unlink_if_present(marker)
-      raise
-    finally:
-      if marker_fd is not None:
-        os.close(marker_fd)
-    try:
-      _fsync_directory(directory)
-    except Exception:
-      _unlink_if_present(marker)
-      raise
-
-  create_marker()
-
-  # Repeat the empty-root check inside the marker lock. A writer that inspected
-  # an empty root before taking the marker may otherwise erase the complete
-  # pair published by the writer that acquired the marker first.
-  try:
-    old_emul = os.path.lexists(emul_path)
-    old_h5 = os.path.lexists(h5_path)
-    if old_emul != old_h5:
-      raise ValueError(
-        os.path.splitext(emul_path)[0]
-        + " already has only one artifact member; rebuild refuses incomplete "
-        "roots, so recover or remove that root before saving it again")
-    if old_emul:
-      # The ordinary preflight ran before staging.  Repeating the refusal
-      # after this writer owns the marker closes the race in which another
-      # process publishes a complete pair between that check and this lock.
-      # The earlier writer wins; a later writer never turns a name collision
-      # into a scientifically silent replacement.
-      raise FileExistsError(
-        os.path.splitext(emul_path)[0]
-        + " became occupied before publication. The completed earlier pair "
-        "was not changed; choose another output name.")
-  except Exception:
-    try:
-      os.unlink(marker)
-      _fsync_directory(directory)
-    except Exception as cleanup_error:
-      raise RuntimeError(
-        "artifact publication could not inspect the preceding pair and "
-        "could not remove its refusal marker " + marker) from cleanup_error
-    raise
-
-  try:
-    os.replace(staged_emul, emul_path)
-    os.replace(staged_h5, h5_path)
-    _fsync_directory(directory)
-    # This unlink is the logical commit: readers refuse while the marker is
-    # present and may open the fully synchronized new pair after it disappears.
-    os.unlink(marker)
-    try:
-      _fsync_directory(directory)
-    except OSError:
-      # The synchronized new pair became live when the marker disappeared.
-      # A directory-sync failure after that point must not roll back over a
-      # later writer that may already own a new marker.  A crash could make
-      # this old marker reappear, but that outcome is a safe refusal of a valid
-      # pair rather than acceptance of a hybrid pair.
-      pass
-  except Exception:
-    try:
-      _unlink_if_present(emul_path)
-      _unlink_if_present(h5_path)
-      _unlink_if_present(marker)
-      _fsync_directory(directory)
-    except Exception as cleanup_error:
-      raise RuntimeError(
-        "artifact publication failed and cleanup also failed; "
-        + marker + " remains the refusal marker") from cleanup_error
-    raise
-
-
-def _grid2d_const_mask_digest(const_mask):
-  """Return the ordered-byte declaration for one persisted Grid2D mask.
-
-  The mask has one uint8 zero or one per flattened grid coordinate. Its length
-  and every byte in order are covered, so moving a pin changes the declaration
-  even when the number of true entries does not.
-
-  This is deliberately a NARROW single-surface integrity check. The digest is
-  unkeyed and stored in the same HDF5 file, so an editor that rewrites both the
-  mask and its declaration can still make them agree. Artifact-pair identity
-  is a separate concern; this helper does not claim to provide it.
-
-  Arguments:
-    const_mask = one-dimensional uint8 numpy array or CPU tensor.
-
-  Returns:
-    the lowercase hexadecimal SHA-256 declaration.
-
-  Raises:
-    ValueError if the persisted representation is not one-dimensional uint8.
-  """
-  if torch.is_tensor(const_mask):
-    const_mask = const_mask.detach().cpu().numpy()
-  values = np.asarray(const_mask)
-  if values.ndim != 1 or values.dtype != np.dtype("uint8"):
-    raise ValueError(
-      "Grid2D const_mask declaration needs a one-dimensional uint8 array; "
-      "got shape " + repr(tuple(values.shape)) + " and dtype "
-      + str(values.dtype))
-  hasher = hashlib.sha256()
-  hasher.update(b"grid2d-const-mask-v1\0")
-  hasher.update(int(values.size).to_bytes(8, byteorder="little", signed=False))
-  hasher.update(values.tobytes(order="C"))
-  return hasher.hexdigest()
-
-
-def _write_grid2d_const_mask_declaration(
-    declaration_attrs,
-    state,
-    cls_path,
-    where):
-  """Write the declaration derived from an executed Grid2D state.
-
-  Arguments:
-    declaration_attrs = enclosing HDF5 attribute mapping receiving the digest.
-    state             = geometry state mapping already written into the group.
-    cls_path          = fully qualified persisted geometry class name.
-    where             = geometry location used in refusal messages.
-
-  Returns:
-    None after a non-Grid2D state or a written declaration.
-
-  Raises:
-    KeyError if a Grid2D state omits its required const_mask member.
-  """
-  if cls_path != _GRID2D_CLASS:
-    return
-  if "const_mask" not in state:
-    raise KeyError(
-      where + " Grid2DGeometry.state() is missing required const_mask state; "
-      "save_emulator cannot declare whether the run used pinned points")
-  declaration_attrs[_GRID2D_MASK_DECLARATION] = (
-    _grid2d_const_mask_digest(state["const_mask"]))
-
-
-def _validate_grid2d_const_mask_declaration(group, declaration_attrs, where):
-  """Validate one Grid2D mask declaration before geometry construction.
-
-  A current schema-v3 Grid2D artifact carries both the mask and this required
-  declaration. Older schema-v3 Grid2D files that predate the declaration are
-  refused with a re-save instruction; absence never selects an unpinned mode.
-  Non-Grid2D groups must carry neither half, including the paired mask+digest
-  case that would otherwise look internally consistent.
-
-  As documented by ``_grid2d_const_mask_digest``, this catches a change to one
-  saved surface while the other is intact. It cannot authenticate a coordinated
-  whole-file rewrite of both surfaces.
-
-  Arguments:
-    group             = HDF5 output-geometry group.
-    declaration_attrs = enclosing HDF5 attribute mapping carrying the digest.
-    where             = artifact location used in refusal messages.
-
-  Returns:
-    None after a non-Grid2D group with neither field, or a matching declaration.
-
-  Raises:
-    KeyError if either half of a Grid2D declaration is absent.
-    ValueError if fields occur on a non-Grid2D group, the declaration has the
-               wrong type, or the declaration does not match the mask.
-  """
-  cls_value = group.attrs.get("cls")
-  if isinstance(cls_value, bytes):
-    cls_value = cls_value.decode("utf-8")
-  is_grid2d = cls_value == _GRID2D_CLASS
-  has_mask = "const_mask" in group
-  has_declaration = _GRID2D_MASK_DECLARATION in declaration_attrs
-
-  if not is_grid2d:
-    if has_mask or has_declaration:
-      raise ValueError(
-        where + " is not a Grid2DGeometry but carries "
-        + ("const_mask" if has_mask else "no const_mask") + " and "
-        + (_GRID2D_MASK_DECLARATION if has_declaration
-           else "no mask declaration") + ". Remove the foreign Grid2D state "
-        "or restore and re-save the artifact from its executed geometry.")
-    return
-  if not has_declaration:
-    raise KeyError(
-      where + " is missing the required "
-      + repr(_GRID2D_MASK_DECLARATION) + " declaration. This schema-v3 "
-      "Grid2D artifact predates declared mask integrity; re-save it with the "
-      "current code before rebuilding.")
-  if not has_mask:
-    raise KeyError(
-      where + " declares " + repr(_GRID2D_MASK_DECLARATION)
-      + " but is missing const_mask. The mask and its declaration must both "
-      "be present; restore the intact artifact or re-save it from the run.")
-  declared = declaration_attrs[_GRID2D_MASK_DECLARATION]
-  if not isinstance(declared, str):
-    raise ValueError(
-      where + " " + repr(_GRID2D_MASK_DECLARATION)
-      + " must be a native HDF5 string, got " + repr(declared)
-      + ". Re-save the artifact with the current code.")
-  actual = _grid2d_const_mask_digest(group["const_mask"][()])
-  if declared != actual:
-    raise ValueError(
-      where + " const_mask does not match its saved declaration. The mask was "
-      "added, removed, moved, or toggled after save; restore the intact "
-      "artifact or re-save it from the completed run.")
 
 
 def save_learning_curves(path, sizes, curves, meta=None):
@@ -1215,8 +780,7 @@ def save_emulator(path_root,
                   transfer_refined,
                   resolved_pce,
                   resolved_transfer,
-                  resolved_rescale=None,
-                  output_identity=None):
+                  resolved_rescale=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -1427,22 +991,16 @@ def save_emulator(path_root,
                      supply this fact explicitly. A low-level caller may omit
                      it only when attrs explicitly records native ``none``;
                      that saved fact is then used rather than a code default.
-    output_identity = optional mapping returned by
-                     ``build_output_identity``. Production drivers pass it so
-                     the checked save root and diagnostic name use the exact
-                     same identity. Low-level fixture saves may omit it; this
-                     function still derives and records their identity.
 
   Returns:
     (emul_path, h5_path), the two files written.
 
-  Publication first completes and checks both files under unique temporary
-  names beside the destination. A short ``<root>.pair-pending`` marker blocks
-  rebuild while the two final names change. An ordinary publication error
-  restores the preceding pair. A process kill between the two final renames
-  can leave an incomplete root, but the marker makes that root refuse rather
-  than load as a hybrid. This is a checked two-file protocol, not a claim that
-  two filesystem renames are one atomic operation.
+  Both files are first written whole under temporary names beside the
+  destination and renamed into place only when both are complete, so an
+  ordinary failure mid-save leaves no partial file under the public names.
+  The two renames are separate filesystem operations; a process kill exactly
+  between them can leave one member newer than the other, and the
+  occupied-root refusal then makes the next save loud instead of silent.
 
   Raises:
     KeyError when attrs tries to replace a writer-owned declaration.
@@ -1451,25 +1009,19 @@ def save_emulator(path_root,
     ValueError when the composition facts, payload, and consumed records
     disagree; when facts_yaml or either resolved recipe is missing; when the
     sidecar breaks a law in fixed_facts.validate; when the whitening geometry
-    and the sidecar disagree on the sampled parameters; when a production
-    filename does not match its supplied output identity; when the destination
+    and the sidecar disagree on the sampled parameters; when the destination
     root already exists; or when a structured model's fixed padding layout
     disagrees with its output geometry.
     These required-input checks run before model.state_dict and before any
-    temporary, marker, or final output is created. Staging or ordinary
-    publication failures leave a preceding valid pair unchanged.
+    temporary or final output is created.
   """
   # Writer-owned declarations are checked first because this is a pure mapping
   # check: it touches neither the model nor the filesystem. A forged caller
   # value therefore keeps its precise diagnostic even when another required
   # input is also absent.
   reserved_attrs = {
-    _GRID2D_MASK_DECLARATION,
     _COMPOSITION_MODE_ATTR,
     _TRANSFER_REFINED_ATTR,
-    _ARTIFACT_ID_ATTR,
-    _CHECKPOINT_SHA256_ATTR,
-    _OUTPUT_IDENTITY_SHA256_ATTR,
   }
   if attrs is not None and reserved_attrs.intersection(attrs):
     forged = sorted(reserved_attrs.intersection(attrs))
@@ -1569,34 +1121,12 @@ def save_emulator(path_root,
     raise ValueError(
       path_root + ": schema 3 can publish only the explicit native string "
       "rescale='none'; it stores no inverse for rescaled or residual targets")
-  if resolved_rescale is None:
-    identity_rescale = recorded_rescale
-  else:
+  if resolved_rescale is not None:
     if type(resolved_rescale) is not str \
         or resolved_rescale != recorded_rescale:
       raise ValueError(
         path_root + ": resolved_rescale disagrees with attrs.rescale; both "
         "must record the exact native string 'none'")
-    identity_rescale = resolved_rescale
-
-  derived_output_identity = build_output_identity(
-    data=config.get("data", {}),
-    resolved_train=resolved_train,
-    resolved_model=resolved_model,
-    resolved_rescale=identity_rescale,
-    composition_mode=composition_mode,
-    transfer_refined=transfer_refined,
-    resolved_pce=resolved_pce,
-    resolved_transfer=resolved_transfer,
-    require_staged_selection=False)
-  if output_identity is not None:
-    require_same_output_identity(output_identity, derived_output_identity)
-    required_suffix = "_" + derived_output_identity["tag"]
-    if not os.path.basename(os.fspath(path_root)).endswith(required_suffix):
-      raise ValueError(
-        os.fspath(path_root) + " does not end with the executed output "
-        "identity " + repr(required_suffix)
-        + "; use the same identity object for the saved pair and diagnostic")
 
   # New artifacts have one schema.  Legacy files remain a reader/migration
   # concern; there is deliberately no writer flag that can create another.
@@ -1644,27 +1174,20 @@ def save_emulator(path_root,
     geometry=geometry,
     recipe=resolved_model,
     where=path_root)
-  artifact_id = uuid.uuid4().hex
   emul_path = path_root + ".emul"
   h5_path = path_root + ".h5"
-  staged_emul = None
-  staged_h5 = None
+  # both members are written to temporary names and renamed into place at
+  # the very end, so a crash mid-save leaves no partial artifact under the
+  # public names.
+  tmp_emul = emul_path + ".tmp"
+  tmp_h5 = h5_path + ".tmp"
   try:
-    staged_emul = _new_staging_path(emul_path, artifact_id, "emul")
-    staged_h5 = _new_staging_path(h5_path, artifact_id, "h5")
-    torch.save(sd, staged_emul)
-    _stamp_checkpoint_artifact_id(staged_emul, artifact_id)
-    _fsync_file(staged_emul)
-    with _open_regular_checkpoint(staged_emul) as checkpoint:
-      checkpoint_sha256 = _sha256_stream(checkpoint)
+    torch.save(sd, tmp_emul)
   except BaseException:
-    if staged_emul is not None:
-      _unlink_if_present(staged_emul)
-    if staged_h5 is not None:
-      _unlink_if_present(staged_h5)
+    _unlink_if_present(tmp_emul)
     raise
 
-  # --- stage <root>.h5: geometries + histories + config + identity ---
+  # --- write <root>.h5: geometries + histories + config ---
   str_dt  = h5py.string_dtype(encoding="utf-8")
 
   def write_state(group, state):
@@ -1688,8 +1211,7 @@ def save_emulator(path_root,
       else:
         group.attrs[k] = str(v)   # torch.dtype and friends
 
-  with _staged_h5_file(
-      h5py, staged_h5, cleanup_paths=(staged_emul, staged_h5)) as f:
+  with _tmp_h5_file(h5py, tmp_h5, cleanup_paths=(tmp_emul, tmp_h5)) as f:
     # the scientific record, when the dataset published one: the producer's own
     # sidecar text, stored verbatim, and the two blocks that text parses to.
     # write_h5 (fixed_facts.py) does both, and it writes the parse of the text
@@ -1723,12 +1245,6 @@ def save_emulator(path_root,
     dv_cls = (type(geometry).__module__ + "."
               + type(geometry).__qualname__)
     dv_group.attrs["cls"] = dv_cls
-    _write_grid2d_const_mask_declaration(
-      declaration_attrs=f.attrs,
-      state=dv_state,
-      cls_path=dv_cls,
-      where="dv_geometry")
-
     # NPCE base (present only when the run used a pce: block): the frozen
     # PCEEmulator buffers keyed exactly as from_state expects, plus the
     # combine form, so inference rebuilds base + refiner with no refit and
@@ -1771,11 +1287,6 @@ def save_emulator(path_root,
       base_dv_cls = (type(base_dv).__module__ + "."
                      + type(base_dv).__qualname__)
       dv_grp.attrs["cls"] = base_dv_cls
-      _write_grid2d_const_mask_declaration(
-        declaration_attrs=tb.attrs,
-        state=base_dv_state,
-        cls_path=base_dv_cls,
-        where="transfer_base dv_geometry")
       tb.attrs["form"]  = transfer_base["form"]
       tb.attrs["space"] = transfer_base["space"]
       # a refined run (transfer.refine): the DRIFTED base weights, kept
@@ -1835,14 +1346,6 @@ def save_emulator(path_root,
         "model_recipe",
         data=yaml.safe_dump(resolved_model, sort_keys=False),
         dtype=str_dt)
-    # One path-independent record produced both the filename suffix and this
-    # saved declaration.  Rebuild checks the full canonical record against its
-    # digest; a short filename suffix is only a readable abbreviation.
-    f.create_dataset(
-      _OUTPUT_IDENTITY_DATASET,
-      data=derived_output_identity["canonical_json"],
-      dtype=str_dt)
-
     # run identity + provenance as root attributes. str() guards the
     # str subclasses h5py rejects (torch.__version__ is one: numpy
     # coerces a str subclass to a fixed-width unicode dtype h5py has
@@ -1852,9 +1355,6 @@ def save_emulator(path_root,
         f.attrs[k] = str(v) if isinstance(v, str) else v
     f.attrs[_COMPOSITION_MODE_ATTR] = composition_mode
     f.attrs[_TRANSFER_REFINED_ATTR] = transfer_refined
-    f.attrs[_ARTIFACT_ID_ATTR] = artifact_id
-    f.attrs[_CHECKPOINT_SHA256_ATTR] = checkpoint_sha256
-    f.attrs[_OUTPUT_IDENTITY_SHA256_ATTR] = derived_output_identity["sha256"]
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
     # the version decided at the top of this function, written once, here. It
@@ -1870,33 +1370,10 @@ def save_emulator(path_root,
     except Exception:
       f.attrs["git_commit"] = "unknown"
 
-  try:
-    _fsync_file(staged_h5)
-    # Reopen both stages. The binding check exercises the same declarations as
-    # rebuild, and the safe load proves that publication will not expose a
-    # malformed or non-tensor checkpoint written by a changed serializer.
-    with _open_regular_checkpoint(staged_emul) as checkpoint:
-      with h5py.File(staged_h5, "r") as staged_record:
-        _validate_artifact_binding(
-          staged_record.attrs, checkpoint,
-          h5_where=staged_h5, emul_where=staged_emul)
-        _read_output_identity(staged_record, where=staged_h5)
-      staged_state = _load_tensor_state_dict(
-        checkpoint, device=torch.device("cpu"), where=staged_emul)
-    if tuple(staged_state) != tuple(sd) or any(
-        not torch.equal(staged_state[key], sd[key]) for key in sd):
-      raise ValueError(
-        staged_emul + " did not reproduce the exact state dict that "
-        "save_emulator staged")
-    _publish_artifact_pair(
-      staged_emul=staged_emul,
-      staged_h5=staged_h5,
-      emul_path=emul_path,
-      h5_path=h5_path,
-      artifact_id=artifact_id)
-  finally:
-    _unlink_if_present(staged_emul)
-    _unlink_if_present(staged_h5)
+  # both members are complete: give them their public names. The early
+  # _refuse_existing_artifact_root call proved the root was free.
+  os.replace(tmp_emul, emul_path)
+  os.replace(tmp_h5, h5_path)
 
   return emul_path, h5_path
 
@@ -2468,34 +1945,16 @@ def rebuild_emulator(path_root, device, compile_model=True):
     mod, _, qual = cls_path.rpartition(".")
     return getattr(importlib.import_module(mod), qual).from_state(device, st)
 
-  marker_path = path_root + _PAIR_PENDING_SUFFIX
-  if os.path.lexists(marker_path):
-    raise ValueError(
-      marker_path + " exists, so publication of this emulator did not finish; "
-      "rebuild refuses the root until the interrupted publication is recovered")
-
   with contextlib.ExitStack() as pair_stack:
     checkpoint = pair_stack.enter_context(
       _open_regular_checkpoint(path_root + ".emul"))
     f = pair_stack.enter_context(h5py.File(path_root + ".h5", "r"))
-    if os.path.lexists(marker_path):
-      raise ValueError(
-        marker_path + " appeared while the artifact pair was being opened; "
-        "rebuild refuses a pair while publication is in progress")
-    # This is the first metadata read.  It proves that the already-open
-    # checkpoint is exactly the member named by the HDF5 record before recipe
-    # parsing, geometry construction, model construction, or torch.load.
-    artifact_id, checkpoint_sha256 = _validate_artifact_binding(
-      f.attrs, checkpoint,
-      h5_where=path_root + ".h5", emul_where=path_root + ".emul")
     # the schema version and the scientific record, through the one shared
     # reader. It refuses a version this code does not know, and a file that
     # announces none, before any other value is read. The blocks it returns are
     # plain Python, so they survive this file being closed and travel out in
     # the info dict below.
     record = read_artifact_schema(f=f, where=path_root + ".h5")
-    output_identity_sha256, output_identity = _read_output_identity(
-      f, where=path_root + ".h5")
     # The authoritative composition facts are the next read.  This validates
     # the complete required/forbidden group matrix and its consumed record
     # before recipe parsing, geometry construction, model construction, or
@@ -2528,28 +1987,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       _validate_saved_recipe_geometry_widths(
         tb_recipe, tb["param_geometry"], tb["dv_geometry"],
         path_root + ".h5 transfer_base")
-    identity_data = resolved_config.get("data")
-    if type(identity_data) is not dict:
-      raise TypeError(
-        path_root + ".h5 config_resolved_yaml.data must be a plain mapping")
-    rebuilt_identity = build_output_identity(
-      data=identity_data,
-      resolved_train=resolved_config["train_args"],
-      resolved_model=recipe,
-      resolved_rescale=saved_rescale,
-      composition_mode=composition_mode,
-      transfer_refined=transfer_refined,
-      resolved_pce=resolved_config.get("pce"),
-      resolved_transfer=resolved_config.get("transfer"),
-      require_staged_selection=False)
-    rebuilt_subject = validate_saved_output_identity(
-      rebuilt_identity["canonical_json"], rebuilt_identity["sha256"])
-    if rebuilt_identity["sha256"] != output_identity_sha256 \
-        or rebuilt_subject != output_identity:
-      raise ValueError(
-        path_root + ".h5 output identity disagrees with its saved data, "
-        "recipes, rescale, or composition record")
-
     # The trusted local factories and registered geometry implementations are
     # imported only after all saved strings above have passed their closed
     # schemas.  Dynamic geometry/model paths cannot execute during preflight.
@@ -2570,10 +2007,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       geometry_names=pgeom.names,
       blocks=record,
       where=path_root + ".h5")
-    _validate_grid2d_const_mask_declaration(
-      group=f["dv_geometry"],
-      declaration_attrs=f.attrs,
-      where=path_root + ".h5 dv_geometry")
     geom  = _rebuild_geometry(f["dv_geometry"], "dv_geometry group")
     pce_base = None
     pce_form = None
@@ -2596,10 +2029,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
       tb_state  = _read_group(tb["state"])
       tb_pgeom  = _rebuild_geometry(tb["param_geometry"],
                                     "transfer_base param_geometry group")
-      _validate_grid2d_const_mask_declaration(
-        group=tb["dv_geometry"],
-        declaration_attrs=tb.attrs,
-        where=path_root + ".h5 transfer_base dv_geometry")
       tb_geom   = _rebuild_geometry(tb["dv_geometry"],
                                     "transfer_base dv_geometry group")
       tb_form   = tb.attrs.get("form")
@@ -2715,13 +2144,6 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # rebuilt emulator instead of sending the consumer back to the file.
     "fixed_facts":    record[fixed_facts.FIXED_FACTS_GROUP],
     "input_domain":   record[fixed_facts.INPUT_DOMAIN_GROUP],
-    # These values came from the exact already-open pair validated above.
-    # Warm-start and transfer provenance retain them before any source path can
-    # later be replaced with different bytes.
-    "artifact_id": artifact_id,
-    "checkpoint_sha256": checkpoint_sha256,
-    "output_identity_sha256": output_identity_sha256,
-    "output_identity": output_identity,
     "composition_mode": composition_mode,
     "transfer_refined": transfer_refined,
     "ia":             _need(recipe, "ia", "model_recipe"),

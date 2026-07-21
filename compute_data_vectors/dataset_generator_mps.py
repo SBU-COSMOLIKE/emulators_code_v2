@@ -400,6 +400,28 @@ class dataset(GeneratorCore):
   # per-sample computation
   #-----------------------------------------------------------------------------
   def _compute_dvs_from_sample(self, sample):
+    """
+    Linear P(k,z) and the nonlinear boost for one parameter row.
+
+    One CAMB call (through the Pk_interpolator requirement) serves both
+    interpolators; the fixed (z, k) grids are evaluated and flattened
+    with z as the outer axis. When write_syren_base is on, the syren
+    analytic base is evaluated at the same row — under the run's cached
+    dark-energy law, so a varying wa reaches the base formulas — and
+    rides along as the *_base members.
+
+    Arguments:
+      sample = one parameter row (1D, train_args.ord order).
+
+    Returns:
+      a dict of flat float32 rows, each of length nz*nk: pklin (Mpc^3)
+      and boost (dimensionless), plus pklin_base / boost_base when
+      write_syren_base is on.
+
+    Raises:
+      RuntimeError when the prior rejects the row, CAMB errors, or the
+      linear power is nonfinite or nonpositive.
+    """
     # Define fortran errors we want to capture ---------------------------------
     camb_error_keywords = {"ERROR", "error", "Did not converge"}
 

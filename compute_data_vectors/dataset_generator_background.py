@@ -311,6 +311,21 @@ class dataset(GeneratorCore):
   # per-sample computation
   #-----------------------------------------------------------------------------
   def _compute_dvs_from_sample(self, sample):
+    """
+    H(z) and D_M(z) for one parameter row, in one background solve.
+
+    Arguments:
+      sample = one parameter row (1D, train_args.ord order).
+
+    Returns:
+      {"h": (nz,), "dm": (nz2,)} float32 — H on the z_sn grid in
+      km/s/Mpc, and the comoving radial distance on the z_rec grid in
+      Mpc (equal to the transverse D_M because the run is flat).
+
+    Raises:
+      RuntimeError when the prior or the theory rejects the row (the
+      finite log-posterior is the acceptance fact) or CAMB errors.
+    """
     # Define fortran errors we want to capture ---------------------------------
     camb_error_keywords = {"ERROR", "error", "Did not converge"}
 

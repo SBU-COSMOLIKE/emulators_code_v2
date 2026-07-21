@@ -164,7 +164,7 @@ def model_recipe(compile_mode):
   }
 
 
-def save_fixture(path_root, compile_mode, case_label, output_identity=None,
+def save_fixture(path_root, compile_mode, case_label,
                  resolved_rescale="none", recorded_rescale="none"):
   """Write one current schema-v3 scalar artifact carrying ``compile_mode``."""
   cpu = torch.device("cpu")
@@ -218,7 +218,6 @@ def save_fixture(path_root, compile_mode, case_label, output_identity=None,
     resolved_pce=None,
     resolved_transfer=None,
     resolved_rescale=resolved_rescale,
-    output_identity=output_identity,
     facts_yaml=fixed_facts.synthetic_sidecar(
       names=pgeom.state()["names"],
       label="unit-93-compile-" + case_label,

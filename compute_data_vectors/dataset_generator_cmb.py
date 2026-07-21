@@ -312,6 +312,23 @@ class dataset(GeneratorCore):
   # per-sample computation
   #-----------------------------------------------------------------------------
   def _compute_dvs_from_sample(self, sample):
+    """
+    All four CMB spectra for one parameter row, in one CAMB call.
+
+    Arguments:
+      sample = one parameter row (1D, train_args.ord order).
+
+    Returns:
+      a (4, nell) float32 array in SPECTRA row order (tt, te, ee, pp)
+      over l = lmin..lmax: raw C_ell (no l(l+1)/2pi factor), muK^2 for
+      the CMB spectra and dimensionless C_L^phiphi for pp — the same
+      units and convention as compute_cmb_covariance.py, so dumps and
+      covariance always match.
+
+    Raises:
+      RuntimeError when the prior rejects the row, CAMB errors, or no
+      theory component provides get_Cl.
+    """
     # Define fortran errors we want to capture ---------------------------------
     camb_error_keywords = {"ERROR", "error", "Did not converge"}
 

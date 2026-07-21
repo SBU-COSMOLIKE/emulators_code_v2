@@ -123,9 +123,7 @@ def _save_attempt(
     transfer_refined=False,
     resolved_pce=None,
     resolved_transfer=(
-      {"form": "gain", "space": "physical", "refine": None,
-       "source_artifact_id": "1" * 32,
-       "source_checkpoint_sha256": "2" * 64}
+      {"form": "gain", "space": "physical", "refine": None}
       if transfer else None),
     attrs={"rescale": "none"},
     resolved_rescale="none",
@@ -157,7 +155,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="recipe-save-main-") as temp:
       root = Path(temp) / "artifact"
       with mock.patch.object(
-          results, "_new_staging_path",
+          results.torch, "save",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(ValueError, "missing.*n_blocks"):
           _save_attempt(root, recipe=recipe)
@@ -201,7 +199,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="recipe-live-main-") as temp:
       root = Path(temp) / "artifact"
       with mock.patch.object(
-          results, "_new_staging_path",
+          results.torch, "save",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(
             ValueError, "constructor recipe does not exactly match"):
@@ -219,7 +217,7 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="recipe-direct-relu-") as temp:
       root = Path(temp) / "artifact"
       with mock.patch.object(
-          results, "_new_staging_path",
+          results.torch, "save",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(
             ValueError, "constructor recipe does not exactly match"):
@@ -338,8 +336,6 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
       attrs={"rescale": "none"},
       resolved_transfer={
         "form": "gain", "space": "physical", "refine": None,
-        "source_artifact_id": "1" * 32,
-        "source_checkpoint_sha256": "2" * 64,
       },
     )
     return root
@@ -603,26 +599,6 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
         _rewrite_yaml(transfer, "model_recipe", recipe)
       self._assert_rebuild_refuses_without_execution(
         root, "transfer_base model_recipe.*missing.*n_blocks")
-
-  def test_rebuild_refuses_valid_recipe_drift_from_output_identity(self):
-    with tempfile.TemporaryDirectory(prefix="recipe-read-identity-") as temp:
-      root = self._saved_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        recipe = _read_yaml(artifact, "model_recipe")
-        recipe["kwargs"]["n_blocks"] += 1
-        _rewrite_yaml(artifact, "model_recipe", recipe)
-      self._assert_rebuild_refuses_without_execution(
-        root, "output identity disagrees")
-
-  def test_rebuild_refuses_when_both_output_identity_members_are_deleted(self):
-    """Current artifacts cannot fall back to an unnamed identity."""
-    with tempfile.TemporaryDirectory(prefix="recipe-read-no-identity-") as temp:
-      root = self._saved_transfer_fixture(temp)
-      with h5py.File(str(root) + ".h5", "r+") as artifact:
-        del artifact["output_identity_json"]
-        del artifact.attrs["output_identity_sha256"]
-      self._assert_rebuild_refuses_without_execution(
-        root, "missing the required output-identity pair")
 
   def test_rebuild_does_not_read_training_history(self):
     """Deleting provenance curves cannot change model reconstruction."""

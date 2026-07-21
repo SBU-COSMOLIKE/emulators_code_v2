@@ -178,6 +178,7 @@ is never loaded whole.
 
 import argparse
 import os
+import re
 # This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 # so launching it by path makes its own directory sys.path[0] and
 # `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
@@ -187,33 +188,35 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
 from emulator.results import executed_composition, save_emulator
-from emulator.output_identity import build_experiment_output_identity
 from emulator.warmstart import finetune_provenance_attrs
 
 
-def run_tag(cfg, exp, output_identity=None):
+def run_tag(cfg, exp):
   """
   The run's identity tag for output filenames.
 
-  The tag contains a readable family and product followed by a short digest
-  of the completed run's model recipe, training recipe, exact staged rows,
-  composition, and authenticated fine-tune or transfer source.  It is built
-  after staging; no scientific fact is inferred from a filename pattern.
+  <model>_t<T>_ntrain<N>: the model name (exp.arch: the resolved YAML
+  train_args.model.name, or the inherited source recipe's name on a
+  finetune run, which carries no model: block), the training temperature
+  (the _cs_<T> tag in the train-dv file name, skipped when absent), and
+  the N_train actually staged. Appended to the --diagnostic and --save
+  name roots so runs do not overwrite each other and a file says what
+  produced it.
 
   Arguments:
-    cfg = retained for the shared-driver interface; the completed experiment
-          is the authoritative source.
-    exp = the completed EmulatorExperiment.
-    output_identity = optional identity already built for this run. The main
-          driver passes the same object to the saved pair and diagnostic.
+    cfg = the resolved config mapping (data + train_args blocks).
+    exp = the staged EmulatorExperiment (reads exp.arch + exp.train_set).
 
   Returns:
-    a tag such as ``cmb-tt-0123456789abcdef0123456789abcdef``.
+    the tag string, e.g. "resmlp_t256_ntrain250000".
   """
-  del cfg
-  if output_identity is None:
-    output_identity = build_experiment_output_identity(exp)
-  return output_identity["tag"]
+  tags = [str(exp.arch or "resmlp").lower()]
+  tmatch = re.search(r"_cs_(\d+)",
+                     os.path.basename(cfg["data"]["train_dv"]))
+  if tmatch is not None:
+    tags.append(f"t{tmatch.group(1)}")
+  tags.append(f"ntrain{exp.train_set['idx'].shape[0]}")
+  return "_".join(tags)
 
 
 # which thin driver trains which data-block family; require_family_block
@@ -377,9 +380,8 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
   # writes both files:
   # <save>_<tag>.emul = the best-epoch weights (torch state_dict, cpu);
   # <save>_<tag>.h5   = both whitening geometries (from_state-ready),
-  # the per-epoch histories, the full config, and the run identity.
-  output_identity = build_experiment_output_identity(exp)
-  identity_tag = run_tag(cfg, exp, output_identity=output_identity)
+  # the per-epoch histories, and the full config.
+  identity_tag = run_tag(cfg, exp)
   save_root = cocoa_output(chains, f"{args.save}_{identity_tag}")
   # run-identity root attributes. The architecture name comes from exp.arch
   # (the resolved architecture, identical to the YAML model.name on a plain
@@ -411,8 +413,6 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
   if exp._transfer_base is not None:
     tb = exp._transfer_base
     attrs["transfer_from"]        = tb.root
-    attrs["transfer_source_artifact_id"] = tb.artifact_id
-    attrs["transfer_source_checkpoint_sha256"] = tb.checkpoint_sha256
     attrs["transfer_form"]        = exp._transfer_form
     attrs["transfer_space"]       = exp._transfer_space
     attrs["transfer_extra_names"] = " ".join(exp._transfer_extra_names)
@@ -482,7 +482,6 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
     resolved_transfer=(exp.resolved_train.get("transfer")
                        if transfer_base is not None else None),
     resolved_rescale=exp.rescale,
-    output_identity=output_identity,
     # The generator's required scientific record, carried here verbatim from
     # the staged training source. Indexing is intentional: staging cannot
     # produce a train set without this record, and a missing key is a broken

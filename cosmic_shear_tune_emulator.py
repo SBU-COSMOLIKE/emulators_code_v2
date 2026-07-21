@@ -93,10 +93,7 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.training import suggest_train_args, search_defaults
 from emulator.experiment import EmulatorExperiment, validate_sweep_paths
-from emulator.studies.manifest import build_study_manifest, bind_study_manifest
-from emulator.studies.manifest_digest import manifest_digest
-from emulator.studies.implementation import study_implementation_identity
-from emulator.studies.name import resolve_study_name
+
 
 def journal_storage(path):
   """
@@ -125,191 +122,63 @@ def journal_storage(path):
 
 
 def open_journal_study(study_name, journal_path):
-  """Open one journal study and report whether this call created it.
-
-  ``load_if_exists=True`` erases the only fact that can distinguish a new
-  empty study from an old empty study with no manifest.  Creation therefore
-  uses the strict API first; only Optuna's duplicate-study exception enters
-  the resume path.
+  """Open (creating if absent) one named study inside a journal file.
 
   Arguments:
-    study_name  = stable family-owned study name.
+    study_name   = stable family-owned study name (resolve_study_name).
     journal_path = journal file shared by all workers.
 
   Returns:
-    ``(study, created)`` where ``created`` is true only after a successful
-    strict create, never inferred from the study's current contents.
+    the optuna.Study. Reusing a journal resumes its recorded trials; the
+    user owns not resuming a journal with a changed YAML or dataset (a
+    new --journal name starts a clean study).
   """
-  storage = journal_storage(journal_path)
-  try:
-    study = optuna.create_study(
-      study_name=study_name,
-      storage=storage,
-      direction="minimize",
-      load_if_exists=False)
-    return study, True
-  except optuna.exceptions.DuplicatedStudyError:
-    study = optuna.load_study(
-      study_name=study_name,
-      storage=storage)
-    return study, False
+  return optuna.create_study(
+    study_name=study_name,
+    storage=journal_storage(journal_path),
+    direction="minimize",
+    load_if_exists=True)
 
 
-def study_reuse_artifact_files(exp):
-  """Return every persisted artifact pair consumed by this experiment.
+def resolve_study_name(family):
+  """The stable Optuna study name owned by one emulator family.
 
-  Fine-tune and transfer roots live outside ``fixed_config['data']``. Their
-  path strings identify where to look, but the two files' current bytes decide
-  which source model the study actually uses.
-  """
-  files = []
-  for attribute in ("_finetune_root", "_transfer_root"):
-    root = getattr(exp, attribute, None)
-    if root is None:
-      continue
-    for suffix in (".emul", ".h5"):
-      path = Path(str(root) + suffix).expanduser().resolve()
-      if not path.is_file():
-        raise FileNotFoundError(
-          "study source artifact file not found: " + str(path))
-      files.append(path)
-  return sorted(set(files), key=str)
-
-
-def study_cosmolike_dataset_identity(cfg, family, rootdir=None):
-  """Resolve the objective dataset's files and runtime semantic values.
-
-  Training-chain inputs and the CosmoLike objective dataset are independent
-  scientific sources.  The latter is an INI pointer below ROOTDIR whose five
-  file members define the covariance, mask, observed vector, and redshift
-  distributions used by the objective geometry.
-  """
-  if family != "cosmolike":
-    return {"files": [], "resolved": {}}
-  import os
-  from getdist import IniFile
-
-  data = cfg["data"]
-  if rootdir is None:
-    rootdir = os.environ.get("ROOTDIR")
-  if not rootdir:
-    raise RuntimeError(
-      "ROOTDIR is required to identify the CosmoLike objective dataset")
-  dataset_dir = (
-    Path(rootdir) / "external_modules" / "data"
-    / data["cosmolike_data_dir"])
-  dataset_path = (dataset_dir / data["cosmolike_dataset"]).resolve()
-  if not dataset_path.is_file():
-    raise FileNotFoundError(
-      "CosmoLike objective dataset not found: " + str(dataset_path))
-
-  def ini_dependency_files(path):
-    """Return the transitive INCLUDE/DEFAULT file closure for one INI."""
-    pending = [path]
-    found = set()
-    while pending:
-      current = pending.pop()
-      current = current.resolve()
-      if current in found:
-        continue
-      if not current.is_file():
-        raise FileNotFoundError(
-          "CosmoLike objective INI dependency not found: " + str(current))
-      found.add(current)
-      shallow = IniFile(str(current), keep_includes=True)
-      references = list(shallow.includes) + list(shallow.defaults)
-      for reference in references:
-        child = Path(reference)
-        if not child.is_absolute():
-          child = current.parent / child
-        pending.append(child)
-    return found
-
-  ini = IniFile(str(dataset_path))
-  files = list(ini_dependency_files(path=dataset_path))
-  resolved = {}
-  for key in ("data_file", "cov_file", "mask_file",
-              "nz_lens_file", "nz_source_file"):
-    path = Path(ini.relativeFileName(key)).expanduser().resolve()
-    if not path.is_file():
-      raise FileNotFoundError(
-        "CosmoLike objective dataset member " + repr(key)
-        + " not found: " + str(path))
-    files.append(path)
-    resolved[key] = str(path)
-  for key in ("lens_ntomo", "source_ntomo", "n_theta"):
-    resolved[key] = ini.int(key)
-  for key in ("theta_min_arcmin", "theta_max_arcmin"):
-    resolved[key] = ini.float(key)
-  return {
-    "files": sorted(set(files), key=str),
-    "resolved": resolved,
-  }
-
-
-def build_current_study_identity(cfg, family, study_name, exp):
-  """Build scientific identity from this process's resolved experiment.
-
-  Parent and workers call this same owner independently.  Worker-local RAM
-  shares disappear in ``build_study_manifest`` as operational state, while
-  every scientific input is re-digested before that worker stages it.
+  The command name is deliberately not an input: a wrapper may be
+  renamed without changing the study an existing journal resumes.
 
   Arguments:
-    cfg        = this process's resolved Cocoa configuration.
-    family     = explicit emulator-family identity.
-    study_name = stable name selected from ``family``.
-    exp        = resolved, not-yet-staged EmulatorExperiment.
+    family = the emulator family key ("cosmolike", "outputs", "cmb",
+             "grid", or "grid2d").
 
   Returns:
-    ``(manifest, digest, raw_train_args, default_trial)``.
+    the study-name string for that family.
+
+  Raises:
+    ValueError for an unknown family key.
   """
-  raw_train_args = exp.raw_train_args
-  default_trial = search_defaults(train_args=raw_train_args)
-  fixed_cfg = dict(cfg)
-  fixed_cfg["data"] = dict(cfg["data"])
-  fixed_cfg["train_args"] = exp.train_args
-  additional_scientific_files = study_reuse_artifact_files(exp=exp)
-  dataset_identity = study_cosmolike_dataset_identity(
-    cfg=cfg,
-    family=family)
-  additional_scientific_files.extend(dataset_identity["files"])
-  resolved_scientific_values = {}
-  if dataset_identity["resolved"]:
-    resolved_scientific_values["cosmolike_objective"] = (
-      dataset_identity["resolved"])
-  manifest = build_study_manifest(
-    family=family,
-    probe=exp.probe,
-    study_name=study_name,
-    thresholds=exp.thresholds,
-    fixed_config=fixed_cfg,
-    search_space=raw_train_args,
-    default_trial=default_trial,
-    rescale=exp.rescale,
-    activation=exp.activation,
-    implementation_identity=study_implementation_identity(family=family),
-    additional_scientific_files=additional_scientific_files,
-    resolved_scientific_values=resolved_scientific_values)
-  digest = manifest_digest(manifest=manifest)
-  return manifest, digest, raw_train_args, default_trial
-
-
-def require_worker_identity(parent_manifest, parent_digest,
-                            worker_manifest, worker_digest):
-  """Refuse when a worker rebuilds anything unlike the parent identity."""
-  if (worker_manifest != parent_manifest
-      or worker_digest != parent_digest):
-    raise RuntimeError(
-      "worker rebuilt a different scientific study identity; refusing "
-      "before staging any input")
+  names = {
+    "cosmolike": "cosmic_shear_tune",
+    "outputs":   "scalar_tune_emulator",
+    "cmb":       "cmb_tune_emulator",
+    "grid":      "baosn_tune_emulator",
+    "grid2d":    "mps_tune_emulator",
+  }
+  if family not in names:
+    raise ValueError(
+      "unknown emulator family " + repr(family) + "; expected one of "
+      + repr(sorted(names)))
+  return names[family]
 
 
 def enqueue_default_control(study, default_trial):
-  """Enqueue the manifest-owned default once, despite unrelated failures.
+  """Enqueue the YAML-default control trial once, despite failures.
 
-  Returns true only when this call enqueues the control.  Its marker belongs
-  to the queued trial itself, so an unrelated failed or abandoned trial does
-  not suppress the control and a second invocation cannot duplicate it.
+  The first trial of a fresh study evaluates the YAML's own default
+  values (each range's first entry), so the search always contains the
+  known-good starting configuration. Returns true only when this call
+  enqueues the control. Its marker belongs to the queued trial itself,
+  so an unrelated failed or abandoned trial does not suppress the
+  control and a second invocation cannot duplicate it.
   """
   if not default_trial:
     return False
@@ -359,13 +228,12 @@ def best_complete_trial(study):
 
 
 def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
-                 journal_path, study_name, family, parent_manifest,
-                 parent_digest, timeout, quiet):
+                 journal_path, study_name, timeout, quiet):
   """
   One GPU's share of the study; runs in its own spawned process.
 
-  Loads the shared journal, rebuilds current scientific identity, and
-  authenticates that identity before staging or training on any input.
+  Loads the shared journal, stages its own copy of the data, and runs
+  its trial share.
   Each process has its own cosmolike global state and runs its share of trials:
   Optuna serializes suggestions/reports through the storage, so
   workers cooperate on one search history. The sampler is seeded
@@ -382,9 +250,6 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
     activation   = ResBlock activation name, forwarded likewise.
     journal_path = the shared study's journal file.
     study_name   = the stable family-owned name inside the journal.
-    family       = explicit emulator-family identity.
-    parent_manifest = scientific identity independently built by the parent.
-    parent_digest = sha256 identity of parent_manifest.
     timeout      = per-worker optimize() timeout in seconds (None =
                    unbounded).
     quiet        = suppress this worker's per-trial lines.
@@ -395,8 +260,6 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
     storage=journal_storage(journal_path),
     sampler=optuna.samplers.TPESampler(seed=gpu_id))
 
-  # Build this worker's current identity before it stages a scientific input.
-  # The parent record is transport evidence, not an identity substitute.
   torch.cuda.set_device(gpu_id)
   device = torch.device(f"cuda:{gpu_id}")
   exp = EmulatorExperiment.from_config(cfg,
@@ -404,24 +267,7 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
                                        rescale=rescale,
                                        activation=activation,
                                        quiet=True)
-  (worker_manifest, worker_digest,
-   raw_ta, _default_trial) = build_current_study_identity(
-     cfg=cfg,
-     family=family,
-     study_name=study_name,
-     exp=exp)
-  require_worker_identity(
-    parent_manifest=parent_manifest,
-    parent_digest=parent_digest,
-    worker_manifest=worker_manifest,
-    worker_digest=worker_digest)
-  bind_study_manifest(
-    study=study,
-    manifest=worker_manifest,
-    digest=worker_digest,
-    initialize=False)
-
-  # Only the authenticated identity may consume the input files it names.
+  raw_ta = exp.raw_train_args
   exp.stage_train()
   exp.stage_val()
   exp.build_geometry()
@@ -520,9 +366,9 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
                       help="journal file (under --fileroot) the "
                            "parallel workers share the study "
                            "through (default tune_journal.log). "
-                           "Persistent: the same name resumes only "
-                           "an identical scientific manifest; a new "
-                           "name starts a different study",
+                           "Persistent: the same name resumes the "
+                           "recorded trials; a new name starts a "
+                           "different study",
                       type=str,
                       default="tune_journal.log")
   parser.add_argument("--quiet",
@@ -581,16 +427,6 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
   if not ranges:
     log("WARNING: no [default, min, max, kind] search ranges in "
         "train_args: every trial is identical.")
-
-  # Build the same current identity every worker will rebuild before staging.
-  # Do this after cheap sweep validation, before any input is staged or a
-  # journal is opened.
-  (manifest, manifest_sha256,
-   raw_ta, ranges) = build_current_study_identity(
-     cfg=cfg,
-     family=family,
-     study_name=study_name,
-     exp=exp)
 
   # quiet Optuna's per-trial INFO spam (we print our own line)
   optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -655,16 +491,11 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
     study = optuna.create_study(
       direction="minimize",
       sampler=optuna.samplers.TPESampler(seed=0))
-    bind_study_manifest(
-      study=study,
-      manifest=manifest,
-      digest=manifest_sha256,
-      initialize=True)
     # warm-start trial 0 from the YAML defaults (range first values),
     # beginning at the known-good config
     enqueue_default_control(
       study=study,
-      default_trial=manifest["default_trial"])
+      default_trial=ranges)
     study.optimize(objective,
                    n_trials=args.n_trials,
                    timeout=args.timeout,
@@ -679,21 +510,16 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
 
     # cocoa_output (cocoa.py): join the fileroot to the journal name.
     journal_path = cocoa_output(fileroot, args.journal)
-    study, created = open_journal_study(
+    study = open_journal_study(
       study_name=study_name,
       journal_path=journal_path)
-    bind_study_manifest(
-      study=study,
-      manifest=manifest,
-      digest=manifest_sha256,
-      initialize=created)
     done = len(study.trials)
     if done:
       log(f"resuming study in {journal_path}: {done} recorded "
           f"trial(s); adding {args.n_trials} more")
     enqueue_default_control(
       study=study,
-      default_trial=manifest["default_trial"])
+      default_trial=ranges)
 
     # split the total trial budget across workers (first workers take
     # the remainder), and divide the host-RAM staging budget so the
@@ -718,8 +544,7 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
     for k in range(n_workers):
       # args positional order matches _tune_worker's signature:
       # (gpu_id, n_trials, cfg, rescale, activation, journal_path,
-      #  study_name, family, parent_manifest, parent_digest, timeout, quiet).
-      # Process forwards them
+      #  study_name, timeout, quiet). Process forwards them
       # positionally, so the tuple order is load-bearing.
       p = ctx.Process(target=_tune_worker,
                       args=(k,
@@ -729,9 +554,6 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
                             args.activation,
                             journal_path,
                             study_name,
-                            family,
-                            manifest,
-                            manifest_sha256,
                             args.timeout,
                             args.quiet))
       p.start()
@@ -755,7 +577,6 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
   winner = best_complete_trial(study=study)
   log("\n--- search complete ---")
   log(f"study name: {study_name}")
-  log(f"study manifest sha256: {manifest_sha256}")
   log(f"best frac>0.2: {winner.value:.4f}  "
       f"(median {winner.user_attrs.get('median', float('nan')):.4f})")
   log("best params:")

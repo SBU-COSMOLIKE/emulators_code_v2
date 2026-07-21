@@ -36,7 +36,7 @@ training loop. This table is the shortest code map:
 | Where are project, YAML, and output paths resolved? | `cocoa.py` |
 | How is a saved model reused? | `warmstart.py`, `results.py`, `inference.py` |
 | How are figures and numerical checks made? | `plotting.py`, `diagnostics.py` |
-| How are multi-run jobs divided among devices? | `scheduling.py`, `family_drivers.py`, `studies/` |
+| How are multi-run jobs divided among devices? | `scheduling.py`, `family_drivers.py` |
 
 Only cosmic-shear training imports CosmoLike, through
 `geometries/output.py`. The other training families still require PyTorch,
@@ -76,7 +76,7 @@ folders have their own guides:
 | how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
 | a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (tune/sweep family versions and the CMB/BAOSN/MPS trainers are thin wrappers over the cosmic-shear mains; scalar train is the standalone, data-vector-free exception) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
-| the saved description, journal-file check, or stable name of a tuning study | `studies/manifest.py`, `studies/manifest_digest.py`, `studies/implementation.py`, or `studies/name.py` |
+| the stable name of a tuning study | `resolve_study_name` in `cosmic_shear_tune_emulator.py` |
 | multi-GPU balancing | `scheduling.py` |
 | the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |
 | one generator's physics | that generator's `_compute_dvs_from_sample` only |
@@ -310,18 +310,6 @@ routes through).
 - `lpt_assign` / `even_assign` — GPU job splits.
 - `run_gpu_pool(...)` — start and join one worker process per selected GPU.
 - `estimate_train_vram_fraction` / `vram_tokens` — the `--gpu-pack` machinery.
-
-#### `emulator/studies/` (saved Optuna-study description) <a name="apx-studies"></a>
-
-- `studies/implementation.py` — `study_implementation_identity`, backed by
-  the saved version list for scientific tuning components.
-- `studies/manifest.py` — `build_study_manifest`, `bind_study_manifest`, and
-  `require_worker_identity`; record the scientific inputs and confirm that a
-  worker is writing to the intended journal file.
-- `studies/manifest_digest.py` — `canonical_json`, `manifest_digest`, and
-  `file_digest`; strict canonical bytes and SHA-256 identities.
-- `studies/name.py` — `resolve_study_name`; stable names for all five emulator
-  families, independent of wrapper filenames.
 
 #### `emulator/results.py` <a name="apx-results"></a>
 

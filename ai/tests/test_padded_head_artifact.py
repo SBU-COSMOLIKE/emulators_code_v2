@@ -186,25 +186,15 @@ def _rebuild(root):
 
 
 def _rewrite_checkpoint(root, change_state):
-  """Change checkpoint tensors, then honestly rebind its digest and ID.
+  """Change the saved checkpoint tensors in place.
 
   The rewritten pair is intentionally corrupt at the scientific-layout
-  level, not at the outer file-binding level.  Rebinding makes the test reach
-  the structured-head comparison instead of stopping at the earlier SHA-256
-  check.
+  level; the tests below require the structured-head comparison to catch it.
   """
   checkpoint = _checkpoint_path(root)
-  with h5py.File(_record_path(root), "r") as record:
-    artifact_id = record.attrs[_ARTIFACT_ID_ATTR]
   state = torch.load(checkpoint, map_location=CPU, weights_only=True)
   change_state(state)
   torch.save(state, checkpoint)
-  with zipfile.ZipFile(checkpoint, "a") as archive:
-    archive.comment = _COMMENT_PREFIX + artifact_id.encode("ascii")
-  digest = _sha256(checkpoint)
-  with h5py.File(_record_path(root), "r+") as record:
-    record.attrs[_CHECKPOINT_SHA256_ATTR] = digest
-  return digest
 
 
 class PaddedHeadArtifactTests(unittest.TestCase):
@@ -253,11 +243,9 @@ class PaddedHeadArtifactTests(unittest.TestCase):
       root = Path(temp) / "saved"
       _save_fixture(root)
 
-      digest = _rewrite_checkpoint(
+      _rewrite_checkpoint(
         root, lambda state: state.pop("pad_valid"))
 
-      with h5py.File(_record_path(root), "r") as record:
-        self.assertEqual(record.attrs[_CHECKPOINT_SHA256_ATTR], digest)
       with self.assertRaisesRegex(KeyError, r"no pad_valid buffer"):
         _rebuild(root)
 
@@ -273,10 +261,8 @@ class PaddedHeadArtifactTests(unittest.TestCase):
         state["pad_valid"] = torch.tensor(
           [[[True, True, False], [True, False, True]]], dtype=torch.bool)
 
-      digest = _rewrite_checkpoint(root, replace_map)
+      _rewrite_checkpoint(root, replace_map)
 
-      with h5py.File(_record_path(root), "r") as record:
-        self.assertEqual(record.attrs[_CHECKPOINT_SHA256_ATTR], digest)
       with mock.patch.object(
           ResCNN,
           "load_state_dict",
@@ -298,8 +284,8 @@ class PaddedHeadArtifactTests(unittest.TestCase):
         validity=[[True, True, False], [True, False, True]])
 
       with mock.patch.object(
-          results,
-          "_new_staging_path",
+          results.torch,
+          "save",
           side_effect=AssertionError("staging must not begin")) as reserve:
         with self.assertRaisesRegex(
             ValueError, r"structured-head pad_idx disagrees"):
@@ -324,8 +310,8 @@ class PaddedHeadArtifactTests(unittest.TestCase):
 
       with mock.patch.object(ResCNN, "state_dict", state_without_mask), \
           mock.patch.object(
-            results,
-            "_new_staging_path",
+            results.torch,
+            "save",
             side_effect=AssertionError("staging must not begin")) as reserve:
         with self.assertRaisesRegex(KeyError, r"no pad_valid buffer"):
           _save_fixture(root)

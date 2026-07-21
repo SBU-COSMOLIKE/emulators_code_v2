@@ -53,8 +53,6 @@ def _save(
       "space": "physical",
       "refine": ({"fixture": "state-contract"}
                  if transfer_refined else None),
-      "source_artifact_id": "1" * 32,
-      "source_checkpoint_sha256": "2" * 64,
     }
   return results.save_emulator(
     path_root=str(root),
@@ -134,7 +132,7 @@ class ArtifactTransferStateContractTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="artifact-rescale-save-") as temp:
       root = Path(temp) / "artifact"
       with mock.patch.object(
-          results, "_new_staging_path",
+          results.torch, "save",
           side_effect=AssertionError("staging must not begin")) as staging:
         with self.assertRaisesRegex(ValueError, "can publish only.*none"):
           _save(root, attrs={"rescale": "residual"})
@@ -146,9 +144,6 @@ class ArtifactTransferStateContractTests(unittest.TestCase):
       _save(root, attrs={"rescale": "none"}, resolved_rescale=None)
       with h5py.File(str(root) + ".h5", "r") as artifact:
         self.assertEqual(artifact.attrs["rescale"], "none")
-        identity = results._read_output_identity(
-          artifact, where=str(root) + ".h5")[1]
-      self.assertEqual(identity["loss_recipe"]["rescale"], "none")
 
   def test_schema3_refuses_missing_or_disagreeing_rescale_before_staging(self):
     cases = (
@@ -159,7 +154,7 @@ class ArtifactTransferStateContractTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="artifact-rescale-bad-") as temp:
       for index, (attrs, resolved, message) in enumerate(cases):
         with self.subTest(attrs=attrs, resolved=resolved), mock.patch.object(
-            results, "_new_staging_path",
+            results.torch, "save",
             side_effect=AssertionError("staging must not begin")) as staging:
           with self.assertRaisesRegex(ValueError, message):
             _save(

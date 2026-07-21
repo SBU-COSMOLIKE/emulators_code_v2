@@ -2167,26 +2167,6 @@ def gate_padded_head_identity(ctx):
              + " (ai/gates/checks/padded_head_identity.py)")
 
 
-def gate_artifact_output_identity(ctx):
-  """artifact-output-identity: names follow science and never overwrite.
-
-  A CPU child first builds small identities for every emulator family. It
-  proves that scientific product, model recipe, dataset selection, composition,
-  and authenticated source changes produce different names while dictionary
-  order and local paths do not. The second leg exercises the public artifact
-  saver and requires every occupied destination to survive unchanged after a
-  refusal that occurs before temporary-file staging.
-  """
-  ctx.require_caps("torch")
-  rc, out = ctx.run_check("ai/gates/checks/artifact_output_identity.py")
-  if not ctx.dry:
-    ctx.expect(
-      label="artifact-output-identity child completed",
-      ok=(rc == 0),
-      detail="check exit code " + str(rc)
-             + " (ai/gates/checks/artifact_output_identity.py)")
-
-
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -2387,37 +2367,6 @@ BOARD = [
                "emulator/results.py",
                "ai/tests/test_padded_head_identity.py",
                "ai/tests/test_padded_head_artifact.py"),
-         inputs=()),
-       needs=("torch",)),
-  Gate(id="artifact-output-identity",
-       spec_code="AOI-A",
-       title="Scientific artifact names and occupied-root refusal",
-       tier=TIER_BACKLOG,
-       home="artifacts-inference-warmstart",
-       maps="CPU witnesses prove that scientific products, resolved model "
-            "and training recipes, exact staged rows, composition, and "
-            "authenticated fine-tune or transfer sources determine the "
-            "artifact name without depending on mapping order or local path "
-            "spelling; complete, partial, symbolic-link, and interrupted "
-            "destinations are refused before staging and remain unchanged",
-       evidence=(Assertion(
-                   "artifact-output-identity.scientific-identity",
-                   "artifacts-inference-warmstart.md#artifact-output-identity-scientific-identity"),
-                 Assertion(
-                   "artifact-output-identity.existing-root-refusal",
-                   "artifacts-inference-warmstart.md#artifact-output-identity-existing-root-refusal")),
-       run=gate_artifact_output_identity,
-       manifest=Manifest(
-         code=("emulator/designs",
-               "emulator/losses",
-               "emulator/experiment.py",
-               "emulator/output_identity.py",
-               "emulator/results.py",
-               "emulator/warmstart.py",
-               "cosmic_shear_train_emulator.py",
-               "scalar_train_emulator.py",
-               "ai/tests/test_artifact_output_identity.py",
-               "ai/tests/test_results_artifact_pair.py"),
          inputs=()),
        needs=("torch",)),
   Gate(id="board-selftest",

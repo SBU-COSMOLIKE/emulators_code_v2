@@ -430,16 +430,10 @@ class CompositionValidationOrderingTest(unittest.TestCase):
   def _write_artifact(self, path_root, *, legacy=False,
                       mode="plain", refined=False):
     string_dtype = h5py.string_dtype(encoding="utf-8")
-    artifact_id = "2" * 32
     emul_path = path_root + ".emul"
     torch.save({"weight": torch.ones(1)}, emul_path)
-    results._stamp_checkpoint_artifact_id(emul_path, artifact_id)
-    with open(emul_path, "rb") as checkpoint:
-      checkpoint_sha256 = hashlib.sha256(checkpoint.read()).hexdigest()
     with h5py.File(path_root + ".h5", "w") as artifact:
       artifact.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
-      artifact.attrs["artifact_id"] = artifact_id
-      artifact.attrs["checkpoint_sha256"] = checkpoint_sha256
       if not legacy:
         artifact.attrs["composition_mode"] = mode
         artifact.attrs["transfer_refined"] = refined

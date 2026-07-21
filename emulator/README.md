@@ -138,7 +138,7 @@ The supporting files have narrower jobs:
 | `model_recipe.py` | check complete model-building instructions before importing a model class |
 | `results.py`, `inference.py` | save, reload, and evaluate an emulator |
 | `plotting.py`, `diagnostics.py` | calculate checks and make their figures |
-| `scheduling.py`, `family_drivers.py`, `studies/` | divide multi-run searches among devices and record each search |
+| `scheduling.py`, `family_drivers.py` | divide multi-run searches among devices |
 | `background.py`, `syren_base.py`, `analytics.py` | apply analytic physics outside the neural network |
 
 The training commands sit beside the `emulator/` folder, not inside it. A

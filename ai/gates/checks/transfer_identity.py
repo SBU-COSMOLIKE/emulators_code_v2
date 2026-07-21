@@ -621,8 +621,6 @@ def check_lifecycle(device, tmp):
                 resolved_pce=None,
                 resolved_transfer={
                   "from": str(base_root),
-                  "source_artifact_id": base.artifact_id,
-                  "source_checkpoint_sha256": base.checkpoint_sha256,
                   "form": "gain",
                   "space": "physical"},
                 facts_yaml=supported_test_record(
@@ -768,8 +766,6 @@ def check_refined_lifecycle(device, tmp):
                 resolved_pce=None,
                 resolved_transfer={
                   "from": str(base_root),
-                  "source_artifact_id": base.artifact_id,
-                  "source_checkpoint_sha256": base.checkpoint_sha256,
                   "form": "gain",
                   "space": "physical",
                   "refine": {"fixture": "synthetic-drift"}},
@@ -1030,8 +1026,6 @@ def check_diagonal(device, tmp):
                 resolved_pce=None,
                 resolved_transfer={
                   "from": str(source_root),
-                  "source_artifact_id": source.artifact_id,
-                  "source_checkpoint_sha256": source.checkpoint_sha256,
                   "form": "sum",
                   "space": "whitened"},
                 facts_yaml=supported_test_record(

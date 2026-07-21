@@ -129,26 +129,6 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
             construct_output_geometry.assert_not_called()
             load_weights.assert_not_called()
 
-  def test_bypassing_rescale_reader_still_fails_output_identity(self):
-    """A forged rescale cannot bypass the independent output identity."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-      path_root = os.path.join(temp_dir, "bypassed-rescale")
-      self._write_artifact(path_root=path_root, rescale="rescaled")
-      with mock.patch.object(
-          results,
-          "_read_public_rescale",
-          return_value="rescaled"), mock.patch.object(
-            results.torch,
-            "load",
-            side_effect=AssertionError("model load reached")) as load_weights:
-        with self.assertRaisesRegex(
-            ValueError, "output identity disagrees"):
-          results.rebuild_emulator(
-            path_root=path_root,
-            device=torch.device("cpu"),
-            compile_model=False)
-        load_weights.assert_not_called()
-
 
 if __name__ == "__main__":
   unittest.main()

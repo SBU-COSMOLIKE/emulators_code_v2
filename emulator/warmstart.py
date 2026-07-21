@@ -89,11 +89,6 @@ class FinetuneSource:
 
   Attributes:
     root       = resolved absolute source path root (<root>.h5 + <root>.emul).
-    artifact_id = the authenticated identifier shared by the source's HDF5
-                  record and checkpoint. This identifies the exact published
-                  pair even if another pair is later written at ``root``.
-    checkpoint_sha256 = the SHA-256 digest of the exact source checkpoint
-                        bytes that ``rebuild_emulator`` authenticated.
     model      = the source network, rebuilt eager (never torch.compile'd),
                  in eval() with the source weights loaded; the parity check
                  scores against it.
@@ -120,8 +115,6 @@ class FinetuneSource:
   def __init__(
                self,
                root,
-               artifact_id,
-               checkpoint_sha256,
                model,
                model_cls,
                pgeom,
@@ -132,8 +125,6 @@ class FinetuneSource:
                dataset,
                ia=None):
     self.root         = root
-    self.artifact_id  = artifact_id
-    self.checkpoint_sha256 = checkpoint_sha256
     self.model        = model
     self.model_cls    = model_cls
     self.pgeom        = pgeom
@@ -153,13 +144,12 @@ def finetune_provenance_attrs(
     *,
     source,
     extra_names):
-  """Build the two saved attributes that identify a fine-tune source.
+  """Build the saved attributes that identify a fine-tune source.
 
   Both training drivers call this function before saving an emulator. A
   plain run has no source and receives no fine-tune attributes. A fine-tune
-  run records the resolved source path, the exact authenticated source pair,
-  and the ordered names of parameters added by the new run. The pair fields
-  keep provenance stable if a later publication reuses the same path.
+  run records the resolved source path and the ordered names of parameters
+  added by the new run.
 
   Arguments:
     source      = the ``FinetuneSource`` used by the run, or ``None`` for a
@@ -168,12 +158,12 @@ def finetune_provenance_attrs(
                   the new run keeps the source parameter space unchanged.
 
   Returns:
-    an empty dict for a plain run, or the four root attributes required for a
+    an empty dict for a plain run, or the two root attributes required for a
     fine-tuned artifact.
 
   Raises:
-    ValueError if a fine-tune source has no usable path or source-pair field,
-    or an extra parameter name is empty or is not text.
+    ValueError if a fine-tune source has no usable path, or an extra
+    parameter name is empty or is not text.
     TypeError if ``extra_names`` is not a sequence of names.
   """
   if source is None:
@@ -183,18 +173,6 @@ def finetune_provenance_attrs(
   if not isinstance(root, str) or not root:
     raise ValueError(
       "fine-tune provenance needs a nonempty resolved source path")
-  artifact_id = getattr(source, "artifact_id", None)
-  if (type(artifact_id) is not str or len(artifact_id) != 32
-      or any(ch not in "0123456789abcdef" for ch in artifact_id)):
-    raise ValueError(
-      "fine-tune provenance needs the source artifact_id as exactly 32 "
-      "lowercase hexadecimal characters")
-  checkpoint_sha256 = getattr(source, "checkpoint_sha256", None)
-  if (type(checkpoint_sha256) is not str or len(checkpoint_sha256) != 64
-      or any(ch not in "0123456789abcdef" for ch in checkpoint_sha256)):
-    raise ValueError(
-      "fine-tune provenance needs the source checkpoint_sha256 as exactly "
-      "64 lowercase hexadecimal characters")
   if extra_names is None or isinstance(extra_names, (str, bytes)):
     raise TypeError(
       "fine-tune provenance extra_names must be a sequence of names")
@@ -208,8 +186,6 @@ def finetune_provenance_attrs(
 
   return {
     "finetuned_from": root,
-    "finetune_source_artifact_id": artifact_id,
-    "finetune_source_checkpoint_sha256": checkpoint_sha256,
     "finetune_extra_names": " ".join(checked_names),
   }
 
@@ -458,8 +434,6 @@ def load_source(
 
   return FinetuneSource(
     root=root,
-    artifact_id=info["artifact_id"],
-    checkpoint_sha256=info["checkpoint_sha256"],
     model=model,
     model_cls=model_cls,
     pgeom=pgeom,

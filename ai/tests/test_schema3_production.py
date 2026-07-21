@@ -159,9 +159,9 @@ class Schema3ProductionTests(unittest.TestCase):
     with tempfile.TemporaryDirectory(prefix="schema3-missing-facts-") as tmp:
       root = Path(tmp) / "artifact"
       with mock.patch.object(
-          results, "_new_staging_path",
-          side_effect=AssertionError("no temporary path may be reserved")) \
-          as reserve:
+          results.torch, "save",
+          side_effect=AssertionError("no temporary file may be written")) \
+          as first_write:
         with self.assertRaisesRegex(
             ValueError, r"requires.*\.facts\.yaml.*Re-generate"):
           _save_attempt(
@@ -170,7 +170,7 @@ class Schema3ProductionTests(unittest.TestCase):
             resolved_train=one_pass_training_recipe(thresholds=(1.0,)),
             resolved_model=_reader_shape_recipe())
 
-      reserve.assert_not_called()
+      first_write.assert_not_called()
       self._assert_no_artifacts(tmp)
 
   def test_nontext_facts_refuse_before_model_or_output(self):
@@ -432,7 +432,6 @@ class Schema3ProductionTests(unittest.TestCase):
       after = ((Path(str(root) + ".emul").read_bytes()),
                (Path(str(root) + ".h5").read_bytes()))
       self.assertEqual(after, before)
-      self.assertFalse(Path(str(root) + ".pair-pending").exists())
 
 
 if __name__ == "__main__":

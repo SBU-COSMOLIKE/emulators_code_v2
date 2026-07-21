@@ -4543,13 +4543,6 @@ class EmulatorExperiment:
       ell   = np.asarray(cov["ell"], dtype="int64")
       sigma = np.asarray(cov["sigma_" + spectrum], dtype="float64")
       fid   = np.asarray(cov["cl_" + spectrum], dtype="float64")
-      # The local covariance filename is not a scientific identity. Bind the
-      # exact three arrays consumed by this experiment so a different noise or
-      # fiducial calculation receives a different saved-output name, while an
-      # unchanged file moved to another folder retains its name.
-      from .output_identity import digest_cmb_covariance_inputs
-      self.data["cmb"]["_covariance_input_sha256"] = (
-        digest_cmb_covariance_inputs(ell, sigma, fid))
       dv    = train_set["dv"]
       idx   = train_set["idx"]
       if int(dv.shape[1]) != int(ell.size):
@@ -5570,12 +5563,9 @@ class EmulatorExperiment:
      self.means, self.fracs, self.resolved_train) = out
 
     # fine-tune warm start: record the resolved finetune block in the consumed
-    # config (persist-resolved-values), so the saved run states its source with
-    # the path, exact authenticated source pair, and compile_mode materialized.
-    # A later publication may reuse the same path, so the path alone is not a
-    # stable statement of which source bytes this run consumed. run_emulator
-    # does not see the finetune block, so it is added here, the one place that
-    # resolved both.
+    # config (persist-resolved-values), so the saved run states its source
+    # path and the materialized compile_mode. run_emulator does not see the
+    # finetune block, so it is added here, the one place that resolved both.
     if self._finetune is not None:
       ft = train_args.get("finetune", {})
       if "compile_mode" in ft:
@@ -5584,8 +5574,6 @@ class EmulatorExperiment:
         compile_mode = self._finetune.compile_mode
       self.resolved_train["finetune"] = {
         "from":                     self._finetune.root,
-        "source_artifact_id":       self._finetune.artifact_id,
-        "source_checkpoint_sha256": self._finetune.checkpoint_sha256,
         "compile_mode":             compile_mode,
         "extra_names":              " ".join(self._finetune_extra_names),
         # The anchor changes the optimization objective.  Saving only the
@@ -5600,14 +5588,12 @@ class EmulatorExperiment:
     # or transfer fact at the artifact boundary.
     if self.pce_opts is not None:
       self.resolved_train["pce"] = dict(self.pce_opts)
-    # transfer: record the resolved transfer block (form + the materialized
-    # space) and the exact authenticated base pair, so the saved run states
-    # what it composed even if the path is reused later.
+    # transfer: record the resolved transfer block (the source path, the
+    # form, and the materialized space), so the saved run states what it
+    # composed.
     if self._transfer_base is not None:
       self.resolved_train["transfer"] = {
         "from":                     self._transfer_base.root,
-        "source_artifact_id":       self._transfer_base.artifact_id,
-        "source_checkpoint_sha256": self._transfer_base.checkpoint_sha256,
         "form":                     self._transfer_form,
         "space":                    self._transfer_space,
         "extra_names":              " ".join(self._transfer_extra_names),

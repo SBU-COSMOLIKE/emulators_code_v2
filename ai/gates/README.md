@@ -102,7 +102,6 @@ These examples show the board's range; they are not the full inventory.
 
 | Gate ID | Concrete job |
 | --- | --- |
-| `artifact-output-identity` | Builds small identities for CMB, background, matter-power, CosmoLike, and scalar products. It checks that scientific changes receive different names, moving unchanged inputs does not rename them, and an existing output root is refused without changing its files. |
 | `adapter-contracts` | Most checks use small stand-ins, and one check uses the installed Cobaya lifecycle; none trains a model. The gate refuses a quoted `"false"` where a Boolean is required, checks that cosmic-shear sections are assembled in physical order, validates exact scalar and CMB request forms, and confirms that changing a covered returned array cannot corrupt the next result. |
 | `generator-seed` | Checks on the CPU that every random draw in the dataset generator comes from the one required, recorded seed, so a saved parameter table can be reproduced from its recorded inputs. |
 | `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |

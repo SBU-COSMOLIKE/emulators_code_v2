@@ -228,99 +228,47 @@ saved model remains in use.
   markers in every new save, refusal of retired paths, and a repository-tree
   census. Every save writes folder paths through `type().__module__`.
 
-## Artifact pair integrity and output identity
+## Saving one artifact pair
 
-**Rule.** One saved emulator is an authenticated publication of the exact
-`<root>.emul` weights and the matching `<root>.h5` scientific record. Both
-files finish in temporary locations before publication. The HDF5 record binds
-the exact weights bytes through SHA-256 and a shared artifact identifier;
-rebuild validates that binding before `torch.load` and uses
-`weights_only=True`. An interrupted publication must be refused, and a normal
-exception before publication must leave the preceding good pair untouched.
+**Rule.** One saved emulator is the exact `<root>.emul` weights beside the
+matching `<root>.h5` scientific record. `save_emulator` validates every
+required input (recipes, facts, composition, geometry widths, head layout)
+before it writes anything, writes both members to temporary names, and
+renames them into place only when both are complete, so a crash mid-save
+leaves no partial file under the public names. An occupied root — a complete
+pair, either lone member, or a symbolic link — refuses before any temporary
+file is created and stays byte-for-byte unchanged: a training run never
+replaces an existing emulator.
 
-**Reason.** The two files have different formats but one scientific identity.
-Writing either destination directly can leave new weights beside an older,
-truncated, or absent record when history, YAML, HDF5, disk, or process work
-fails. Matching state-dictionary keys and tensor shapes do not authenticate
-the pair: two models with the same architecture can have interchangeable
-shapes and different learned weights.
+**Reason.** The two files have different formats but one scientific meaning.
+Writing either destination directly can leave new weights beside an older or
+truncated record; silently replacing a saved emulator would change what an
+existing chain's results meant.
 
-**Implementation boundary.** `save_emulator` owns temporary-file creation,
-validation, synchronization, and final publication. `rebuild_emulator` owns
-the shared-identifier and checkpoint-digest checks. Those checks occur before
-`torch.load`; strict state-dictionary loading remains a later structural check.
+**Read-side rule.** `rebuild_emulator` loads the checkpoint with
+`weights_only=True` through a loader that accepts only tensor values, so a
+rewritten checkpoint cannot execute pickle payloads or masquerade a
+non-tensor mapping as a model state. Every saved string passes its closed
+schema (the model recipe, composition record, and scientific record) before
+any dynamic import or weight load. The user owns keeping a pair's two files
+together; the library does not carry a cryptographic pair binding.
 
-**Acceptance evidence.** Swapping same-shaped `.emul` files between two valid
-artifacts must fail the digest check before loading. Injecting an HDF5 write
-failure after the temporary checkpoint exists must leave the preceding pair
-rebuildable. Interrupting between final renames must leave an incomplete root
-that is refused rather than loaded as a hybrid.
+**Acceptance evidence.** A valid save rebuilds and leaves exactly the two
+public members; complete, partial, and symbolic-link roots refuse before
+staging with their bytes preserved; an injected HDF5 failure removes every
+temporary file; an unsafe pickle value and a non-tensor checkpoint refuse
+before model construction (`ai/tests/test_results_artifact_pair.py`).
 
-**Documentation boundary.** The `save_emulator` `Arguments:` block must include
-`pce`, `pce_form`, `resolved_train`, `resolved_model`, and `transfer_base` as
-well as `attrs`. The read-side `Raises:` block must describe a missing or
-mismatched weights binding. Documentation must not claim that a directly
-written pair is authenticated or atomic.
+### Run tags name output files readably
 
-**MPS provenance rule.** A grid2d artifact that uses a Syren law persists a
-stable formula version or digest in addition to the law name and repository
-provenance. Inference verifies that identifier before recomputing the analytic
-base. Vendoring alone is insufficient because a repository edit can otherwise
-change the prediction of an existing artifact. The gate changes one
-formula-source byte, or its declared test digest, and requires the artifact to
-refuse before serving; law `none` remains unaffected.
-
-### Output identity prevents collisions across scientific products
-
-**Reason.** A readable run tag is not a complete scientific identity. A tag
-of the form `<model>[_t<T>]_ntrain<N>` records the model, an optional
-temperature `T`, and staged row count `N`. It does not identify the output
-product, activation, model hyperparameters, dataset, split seed, composition
-mode, or source artifact. Consequently, CMB `TT` and `EE`, BAOSN Hubble and
-`D_M`, MPS `pklin` and `boost`, cosmic-shear `xi` and `gammat`, or two scalar
-output sets can otherwise receive the same root. Inferring temperature from a
-data filename also treats naming convention as a scientific record.
-
-**Rule.** Derive output identity from resolved scientific facts, never from a
-filename pattern. Use a readable family-and-product prefix plus a stable short
-digest of the consumed model and training configuration and the exact
-staged-selection identity, which already binds both training and validation
-generations, cuts, split rule, and row order. The identity distinguishes
-the executed analytic-rescaling loss mode and distinguishes plain, NPCE,
-fine-tune, and transfer
-runs, including their source binding. Save and diagnostic products from one
-run share that identity. An existing destination always refuses before either
-file changes.
-
-**Implementation boundary.** The shared driver constructs the identity from
-resolved values and passes one root to diagnostics and `save_emulator`.
-`save_emulator` checks both destination files before writing. Transactional
-pair publication and output identity are both required: transactionality by
-itself could safely replace the wrong artifact.
-
-<a id="artifact-output-identity-scientific-identity"></a>
-**Acceptance evidence: scientific identity.** Each of these pairs must produce
-distinct roots: `TT` versus `EE`; two covariance-array inputs for the same CMB
-spectrum; Hubble versus `D_M`; `pklin` versus `boost`;
-the `cs`, `ggl`, and `gc` probes; ordered scalar output sets; two activations
-or model constructor arguments; `none`, `rescaled`, and `residual` loss
-modes; plain versus NPCE; two authenticated
-fine-tune or transfer sources; two transfer forms; and different dataset
-generations or staged row orders. Native mapping insertion order must not
-change the result. Moving unchanged source files must not change the result,
-because member digests and authenticated source-pair fields replace raw paths.
-A production run without both source pins and both staged selections must
-refuse rather than use the direct-library fixture fallback.
-
-<a id="artifact-output-identity-existing-root-refusal"></a>
-**Acceptance evidence: occupied roots.** A complete artifact pair, either
-single existing member, a symbolic-link destination, and an interrupted-pair
-marker must each cause refusal before temporary-file staging. Every file or
-link already present at that root must remain byte-for-byte unchanged.
-
-**Safety boundary.** Production training must not write several products of
-one family back to back unless output identity distinguishes the products and
-the pair publication is authenticated and atomic.
+The run tag appended to the `--save` and `--diagnostic` roots is a readable
+label — `<model>[_t<T>]_ntrain<N>` — not a scientific identity. The
+scientific description of a saved run lives inside the artifact: the resolved
+config, the model and training recipes, the staged-selection records, and the
+`.facts.yaml` scientific record. Two runs the tag does not distinguish (for
+example CMB `TT` versus `EE` under one model and row count) need different
+`--save` names; the occupied-root refusal makes a collision loud instead of
+silent.
 
 ## Inference: `EmulatorPredictor` and the five Cobaya adapters
 
@@ -771,9 +719,9 @@ wrong-shaped tensors therefore refuse. The file does not hash the embedded
 mapping again or copy that hash into configuration records. A same-shaped
 value edit inside the HDF5 file is user responsibility.
 
-The resolved transfer record still names the authenticated source artifact
-identifier and source-checkpoint SHA-256 digest. Moving the source path does
-not change the run identity, but choosing a different source pair does.
+The resolved transfer record names the source artifact's path root, the
+transfer form, and the materialized space, so the saved run states what it
+composed.
 
 The four supported training modes are from-scratch training, anchored warm
 start, frozen-base transfer, and anchored joint refinement. The decoupled
@@ -1329,11 +1277,10 @@ and nothing about the numbers looks unusual.
 
 <a id="fixed-facts-schema-dataset-identity-is-the-chain"></a>
 The stable evidence name `fixed-facts-schema.dataset-identity-is-the-chain`
-predates the complete identity model. Its durable rule is narrower: the chain
-fingerprint is one authenticated generation member and must be recomputed from
-the published chain bytes. It is not the complete generation or staged-
-selection identity. Two different draws carry different chain fingerprints,
-while the artifact carries the complete staged-selection identity unchanged.
+records one narrow durable rule: the chain fingerprint in the scientific
+record must be recomputed from the saved chain bytes. Two different draws
+carry different chain fingerprints, while the staged-selection records saved
+with the run say which rows of that draw actually trained.
 Two negative controls establish that the rule matters: accepting a legacy
 schema must fail the version leg, and deriving a bound even slightly wider
 than the recorded value must fail the verbatim-copy leg. A valid control
@@ -1588,9 +1535,7 @@ recorded numerical example has a maximum absolute error of `28.236`.
 **Rule.** A schema 3 writer publishes only an explicit native
 `rescale: "none"` fact. If a caller also supplies a resolved value, that value
 must be exactly the same; a missing, mistyped, transformed, or contradictory
-fact refuses before temporary-file creation. The output identity includes the
-validated value, so changing it changes the identity rather than merely
-changing display metadata.
+fact refuses before temporary-file creation.
 
 `rebuild_emulator` reads `rescale` as a required native string before model
 execution. Public inference supports only `"none"`. Missing,

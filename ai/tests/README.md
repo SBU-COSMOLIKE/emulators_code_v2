@@ -637,7 +637,6 @@ files belong together and constructing the model needed for new predictions.
 | --- | --- |
 | `test_artifact_recipe_preflight.py` | Does saving stop before reading model weights when the model recipe is incomplete or the five history arrays have incompatible shapes? When reopening, does a damaged reconstruction input—such as the model recipe, saved geometry, composition record, or output identity—stop before saved Python classes or checkpoint tensors are used? The same test proves that removing the optional history group does not prevent reconstruction. |
 | `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
-| `test_artifact_output_identity.py` | If two runs train different spectra, distance quantities, matter-power products, survey probes, scalar columns, model settings, selected rows, or source emulators, will they receive different output names? If only the checkout path or dictionary order changes, will the scientific name stay the same? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact store its base weights without duplicate state hashes, and does ordinary strict model loading refuse missing, extra, or wrong-shaped tensors? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
 | `test_dark_energy_vertical_identity.py` | Does serving compare a concrete fixed value when the artifact and live model expose it under the same name, without interpreting custom aliases or transformations? |
@@ -648,7 +647,6 @@ files belong together and constructing the model needed for new predictions.
 | `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
 | `test_results_artifact_pair.py` | Do the learned weights and scientific record identify each other, refuse every already-used output name without changing it, and leave a new output name empty or visibly interrupted after a failed save? |
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
-| `test_results_const_mask_declaration.py` | Can a reader detect one changed Grid2D fixed-coordinate position after the result was saved? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
 | `test_mps_sigma8_contract.py` | Does the matter-power adapter calculate conventional sigma-eight with the correct physical radius, exact redshift, and enough wavenumber coverage? |
 | `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
@@ -750,38 +748,6 @@ gate proves that prediction selects those refined weights.
 The remaining tests in this file cover target scaling. Schema 3 refuses a
 transformed target mode because public prediction cannot invert it;
 `rescale: none` is the valid control.
-
-#### Scientific output names distinguish completed runs
-
-`test_artifact_output_identity.py` checks the name appended to a trained
-emulator and to its diagnostic PDF. The readable part names the family and
-product, such as `cmb-tt`. A 32-character digest after that prefix summarizes
-the completed run. This prevents two scientifically different results from
-silently receiving the same filename.
-
-- **Examples used:** one case compares CMB `TT` with `EE`. Other cases compare
-  Hubble with transverse distance, linear matter power with nonlinear boost,
-  cosmic shear with galaxy-galaxy lensing and galaxy clustering, and scalar
-  outputs in two different column orders. A CMB case keeps `TT` fixed and
-  changes the covariance arrays that define its multipoles, whitening scale,
-  and fiducial spectrum. The tests also change an activation, a hidden width,
-  a train or validation generation, a selected-row order, a polynomial base,
-  a fine-tune source, and a transfer source.
-- **What the test does:** each case builds two small records in memory. It
-  compares their full digests and filename tags. No model is trained and no
-  scientific table is read. Separate cases move the same authenticated files
-  to a different folder and reverse dictionary insertion order.
-- **Pass means:** every scientific change receives a different digest. Moving
-  identical authenticated inputs or reordering mapping keys leaves the digest
-  unchanged. Both public training drivers use the same completed identity for
-  the saved emulator and diagnostic.
-- **A refusal it proves:** production naming stops if either train or
-  validation lacks its published generation, exact staged-row order, member
-  digests, or source-emulator pair identity. A pathname alone cannot stand in
-  for an authenticated fine-tune or transfer source.
-- **Why it matters:** equal model names and row counts do not imply equal
-  science. Without the complete identity, training `TT` after `EE`, for
-  example, could overwrite a valid emulator with a different result.
 
 #### Polynomial-base accuracy before saving
 
@@ -947,25 +913,6 @@ Transfer mode uses an earlier emulator, either unchanged or refined.
   before geometry construction or weight loading.
 - **Why it matters:** different forms can have weights with identical shapes
   but require different mathematics to produce a physical prediction.
-
-#### Fingerprint for the Grid2D fixed-coordinate mask
-
-`test_results_const_mask_declaration.py` checks a SHA-256 fingerprint
-calculated by the result writer from the complete mask in coordinate order.
-
-- **Example used:** two masks have the same number of fixed positions, but the
-  `1` occurs at a different coordinate in each mask.
-- **What the test does:** it calls the writer's fingerprint calculation,
-  stores the result in a small in-memory HDF5 section, and then calls the
-  reader's validator to recalculate the fingerprint from the stored mask.
-- **Pass means:** the saved fingerprint matches the exact ordered mask. Moving
-  one fixed position produces a different fingerprint.
-- **A refusal it proves:** a caller cannot replace the writer's fingerprint;
-  changing a mask position after saving, attaching the declaration to a
-  non-Grid2D result, or opening an older Grid2D result with no declaration
-  stops and requests a new save.
-- **Why it matters:** merely counting fixed positions would miss a mask moved
-  to a different physical coordinate.
 
 #### Input names checked before model weights load
 

@@ -480,9 +480,8 @@ selected count, and an order-sensitive SHA-256 of the exact disk rows
 addressed by the loader. For a compact resident source, that order is
 `dump_rows[idx]`. For a disk-backed source, `idx` already holds global disk
 rows. The recorder derives the applicable order from the staged array sizes
-and refuses unless it equals `selected_rows` exactly. The output identity
-includes both records, so two runs trained on different rows cannot claim
-the same artifact name.
+and refuses unless it equals `selected_rows` exactly. The records are saved
+with the run's configuration, so an artifact states which rows trained it.
 
 #### Acceptance evidence
 
