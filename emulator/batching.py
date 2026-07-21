@@ -106,18 +106,28 @@ def compute_batch_byte_terms(
 
   total = 0  # running byte count of saved tensors
   def pack(t):
-    # pack: first callback. autograd calls it the moment a
-    # tensor is saved during forward and stores what pack
-    # returns. Record the size, return t unchanged. (+= alone
-    # would rebind total as a local; nonlocal points it at the
-    # outer total.)
+    """Spy on one saved activation's byte size (autograd pack hook).
+
+    autograd calls this the moment a tensor is saved during forward and
+    stores what it returns. The size is recorded and t returned
+    unchanged. (+= alone would rebind total as a local; nonlocal points
+    it at the outer running count.)
+
+    Arguments:
+      t = the tensor autograd is saving for backward.
+
+    Returns:
+      t unchanged.
+    """
     nonlocal total
     total += t.numel() * t.element_size()
     return t
   def unpack(stored):
-    # unpack: second callback, called in backward to rebuild the
-    # saved tensor. We never call backward, but
-    # saved_tensors_hooks requires it, so hand stored back.
+    """Return the stored tensor unchanged (the required inverse hook).
+
+    Backward never runs here, but saved_tensors_hooks requires the
+    pack/unpack pair to round-trip, so the stored value is handed back.
+    """
     return stored
 
   # saved_tensors_hooks customizes how activations are stored
@@ -183,10 +193,23 @@ def compute_batch_size_bytes(
   """
   Return the total GPU bytes owned by one training batch.
 
-  The arguments have the same meaning as compute_batch_byte_terms.
   Keeping this integer-returning wrapper preserves the original public
-  call for ordinary targets. The named-term function is the single
-  owner of the arithmetic.
+  call for ordinary targets. The named-term function
+  (compute_batch_byte_terms) is the single owner of the arithmetic.
+
+  Arguments:
+    model        = the live model (its saved-activation bytes are
+                   measured by a probe forward).
+    bs           = the batch size the bytes are computed for.
+    sample_dims  = the per-sample input shape (without the batch axis).
+    dv_len       = the data-vector length entering the chi2 (the Cinv
+                   contraction size).
+    target_dim   = the encoded target width, when it differs from
+                   dv_len; None for ordinary targets.
+    target_dtype = the encoded target dtype; None for float32.
+
+  Returns:
+    the batch's total byte count as an int.
   """
   terms = compute_batch_byte_terms(
     model=model,
@@ -410,20 +433,34 @@ def _build_loaders_one(device, C, dv, idx,
   resident    = (model_bytes + cinv + enc_params)
 
   def slots(rows):
-    # Translate active source-row numbers into local positions in the
-    # compact resident subset. The active source may itself be a compact
-    # RAM copy or the full disk-backed dump. The loaders stage its used
-    # rows into C_used / dv_used in sorted order, so a source coordinate
-    # can differ from its position in the resident subset. used_rows is
-    # the sorted set of active source coordinates, so a row's resident
-    # position is where it sits inside used_rows. np.searchsorted gives each
-    # query's insertion index into the sorted array; since every
-    # query row is itself in used_rows, that index is its row
-    # index in C_used/dv_used.
+    """Translate source-row numbers into resident-subset positions.
+
+    The loaders stage the used rows into C_used / dv_used in sorted
+    order, so a source coordinate can differ from its position in the
+    resident subset. used_rows is the sorted set of active source
+    coordinates; np.searchsorted gives each query's insertion index into
+    that sorted array, and since every query row is itself in used_rows,
+    the index IS its row in C_used / dv_used.
+
+    Arguments:
+      rows = numpy array of active source-row numbers.
+
+    Returns:
+      a long tensor of resident positions, on the training device.
+    """
     local_pos = np.searchsorted(used_rows, rows)
     return torch.from_numpy(local_pos).to(device)
 
   def load_C(rows):
+    """Fetch the encoded parameter rows for these source rows.
+
+    Arguments:
+      rows = numpy array of active source-row numbers.
+
+    Returns:
+      the (len(rows), ncosmo) encoded parameter tensor, resident on the
+      device.
+    """
     return C_used[slots(rows)]
 
   enc_dvs = n_used * tgt_dim * target_element_size
@@ -452,6 +489,14 @@ def _build_loaders_one(device, C, dv, idx,
       dv_used[start:start + len(block)] = enc
 
     def load_dv(rows):
+      """Fetch pre-encoded target rows resident on the device (regime 1).
+
+      Arguments:
+        rows = numpy array of active source-row numbers.
+
+      Returns:
+        the (len(rows), tgt_dim) encoded target tensor.
+      """
       return dv_used[slots(rows)]
 
     bytes_per_row = (
@@ -464,6 +509,18 @@ def _build_loaders_one(device, C, dv, idx,
   elif not isinstance(dv, np.memmap):
     # Regime 2: dvs live in CPU RAM.
     def load_dv(rows):
+      """Fetch and encode target rows from CPU RAM (regime 2).
+
+      The rows are copied to a pinned host buffer (pinned memory lets a
+      CUDA transfer run asynchronously), moved to the device, then
+      encoded there.
+
+      Arguments:
+        rows = numpy array of active source-row numbers.
+
+      Returns:
+        the (len(rows), tgt_dim) encoded target tensor on the device.
+      """
       cpu = torch.from_numpy(dv[rows]).to(dtype=target_dtype)
       if device.type == "cuda":
         cpu = cpu.pin_memory()
@@ -482,6 +539,14 @@ def _build_loaders_one(device, C, dv, idx,
   else:
     # Regime 3: dvs exceed RAM, read from the memmap.
     def load_dv(rows):
+      """Read and encode target rows from the disk memmap (regime 3).
+
+      Arguments:
+        rows = numpy array of active source-row numbers.
+
+      Returns:
+        the (len(rows), tgt_dim) encoded target tensor on the device.
+      """
       host = torch.from_numpy(dv[rows]).to(dtype=target_dtype)
       gpu  = host.to(device)
       if rescaled:

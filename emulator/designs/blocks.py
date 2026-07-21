@@ -127,17 +127,36 @@ class FeatureAffine(nn.Module):
 
 
 def affine_norm(size):
-  """Norm factory for "affine": one Affine() per dense layer.
+  """
+  Norm factory for "affine": one fresh Affine() per dense layer.
 
-  The factory contract is norm(size) -> module; Affine's scalar gain /
-  bias pair ignores the size argument. make_norm("affine") and
-  ResBlock's default norm slot both point here.
+  The factory contract is norm(size) -> module, invoked once per dense
+  layer so every layer owns an independent gain / bias pair. Affine holds
+  one scalar pair for the whole tensor, so the size argument is accepted
+  (to honor the contract) and ignored. make_norm("affine") and ResBlock's
+  default norm slot both point here.
+
+  Arguments:
+    size = the layer's feature width; unused by the scalar Affine, present
+           because every norm factory is called as norm(size).
+
+  Returns:
+    a new Affine module (gain = 1, bias = 0 at init, the identity).
   """
   return Affine()
 
 
 def identity_norm(size):
-  """Norm factory for "none": nn.Identity(), the no-norm ablation."""
+  """
+  Norm factory for "none": nn.Identity(), the no-norm ablation.
+
+  Arguments:
+    size = the layer's feature width; unused (Identity has no parameters),
+           present because every norm factory is called as norm(size).
+
+  Returns:
+    a new nn.Identity module (passes its input through unchanged).
+  """
   return nn.Identity()
 
 
@@ -184,7 +203,24 @@ def make_norm(name):
 
 
 def normalization_factory_name(factory):
-  """Return the inert name of one registered residual-block norm factory."""
+  """
+  Map a norm factory back to its registry name ("affine", ...), for saving.
+
+  The inverse of make_norm, matched by identity: the three registered
+  factories are module-level objects, so the factory a ResBlock holds IS
+  one of them when it came from make_norm. An unknown callable is reported
+  as "unregistered:<label>" rather than refused here -- the artifact writer
+  owns that refusal, and its message can then name the offending class.
+
+  Arguments:
+    factory = the norm factory a ResBlock holds, a callable
+              norm(size) -> nn.Module.
+
+  Returns:
+    "affine", "per_feature", or "none" for a registered factory;
+    "unregistered:<qualified class name>" otherwise (plain data, safe to
+    store in the .h5 recipe).
+  """
   if factory is affine_norm:
     return "affine"
   if factory is FeatureAffine:
@@ -196,7 +232,27 @@ def normalization_factory_name(factory):
 
 
 def materialized_block_recipe(block_opts):
-  """Record every ResBlock option after applying its constructor defaults."""
+  """
+  Record every ResBlock option as plain data, defaults materialized.
+
+  A saved emulator must rebuild its blocks exactly, so the recipe stores
+  what the constructor actually used -- including the defaults the caller
+  never typed (n_layers = 2, norm = affine, act = H). Reading the default
+  back from future code would let the two drift; writing the resolved
+  value pins it (the never-trust-defaults rule, save side).
+
+  Arguments:
+    block_opts = the block-options mapping handed to ResBlock (keys among
+                 "n_layers", "norm", "act"), or None for all defaults.
+
+  Returns:
+    a mapping {"n_layers": int, "act": <activation recipe mapping>,
+    "norm": <norm registry name>} of plain values for the .h5 recipe.
+
+  Raises:
+    ValueError naming any unknown option key, or a non-integer /
+    non-positive n_layers.
+  """
   opts = {} if block_opts is None else dict(block_opts)
   unknown = sorted(set(opts) - {"n_layers", "norm", "act"})
   if unknown:
@@ -553,6 +609,12 @@ def validate_trf_token_width(
       output_length = number of real output values represented by the tokens.
       n_tokens      = number of token rows passed to the transformer.
       token_width   = maximum number of feature coordinates in one token.
+
+    Returns:
+      None when the width is at least 2 (the layout is usable).
+
+    Raises:
+      ValueError describing the LayerNorm degeneracy when token_width is 1.
     """
     if token_width >= 2:
         return
@@ -690,10 +752,26 @@ def resolve_padded_head_layout(*, geom, output_dim, where):
 
 
 def keep_valid_head_positions(values, valid_mask):
-  """Set artificial padded-head positions to exact zero.
+  """
+  Zero the artificial slots of a padded token rectangle.
 
-  ``valid_mask`` is Boolean and broadcasts over the batch. Passing ``None``
-  keeps the original rectangular code path bit-for-bit unchanged.
+  A ragged physical layout stores unequal bins in one rectangular tensor,
+  so some slots hold no physical value. Every operation in the TRF head
+  calls this afterward, keeping those slots at exact zero so padding can
+  never leak into attention scores, normalization statistics, or the
+  returned correction.
+
+  Arguments:
+    values     = a token tensor of shape (B, G, dim); B = batch rows,
+                 G = tokens, dim = the padded token width.
+    valid_mask = Boolean mask of shape (1, G, dim), True on physical
+                 slots, broadcast over the batch; or None for a fully
+                 rectangular layout.
+
+  Returns:
+    values with every artificial slot set to exact zero; when valid_mask
+    is None, the input unchanged (the rectangular path stays
+    bit-for-bit identical).
   """
   if valid_mask is None:
     return values
@@ -701,7 +779,32 @@ def keep_valid_head_positions(values, valid_mask):
 
 
 def _masked_layer_norm(values, valid_mask, layer):
-  """Apply LayerNorm using only physical feature coordinates."""
+  """
+  Apply LayerNorm over the physical feature coordinates only.
+
+  A padded token's artificial zeros must not enter the mean and variance:
+  they would dilute both and make the normalization depend on how much
+  padding a bin carries. The statistics are therefore computed with the
+  mask as a weight (sum over physical slots / count of physical slots),
+  and the layer's learned affine is applied afterward exactly as
+  nn.LayerNorm would.
+
+  A token with ONE physical coordinate is left unnormalized: subtracting
+  its own mean would zero it for every input, silently making the branch
+  input-independent (the same degeneracy validate_trf_token_width refuses
+  for a whole layout).
+
+  Arguments:
+    values     = a token tensor of shape (B, G, dim).
+    valid_mask = Boolean mask of shape (1, G, dim), True on physical
+                 slots; or None to apply the plain nn.LayerNorm.
+    layer      = the nn.LayerNorm module whose eps and learned
+                 weight / bias are used.
+
+  Returns:
+    the normalized tensor, shape (B, G, dim), with artificial slots
+    zeroed; when valid_mask is None, exactly layer(values).
+  """
   if valid_mask is None:
     return layer(values)
 

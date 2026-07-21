@@ -57,7 +57,28 @@ _TRANSFER_SPACES = ("physical", "whitened")
 
 def _validate_live_recipe_geometry_widths(
     recipe, param_geometry, output_geometry, where):
-  """Bind a live recipe's two network widths to its live geometries."""
+  """Bind a live recipe's two network widths to its live geometries.
+
+  A recipe that claims one width while the geometries carry another would
+  save an artifact whose rebuilt model cannot consume its own encode() or
+  produce its own decode() shape. Both widths are read off the live
+  geometry objects (encoded_dim / names for the input, dest_idx for the
+  output) and compared against the recipe before anything is written.
+
+  Arguments:
+    recipe          = the validated model recipe about to be saved.
+    param_geometry  = the live input geometry (ParamGeometry family).
+    output_geometry = the live output geometry (its dest_idx count is
+                      the model's output width).
+    where           = the save location, named in every refusal.
+
+  Returns:
+    None. The function is called for its refusals.
+
+  Raises:
+    ValueError when either recipe width disagrees with its geometry, or
+    a geometry exposes no width at all.
+  """
   if hasattr(param_geometry, "encoded_dim"):
     input_width = int(param_geometry.encoded_dim)
   elif hasattr(param_geometry, "names"):
@@ -90,12 +111,36 @@ def _validate_saved_recipe_geometry_widths(
 
   Scalar geometries derive it from ``names``; masked data-vector geometries
   derive it from ``dest_idx``; the grid families derive it from their axes.
-  Check those class-specific facts and every same-width transform array before
-  importing a geometry class.  Using ``center`` alone would miss corruption
-  such as two scalar names beside one center, or three kept data-vector
-  positions beside a four-output model.
+  Check those class-specific facts and every same-width transform array
+  before importing a geometry class.  Using ``center`` alone would miss
+  corruption such as two scalar names beside one center, or three kept
+  data-vector positions beside a four-output model.
+
+  Arguments:
+    recipe       = the validated model recipe (its input_dim / output_dim
+                   are the widths every saved array must agree with).
+    param_group  = the artifact's open parameter-geometry HDF5 group.
+    output_group = the artifact's open output-geometry HDF5 group.
+    where        = the artifact's identity, named in every refusal.
+
+  Returns:
+    None. The function is called for its refusals.
+
+  Raises:
+    KeyError / TypeError / ValueError naming the dataset whose shape,
+    type, or cross-field consistency disagrees with the recipe.
   """
   def saved_shape(group, name, label):
+    """Read one dataset's shape from an HDF5 group, as plain ints.
+
+    Arguments:
+      group = the open HDF5 group.
+      name  = the dataset name inside the group.
+      label = which geometry the dataset belongs to, for refusals.
+
+    Returns:
+      the dataset's shape tuple.
+    """
     if name not in group:
       raise KeyError(where + " " + label + " is missing " + repr(name))
     item = group[name]
@@ -105,6 +150,14 @@ def _validate_saved_recipe_geometry_widths(
     return tuple(int(size) for size in item.shape)
 
   def require_parameter_vector(group, name, width, label):
+    """Require one saved parameter-side dataset to be a (width,) vector.
+
+    Arguments:
+      group = the open HDF5 group.
+      name  = the dataset name inside the group.
+      width = the required length (the recipe's input width).
+      label = which geometry the dataset belongs to, for refusals.
+    """
     observed = saved_shape(group, name, label)
     expected = (width,)
     if observed != expected:
@@ -115,6 +168,14 @@ def _validate_saved_recipe_geometry_widths(
         + str(recipe["input_dim"]))
 
   def require_parameter_matrix(group, name, width, label):
+    """Require one saved whitening basis to be a (width, width) square.
+
+    Arguments:
+      group = the open HDF5 group.
+      name  = the dataset name inside the group.
+      width = the required side length (the recipe's input width).
+      label = which geometry the dataset belongs to, for refusals.
+    """
     observed = saved_shape(group, name, label)
     expected = (width, width)
     if observed != expected:
@@ -204,9 +265,16 @@ def _validate_saved_recipe_geometry_widths(
       + " has no inert width contract")
 
   def dataset_shape(name):
+    """Read one output-geometry dataset's shape (see saved_shape)."""
     return saved_shape(output_group, name, "output geometry")
 
   def require_vector(name, width):
+    """Require one output-side dataset to be a (width,) vector.
+
+    Arguments:
+      name  = the dataset name inside the output-geometry group.
+      width = the required length (the recipe's output width).
+    """
     observed = dataset_shape(name)
     expected = (width,)
     if observed != expected:
@@ -217,6 +285,12 @@ def _validate_saved_recipe_geometry_widths(
         + str(recipe["output_dim"]))
 
   def require_matrix(name, width):
+    """Require one output-side dataset to be a (width, width) square.
+
+    Arguments:
+      name  = the dataset name inside the output-geometry group.
+      width = the required side length (the recipe's output width).
+    """
     observed = dataset_shape(name)
     expected = (width, width)
     if observed != expected:
@@ -275,7 +349,32 @@ def _validate_saved_recipe_geometry_widths(
 
 
 def _load_tensor_state_dict(checkpoint, *, device, where):
-  """Load only a plain name-to-tensor state dict from an open checkpoint."""
+  """Load one checkpoint as a plain name-to-tensor state dict, or refuse.
+
+  The read runs under ``weights_only=True``, PyTorch's restricted-pickle
+  mode: a checkpoint whose bytes were rewritten to smuggle executable
+  pickle payloads fails to load instead of running them. What survives
+  the load must still LOOK like a model state: exactly a plain dict,
+  nonempty, string keys, tensor values -- anything else is refused before
+  a model is even constructed around it.
+
+  Arguments:
+    checkpoint = the open binary file object of ``<root>.emul``; its
+                 position is rewound before and after the read.
+    device     = the torch device the restored tensors are mapped onto
+                 (the ``map_location``), so a GPU-trained model loads on
+                 a CPU-only machine.
+    where      = the checkpoint's identity, named in every refusal.
+
+  Returns:
+    the state dict: a plain dict mapping parameter names to tensors on
+    ``device``.
+
+  Raises:
+    ValueError when the bytes are not a tensor-only checkpoint, the
+    mapping is empty or not a plain dict, a key is not a nonempty
+    string, or a value is not a tensor.
+  """
   checkpoint.seek(0)
   try:
     state = torch.load(
@@ -303,7 +402,24 @@ def _load_tensor_state_dict(checkpoint, *, device, where):
 
 
 def _refuse_existing_artifact_root(path_root):
-  """Protect every byte already associated with one output name root."""
+  """Refuse to save over any file already using this artifact name.
+
+  A completed emulator name is immutable: overwriting even ONE member of
+  the ``.emul`` / ``.h5`` pair would leave a mixed artifact whose halves
+  came from different runs. ``os.path.lexists`` also counts a dangling
+  symbolic link as occupation, so a link cannot redirect the write.
+
+  Arguments:
+    path_root = the artifact path root (the shared path before the two
+                extensions).
+
+  Returns:
+    None when both final names are free.
+
+  Raises:
+    FileExistsError listing the occupied path(s) and telling the user to
+    choose another --save name or move the earlier result first.
+  """
   root = os.fspath(path_root)
   occupied = [path for path in (root + ".emul", root + ".h5")
               if os.path.lexists(path)]
@@ -315,7 +431,15 @@ def _refuse_existing_artifact_root(path_root):
 
 
 def _unlink_if_present(path):
-  """Remove one temporary path when it still exists."""
+  """Remove one temporary file, treating an already-absent file as done.
+
+  Cleanup after a failed save must not raise a second error that masks
+  the first: a temporary that was never created, or was already removed,
+  is simply skipped.
+
+  Arguments:
+    path = the temporary file path to remove.
+  """
   try:
     os.unlink(path)
   except FileNotFoundError:
@@ -324,7 +448,24 @@ def _unlink_if_present(path):
 
 @contextlib.contextmanager
 def _tmp_h5_file(h5py, h5_path, cleanup_paths):
-  """Open a temporary HDF5 file, removing the temporaries on a failed write."""
+  """Open a temporary HDF5 file whose failure removes every temporary.
+
+  The save writes both members to temporary names first. If anything
+  inside the HDF5 write raises, every temporary listed is deleted before
+  the error propagates, so a failed save leaves no partial file behind
+  -- neither public names nor stray ``.tmp`` files.
+
+  Arguments:
+    h5py          = the imported h5py module (imported lazily by the
+                    caller, so this module never imports it at top level).
+    h5_path       = the temporary HDF5 file path to create and write.
+    cleanup_paths = every temporary path to delete on failure (both the
+                    HDF5 temporary and the already-written checkpoint
+                    temporary).
+
+  Returns:
+    a context manager yielding the open h5py.File handle.
+  """
   try:
     with h5py.File(h5_path, "w") as handle:
       yield handle
@@ -335,7 +476,23 @@ def _tmp_h5_file(h5py, h5_path, cleanup_paths):
 
 
 def _open_regular_checkpoint(path):
-  """Open one checkpoint once, without following a final-component symlink."""
+  """Open one checkpoint file, refusing links and special files.
+
+  The file is opened ONCE and every later read uses the returned handle,
+  so the bytes that were validated are the bytes that are loaded --
+  nothing can swap the pathname between two opens. ``O_NOFOLLOW`` makes a
+  symbolic link at the final path component fail the open, and the
+  ``S_ISREG`` check refuses directories, pipes, and device files.
+
+  Arguments:
+    path = the ``<root>.emul`` checkpoint path.
+
+  Returns:
+    an open binary file object positioned at the start.
+
+  Raises:
+    ValueError when the path cannot be opened or is not a regular file.
+  """
   flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
   try:
     descriptor = os.open(path, flags)
@@ -458,11 +615,29 @@ def save_sweep_table(path, param, values, fracs, meta=None):
 
 
 def executed_composition(pce, transfer_base):
-  """Return the composition facts selected by one executed run.
+  """Derive the composition declaration from what one run actually built.
 
-  This helper belongs to the writer side only. It derives the declarations
-  from the live objects the trainer is about to persist; readers never call it
-  and never infer a missing artifact declaration from group presence.
+  A saved emulator is one of three compositions: "plain" (the network
+  alone), "npce" (a frozen polynomial-chaos base plus a refiner network),
+  or "transfer" (a frozen source emulator plus a correction network,
+  "refined" when a drifted copy of the base weights rides along). The
+  writer declares the mode from the LIVE objects the trainer is about to
+  persist -- never from what groups happen to exist in a file -- and
+  readers later trust that declaration alone.
+
+  Arguments:
+    pce           = the fitted PCEEmulator base of an NPCE run, else None.
+    transfer_base = the embedded-base payload mapping of a transfer run
+                    (its "drifted_state" key marks a refined run), else
+                    None.
+
+  Returns:
+    the pair (composition_mode, transfer_refined): one of
+    ("plain", False), ("npce", False), ("transfer", <bool>).
+
+  Raises:
+    ValueError when both bases are supplied (no run can be both);
+    TypeError when transfer_base is not a mapping.
   """
   if pce is not None and transfer_base is not None:
     raise ValueError(
@@ -480,11 +655,31 @@ def executed_composition(pce, transfer_base):
 def _validate_executed_composition(
     *, composition_mode, transfer_refined, pce, pce_form, transfer_base,
     resolved_pce, resolved_transfer, where):
-  """Validate writer declarations against every composition payload surface.
+  """Cross-check the composition declaration against every payload.
 
-  Validation runs before either output file is touched. The native enum and
-  boolean come from the executed trainer; the payload groups and resolved
-  records must corroborate them in both directions.
+  The declaration (mode + refined flag) and the payloads (the pce base,
+  the transfer base, the resolved records) all describe the same run, so
+  every pair must corroborate: a "plain" declaration with a pce payload,
+  an "npce" declaration whose resolved record names a different form, or
+  a refined flag without a drifted state are each a writer bug that would
+  persist a self-contradictory artifact. Validation runs before either
+  output file is touched, so a contradiction costs nothing on disk.
+
+  Arguments:
+    composition_mode  = the declared mode ("plain" / "npce" / "transfer").
+    transfer_refined  = the declared refined flag (native bool).
+    pce               = the live PCEEmulator base, else None.
+    pce_form          = the NPCE recombination form string, else None.
+    transfer_base     = the embedded-base payload mapping, else None.
+    resolved_pce      = the run's resolved NPCE record mapping, else None.
+    resolved_transfer = the run's resolved transfer record, else None.
+    where             = the save location, named in every refusal.
+
+  Returns:
+    the corroborated (composition_mode, transfer_refined) pair.
+
+  Raises:
+    ValueError naming the disagreeing pair of surfaces.
   """
   if type(composition_mode) is not str or composition_mode not in \
       _COMPOSITION_MODES:
@@ -590,7 +785,28 @@ _HISTORY_KEYS = (
 
 
 def _history_arrays_for_save(histories, where):
-  """Prepare five compatible history arrays for publication."""
+  """Convert the five training-history curves to compatible saved arrays.
+
+  The history block records the run's per-epoch curves: train_losses,
+  val_medians, val_means (each one value per epoch), thresholds (the
+  delta-chi2 thresholds the run scored against), and val_fracs (one row
+  per epoch, one column per threshold). The five are converted to plain
+  numpy arrays, checked finite, and checked mutually consistent -- equal
+  epoch counts, and a val_fracs column count equal to the threshold
+  count -- before anything is written.
+
+  Arguments:
+    histories = the history mapping with exactly the five keys above
+                (tensors or arrays).
+    where     = the save location, named in every refusal.
+
+  Returns:
+    a mapping of the five names to plain numpy arrays, shapes verified.
+
+  Raises:
+    TypeError / ValueError naming the missing, unknown, nonfinite, or
+    shape-inconsistent member.
+  """
   if type(histories) is not dict:
     raise TypeError(where + " must be a plain mapping")
   missing = sorted(set(_HISTORY_KEYS) - set(histories))
@@ -604,6 +820,15 @@ def _history_arrays_for_save(histories, where):
     raise ValueError(where + " has " + " and ".join(details))
 
   def as_finite_array(value, label):
+    """Convert one curve to a plain numpy array, refusing nonfinite values.
+
+    Arguments:
+      value = the curve (a tensor, array, or sequence of numbers).
+      label = the history key, named in the refusal.
+
+    Returns:
+      the curve as a numpy array.
+    """
     if torch.is_tensor(value):
       value = value.detach().cpu().numpy()
     array = np.asarray(value)
@@ -644,7 +869,27 @@ def _history_arrays_for_save(histories, where):
 
 
 def _read_yaml_mapping_dataset(container, name, where):
-  """Decode one scalar UTF-8 YAML mapping without importing saved code."""
+  """Read one stored YAML text dataset and parse it into a plain mapping.
+
+  The artifact stores its configuration blocks as YAML TEXT (never
+  pickled objects), so reading one is: fetch the scalar dataset, decode
+  the bytes as UTF-8, parse with the safe YAML loader (which constructs
+  only plain Python values, never classes), and require a mapping at the
+  top level.
+
+  Arguments:
+    container = the open HDF5 file or group holding the dataset.
+    name      = the dataset name (for example "config_yaml").
+    where     = the artifact's identity, named in every refusal.
+
+  Returns:
+    the parsed plain dict.
+
+  Raises:
+    KeyError when the dataset is absent; ValueError for invalid UTF-8 or
+    invalid YAML; TypeError when the stored value is not scalar text or
+    does not parse to a plain mapping.
+  """
   if name not in container:
     raise KeyError(where + " is missing required " + repr(name))
   value = container[name][()]
@@ -665,7 +910,25 @@ def _read_yaml_mapping_dataset(container, name, where):
 
 
 def _saved_geometry_class(group, where):
-  """Read a geometry class marker without importing or constructing it."""
+  """Read a saved geometry's class marker as plain text.
+
+  Every persisted geometry group carries a "cls" attribute naming the
+  class that wrote it (for example
+  "emulator.geometries.parameter.ParamGeometry"). Reading the marker is
+  deliberately separated from importing the class, so shape validation
+  can run while the file is still nothing but inert data.
+
+  Arguments:
+    group = the open HDF5 geometry group.
+    where = which geometry is being read, named in every refusal.
+
+  Returns:
+    the class path string.
+
+  Raises:
+    KeyError when the marker is absent; TypeError when it is empty or
+    not native text.
+  """
   if not hasattr(group, "attrs") or "cls" not in group.attrs:
     raise KeyError(where + " is missing the required 'cls' class marker")
   value = group.attrs["cls"]
@@ -677,12 +940,34 @@ def _saved_geometry_class(group, where):
 def _saved_head_layout(geometry, recipe, where):
   """Derive the fixed structured-head buffers promised by one recipe.
 
-  Most heads use the geometry's physical rectangle directly. Template heads
-  repeat its validity mask once per template. ``ResTRF.n_tokens`` is the one
-  supported transformation: it divides a complete one-dimensional grid into
-  contiguous, near-equal tokens. Keeping that transformation here prevents a
-  valid segmented Transformer from being mistaken for a geometry mismatch at
-  save time.
+  A structured head (conv or transformer) carries two fixed buffers that
+  map the trunk's flat output into its padded rectangle: ``pad_idx`` (the
+  slot of each physical value) and ``pad_valid`` (the mask of physical
+  slots). This helper recomputes both from the geometry and recipe alone,
+  so the saver can compare them against the live model's buffers.
+
+  Most heads use the geometry's physical rectangle directly. Template
+  heads repeat its validity mask once per template. ``ResTRF.n_tokens``
+  is the one supported transformation: it divides a complete
+  one-dimensional grid into contiguous, near-equal tokens. Keeping that
+  transformation here prevents a valid segmented Transformer from being
+  mistaken for a geometry mismatch at save time.
+
+  Arguments:
+    geometry = the live output geometry (attach_head_coords is invoked
+               when the class provides it).
+    recipe   = the validated model recipe (its cls / kwargs select the
+               transformation, its output_dim fixes the value count).
+    where    = the save location, named in every refusal.
+
+  Returns:
+    the pair (pad_idx, pad_valid) as CPU tensors: a (output_dim,) long
+    index map and a (1, tokens-or-bins, width) Boolean mask.
+
+  Raises:
+    ValueError when n_tokens is out of range, re-segments anything but a
+    complete one-dimensional grid, or a template head lacks a positive
+    n_templates.
   """
   from .designs.blocks import resolve_padded_head_layout
 
@@ -738,7 +1023,28 @@ def _saved_head_layout(geometry, recipe, where):
 
 
 def _validate_saved_head_layout(model_state, geometry, recipe, where):
-  """Refuse a model/geometry pair that could not reopen after publication."""
+  """Refuse a model/geometry pair whose head buffers disagree.
+
+  The model's state dict carries its own ``pad_idx`` / ``pad_valid``
+  buffers, and the geometry+recipe derive an independent expectation of
+  both. If the two disagree, the artifact would save cleanly and then
+  fail (or worse, scatter values into wrong slots) on rebuild -- so the
+  disagreement is refused BEFORE anything is written.
+
+  Arguments:
+    model_state = the model's state dict about to be saved.
+    geometry    = the live output geometry.
+    recipe      = the validated model recipe; a trunk-only recipe
+                  (needs_geom False) has no head buffers and passes.
+    where       = the save location, named in every refusal.
+
+  Returns:
+    None. The function is called for its refusals.
+
+  Raises:
+    KeyError when a head buffer is missing from the state; ValueError
+    when a buffer's dtype, shape, or values differ from the expectation.
+  """
   if not recipe["needs_geom"]:
     return
   expected_idx, expected_valid = _saved_head_layout(
@@ -1182,10 +1488,19 @@ def save_emulator(path_root,
   str_dt  = h5py.string_dtype(encoding="utf-8")
 
   def write_state(group, state):
-    # Write one geometry state() dict recursively, so every geometry
-    # saves without per-class code: tensors -> datasets, name lists
-    # -> string datasets, nested dicts (a composed geometry, e.g.
-    # AmplitudeFactorGeometry's pg_keep) -> subgroups, scalars and
+    """Write one geometry state() dict into an HDF5 group, recursively.
+
+    Every geometry saves through this one function, without per-class
+    code: tensors become datasets, name lists become string datasets,
+    nested dicts (a composed geometry, e.g. AmplitudeFactorGeometry's
+    pg_keep) become subgroups, and scalars become attributes.
+
+    Arguments:
+      group = the open HDF5 group to fill.
+      state = the geometry's state() mapping.
+    """
+    # tensors -> datasets, name lists -> string datasets, nested dicts
+    # -> subgroups, scalars and
     # dtypes -> attributes. Keys stay exactly state()'s, so the
     # matching from_state rebuilds from a read-back dict.
     for k, v in state.items():
@@ -1407,11 +1722,24 @@ def _read_native_bool(attrs, key, *, default, where):
 
 
 def _read_native_enum(attrs, key, *, allowed, where):
-  """Read one required native UTF-8 HDF5 enum attribute.
+  """Read one required HDF5 string attribute from a closed value set.
 
-  h5py decodes both native UTF-8 and byte-string attributes to Python strings
-  on some versions.  The stored dtype is therefore part of this boundary: a
-  byte payload cannot impersonate a writer-owned native declaration.
+  h5py decodes both native UTF-8 and byte-string attributes to Python
+  strings on some versions, so the STORED dtype is checked too: a byte
+  payload cannot impersonate a writer-owned native declaration.
+
+  Arguments:
+    attrs   = the HDF5 attribute mapping (a group's or file's .attrs).
+    key     = the attribute name.
+    allowed = the closed set of accepted values.
+    where   = the artifact's identity, named in every refusal.
+
+  Returns:
+    the attribute value, one of ``allowed``.
+
+  Raises:
+    KeyError when the attribute is absent; ValueError when its storage
+    type is not a native string or its value is outside ``allowed``.
   """
   if key not in attrs:
     raise KeyError(
@@ -1474,6 +1802,10 @@ def _read_artifact_composition(f, where):
   ``config_yaml`` is provenance.  When it declares a non-null ``pce`` or
   ``transfer`` block, that declaration must agree too, but it can never
   replace either required root fact.
+
+  Arguments:
+    f     = the open HDF5 file of the artifact.
+    where = the artifact's identity, named in every refusal.
 
   Returns:
     ``(composition_mode, transfer_refined)`` as plain Python values.
@@ -1564,6 +1896,16 @@ def _read_artifact_composition(f, where):
       + repr(composition_mode))
 
   def _read_yaml_mapping(dataset_name, *, required):
+    """Read one stored YAML text dataset as a plain mapping, or None.
+
+    Arguments:
+      dataset_name = the dataset holding the YAML text.
+      required     = when True, an absent dataset is a KeyError naming a
+                     re-save; when False, absence returns None.
+
+    Returns:
+      the parsed plain dict, or None for an absent optional dataset.
+    """
     if dataset_name not in f:
       if required:
         raise KeyError(
@@ -1889,9 +2231,19 @@ def rebuild_emulator(path_root, device, compile_model=True):
   import h5py
 
   def _read_group(g):
-    # inverse of save's write_state: numeric datasets -> tensors, string
-    # datasets (names) -> str lists, attrs -> scalars (a "torch.<dtype>"
-    # string restored to the torch.dtype), subgroups -> nested dicts.
+    """Read one HDF5 group back into a state dict, recursively.
+
+    The inverse of save's write_state: numeric datasets -> tensors on
+    ``device``, string datasets (names) -> str lists, attributes ->
+    scalars (a "torch.<dtype>" string restored to the torch.dtype),
+    subgroups -> nested dicts.
+
+    Arguments:
+      g = the open HDF5 group.
+
+    Returns:
+      the state mapping, ready for a geometry's from_state.
+    """
     state = {}
     for k in g:
       item = g[k]
@@ -1911,6 +2263,16 @@ def rebuild_emulator(path_root, device, compile_model=True):
     return state
 
   def _need(d, k, where):
+    """Read one required key from a saved mapping, never a code default.
+
+    Arguments:
+      d     = the saved mapping (recipe, block options, group state).
+      k     = the required key.
+      where = which mapping is being read, named in the refusal.
+
+    Returns:
+      the stored value.
+    """
     if k not in d:
       raise KeyError(
         f"{path_root}.h5 {where} is missing {k!r}; rebuild_emulator reads "
@@ -1918,11 +2280,22 @@ def rebuild_emulator(path_root, device, compile_model=True):
     return d[k]
 
   def _rebuild_geometry(group, where):
-    # dispatch on the persisted class marker: read the group, resolve its
-    # own "cls" (importlib, the model-recipe pattern), and call THAT class's
-    # from_state, so a factored AmplitudeFactorGeometry / a LogParamGeometry
-    # rebuilds as itself. A missing marker is loud and names a re-save --
-    # never a silent fallback to the base geometry (the read-side rule).
+    """Rebuild one geometry object from its saved group.
+
+    Dispatches on the persisted class marker: read the group, resolve
+    its own "cls" path through importlib (the model-recipe pattern), and
+    call THAT class's from_state, so a factored AmplitudeFactorGeometry
+    or a LogParamGeometry rebuilds as itself. A missing marker is loud
+    and names a re-save -- never a silent fallback to the base geometry
+    class (the read-side rule).
+
+    Arguments:
+      group = the open HDF5 geometry group.
+      where = which geometry is being rebuilt, named in the refusal.
+
+    Returns:
+      the rebuilt geometry object, on ``device``.
+    """
     st = _read_group(group)
     if "cls" not in st:
       raise KeyError(
@@ -2036,11 +2409,27 @@ def rebuild_emulator(path_root, device, compile_model=True):
       checkpoint, device=device, where=path_root + ".emul")
 
   def _rebuild_model(rc, geom_for_needs, state, want_compile):
-    # Reconstruct one module from its recipe + state dict (h5-only, a missing
-    # key loud). Shared by the main model (the correction net on a transfer
-    # run, or the plain emulator otherwise) and the embedded transfer base, so
-    # the recipe -> constructor logic lives once. state is already the plain
-    # (compile-prefix-stripped) name -> tensor mapping to load strict.
+    """Reconstruct one module from its saved recipe and state dict.
+
+    Shared by the main model (the correction net on a transfer run, or
+    the plain emulator otherwise) and the embedded transfer base, so the
+    recipe -> constructor logic lives once. Factory objects (activation,
+    norm) are re-made from their serialized names; every value comes
+    from the file, a missing key is loud, never a code default.
+
+    Arguments:
+      rc             = the saved model-recipe mapping.
+      geom_for_needs = the rebuilt output geometry, handed to the
+                       constructor when the recipe declares needs_geom.
+      state          = the plain (compile-prefix-stripped) name -> tensor
+                       mapping to load strict.
+      want_compile   = whether to wrap the module in torch.compile with
+                       the recipe's stored mode.
+
+    Returns:
+      the module in eval() with the weights loaded (compiled when
+      requested and a mode is stored).
+    """
     cls_path = _need(rc, "cls", "model_recipe")
     mn, _, qn = cls_path.rpartition(".")
     cls = getattr(importlib.import_module(mn), qn)

@@ -117,12 +117,26 @@ def _require_prediction_tensor(value, *, stage, shape, where):
 
 
 def _select_composition(composition_mode, pce_base, transfer_base):
-  """Select decoder payloads from the validated authoritative mode.
+  """Corroborate the declared composition mode against its payloads.
 
   ``rebuild_emulator`` has already checked the HDF5 enum against its exact
   required/forbidden group set.  This second boundary keeps inference from
-  drifting back to presence-based dispatch if a caller constructs or mutates
-  an ``info`` record in memory.
+  drifting back to presence-based dispatch if a caller constructs or
+  mutates an ``info`` record in memory: the mode alone decides which
+  decoder runs, and the payloads must exactly match it.
+
+  Arguments:
+    composition_mode = the artifact's declared mode ("plain" / "npce" /
+                       "transfer").
+    pce_base         = the rebuilt PCEEmulator base, else None.
+    transfer_base    = the rebuilt embedded-base mapping, else None.
+
+  Returns:
+    the (pce_base, transfer_base) pair, unchanged, once corroborated.
+
+  Raises:
+    ValueError when the mode is unknown, or a payload is present or
+    absent in disagreement with the mode.
   """
   if type(composition_mode) is not str or composition_mode not in (
       "plain", "npce", "transfer"):
@@ -712,7 +726,16 @@ class EmulatorPredictor:
       return chi2.decode
     if composition_mode == "plain":
       def _diag_plain_decode(pred, x_enc):
-        # the module output is the whitened row itself; no base.
+        """Decode a plain diagonal-family output (no base to combine).
+
+        Arguments:
+          pred  = (1, n_keep) whitened model output.
+          x_enc = the encoded input row; unused here, present because
+                  every decoder shares the (pred, x_enc) convention.
+
+        Returns:
+          the physical row, geom.decode(pred).
+        """
         return self.geom.decode(pred)
       return _diag_plain_decode
     if pce_form != "residual":
@@ -755,7 +778,16 @@ class EmulatorPredictor:
       chi2 = make_cmb_chi2(geom=self.geom, law=law)
 
       def _cmb_plain_decode(pred, x_enc):
-        # the module output is the whitened spectrum itself; no law.
+        """Decode a law-free CMB output (no amplitude factor to apply).
+
+        Arguments:
+          pred  = (1, n_ell) whitened model output.
+          x_enc = the encoded input row; unused here, present because
+                  every decoder shares the (pred, x_enc) convention.
+
+        Returns:
+          the physical C_ell row, chi2.decode(pred).
+        """
         return chi2.decode(pred)
       return _cmb_plain_decode
     chi2 = make_cmb_chi2(geom=self.geom,
@@ -859,7 +891,16 @@ class EmulatorPredictor:
       return chi2.decode
 
     def _plain_decode(pred, x_enc):
-      # the module output is the whitened dv itself; no combine / recombine.
+      """Decode a plain data-vector output (no combine / recombine step).
+
+      Arguments:
+        pred  = (1, n_keep) whitened model output.
+        x_enc = the encoded input row; unused here, present because
+                every decoder shares the (pred, x_enc) convention.
+
+      Returns:
+        the physical kept-entry data vector, geom.decode(pred).
+      """
       return geom.decode(pred)
     return _plain_decode
 

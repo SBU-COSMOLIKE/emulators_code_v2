@@ -446,8 +446,19 @@ def validate_active_model_values(
   depend on the resolved output layout.  Configuration for an inactive head
   remains ignored so one YAML can carry both ``cnn`` and ``trf`` blocks.
 
-  Returns the resolved trunk and head activation specifications.  The input
-  mapping is never modified.
+  Arguments:
+    train_args   = the run's train_args mapping (its model block is read).
+    model_cls    = the selected design class (its head_block picks which
+                   head block applies).
+    activation   = the run's activation choice, when already resolved.
+    ia           = the factored-IA design name, or None.
+    geom         = the resolved output geometry, when it exists (enables
+                   the layout-dependent attention / grouping checks).
+    defer_groups = postpone the grouping checks that need the geometry.
+
+  Returns:
+    the resolved (trunk activation, head activation) specifications.
+    The input mapping is never modified.
   """
   if not isinstance(train_args, dict):
     raise TypeError("train_args must be a mapping")
@@ -2496,7 +2507,16 @@ class EmulatorExperiment:
       facts_are_ready = True
 
     def check_active_model(model_cls, ia=None):
-      """Run the CPU-only model check before facts, devices, or sources."""
+      """Run the CPU-only model check before facts, devices, or sources.
+
+      Arguments:
+        model_cls = the selected design class.
+        ia        = the factored-IA design name, or None.
+
+      Returns:
+        the resolved activation specifications, from
+        validate_active_model_values.
+      """
       return validate_active_model_values(
         train_args=ta, model_cls=model_cls,
         activation=kwargs.get("activation"), ia=ia)

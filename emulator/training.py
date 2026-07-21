@@ -95,6 +95,7 @@ def make_logger(quiet=False):
           prints unless quiet.
   """
   def log(*args, **kwargs):
+    """Forward to print unless the maker was built quiet."""
     if not quiet:
       print(*args, **kwargs)
   return log
@@ -236,11 +237,20 @@ def _validate_optimizer_opts(opt_opts, lr):
 
 
 def _effective_optimizer_extras(opt_opts, device):
-  """Return the extra kwargs the optimizer constructor actually receives.
+  """Resolve the extra kwargs the optimizer constructor actually receives.
 
   CUDA deliberately forces the fused implementation.  Construction and the
   saved recipe must read the same resolved mapping; otherwise a configured
   ``fused: false`` runs as ``True`` but is later reported as ``False``.
+
+  Arguments:
+    opt_opts = the optimizer spec mapping ("cls" and "weight_decay" are
+               consumed elsewhere; everything else passes through).
+    device   = the torch device the run trains on (CUDA forces
+               ``fused=True``).
+
+  Returns:
+    the mapping of extra keyword arguments for the optimizer class.
   """
   extra = {}
   for key, value in opt_opts.items():
@@ -444,12 +454,27 @@ class TransferComposite(nn.Module):
     self.base        = base
 
   def forward(self, x):
+    # the wrapper trains the correction; the base is consulted by the
+    # live loss object, not by this forward.
     return self.correction(x)
 
 
 def _decay_weight_ids(module):
-    """ids of the .weight of every nn.Linear / nn.Conv1d / BinLinear in a module
-    (the only tensors weight decay touches; see make_optimizer)."""
+    """Collect the ids of every weight matrix that weight decay touches.
+
+    Weight decay applies only to true weight MATRICES (nn.Linear,
+    nn.Conv1d, BinLinear), never to biases, gains, or activation shape
+    parameters -- decaying those would pull learned physics toward zero
+    with no regularization meaning. Object identity (id) is used because
+    the same tensor object appears in module.parameters(); a set of ids
+    lets make_optimizer split the parameter list in one pass.
+
+    Arguments:
+      module = the model (or submodule) whose weights are collected.
+
+    Returns:
+      the set of id() values of the decayable weight tensors.
+    """
     ids = set()
     for m in module.modules():
       if isinstance(m, (nn.Linear, nn.Conv1d, BinLinear)):
@@ -532,7 +557,25 @@ def make_scheduler(optimizer, sched_opts):
 
 
 def _plain_recipe_value(value, where):
-  """Convert one constructor setting to finite, YAML-safe plain data."""
+  """Reduce one constructor setting to finite, YAML-safe plain data.
+
+  The training recipe is persisted as YAML, so every recorded value must
+  be a plain scalar, list, or string-keyed mapping. The reduction is
+  recursive; a nonfinite float or an exotic type is refused rather than
+  serialized into something the reader would misparse.
+
+  Arguments:
+    value = the constructor setting to record.
+    where = the recipe path being recorded, named in every refusal.
+
+  Returns:
+    the equivalent plain-data value (None, bool, int, str, finite float,
+    list, or dict).
+
+  Raises:
+    ValueError for a nonfinite float; TypeError for a non-string mapping
+    key or an unserializable type.
+  """
   if value is None or type(value) in (bool, int, str):
     return value
   if type(value) is float:
@@ -554,12 +597,25 @@ def _plain_recipe_value(value, where):
 
 
 def _materialized_constructor_kwargs(cls, supplied, injected, where):
-  """Fill inspectable constructor defaults beside the executed call.
+  """Record a constructor call with its defaults materialized.
 
-  The standard AdamW and ReduceLROnPlateau constructors expose complete
-  signatures.  A custom callable without an inspectable signature keeps its
-  supplied kwargs; construction remains the authority and still fails in the
-  ordinary way if a required value is absent.
+  The saved training recipe must state what the run ACTUALLY used, so the
+  supplied kwargs are merged with the constructor's own inspectable
+  defaults: a default the caller never typed is written out explicitly
+  (the never-trust-defaults rule, save side). A custom callable without
+  an inspectable signature keeps only its supplied kwargs; construction
+  remains the authority and still fails in the ordinary way if a required
+  value is absent.
+
+  Arguments:
+    cls      = the optimizer / scheduler class about to be constructed.
+    supplied = the kwargs the configuration supplied.
+    injected = parameter names filled by the trainer itself (for example
+               the parameter groups and lr), excluded from the record.
+    where    = the recipe path being recorded, named in refusals.
+
+  Returns:
+    the resolved kwargs mapping as plain YAML-safe data.
   """
   try:
     parameters = inspect.signature(cls.__init__).parameters.values()
@@ -595,13 +651,20 @@ def _materialized_constructor_kwargs(cls, supplied, injected, where):
 
 
 def _training_trunk(model):
-  """Return the parameter-owning trunk used by a two-phase model.
+  """Locate the parameter-owning trunk of a two-phase model.
 
   Correction models keep their shared dense trunk in one of two documented
   places: ``mlp`` for the plain correction designs and ``model`` for the
   factored designs.  A compiled model forwards these attribute reads to its
-  wrapped module.  Keeping this lookup in one helper makes the phase-boundary
-  witness hash the same object that the parameter census calls the trunk.
+  wrapped module.  Keeping this lookup in one helper makes the
+  phase-boundary witness hash the same object that the parameter census
+  calls the trunk.
+
+  Arguments:
+    model = the live model (compiled or eager).
+
+  Returns:
+    the trunk submodule.
 
   Raises:
     ValueError if the model has no recognized trunk.  A digest of the full
@@ -619,12 +682,18 @@ def _training_trunk(model):
 
 
 def _parameter_digest(module):
-  """Return a canonical SHA-256 digest of one module's finite parameters.
+  """Fingerprint one module's parameters, for the phase-boundary witness.
 
-  Names, dtypes, shapes, and exact tensor bytes enter the digest in sorted
-  parameter-name order.  Those labels prevent two differently shaped
-  parameter sets with the same flat bytes from sharing a witness.  The raw
-  bytes are read on the CPU only at a phase boundary, never once per epoch.
+  A two-phase run promises that the trunk does not move while the head
+  trains; the promise is proved by hashing the trunk's parameters at the
+  boundary and again at the end.  Names, dtypes, shapes, and exact tensor
+  bytes enter the digest in sorted parameter-name order, so two
+  differently shaped parameter sets with the same flat bytes cannot share
+  a witness.  The raw bytes are read on the CPU only at a phase boundary,
+  never once per epoch.
+
+  Arguments:
+    module = the trunk module to fingerprint.
 
   Returns:
     ``(hex_digest, scalar_count)``.  ``hex_digest`` has 64 lowercase
@@ -669,7 +738,20 @@ def _parameter_digest(module):
 
 
 def _phase2_digest_line(phase, before, after, parameter_count):
-  """Format the one machine-readable trunk record for phase 2."""
+  """Format the machine-readable trunk-witness line for one phase.
+
+  The board's two-phase gate parses this exact line to prove the trunk
+  did or did not move, so its layout is an interface, not styling.
+
+  Arguments:
+    phase           = the phase label the line reports.
+    before          = the trunk digest at the phase boundary.
+    after           = the trunk digest at the phase end.
+    parameter_count = the number of scalars both digests cover.
+
+  Returns:
+    the formatted single-line record.
+  """
   return ("phase-boundary trunk digest: phase=" + str(phase)
           + " before=" + str(before)
           + " after=" + str(after)
@@ -680,7 +762,25 @@ def _phase2_digest_line(phase, before, after, parameter_count):
 def _ema_first_live_line(epoch, schedule, beta, steps_per_epoch,
                          raw_median, averaged_median,
                          raw_mean, averaged_mean):
-  """Format the one numerical record from EMA's first live epoch."""
+  """Format the machine-readable record of EMA's first live epoch.
+
+  The EMA gate parses this exact line, so its layout is an interface.
+  The ".17g" format writes each float with enough digits to round-trip
+  exactly.
+
+  Arguments:
+    epoch           = the epoch at which the weight average went live.
+    schedule        = the scheduled horizon value at that epoch.
+    beta            = the per-step averaging coefficient in use.
+    steps_per_epoch = optimizer steps per epoch (beta's timescale).
+    raw_median      = validation median chi2 of the raw weights.
+    averaged_median = validation median chi2 of the averaged weights.
+    raw_mean        = validation mean chi2 of the raw weights.
+    averaged_mean   = validation mean chi2 of the averaged weights.
+
+  Returns:
+    the formatted single-line record.
+  """
   return ("ema first-live: epoch=" + str(int(epoch))
           + " schedule=" + format(float(schedule), ".17g")
           + " beta=" + format(float(beta), ".17g")
@@ -915,11 +1015,19 @@ _SEARCH_KINDS = ("int", "float", "log")
 
 
 def _as_search_range(value):
-  """Return [default, min, max, kind] if value marks a search range.
+  """Recognize one hyperparameter search range in a train_args leaf.
 
-  Accepts a YAML 4-list or a whitespace string "d min max kind";
-  returns None for a fixed scalar (or any non-range value), leaving
-  it untouched in the walk.
+  A sweepable value is written in the YAML as a 4-list
+  [default, min, max, kind] or the equivalent whitespace string
+  "default min max kind", with kind naming the suggestion type. Any
+  other value is a fixed scalar and is left untouched by the walk.
+
+  Arguments:
+    value = one train_args leaf value.
+
+  Returns:
+    the normalized [default, min, max, kind] list when the value marks a
+    range; None for a fixed value.
   """
   if isinstance(value, str):
     parts = value.split()
@@ -931,17 +1039,35 @@ def _as_search_range(value):
 
 
 def _range_default(rng):
-  """A range's default (first) value, typed by its kind."""
+  """Read a search range's default value, typed by its kind.
+
+  Arguments:
+    rng = a normalized [default, min, max, kind] range.
+
+  Returns:
+    the default as an int for kind "int", else as a float (a YAML
+    default that parsed as a string is converted here).
+  """
   d, kind = rng[0], rng[3]
   return int(d) if kind == "int" else float(d)
 
 
 def _suggest_range(trial, name, rng):
-  """One Optuna suggestion for a search range.
+  """Draw one Optuna suggestion for a search range.
 
-  kind selects the suggestion: "int" -> suggest_int, "float" ->
-  suggest_float (linear), "log" -> suggest_float(log=True). min/max
-  are cast, so a YAML 1e-5 that parsed as a string still works.
+  The range's kind selects the suggestion call: "int" -> suggest_int,
+  "float" -> suggest_float (linear), "log" -> suggest_float(log=True).
+  The bounds are cast, so a YAML 1e-5 that parsed as a string still
+  works.
+
+  Arguments:
+    trial = the live Optuna trial.
+    name  = the dotted train_args path, used as the Optuna parameter
+            name.
+    rng   = the normalized [default, min, max, kind] range.
+
+  Returns:
+    the suggested value (int or float, per kind).
   """
   _, lo, hi, kind = rng
   if kind == "int":
@@ -952,11 +1078,19 @@ def _suggest_range(trial, name, rng):
 
 
 def _walk_train_args(train_args, path, on_leaf):
-  """Recurse train_args, applying on_leaf(path, value) to each leaf.
+  """Rebuild a train_args tree, transforming each leaf through on_leaf.
 
-  Returns a new mapping with the same nesting (an explicit loop
-  rebuilds each level, so the input is never mutated); on_leaf
-  decides each leaf.
+  Every nesting level is rebuilt into a new mapping, so the input is
+  never mutated; only leaves change, and on_leaf decides each one.
+
+  Arguments:
+    train_args = the (possibly nested) train_args mapping, or a leaf.
+    path       = the dotted path walked so far ("" at the root).
+    on_leaf    = callable on_leaf(path, value) -> new value.
+
+  Returns:
+    a new tree of the same nesting with every leaf replaced by
+    on_leaf's result.
   """
   if isinstance(train_args, dict):
     out = {}
@@ -984,6 +1118,7 @@ def default_train_args(train_args):
     the same mapping with every range collapsed to its default.
   """
   def leaf(path, v):
+    """Collapse a range leaf to its default; pass a fixed leaf through."""
     rng = _as_search_range(v)
     return _range_default(rng) if rng else v
   return _walk_train_args(train_args, "", leaf)
@@ -1007,6 +1142,7 @@ def suggest_train_args(trial, train_args):
     train_args with every range replaced by this trial's sample.
   """
   def leaf(path, v):
+    """Replace a range leaf with this trial's suggestion."""
     rng = _as_search_range(v)
     return _suggest_range(trial, path, rng) if rng else v
   return _walk_train_args(train_args, "", leaf)
@@ -1029,6 +1165,7 @@ def search_defaults(train_args):
   out = {}
 
   def leaf(path, v):
+    """Record a range leaf's default under its dotted path."""
     rng = _as_search_range(v)
     if rng:
       out[path] = _range_default(rng)
@@ -1066,6 +1203,7 @@ def audit_devices(model, lossfn, device):
     a list of "owner: actual_device" strings; empty when clean.
   """
   def mismatch(t):
+    """Is this tensor on a different device (type or pinned index)?"""
     if t.device.type != device.type:
       return True
     if device.index is not None and t.device.index is not None:
@@ -1116,7 +1254,19 @@ _ANNEAL_SHAPES = ("const", "linear", "cosine", "step")
 
 
 def _native_nonnegative_epochs(value, where):
-  """Return one exact epoch count; never truncate a fractional schedule."""
+  """Read one exact epoch count; never truncate a fractional schedule.
+
+  Arguments:
+    value = the configured epoch count, expected to be a plain int
+            (a float such as 2.5 is refused, not rounded).
+    where = the configuration key, named in the refusal.
+
+  Returns:
+    the count unchanged, a plain int >= 0.
+
+  Raises:
+    ValueError when the value is not a plain nonnegative int.
+  """
   if type(value) is not int or value < 0:
     raise ValueError(where + " must be a nonnegative native integer, got "
                      + repr(value))
@@ -1124,13 +1274,30 @@ def _native_nonnegative_epochs(value, where):
 
 
 def _materialize_training_schedule(opts, which, *, focus):
-  """Validate and complete one trim or focal-weight schedule.
+  """Validate and complete one trim or focal-weight schedule block.
 
-  ``anneal_value`` reads five schedule fields for a changing schedule and
-  only ``shape``/``start`` for a constant one.  The artifact nevertheless
-  stores all five values explicitly so a later implementation never has to
-  rediscover which fields the old code ignored.  Focus adds the positive
+  A schedule anneals one training knob across epochs: ``shape`` selects
+  the curve, ``start`` / ``end`` its endpoints, ``hold_epochs`` a flat
+  lead-in, ``anneal_epochs`` the transition span.  ``anneal_value`` reads
+  all five for a changing schedule and only ``shape``/``start`` for a
+  constant one; the artifact nevertheless stores all five values
+  explicitly, so a later implementation never has to rediscover which
+  fields the old code ignored.  Focus schedules add the positive
   chi-square scale ``kappa``.
+
+  Arguments:
+    opts  = the raw schedule mapping from train_args.
+    which = the configuration path (for example "train_args.trim"),
+            named in every refusal.
+    focus = whether this is the focal-weight schedule (adds "kappa" to
+            the allowed and required keys).
+
+  Returns:
+    the completed schedule mapping with every field materialized.
+
+  Raises:
+    TypeError / ValueError naming the unknown, missing, or malformed
+    field.
   """
   if type(opts) is not dict:
     raise TypeError(which + " must be a plain mapping")
@@ -1853,6 +2020,15 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
     # eager fallback: the same math the compiled twin traces.
     needs_p = getattr(lossfn, "needs_params", False)
     def fwd_chi2(xb, yb):
+      """Forward + per-sample chi2 for one validation batch.
+
+      Arguments:
+        xb = (B, input_dim) encoded input batch.
+        yb = (B, n_keep) whitened target batch.
+
+      Returns:
+        the (B,) per-sample chi2 scores.
+      """
       pred = model(xb)
       if needs_p:
         return lossfn.chi2(pred=pred, target=yb,
@@ -2286,6 +2462,18 @@ def training_loop_batched(nepochs,
               "anneal_epochs": berhu_anneal["anneal_epochs"]}
 
   def _fwd_loss(xb, yb, trim, focus, berhu_s):
+    """One training step's forward + loss, the compiled hot graph.
+
+    Arguments:
+      xb      = (B, input_dim) encoded input batch.
+      yb      = (B, n_keep) whitened target batch.
+      trim    = this epoch's trim fraction (scheduled).
+      focus   = this epoch's focal weight (scheduled).
+      berhu_s = this epoch's berHu scale (scheduled).
+
+    Returns:
+      the scalar training loss for the batch.
+    """
     # the model forward under autocast (unchanged semantics); the
     # loss math stays outside it, in full precision.
     with torch.autocast(device.type,
@@ -2308,6 +2496,15 @@ def training_loop_batched(nepochs,
   # lets eval reduce each batch immediately instead of stashing
   # every full prediction, see eval_val's docstring).
   def _fwd_chi2(xb, yb):
+    """One eval step: forward + per-sample chi2, the compiled eval twin.
+
+    Arguments:
+      xb = (B, input_dim) encoded input batch.
+      yb = (B, n_keep) whitened target batch.
+
+    Returns:
+      the (B,) per-sample chi2 scores.
+    """
     pred = model(xb)
     if needs_p:
       return lossfn.chi2(pred=pred, target=yb,
@@ -3285,11 +3482,25 @@ def run_emulator(train_set,
   resolved_passes = []
 
   def _qual(c):
-    """The stable import path stored for one executed class."""
+    """Render one executed class as its stable import path.
+
+    Arguments:
+      c = the class object (optimizer or scheduler).
+
+    Returns:
+      "<module>.<qualified name>", the text the record stores.
+    """
     return c.__module__ + "." + c.__qualname__
 
   def _scheduler_record(spec):
-    """Return the class and exact kwargs used to build one scheduler."""
+    """Record one scheduler's class and materialized constructor kwargs.
+
+    Arguments:
+      spec = the scheduler spec mapping ("cls" plus its kwargs).
+
+    Returns:
+      {"cls": <import path>, "kwargs": <resolved kwargs>} as plain data.
+    """
     supplied = {key: value for key, value in spec.items() if key != "cls"}
     kwargs = _materialized_constructor_kwargs(
       spec["cls"], supplied, {"optimizer"},
@@ -3297,7 +3508,24 @@ def run_emulator(train_set,
     return {"cls": _qual(spec["cls"]), "kwargs": kwargs}
 
   def _optimizer_record(spec, optimizer, learning_rate_value):
-    """Record constructor defaults and every parameter group's real policy."""
+    """Record the optimizer's constructor and every group's real policy.
+
+    The LIVE optimizer is read back, not the configuration: each
+    parameter group's actual learning rate, weight decay, and scalar
+    count enter the record, so the artifact states what ran.
+
+    Arguments:
+      spec                = the optimizer spec mapping.
+      optimizer           = the constructed optimizer object.
+      learning_rate_value = the base learning rate the pass used.
+
+    Returns:
+      {"cls", "constructor", "groups"} as plain data.
+
+    Raises:
+      TypeError / ValueError for a non-tensor parameter or a group with
+      a non-positive learning rate or negative decay.
+    """
     supplied = {"lr": float(learning_rate_value),
                 **_effective_optimizer_extras(spec, device)}
     constructor = _materialized_constructor_kwargs(
@@ -3337,7 +3565,15 @@ def run_emulator(train_set,
     }
 
   def _steps_per_epoch_record():
-    """Repeat the loop's exact full-batch count without changing its state."""
+    """Recount the loop's optimizer steps per epoch, without side effects.
+
+    Repeats the training loop's own chunk-and-batch arithmetic (full
+    batches only, per RAM chunk), so the recorded value equals what the
+    loop executes without touching any loop state.
+
+    Returns:
+      the optimizer steps per epoch as an int.
+    """
     n_rows = len(data["train"]["idx"])
     chunk_rows = int(data["train"]["load"])
     steps = 0
@@ -3347,7 +3583,20 @@ def run_emulator(train_set,
     return steps
 
   def _anchor_record(spec, kind):
-    """Save an inert description of an L2-SP pull, never its tensors."""
+    """Describe one L2-SP anchor as inert data, never its tensors.
+
+    L2-SP pulls the weights toward a frozen reference during fine-tuning;
+    the record keeps its strength and masking, not the reference tensors
+    themselves (those live in the source artifact).
+
+    Arguments:
+      spec = the anchor spec mapping ({"lam", optional "masks"}), or
+             None when the pass uses no anchor.
+      kind = which anchor family the pass used.
+
+    Returns:
+      {"kind", "lambda", "masked"} as plain data, or None.
+    """
     if spec is None:
       return None
     return {
@@ -3362,7 +3611,27 @@ def run_emulator(train_set,
                    clip_value,
                    rewind_value, ema_value, step_compile_mode,
                    anchor_value):
-    """Materialize one pass exactly where its effective settings exist."""
+    """Materialize the complete record of one training pass.
+
+    Called at the one point where a pass's EFFECTIVE settings all exist
+    (after phase overrides are applied), so the record needs no later
+    reconstruction. Every argument is stored under its own key; mappings
+    are deep-copied so later passes cannot mutate an earlier record.
+
+    Arguments:
+      role / model_phase = which pass this is (trunk / head / single).
+      epochs             = the pass's epoch count.
+      history_start/stop = this pass's slice of the history arrays.
+      learning_rate_value, warmup_epochs, optimizer_value, scheduler,
+      loss_value, trim, focus, clip_value, rewind_value, ema_value,
+      step_compile_mode, anchor_value
+                         = the pass's effective settings, as validated
+                           by the loop that is about to run them.
+
+    Returns:
+      the pass-record mapping, plain data ready for the resolved
+      training recipe.
+    """
     return {
       "role": role,
       "model_phase": model_phase,

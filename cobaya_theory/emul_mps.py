@@ -86,14 +86,41 @@ _DARK_ENERGY_LAWS = {
 
 
 def _valid_mps_axis(axis, *, positive=False):
-    """Check a spline axis."""
+    """Is this a usable spline axis (1-D, finite, strictly increasing)?
+
+    A bicubic spline needs at least 4 points per axis, strictly
+    increasing coordinates, and finite values; the k axis must also be
+    positive because the interpolation runs in log(k).
+
+    Arguments:
+      axis     = the candidate axis array.
+      positive = additionally require every entry > 0 (the k axis).
+
+    Returns:
+      True when the axis satisfies every rule; False otherwise.
+    """
     return (axis.ndim == 1 and len(axis) >= 4 and np.isfinite(axis).all()
             and np.all(axis[1:] > axis[:-1])
             and (not positive or (axis > 0).all()))
 
 
 def _saved_dark_energy_value(fixed, name):
-    """Return one numeric saved dark-energy fact, or ``None`` for ``n/a``."""
+    """Read one saved dark-energy fact from the artifact's fixed block.
+
+    The record writes "n/a" for a fact that does not apply (never omits
+    the key), so both an absent key and the "n/a" marker mean "no pinned
+    value here"; a present value must parse as a finite number.
+
+    Arguments:
+      fixed = the artifact's cosmology_fixed mapping.
+      name  = the coordinate to read ("w" or "wa").
+
+    Returns:
+      the pinned value as a float, or None when the fact does not apply.
+
+    Raises:
+      ValueError when a present value is not a finite number.
+    """
     value = fixed.get(name)
     if value in (None, "n/a"):
         return None
@@ -113,10 +140,30 @@ def _saved_dark_energy_value(fixed, name):
 def _dark_energy_contract(predictor, predictor_names, req, *, need_base):
     """Validate one artifact's coordinate law and adjust Cobaya requirements.
 
-    A dropped ``w0pwa`` is a sampling coordinate used to define ``wa``.  It is
-    not a value that a Cobaya Theory may request directly.  The adapter asks
-    for the present-day value and ``wa``, then reconstructs every spelling the
-    saved input geometry needs inside :meth:`calculate`.
+    A dropped ``w0pwa`` is a sampling coordinate used to define ``wa``.  It
+    is not a value that a Cobaya Theory may request directly.  The adapter
+    asks for the present-day value and ``wa``, then reconstructs every
+    spelling the saved input geometry needs inside :meth:`calculate`.
+
+    Arguments:
+      predictor       = the pklin predictor whose record carries the law.
+      predictor_names = the union of both artifacts' sampled input names.
+      req             = the Cobaya requirement mapping under construction;
+                        edited in place (w0pwa removed, the law's own
+                        coordinates added when not pinned).
+      need_base       = whether a Syren base will be evaluated (a base
+                        needs the law even when no dark-energy coordinate
+                        is sampled).
+
+    Returns:
+      the triple (law, fixed, needed): the artifact's dark-energy law
+      name, the mapping of pinned coordinate values, and whether
+      calculate must resolve the coordinates at all.
+
+    Raises:
+      ValueError when the record's law is missing or unknown, its
+      declared inputs disagree with the law, or a sampled coordinate
+      contradicts the law (each refusal names the regeneration path).
     """
     facts = predictor.fixed_facts
     law = facts.get("dark_energy_law")
@@ -173,7 +220,25 @@ def _dark_energy_contract(predictor, predictor_names, req, *, need_base):
 
 
 def _resolved_dark_energy_point(params, *, law, fixed, needed):
-    """Return parameters with all four equivalent coordinate names filled."""
+    """Fill every dark-energy spelling of one sampled point.
+
+    The saved input geometry may name any of the four equivalent
+    coordinates (w, w0, wa, w0pwa), and the Syren base needs (w0, wa).
+    The shared resolver derives the canonical pair from whatever the
+    point carries -- pinned values fill the gaps, but never overwrite an
+    explicitly sampled value, so a contradiction is still caught -- and
+    every spelling is then written back.
+
+    Arguments:
+      params = the sampled point as Cobaya handed it over.
+      law    = the artifact's dark-energy law name.
+      fixed  = the pinned coordinate values from the record.
+      needed = whether resolution is needed at all (False returns the
+               merged point unchanged).
+
+    Returns:
+      a new mapping with w / w0 / wa / w0pwa all present and consistent.
+    """
     point = dict(params)
     for name, value in fixed.items():
         if name in point:
@@ -210,6 +275,13 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
 
     def __init__(self, z, k, P_or_logP, extrap_kmin=None, extrap_kmax=None, logP=False,
                  logsign=1):
+        """Build the bicubic spline, adding power-law tails on request.
+
+        The class docstring documents every parameter. Extrapolation
+        works by extending the log(k) axis with two synthetic columns on
+        the requested side whose values continue the edge slope of
+        log(P) -- a power law in k -- before the spline is fitted.
+        """
         self.islog = logP
         z, k, P_or_logP = np.asarray(z), np.asarray(k), np.asarray(P_or_logP)
         if (z.ndim != 1 or k.ndim != 1
@@ -264,25 +336,39 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
 
     @property
     def input_kmin(self):
+        """The stored grid's smallest wavenumber, in 1/Mpc."""
         return self.k[0]
 
     @property
     def input_kmax(self):
+        """The stored grid's largest wavenumber, in 1/Mpc."""
         return self.k[-1]
 
     @property
     def kmin(self):
+        """The smallest servable wavenumber: the stored edge, or the
+        requested extrapolation bound when one was given (1/Mpc)."""
         if self.extrap_kmin is None:
             return self.input_kmin
         return self.extrap_kmin
 
     @property
     def kmax(self):
+        """The largest servable wavenumber: the stored edge, or the
+        requested extrapolation bound when one was given (1/Mpc)."""
         if self.extrap_kmax is None:
             return self.input_kmax
         return self.extrap_kmax
 
     def check_ranges(self, z, k):
+        """Refuse a query outside the servable (z, k) region, loudly.
+
+        Arguments:
+          z = scalar or array of query redshifts; must lie inside the
+              stored z range (z is never extrapolated).
+          k = scalar or array of query wavenumbers in 1/Mpc; must be
+              positive, finite, and inside [kmin, kmax].
+        """
         z = np.atleast_1d(z).flatten()
         if not z.size or not np.isfinite(z).all():
             raise LoggedError(get_logger(self.__class__.__name__),
@@ -311,6 +397,20 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
                               f"(maximum k possible is {self.kmax} 1/Mpc).")
 
     def P(self, z, k, grid=None):
+        """Evaluate P(z, k) in Mpc^3 at the query points.
+
+        Arguments:
+          z    = scalar or array of redshifts (inside the stored range).
+          k    = scalar or array of wavenumbers in 1/Mpc (inside
+                 [kmin, kmax]).
+          grid = evaluate on the outer product of z and k (True), or
+                 pointwise (False); None decides from the inputs (both
+                 arrays -> grid).
+
+        Returns:
+          the power spectrum values (undoing the internal log when the
+          spline stores log P).
+        """
         self.check_ranges(z, k)
         if grid is None:
             grid = not np.isscalar(z) and not np.isscalar(k)
@@ -320,6 +420,14 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
             return self(z, np.log(k), grid=grid, warn=False)
 
     def logP(self, z, k, grid=None):
+        """Evaluate log(logsign * P(z, k)) at the query points.
+
+        Arguments:
+          z, k, grid = as in :meth:`P`.
+
+        Returns:
+          the natural log of the (sign-corrected) power spectrum.
+        """
         self.check_ranges(z, k)
         if grid is None:
             grid = not np.isscalar(z) and not np.isscalar(k)
@@ -329,6 +437,14 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
             return np.log(self(z, np.log(k), grid=grid, warn=False))
 
     def __call__(self, *args, warn=True, **kwargs):
+        """Raw spline evaluation over (z, log k); prefer P / logP.
+
+        A direct call skips the range checks and the log convention, so
+        it warns unless the caller passes warn=False knowingly.
+
+        Returns:
+          the underlying RectBivariateSpline evaluation.
+        """
         if warn:
             get_logger(self.__class__.__name__).warning(
                 "Do not call the instance directly. Use instead methods P(z, k) or "
@@ -492,7 +608,16 @@ class emul_mps(Theory):
         check_artifacts_pair_up(predictors=[self.p_lin, self.p_boost])
 
     def initialize_with_provider(self, provider):
-        """Register the provider and compare directly named fixed values."""
+        """Register the provider and compare directly named fixed values.
+
+        Cobaya calls this once, when the full model exists. Both
+        artifacts' recorded fixed values are compared against the
+        model's directly named constants; a disagreement refuses at
+        startup.
+
+        Arguments:
+          provider = the Cobaya provider carrying the resolved model.
+        """
         super().initialize_with_provider(provider)
         check_artifacts_fixed_values(
             predictors=[self.p_lin, self.p_boost],
@@ -534,26 +659,51 @@ class emul_mps(Theory):
         return torch.device("cpu")
 
     def get_requirements(self):
-        """The sampled parameters the emulators + bases need."""
+        """The sampled parameters the emulators and Syren bases need.
+
+        Returns:
+          a fresh {name: None} mapping (Cobaya's requirement form): the
+          artifacts' stored input names, the Syren base inputs when a
+          law is active, and the dark-energy coordinates the saved law
+          requires.
+        """
         return dict(self._req)
 
     def get_can_support_params(self):
         """Do not claim derived products as sampled input parameters.
 
-        Cobaya discovers ``Pk_grid`` and ``Pk_interpolator`` from their public
-        getter methods.  Sigma-eight is declared as a derived result below.
-        ``must_provide`` requests H0 only when sigma8 is assigned, so a
-        law-free power-grid request does not acquire an unnecessary H0
-        dependency or cache input.
+        Cobaya discovers ``Pk_grid`` and ``Pk_interpolator`` from their
+        public getter methods.  Sigma-eight is declared as a derived
+        result below.  ``must_provide`` requests H0 only when sigma8 is
+        assigned, so a law-free power-grid request does not acquire an
+        unnecessary H0 dependency or cache input.
+
+        Returns:
+          the empty list.
         """
         return []
 
     def get_can_provide_params(self):
-        """Name the derived scalar this adapter can calculate."""
+        """Name the derived scalar this adapter can calculate.
+
+        Returns:
+          ["sigma8"]: the one derived parameter, computed on request
+          from the linear spectrum's z=0 row.
+        """
         return ["sigma8"]
 
     def must_provide(self, **requirements):
-        """Request H0 only when Cobaya assigns sigma8 to this adapter."""
+        """Request H0 only when Cobaya assigns sigma8 to this adapter.
+
+        Arguments:
+          requirements = the requirement mapping Cobaya forwards; only
+                         a "sigma8" key concerns this theory.
+
+        Returns:
+          {"H0": None} when sigma8 was assigned (the top-hat radius is
+          8/h Mpc, so the calculation needs H0); None otherwise, so a
+          power-grid-only run acquires no extra dependency.
+        """
         super().must_provide(**requirements)
         if "sigma8" in requirements:
             self._sigma8_requested = True
@@ -677,8 +827,20 @@ class emul_mps(Theory):
         argument returns the NONLINEAR grid. A caller that wants the
         linear spectrum requests it explicitly with nonlinear=False.
 
-        The three returned arrays own their storage. Editing them cannot
-        change the provider cache used by another likelihood.
+        Arguments:
+          var_pair  = the density pair; only ("delta_tot", "delta_tot")
+                      is served.
+          nonlinear = True (default) for P_nl, False for P_lin.
+
+        Returns:
+          the triple (k, z, P): k in 1/Mpc, z, and the (nz, nk) power
+          surface in Mpc^3. The three arrays own their storage, so
+          editing them cannot change the provider cache used by another
+          likelihood.
+
+        Raises:
+          LoggedError for an unsupported pair or a point whose spectra
+          were not computed.
         """
         if var_pair != ("delta_tot", "delta_tot"):
             raise LoggedError(
@@ -703,6 +865,24 @@ class emul_mps(Theory):
         nonlinear follows Cobaya's BoltzmannBase default: an omitted
         argument interpolates the NONLINEAR grid. A caller that wants the
         linear spectrum requests it explicitly with nonlinear=False.
+
+        Arguments:
+          var_pair    = the density pair; only ("delta_tot",
+                        "delta_tot") is served.
+          nonlinear   = True (default) for P_nl, False for P_lin.
+          extrap_kmin = optional bound below the stored grid; the
+                        interpolator adds a power-law tail down to it.
+          extrap_kmax = optional bound above the stored grid, same
+                        convention.
+
+        Returns:
+          a fresh PowerSpectrumInterpolator over the current point's
+          grid (each caller gets its own object).
+
+        Raises:
+          LoggedError for an unsupported pair, a missing point, tails
+          requested with allow_k_extrapolation false, or a
+          zero-crossing spectrum that cannot be log-extrapolated.
         """
         if var_pair != ("delta_tot", "delta_tot"):
             raise LoggedError(
@@ -809,7 +989,22 @@ class emul_mps(Theory):
         return math.sqrt(variance)
 
     def get_sigma8(self):
+        """Serve the current point's sigma8.
+
+        Returns:
+          the derived sigma8 cached by calculate, or None when the
+          current point did not compute it.
+        """
         return self.current_state.get("derived", {}).get("sigma8")
 
     def get_param(self, param_name):
+        """Serve one derived parameter from the current point's cache.
+
+        Arguments:
+          param_name = the derived parameter's name ("sigma8" is the
+                       only one this adapter calculates).
+
+        Returns:
+          its cached value at the current point, or None when absent.
+        """
         return self.current_state.get("derived", {}).get(param_name)

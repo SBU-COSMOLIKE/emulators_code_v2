@@ -38,7 +38,26 @@ from .blocks import (
 
 
 def _template_ia_name(n_amps, n_templates):
-  """Name a registered IA template shape, keeping custom test shapes inert."""
+  """
+  Map an IA template shape to its design name ("nla" / "tatt"), for saving.
+
+  The two registered intrinsic-alignment designs are identified by their
+  (amplitude count, template count) pair: the nonlinear-alignment design
+  factors the data vector over 1 amplitude and 3 templates, and the tidal
+  alignment + tidal torquing design over 3 amplitudes and 10 templates. A
+  saved recipe stores the name, not the pair, so the reader can dispatch
+  without re-deriving the shape. Any other pair (a hand-built test shape)
+  is recorded as "unregistered:<n_amps>x<n_templates>" -- inert data the
+  artifact writer can refuse by name.
+
+  Arguments:
+    n_amps      = number of IA amplitude parameters the factorization
+                  applies in closed form.
+    n_templates = number of whitened templates the network emits.
+
+  Returns:
+    "nla", "tatt", or "unregistered:<n_amps>x<n_templates>" as a string.
+  """
   if (n_amps, n_templates) == (1, 3):
     return "nla"
   if (n_amps, n_templates) == (3, 10):

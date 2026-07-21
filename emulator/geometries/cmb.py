@@ -334,12 +334,19 @@ class CmbDiagonalGeometry:
     return cls(device, **kwargs)
 
   def state(self):
-    """Tensors to save; keys match __init__ (dest_idx / total_size are
-    derived from ell, so they are not persisted). ell rides as a long
-    tensor, spectrum / units as strings; the h5 writer handles each. The
-    fiducial reference pair rides as 0-d float64 tensors, written ONLY for
-    the order-one law that carries one (the "none" law has no reference, so
-    its artifact records none — resolved values, never a placeholder)."""
+    """Collect the persistable transform, keys matching __init__.
+
+    dest_idx / total_size are derived from ell, so they are not
+    persisted. ell rides as a long tensor, spectrum / units as strings;
+    the h5 writer handles each. The fiducial reference pair rides as 0-d
+    float64 tensors, written ONLY for the order-one law that carries one
+    (the "none" law has no reference, so its artifact records none --
+    resolved values, never a placeholder).
+
+    Returns:
+      the mapping from_state(device, state()) rebuilds the identical
+      geometry from.
+    """
     st = {"spectrum":    self.spectrum,
           "ell":         self.ell.cpu(),
           "center":      self.center.cpu(),

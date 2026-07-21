@@ -93,6 +93,9 @@ class dataset(GeneratorCore):
     adapter serves H(z) down to z = 0. The recombination grid starts
     above zero, and the two windows must not overlap (the desert between
     them is the adapter's loud-error region).
+
+    Arguments:
+      train_args = the YAML's train_args mapping.
     """
     grids = {}
     for key in ("z_sn", "z_rec"):
@@ -138,11 +141,23 @@ class dataset(GeneratorCore):
   # data-vector store: two per-quantity 2D arrays -> {dvsf}_<q>.npy
   #-----------------------------------------------------------------------------
   def _grid_of(self, quantity):
-    """The stored grid for one quantity tag ("h" -> z_sn, "dm" -> z_rec)."""
+    """The stored redshift grid for one quantity tag.
+
+    Arguments:
+      quantity = "h" (the SN-range Hubble store) or "dm" (the
+                 recombination-window distance store).
+
+    Returns:
+      the corresponding z grid (z_sn or z_rec).
+    """
     return self.z_sn if quantity == "h" else self.z_rec
 
   def _dv_chk_files(self):
-    """Files the checkpoint loader must find before trusting a chk."""
+    """Files a resume must find: both stores plus both grid sidecars.
+
+    Returns:
+      the list of required file paths.
+    """
     files = []
     for q in QUANTITIES:
       files.append(f"{self.dvsf}_{q}.npy")
@@ -205,7 +220,11 @@ class dataset(GeneratorCore):
         os.replace(f"{self.dvsf}_{q}.tmp.npy", f"{self.dvsf}_{q}.npy")
 
   def _dv_append(self, nparams):
-    """Grow both stores by nparams zero rows (append mode; RAM-aware)."""
+    """Grow both stores by nparams zero rows (append mode; RAM-aware).
+
+    Arguments:
+      nparams = the number of new sample rows the append adds.
+    """
     nrows = self.datavectors[QUANTITIES[0]].shape[0]
     RAMneed = self.samples.nbytes + self.failed.nbytes
     for q in QUANTITIES:
@@ -264,6 +283,11 @@ class dataset(GeneratorCore):
     policy) and write the grid sidecars ({dvsf}_h_z.npy /
     {dvsf}_dm_z.npy) once — the training path reads the grid from the
     FILE (resolved values, never re-declared in a YAML).
+
+    Arguments:
+      nrows     = the total number of sample rows the run will fill.
+      first_dvs = the first computed payload dict; each quantity's
+                  length is checked against its grid.
     """
     RAMneed = self.samples.nbytes + self.failed.nbytes
     for q in QUANTITIES:
@@ -298,12 +322,21 @@ class dataset(GeneratorCore):
       np.save(f"{self.dvsf}_{q}_z.npy", self._grid_of(q))
 
   def _dv_write(self, i, dvs):
-    """Write one payload dict at row i of each per-quantity store."""
+    """Write one payload dict into every per-quantity store.
+
+    Arguments:
+      i   = the sample's assigned row.
+      dvs = the payload dict, one row per quantity tag.
+    """
     for q in QUANTITIES:
       self.datavectors[q][i] = dvs[q]
 
   def _dv_zero(self, i):
-    """Zero row i of each per-quantity store (a failed sample)."""
+    """Blank one failed sample's row in every per-quantity store.
+
+    Arguments:
+      i = the failed sample's row.
+    """
     for q in QUANTITIES:
       self.datavectors[q][i, :] = 0.0
 

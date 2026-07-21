@@ -555,6 +555,15 @@ def cmb_residual_diagnostic(model,
   sig  = (pred - truth) / sigma[None, :]
 
   def bands(r):
+    """Reduce one row-sampled quantity to its 68% / 95% percentile bands.
+
+    Arguments:
+      r = the sampled values, rows = draws.
+
+    Returns:
+      a mapping {"lo95", "lo68", "med", "hi68", "hi95"} of per-column
+      percentiles.
+    """
     q = np.percentile(r, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
     return {"lo95": q[0],
             "lo68": q[1],

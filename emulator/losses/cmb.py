@@ -34,7 +34,20 @@ from .core import CosmolikeChi2
 
 
 def _require_finite_cmb_tensor(value, *, stage, shape):
-  """Require one exact, finite floating tensor in the CMB amplitude law."""
+  """Validate one tensor at a named stage of the CMB amplitude law.
+
+  Arguments:
+    value = the tensor produced by the stage.
+    stage = the stage's name, used in the refusal.
+    shape = the exact shape the stage must produce.
+
+  Returns:
+    the tensor unchanged.
+
+  Raises:
+    TypeError when it is not a real floating tensor; ValueError for a
+    wrong shape or a NaN / infinity.
+  """
   expected = tuple(int(x) for x in shape)
   if not torch.is_tensor(value) or not torch.is_floating_point(value):
     raise TypeError(
@@ -94,6 +107,15 @@ class ResidualRoughness:
   """
 
   def __init__(self, period_cut, device):
+    """Build the moving-average kernel that defines "smooth".
+
+    Arguments:
+      period_cut = the shortest multipole period counted as physical
+                   structure; the kernel width in ell (rounded to the
+                   nearest odd integer >= 5, so the average stays
+                   centered with no phase shift).
+      device     = the device the kernel lives on.
+    """
     w = int(round(float(period_cut)))
     if w < 5:
       raise ValueError(
@@ -257,9 +279,17 @@ class CmbDiagonalChi2(CosmolikeChi2):
   def _penalty_residual(self, pred, target):
     """The residual the roughness penalty is measured on.
 
-    The plain diagonal residual pred - target is already physical, so this
-    returns it unchanged. The imposed-amplitude subclass overrides it to
-    divide the per-row factor out, keeping the penalty law-neutral.
+    The plain diagonal residual pred - target is already physical, so
+    this returns it unchanged. The imposed-amplitude subclass overrides
+    it to divide the per-row factor out, keeping the penalty
+    law-neutral.
+
+    Arguments:
+      pred   = (B, n_ell) whitened prediction batch.
+      target = (B, n_ell) whitened target batch.
+
+    Returns:
+      the (B, n_ell) residual the roughness kernel smooths.
     """
     return pred - target
 
@@ -554,9 +584,16 @@ class CmbFactoredChi2(CmbDiagonalChi2):
 
     The roughness penalty must see the PHYSICAL residual, not the
     f-scaled one. Without the division the penalty would carry f^2 like
-    the uncorrected chi2 did, so it would depend on (A_s, tau) at a fixed
-    physical roughness. Reads the parameters loss stashed (the
+    the uncorrected chi2 did, so it would depend on (A_s, tau) at a
+    fixed physical roughness. Reads the parameters loss stashed (the
     roughness term runs only inside loss, after the stash).
+
+    Arguments:
+      pred   = (B, n_ell) whitened prediction batch (f-scaled space).
+      target = (B, n_ell) whitened target batch.
+
+    Returns:
+      the (B, n_ell) physical residual the roughness kernel smooths.
     """
     return (pred - target) / self._factor(self._params)
 

@@ -435,7 +435,17 @@ class TransferChi2(CosmolikeChi2):
     return self.geom.decode(combined_w)
 
   def _space_base_physical(self, base_w):
-    """The base's physical representation (plain decode / per-template)."""
+    """Map the base's whitened output to its physical representation.
+
+    Arguments:
+      base_w = the frozen base's whitened output batch: (B, n_keep)
+               plain, or (B, n_templates, n_keep) factored.
+
+    Returns:
+      the physical representation: geom.decode for a plain base, the
+      per-template unwhitening for a factored one (same leading
+      shape).
+    """
     if self.factored:
       return self._unwhiten_templates(base_w)
     return self.geom.decode(base_w)

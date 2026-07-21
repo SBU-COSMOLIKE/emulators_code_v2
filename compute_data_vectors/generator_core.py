@@ -287,6 +287,15 @@ def dark_energy_facts(parameterization, pinned):
   atol = 4.0 * float(np.finfo(np.float32).eps)
 
   def fixed_number(name):
+    """Read one PINNED dark-energy coordinate as a finite float.
+
+    Arguments:
+      name = the coordinate ("w", "wa", "w0pwa").
+
+    Returns:
+      its pinned value, or None when the run samples it or the model
+      does not carry it.
+    """
     if name not in resolved or name in varying_names:
       return None
     value = float(resolved[name])
@@ -395,6 +404,16 @@ class GeneratorCore:
   # init
   #-----------------------------------------------------------------------------
   def __init__(self, cli_args):
+    """Bind the parsed command line and split the MPI communicator.
+
+    The heavyweight setup (the Cobaya model, the RNG, the checkpoint
+    scan) is deferred to the setup methods the run entry point calls;
+    the constructor only records the arguments, validates the flag
+    combinations, and establishes each rank's role in the task farm.
+
+    Arguments:
+      cli_args = the argparse namespace from the strict parser.
+    """
     self.args = cli_args
     self.setup = False
     self.__setup_flags()
@@ -708,8 +727,19 @@ class GeneratorCore:
 
   def _compute_dvs_from_sample(self, sample):
     """
-    Compute one data-vector payload from one parameter sample (a 1D
-    array ordered like train_args.ord). Every driver must implement it.
+    Compute one data-vector payload from one parameter sample.
+
+    Every family driver must implement this: it is the one method where
+    the family's physics happens (a cosmolike chi2, a CAMB spectrum, a
+    background function, a matter-power surface).
+
+    Arguments:
+      sample = one parameter row, a 1-D array ordered like
+               train_args.ord.
+
+    Returns:
+      the family's payload for one row (the driver's _dv_write knows
+      its shape).
     """
     raise NotImplementedError(
       "the dataset-generator driver must implement _compute_dvs_from_sample")
@@ -718,9 +748,13 @@ class GeneratorCore:
     """
     Name the frozen analytic base the dumps sit on top of, or "n/a".
 
-    Most families emulate the computed quantity directly and have no base.
-    The mps driver overrides this: its dumps can carry the syren analytic
-    base the emulator corrects, and the record must name that base.
+    Most families emulate the computed quantity directly and have no
+    base. The mps driver overrides this: its dumps can carry the syren
+    analytic base the emulator corrects, and the record must name that
+    base.
+
+    Returns:
+      the base's name as a string, or fixed_facts.NOT_APPLICABLE.
     """
     return fixed_facts.NOT_APPLICABLE
 
@@ -733,6 +767,9 @@ class GeneratorCore:
 
     Delegates to fixed_facts.resolved_constants (the one owner of how
     parameter constants and theory-component defaults combine).
+
+    Returns:
+      a plain mapping of constant name to resolved value.
     """
     return fixed_facts.resolved_constants(model=self.model)
 
@@ -953,7 +990,15 @@ class GeneratorCore:
     return observed
 
   def _dv_chk_files(self):
-    """Files the checkpoint loader must find before trusting a chk."""
+    """List the store's files a resume must find before trusting a chk.
+
+    A checkpoint without its payload files cannot be continued; the
+    loader refuses rather than silently restarting (no-fresh-fallback).
+    Drivers with extra sidecars (axis grids) override and extend this.
+
+    Returns:
+      the list of required file paths.
+    """
     return [f"{self.dvsf}.npy"]
 
   def _dv_load_chk(self):
@@ -1055,8 +1100,16 @@ class GeneratorCore:
 
   def _dv_alloc(self, nrows, first_dvs):
     """
-    Allocate the store for nrows samples, sized from the first computed
-    payload (RAM-aware: in-RAM zeros or an on-disk memmap).
+    Allocate the store for nrows samples, sized from the first payload.
+
+    RAM-aware: when the full store fits comfortably in memory (< 75% of
+    what is available) it is an in-RAM zeros array saved atomically at
+    checkpoints; otherwise an on-disk memmap that checkpoints flush.
+
+    Arguments:
+      nrows     = the total number of sample rows the run will fill.
+      first_dvs = the first computed payload; its length fixes the
+                  store's column count.
     """
     ncols = len(first_dvs)
     RAMneed = ( self.samples.nbytes +
@@ -1079,11 +1132,21 @@ class GeneratorCore:
       self.dvs_is_memmap = True
 
   def _dv_write(self, i, dvs):
-    """Write one computed payload at row i."""
+    """Write one computed payload into the store.
+
+    Arguments:
+      i   = the row (the sample's assigned position, so an MPI result
+            always lands at its own row).
+      dvs = the payload _compute_dvs_from_sample returned.
+    """
     self.datavectors[i] = dvs
 
   def _dv_zero(self, i):
-    """Zero row i (a failed sample)."""
+    """Blank one failed sample's row (the failure mask marks it too).
+
+    Arguments:
+      i = the failed sample's row.
+    """
     self.datavectors[i, :] = 0.0
 
   #-----------------------------------------------------------------------------

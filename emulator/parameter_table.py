@@ -45,7 +45,20 @@ class ResolvedParameterTable:
 
 
 def _sidecar_candidates(params_path):
-  """Return exact-stem then numeric-chain-root ``.paramnames`` candidates."""
+  """List the paths where a table's ``.paramnames`` sidecar may live.
+
+  GetDist writes one sidecar per RUN, not per chain file: ``run.1.txt``
+  and ``run.2.txt`` share ``run.paramnames``.  The exact-stem candidate
+  (``run.1.paramnames``) is still tried first so a hand-exported single
+  table with its own sidecar wins over the chain-root convention.
+
+  Arguments:
+    params_path = path of the numeric parameter dump (``X.txt`` or
+                  ``X.1.txt``).
+
+  Returns:
+    a tuple of one or two candidate sidecar paths, most specific first.
+  """
   base = os.path.splitext(os.fspath(params_path))[0]
   candidates = [base + ".paramnames"]
   root, chain_ext = os.path.splitext(base)
@@ -55,7 +68,24 @@ def _sidecar_candidates(params_path):
 
 
 def _find_sidecar(params_path):
-  """Resolve the producer sidecar, refusing positional legacy fallback."""
+  """Locate the table's producer sidecar, or refuse the table entirely.
+
+  The numeric table carries no trustworthy column names of its own, so a
+  missing sidecar is not a degraded mode: mapping columns by position
+  would silently feed the wrong physics to the wrong parameter, and the
+  refusal instead names every path that was tried and how to regenerate
+  the declaration.
+
+  Arguments:
+    params_path = path of the numeric parameter dump.
+
+  Returns:
+    the path of the first existing sidecar candidate.
+
+  Raises:
+    ValueError listing the tried paths and the migration instruction when
+    no candidate exists.
+  """
   candidates = _sidecar_candidates(params_path)
   for candidate in candidates:
     if os.path.isfile(candidate):
@@ -67,7 +97,25 @@ def _find_sidecar(params_path):
 
 
 def _requested_names(names, role):
-  """Freeze and validate one caller-supplied name sequence."""
+  """Freeze and validate one caller-supplied column-name sequence.
+
+  A bare string is refused rather than iterated (iterating "H0" would
+  request the columns "H", "0"), every entry must be a nonempty string,
+  and a duplicate is refused because one named column can be returned
+  only once.
+
+  Arguments:
+    names = the requested column names, in the order the caller wants
+            the returned array's columns.
+    role  = "input" or "output", named in every refusal.
+
+  Returns:
+    the names as an immutable tuple, order preserved.
+
+  Raises:
+    ValueError for a string input, an empty or non-string entry, or a
+    duplicated name.
+  """
   if isinstance(names, (str, bytes)):
     raise ValueError(f"requested {role} names must be a sequence, not a string")
   resolved = tuple(names)
@@ -88,7 +136,25 @@ def _requested_names(names, role):
 
 
 def _read_declarations(sidecar_path):
-  """Read every nonblank sidecar declaration and attach numeric columns."""
+  """Read the sidecar's column declarations and attach numeric columns.
+
+  Each nonblank sidecar line declares one table column: its first token
+  is the logical name, and a single trailing ``*`` marks the column as
+  derived (computed from the sampled ones).  Declaration k describes
+  numeric column k + 2, because the table opens with the two bookkeeping
+  columns ``weight`` and ``minuslogpost`` that no sidecar line declares.
+
+  Arguments:
+    sidecar_path = path of the ``.paramnames`` producer sidecar.
+
+  Returns:
+    a tuple of ``(logical_name, is_derived, numeric_column)`` triples,
+    one per declaration, in file order.
+
+  Raises:
+    ValueError for an empty logical name, a ``*`` or ``?`` inside a name
+    (GetDist reserves both), or two declarations normalizing to one name.
+  """
   declarations = []
   # GetDist accepts producer sidecars written with a UTF-8 byte-order mark.
   # ``utf-8-sig`` removes it when present and is identical to ``utf-8`` when
@@ -127,7 +193,22 @@ def _read_declarations(sidecar_path):
 
 
 def _load_numeric_table(params_path):
-  """Load a float32 table while preserving a one-row table's row axis."""
+  """Load the numeric table as float32, keeping a one-row table 2-D.
+
+  ``ndmin=2`` stops numpy from collapsing a single-row file to a 1-D
+  vector, so every caller can index rows and columns the same way
+  regardless of the table's length.
+
+  Arguments:
+    params_path = path of the numeric parameter dump.
+
+  Returns:
+    a float32 array of shape (rows, columns) with every value finite.
+
+  Raises:
+    ValueError when the file is empty, not two-dimensional, or contains
+    NaN / infinity in any cell.
+  """
   with warnings.catch_warnings():
     # numpy warns before returning its useful empty-array sentinel.  Empty is
     # an ordinary validation refusal here, so keep that refusal deterministic.

@@ -103,6 +103,9 @@ class dataset(GeneratorCore):
     write_syren_base = whether the syren base files are computed and
     written (the formulas are vendored in-repo under syren/; stated
     explicitly, never a silent availability fallback).
+
+    Arguments:
+      train_args = the YAML's train_args mapping.
     """
     segs = train_args["z_segments"]
     if not isinstance(segs, (list, tuple)) or len(segs) < 1:
@@ -190,7 +193,12 @@ class dataset(GeneratorCore):
       }})
 
   def _quantities(self):
-    """The store's quantity tags (base files ride the switch)."""
+    """The store's quantity tags for this run.
+
+    Returns:
+      ("pklin", "boost") for a plain run; the two *_base tags join when
+      write_syren_base is on (the base files ride the switch).
+    """
     if self.write_base:
       return ("pklin", "boost", "pklin_base", "boost_base")
     return ("pklin", "boost")
@@ -208,6 +216,11 @@ class dataset(GeneratorCore):
     mass is read from the formula's own default (the generator calls
     base_pklin without an mnu argument), so the record cannot drift from
     the base it names.
+
+    Returns:
+      the base's description string (naming the vendored formulas and
+      the pinned neutrino mass), or fixed_facts.NOT_APPLICABLE for a
+      run without base files.
     """
     if not self.write_base:
       return fixed_facts.NOT_APPLICABLE
@@ -227,7 +240,11 @@ class dataset(GeneratorCore):
   # data-vector store: per-quantity 2D files -> {dvsf}_<q>.npy
   #-----------------------------------------------------------------------------
   def _dv_chk_files(self):
-    """Files the checkpoint loader must find before trusting a chk."""
+    """Files a resume must find: every store plus the two axis sidecars.
+
+    Returns:
+      the list of required file paths.
+    """
     files = []
     for q in self._quantities():
       files.append(f"{self.dvsf}_{q}.npy")
@@ -293,7 +310,11 @@ class dataset(GeneratorCore):
         os.replace(f"{self.dvsf}_{q}.tmp.npy", f"{self.dvsf}_{q}.npy")
 
   def _dv_append(self, nparams):
-    """Grow every store by nparams zero rows (append mode; RAM-aware)."""
+    """Grow every store by nparams zero rows (append mode; RAM-aware).
+
+    Arguments:
+      nparams = the number of new sample rows the append adds.
+    """
     quantities = self._quantities()
     nrows = self.datavectors[quantities[0]].shape[0]
     RAMneed = self.samples.nbytes + self.failed.nbytes
@@ -352,6 +373,11 @@ class dataset(GeneratorCore):
     Allocate every store for nrows samples (RAM-aware, one shared
     policy) and write the grid sidecars ({dvsf}_z.npy / {dvsf}_k.npy)
     once — the training path reads the grids from the FILES.
+
+    Arguments:
+      nrows     = the total number of sample rows the run will fill.
+      first_dvs = the first computed payload dict; every quantity's
+                  width is checked against len(z) * len(k).
     """
     width = len(self.z_mps) * len(self.k_mps)
     RAMneed = self.samples.nbytes + self.failed.nbytes
@@ -387,12 +413,21 @@ class dataset(GeneratorCore):
     np.save(f"{self.dvsf}_k.npy", self.k_mps)
 
   def _dv_write(self, i, dvs):
-    """Write one payload dict at row i of each per-quantity store."""
+    """Write one payload dict into every per-quantity store.
+
+    Arguments:
+      i   = the sample's assigned row.
+      dvs = the payload dict, one flattened (nz * nk) row per quantity.
+    """
     for q in self._quantities():
       self.datavectors[q][i] = dvs[q]
 
   def _dv_zero(self, i):
-    """Zero row i of each per-quantity store (a failed sample)."""
+    """Blank one failed sample's row in every per-quantity store.
+
+    Arguments:
+      i = the failed sample's row.
+    """
     for q in self._quantities():
       self.datavectors[q][i, :] = 0.0
 

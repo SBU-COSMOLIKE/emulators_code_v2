@@ -37,11 +37,14 @@ _CB = ["#0072B2", "#E69F00", "#CC79A7", "#000000", "#56B4E9"]
 
 
 def _finish(fig, savepath):
-  """Save the figure and close, or show it.
+  """Save the figure and close it, or show it interactively.
 
-  If savepath is given, write the figure there (format from the
-  extension, e.g. .pdf) and close it, a batch script has no
-  display; if None, show it interactively.
+  Arguments:
+    fig      = the matplotlib figure to finish.
+    savepath = the output path (format from the extension, e.g. .pdf);
+               the figure is written there and closed, because a batch
+               script has no display. None shows it interactively
+               instead.
   """
   if savepath is not None:
     fig.savefig(savepath, bbox_inches="tight")
@@ -550,8 +553,20 @@ _CUT_GREY = (0.55, 0.55, 0.55, 0.30)
 
 
 def _cut_role(name):
-  """The cut role ("h0" / "ob" / "om" / "omh2") of a column name, or
-  None when the column plays no part in the physical cuts."""
+  """Classify one parameter column's role in the physical cuts.
+
+  The triangle plot marks the physical-cut windows only on the panels
+  whose two axes make a window sharp; that decision needs to know which
+  column is H0, which is Omega_b, and so on, whatever alias the dump
+  used for it.
+
+  Arguments:
+    name = the column name as the parameter table declares it.
+
+  Returns:
+    the role string ("h0" / "ob" / "om" / "omh2"), or None when the
+    column plays no part in the physical cuts.
+  """
   low = name.lower()
   for role, aliases in _CUT_ROLES:
     if low in aliases:
@@ -599,6 +614,14 @@ def _window_masks(rx, ry, xx, yy, cuts):
   # phys_cut_idx's strict keep window lo < q < hi (an inactive side is
   # skipped; an all-False mask is dropped).
   def add(name, q, lo, hi):
+    """Append this window's exclusion mask when either bound is active.
+
+    Arguments:
+      name = the window's name, kept beside its mask.
+      q    = the derived quantity on the panel grid.
+      lo   = the lower bound, or None for no lower cut.
+      hi   = the upper bound, or None for no upper cut.
+    """
     if lo is None and hi is None:
       return
     bad = np.zeros(q.shape, dtype=bool)

@@ -689,6 +689,9 @@ class RescaledChi2(CosmolikeChi2):
       include_amp    = pass the (Om h^2)^ns/h amplitude factor
                        to _analytic_R (standard run: True).
       u_star         = kernel-peak lens position (~0.5).
+
+    Returns:
+      self, so the call chains after construction.
     """
     # build_shear_angle_map(geom) must run first, _R reads
     # these off geom. Fail loudly if the order is wrong.
@@ -953,6 +956,9 @@ class ElementWeightedChi2(CosmolikeChi2):
       gamma = hardness sharpness (the focal exponent).
       beta  = boost strength; the hardest elements get a chi2
               weight up to 1 + beta.
+
+    Returns:
+      self, so the call chains after construction.
     """
     self._elem_kappa = kappa
     self._elem_gamma = gamma

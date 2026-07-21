@@ -168,6 +168,15 @@ def distance_interpolators(z_grid, h_grid):
   da = dl / (1.0 + zstep) ** 2
 
   def cubic(x, y):
+    """Build one cubic interpolant over the grid (extrapolation allowed).
+
+    Arguments:
+      x = the strictly increasing coordinate grid.
+      y = the values on that grid.
+
+    Returns:
+      a scipy interp1d callable y(x).
+    """
     return interpolate.interp1d(x, y,
                                 kind='cubic',
                                 assume_sorted=True,

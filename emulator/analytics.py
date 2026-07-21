@@ -77,6 +77,7 @@ def _analytic_R(theta_arcmin,
   if is_torch:
     log = torch.log
     def coerce(a):
+      """Match one constant to the input's tensor dtype and device."""
       return torch.as_tensor(a, dtype=cosmo.dtype, device=cosmo.device)
     # a lone 1D row -> (1, n_param): the tensor np.atleast_2d, so
     # the [:, col] indexing below works.
@@ -85,6 +86,7 @@ def _analytic_R(theta_arcmin,
   else:
     log = np.log
     def coerce(a):
+      """Match one constant to the numpy float64 the branch computes in."""
       return np.asarray(a, dtype="float64")
     cosmo = np.atleast_2d(
       np.asarray(cosmo, dtype="float64"))
@@ -119,7 +121,15 @@ def _analytic_R(theta_arcmin,
   q_mid = flat[None, :] / Gam_m              # (1, n_elem)
 
   def T(qq):
-    # Eisenstein-Hu zero-baryon transfer function (1998).
+    """Eisenstein-Hu zero-baryon transfer function T(q) (1998).
+
+    Arguments:
+      qq = the shape variable q = k / Gamma, per row and element.
+
+    Returns:
+      T(q) = L / (L + C q^2), with L = ln(2e + 1.8 q) and
+      C = 14.2 + 731 / (1 + 62.5 q).
+    """
     L = log(2.0 * np.e + 1.8 * qq)
     C = 14.2 + 731.0 / (1.0 + 62.5 * qq)
     return L / (L + C * qq * qq)

@@ -72,7 +72,27 @@ _PROVIDES = ("Hubble",
 
 
 def _require_finite_background_vector(value, *, name, length, positive=False):
-    """Return one exact finite background vector or refuse publication."""
+    """Validate one background vector before it is cached for Cobaya.
+
+    The reciprocal c/H and the cumulative distance integral are new
+    arithmetic performed by this adapter, so a finite emulator output
+    alone cannot guarantee a finite result; every derived vector is
+    checked before the sampled point's interpolators are cached.
+
+    Arguments:
+      value    = the vector to check (array-like).
+      name     = what the vector is, named in the refusal.
+      length   = the exact required length.
+      positive = additionally require every entry > 0 (an H(z) row must
+                 be positive before the c/H reciprocal).
+
+    Returns:
+      the vector as a numpy array of shape (length,).
+
+    Raises:
+      ValueError naming the vector for a wrong shape, a NaN / infinity,
+      or a non-positive entry when positive is required.
+    """
     array = np.asarray(value)
     expected = (int(length),)
     if array.shape != expected:
@@ -216,7 +236,17 @@ class emul_baosn(Theory):
         check_artifacts_pair_up(predictors=[self.p_h, self.p_dm])
 
     def initialize_with_provider(self, provider):
-        """Register the provider and compare directly named fixed values."""
+        """Register the provider and compare directly named fixed values.
+
+        Cobaya calls this once, when the full model exists. The artifacts'
+        recorded fixed values are compared against the model's directly
+        named constants, and the flat-only rule is enforced against the
+        live parameterization: a sampled omk, or one pinned away from
+        zero, refuses at startup.
+
+        Arguments:
+          provider = the Cobaya provider carrying the resolved model.
+        """
         super().initialize_with_provider(provider)
         check_artifacts_fixed_values(
             predictors=[self.p_h, self.p_dm],
@@ -267,11 +297,21 @@ class emul_baosn(Theory):
         return torch.device("cpu")
 
     def get_requirements(self):
-        """The sampled parameters the emulators need (a cobaya dict)."""
+        """The sampled parameters the emulators need.
+
+        Returns:
+          a fresh {name: None} mapping (Cobaya's requirement form) over
+          the union of both artifacts' stored input names.
+        """
         return dict(self._req)
 
     def get_can_provide(self):
-        """The background products this theory provides."""
+        """The background products this theory provides.
+
+        Returns:
+          a fresh list of the product names in _PROVIDES (Hubble and the
+          four distance getters).
+        """
         return list(_PROVIDES)
 
     def must_provide(self, **requirements):
@@ -303,7 +343,21 @@ class emul_baosn(Theory):
             self._check_windows(z, who="the " + product + " requirement")
 
     def _redshift_pairs(self, value, who):
-        """Return exact ordered ``(z1, z2)`` rows after checking the window."""
+        """Validate one (z1, z2) pair array for the two-redshift distance.
+
+        Arguments:
+          value = the requested pairs, an (N, 2) array-like with
+                  z1 <= z2 in every row.
+          who   = the requester, named in the refusal.
+
+        Returns:
+          the pairs as a float64 numpy array of shape (N, 2), every
+          redshift inside the two emulated windows.
+
+        Raises:
+          ValueError for a wrong shape, a reversed pair, or a redshift
+          in the desert between the windows.
+        """
         pairs = np.asarray(value, dtype="float64")
         if pairs.ndim != 2 or pairs.shape[1] != 2:
             raise ValueError(
@@ -440,16 +494,40 @@ class emul_baosn(Theory):
             "'1/Mpc', got " + repr(units))
 
     def get_comoving_radial_distance(self, z):
-        """The comoving distance chi(z) in Mpc (piecewise, flat)."""
+        """The comoving distance chi(z) in Mpc (piecewise, flat).
+
+        Arguments:
+          z = scalar or array of query redshifts, inside the two
+              emulated windows.
+
+        Returns:
+          (n,) comoving distances in Mpc.
+        """
         return self._chi(z)
 
     def get_angular_diameter_distance(self, z):
-        """The angular-diameter distance D_A = chi/(1+z) in Mpc (flat)."""
+        """The angular-diameter distance D_A = chi/(1+z) in Mpc (flat).
+
+        Arguments:
+          z = scalar or array of query redshifts, inside the two
+              emulated windows.
+
+        Returns:
+          (n,) angular-diameter distances in Mpc.
+        """
         z = np.atleast_1d(np.asarray(z, dtype="float64"))
         return self._chi(z) / (1.0 + z)
 
     def get_luminosity_distance(self, z):
-        """The luminosity distance D_L = chi*(1+z) in Mpc (flat)."""
+        """The luminosity distance D_L = chi*(1+z) in Mpc (flat).
+
+        Arguments:
+          z = scalar or array of query redshifts, inside the two
+              emulated windows.
+
+        Returns:
+          (n,) luminosity distances in Mpc.
+        """
         z = np.atleast_1d(np.asarray(z, dtype="float64"))
         return self._chi(z) * (1.0 + z)
 

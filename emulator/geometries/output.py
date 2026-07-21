@@ -355,6 +355,10 @@ class DataVectorGeometry:
                   possible_probes string (xi, gammat,
                   wtheta, 3x2pt).
       dtype     = precision for the stored basis and Cinv.
+
+    Returns:
+      a new geometry on ``device``, carrying the probe's kept-entry
+      whitening basis, Cinv, center, and the global section layout.
     """
     # deferred (25M-37): the training-path dependencies live here, at their
     # one use site, not at module import.
@@ -450,7 +454,7 @@ class DataVectorGeometry:
                probe=probe)
 
   def state(self):
-    """Tensors inference needs, keyed to match __init__.
+    """Collect the persistable transform, keys matching __init__.
 
     Move everything to cpu for saving; include dtype so
     from_state rebuilds the basis and Cinv at the run's
@@ -460,6 +464,10 @@ class DataVectorGeometry:
     that __init__ normalizes back to an int list; probe as a
     string. A geometry that predates the keys has neither, so
     state() omits them and from_state leaves both None.
+
+    Returns:
+      the mapping from_state(device, state()) rebuilds the identical
+      geometry from.
     """
     st = {
       "total_size": self.total_size,

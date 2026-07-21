@@ -35,7 +35,28 @@ import torch.nn as nn
 
 
 def _finite_real_array(value, *, name, ndim):
-  """Return one finite float64 array without hiding invalid input types."""
+  """
+  Convert one array-like input to finite float64, refusing anything else.
+
+  The PCE fit runs in float64, so every incoming array (a torch tensor, a
+  list, or a numpy array of any real dtype) is converted once here, and
+  the three ways an input can silently poison the fit are refused up
+  front: a non-numeric dtype, a wrong dimensionality, and a NaN or
+  infinity.
+
+  Arguments:
+    value = the array-like input (torch.Tensor, numpy array, or nested
+            sequence of numbers).
+    name  = what the value is, named in every refusal.
+    ndim  = the exact required number of dimensions.
+
+  Returns:
+    a float64 numpy array of dimensionality ndim, all values finite.
+
+  Raises:
+    ValueError naming the input when its dtype is not real-numeric, its
+    dimensionality differs from ndim, or it contains NaN / infinity.
+  """
   if isinstance(value, torch.Tensor):
     value = value.detach().cpu().numpy()
   raw = np.asarray(value)
@@ -52,7 +73,24 @@ def _finite_real_array(value, *, name, ndim):
 
 
 def _positive_int(value, *, name):
-  """Return one positive integer fit limit without Boolean coercion."""
+  """
+  Read one positive-integer fit limit, refusing Booleans and floats.
+
+  In Python True == 1, so a Boolean would slip through a plain integer
+  check and set a nonsensical limit of one; a float such as 12.0 would
+  hide a configuration typo. Both are refused by type, not by value.
+
+  Arguments:
+    value = the configured limit, expected to be an int (numpy integers
+            accepted).
+    name  = the configuration key, named in the refusal.
+
+  Returns:
+    the limit as a plain int, at least 1.
+
+  Raises:
+    ValueError when the value is a Boolean, not an integer, or below 1.
+  """
   if (isinstance(value, (bool, np.bool_))
       or not isinstance(value, (int, np.integer)) or int(value) < 1):
     raise ValueError(f"{name} must be a positive integer, got {value!r}")
@@ -60,7 +98,25 @@ def _positive_int(value, *, name):
 
 
 def _positive_finite_real(value, *, name):
-  """Return one finite positive real fit limit without string conversion."""
+  """
+  Read one strictly positive, finite real fit limit.
+
+  A Boolean is refused by type (True == 1 in Python); a string such as
+  "0.6" is refused rather than converted, so a YAML quoting mistake stops
+  the run instead of silently parsing; NaN, infinity, zero, and negative
+  values are refused by value.
+
+  Arguments:
+    value = the configured limit, expected to be a real number.
+    name  = the configuration key, named in the refusal.
+
+  Returns:
+    the limit as a plain float, finite and > 0.
+
+  Raises:
+    ValueError when the value is a Boolean, not a real number, nonfinite,
+    or not strictly positive.
+  """
   if (isinstance(value, (bool, np.bool_))
       or not isinstance(value, numbers.Real)
       or not np.isfinite(float(value)) or float(value) <= 0.0):
@@ -70,7 +126,43 @@ def _positive_finite_real(value, *, name):
 
 
 def _fixed_fit_loo(Psi, y, support, beta, *, saved_prediction=None):
-  """Evaluate PRESS/LOO using the saved coefficient number format."""
+  """
+  Leave-one-out (LOO) error of one fixed active fit, in saved precision.
+
+  The PRESS/LOO identity scores a least-squares fit without refitting N
+  times: with the hat-matrix leverage h_n = a_n^T (A^T A)^-1 a_n of row n,
+
+    loo = mean_n [ (y_n - yhat_n) / (1 - h_n) ]^2 / var(y)
+
+  where yhat is the model's prediction of row n WITH row n included --
+  dividing each residual by (1 - h_n) converts it to the residual the fit
+  would have produced had row n been left out. The result is normalized by
+  the target variance, so it is comparable across output modes.
+
+  The prediction yhat is deliberately computed in float32, the precision
+  the saved base actually uses at inference: the stored design matrix and
+  coefficients are multiplied densely, including the zero coefficients
+  outside the support, because promoting to float64 or shortening the
+  matrix first changes cancellation and can hide error the saved base
+  retains.
+
+  Arguments:
+    Psi     = (N, P) float64 design matrix over the full candidate basis.
+    y       = (N,) float64 target values of one output mode.
+    support = index array of the active columns (the chosen basis terms).
+    beta    = coefficients of the active columns, in support order.
+    saved_prediction = optional (N,) prediction to score instead of
+              recomputing it (used when the caller already holds the saved
+              base's own output); shape-checked against y.
+
+  Returns:
+    the normalized LOO error as a float (finite, >= 0).
+
+  Raises:
+    ValueError when the target variance is not positive, the normal matrix
+    is singular or nonfinite, a leverage leaves [0, 1), or any saved-format
+    quantity becomes nonfinite.
+  """
   A = Psi[:, support]
   with np.errstate(over="ignore", invalid="ignore"):
     variance = np.var(y)
@@ -126,13 +218,31 @@ def _fixed_fit_loo(Psi, y, support, beta, *, saved_prediction=None):
 
 
 def _pce_deg_tuples(m, pq, q):
-  """Degree tuples (len m, each >=1) with sum a_i^q <= pq.
+  """
+  Enumerate degree tuples (a_1, ..., a_m), each a_i >= 1, with
+  sum_i a_i^q <= pq.
 
-  Recursive enumeration with q-norm pruning: extend the tuple one
-  dim at a time, abandoning a branch once its running sum of a_i^q
-  exceeds the budget pq.
+  This is the inner enumeration of the hyperbolic (q-norm) truncation:
+  the candidate basis keeps a multi-index only when its q-norm
+  (sum a_i^q)^(1/q) is within the degree budget, which for q < 1 favors
+  few large per-variable degrees over many moderate ones (high-order
+  interactions are pruned first). The recursion extends the tuple one
+  variable at a time and abandons a branch as soon as its running sum
+  of a_i^q exceeds the budget, so the pruned tree is never walked.
+
+  Arguments:
+    m  = tuple length (the number of interacting variables).
+    pq = the budget: p_max raised to the power q, so the q-norm test
+         (sum a_i^q)^(1/q) <= p_max becomes sum a_i^q <= pq.
+    q  = the hyperbolic truncation exponent (0 < q <= 1).
+
+  Returns:
+    a generator of degree tuples, each of length m with every entry >= 1.
   """
   def rec(prefix, used):
+    # prefix = the degrees chosen so far; used = their sum of a_i^q.
+    # At full length the tuple is emitted; otherwise every degree d
+    # that still fits the budget extends the branch.
     if len(prefix) == m:
       yield tuple(prefix)
       return
@@ -565,7 +675,20 @@ class PCEEmulator(nn.Module):
     N, n_dim = Xn.shape
 
     def float32_buffer(value, name):
-      """Cast one fitted array and refuse overflow in the saved precision."""
+      """
+      Cast one fitted float64 array to the saved float32 precision.
+
+      The fit runs in float64 but the artifact stores float32; a value
+      that overflows to infinity in the narrower type would poison every
+      later prediction, so the cast refuses instead of saving it.
+
+      Arguments:
+        value = the fitted array (numpy or tensor).
+        name  = what the array is, named in the refusal.
+
+      Returns:
+        a float32 torch tensor with every value finite.
+      """
       tensor = torch.as_tensor(value, dtype=torch.float32)
       if not torch.isfinite(tensor).all():
         raise ValueError(
@@ -796,6 +919,8 @@ class PCEEmulator(nn.Module):
       a PCEEmulator on `device`.
     """
     def t(v, dtype):
+      # one tensor per stored buffer, on the requested device, in the
+      # dtype the forward pass expects.
       return torch.as_tensor(v, dtype=dtype, device=device)
     return cls(lo=t(state["lo"], torch.float32),
                hi=t(state["hi"], torch.float32),

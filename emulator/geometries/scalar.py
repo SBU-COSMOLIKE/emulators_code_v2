@@ -158,8 +158,15 @@ class ScalarGeometry:
     return cls(device=device, names=names, center=center, scale=scale)
 
   def state(self):
-    """Tensors to save; keys match __init__ (dest_idx / total_size are
-    derived from names, so they are not persisted)."""
+    """Collect the persistable transform, keys matching __init__.
+
+    dest_idx / total_size are derived from names, so they are not
+    persisted.
+
+    Returns:
+      the mapping of output names and per-output center / scale;
+      from_state(device, state()) rebuilds the identical geometry.
+    """
     return {"names":  self.names,
             "center": self.center.cpu(),
             "scale":  self.scale.cpu()}

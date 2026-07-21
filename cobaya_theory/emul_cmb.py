@@ -161,7 +161,15 @@ class emul_cmb(Theory):
         check_artifacts_pair_up(predictors=self.predictors)
 
     def initialize_with_provider(self, provider):
-        """Register the provider and compare directly named fixed values."""
+        """Register the provider and compare directly named fixed values.
+
+        Cobaya calls this once, when the full model exists. Each served
+        artifact's recorded fixed values are compared against the model's
+        directly named constants; a disagreement refuses at startup.
+
+        Arguments:
+          provider = the Cobaya provider carrying the resolved model.
+        """
         super().initialize_with_provider(provider)
         check_artifacts_fixed_values(
             predictors=self.predictors,
@@ -203,11 +211,21 @@ class emul_cmb(Theory):
         return torch.device("cpu")
 
     def get_requirements(self):
-        """The sampled parameters the emulators need (a cobaya dict)."""
+        """The sampled parameters the emulators need.
+
+        Returns:
+          a fresh {name: None} mapping (Cobaya's requirement form) over
+          the union of the loaded artifacts' stored input names.
+        """
         return dict(self._req)
 
     def get_can_provide(self):
-        """The products this theory provides: the Cl dict."""
+        """The products this theory provides.
+
+        Returns:
+          ["Cl"]: the one Cobaya product, the angular-spectrum dict
+          served by get_Cl.
+        """
         return ["Cl"]
 
     def must_provide(self, **requirements):

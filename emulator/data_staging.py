@@ -341,22 +341,51 @@ def stage_source(C, dv, idx, ram_frac=0.7):
 # window (say omegamh2 * ns * As) is one helper plus one table row,
 # not a new branch in the cut logic.
 def _omega_b_h2(col):
-  # omega_b h^2 = Omega_b * (H0/100)^2.
+  """Per-row omega_b h^2 = Omega_b (H0/100)^2, the baryon density window.
+
+  Arguments:
+    col = the named-column accessor (col["H0"] is the candidate rows'
+          H0 column, and so on).
+
+  Returns:
+    the derived quantity per candidate row (a 1-D array).
+  """
   return col["omegab"] * (col["H0"] / 100.0) ** 2
 
 
 def _omega_m2_h2(col):
-  # omegam^2 h^2 = (Omega_m * H0/100)^2 = Gamma^2, the transfer shape.
+  """Per-row (Omega_m H0/100)^2 = Gamma^2, the transfer-shape window.
+
+  Arguments:
+    col = the named-column accessor over the candidate rows.
+
+  Returns:
+    the derived quantity per candidate row (a 1-D array).
+  """
   return (col["omegam"] * col["H0"] / 100.0) ** 2
 
 
 def _omega_m_h2(col):
-  # omegam h^2 = Omega_m * (H0/100)^2 (Planck ~ 0.143).
+  """Per-row omega_m h^2 = Omega_m (H0/100)^2 (Planck ~ 0.143).
+
+  Arguments:
+    col = the named-column accessor over the candidate rows.
+
+  Returns:
+    the derived quantity per candidate row (a 1-D array).
+  """
   return col["omegam"] * (col["H0"] / 100.0) ** 2
 
 
 def _omega_m_h2_ns(col):
-  # omegam h^2 * n_s (Planck ~ 0.138).
+  """Per-row omega_m h^2 * n_s (Planck ~ 0.138), the tilt-shape window.
+
+  Arguments:
+    col = the named-column accessor over the candidate rows.
+
+  Returns:
+    the derived quantity per candidate row (a 1-D array).
+  """
   return _omega_m_h2(col) * col["ns"]
 
 
@@ -559,7 +588,20 @@ def _find_sidecar(params_path, suffix):
 
 
 def _read_facts_sidecar_with_path(params_path):
-  """Resolve and read one required sidecar without a second path lookup."""
+  """Resolve and read one required .facts.yaml sidecar in a single lookup.
+
+  Arguments:
+    params_path = the parameter dump whose scientific record is needed.
+
+  Returns:
+    the pair (sidecar_path, sidecar_text): the resolved path and the
+    file's exact producer text (line endings preserved -- the saved
+    emulator carries this text verbatim).
+
+  Raises:
+    ValueError listing every tried path and the migration instruction
+    when no sidecar exists.
+  """
   sidecar = _find_sidecar(params_path=params_path,
                           suffix=fixed_facts.SIDECAR_SUFFIX)
   if sidecar is None:
@@ -626,11 +668,25 @@ def read_facts_sidecar(params_path):
 def validated_facts_sidecar(params_path, names, facts_yaml=None):
   """Read or reuse a producer record and compare its ordered names.
 
-  ``from_config`` calls this before device or warm-start work and keeps the
-  returned text. Staging passes that same text back, so changing the file later
-  cannot replace the record already checked. A direct loader leaves
-  ``facts_yaml`` at None and reads the required sidecar after its .paramnames
-  file has been checked.
+  ``from_config`` calls this before device or warm-start work and keeps
+  the returned text. Staging passes that same text back, so changing the
+  file later cannot replace the record already checked. A direct loader
+  leaves ``facts_yaml`` at None and reads the required sidecar after its
+  .paramnames file has been checked.
+
+  Arguments:
+    params_path = the parameter dump the record belongs to.
+    names       = the sampled parameter names in canonical training
+                  order, checked against the record's own order.
+    facts_yaml  = the already-read record text to reuse, or None to
+                  read the sidecar from disk now.
+
+  Returns:
+    the record's exact text, validated and name-checked.
+
+  Raises:
+    ValueError / TypeError from the sidecar lookup, the record's own
+    validation, or the name-order comparison.
   """
   if facts_yaml is None:
     sidecar, facts_yaml = _read_facts_sidecar_with_path(

@@ -42,13 +42,26 @@ def _normalize_const_mask(
     const_mask,
     n_out,
     device):
-  """Return one explicit boolean mask covering the flattened grid.
+  """Normalize the constant-column mask to one explicit boolean vector.
 
   The in-memory representation is boolean.  This class writes the same
-  values as explicit uint8 zeros and ones in state().  A direct constructor
-  may pass None explicitly. The helper converts that value into an all-false
-  mask immediately. Saved-state readback requires the key before it calls
-  this helper.
+  values as explicit uint8 zeros and ones in state().  A direct
+  constructor may pass None explicitly; that becomes an all-false mask
+  immediately (an explicitly unpinned geometry).  Saved-state readback
+  requires the key before it calls this helper.
+
+  Arguments:
+    const_mask = the mask as supplied: a 1-D boolean or uint8 array of
+                 length n_out, or None for no pinned columns.
+    n_out      = the flattened grid length (nz * nk) the mask covers.
+    device     = the device the normalized mask lives on.
+
+  Returns:
+    a boolean tensor of shape (n_out,) on ``device``.
+
+  Raises:
+    TypeError / ValueError for a non-array, wrong-dimensional,
+    wrong-length, or non-binary mask.
   """
   if const_mask is None:
     return torch.zeros(
@@ -315,12 +328,19 @@ class Grid2DGeometry:
                           law=law)
 
   def state(self):
-    """Tensors/strings to save; keys match __init__ (dest_idx /
-    total_size are derived from the axes, so they are not persisted).
-    const_mask is always present. An all-false mask records an explicitly
-    unpinned geometry, while true values record the pinned columns. This
-    class writes uint8 zeros and ones so the stored representation is
-    explicit, and __init__ normalizes it back to boolean."""
+    """Collect the persistable transform, keys matching __init__.
+
+    dest_idx / total_size are derived from the axes, so they are not
+    persisted. const_mask is always present: an all-false mask records
+    an explicitly unpinned geometry, while true values record the
+    pinned columns. The mask is written as uint8 zeros and ones so the
+    stored representation is explicit; __init__ normalizes it back to
+    boolean.
+
+    Returns:
+      the mapping of quantities, axes, and per-element statistics that
+      from_state(device, state()) rebuilds the identical geometry from.
+    """
     st = {"quantity": self.quantity,
           "units":    self.units,
           "law":      self.law,

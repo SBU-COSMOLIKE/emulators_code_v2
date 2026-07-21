@@ -146,7 +146,26 @@ class emul_cosmic_shear(Theory):
         self._composition = self._build_composition(dv_return)
 
     def _build_composition(self, dv_return):
-        """Return predictors in physical block order with checked widths."""
+        """Plan how the loaded predictors assemble one data vector.
+
+        In 'section' mode every predictor serves its stored probe's
+        global blocks; the plan orders the predictors by their first
+        block (physical order, independent of the YAML root order) and
+        refuses overlaps or inconsistent stored layouts. In '3x2pt' mode
+        one predictor serves the full scattered vector.
+
+        Arguments:
+          dv_return = the configured return shape, 'section' or '3x2pt'.
+
+        Returns:
+          a list of (predictor, width) pairs in assembly order; widths
+          are the exact segment lengths calculate later checks against.
+
+        Raises:
+          ValueError for a missing stored layout, an inconsistent
+          global layout, overlapping blocks, invalid block indices, or
+          more than one full-vector emulator.
+        """
         if dv_return == "3x2pt":
             if len(self.predictors) != 1:
                 raise ValueError(
@@ -204,7 +223,15 @@ class emul_cosmic_shear(Theory):
         return [(predictor, width) for _, predictor, width in plan]
 
     def initialize_with_provider(self, provider):
-        """Register the provider and compare directly named fixed values."""
+        """Register the provider and compare directly named fixed values.
+
+        Cobaya calls this once, when the full model exists. Each served
+        artifact's recorded fixed values are compared against the model's
+        directly named constants; a disagreement refuses at startup.
+
+        Arguments:
+          provider = the Cobaya provider carrying the resolved model.
+        """
         super().initialize_with_provider(provider)
         check_artifacts_fixed_values(
             predictors=self.predictors,
@@ -246,7 +273,12 @@ class emul_cosmic_shear(Theory):
         return torch.device("cpu")
 
     def get_requirements(self):
-        """The sampled parameters the emulators need (a cobaya dict)."""
+        """The sampled parameters the emulators need.
+
+        Returns:
+          a fresh {name: None} mapping (Cobaya's requirement form) over
+          the stored geometry names plus any fast_params passthrough.
+        """
         return dict(self._req)
 
     def calculate(self, state, want_derived=True, **params):
@@ -284,5 +316,10 @@ class emul_cosmic_shear(Theory):
         return True
 
     def get_cosmic_shear(self):
-        """Return an owned vector; callers cannot alter the provider cache."""
+        """Serve the current point's data vector as an owned copy.
+
+        Returns:
+          a fresh numpy copy of state["cosmic_shear"], so a likelihood
+          that edits its copy cannot alter the cached provider result.
+        """
         return np.array(self.current_state["cosmic_shear"], copy=True)

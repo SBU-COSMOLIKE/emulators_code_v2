@@ -47,7 +47,22 @@ _DARK_ENERGY_LAWS = (
 
 
 def _dark_energy_scalar(params, name, where):
-  """Read one finite real scalar without Boolean or array coercion."""
+  """Read one finite real dark-energy coordinate from a parameter mapping.
+
+  A Boolean is refused by type (True == 1 in Python), an array is refused
+  rather than silently reduced, and NaN / infinity are refused by value.
+
+  Arguments:
+    params = the parameter mapping the coordinate is read from.
+    name   = the coordinate's key ("w", "w0", "wa", "w0pwa").
+    where  = the calling context, named in every refusal.
+
+  Returns:
+    the coordinate as a plain finite float.
+
+  Raises:
+    TypeError / ValueError naming the coordinate and its offending value.
+  """
   value = params[name]
   if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
     raise TypeError(
@@ -68,7 +83,19 @@ def _dark_energy_scalar(params, name, where):
 
 
 def _dark_energy_close(left, right):
-  """Compare two coordinates under the one float32 storage tolerance."""
+  """Compare two dark-energy coordinates under the storage tolerance.
+
+  A coordinate that traveled through a float32 artifact differs from its
+  float64 twin by rounding; the one absolute tolerance
+  DARK_ENERGY_COORDINATE_ATOL absorbs exactly that, so a genuine
+  disagreement still refuses.
+
+  Arguments:
+    left, right = the two coordinate values to compare.
+
+  Returns:
+    True when the two agree within the tolerance.
+  """
   return bool(np.isclose(
     left, right, rtol=0.0, atol=DARK_ENERGY_COORDINATE_ATOL))
 

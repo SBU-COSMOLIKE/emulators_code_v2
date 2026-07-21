@@ -124,6 +124,10 @@ class ParamGeometry:
       center      = training mean of the parameters.
       covmat_path = path to the covmat file; its first line
                     is a "#"-prefixed list of column names.
+
+    Returns:
+      a new geometry instance on ``device`` (cls(...) runs __init__,
+      so a subclass builds as itself).
     """
     with open(covmat_path) as f:
       names = f.readline().lstrip("#").split()
@@ -132,7 +136,13 @@ class ParamGeometry:
     return cls(device=device, names=names, center=center, evecs=V, sqrt_ev=np.sqrt(lam))
 
   def state(self):
-    """Tensors to save; keys match __init__."""
+    """Collect the persistable transform, keys matching __init__.
+
+    Returns:
+      a mapping of the geometry's defining tensors on the CPU (names /
+      center / evecs / sqrt_ev), ready for the artifact writer;
+      from_state(device, state()) rebuilds the identical geometry.
+    """
     return {"names": self.names,
             "center":  self.center.cpu(),
             "evecs":   self.evecs.cpu(),
@@ -270,6 +280,12 @@ class LogParamGeometry(ParamGeometry):
                log_mask=log_mask)
 
   def state(self):
+    """Collect the persistable transform, adding the log-column mask.
+
+    Returns:
+      the base geometry's state mapping plus "log_mask", the Boolean
+      per-column marker of logarithmically transformed parameters.
+    """
     s = super().state()
     s["log_mask"] = self.log_mask.cpu()
     return s
@@ -390,7 +406,11 @@ class AmplitudeFactorGeometry:
     """Width of encode()'s output: the whitened block plus the
     appended raw amplitudes (== n_param here; the property is the
     geometry's own statement of its output width, which
-    run_emulator reads instead of assuming the raw count)."""
+    run_emulator reads instead of assuming the raw count).
+
+    Returns:
+      the encoded width as an int.
+    """
     return int(self.keep.numel()) + self.n_amps
 
   @classmethod
@@ -467,8 +487,14 @@ class AmplitudeFactorGeometry:
                names=state.get("names"))
 
   def state(self):
-    """Tensors to save; keys match __init__ (pg_keep nests the
-    kept-column ParamGeometry's own state)."""
+    """Collect the persistable transform, keys matching __init__.
+
+    Returns:
+      a mapping with "pg_keep" (the kept-column ParamGeometry's own
+      nested state), "amp_idx" (the raw amplitude columns), "n_param",
+      and "names"; from_state(device, state()) rebuilds the identical
+      factored geometry.
+    """
     return {"pg_keep": self.pg_keep.state(),
             "amp_idx": self.amp_idx.cpu(),
             "n_param": self.n_param,

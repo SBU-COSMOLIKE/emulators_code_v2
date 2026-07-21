@@ -123,6 +123,12 @@ class FinetuneSource:
                data_dir,
                dataset,
                ia=None):
+    """Bind the validated source pieces built by ``load_source``.
+
+    Each argument becomes the attribute of the same name; the class
+    docstring's Attributes block documents what every one is and how the
+    later fine-tuning / transfer steps consume it.
+    """
     self.root         = root
     self.model        = model
     self.model_cls    = model_cls

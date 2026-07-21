@@ -377,8 +377,15 @@ class GridGeometry:
     )
 
   def state(self):
-    """Tensors/strings to save; keys match __init__ (dest_idx /
-    total_size are derived from z, so they are not persisted)."""
+    """Collect the persistable transform, keys matching __init__.
+
+    dest_idx / total_size are derived from z, so they are not persisted.
+
+    Returns:
+      the mapping of quantity / units / law / offset, the z axis, and
+      the per-element statistics; from_state(device, state()) rebuilds
+      the identical geometry.
+    """
     return {"quantity": self.quantity,
             "units":    self.units,
             "law":      self.law,

@@ -31,7 +31,32 @@ ZERO_DERIVATIVE_HEAD_ACTIVATIONS = frozenset(
 
 
 def activation_factory_name(factory):
-  """Return the configured activation name carried by a factory, if known."""
+  """
+  Map an activation factory back to its registry name ("H", "relu", ...).
+
+  The inverse of make_activation: given the callable a ResBlock holds in its
+  `act` slot, recover the short name a driver or YAML would use to request
+  it. Two kinds of factory exist, and each is resolved differently:
+
+    - a class or module passed DIRECTLY (activation_fcn, GatedActivation,
+      nn.ReLU, ...) is matched by identity against the known families;
+    - a closure built by make_activation carries the requested name on
+      itself as the `_emulator_activation_name` attribute, so the closure
+      answers for any registered name, including future ones.
+
+  The identity checks come first because a direct class never passed
+  through make_activation and so never received the attribute.
+
+  Arguments:
+    factory = the activation factory, a callable act(dim) -> nn.Module: a
+              make_activation closure, one of the activation classes, or
+              nn.ReLU / nn.Tanh.
+
+  Returns:
+    the registry name as a string ("H", "power", "multigate",
+    "gated_power", "relu", "tanh"), or None when the factory is not a
+    registered activation (the caller decides whether that is an error).
+  """
   if factory is activation_fcn:
     return "H"
   if factory is PowerGatedActivation:
@@ -48,16 +73,35 @@ def activation_factory_name(factory):
 
 
 def activation_factory_recipe(factory):
-  """Describe one registered activation factory as inert recipe data.
+  """
+  Describe one activation factory as plain recipe data for a saved emulator.
 
-  ``make_activation`` tags every factory with both values.  Direct gated
-  classes execute their constructor default of one gate, so their recipe says
-  one rather than borrowing the public factory's three-gate default.  Direct
-  ``nn.ReLU`` is deliberately not serialized as ``make_activation("relu")``:
-  ResBlock calls a factory with ``dim``, and ``nn.ReLU(dim)`` interprets that
-  number as ``inplace=True`` instead of constructing the out-of-place module
-  selected by the registered closure.  Direct parameter-free classes must be
-  wrapped by ``make_activation`` before an artifact can be saved.
+  A saved .h5 must record how to rebuild its activation without executing
+  code from the file, so the factory is reduced to two inert values: the
+  registry name and the gate count K. make_activation tags every closure it
+  builds with both, and this function reads them back:
+
+    make_activation("multigate", n_gates=4) -> {"type": "multigate",
+                                                "n_gates": 4}
+
+  A class passed directly (not through make_activation) is a special case.
+  A direct gated class executes its constructor default of ONE gate, so its
+  recipe says 1 rather than borrowing the public factory's three-gate
+  default -- recording 3 would rebuild a different network. A direct
+  nn.ReLU or nn.Tanh cannot be serialized as its registered equivalent at
+  all: ResBlock calls every factory as act(dim), and nn.ReLU(dim)
+  interprets that number as inplace=True instead of building the
+  out-of-place module the registered closure selects. Such a factory is
+  therefore recorded as "unregistered:<class name>", which the artifact
+  writer refuses with instructions to wrap the class in make_activation.
+
+  Arguments:
+    factory = the activation factory to describe, a callable
+              act(dim) -> nn.Module (a make_activation closure or a class).
+
+  Returns:
+    a mapping {"type": <registry name or "unregistered:<label>">,
+    "n_gates": <int K>} -- plain values, safe to store in the .h5 recipe.
   """
   if factory in (nn.ReLU, nn.Tanh):
     label = getattr(factory, "__qualname__", type(factory).__qualname__)
@@ -75,7 +119,30 @@ def activation_factory_recipe(factory):
 
 
 def require_live_head_activation(factory, source):
-  """Refuse a known activation that blocks a zero-initialized head layer."""
+  """
+  Refuse a head activation whose derivative is zero at the origin.
+
+  A correction head initializes its last linear layer to zero, so at the
+  first training step every head input is exactly x = 0. An activation
+  with a(0) = 0 AND a'(0) = 0 (ReLU on the closed negative side, and the
+  current power-tail families) then passes zero forward and zero gradient
+  backward: part of the requested correction can never begin learning.
+  The safe families -- H, multigate, tanh -- have slope 1/2 or 1 at the
+  origin, so the head trains from the first step.
+
+  Arguments:
+    factory = the head's activation factory, a callable
+              act(dim) -> nn.Module.
+    source  = where the choice came from (a YAML key or driver name),
+              named in the refusal so the user can fix the right line.
+
+  Returns:
+    the same factory, unchanged, when it is safe for a head.
+
+  Raises:
+    ValueError naming the activation and the safe alternatives when the
+    factory belongs to ZERO_DERIVATIVE_HEAD_ACTIVATIONS.
+  """
   name = activation_factory_name(factory)
   if name in ZERO_DERIVATIVE_HEAD_ACTIVATIONS:
     raise ValueError(
@@ -323,28 +390,34 @@ def make_activation(name, n_gates=3):
   require_exact_int(n_gates, "activation.n_gates", minimum=1)
   if name == "H":
     def h_factory(dim):
+      """Build one activation_fcn at feature width dim."""
       return activation_fcn(dim)
     factory = h_factory
   if name == "power":
     def power_factory(dim):
+      """Build one PowerGatedActivation at feature width dim."""
       return PowerGatedActivation(dim)
     factory = power_factory
   if name == "multigate":
     def multigate_factory(dim):
+      """Build one GatedActivation at feature width dim."""
       return GatedActivation(dim, n_gates=n_gates)
     factory = multigate_factory
   if name == "gated_power":
     def gated_power_factory(dim):
+      """Build one GatedPowerActivation at feature width dim."""
       return GatedPowerActivation(dim, n_gates=n_gates)
     factory = gated_power_factory
   # parameter-free families: the factory ignores dim (ReLU / Tanh take
   # no shape argument), still honoring the act(dim) -> module contract.
   if name == "relu":
     def relu_factory(dim):
+      """Build one nn.ReLU; dim is accepted (the contract) and unused."""
       return nn.ReLU()
     factory = relu_factory
   if name == "tanh":
     def tanh_factory(dim):
+      """Build one nn.Tanh; dim is accepted (the contract) and unused."""
       return nn.Tanh()
     factory = tanh_factory
   if name not in ACTIVATION_NAMES:

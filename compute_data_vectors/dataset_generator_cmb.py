@@ -109,6 +109,9 @@ class dataset(GeneratorCore):
     The Cl requirements are added HERE, to the model itself, so the
     training YAML's likelihood block can be the dummy `one` — the script
     never depends on a likelihood having requested the spectra.
+
+    Arguments:
+      train_args = the YAML's train_args mapping.
     """
     lrange = np.array(train_args["lrange"], dtype=int)
     if lrange.shape != (2,):
@@ -139,11 +142,20 @@ class dataset(GeneratorCore):
   # data-vector store: four per-spectrum 2D arrays -> {dvsf}_<spec>.npy
   #-----------------------------------------------------------------------------
   def _multipole_axis(self):
-    """The multipole grid the stored columns mean: lmin..lmax inclusive."""
+    """The multipole grid the stored columns mean.
+
+    Returns:
+      the int64 array lmin..lmax inclusive (the columns of every
+      per-spectrum store, and the _ell.npy sidecar's content).
+    """
     return np.arange(self.lrange[0], self.lrange[1] + 1, dtype=np.int64)
 
   def _dv_chk_files(self):
-    """Files the checkpoint loader must find before trusting a chk."""
+    """Files a resume must find: all four stores plus the ell sidecar.
+
+    Returns:
+      the list of required file paths.
+    """
     files = []
     for spec in SPECTRA:
       files.append(f"{self.dvsf}_{spec}.npy")
@@ -206,7 +218,11 @@ class dataset(GeneratorCore):
         os.replace(f"{self.dvsf}_{spec}.tmp.npy", f"{self.dvsf}_{spec}.npy")
 
   def _dv_append(self, nparams):
-    """Grow all four stores by nparams zero rows (append mode; RAM-aware)."""
+    """Grow all four stores by nparams zero rows (append mode; RAM-aware).
+
+    Arguments:
+      nparams = the number of new sample rows the append adds.
+    """
     nrows = self.datavectors[SPECTRA[0]].shape[0]
     ncols = self.datavectors[SPECTRA[0]].shape[1]
     itemsize = self.datavectors[SPECTRA[0]].dtype.itemsize
@@ -266,6 +282,11 @@ class dataset(GeneratorCore):
     memmaps, one shared policy). The exact int64 multipole axis is saved
     beside the stores — the training path reads the grid from the FILE
     (resolved values, never re-declared in a YAML).
+
+    Arguments:
+      nrows     = the total number of sample rows the run will fill.
+      first_dvs = the first computed (4, nell) payload; its width fixes
+                  the stores' column count.
     """
     if first_dvs.shape != (len(SPECTRA), (self.lrange[1]-self.lrange[0])+1):
       raise ValueError(f"first computed payload has shape {first_dvs.shape}, "
@@ -299,12 +320,21 @@ class dataset(GeneratorCore):
     np.save(f"{self.dvsf}_ell.npy", self._multipole_axis())
 
   def _dv_write(self, i, dvs):
-    """Write one (4, nell) payload at row i of each per-spectrum store."""
+    """Write one (4, nell) payload into the four per-spectrum stores.
+
+    Arguments:
+      i   = the sample's assigned row.
+      dvs = the payload; row j belongs to SPECTRA[j].
+    """
     for j, spec in enumerate(SPECTRA):
       self.datavectors[spec][i] = dvs[j]
 
   def _dv_zero(self, i):
-    """Zero row i of each per-spectrum store (a failed sample)."""
+    """Blank one failed sample's row in every per-spectrum store.
+
+    Arguments:
+      i = the failed sample's row.
+    """
     for spec in SPECTRA:
       self.datavectors[spec][i, :] = 0.0
 

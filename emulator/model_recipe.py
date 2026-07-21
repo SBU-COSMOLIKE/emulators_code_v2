@@ -73,14 +73,48 @@ MODEL_RECIPE_CLASSES = tuple(_MODEL_SPECS)
 
 
 def _plain_mapping(value, where):
-  """Require a native mapping so custom mapping behavior cannot execute."""
+  """Require one plain dict, so custom mapping code cannot execute.
+
+  The recipe is read from a saved file; a mapping SUBCLASS could run its
+  own __getitem__ during validation, which would be executing code from
+  the artifact. Only the exact built-in dict type is accepted.
+
+  Arguments:
+    value = the candidate mapping read from the recipe.
+    where = the recipe path being validated, named in the refusal.
+
+  Returns:
+    the mapping unchanged, when its type is exactly dict.
+
+  Raises:
+    TypeError naming the path for any other type.
+  """
   if type(value) is not dict:
     raise TypeError(where + " must be a plain mapping")
   return value
 
 
 def _exact_keys(value, expected, where):
-  """Require one exact closed mapping schema and name every difference."""
+  """Require a mapping to carry exactly the expected keys, no more, no less.
+
+  The recipe schema is closed: a missing key would be silently replaced by
+  a future code default (the drift this module exists to prevent), and an
+  unknown key means the writer and reader disagree about the schema. Both
+  directions are collected and reported together, so one refusal shows the
+  complete difference.
+
+  Arguments:
+    value    = the candidate mapping.
+    expected = the exact key set the schema requires.
+    where    = the recipe path being validated, named in the refusal.
+
+  Returns:
+    the mapping unchanged, when its keys equal the expected set.
+
+  Raises:
+    TypeError from the plain-dict check; ValueError listing the missing
+    and unknown keys.
+  """
   mapping = _plain_mapping(value, where)
   expected_set = set(expected)
   missing = sorted(expected_set - set(mapping))
@@ -96,18 +130,55 @@ def _exact_keys(value, expected, where):
 
 
 def _native_text(value, where):
+  """Require one nonempty plain string (no str subclasses, no bytes).
+
+  Arguments:
+    value = the candidate value read from the recipe.
+    where = the recipe path being validated, named in the refusal.
+
+  Returns:
+    the string unchanged.
+
+  Raises:
+    TypeError when the value is empty or not exactly a str.
+  """
   if type(value) is not str or not value:
     raise TypeError(where + " must be nonempty native text")
   return value
 
 
 def _native_bool(value, where):
+  """Require one plain Boolean (True == 1 in Python, so ints are refused).
+
+  Arguments:
+    value = the candidate value read from the recipe.
+    where = the recipe path being validated, named in the refusal.
+
+  Returns:
+    the Boolean unchanged.
+
+  Raises:
+    TypeError when the value is not exactly a bool.
+  """
   if type(value) is not bool:
     raise TypeError(where + " must be a native boolean")
   return value
 
 
 def _native_int(value, where, minimum):
+  """Require one plain integer at or above ``minimum``.
+
+  Arguments:
+    value   = the candidate value read from the recipe.
+    where   = the recipe path being validated, named in the refusal.
+    minimum = the smallest accepted value (inclusive).
+
+  Returns:
+    the integer unchanged.
+
+  Raises:
+    TypeError when the value is not exactly an int, or is below minimum.
+  """
   if type(value) is not int or value < minimum:
     raise TypeError(
       where + " must be a native integer >= " + str(minimum))
@@ -115,7 +186,20 @@ def _native_int(value, where, minimum):
 
 
 def _validate_activation(spec, where):
-  """Require a complete description of one known activation."""
+  """Validate one saved activation description ({"type", "n_gates"}).
+
+  Arguments:
+    spec  = the activation mapping stored by the recipe writer
+            (activation_factory_recipe).
+    where = the recipe path being validated, named in every refusal.
+
+  Returns:
+    the mapping unchanged, when its type names a registered activation.
+
+  Raises:
+    TypeError / ValueError from the schema checks; ValueError when the
+    type is not one of ACTIVATION_NAMES.
+  """
   spec = _exact_keys(spec, ("type", "n_gates"), where)
   name = _native_text(spec["type"], where + ".type")
   if name not in ACTIVATION_NAMES:
@@ -125,7 +209,21 @@ def _validate_activation(spec, where):
 
 
 def _validate_block_options(block, where):
-  """Require every saved residual-block field and known factory name."""
+  """Validate one saved ResBlock description ({"n_layers", "act", "norm"}).
+
+  Arguments:
+    block = the block-options mapping stored by the recipe writer
+            (materialized_block_recipe).
+    where = the recipe path being validated, named in every refusal.
+
+  Returns:
+    the mapping unchanged, when the activation is registered and the
+    norm names one of NORMALIZATION_NAMES.
+
+  Raises:
+    TypeError / ValueError from the schema and activation checks;
+    ValueError for an unregistered norm name.
+  """
   block = _exact_keys(block, ("n_layers", "act", "norm"), where)
   _validate_activation(block["act"], where + ".act")
   norm = _native_text(block["norm"], where + ".norm")
@@ -136,7 +234,20 @@ def _validate_block_options(block, where):
 
 
 def expected_recipe_kwargs(class_path):
-  """Return the exact serialized constructor fields for one model class."""
+  """Look up the exact constructor fields one model class serializes.
+
+  Arguments:
+    class_path = the model's import path, e.g.
+                 "emulator.designs.plain.ResMLP".
+
+  Returns:
+    the tuple of kwargs key names the recipe must carry for that class
+    (a closed list; a new constructor argument must be added here and in
+    the census test before it can be saved).
+
+  Raises:
+    ValueError listing the supported classes when the path is unknown.
+  """
   if class_path not in _MODEL_SPECS:
     raise ValueError(
       "unknown model class " + repr(class_path) + "; supported classes are "
@@ -153,6 +264,20 @@ def validate_model_recipe(recipe, where="model_recipe"):
   reinterpreted through a future default.  For a structured head,
   ``head_act: None`` is a valid instruction to inherit the trunk activation;
   an absent ``head_act`` key is corruption.
+
+  Arguments:
+    recipe = the complete recipe mapping read from the artifact (keys
+             MODEL_RECIPE_TOP_LEVEL_KEYS).
+    where  = the label used in every refusal (default "model_recipe").
+
+  Returns:
+    the recipe unchanged, once every field passes.
+
+  Raises:
+    TypeError / ValueError naming the exact recipe path that failed: an
+    unsupported class, a name / ia / needs_geom value that disagrees with
+    the class registry, a bad dimension, an unknown compile mode, or a
+    malformed kwargs block.
   """
   recipe = _exact_keys(recipe, MODEL_RECIPE_TOP_LEVEL_KEYS, where)
   class_path = _native_text(recipe["cls"], where + ".cls")
@@ -197,7 +322,31 @@ def validate_model_recipe(recipe, where="model_recipe"):
 def record_model_recipe(
     *, class_path, name, ia, input_dim, output_dim, needs_geom, kwargs,
     compile_mode=None):
-  """Record the constructor values used by one live model."""
+  """Assemble the recipe mapping a model constructor stores on itself.
+
+  Every model constructor calls this with the values it ACTUALLY used
+  (defaults materialized), and keeps the result as its ``model_recipe``
+  attribute; save_emulator later writes that attribute to the .h5, and
+  check_model_matches_recipe compares it against the caller's claim.
+
+  Arguments:
+    class_path   = the model's import path (a MODEL_RECIPE_CLASSES entry).
+    name         = the public architecture name ("resmlp" / "rescnn" /
+                   "restrf").
+    ia           = the factored-IA design name ("nla" / "tatt") or None.
+    input_dim    = number of model inputs (encoded parameter width).
+    output_dim   = number of model outputs (whitened data-vector width).
+    needs_geom   = whether the constructor consumed the output geometry
+                   (the structured heads do; the plain trunks do not).
+    kwargs       = the class-specific constructor fields, defaults
+                   materialized (the expected_recipe_kwargs list).
+    compile_mode = the torch.compile mode the run selected, or None for
+                   an eager model.
+
+  Returns:
+    the recipe mapping, in the exact top-level schema
+    MODEL_RECIPE_TOP_LEVEL_KEYS.
+  """
   recipe = {
     "cls": class_path,
     "name": name,
@@ -212,12 +361,40 @@ def record_model_recipe(
 
 
 def _unwrapped_model(model):
-  """Return the eager module beneath a torch.compile wrapper, if present."""
+  """Reach the eager module beneath a torch.compile wrapper.
+
+  torch.compile returns a wrapper holding the real module as
+  ``_orig_mod``; attributes such as ``model_recipe`` live on the real
+  module. An uncompiled model is returned unchanged.
+
+  Arguments:
+    model = a live model, compiled or eager.
+
+  Returns:
+    the eager nn.Module that owns the parameters and the recipe.
+  """
   return getattr(model, "_orig_mod", model)
 
 
 def set_runtime_compile_mode(model, compile_mode):
-  """Add the selected compile mode to a live model's recipe."""
+  """Record the run's selected compile mode on a live model's recipe.
+
+  The constructor cannot know the compile mode (compilation happens
+  afterward), so the driver stamps it here once the choice is made; the
+  saved recipe then rebuilds the model under the same mode.
+
+  Arguments:
+    model        = the live model (compiled or eager); its underlying
+                   eager module must carry a ``model_recipe``.
+    compile_mode = the selected mode, one of COMPILE_MODES.
+
+  Returns:
+    the same model object, with the recipe's compile_mode replaced.
+
+  Raises:
+    ValueError when the model carries no constructor recipe (it did not
+    come from a registered constructor).
+  """
   eager = _unwrapped_model(model)
   if not hasattr(eager, "model_recipe"):
     raise ValueError(
@@ -230,7 +407,25 @@ def set_runtime_compile_mode(model, compile_mode):
 
 
 def check_model_matches_recipe(model, expected, where="live model"):
-  """Require a live model to match the recipe supplied by its caller."""
+  """Require a live model's own recipe to equal the caller's claim.
+
+  save_emulator receives both the model and a resolved_model mapping from
+  the driver. The model's constructor stamped its true recipe on itself,
+  so a driver that constructed one architecture while describing another
+  is caught here, before the wrong instructions are persisted.
+
+  Arguments:
+    model    = the live model about to be saved.
+    expected = the caller's resolved_model recipe mapping.
+    where    = the label used in the refusal (default "live model").
+
+  Returns:
+    the model's own recipe mapping, once it equals the claim.
+
+  Raises:
+    ValueError showing both mappings when they differ, or when the model
+    carries no recipe at all.
+  """
   eager = _unwrapped_model(model)
   if not hasattr(eager, "model_recipe"):
     raise ValueError(
