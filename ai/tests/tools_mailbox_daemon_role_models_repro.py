@@ -76,7 +76,7 @@ def scratch_daemon(source=None):
             "sol": str(root / "sol-lane"),
         }
         daemon.warn_if_mailbox_unwatched = lambda: None
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         daemon.report_landing_debt = lambda: None
         yield daemon, root, mailbox
 

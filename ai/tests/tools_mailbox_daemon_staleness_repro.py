@@ -593,7 +593,7 @@ def arm_token_exhaustion_stops_after_join():
             return FinishedProcess(returncode=returncode)
 
         daemon.subprocess.Popen = coordinated_popen
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         error = None
         try:
             daemon.process_backlog(dry_run=False)
@@ -658,7 +658,7 @@ def arm_simultaneous_token_exhaustion_reports_both():
             return FinishedProcess(returncode=1)
 
         daemon.subprocess.Popen = exhausted_popen
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         error = None
         try:
             daemon.process_backlog(dry_run=False)
@@ -689,7 +689,7 @@ def arm_dry_run_is_strictly_read_only():
         history_dir.mkdir()
         (history_dir / "old.json").write_text(
             '{"timeout_minutes": 3}\n', encoding="utf-8")
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         before = tree_snapshot(root=root)
         result = daemon.process_backlog(dry_run=True)
         after = tree_snapshot(root=root)
@@ -745,7 +745,7 @@ def arm_archive_failure_propagates(daemon_path=DAEMON_PATH):
                       directory=daemon.DONE)
         calls = []
         daemon.subprocess.Popen = success_popen(calls=calls)
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         result = daemon.process_backlog(dry_run=False)
         inflight = pathlib.Path(daemon.MAILBOX) / "inflight" / name
         process_ok = not result and len(calls) == 1 and inflight.is_file()
@@ -794,7 +794,7 @@ def arm_same_role_serializes_through_archive_and_logs():
             calls=calls, inspect=inspect, output="streamed live output\n")
         daemon.datetime = types.SimpleNamespace(
             datetime=SequentialLogStamp())
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         result = daemon.process_backlog(dry_run=False)
         prompts = [call["command"][-1] for call in calls]
         order_ok = (
@@ -876,7 +876,7 @@ def arm_lane_stops_after_unconsumed_head(daemon_path=DAEMON_PATH):
                       directory=daemon.DONE)
         calls = []
         daemon.subprocess.Popen = success_popen(calls=calls)
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         result = daemon.process_backlog(dry_run=False)
         second_pending = pathlib.Path(daemon.MAILBOX) / second
         second_done = pathlib.Path(daemon.DONE) / second
@@ -906,7 +906,7 @@ def arm_cross_pass_inflight_blocks_only_its_cwd():
         write_message(daemon, sol_name, sol_body)
         calls = []
         daemon.subprocess.Popen = success_popen(calls=calls)
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         result = daemon.process_backlog(dry_run=False)
         prompts = [call["command"][-1] for call in calls]
         shared_pending = pathlib.Path(daemon.MAILBOX) / shared_name
@@ -930,7 +930,7 @@ def arm_only_inflight_reports_failure():
             directory=os.path.join(daemon.MAILBOX, "inflight"))
         calls = []
         daemon.subprocess.Popen = success_popen(calls=calls)
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         result = daemon.process_backlog(dry_run=False)
         print("only-inflight result=" + str(result)
               + " launches=" + str(len(calls))
@@ -1216,7 +1216,7 @@ def arm_state_move_rejects_substitution():
                     daemon, waiting_name, "must wait behind repair state\n")
                 calls = []
                 daemon.subprocess.Popen = success_popen(calls=calls)
-                daemon.report_demand = lambda backlog: None
+                daemon.report_demand = lambda backlog, skip_redteam=False: None
                 second_pass = daemon.process_backlog(dry_run=False)
                 refused = (not accepted and destination.exists()
                            and durable_blocker and second_pass is False

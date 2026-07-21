@@ -58,7 +58,7 @@ def scratch_daemon(create_mailbox=True, source=None):
         }
         implementer_worktree.mkdir(parents=True)
         sol_worktree.mkdir(parents=True)
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         if create_mailbox:
             mailbox.mkdir(parents=True)
         yield daemon, root, mailbox
@@ -300,7 +300,7 @@ def arm_symlink_fifo_and_shared_probe_are_safe():
             daemon.AI_ROOT = str(root / "own" / "ai")
             daemon.MAILBOX = str(own)
             daemon.BACKLOG_LEDGER = str(root / "missing-backlog.md")
-            daemon.report_demand = lambda backlog: None
+            daemon.report_demand = lambda backlog, skip_redteam=False: None
             (root / ".claude").mkdir()
             os.symlink(external, root / ".claude" / "worktrees")
             with held_raw_lock(external_mailbox / ".dispatch.lock",

@@ -1199,6 +1199,35 @@ class TicketCycleLimitDeferred(TicketCycleStateError):
     """A valid new ticket belongs to a later finite watch."""
 
 
+def attempt_cycle_zero_completion(backlog_outcome, skip_redteam,
+                                  completed_cycles):
+    """Try the cycle-0 clean exit: take the completion barrier once.
+
+    Arguments:
+      backlog_outcome  = the just-finished mailbox pass result.
+      skip_redteam     = True when this watch excludes the Sol route.
+      completed_cycles = ticket cycles completed by this watch so far.
+
+    Returns:
+      (barrier, exit_code). ``barrier`` is the held completion-barrier lock
+      file when every enabled role is provably done; the caller then owns
+      its release and exits 0. ``exit_code`` is 1 when completion is
+      blocked by failed permanent-note debt the user must repair. Both are
+      None when the watch must simply continue polling.
+    """
+    barrier, completion_error = acquire_cycle_completion_barrier(
+        backlog_outcome=backlog_outcome, skip_redteam=skip_redteam)
+    if barrier is not None:
+        report_cycle_work_complete(
+            completed_cycles=completed_cycles, skip_redteam=skip_redteam)
+        return barrier, None
+    if completion_error is not None:
+        report_cycle_completion_unverified(error=completion_error)
+        if completion_error.startswith(ARCHITECT_NOTES_DEBT_PREFIX):
+            return None, 1
+    return None, None
+
+
 def main():
     # both are rebound below from the parsed command line; Python wants
     # the global declaration before the first mention of either name.
@@ -1577,51 +1606,41 @@ def main():
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model
               + " (internal mailbox names: fable/opus)")
-        if skip_redteam:
-            implementer_effort = (args.opus_effort
-                                  if args.implementer_provider == "claude"
-                                  else "provider default (ollama)")
-            print("effort levels: architect/fable=" + args.fable_effort
-                  + " implementer/opus=" + implementer_effort
-                  + " sol=disabled routine-review=" + args.review_effort)
-            if args.implementer_provider == "ollama":
-                print("context: Architect compacts at "
-                      + str(args.architect_context)
-                      + "; Ollama model context="
-                      + str(IMPLEMENTER_RUNTIME["context_limit"])
-                      + "; Implementer shell compacts at "
-                      + str(implementer_context) + "; Sol disabled")
+        implementer_effort = (args.opus_effort
+                              if args.implementer_provider == "claude"
+                              else "provider default (ollama)")
+        sol_effort_text = "disabled" if skip_redteam else args.sol_effort
+        print("effort levels: architect/fable=" + args.fable_effort
+              + " implementer/opus=" + implementer_effort
+              + " sol=" + sol_effort_text
+              + " routine-review=" + args.review_effort)
+        if args.implementer_provider == "ollama":
+            if skip_redteam:
+                sol_context_text = "Sol disabled"
             else:
-                print("context budgets: architect="
-                      + str(args.architect_context) + " implementer="
-                      + str(implementer_context)
-                      + " sol=disabled (a Claude turn compacts at its "
-                      "budget)")
+                sol_context_text = ("Sol compacts at "
+                                    + str(args.sol_context))
+            print("context: Architect compacts at "
+                  + str(args.architect_context)
+                  + "; Ollama model context="
+                  + str(IMPLEMENTER_RUNTIME["context_limit"])
+                  + "; Implementer shell compacts at "
+                  + str(implementer_context) + "; " + sol_context_text)
+        else:
+            if skip_redteam:
+                sol_budget_text = ("sol=disabled (a Claude turn compacts "
+                                   "at its budget)")
+            else:
+                sol_budget_text = ("sol=" + str(args.sol_context)
+                                   + " tokens (a turn compacts at its "
+                                   "budget)")
+            print("context budgets: architect="
+                  + str(args.architect_context) + " implementer="
+                  + str(implementer_context) + " " + sol_budget_text)
+        if skip_redteam:
             print("two-role watch: Red Team and the entire Sol route are "
                   "disabled; existing to-sol messages stay queued and "
                   "untouched")
-        else:
-            implementer_effort = (args.opus_effort
-                                  if args.implementer_provider == "claude"
-                                  else "provider default (ollama)")
-            print("effort levels: architect/fable=" + args.fable_effort
-                  + " implementer/opus=" + implementer_effort
-                  + " sol=" + args.sol_effort
-                  + " routine-review=" + args.review_effort)
-            if args.implementer_provider == "ollama":
-                print("context: Architect compacts at "
-                      + str(args.architect_context)
-                      + "; Ollama model context="
-                      + str(IMPLEMENTER_RUNTIME["context_limit"])
-                      + "; Implementer shell compacts at "
-                      + str(implementer_context) + "; Sol compacts at "
-                      + str(args.sol_context))
-            else:
-                print("context budgets: architect="
-                      + str(args.architect_context) + " implementer="
-                      + str(implementer_context)
-                      + " sol=" + str(args.sol_context)
-                      + " tokens (a turn compacts at its budget)")
         if args.cycle == 0:
             if skip_redteam:
                 print("cycle 0: wait until no Architect or Implementer "
@@ -1907,51 +1926,29 @@ def main():
                     return 0
                 if rendezvous.window_ready():
                     if args.cycle == 0:
-                        barrier, completion_error = (
-                            acquire_cycle_completion_barrier(
-                                backlog_outcome=backlog_outcome,
-                                skip_redteam=skip_redteam))
+                        barrier, exit_code = attempt_cycle_zero_completion(
+                            backlog_outcome=backlog_outcome,
+                            skip_redteam=skip_redteam,
+                            completed_cycles=completed_cycles)
                         if barrier is not None:
                             cycle_completion_barrier = barrier
-                            if skip_redteam:
-                                report_cycle_work_complete(
-                                    completed_cycles=completed_cycles,
-                                    skip_redteam=skip_redteam)
-                            else:
-                                report_cycle_work_complete(
-                                    completed_cycles=completed_cycles)
                             return 0
-                        if completion_error is not None:
-                            report_cycle_completion_unverified(
-                                error=completion_error)
-                            if completion_error.startswith(
-                                    ARCHITECT_NOTES_DEBT_PREFIX):
-                                return 1
+                        if exit_code is not None:
+                            return exit_code
                     run_safe_kill_countdown(controller=rendezvous)
                     # Queued work resumes immediately after the manufactured
                     # window rather than paying an extra ordinary poll delay.
                     continue
                 if args.cycle == 0 and rendezvous.all_idle():
-                    barrier, completion_error = (
-                        acquire_cycle_completion_barrier(
-                            backlog_outcome=backlog_outcome,
-                            skip_redteam=skip_redteam))
+                    barrier, exit_code = attempt_cycle_zero_completion(
+                        backlog_outcome=backlog_outcome,
+                        skip_redteam=skip_redteam,
+                        completed_cycles=completed_cycles)
                     if barrier is not None:
                         cycle_completion_barrier = barrier
-                        if skip_redteam:
-                            report_cycle_work_complete(
-                                completed_cycles=completed_cycles,
-                                skip_redteam=skip_redteam)
-                        else:
-                            report_cycle_work_complete(
-                                completed_cycles=completed_cycles)
                         return 0
-                    if completion_error is not None:
-                        report_cycle_completion_unverified(
-                            error=completion_error)
-                        if completion_error.startswith(
-                                ARCHITECT_NOTES_DEBT_PREFIX):
-                            return 1
+                    if exit_code is not None:
+                        return exit_code
                 ordinary_safe = report_ordinary_safe_poll(
                     controller=rendezvous,
                     reset_cadence=args.cycle is None)
@@ -1965,17 +1962,12 @@ def main():
             _ACTIVE_WATCH_RENDEZVOUS = None
             if fix_only_lock is not None:
                 release_fix_only_lock(lock_file=fix_only_lock)
-            if skip_redteam_lock is None:
-                release_dispatch_lock(lock_file=dispatch_lock)
-                if cycle_completion_barrier is not None:
-                    release_cycle_completion_barrier(
-                        lock_file=cycle_completion_barrier)
-            else:
-                release_dispatch_lock(lock_file=dispatch_lock)
+            release_dispatch_lock(lock_file=dispatch_lock)
+            if skip_redteam_lock is not None:
                 release_skip_redteam_lock(lock_file=skip_redteam_lock)
-                if cycle_completion_barrier is not None:
-                    release_cycle_completion_barrier(
-                        lock_file=cycle_completion_barrier)
+            if cycle_completion_barrier is not None:
+                release_cycle_completion_barrier(
+                    lock_file=cycle_completion_barrier)
 
     print("choose an action such as --watch, --send, or --restart-implementer "
           "(see --help)")

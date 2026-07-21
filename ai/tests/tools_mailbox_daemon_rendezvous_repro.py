@@ -1953,7 +1953,7 @@ def arm_zero_cycle_cutoff_serializes_sender(source=None):
 
         real_report = daemon.report_cycle_work_complete
 
-        def report_with_waiting_sender(completed_cycles):
+        def report_with_waiting_sender(completed_cycles, skip_redteam=False):
             sender = threading.Thread(
                 target=run_sender, name="cycle-cutoff-sender", daemon=True)
             sender_threads.append(sender)
@@ -1965,7 +1965,8 @@ def arm_zero_cycle_cutoff_serializes_sender(source=None):
                 and sender.is_alive() and daemon.pending_messages() == [])
             observations["watch_live_before_exit"] = (
                 daemon.dispatch_lock_is_live_watch(mailbox=str(mailbox)))
-            real_report(completed_cycles=completed_cycles)
+            real_report(completed_cycles=completed_cycles,
+                        skip_redteam=skip_redteam)
 
         daemon.report_cycle_work_complete = report_with_waiting_sender
         real_release_dispatch = daemon.release_dispatch_lock

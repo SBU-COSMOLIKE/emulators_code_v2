@@ -369,8 +369,7 @@ def validate_ticket_cycle_state(payload):
         raise daemon.TicketCycleStateError("ticket-cycle state has wrong keys")
     generation = payload.get("generation")
     pending_cycle_returns = payload.get("pending_cycle_returns")
-    if (payload.get("schema") != daemon.TICKET_CYCLE_STATE_SCHEMA
-            or isinstance(generation, bool)
+    if (isinstance(generation, bool)
             or not isinstance(generation, int)
             or generation < 0 or generation > daemon.MAX_CYCLE_COUNT):
         raise daemon.TicketCycleStateError("ticket-cycle state has invalid identity")

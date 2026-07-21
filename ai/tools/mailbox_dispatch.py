@@ -14,6 +14,9 @@ daemon keeps one shared namespace no matter how many files store its source.
 daemon = None
 
 PART_EXPORTS = (
+    "park_failed_outcome",
+    "park_failed_turn_outcome",
+    "park_prelaunch_outcome",
     "provider_is_out_of_tokens",
     "provider_failure_guidance",
     "dispatch",
@@ -88,6 +91,39 @@ def provider_failure_guidance(agent, reply_lines):
     return ("the Ollama/Claude Code integration failed; inspect the relay "
             "log, verify `ollama launch claude --model " + model
             + "`, then requeue from failed/.")
+
+
+def park_failed_outcome(dispatch_path):
+    """Park one claimed message in failed/ and word the verified outcome.
+
+    Arguments:
+      dispatch_path = the claimed mailbox file to park.
+
+    Returns:
+      The refusal line's tail sentence: the parked wording when the
+      inode-verified move succeeded, otherwise the unverified-move wording
+      telling the reader to inspect the mailbox states by hand.
+    """
+    parked = daemon.park_failed_message(dispatch_path=dispatch_path)
+    if parked:
+        return "parked in failed/."
+    return "failed-state move was not verified."
+
+
+def park_failed_turn_outcome(dispatch_path):
+    """Word the failed/ outcome for a message whose turn already ran."""
+    parked = daemon.park_failed_message(dispatch_path=dispatch_path)
+    if parked:
+        return "message parked in failed/."
+    return "failed-state move was not verified."
+
+
+def park_prelaunch_outcome(dispatch_path):
+    """Park one claimed message in prelaunch/ and word the verified outcome."""
+    parked = daemon.park_prelaunch_message(dispatch_path=dispatch_path)
+    if parked:
+        return "retained in prelaunch/."
+    return "failed-state move was not verified."
 
 
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
@@ -261,17 +297,13 @@ def dispatch_under_main_checkout_lock(
             print("[dry-run] would refuse " + name + ": "
                   + notes_admin_problem)
             return False
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": " + notes_admin_problem + "; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return False
     if not dry_run and notes_admin_turn != notes_admin_reserved:
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": permanent-note admin identity changed "
               "across its exclusive reservation; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return False
 
     ticket_kind = None
@@ -311,10 +343,8 @@ def dispatch_under_main_checkout_lock(
                 print("[dry-run] would refuse " + name + ": "
                       + flow_problem)
                 return False
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + flow_problem + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return False
         if (agent == "fable"
                 and flow_body.startswith(
@@ -326,10 +356,8 @@ def dispatch_under_main_checkout_lock(
                 if dry_run:
                     print("[dry-run] would refuse " + name + ": " + str(exc))
                     return False
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("refused " + name + ": " + str(exc) + "; "
-                      + ("parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_outcome(dispatch_path=dispatch_path))
                 return False
         if not daemon.ticket_cycle_mode_is_enabled(
                 mode=flow_mode, skip_redteam=skip_redteam):
@@ -343,10 +371,8 @@ def dispatch_under_main_checkout_lock(
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + reason)
                 return False
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + reason + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return False
     if agent == "opus" and not message.startswith(daemon.MAILBOX_FLOW_HEADER):
         reason = ("Implementer work must carry one ticket-cycle flow "
@@ -354,10 +380,8 @@ def dispatch_under_main_checkout_lock(
         if dry_run:
             print("[dry-run] would refuse " + name + ": " + reason)
             return False
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": " + reason + "; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return False
     if agent == "fable" and message.startswith(daemon.MAILBOX_RETURN_HEADER):
         returned_cycle, returned_commit, returned_result, _, receipt_problem = (
@@ -369,10 +393,8 @@ def dispatch_under_main_checkout_lock(
                 print("[dry-run] would refuse " + name + ": "
                       + receipt_problem)
                 return False
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + receipt_problem + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return False
         if returned_result == "REOPEN":
             reopen_decision_cycle = returned_cycle
@@ -384,11 +406,9 @@ def dispatch_under_main_checkout_lock(
                     ticket=reopen_before, cycle=returned_cycle,
                     landing=returned_commit)
             except daemon.TicketCycleStateError as exc:
-                parked = daemon.park_prelaunch_message(dispatch_path=dispatch_path)
                 print("refused " + name + ": reopening state could not be "
                       "proved (" + str(exc) + "); "
-                      + ("retained in prelaunch/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_prelaunch_outcome(dispatch_path=dispatch_path))
                 return False
     if agent == "fable" and message.startswith(daemon.SOL_SEVERITY_HEADER):
         architect_request_problem = daemon.architect_user_request_problem(
@@ -416,11 +436,9 @@ def dispatch_under_main_checkout_lock(
     maintenance_request = message == daemon.ARCHITECT_FIX_ONLY_REQUEST
     if (architect_admission is not None and (agent != "fable" or not (
             saved_architect_severity is not None or maintenance_request))):
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": saved Architect admission does not "
               "name this exact public request; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return False
     if agent == "sol":
         ticket_kind = daemon.sol_ticket_kind(message=message)
@@ -503,10 +521,8 @@ def dispatch_under_main_checkout_lock(
                     else "ordinary"))
         except daemon.TicketCycleStateError as exc:
             reason = "ticket-cycle state refused this message: " + str(exc)
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + reason + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return False
     if agent == "sol" and ticket_kind == "closure":
         review_cycle_id = daemon.redteam_closure_ticket(message=message)
@@ -522,11 +538,9 @@ def dispatch_under_main_checkout_lock(
                 print("[dry-run] would refuse " + name + ": closure state "
                       "could not be proved (" + str(exc) + ")")
                 return False
-            parked = daemon.park_prelaunch_message(dispatch_path=dispatch_path)
             print("refused " + name + ": closure state could not be proved ("
                   + str(exc) + "); "
-                  + ("retained in prelaunch/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_prelaunch_outcome(dispatch_path=dispatch_path))
             return False
         if not dry_run:
             review_receipt_before = daemon.fable_message_inode_snapshot()
@@ -641,11 +655,9 @@ def dispatch_under_main_checkout_lock(
             audit_worktree = daemon.create_audit_snapshot(
                 cycle_id=audit_cycle_id, commit=audit_commit, agent="sol")
     except (OSError, daemon.PrimaryWorktreeError, daemon.TicketCycleStateError) as exc:
-        parked = daemon.park_prelaunch_message(dispatch_path=dispatch_path)
         print("refused " + name + ": exact cycle checkout failed ("
               + str(exc) + "); "
-              + ("retained in prelaunch/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_prelaunch_outcome(dispatch_path=dispatch_path))
         return False
 
     command_prefix = list(daemon.AGENT_COMMANDS[agent])
@@ -704,11 +716,9 @@ def dispatch_under_main_checkout_lock(
                 request_name=name, request_message=message,
                 base_commit=architect_turn_base, phase="started")
         except (OSError, daemon.TicketCycleStateError) as exc:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! permanent-note admin journal could not be started: "
                   + str(exc) + "; "
-                  + ("message parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
 
     if routine_review is not None:
@@ -1091,12 +1101,10 @@ def dispatch_under_main_checkout_lock(
             if evidence_problem is not None:
                 for return_path in invalid_returns:
                     daemon.park_failed_message(dispatch_path=return_path)
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! Implementer returned rc=0 but its same-cycle "
                       "subagent evidence was refused before candidate "
                       "freeze: " + evidence_problem + "; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
         if implementer_completion_ready:
             try:
@@ -1153,12 +1161,10 @@ def dispatch_under_main_checkout_lock(
                 candidate=control_review_candidate,
                 before_inodes=control_review_before))
         if receipt_problem is not None:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Red Team process returned rc=0 but its exact "
                   "control-plane decision was not proved: "
                   + receipt_problem + "; "
-                  + ("message parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         try:
             # Persist the second key here, where D0 has just proved that the
@@ -1170,10 +1176,8 @@ def dispatch_under_main_checkout_lock(
                 candidate_commit=control_review_candidate,
                 decision=control_result)
         except daemon.TicketCycleStateError as exc:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Red Team decision could not be saved: " + str(exc)
-                  + "; " + ("message parked in failed/." if parked else
-                            "failed-state move was not verified."))
+                  + "; " + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         if not daemon.archive_consumed_message(dispatch_path=dispatch_path):
             return False
@@ -1190,11 +1194,9 @@ def dispatch_under_main_checkout_lock(
                 accepted_commit=review_accepted_commit,
                 before_inodes=review_receipt_before))
         if receipt_problem is not None:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Red Team process returned rc=0 but its correlated "
                   "receipt was not proved: " + receipt_problem + "; "
-                  + ("message parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         if not daemon.archive_consumed_message(dispatch_path=dispatch_path):
             return False
@@ -1244,29 +1246,27 @@ def dispatch_under_main_checkout_lock(
               + " to Red Team REOPEN for " + reopen_decision_cycle
               + " at " + reopen_decision_commit + "; backlog decision "
                 "landed as " + decision_landing + ".")
-        return bool(completed_now or decision)
+        # GO and NO-GO both land a decision commit, so the request is
+        # consumed either way.
+        return True
 
     if (agent == "fable" and audit_cycle_id is not None
             and audit_commit is not None
             and architect_turn_base is not None):
         if daemon.worktree_head(
                 worktree=daemon.AGENT_CWD["fable"]) != architect_turn_base:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Architect candidate audit changed the persistent "
                   "primary HEAD; note commits require a separate no-ticket "
-                  "turn; " + ("message parked in failed/." if parked else
-                               "failed-state move was not verified."))
+                  "turn; " + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         try:
             daemon._validate_current_protected_primary_state(
                 primary_worktree=daemon.AGENT_CWD["fable"])
         except daemon.PrimaryWorktreeError as exc:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Architect candidate audit changed a protected "
                   "permanent note, its guard, or the sealed backlog: "
                   + str(exc) + "; "
-                  + ("message parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         go_path, invalid_go_paths, go_problem = daemon.matching_new_architect_go(
             cycle_id=audit_cycle_id, candidate_commit=audit_commit,
@@ -1311,11 +1311,9 @@ def dispatch_under_main_checkout_lock(
         if go_problem is not None:
             for invalid_path in invalid_go_paths:
                 daemon.park_failed_message(dispatch_path=invalid_path)
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("  !! Architect returned rc=0 but its daemon GO boundary "
                   "was refused: " + go_problem + "; "
-                  + ("message parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
             return False
         if go_path is not None:
             print("  authenticated Architect GO for exact candidate "
@@ -1364,61 +1362,39 @@ def dispatch_under_main_checkout_lock(
             and architect_turn_base is not None):
         base_commit = architect_turn_base
         notes_commit = daemon.worktree_head(worktree=daemon.AGENT_CWD["fable"])
-        fresh_daemon = [
-            candidate for candidate in daemon.glob.glob(
-                daemon.os.path.join(daemon.MAILBOX, "**", "*-to-daemon.md"),
-                recursive=True)
-            if (daemon.regular_inode(path=candidate) is not None
-                and daemon.regular_inode(path=candidate) not in
-                architect_go_before)]
+        fresh_daemon = daemon.new_route_paths(
+            pattern="*-to-daemon.md",
+            before_inodes=architect_go_before)
         fresh_opus = []
         opus_before = (admin_opus_before if notes_admin_turn
                        else architect_opus_before)
         if opus_before is not None:
-            fresh_opus = [
-                candidate for candidate in daemon.glob.glob(
-                    daemon.os.path.join(daemon.MAILBOX, "**", "*-to-opus.md"),
-                    recursive=True)
-                if (daemon.regular_inode(path=candidate) is not None
-                    and daemon.regular_inode(path=candidate) not in
-                    opus_before)]
+            fresh_opus = daemon.new_route_paths(
+                pattern="*-to-opus.md",
+                before_inodes=opus_before)
         fresh_fable = []
         fresh_sol = []
         fresh_user = []
         if architect_fable_before is not None:
-            fresh_fable = [
-                candidate for candidate in daemon.glob.glob(
-                    daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
-                    recursive=True)
-                if (daemon.regular_inode(path=candidate) is not None
-                    and daemon.regular_inode(path=candidate) not in
-                    architect_fable_before)]
+            fresh_fable = daemon.new_route_paths(
+                pattern="*-to-fable.md",
+                before_inodes=architect_fable_before)
         if architect_sol_before is not None:
-            fresh_sol = [
-                candidate for candidate in daemon.glob.glob(
-                    daemon.os.path.join(daemon.MAILBOX, "**", "*-to-sol.md"),
-                    recursive=True)
-                if (daemon.regular_inode(path=candidate) is not None
-                    and daemon.regular_inode(path=candidate) not in
-                    architect_sol_before)]
+            fresh_sol = daemon.new_route_paths(
+                pattern="*-to-sol.md",
+                before_inodes=architect_sol_before)
         if architect_user_before is not None:
-            fresh_user = [
-                candidate for candidate in daemon.glob.glob(
-                    daemon.os.path.join(daemon.MAILBOX, "**", "*-to-user.md"),
-                    recursive=True)
-                if (daemon.regular_inode(path=candidate) is not None
-                    and daemon.regular_inode(path=candidate) not in
-                    architect_user_before)]
+            fresh_user = daemon.new_route_paths(
+                pattern="*-to-user.md",
+                before_inodes=architect_user_before)
         if notes_admin_turn:
             if fresh_opus:
                 for invalid_path in fresh_opus:
                     daemon.park_failed_message(dispatch_path=invalid_path)
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! permanent-note admin turn created an "
                       "Implementer handoff; note administration is "
                          "cycle-free; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
         if notes_commit == base_commit:
             try:
@@ -1430,12 +1406,10 @@ def dispatch_under_main_checkout_lock(
                 daemon._validate_current_protected_primary_state(
                     primary_worktree=daemon.AGENT_CWD["fable"])
             except daemon.PrimaryWorktreeError as exc:
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! Architect left a protected permanent note, its "
                       "guard, or the sealed backlog different from commit "
                       "B: " + str(exc) + "; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
             if architect_admission is not None:
                 fresh_fable = [
@@ -1572,11 +1546,9 @@ def dispatch_under_main_checkout_lock(
             if fresh_daemon and architect_admission is None:
                 for invalid_path in fresh_daemon:
                     daemon.park_failed_message(dispatch_path=invalid_path)
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! Architect created a daemon request without one "
                       "new permanent-note commit; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
             if notes_admin_turn:
                 try:
@@ -1595,11 +1567,9 @@ def dispatch_under_main_checkout_lock(
             if not notes_admin_turn:
                 for invalid_path in fresh_daemon:
                     daemon.park_failed_message(dispatch_path=invalid_path)
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! Architect changed permanent notes outside the "
                       "dedicated MAILBOX-ADMIN: permanent-notes route; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
             go_path, invalid_paths, note_problem = (
                 daemon.matching_new_architect_notes_go(
@@ -1622,11 +1592,9 @@ def dispatch_under_main_checkout_lock(
                 for invalid_path in invalid_paths:
                     if invalid_path is not None:
                         daemon.park_failed_message(dispatch_path=invalid_path)
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! Architect permanent-note commit was refused: "
                       + note_problem + "; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
             try:
                 receipt_raw = daemon.stable_regular_bytes(
@@ -1639,11 +1607,9 @@ def dispatch_under_main_checkout_lock(
                     notes_commit=notes_commit,
                     receipt_sha256=daemon.hashlib.sha256(receipt_raw).hexdigest())
             except (OSError, ValueError, daemon.TicketCycleStateError) as exc:
-                parked = daemon.park_failed_message(dispatch_path=dispatch_path)
                 print("  !! validated permanent-note commit could not be "
                       "journaled: " + str(exc) + "; "
-                      + ("message parked in failed/." if parked else
-                         "failed-state move was not verified."))
+                      + daemon.park_failed_turn_outcome(dispatch_path=dispatch_path))
                 return False
             print("  authenticated permanent-note commit " + notes_commit
                   + " on exact main baseline " + base_commit

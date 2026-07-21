@@ -14,6 +14,8 @@ daemon keeps one shared namespace no matter how many files store its source.
 daemon = None
 
 PART_EXPORTS = (
+    "route_inode_snapshot",
+    "new_route_paths",
     "common_preamble_for_dispatch",
     "agent_preamble",
     "next_seq",
@@ -282,73 +284,73 @@ def deferred_sol_messages():
             == "sol"]
 
 
-def fable_message_inode_snapshot():
-    """Return regular inodes for every existing Architect-addressed message."""
+def route_inode_snapshot(pattern):
+    """Return the inode set of every regular file on one mailbox route.
+
+    Arguments:
+      pattern = the route file pattern, for example "*-to-fable.md".
+
+    Returns:
+      A set of inode identities covering the mailbox root and its
+      subdirectories; empty when the mailbox directory does not exist.
+    """
     snapshot = set()
     if not daemon.os.path.isdir(daemon.MAILBOX):
         return snapshot
     for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
+            daemon.os.path.join(daemon.MAILBOX, "**", pattern),
             recursive=True):
         inode = daemon.regular_inode(path=path)
         if inode is not None:
             snapshot.add(inode)
     return snapshot
+
+
+def new_route_paths(pattern, before_inodes):
+    """Return every mailbox file on one route that a turn newly produced.
+
+    Arguments:
+      pattern = the route file pattern, for example "*-to-fable.md".
+      before_inodes = the route's inode snapshot taken before the turn ran.
+
+    Returns:
+      Paths under the mailbox root and its subdirectories whose regular
+      inode is absent from the snapshot.
+    """
+    fresh = []
+    for path in daemon.glob.glob(
+            daemon.os.path.join(daemon.MAILBOX, "**", pattern),
+            recursive=True):
+        inode = daemon.regular_inode(path=path)
+        if inode is None or inode in before_inodes:
+            continue
+        fresh.append(path)
+    return fresh
+
+
+def fable_message_inode_snapshot():
+    """Return regular inodes for every existing Architect-addressed message."""
+    return daemon.route_inode_snapshot(pattern="*-to-fable.md")
 
 
 def daemon_message_inode_snapshot():
     """Return regular inodes for every existing daemon-addressed message."""
-    snapshot = set()
-    if not daemon.os.path.isdir(daemon.MAILBOX):
-        return snapshot
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-daemon.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is not None:
-            snapshot.add(inode)
-    return snapshot
+    return daemon.route_inode_snapshot(pattern="*-to-daemon.md")
 
 
 def opus_message_inode_snapshot():
     """Return regular inodes for every existing Implementer message."""
-    snapshot = set()
-    if not daemon.os.path.isdir(daemon.MAILBOX):
-        return snapshot
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-opus.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is not None:
-            snapshot.add(inode)
-    return snapshot
+    return daemon.route_inode_snapshot(pattern="*-to-opus.md")
 
 
 def sol_message_inode_snapshot():
     """Return regular inodes for every existing Red Team message."""
-    snapshot = set()
-    if not daemon.os.path.isdir(daemon.MAILBOX):
-        return snapshot
-    for path in daemon.glob.glob(daemon.os.path.join(daemon.MAILBOX, "**", "*-to-sol.md"),
-                          recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is not None:
-            snapshot.add(inode)
-    return snapshot
+    return daemon.route_inode_snapshot(pattern="*-to-sol.md")
 
 
 def user_message_inode_snapshot():
     """Return regular inodes for every existing human-addressed message."""
-    snapshot = set()
-    if not daemon.os.path.isdir(daemon.MAILBOX):
-        return snapshot
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-user.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is not None:
-            snapshot.add(inode)
-    return snapshot
+    return daemon.route_inode_snapshot(pattern="*-to-user.md")
 
 
 def matching_new_architect_go(cycle_id, candidate_commit, mode,
@@ -357,12 +359,9 @@ def matching_new_architect_go(cycle_id, candidate_commit, mode,
     fresh = []
     problems = []
     problem_paths = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-daemon.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-daemon.md",
+            before_inodes=before_inodes):
         try:
             raw = daemon.stable_regular_bytes(
                 path=path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
@@ -446,12 +445,9 @@ def matching_new_architect_handoff(cycle_id, mode, before_inodes,
     fresh = []
     invalid = []
     problems = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-opus.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-opus.md",
+            before_inodes=before_inodes):
         try:
             message = daemon.read_cycle_message(path=path)
         except (OSError, ValueError, daemon.TicketCycleStateError) as exc:
@@ -491,12 +487,9 @@ def matching_new_architect_notes_go(base_commit, notes_commit,
     fresh = []
     invalid = []
     problems = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-daemon.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-daemon.md",
+            before_inodes=before_inodes):
         try:
             raw = daemon.stable_regular_bytes(
                 path=path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
@@ -692,12 +685,9 @@ def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
     malformed = []
     malformed_paths = []
     evidence_results = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-fable.md",
+            before_inodes=before_inodes):
         try:
             raw = daemon.stable_regular_bytes(
                 path=path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
@@ -769,12 +759,9 @@ def matching_new_redteam_receipt(cycle_id, accepted_commit, before_inodes):
     """
     matches = []
     malformed = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-fable.md",
+            before_inodes=before_inodes):
         try:
             raw = daemon.stable_regular_bytes(
                 path=path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
@@ -806,12 +793,9 @@ def matching_new_control_plane_receipt(cycle_id, candidate,
     """Prove one new exact Red Team key addressed to D0."""
     matches = []
     malformed = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-daemon.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-daemon.md",
+            before_inodes=before_inodes):
         try:
             message = daemon.read_cycle_message(path=path)
         except (OSError, ValueError, daemon.TicketCycleStateError) as exc:
@@ -1196,12 +1180,9 @@ def matching_new_context_handoff(cycle_id, mode, before_inodes):
     matches = []
     invalid = []
     problems = []
-    for path in daemon.glob.glob(
-            daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
-            recursive=True):
-        inode = daemon.regular_inode(path=path)
-        if inode is None or inode in before_inodes:
-            continue
+    for path in daemon.new_route_paths(
+            pattern="*-to-fable.md",
+            before_inodes=before_inodes):
         try:
             message = daemon.read_cycle_message(path=path)
         except (OSError, ValueError, daemon.TicketCycleStateError) as exc:

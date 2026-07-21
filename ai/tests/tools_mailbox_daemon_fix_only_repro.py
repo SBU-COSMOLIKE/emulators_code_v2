@@ -225,7 +225,7 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None,
         # under test.  Stubbing them also makes a refusal's zero-call property
         # explicit in the dedicated arm below.
         daemon.warn_if_mailbox_unwatched = lambda: None
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         yield daemon, root, mailbox, backlog
 
 
@@ -419,7 +419,8 @@ def arm_refusal_is_zero_write():
             daemon.warn_if_mailbox_unwatched = (
                 lambda: calls.append("dead-mailbox-warning"))
             daemon.report_demand = (
-                lambda backlog: calls.append(("demand", list(backlog))))
+                lambda backlog, skip_redteam=False:
+                calls.append(("demand", list(backlog))))
             before = tree_snapshot(root)
             outcome, output = captured_send(
                 daemon, agent="sol", text="discover a new problem",

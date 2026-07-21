@@ -1651,11 +1651,9 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
                    "the inflight GO remains preserved for recovery")
                 + ". Restart to finish the same landing.") from exc
         daemon.release_main_checkout_turn_lock(lock_file=main_lock)
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": exact local landing was not accepted: "
               + str(exc) + "; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return False, 0, None
     if protected is not None:
         try:
@@ -1777,11 +1775,9 @@ def finish_claimed_architect_notes_go(dispatch_path, base_commit,
                 base_commit=base_commit, notes_commit=notes_commit,
                 allow_landed_replay=True)
         except daemon.TicketCycleStateError as exc:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": note-only landing was invalid: "
                   + str(exc) + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return result(False, daemon.DAEMON_MESSAGE_HARD_STOP)
         landed_replay = current_main == notes_commit
         if not landed_replay:

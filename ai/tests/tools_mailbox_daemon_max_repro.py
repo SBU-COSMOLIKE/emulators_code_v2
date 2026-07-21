@@ -137,7 +137,7 @@ def scratch_daemon(source=None):
         install_test_agent_topology_proof(daemon=daemon)
         daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         daemon.warn_if_mailbox_unwatched = lambda: None
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         daemon.report_landing_debt = lambda: None
         yield daemon, root, mailbox
 

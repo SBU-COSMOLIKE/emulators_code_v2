@@ -70,10 +70,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
         if dry_run:
             print("[dry-run] would refuse " + name + ": " + str(exc))
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": cannot read Architect GO request; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return result(daemon.DAEMON_MESSAGE_HARD_STOP)
     if message.startswith(
             daemon.MAILBOX_RETURN_HEADER + "redteam-control-plane"):
@@ -83,10 +81,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + problem)
                 return result(daemon.DAEMON_MESSAGE_HARD_STOP)
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + problem + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
         if dry_run:
             print("[dry-run] would record " + decision
@@ -103,10 +99,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
                     "control-plane receipt lacks a D0-recorded successful "
                     "Sol dispatch")
         except daemon.TicketCycleStateError as exc:
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + str(exc) + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
         if not daemon.archive_consumed_message(dispatch_path=dispatch_path):
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
@@ -141,10 +135,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
             if dry_run:
                 print("[dry-run] would refuse " + name + ": " + problem)
                 return result(daemon.DAEMON_MESSAGE_HARD_STOP)
-            parked = daemon.park_failed_message(dispatch_path=dispatch_path)
             print("refused " + name + ": " + problem + "; "
-                  + ("parked in failed/." if parked else
-                     "failed-state move was not verified."))
+                  + daemon.park_failed_outcome(dispatch_path=dispatch_path))
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
         if dry_run:
             print("[dry-run] would land exact permanent-note commit "
@@ -161,10 +153,8 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
         if dry_run:
             print("[dry-run] would refuse " + name + ": " + problem)
             return result(daemon.DAEMON_MESSAGE_HARD_STOP)
-        parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         print("refused " + name + ": " + problem + "; "
-              + ("parked in failed/." if parked else
-                 "failed-state move was not verified."))
+              + daemon.park_failed_outcome(dispatch_path=dispatch_path))
         return result(daemon.DAEMON_MESSAGE_HARD_STOP)
     if dry_run:
         print("[dry-run] would prepare and locally land exact candidate "
@@ -1158,17 +1148,11 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
                           + deferred + "; root message remains untouched.")
                     # A later file may continue an already reserved ticket.
                     continue
-            if skip_redteam:
-                consumed = daemon.dispatch(
-                    path=path, dry_run=dry_run, fix_only=fix_only,
-                    skip_redteam=True,
-                    new_reservation_cycle=new_reservation_cycle,
-                    architect_admission=architect_admission)
-            else:
-                consumed = daemon.dispatch(
-                    path=path, dry_run=dry_run, fix_only=fix_only,
-                    new_reservation_cycle=new_reservation_cycle,
-                    architect_admission=architect_admission)
+            consumed = daemon.dispatch(
+                path=path, dry_run=dry_run, fix_only=fix_only,
+                skip_redteam=skip_redteam,
+                new_reservation_cycle=new_reservation_cycle,
+                architect_admission=architect_admission)
         finally:
             if controller is not None:
                 try:
@@ -1288,10 +1272,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         path for path in agent_backlog
         if daemon.message_is_enabled_for_topology(
             path=path, skip_redteam=skip_redteam)]
-    if skip_redteam:
-        blockers = daemon.inflight_lane_blockers(skip_redteam=True)
-    else:
-        blockers = daemon.inflight_lane_blockers()
+    blockers = daemon.inflight_lane_blockers(skip_redteam=skip_redteam)
     admin_paths = []
     for candidate in backlog:
         match = daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(candidate))
@@ -1360,10 +1341,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         not daemon.message_belongs_to_active_cycle(path=path, active_cycles=active),
         daemon.message_sequence(path)))
     if all_backlog or daemon_paths:
-        if skip_redteam:
-            daemon.report_demand(backlog=all_backlog, skip_redteam=True)
-        else:
-            daemon.report_demand(backlog=all_backlog)
+        daemon.report_demand(backlog=all_backlog, skip_redteam=skip_redteam)
     if skip_redteam:
         daemon.report_deferred_sol_messages()
     if not backlog:
@@ -1395,13 +1373,9 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     def drain_and_record(cwd, paths, dry_run, fix_only, skip_redteam):
         """Run one cwd lane and retain failure even if its worker raises."""
         try:
-            if skip_redteam:
-                consumed = daemon.drain_lane(
-                    paths=paths, dry_run=dry_run, fix_only=fix_only,
-                    skip_redteam=True)
-            else:
-                consumed = daemon.drain_lane(
-                    paths=paths, dry_run=dry_run, fix_only=fix_only)
+            consumed = daemon.drain_lane(
+                paths=paths, dry_run=dry_run, fix_only=fix_only,
+                skip_redteam=skip_redteam)
         except daemon.RoleTokenExhaustionError as exc:
             with outcome_lock:
                 token_errors.append(exc)

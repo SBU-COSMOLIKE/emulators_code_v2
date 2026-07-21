@@ -119,7 +119,7 @@ def scratch_daemon():
             "opus": str(implementer_lane),
             "sol": str(sol_lane),
         }
-        daemon.report_demand = lambda backlog: None
+        daemon.report_demand = lambda backlog, skip_redteam=False: None
         daemon.report_landing_debt = lambda: None
         daemon.warn_if_mailbox_unwatched = lambda: None
         daemon.git_commit_exists = lambda commit: commit in {
