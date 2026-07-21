@@ -112,7 +112,9 @@ def scratch_daemon():
                              "refs/heads/main^{commit}"]
             else ACCEPTED_COMMIT)
 
-        def prepare_test_implementer_checkout(cycle_id):
+        def prepare_test_implementer_checkout(cycle_id,
+                                               preserve_current=False,
+                                               restart_from_base=False):
             if cycle_id != CYCLE_ID:
                 raise AssertionError("scratch Implementer cycle changed")
             return BASE_COMMIT
@@ -137,6 +139,8 @@ def scratch_daemon():
 
         daemon.prepare_implementer_cycle_checkout = (
             prepare_test_implementer_checkout)
+        daemon.implementer_authority_snapshot = lambda: {}
+        daemon.implementer_authority_changes = lambda before: []
         daemon.record_implementer_candidate = record_test_implementer_candidate
         daemon.create_audit_snapshot = create_test_audit_snapshot
         daemon.remove_audit_snapshot = remove_test_audit_snapshot
@@ -433,6 +437,17 @@ def arm_literal_marker_is_not_a_placeholder():
             mode="normal")
         body = review_closure(
             body="Review why the literal <unit> marker was refused.\n")
+        # The sealed-backlog brief, audit snapshot, and review-effort swap
+        # run Git commands and are not this arm's subject.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
+        daemon.create_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.remove_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.routine_review_command = (
+            lambda command_prefix, **_kwargs: (command_prefix, None))
         path = write_message(daemon, "0001-to-sol.md", body)
         calls = []
 
