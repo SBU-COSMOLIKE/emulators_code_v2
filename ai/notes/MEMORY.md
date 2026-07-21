@@ -128,8 +128,8 @@ this order:
 1. **Rule:** the behavior the library must provide.
 2. **Reason:** the scientific, numerical, usability, or integrity failure that
    the rule prevents.
-3. **Implementation boundary:** the code, configuration, saved model
-   publication, or public interface that owns the rule.
+3. **Implementation boundary:** the code, configuration, saved-model
+   files, or public interface that owns the rule.
 4. **Acceptance evidence:** the smallest test that fails for the forbidden
    behavior and passes for the required behavior.
 
@@ -184,7 +184,7 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
    — artifact schemas, rebuild, inference adapters, fine-tuning, transfer, and
    geometry identity.
 8. **[`data-generation-and-cuts.md`](data-generation-and-cuts.md)** — data
-   generation, sampling, cuts, staging, and publication rules.
+   generation, sampling, cuts, staging, and file-output rules.
 9. **[`families-background-mps.md`](families-background-mps.md)** —
    background and matter-power family properties.
 10. **[`families-scalar-cmb.md`](families-scalar-cmb.md)** — scalar and CMB

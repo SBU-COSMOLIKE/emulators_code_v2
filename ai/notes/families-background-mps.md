@@ -690,21 +690,18 @@ derived result. `emul_mps.must_provide` requests `H0` when that result is
 assigned to this adapter. A saved emulator or a Syren formula may
 independently use `H0` as one of its own inputs.
 
-Completeness is measured from the positive contribution per unit
-log-wavenumber,
-`k^3 P(k) W(kR)^2 / (2 pi^2)`. Two adjacent half-decade bands at each stored
-edge must show that this contribution decreases toward the missing tail. A
-geometric continuation of those measured bands may contribute at most
-`1e-5` of the integrated variance outside the stored range. Two interlaced
-integrals, each using every other stored point, must differ from the full
-integral by at most `1e-3`. No single trapezoid between adjacent points may
-carry more than `0.1` of the variance.
+Truncation is measured from the positive contribution per unit
+log-wavenumber, `k^3 P(k) W(kR)^2 / (2 pi^2)`, evaluated on the stored
+grid. The contribution at either stored edge may be at most `1e-3` of the
+peak contribution; a larger edge value means the integrand has not decayed
+inside the stored range, so the grid truncates the integral and the
+calculation refuses with retraining guidance rather than returning a
+smooth number that is silently missing part of the variance.
 
-The authenticated `k` and `z` sidecars and the axes saved with the emulator
-are the persisted facts used by these checks. A second Boolean completeness
-flag, a guessed endpoint list, or a minimum node count does not replace the
-measured contribution. Final variance and result are finite and strictly
-positive.
+The `k` and `z` axes saved with the emulator are the persisted facts this
+check reads. A Boolean completeness flag, a guessed endpoint list, or a
+minimum node count does not replace the measured contribution. Final
+variance and result are finite and strictly positive.
 
 #### Why
 
@@ -720,10 +717,9 @@ literal `R = 8` on a `1/Mpc` axis mixes the Mpc and Mpc/h conventions.
   near one and fails.
 - A grid beginning at `0.009` or above refuses rather than relabels or reaches a
   SciPy bounds error.
-- Low-`k`, high-`k`, and `1..10` grids fail completeness.
-- An eight-point wide grid fails its resolution evidence. Paired examples on
-  both sides of the `1e-5` tail, `1e-3` interlaced, and `0.1` panel limits
-  protect each threshold independently.
+- A short positive `k` interval whose integrand has not decayed at an edge
+  refuses with the truncation message naming the edge contribution, the
+  `1e-3` fraction, and the peak.
 - The public calculation passes the assembled linear spectrum, not the
   nonlinear spectrum, and `h = H0/100` to the helper before any result is
   published.

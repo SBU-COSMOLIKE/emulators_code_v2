@@ -718,35 +718,25 @@ diagonal reweighting.
 
 #### Acceptance evidence
 
-- An affine fake with a direct per-`L` contraction matches all six blocks at
-  relative error below `1e-9`.
-- Retired weights miss the same truth by orders of magnitude.
-- A width-three constant-response fixture matches the per-`L` truth.
-- Raw and scaled arrays differ with an `L`-dependent ratio.
-- Feeding the wrong convention creates a material miss.
-- A zero physical band has exactly zero weight and contribution.
-- Real CAMB smoke retains symmetry, PSD, off-diagonal liveness, convergence,
-  and provenance checks.
+The owning evidence is the workstation cmb-smoke gate: it runs the real
+script on CAMB and requires the six assembled blocks (three per-spectrum,
+three cross) to be symmetric, positive semidefinite, and alive off the
+diagonal, the stencil step study to converge, and the weighting facts to
+appear in the output's provenance record. There is no focused CPU fixture
+for this section.
 
 ### Covariance config schema
 
 #### Rule
 
-One pure validator runs before Cobaya or CAMB construction. Unknown keys at
-`cov_args`, `noise`, and `nongaussian` levels refuse and name the allowed set.
-Every scientific control is explicit in YAML; no silent defaults.
-
-Required rules include:
-
-- `lmax`: native non-Boolean integer at least two;
-- `fsky`: finite native non-Boolean real in `(0,1]`;
-- TT, EE, and TE map-noise amplitudes: finite and nonnegative;
-- beam FWHM: finite and strictly positive;
-- non-Gaussian `enabled`: native Boolean;
-- enabled `lens_lmax`: native non-Boolean integer at least two;
-- `band_width`: native non-Boolean integer at least one;
-- at least two finite, positive, strictly increasing step fractions;
-- finite positive convergence tolerance.
+`validate_lcdm_params` runs before Cobaya or CAMB construction: the
+fiducial params block must be fixed flat-LCDM, only the allowed parameter
+names may appear, and a dark-energy or curvature name refuses with the
+allowed set named. A required YAML block that is absent raises a KeyError
+naming it; the script reads no silent scientific default. The write side
+refuses an existing output (an emulator may already be trained against
+it), requires every computed array finite, and goes through a temporary
+name plus one atomic rename.
 
 Raw and scaled lensing arrays cover every multipole through the requested
 maximum. No zero padding substitutes for absent input. Main requests power
@@ -754,32 +744,27 @@ through `max(lmax, lens_lmax)`.
 
 #### Acceptance evidence
 
-Zero/negative band width, malformed steps, zero/negative/nonfinite sky
-fraction, invalid noise, invalid beam, unknown keys, quoted Boolean, and short
-lensing arrays refuse before expensive work. A valid config preserves its
-accepted values.
+The cmb-smoke gate runs the script end to end on a valid config. The
+refusal paths — a non-LCDM parameter name, a missing required block, an
+occupied output name, a nonfinite computed array — are stated by the
+script and currently have no dedicated CPU test.
 
-### Stencil representability
+### Stencil step study
 
 #### Rule
 
-Every step has ordered, representably distinct float64 factors:
-
-```text
-1 - 2s < 1 - s < 1 < 1 + s < 1 + 2s
-```
-
-For each nonzero physical band, both signs actually change the scaled array.
-Zero physical bands retain the zero-band rule. The factors and per-band changed
-counts are persisted. The boundary derives from `nextafter`, not a magic
-decimal floor.
+The band derivative uses the 5-point central stencil at every configured
+step fraction. The relative spread of the derivative across those steps is
+reported per band, and a spread above `converge_rtol` is a loud failure: a
+finite-difference derivative is sensitive to its step size, so convergence
+across steps is required output, not an optional diagnostic. The
+smallest step's derivative is the one used in the assembled covariance.
 
 #### Acceptance evidence
 
-`[1e-20, 2e-20]` refuses before relensing. Values around the exact
-representability boundary prove the accepted and rejected sides. Shipped steps
-remain unchanged. A no-op-perturbation mutation returns false zero covariance
-and must fail.
+The cmb-smoke gate runs the real script on CAMB with two bands and the
+configured step list; the step study and the fractional-amplitude
+contraction are asserted in the output's provenance record.
 
 ### Noise and covariance positive semidefiniteness
 

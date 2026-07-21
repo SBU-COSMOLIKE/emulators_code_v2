@@ -22,16 +22,16 @@ it must be COMPUTED. The model is eqs 1-7 of Motloch & Hu
 
 The GAUSSIAN part is always computed (per-spectrum diagonals AND the
 l-diagonal cross-spectrum blocks). The NON-GAUSSIAN lens-induced part
-(eq 6) is behind a flag, OFF by default ("we first test with Gaussian
-terms" — the user); when on, the power-spectrum derivatives are taken
-by a 5-POINT STENCIL in the band amplitude (upgrading the paper's
+(eq 6) is behind a flag, OFF by default so the Gaussian terms can be
+tested on their own first; when on, the power-spectrum derivatives are
+taken by a 5-POINT STENCIL in the band amplitude (upgrading the paper's
 two-point central difference), at SEVERAL step sizes, with the
 convergence across steps reported per band and a loud failure when it
-is not met — "getting the convergence of the 5-stencil rule with
-respect to step size is always tricky" (the user), so the step study
-is a first-class output.
+is not met. A finite-difference derivative is sensitive to its step
+size, so the step study is a first-class output rather than an
+optional diagnostic.
 
-CAMB runs WITHIN COBAYA on the high-accuracy settings the user fixed
+CAMB runs WITHIN COBAYA on the high-accuracy settings the config fixes
 (the yaml's theory block; see the example at the bottom of this
 docstring). The cosmology is ALWAYS a fiducial flat LCDM: the params
 block must fix every parameter to a value, and only LCDM parameter

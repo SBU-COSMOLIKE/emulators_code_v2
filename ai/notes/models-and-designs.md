@@ -1257,7 +1257,7 @@ rebuild functions with a nonzero live CNN correction. It requires the reopened
 prediction, geometry map, geometry mask, and model buffers to match exactly.
 Saving a model with a missing mask or a geometry disagreement is refused
 before any staging path is reserved, while a preceding valid pair remains
-unchanged. Authenticated checkpoints that omit the fixed mask or disagree with
-the HDF5 geometry are refused before state loading. The workstation
+unchanged. A checkpoint that omits the fixed mask or disagrees with
+the HDF5 geometry is refused before state loading. The workstation
 `save-rebuild-drift` gate retains its real cosmic-shear structured-head round
 trip and its refusal of an artifact written before map-and-mask persistence.

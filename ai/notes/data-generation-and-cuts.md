@@ -601,10 +601,11 @@ One pure validator runs before staging:
 - one-row text tables: normalized to exact two-dimensional form with validated
   column count.
 
-No coercion is allowed. Train and validation paths must not alias by realpath,
-symlink, hardlink, duplicate payload, or row identity. A same-pool split is
-unsupported and refuses. Any supported split must be one explicit
-partition operation with an empty-intersection proof.
+No coercion is allowed. The train and validation files are configured
+separately, and the library does not prove they hold different rows: the
+loaders state explicitly that they do not test physical-row disjointness.
+Naming two genuinely disjoint files is the user's responsibility, exactly
+like every other scientific input choice.
 
 ### Acceptance evidence
 
