@@ -2,8 +2,9 @@
 
 This module is the bottom of the pipeline: it turns the on-disk
 parameter (.txt) and data-vector (.npy) dumps into the in-memory
-"source" dicts the rest of the package consumes, never loading the
-(memmap-sized) dv file whole.
+"source" dicts the rest of the package consumes. The data-vector file is
+never loaded whole: it is opened as a numpy memmap, meaning the array
+stays on disk and only the rows actually read are paged into memory.
 stream_chunks, stream_stats, and param_stats compute per-column
 normalization stats over selected rows; stage_source materializes a row
 subset in RAM if it fits (else keeps the memmap); phys_cut_idx applies the

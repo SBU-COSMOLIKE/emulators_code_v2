@@ -3,11 +3,11 @@
 save_learning_curves writes a whitespace-delimited table (row per N_train,
 column per curve, "#"-comment header carrying the config) that np.loadtxt
 reads back, the format the sweep and bake-off drivers save, so several
-runs can be overlaid later. save_emulator persists a trained run as two
+runs can be overlaid later. save_emulator saves a trained run as two
 files: <root>.emul, the model weights (a torch state_dict, cpu tensors),
 and <root>.h5, everything inference or a paper trail needs (both
 whitening geometries, the training histories, the full config, and the
-scientific record the dataset was born under, copied verbatim from the
+scientific record the dataset was born under, copied unchanged from the
 generator's sidecar).
 
 read_artifact_schema is the one reader of a saved file's schema version and
@@ -1222,7 +1222,7 @@ def save_emulator(path_root,
                                     |   info["input_domain"]
       history/ group (train_losses, | not read (provenance); the writer checks
         val_medians, val_means,     |   that the five finite arrays have
-        val_fracs, thresholds)      |   compatible shapes before publication
+        val_fracs, thresholds)      |   compatible shapes before the save
       config_yaml,                  | composition declarations are checked;
         config_resolved_yaml        |   data, model, rescale, composition, and
                                     |   the opaque resolved training record

@@ -1,11 +1,12 @@
 """Thin cobaya Theory adapter: run saved scalar (derived-parameter) emulators.
 
 This is a shell over emulator.inference.EmulatorPredictor -- it defines no
-nn.Module and holds no prediction physics. Its whole job is the cobaya
-contract: pick a device, build one predictor per saved scalar-emulator path
-root, declare the sampled parameters the predictors need and the derived
-parameters they provide (both read from the h5s' stored geometry names), and
-on each step publish the artifact outputs in Cobaya's derived mapping.
+nn.Module and holds no prediction physics. Its whole job is what Cobaya
+expects of a theory component: pick a device, load one predictor (one
+rebuilt saved emulator) per configured path root, declare the sampled
+parameters those emulators need and the derived parameters they provide
+(both read from the saved files' stored names), and at each sampled point
+hand the outputs to Cobaya through its "derived" results mapping.
 
 One generic class replaces the legacy per-emulator classes (emultheta,
 emulrdrag, ...): each of those hard-coded one getter method per output
@@ -123,7 +124,7 @@ class emul_scalars(Theory):
             for name in predictor.names:
                 req[name] = None
 
-        # forbid-overlap (ruled): a name that is both a required input of
+        # forbid-overlap: a name that is both a required input of
         # one emulator and a provided output of another would need a chained
         # calculate order (out of scope), so refuse it loudly rather
         # than silently mis-order.
@@ -162,7 +163,8 @@ class emul_scalars(Theory):
         if collisions:
             raise ValueError(
                 "emul_scalars: output name(s) " + repr(collisions)
-                + " are reserved by Cobaya state and cannot be published")
+                + " are reserved names in Cobaya's results dictionary and "
+                "cannot be served as derived parameters")
 
         # cross-artifact law, LAST: every configuration law above has passed,
         # so the served set is a well-formed one. Only now is it worth asking
@@ -240,28 +242,34 @@ class emul_scalars(Theory):
         return list(self._provides)
 
     def calculate(self, state, want_derived=True, **params):
-        """Run every predictor, then publish selected derived outputs once.
+        """Compute every derived parameter at the current sampled point.
+
+        Cobaya calls this once per sampled point. Every loaded emulator is
+        evaluated first and its outputs collected; only after all of them
+        succeed are the values written into ``state["derived"]``, so a
+        refusal from a later emulator cannot leave a half-filled result.
 
         Arguments:
-          state  = the cobaya state dict to populate.
-          want_derived = whether cobaya wants the derived-parameter outputs
-                   this step (they are also written to state["derived"]).
-          params = the sampled parameter values (each predictor reads its own
-                   input names in order).
+          state  = Cobaya's results dictionary for the current sampled
+                   point; this method fills its "derived" entry.
+          want_derived = True when Cobaya asks for the derived-parameter
+                   values this step; when False nothing is written.
+          params = the sampled parameter values, by name (each emulator
+                   reads the names it needs, in its stored order).
 
         Returns:
           True. When want_derived is true, state["derived"] is created when
-          absent and receives the artifact output names. No arbitrary output
-          is written at the top level of state.
+          absent and receives one value per stored output name. Nothing
+          else in ``state`` is touched.
         """
         pending = {}
         for predictor in self.predictors:
             outputs = predictor.predict(params)   # {name: value}
             for name, value in outputs.items():
                 pending[name] = value
-        # Publish only after every predictor has passed its finite/type/shape
-        # checks.  If a later artifact refuses, this sampled point must not
-        # leave earlier scalar outputs behind in Cobaya's state.
+        # Write into state only after every emulator has passed its
+        # finite/type/shape checks.  If a later one refuses, this sampled
+        # point must not leave earlier outputs behind in Cobaya's results.
         if want_derived:
             current = state.get("derived", {})
             if not isinstance(current, dict):

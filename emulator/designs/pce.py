@@ -10,7 +10,7 @@ normalized-Legendre design matrix), and select_lars_loo (greedy term
 selection with a leave-one-out stop). The companion losses/pce.py wraps
 a frozen PCEEmulator as the base under a neural refiner.
 
-Verdict for cosmic-shear xi (2026-06-26, recorded in
+Verdict for cosmic-shear xi (recorded in
 ai/notes/models-and-designs.md): a PCE base only adds
 capacity, it cannot lower a data-coverage floor, so the NPCE was
 deprioritized. The machinery is kept for reuse and for the build

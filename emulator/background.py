@@ -52,12 +52,11 @@ def cumulative_simpson(z, y):
   approximates integral_{z[0]}^{z[i]} y dz at every grid point: exact on
   cubics at the even nodes and on quadratics at the odd nodes.
 
-  REOPENED 2026-07-12: the original port computed the odd node as
-  dz/6 * (y[i-1] + 4*y[i] + y[i+1]) -- HALF the two-interval Simpson total
-  (the integral over the whole [z[i-1], z[i+1]] chunk), not the one-interval
-  integral, a first-order h^2/2 error that the earlier "O(dz^3),
-  bug-for-bug" acceptance mislabeled. It is superseded here by the correct
-  one-interval rule; see families-background-mps.md.
+  A tempting wrong form for the odd node is dz/6 * (y[i-1] + 4*y[i] +
+  y[i+1]): that is HALF the two-interval Simpson total (the integral over
+  the whole [z[i-1], z[i+1]] chunk), not the one-interval integral, and
+  it carries a first-order h^2/2 error at every odd node. The one-interval
+  rule above is the correct form; see families-background-mps.md.
 
   Arguments:
     z = (n,) UNIFORM ascending grid; n must be odd (an even number of

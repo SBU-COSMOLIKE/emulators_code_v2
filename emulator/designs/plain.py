@@ -39,7 +39,7 @@ back, so swapping the architecture changes only the model. Per-bin
 conv variants were tried and removed (see git history).
 
 The heads ride the diagonal family geometries too (cmb / grid /
-grid2d; user-ordered 2026-07-11 on the strength of
+grid2d; motivated by
 arXiv 2505.22574's attention-vs-MLP outlier result for CMB spectra).
 Those geometries whiten per element IN physical order (ell / z /
 z-slices x k), so the trunk's prediction is already in the head's
@@ -634,8 +634,8 @@ class ResCNN(DesignSpec, nn.Module):
     """Switch the two-phase training mode (run_emulator calls this).
 
     Identical contract to TemplateResCNN.set_train_phase — the plain
-    heads gained it when two-phase stopped being an IA-template
-    privilege (user ruling 2026-07-12: ANY trunk+head design may
+    heads carry it because two-phase training is not an IA-template
+    privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):
       "joint" = everything trains, head active (the default).
       "trunk" = head frozen and bypassed: forward returns the bare
@@ -1052,8 +1052,8 @@ class ResTRF(DesignSpec, nn.Module):
     """Switch the two-phase training mode (run_emulator calls this).
 
     Identical contract to TemplateResTRF.set_train_phase — the plain
-    heads gained it when two-phase stopped being an IA-template
-    privilege (user ruling 2026-07-12: ANY trunk+head design may
+    heads carry it because two-phase training is not an IA-template
+    privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):
       "joint" = everything trains, head active (the default).
       "trunk" = head frozen and bypassed: forward returns the bare

@@ -6,7 +6,8 @@ variants subclass.
 Each class holds a DataVectorGeometry (composition, not
 inheritance) and adds the chi2 (the masked Mahalanobis distance
 r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
-plain loss (trimming, a focal hardness weight, and the sqrt / pseudo-Huber
+plain loss (trimming, a focal hardness weight — one that up-weights the
+worst-fit samples — and the sqrt / pseudo-Huber
 / berhu / berhu_capped transform ladder). RescaledChi2 and ResidualBaseChi2
 are the two analytic-R variants (R divides the net output, versus R moves
 only the baseline). ElementWeightedChi2 up-weights the worst-fit dv

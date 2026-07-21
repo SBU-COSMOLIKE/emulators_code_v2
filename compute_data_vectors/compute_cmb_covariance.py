@@ -4,7 +4,7 @@
 This is the CMB covariance script: the CMB training loss needs a
 covariance the way the lensing path gets one from cosmolike, and here
 it must be COMPUTED. The model is eqs 1-7 of Motloch & Hu
-(user-supplied paper, read 2026-07-10):
+(arXiv 1709.03599):
 
   Cov = G + N                                                    (eq 2)
 
@@ -40,8 +40,8 @@ unlensed spectra with a perturbed lensing potential through the CAMB
 results object (provider.get_CAMBdata() ->
 get_lensed_cls_with_spectrum), so the Boltzmann solve runs ONCE.
 
-The OUTPUT is the interface the training stack consumes (the ruling
-in notes/families-scalar-cmb.md): one .npz holding
+The OUTPUT is the interface the training stack consumes (specified
+in ai/notes/families-scalar-cmb.md): one .npz holding
 
   ell                    (n_ell,)  l = 2..lmax
   sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal —
@@ -532,8 +532,8 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # get_lens_potential_cls(raw_cl=False) column 0 is
   # [L(L+1)]^2 C^phiphi_L / 2pi over L = 0..Params.max_l — the exact
   # array get_lensed_cls_with_spectrum demands ("clpp must go to at
-  # least Params.max_l"; a shorter array raises — the 2026-07-12
-  # first-execution red). Building it by hand truncated at lens_lmax
+  # least Params.max_l"; a shorter array raises). Building it by hand
+  # truncated at lens_lmax
   # would also silently DELENS every L above lens_lmax at the
   # fiducial; only the band [b_lo, b_hi] may differ from fiducial.
   clpp_fid = np.asarray(

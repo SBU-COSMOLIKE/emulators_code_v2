@@ -93,7 +93,7 @@ class ResidualRoughness:
   period P, so the REMAINDER carries full weight at P << w and nearly
   none at P >= ~4 w. With the default period_cut 50 that separates the
   penalized band (P <~ 50) from the acoustic band (P ~ 200-300, where a
-  shifted peak or a lensing-smoothing misfit lives) by the ruled factor
+  shifted peak or a lensing-smoothing misfit lives) by a factor
   >= 4 — those misfits belong to the plain chi2, and this term barely
   sees them. Acting on the RESIDUAL (never the prediction) makes lensing
   neutrality structural: the penalty is identically zero when the

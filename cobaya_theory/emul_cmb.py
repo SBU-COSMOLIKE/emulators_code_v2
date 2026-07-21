@@ -1,11 +1,12 @@
 """Thin cobaya Theory adapter: serve CMB spectra from saved emulators.
 
 This is a shell over emulator.inference.EmulatorPredictor -- it defines no
-nn.Module and holds no prediction physics. Its whole job is the cobaya
-contract: pick a device, build one predictor per saved CMB-emulator path
-root, declare the sampled parameters the predictors need (read from the
-h5s' stored geometry names) and the Cl product they provide, and on each
-step assemble the cobaya Cl dict from batch-1 decodes (the imposed
+nn.Module and holds no prediction physics. Its whole job is what Cobaya
+expects of a theory component: pick a device, load one predictor (one
+rebuilt saved emulator) per configured path root, declare the sampled
+parameters those emulators need (read from the saved files' stored names)
+and the Cl spectra they provide, and at each sampled point assemble the
+Cl dictionary Cobaya consumes, one spectrum at a time (any imposed
 amplitude law is multiplied back inside the predictor's decode, so the
 served spectra are physical C_ell).
 
@@ -269,14 +270,15 @@ class emul_cmb(Theory):
                     "with a wider train_args.lrange or lower the request")
 
     def calculate(self, state, want_derived=True, **params):
-        """Run every predictor and assemble the Cl dict on the state.
+        """Predict every loaded spectrum at the current sampled point.
 
         Arguments:
-          state  = the cobaya state dict to populate.
-          want_derived = cobaya's flag; this theory derives no scalar
+          state  = Cobaya's results dictionary for the current sampled
+                   point; this method fills its "Cl" entry.
+          want_derived = Cobaya's flag; this theory derives no scalar
                    parameters, so it is accepted and unused.
-          params = the sampled parameter values (each predictor reads its
-                   own input names in order).
+          params = the sampled parameter values, by name (each predictor
+                   reads the names it needs, in its stored order).
 
         Returns:
           True; state["Cl"] holds {"ell": (lmax+1,) ints, <spectrum>:

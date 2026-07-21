@@ -1,15 +1,16 @@
 """Resolve named columns in one GetDist parameter table.
 
 A parameter dump has two bookkeeping columns followed by the columns declared
-by its ``.paramnames`` sidecar::
+by its ``.paramnames`` sidecar — the companion file GetDist writes beside a
+chain, sharing its name stem::
 
     weight  minuslogpost  <declaration 0>  <declaration 1>  ...
 
 The table itself carries no trustworthy column names.  This module therefore
-requires the producer sidecar, validates the whole declaration before slicing,
-and returns inputs and derived outputs in the caller's requested order.  It is
-deliberately independent of torch so the same resolver can be used by staging,
-pool sizing, and generator checkpoint reads.
+requires that sidecar, validates the whole declaration before slicing, and
+returns inputs and derived outputs in the caller's requested order.  It is
+deliberately independent of torch, so the same resolver serves training's
+row staging, memory-budget sizing, and the generator's checkpoint reads.
 """
 
 from dataclasses import dataclass
@@ -68,7 +69,7 @@ def _sidecar_candidates(params_path):
 
 
 def _find_sidecar(params_path):
-  """Locate the table's producer sidecar, or refuse the table entirely.
+  """Locate the table's ``.paramnames`` sidecar, or refuse the table entirely.
 
   The numeric table carries no trustworthy column names of its own, so a
   missing sidecar is not a degraded mode: mapping columns by position
@@ -145,7 +146,7 @@ def _read_declarations(sidecar_path):
   columns ``weight`` and ``minuslogpost`` that no sidecar line declares.
 
   Arguments:
-    sidecar_path = path of the ``.paramnames`` producer sidecar.
+    sidecar_path = path of the ``.paramnames`` sidecar.
 
   Returns:
     a tuple of ``(logical_name, is_derived, numeric_column)`` triples,
@@ -231,7 +232,7 @@ def _load_numeric_table(params_path):
 
 
 def resolve_parameter_table(params_path, input_names, output_names=()):
-  """Validate and slice a parameter table by producer-declared names.
+  """Validate and slice a parameter table by the names its sidecar declares.
 
   Arguments:
     params_path  = numeric parameter dump (``X.txt`` or ``X.1.txt``).
@@ -246,7 +247,7 @@ def resolve_parameter_table(params_path, input_names, output_names=()):
   Raises:
     ValueError when names, declarations, or numeric shape cannot establish an
     exact mapping.  Missing sidecars are refused with migration instructions;
-    there is no positional legacy fallback.
+    there is no fallback that maps columns by their position.
   """
   inputs_wanted = _requested_names(input_names, "input")
   outputs_wanted = _requested_names(output_names, "output")

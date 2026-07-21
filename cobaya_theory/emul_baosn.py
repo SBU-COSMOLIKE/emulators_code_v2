@@ -222,10 +222,9 @@ class emul_baosn(Theory):
         if "omk" in req:
             raise ValueError(
                 "emul_baosn: 'omk' is among the emulator inputs; V1 is "
-                "FLAT-ONLY (a ruled restriction — the corrected "
-                "curvature branch is a "
-                "recorded future item, and the legacy formula was "
-                "dimensionally wrong, so it is not reproduced)")
+                "FLAT-ONLY. A correct curvature branch does not exist "
+                "yet, and the legacy curvature formula was dimensionally "
+                "wrong, so it is not reproduced; sample without omk")
 
         self._req = req
 
@@ -396,13 +395,14 @@ class emul_baosn(Theory):
                 "those redshifts.")
 
     def calculate(self, state, want_derived=True, **params):
-        """Run both predictors and cache the piecewise pipeline.
+        """Predict both background functions at the current sampled point.
 
         Arguments:
-          state  = the cobaya state dict to populate.
-          want_derived = cobaya's flag; this theory derives no scalar
+          state  = Cobaya's results dictionary for the current sampled
+                   point; this method fills its "baosn" entry.
+          want_derived = Cobaya's flag; this theory derives no scalar
                    parameters, so it is accepted and unused.
-          params = the sampled parameter values.
+          params = the sampled parameter values, by name.
 
         Returns:
           True; state["baosn"] holds the SN-window interpolators (the

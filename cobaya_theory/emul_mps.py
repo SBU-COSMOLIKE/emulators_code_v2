@@ -1,5 +1,5 @@
 """Thin cobaya Theory adapter: matter power spectra from saved grid2d
-emulators (the MPS family — the EMUL2 hybrid-inference provider).
+emulators (the MPS family, serving CosmoLike's hybrid mode).
 
 This adapter contains no trainable network. ``EmulatorPredictor`` owns the
 learned prediction, while this file owns the deterministic reconstruction
@@ -721,9 +721,11 @@ class emul_mps(Theory):
         False, the legacy semantics) rather than crash the chain.
 
         Arguments:
-          state  = the cobaya state dict to populate.
-          want_derived = compute sigma8 when it is a requested derived.
-          params = the sampled parameter values.
+          state  = Cobaya's results dictionary for the current sampled
+                   point; this method fills the matter-power entries.
+          want_derived = True when Cobaya asks for derived parameters;
+                   sigma8 is computed only then, and only if requested.
+          params = the sampled parameter values, by name.
 
         Returns:
           True, with the legacy state keys populated (("Pk_grid",

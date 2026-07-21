@@ -3,8 +3,9 @@
 The BSN output geometry: the emulated quantity is a FUNCTION
 of redshift — H(z) on the SN-range grid, or the comoving distance
 D_M(z) on the recombination window — stored as a vector over a grid
-that lives IN the artifact (never a ZLIN sidecar, the
-never-trust-defaults rule). Standardization is the ScalarGeometry math
+that lives IN the saved file itself. The grid is never read from a
+separate file or a code default, so a rebuilt emulator cannot pair
+with the wrong grid. Standardization is the ScalarGeometry math
 at grid width, applied AFTER the target law:
 
     raw target row (e.g. H(z_grid), km/s/Mpc)

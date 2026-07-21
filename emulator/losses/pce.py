@@ -9,9 +9,9 @@ whitened basis (the refiner learns truth minus base), and PCERatioChi2,
 multiplicative in the physical basis (the refiner learns a fractional
 correction). On the elementwise-whitened families (cmb / grid / grid2d
 / scalar) the residual form is PCEResidualDiagChi2, the same additive
-algebra under the diagonal metric (2026-07-12 ruling: the PCE trunk
-rides every family — arXiv 2404.12344 runs an NPCE on the MPS boost,
-and EuclidEmulator2 is a PCE). Either way the chi2 stays the family's
+algebra under the diagonal metric (the PCE trunk rides every family:
+arXiv 2404.12344 runs an NPCE on the MPS boost, and EuclidEmulator2
+is a PCE). Either way the chi2 stays the family's
 own metric; the base moves only the target's zero point or scale,
 never the metric.
 
@@ -333,7 +333,7 @@ class PCERatioChi2(CosmolikeChi2):
 class PCEResidualDiagChi2(CmbDiagonalChi2):
   """
   Residual NPCE under the diagonal metric: the family-wide form
-  (2026-07-12 ruling) for every elementwise-whitened geometry —
+  for every elementwise-whitened geometry —
   CmbDiagonalGeometry (law "none"), GridGeometry, Grid2DGeometry,
   ScalarGeometry. The refiner model learns the residual of the
   whitened target after a frozen PCE base, exactly as

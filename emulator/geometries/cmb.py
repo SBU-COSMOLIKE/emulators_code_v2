@@ -244,15 +244,14 @@ class CmbDiagonalGeometry:
         "multipole(s) " + repr(show) + " (first 8). A spectrum that "
         "crosses zero (e.g. TE) needs a non-vanishing fiducial "
         "convention or the 'none' amplitude law, set in the generator.")
-    # cosmic-variance diagonal precision, RULED (Motloch & Hu
-    # 1709.03599 eq 3, the Gaussian part at zero noise; the covinv
-    # ruling in the home note): the variance is 2/(2l+1) * C_fid_l^2,
+    # cosmic-variance diagonal precision (Motloch & Hu
+    # 1709.03599 eq 3, the Gaussian part at zero noise; see the covinv
+    # passage in families-scalar-cmb.md): the variance is 2/(2l+1) * C_fid_l^2,
     # so the precision is its inverse,
     #   cinv_l = (2l+1) / (2 * C_fid_l^2),
     # and sigma_l = 1/sqrt(cinv_l) = C_fid_l * sqrt(2/(2l+1)) — the
     # per-l error bar, DECREASING with l as more modes average down.
-    # (The earlier spec transcription and the legacy emultraincmb line
-    # were both superseded by the ruling; the real training path takes
+    # (The real training path takes
     # sigma from the compute_cmb_covariance.py .npz — WITH the eq-4
     # noise — through __init__ directly, so this classmethod is the
     # noise-free fixture / synthetic-gate form.)

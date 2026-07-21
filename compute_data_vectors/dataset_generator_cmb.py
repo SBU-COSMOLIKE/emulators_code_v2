@@ -66,8 +66,8 @@ from generator_core import (GeneratorCore, capture_native_output,
 #  A training run then points data.train_dv / data.val_dv at ONE of the four
 #  per-spectrum files (one emulator per spectrum, data.cmb.spectrum names it).
 #
-# Deviations from the legacy emultraining/dataset_generator_cmb.py, ruled in
-# the shared-generator design (notes/families-scalar-cmb.md):
+# Deviations from the legacy emultraining/dataset_generator_cmb.py, part of
+# the shared-generator design (ai/notes/families-scalar-cmb.md):
 #   1. Four per-spectrum 2D .npy files replace the legacy 3D (N, ell, 5)
 #      array — the training stack stages 2D dv files.
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and

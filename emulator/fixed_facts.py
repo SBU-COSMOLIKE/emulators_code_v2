@@ -60,11 +60,13 @@ that no longer match it, is refused rather than believed.
 
 PS: a "sidecar" is a small companion file written next to a data file and
 sharing its name stem, the way GetDist expects a chain's .paramnames to sit
-beside its .1.txt. "Sampled" parameters are the ones the generator drew values
-for; "fixed" parameters are the ones it held at a constant value while
-sampling. The "support" of a sampled parameter is the interval it was drawn
-from. "Shortest-roundtrip decimal" is the shortest decimal string that reads
-back as exactly the same 32-bit float it was written from.
+beside its .1.txt. An "artifact" is one saved emulator: the .h5 file that
+carries this record plus the .emul file with the learned weights. "Sampled"
+parameters are the ones the generator drew values for; "fixed" parameters are
+the ones it held at a constant value while sampling. The "support" of a
+sampled parameter is the interval it was drawn from. "Shortest-roundtrip
+decimal" is the shortest decimal string that reads back as exactly the same
+32-bit float it was written from.
 
 Spec and accepted contract: ai/notes/artifacts-inference-warmstart.md,
 "fixed-facts-schema: a saved emulator records the science it was born under."
@@ -207,8 +209,9 @@ def _theory_components(model):
   code that way).
 
   Arguments:
-    model = the resolved Cobaya model. It is duck-typed, never imported: this
-            module reads the surfaces named below and nothing else, so it stays
+    model = the resolved Cobaya model. This module never imports cobaya; it
+            only reads the attributes named below off whatever object it is
+            handed, so any object exposing them works, and the module stays
             free of cobaya just as it stays free of torch.
 
   Returns:
@@ -304,48 +307,63 @@ def build_sidecar(generator,
                   resolved,
                   source="declared-prior",
                   constraint="box"):
-  """Compose the producer sidecar's text: the two blocks, in block-style YAML.
+  """Write the text of the .facts.yaml file that describes one dataset.
 
-  Called by the generator once, when the dataset is written, with facts read
-  from the RESOLVED Cobaya model rather than from the YAML that requested it.
-  The YAML is the request; the model is the fact. A default the YAML left unstated has
-  been materialized by the time the model exists, and it is the materialized
-  value the dataset was actually generated under.
+  The dataset generator calls this once, when it writes a dataset. The
+  returned text is saved in a small file next to the dataset files, sharing
+  their name stem (a "sidecar" file, like the .paramnames file that sits
+  beside a chain's .1.txt). The file has two sections. fixed_facts records
+  the cosmology the dataset was generated under: what was held constant and
+  at what value. input_domain records which parameters were sampled and the
+  interval each one was drawn from. Each section is written one key per
+  line, so the file can be checked by eye.
+
+  The values come from the resolved Cobaya model — the model object that
+  exists after Cobaya has filled in every default — never from the YAML file
+  the user wrote. The YAML says what the user asked for; the model is what
+  actually ran. When the YAML leaves a setting unstated, the model holds the
+  concrete default value the dataset was really generated under, and that
+  concrete value is what this record keeps.
 
   Arguments:
-    generator           = the generator that produced the dataset, by name.
-    family              = the output family the dataset feeds.
-    cosmology_fixed     = mapping of every cosmology coordinate this run held
-                          fixed, to its resolved value; a coordinate the model
-                          cannot supply maps to "n/a". A SAMPLED coordinate
-                          must not appear here at all.
-    neutrino_convention = how the neutrino masses are split, by name.
+    generator           = the program that produced the dataset, by name.
+    family              = the kind of output the dataset holds (for example
+                          "scalar" or "grid2d" for a matter-power grid).
+    cosmology_fixed     = mapping of every cosmology parameter this run held
+                          constant, to its value from the resolved model; a
+                          parameter the model cannot supply maps to "n/a". A
+                          SAMPLED parameter must not appear here at all.
+    neutrino_convention = how the total neutrino mass is split among the
+                          three species, by name (for example "degenerate").
     flat_only           = True when the run admits no spatial curvature.
-    dark_energy_law     = the equation-of-state law, by name.
+    dark_energy_law     = the dark-energy equation-of-state law, by name.
     dark_energy_inputs  = the parameter names that law consumes.
     cl_units            = the units the angular power spectra are measured in,
                           or "n/a" for a family that has no spectra.
     base_identity       = the frozen base model the dataset was built on top
                           of, by name and version, or "n/a" when there is none.
-    names               = the sampled parameters, in the canonical order the
-                          generator declared. This list is the authority on
-                          that order.
-    requested           = mapping name -> (low, high), the support as the prior
-                          declared it.
-    resolved            = mapping name -> (low, high), the support the sampler
-                          actually drew from, after the endpoint stretch and
-                          the accuracy margin.
-    source              = where the support came from. The generator declares
-                          "declared-prior": the bounds are the prior's, never
-                          the smallest box the drawn points happened to fall
-                          in, because the support is a contract and not an
-                          observation. A test double declares "synthetic".
-    constraint          = the shape of the support. "box" is a per-parameter
-                          interval; a test double that declares no support at
-                          all says "undeclared".
+    names               = the sampled parameters, in the fixed order the
+                          generator declared them. This list is the authority
+                          on that order.
+    requested           = mapping name -> (low, high): the interval the prior
+                          asked to sample from.
+    resolved            = mapping name -> (low, high): the interval the
+                          sampler actually drew from, which is the requested
+                          interval after each endpoint was moved one
+                          representable float inward.
+    source              = where the interval came from. The generator writes
+                          "declared-prior": the bounds are the prior's own,
+                          never the smallest box the drawn points happened to
+                          fall in, because the record states what was allowed,
+                          not what was observed. A test stand-in writes
+                          "synthetic".
+    constraint          = the shape of the sampled region. "box" means one
+                          independent interval per parameter; a test stand-in
+                          that declares no region at all says "undeclared".
 
   Returns:
-    the sidecar's text, ready to write to <paramsf>.facts.yaml.
+    the file's text, ready to write to <paramsf>.facts.yaml, where <paramsf>
+    is the dataset's parameter-file name stem.
 
   Raises:
     ValueError when a coordinate is both sampled and fixed, when a required
@@ -405,22 +423,24 @@ def build_sidecar(generator,
 
 
 def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
-  """Compose the record for an emulator with no producer dataset behind it.
+  """Compose the record for an emulator with no generated dataset behind it.
 
-  The gates build emulators in memory, out of hand-made geometries and a few
-  hundred rows of noise, to prove that saving and rebuilding one is faithful.
-  Such an emulator was generated by nobody, describes no cosmology, and is
-  valid over no region: it is a test double, not a prediction. It still has to
-  say so, because the alternative is a file that carries no record at all, and
-  a file with no record is exactly what this whole design exists to refuse.
+  The acceptance checks under ai/gates/ build emulators in memory, out of
+  hand-made geometries and a few hundred rows of noise, to prove that saving
+  and rebuilding one is faithful. Such an emulator was generated by nobody,
+  describes no cosmology, and is valid over no region: it is a test stand-in
+  (a "double"), not a prediction. It still has to say so, because the
+  alternative is a file that carries no record at all, and a file with no
+  record is exactly what this whole design exists to refuse.
 
   So a test double declares itself one. Its generator is "synthetic" and every
   cosmological fact reads "n/a". A consumer comparing it against a real model
   finds facts that do not match and refuses it, which is the correct answer: a
   test double must never be served to a likelihood.
 
-  What the double says about its SUPPORT depends on what the double is for, and
-  the two answers are both honest:
+  What the double says about its SUPPORT — the interval each sampled
+  parameter was drawn from — depends on what the double is for, and the two
+  answers are both honest:
 
     support=None   the double declares no support at all. Its bounds are not
                    wide, they are absent, and every prediction asked of it is
@@ -505,10 +525,11 @@ def _undeclared_support(names):
 
 
 def parse_sidecar(text, where):
-  """Read a sidecar's text back into its two blocks, and validate them.
+  """Read a .facts.yaml text back into its two sections, and validate them.
 
   Arguments:
-    text  = the sidecar's text, as written by build_sidecar.
+    text  = the text of the .facts.yaml file (the "sidecar" written beside a
+            dataset), as build_sidecar composed it.
     where = what is being read, named in any refusal (a path, usually).
 
   Returns:
@@ -545,11 +566,12 @@ def validate(blocks, where, schema_version=SCHEMA_VERSION):
                      "input_domain"; each block is its own mapping, with the
                      keys FIXED_FACTS_KEYS and INPUT_DOMAIN_KEYS respectively.
     where          = what is being validated, named in any refusal.
-    schema_version = the schema version the blocks arrived under. The producer
-                     leaves this at the current version, because a block it is
-                     about to write is by definition written in the current
-                     grammar; the artifact reader passes the version the FILE
-                     announced, which is the whole point of announcing it.
+    schema_version = the schema version the blocks arrived under. The writer
+                     (the dataset generator) leaves this at the current
+                     version, because a block it is about to write is by
+                     definition written in the current grammar; the saved-file
+                     reader passes the version the FILE announced, which is
+                     the whole point of announcing it.
 
   Returns:
     None. The function is called for its refusals.
@@ -653,14 +675,16 @@ def validate(blocks, where, schema_version=SCHEMA_VERSION):
 
 
 def check_names_match(geometry_names, blocks, where):
-  """Prove the whitening geometry and the record agree on the parameter order.
+  """Prove the input geometry and the record agree on the parameter order.
 
-  The generator declares the canonical order of the sampled parameters, and the
-  record carries that order. The emulator's input geometry carries its own copy
-  of the same names, because that is the order its whitening matrices were
-  built in. If the two ever disagree, the emulator pairs each incoming value
-  with the wrong parameter's column: every prediction is then confidently
-  wrong, and nothing about the numbers looks unusual.
+  The generator declares one fixed order for the sampled parameters, and the
+  record carries that order. The emulator's input geometry carries its own
+  copy of the same names, because that is the order its whitening matrices
+  were built in — the matrices that recenter and rescale each incoming
+  parameter so the network sees order-one numbers ("whitening"). If the two
+  orders ever disagree, the emulator pairs each incoming value with the wrong
+  parameter's column: every prediction is then confidently wrong, and nothing
+  about the numbers looks unusual.
 
   Nothing enforced this before. The two lists were both present, in one file,
   and never compared.
@@ -796,18 +820,18 @@ def _read_block(group):
 
 
 def write_h5(f, sidecar_text):
-  """Persist the scientific record into an open emulator .h5.
+  """Save the scientific record into an open emulator .h5 file.
 
-  The blocks written are the blocks PARSED FROM THE SIDECAR TEXT, and the text
-  itself is stored beside them. Training therefore cannot become a second
-  author of a scientific fact even by accident: it has nothing to author from.
-  The file carries the producer's own words and the reading of those words, and
-  the reader below checks that they still agree.
+  The sections written are the sections PARSED FROM THE GIVEN TEXT, and the
+  text itself is stored beside them. Training therefore cannot become a
+  second author of a scientific fact even by accident: it has nothing to
+  author from. The file carries the generator's own words and the reading of
+  those words, and the reader below checks that they still agree.
 
   Arguments:
     f            = the open h5py File to write into.
-    sidecar_text = the producer sidecar's text, copied verbatim from
-                   <paramsf>.facts.yaml.
+    sidecar_text = the text of the dataset's .facts.yaml file, copied
+                   character for character, never regenerated.
 
   Returns:
     the two blocks, as parsed and written.
@@ -832,14 +856,16 @@ def write_h5(f, sidecar_text):
 def read_h5(f, schema_version, where):
   """Read the scientific record back, and prove it was not rewritten.
 
-  The record is read TWICE and the two readings are checked against each other:
-  once from the blocks stored in the file, and once by parsing the producer's
-  text stored beside them. They must agree in both directions. A block edited
-  after the file was written, a text swapped under blocks that no longer match
-  it, or a group quietly dropped, all disagree here and are refused.
+  The record is read TWICE and the two readings are checked against each
+  other: once from the sections stored in the file, and once by parsing the
+  generator's text stored beside them. They must agree in both directions. A
+  section edited after the file was written, a text swapped under sections
+  that no longer match it, or a group quietly dropped, all disagree here and
+  are refused.
 
-  That is what makes "copied verbatim, never re-derived" a checkable statement
-  rather than a promise: the file carries the evidence to check it against.
+  That is what makes "copied unchanged, never re-derived" a checkable
+  statement rather than a promise: the file carries the evidence to check it
+  against.
 
   Arguments:
     f              = the open h5py File to read.
@@ -895,11 +921,12 @@ def read_h5(f, schema_version, where):
 
 
 def domain_bounds(blocks, name):
-  """Read one sampled parameter's resolved support back as two numbers.
+  """Read one sampled parameter's sampling interval back as two numbers.
 
-  The sidecar stores the bounds as text, under the one decimal policy, so that
-  the file a cosmologist reads and the number the code compares against are the
-  same value. This is the one place that turns that text back into numbers.
+  The .facts.yaml record stores the bounds as text, written under the one
+  shared decimal rule, so that the file a cosmologist reads and the number
+  the code compares against are the same value. This is the one place that
+  turns that text back into numbers.
 
   Legal on a "box" constraint only. A record that declares no support has no
   interval to read, and its two bounds are the string "n/a"; float("n/a") is
@@ -918,7 +945,8 @@ def domain_bounds(blocks, name):
 
 
 # ---------------------------------------------------------------------------
-# The three saved-record comparisons.
+# The three saved-record comparisons. "Artifact" below means one saved
+# emulator: the .h5 file that carries this record plus its .emul weights.
 #
 #   FIXED VALUE compare concrete values that the artifact and model expose
 #               under the same name. Custom parameterizations remain the
@@ -965,14 +993,15 @@ def check_fixed_values(blocks, known_constants, where):
   """Refuse an obvious mismatch between directly named fixed values.
 
   Cobaya permits arbitrary renamed and derived parameters. This function
-  therefore compares only concrete values that the artifact and current
+  therefore compares only concrete values that the saved record and current
   model expose under the same name. Missing names remain the user's
   responsibility and are not evidence of a mismatch.
 
   Arguments:
-    blocks          = the artifact record, as accepted by ``validate``.
+    blocks          = the saved emulator's record sections, as accepted by
+                      ``validate``.
     known_constants = the current model's directly named constant values.
-    where           = the artifact name used in a refusal.
+    where           = the saved emulator's name, used in a refusal.
 
   Returns:
     None.
@@ -996,7 +1025,7 @@ def check_fixed_values(blocks, known_constants, where):
 
 
 def check_horizontal(blocks_a, blocks_b, where_a, where_b):
-  """Do these two artifacts belong to each other?
+  """Do these two saved emulators belong to each other?
 
   Two emulators are served together all the time: a Hubble rate beside an
   angular diameter distance, a linear power spectrum beside its nonlinear
@@ -1012,8 +1041,10 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
   design, and that is fine — they approximate the same physical maps.
 
   Arguments:
-    blocks_a, blocks_b = the two artifacts' blocks, as validate accepts them.
-    where_a, where_b   = the two artifacts' identities, named in any refusal.
+    blocks_a, blocks_b = the two saved emulators' record sections, as
+                         validate accepts them.
+    where_a, where_b   = the two saved emulators' names (paths, usually),
+                         used in any refusal.
 
   Returns:
     None. The function is called for its refusals.
@@ -1064,24 +1095,26 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
 
 
 def compile_support(blocks, where):
-  """Read the artifact's support once, into the form a point is compared against.
+  """Read the sampling intervals once, into the form a point is checked against.
 
-  The record stores its bounds as TEXT, under the one decimal policy, because
-  the file a cosmologist reads and the number the code compares against must be
-  the same value. Turning that text back into numbers costs a parse per bound,
-  and the domain law now runs on every prediction: parsing six strings on every
-  step of a chain, to compare against numbers that cannot change while the chain
-  runs, would be paid a million times over for no information.
+  The record stores its bounds as TEXT, under the one shared decimal rule,
+  because the file a cosmologist reads and the number the code compares
+  against must be the same value. Turning that text back into numbers costs a
+  parse per bound, and the in-bounds check runs on every prediction: parsing
+  six strings on every step of a chain, to compare against numbers that
+  cannot change while the chain runs, would be paid a million times over for
+  no information.
 
-  So the text is read ONCE, here, and the result is what the law compares
-  against afterwards. The compiled form is a plain mapping and carries
-  everything a refusal needs to name, so that the comparison and its words stay
-  in this module and the caller holds nothing but the parse it was handed.
+  So the text is read ONCE, here, and the result is what every later
+  prediction is compared against. The compiled form is a plain mapping and
+  carries everything a refusal needs to name, so that the comparison and its
+  words stay in this module and the caller holds nothing but the parse it was
+  handed.
 
-  Nothing is refused here. A double that declares no support must still LOAD (a
-  gate saves one, rebuilds it, and compares it byte for byte); what it may not
-  do is answer a question, and that is check_support's refusal, not this one.
-  Compiling a record is not asking it anything.
+  Nothing is refused here. A test stand-in that declares no interval at all
+  must still LOAD (a check saves one, rebuilds it, and compares it byte for
+  byte); what it may not do is answer a question, and that is check_support's
+  refusal, not this one. Compiling a record is not asking it anything.
 
   Arguments:
     blocks = the artifact's two blocks, as validate accepts them.
@@ -1130,7 +1163,7 @@ def check_support(compiled, point):
   That is the shape of a test double, and a test double must never be served.
 
   Arguments:
-    compiled = the artifact's support, from compile_support.
+    compiled = the saved emulator's compiled intervals, from compile_support.
     point    = the point being asked about, a mapping name -> value. Only the
                sampled coordinates are read; a mapping that carries more (a
                cobaya parameter block, say) is fine.
@@ -1139,7 +1172,7 @@ def check_support(compiled, point):
     None. The function is called for its refusals.
 
   Raises:
-    ValueError naming the coordinate, the artifact's interval, the requested
+    ValueError naming the coordinate, the trained interval, the requested
     value, and the remediation.
   """
   where      = compiled["where"]
@@ -1185,7 +1218,7 @@ def check_support(compiled, point):
 
 
 def check_domain(blocks, point, where):
-  """May this artifact be asked about this point? The law, from the raw blocks.
+  """May this saved emulator be asked about this point? From the raw record.
 
   The same law as check_support, for a caller that holds the record and has
   compiled nothing: it compiles the support and applies it, in that order. A
@@ -1194,15 +1227,15 @@ def check_domain(blocks, point, where):
   parsed once rather than once per point.
 
   Arguments:
-    blocks = the artifact's two blocks, as validate accepts them.
+    blocks = the saved emulator's record sections, as validate accepts them.
     point  = the point being asked about, a mapping name -> value.
-    where  = the artifact's identity, named in any refusal.
+    where  = the saved emulator's name, used in any refusal.
 
   Returns:
     None. The function is called for its refusals.
 
   Raises:
-    ValueError naming the coordinate, the artifact's interval, the requested
+    ValueError naming the coordinate, the trained interval, the requested
     value, and the remediation — check_support's refusals, unchanged.
   """
   check_support(compiled=compile_support(blocks=blocks, where=where),
@@ -1210,7 +1243,7 @@ def check_domain(blocks, point, where):
 
 
 def served_support(blocks_a, blocks_b, where_a, where_b):
-  """The support a PAIR of artifacts may be served over: their intersection.
+  """The region a PAIR of saved emulators may be asked about: their overlap.
 
   Two emulators combined into one prediction can only be asked about a point
   both of them were trained over. The served region is therefore the overlap of
@@ -1223,8 +1256,10 @@ def served_support(blocks_a, blocks_b, where_a, where_b):
   the block that is compared by equality.
 
   Arguments:
-    blocks_a, blocks_b = the two artifacts' blocks, as validate accepts them.
-    where_a, where_b   = the two artifacts' identities, named in any refusal.
+    blocks_a, blocks_b = the two saved emulators' record sections, as
+                         validate accepts them.
+    where_a, where_b   = the two saved emulators' names (paths, usually),
+                         used in any refusal.
 
   Returns:
     a mapping name -> (low, high), the intersected support, as Python floats.

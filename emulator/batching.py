@@ -1,13 +1,15 @@
 """Memory sizing and the regime-aware data loaders.
 
 This module decides where each source's data lives and hands the
-training loop two closures (rows -> whitened param inputs, rows ->
-encoded targets) that hide it. compute_batch_byte_terms names every
+training loop two loader functions (rows -> whitened param inputs,
+rows -> encoded targets) that hide that choice; each is a closure, a
+small function that remembers the arrays it was built around. compute_batch_byte_terms names every
 per-batch buffer, compute_batch_size_bytes sums those terms, and
 compute_model_size_bytes and batches_per_load plan resident and chunk memory.
 _build_loaders_one picks one of three regimes against a VRAM budget
-(pre-encode the target set on the GPU, stream from RAM, or stream from a
-disk memmap) and reports the bytes it made resident. build_loaders runs it
+(VRAM = the GPU's own memory): pre-encode the target set on the GPU,
+stream from RAM, or stream from a disk memmap; it reports the bytes it
+made resident. build_loaders runs it
 per source (train, then val against the reduced budget) and returns the
 data dict the loop consumes.
 
@@ -26,7 +28,8 @@ The regime ladder, per source:
        │         load_dv(rows) is a pure index, no per-epoch I/O.
        ├─ no, dv is a RAM ndarray -> regime 2 (RAM stream):
        │         chunks RAM -> GPU each epoch, encoded on the
-       │         fly (pinned host memory on CUDA).
+       │         fly (pinned host memory on CUDA — page-locked
+       │         RAM the GPU can copy from directly).
        └─ no, dv is a disk memmap -> regime 3 (disk stream):
                  the same chunk path, reads hit the disk.
 

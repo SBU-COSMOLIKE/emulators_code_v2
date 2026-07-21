@@ -1,14 +1,18 @@
 """Check the saved instructions used to rebuild one neural network.
 
-The recipe is data, not executable Python.  This module therefore
-contains only plain registries and value checks.  It does not import Torch,
-the model designs, geometry classes, activation factories, or normalization
-factories.  A reader can validate the entire recipe before a saved module path
-is allowed to reach ``importlib``.
+A saved emulator carries a "model recipe": a plain mapping that names the
+network class, its input and output sizes, and every constructor option
+needed to rebuild it.  The recipe is data, not executable Python.  This
+module therefore contains only plain lists of accepted values and value
+checks.  It does not import Torch, the model designs, the geometry classes,
+or the helpers that build activations and normalizations from their saved
+names.  A reader can validate the entire recipe before a saved module path
+is allowed to reach ``importlib``, Python's import machinery.
 
-The class list and saved keyword lists are closed. Adding a constructor
-argument requires updating this file and its census test, so rebuilding never
-silently adopts a new Python default.
+The class list and saved keyword lists are closed: a recipe that names a
+class or keyword outside them is refused.  Adding a constructor argument
+requires updating this file and the test that checks these lists, so
+rebuilding never silently adopts a new Python default.
 """
 
 MODEL_RECIPE_TOP_LEVEL_KEYS = (
@@ -77,7 +81,7 @@ def _plain_mapping(value, where):
 
   The recipe is read from a saved file; a mapping SUBCLASS could run its
   own __getitem__ during validation, which would be executing code from
-  the artifact. Only the exact built-in dict type is accepted.
+  the saved file. Only the exact built-in dict type is accepted.
 
   Arguments:
     value = the candidate mapping read from the recipe.
@@ -243,7 +247,7 @@ def expected_recipe_kwargs(class_path):
   Returns:
     the tuple of kwargs key names the recipe must carry for that class
     (a closed list; a new constructor argument must be added here and in
-    the census test before it can be saved).
+    the test that checks these lists before it can be saved).
 
   Raises:
     ValueError listing the supported classes when the path is unknown.
@@ -261,9 +265,10 @@ def validate_model_recipe(recipe, where="model_recipe"):
   The function performs no imports and constructs no objects.  It requires
   every supported constructor field, including fields whose Python
   constructor currently has a default.  A missing value is therefore never
-  reinterpreted through a future default.  For a structured head,
-  ``head_act: None`` is a valid instruction to inherit the trunk activation;
-  an absent ``head_act`` key is corruption.
+  reinterpreted through a future default.  For a structured head (the
+  model's final output stage; the "trunk" is the shared body beneath it),
+  ``head_act: None`` is a valid instruction to inherit the trunk's
+  activation; an absent ``head_act`` key is corruption.
 
   Arguments:
     recipe = the complete recipe mapping read from the artifact (keys
@@ -334,8 +339,10 @@ def record_model_recipe(
     name         = the public architecture name ("resmlp" / "rescnn" /
                    "restrf").
     ia           = the factored-IA design name ("nla" / "tatt") or None.
-    input_dim    = number of model inputs (encoded parameter width).
-    output_dim   = number of model outputs (whitened data-vector width).
+    input_dim    = number of model inputs: the width of one parameter
+                   vector after the input geometry encodes it.
+    output_dim   = number of model outputs: the width of one data vector
+                   in the recentered, rescaled units the network learns in.
     needs_geom   = whether the constructor consumed the output geometry
                    (the structured heads do; the plain trunks do not).
     kwargs       = the class-specific constructor fields, defaults
@@ -365,7 +372,8 @@ def _unwrapped_model(model):
 
   torch.compile returns a wrapper holding the real module as
   ``_orig_mod``; attributes such as ``model_recipe`` live on the real
-  module. An uncompiled model is returned unchanged.
+  module. An uncompiled model (an "eager" model, in Torch's words: one
+  that runs its Python directly) is returned unchanged.
 
   Arguments:
     model = a live model, compiled or eager.

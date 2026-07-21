@@ -1,11 +1,12 @@
 """Thin cobaya Theory adapter: run a saved cosmic-shear emulator in an MCMC.
 
 This is a shell over emulator.inference.EmulatorPredictor -- it defines no
-nn.Module and holds no prediction physics. Its whole job is the cobaya
-contract: pick a device, build one predictor per saved-emulator path root,
-declare the sampled parameters the predictors need (read from the h5's stored
-geometry names), and on each step hand the params to the predictor and stash
-the returned data vector as state["cosmic_shear"].
+nn.Module and holds no prediction physics. Its whole job is what Cobaya
+expects of a theory component: pick a device, load one predictor (one
+rebuilt saved emulator) per configured path root, declare the sampled
+parameters those emulators need (read from the saved files' stored names),
+and at each sampled point hand the parameter values to the predictor and
+store the returned data vector as state["cosmic_shear"].
 
 What the legacy Theory hand-typed in the sampling YAML is gone: ord (the
 input ordering -- the saved ParamGeometry stores the names in training
@@ -285,9 +286,11 @@ class emul_cosmic_shear(Theory):
         """Predict cosmic_shear from the sampled params.
 
         Arguments:
-          state  = the cobaya state dict to populate.
-          params = the sampled parameter values (each predictor reads its own
-                   names in order; fast params are ignored here).
+          state  = Cobaya's results dictionary for the current sampled
+                   point; this method fills its "cosmic_shear" entry.
+          params = the sampled parameter values, by name (each predictor
+                   reads the names it needs, in its stored order; fast
+                   parameters are ignored here).
 
         Returns:
           True; state["cosmic_shear"] holds the physical data vector (one

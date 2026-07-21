@@ -2,7 +2,7 @@
 
 The MPS emulators CORRECT an approximate formula: the network target is
 log(P / P_base), where P_base comes from the syren (symbolic_pofk)
-formulas, VENDORED in-repo under syren/. This module is the base's ONLY
+formulas, copied into this repository (vendored) under syren/. This module is the base's ONLY
 definition — the dump generator (which writes the base beside the raw
 dump), the emul_mps adapter (which multiplies it back at inference),
 and the gates all call these two functions, so the formula the emulator

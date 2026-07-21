@@ -33,6 +33,11 @@ variance, decorrelating the components (the form the model sees, input and
 target). encoded = a dv put through the geometry's encode (kept entries,
 centered, whitened). dump = the full on-disk array from the data-generation
 run, one row per cosmology (the dv dump is the .npy, the param dump the .txt).
+EMA = exponential moving average: a smoothed shadow copy of the model weights,
+updated a little each epoch, whose decay rate derive_ema_beta sets; when ema:
+is configured, the best epoch is tracked on the EMA copy. berhu = the
+reversed Huber loss: quadratic for large errors and linear for small ones,
+the opposite split from the Huber loss.
 memmap = a NumPy array backed by that file, read in slices so it is never
 loaded whole.
 """

@@ -9,8 +9,7 @@ learns the difference the new physics makes.
 
 Two classes share that design. TransferChi2 is the cosmolike
 (dense-covariance) form, covering the full form x space matrix and the
-factored template bases. TransferDiagChi2 (the 2026-07-12 symmetry ruling:
-"it is weird to have a feature not symmetric to all cases") is the
+factored template bases. TransferDiagChi2 is the
 elementwise-whitened form for the cmb / grid / grid2d families — plain
 bases only, composition in the whitened space only (which for these
 families IS the chi2 metric basis), both combine forms.
@@ -537,8 +536,8 @@ class TransferDiagChi2(CmbDiagonalChi2):
   """
   A frozen base under a parallel correction, on the diagonal families.
 
-  The elementwise-whitened sibling of TransferChi2 (the 2026-07-12
-  symmetry ruling), serving cmb (amplitude law "none") / grid / grid2d:
+  The elementwise-whitened sibling of TransferChi2,
+  serving cmb (amplitude law "none") / grid / grid2d:
   a plain frozen base whose output is the whitened row, a correction net
   of the same width, and the composition ALWAYS in the whitened space —
   for these families that space is the chi2 metric basis, and composing

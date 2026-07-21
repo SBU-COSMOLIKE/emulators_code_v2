@@ -1,11 +1,13 @@
 """Inference-time prediction from a saved emulator artifact pair.
 
 ``EmulatorPredictor`` rebuilds one trained model from two required files.
-The ``.emul`` file contains the model's registered tensors. The ``.h5`` file
-contains the constructor recipe, geometries, scientific facts, configuration,
-and histories. Prediction then follows the same common prefix used during
-training: order the raw parameters, encode them, call the model, and apply the
-saved decoder. The final return value depends on the observable family:
+The ``.emul`` file contains the model's learned tensors (its weights). The
+``.h5`` file contains the model recipe (the saved instructions that rebuild
+the network), the geometries, the scientific facts, the configuration, and
+the training histories. Prediction then follows the same steps used during
+training: order the raw parameters, encode them, call the model, and apply
+the saved decoder — the inverse of the scaling the outputs were trained
+under. The final return value depends on the observable family:
 
 =====================  ======================================================
 family                 ``predict`` return
@@ -17,8 +19,9 @@ CMB spectrum           one NumPy vector of physical ``C_ell`` values on the
                        stored multipole grid
 background grid        a dictionary containing ``z`` and the named physical
                        function on that grid
-matter-power grid      a dictionary containing ``z``, ``k``, and the named
-                       law-space surface; the adapter applies the stored base
+matter-power grid      a dictionary containing ``z``, ``k``, and the stored
+                       surface measured relative to the saved analytic law;
+                       the Cobaya adapter applies that base law afterwards
 =====================  ======================================================
 
 A saved emulator also carries fixed settings and the region sampled during
@@ -685,14 +688,13 @@ class EmulatorPredictor:
                           transfer_space=None):
     """Pick the whitened-output -> physical map for a diagonal family.
 
-    The scalar / cmb / grid / grid2d branches all decode through this:
-    with an NPCE base (the 2026-07-12 family-wide ruling) or a frozen
-    transfer base (the same day's symmetry ruling) it reconstructs the
-    training loss purely for its decode, so the recombine keeps one
-    definition (losses/pce.py / losses/transfer.py), exactly the
-    single-sourcing rule of the dv branches; with neither, the module
-    output is the whitened row itself and geom.decode alone inverts it
-    (byte-identical to the pre-NPCE path).
+    The scalar / cmb / grid / grid2d branches all decode through this.
+    With an NPCE base or a frozen transfer base it reconstructs the
+    training loss purely for its decode step, so the recombination is
+    defined in exactly one place (losses/pce.py / losses/transfer.py),
+    the same rule the data-vector branches follow. With neither, the
+    module output is the whitened row itself and geom.decode alone
+    inverts it.
 
     Arguments:
       composition_mode = validated plain / npce / transfer fact.
