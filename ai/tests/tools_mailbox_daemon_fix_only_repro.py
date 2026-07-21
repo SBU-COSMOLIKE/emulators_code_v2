@@ -172,6 +172,9 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None,
         mailbox = ai_root / "notes" / "mailbox"
         backlog = ai_root / "notes" / "backlog.md"
         backlog.parent.mkdir(parents=True)
+        shutil.copy2(
+            DAEMON_PATH.parent.parent / "notes" / "role-contract.yaml",
+            backlog.parent / "role-contract.yaml")
         lines = []
         detail_anchors = []
         serial = 0
@@ -1053,14 +1056,25 @@ def one_watch_pass(daemon, value):
     daemon.acquire_dispatch_lock = lambda mode: sentinel
     daemon.release_dispatch_lock = lambda lock_file: None
 
+    state = {"changed": False}
+
     def record_process(dry_run, fix_only=False, skip_redteam=False):
         calls.append((dry_run, fix_only, skip_redteam))
+        # After the first pass, every watched source file reports a new
+        # stamp, so the watch takes its clean source-change exit no matter
+        # how many files the daemon watches.
+        state["changed"] = True
         return None
 
     daemon.process_backlog = record_process
     original_getmtime = daemon.os.path.getmtime
-    stamps = iter([1.0, 2.0])
-    daemon.os.path.getmtime = lambda path: next(stamps)
+
+    def fake_getmtime(path):
+        if state["changed"]:
+            return 2.0
+        return 1.0
+
+    daemon.os.path.getmtime = fake_getmtime
     try:
         rc, output, error = run_main(
             daemon, ["--watch", "--fix-only", value])
@@ -1172,6 +1186,19 @@ def captured_dispatch(daemon, path, fix_only, launches,
     daemon.implementer_authority_snapshot = lambda: {"scratch": "stable"}
     daemon.implementer_authority_changes = (
         lambda before: list(authority_changes or []))
+    if review_receipt is not None:
+        # A closure dispatch proves the sealed backlog, snapshots the
+        # accepted commit, and swaps the review effort; none of those
+        # Git-facing steps is this helper's subject.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
+        daemon.create_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.remove_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.routine_review_command = (
+            lambda command_prefix, **_kwargs: (command_prefix, None))
     stream = io.StringIO()
     try:
         with contextlib.redirect_stdout(stream):
@@ -1255,6 +1282,11 @@ def arm_fix_only_dispatch_and_propagation():
     # Validation applies to the human body after the exact first line.
     with scratch_daemon(open_count=1) as (daemon, _, mailbox, _):
         body, _ = normal_review_exchange(daemon=daemon, text="<unit>")
+        # The closure brief is not this check's subject; stub its sealed
+        # backlog proof so the placeholder decision is reached.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
         path = write_pending(daemon, "0009-to-sol.md", body)
         launches = []
         outcome, output = captured_dispatch(daemon, path, False, launches)
@@ -1325,6 +1357,17 @@ def probe_sol_envelope_placeholder(source):
     with scratch_daemon(open_count=1, source=source) as (
             daemon, _, mailbox, _):
         body, _ = normal_review_exchange(daemon=daemon, text="<unit>")
+        # The closure brief is not this probe's subject; stub its sealed
+        # backlog proof so the placeholder decision is reached.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
+        daemon.create_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.remove_audit_snapshot = (
+            lambda cycle_id, commit, agent: None)
+        daemon.routine_review_command = (
+            lambda command_prefix, **_kwargs: (command_prefix, None))
         path = write_pending(daemon, "0092-to-sol.md", body)
         launches = []
         outcome, output = captured_dispatch(daemon, path, False, launches)
@@ -1368,95 +1411,109 @@ def arm_help_and_readme_parity():
 
 
 def replace_exact(source, old, new):
-    """Return a one-site source mutant, or ``None`` when it is not armed."""
-    if source.count(old) != 1:
+    """Return a one-site source mutant, or ``None`` when it is not armed.
+
+    ``source`` is the mapping of daemon file name to text; the anchor may
+    live in any one daemon source file.
+    """
+    total = 0
+    target = None
+    for name in sorted(source):
+        count = source[name].count(old)
+        total += count
+        if count:
+            target = name
+    if total != 1:
         return None
-    return source.replace(old, new, 1)
+    mutated = dict(source)
+    mutated[target] = source[target].replace(old, new, 1)
+    return mutated
 
 
 def replace_once_in_function(source, function_name, old, new):
-    """Replace one exact site inside one named production function."""
-    start = source.find("def " + function_name + "(")
-    end = source.find("\ndef ", start + 1)
-    if start < 0:
+    """Replace one exact site inside one named production function.
+
+    ``source`` maps daemon file names to text; the function may live in
+    any one daemon source file.
+    """
+    target = None
+    for name in sorted(source):
+        if "def " + function_name + "(" in source[name]:
+            target = name
+            break
+    if target is None:
         return None
+    text = source[target]
+    start = text.find("def " + function_name + "(")
+    end = text.find("\ndef ", start + 1)
     if end < 0:
-        end = len(source)
-    function_source = source[start:end]
-    mutant_function = replace_exact(function_source, old, new)
-    if mutant_function is None:
+        end = len(text)
+    function_source = text[start:end]
+    if function_source.count(old) != 1:
         return None
-    return source[:start] + mutant_function + source[end:]
+    mutant_function = function_source.replace(old, new, 1)
+    mutated = dict(source)
+    mutated[target] = text[:start] + mutant_function + text[end:]
+    return mutated
 
 
 def mutate_later_header(source):
     """Make the Sol classifier search the whole body instead of line one."""
-    start = source.find("def sol_ticket_kind(")
-    end = source.find("\ndef ", start + 1)
-    if start < 0 or end < 0:
-        return None
-    function_source = source[start:end]
-    old = ('    match = re.match(\n'
-           '        r"\\A" + re.escape(SOL_TICKET_HEADER)')
-    new = ('    match = re.search(\n'
-           '        r"" + re.escape(SOL_TICKET_HEADER)')
-    mutant_function = replace_exact(function_source, old, new)
-    if mutant_function is None:
-        return None
-    return source[:start] + mutant_function + source[end:]
+    return replace_once_in_function(
+        source, "sol_ticket_kind",
+        '    match = daemon.re.match(\n'
+        '        r"\\A" + daemon.re.escape(daemon.SOL_TICKET_HEADER)',
+        '    match = daemon.re.search(\n'
+        '        r"" + daemon.re.escape(daemon.SOL_TICKET_HEADER)')
 
 
 def mutate_header_trailing_space(source):
     """Make only the first-line classifier accept trailing spaces."""
-    start = source.find("def sol_ticket_kind(")
-    end = source.find("\ndef ", start + 1)
-    if start < 0 or end < 0:
-        return None
-    function_source = source[start:end]
-    old = '        + r")(?:\\r?\\n|\\Z)",'
-    new = '        + r") *(?:\\r?\\n|\\Z)",'
-    mutant_function = replace_exact(function_source, old, new)
-    if mutant_function is None:
-        return None
-    return source[:start] + mutant_function + source[end:]
+    return replace_once_in_function(
+        source, "sol_ticket_kind",
+        '        + r")(?:\\r?\\n|\\Z)",',
+        '        + r") *(?:\\r?\\n|\\Z)",')
 
 
 def mutate_activation_without_sequence_lock(source):
     """Make fix-only activation publish its sidecar without serialization."""
-    start = source.find("def acquire_fix_only_lock():")
-    end = source.find("\ndef ", start + 1)
-    if start < 0 or end < 0:
+    target = None
+    for name in sorted(source):
+        if "def acquire_fix_only_lock():" in source[name]:
+            target = name
+            break
+    if target is None:
         return None
-    function_source = source[start:end]
+    text = source[target]
+    start = text.find("def acquire_fix_only_lock():")
+    end = text.find("\ndef ", start + 1)
+    if end < 0:
+        return None
+    function_source = text[start:end]
     body_start = function_source.find(
-        "    os.makedirs(MAILBOX, exist_ok=True)\n")
+        "    daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)\n")
     if body_start < 0:
         return None
     replacement = (
-        "    os.makedirs(MAILBOX, exist_ok=True)\n"
-        "    return acquire_fix_only_lock_while_sequence_locked()")
+        "    daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)\n"
+        "    return daemon.acquire_fix_only_lock_while_sequence_locked()")
     mutant_function = function_source[:body_start] + replacement
-    return source[:start] + mutant_function + source[end:]
+    mutated = dict(source)
+    mutated[target] = text[:start] + mutant_function + text[end:]
+    return mutated
 
 
 def mutate_drop_post_flock_inode_check(source):
     """Remove the sidecar identity check immediately after mode flock."""
-    start = source.find("def acquire_fix_only_lock_while_sequence_locked():")
-    end = source.find("\ndef ", start + 1)
-    if start < 0 or end < 0:
-        return None
-    function_source = source[start:end]
-    old = (
+    return replace_once_in_function(
+        source, "acquire_fix_only_lock_while_sequence_locked",
         "    if not path_still_names_opened_inode(opened=opened):\n"
         "        print(\"cannot activate fix-only mode: mode lock path "
         "changed while \"\n"
         "              \"its lock was acquired\")\n"
-        "        release_fix_only_lock(lock_file=lock_file)\n"
-        "        return None\n")
-    mutant_function = replace_exact(function_source, old, "")
-    if mutant_function is None:
-        return None
-    return source[:start] + mutant_function + source[end:]
+        "        daemon.release_fix_only_lock(lock_file=lock_file)\n"
+        "        return None\n",
+        "")
 
 
 def probe_threshold_comparator(source):
@@ -1660,7 +1717,7 @@ def probe_post_flock_inode_check(source):
 
 def arm_source_mutations():
     """Kill focused mutants for every policy boundary and propagation hop."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = daemon_source_files()
     cases = [
         (
             "threshold >= becomes >",
@@ -1668,10 +1725,10 @@ def arm_source_mutations():
                 text,
                 '    if (ticket_kind == "discovery"\n'
                 '            and admission_count '
-                '>= DISCOVERY_ADMISSION_THRESHOLD):',
+                '>= daemon.DISCOVERY_ADMISSION_THRESHOLD):',
                 '    if (ticket_kind == "discovery"\n'
                 '            and admission_count '
-                '> DISCOVERY_ADMISSION_THRESHOLD):'),
+                '> daemon.DISCOVERY_ADMISSION_THRESHOLD):'),
             probe_threshold_comparator,
         ),
         (
@@ -1718,7 +1775,8 @@ def arm_source_mutations():
         (
             "missing kind allowed",
             lambda text: replace_exact(
-                text, "if ticket_kind not in SOL_TICKET_KINDS:",
+                text,
+                "if ticket_kind not in daemon.SOL_TICKET_KINDS:",
                 "if ticket_kind is False:"),
             probe_missing_kind_refusal,
         ),
@@ -1726,8 +1784,10 @@ def arm_source_mutations():
             "fix-only discovery allowed",
             lambda text: replace_exact(
                 text,
-                'if fix_only and ticket_kind not in {"closure", "policy"}:',
-                'if False and ticket_kind not in {"closure", "policy"}:'),
+                'if fix_only and ticket_kind not in {\n'
+                '            "closure", "policy", "control-plane"}:',
+                'if False and ticket_kind not in {\n'
+                '            "closure", "policy", "control-plane"}:'),
             probe_fix_only_discovery_refusal,
         ),
         (
@@ -1735,7 +1795,7 @@ def arm_source_mutations():
             lambda text: replace_exact(
                 text,
                 "    if agent == \"sol\":\n"
-                "        placeholder_body = sol_ticket_body(message=message)\n",
+                "        placeholder_body = daemon.sol_ticket_body(message=message)\n",
                 "    if agent == \"sol\":\n"
                 "        placeholder_body = message\n"),
             probe_sol_envelope_placeholder,
@@ -1756,7 +1816,7 @@ def arm_source_mutations():
             "inherited mode ignored",
             lambda text: replace_exact(
                 text,
-                "value = os.environ.get(FIX_ONLY_ENVIRONMENT)",
+                "value = daemon.os.environ.get(daemon.FIX_ONLY_ENVIRONMENT)",
                 "value = None"),
             probe_inherited_environment,
         ),
@@ -1764,9 +1824,9 @@ def arm_source_mutations():
             "active watch mode ignored",
             lambda text: replace_exact(
                 text,
-                "fix_only=(fix_only_environment_active()\n"
-                "                      or fix_only_watch_is_active()),",
-                "fix_only=fix_only_environment_active(),"),
+                "fix_only=(daemon.fix_only_environment_active()\n"
+                "                      or daemon.fix_only_watch_is_active()),",
+                "fix_only=daemon.fix_only_environment_active(),"),
             probe_live_watch_binding,
         ),
         (
@@ -1792,8 +1852,9 @@ def arm_source_mutations():
         (
             "child environment disabled",
             lambda text: replace_exact(
-                text, 'env[FIX_ONLY_ENVIRONMENT] = "1"',
-                'env[FIX_ONLY_ENVIRONMENT] = "0"'),
+                text,
+                'env[daemon.FIX_ONLY_ENVIRONMENT] = "1"',
+                'env[daemon.FIX_ONLY_ENVIRONMENT] = "0"'),
             probe_child_environment,
         ),
         (
@@ -1814,12 +1875,14 @@ def arm_source_mutations():
             lambda text: replace_once_in_function(
                 text,
                 "process_backlog",
-                "consumed = drain_lane(\n"
-                "                    paths=paths, dry_run=dry_run, "
-                "fix_only=fix_only)",
-                "consumed = drain_lane(\n"
-                "                    paths=paths, dry_run=dry_run, "
-                "fix_only=False)"),
+                "consumed = daemon.drain_lane(\n"
+                "                paths=paths, dry_run=dry_run, "
+                "fix_only=fix_only,\n"
+                "                skip_redteam=skip_redteam)",
+                "consumed = daemon.drain_lane(\n"
+                "                paths=paths, dry_run=dry_run, "
+                "fix_only=False,\n"
+                "                skip_redteam=skip_redteam)"),
             probe_pipeline_enforcement,
         ),
         (
@@ -1827,19 +1890,21 @@ def arm_source_mutations():
             lambda text: replace_once_in_function(
                 text,
                 "drain_lane",
-                "consumed = dispatch(\n"
-                "                    path=path, dry_run=dry_run, "
+                "consumed = daemon.dispatch(\n"
+                "                path=path, dry_run=dry_run, "
                 "fix_only=fix_only,\n"
-                "                    new_reservation_cycle="
+                "                skip_redteam=skip_redteam,\n"
+                "                new_reservation_cycle="
                 "new_reservation_cycle,\n"
-                "                    architect_admission="
+                "                architect_admission="
                 "architect_admission)",
-                "consumed = dispatch(\n"
-                "                    path=path, dry_run=dry_run, "
+                "consumed = daemon.dispatch(\n"
+                "                path=path, dry_run=dry_run, "
                 "fix_only=False,\n"
-                "                    new_reservation_cycle="
+                "                skip_redteam=skip_redteam,\n"
+                "                new_reservation_cycle="
                 "new_reservation_cycle,\n"
-                "                    architect_admission="
+                "                architect_admission="
                 "architect_admission)"),
             probe_pipeline_enforcement,
         ),
@@ -1847,7 +1912,7 @@ def arm_source_mutations():
     failures = []
     for label, mutator, probe in cases:
         mutant = mutator(source)
-        armed = mutant is not None and mutant != source
+        armed = mutant is not None
         baseline = probe(source) if armed else False
         mutant_passed = probe(mutant) if armed and baseline else True
         killed = armed and baseline and not mutant_passed

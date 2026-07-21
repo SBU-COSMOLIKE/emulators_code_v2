@@ -926,13 +926,14 @@ usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all]
                          [--fix-only value] [--send {architect}] [--ping]
                          [--unit UNIT] [--severity {high,medium,low}]
                          [--architect-model MODEL] [--implementer-model MODEL]
+                         [--implementer-provider {claude,ollama}]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
                          [--sol-effort {none,low,medium,high,xhigh}]
+                         [--review-effort {low,medium,high,xhigh}]
                          [--dispatch-timeout MINUTES]
                          [--architect-context TOKENS]
-                         [--implementer-context TOKENS]
-                         [--sol-context TOKENS]
+                         [--implementer-context TOKENS] [--sol-context TOKENS]
 
 save mailbox requests and start the assigned role for each request
 
@@ -1022,7 +1023,7 @@ options:
                         move its request file to failed/; if the result or
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
-  --architect-context, --claude-context TOKENS
+  --architect-context TOKENS, --claude-context TOKENS
                         inside one Architect turn, replace older context with
                         a shorter summary at this many tokens; --claude-
                         context is a compatibility name for this Architect-
