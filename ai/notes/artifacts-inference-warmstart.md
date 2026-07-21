@@ -1254,9 +1254,10 @@ guidance.
 
 <a id="fixed-facts-schema-sampled-and-fixed-refused"></a>
 `fixed-facts-schema.sampled-and-fixed-refused` requires a coordinate that is
-both sampled and held fixed to be refused at publication, naming the coordinate
-and both of its values. If it were allowed, the two halves of the record would
-answer "what was w?" differently depending on which half was read.
+both sampled and held fixed to be refused when the sidecar is composed,
+naming the coordinate and both of its values. If it were allowed, the two
+halves of the record would answer "what was w?" differently depending on
+which half was read.
 
 <a id="fixed-facts-schema-parameter-order-enforced"></a>
 `fixed-facts-schema.parameter-order-enforced` requires a whitening geometry

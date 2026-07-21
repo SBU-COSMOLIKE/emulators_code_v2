@@ -2350,7 +2350,7 @@ BOARD = [
             "artificial slots finite and zero through live blocks, and leaves "
             "the complete rectangular path unchanged; a public save/rebuild "
             "round trip preserves the same map and mask, while live or saved "
-            "layout disagreements are refused before publication or loading",
+            "layout disagreements are refused before saving or loading",
        evidence=(Assertion(
                    "padded-head-identity.layout",
                    "models-and-designs.md#padded-head-identity-layout"),

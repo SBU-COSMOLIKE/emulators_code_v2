@@ -33,7 +33,7 @@ The facts are born in the generator, must survive training, and are read at
 inference:
 
     the resolved Cobaya model                 the FACT, not the YAML request
-          |  the generator writes, once, at publication
+          |  the generator writes, once, beside the dataset
           v
     <paramsf>.facts.yaml                      the producer sidecar (this module
           |                                   writes and parses it)
@@ -306,9 +306,9 @@ def build_sidecar(generator,
                   constraint="box"):
   """Compose the producer sidecar's text: the two blocks, in block-style YAML.
 
-  Called by the generator at publication, once, with facts read from the
-  RESOLVED Cobaya model rather than from the YAML that requested it. The YAML
-  is the request; the model is the fact. A default the YAML left unstated has
+  Called by the generator once, when the dataset is written, with facts read
+  from the RESOLVED Cobaya model rather than from the YAML that requested it.
+  The YAML is the request; the model is the fact. A default the YAML left unstated has
   been materialized by the time the model exists, and it is the materialized
   value the dataset was actually generated under.
 

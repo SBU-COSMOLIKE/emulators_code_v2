@@ -629,7 +629,7 @@ def check_sampled_and_fixed():
             names=NAMES,
             requested=REQUESTED,
             resolved=RESOLVED))
-    report("a coordinate both sampled and held fixed is refused at publication",
+    report("a coordinate both sampled and held fixed is refused at sidecar build",
            message is not None and "both sampled and held fixed" in message,
            (message or "accepted").splitlines()[0][:66])
     report("the refusal names the coordinate and both of its values",
@@ -1410,7 +1410,7 @@ def check_comparison_mutations():
 # record. Parameter constants win an exact name both sources state. This reader
 # does not canonicalize aliases or prove two parameterizations equivalent. The
 # runtime best-effort comparison consumes the live constant mapping directly;
-# it does not share or need this publication reader.
+# it does not share or need this producer-side reader.
 #
 # The doubles below are the smallest thing that reader accepts. They are not
 # cobaya: the reader duck-types the model, which is exactly why the module can
@@ -1505,7 +1505,7 @@ def check_resolved_constants():
     aliases = fixed_facts.resolved_constants(
         model=FakeModel(components=[],
                         constants={"w0": -0.9, "w0pwa": -0.7}))
-    report("the publication reader preserves raw parameter names",
+    report("the producer's constants reader preserves raw parameter names",
            aliases == {"w0": -0.9, "w0pwa": -0.7},
            "w0 and w0pwa remain exact names; w and wa are not invented")
 

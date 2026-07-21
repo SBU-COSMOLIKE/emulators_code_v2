@@ -303,10 +303,12 @@ def check_amp_artifact():
       transfer_refined=False,
       resolved_pce=None,
       resolved_transfer=None,
+      resolved_rescale="none",
       facts_yaml=fixed_facts.synthetic_sidecar(
         names=["fixture0", "fixture1"],
         label="amp-policy-persistence",
-        support=None))
+        support=None),
+      attrs={"rescale": "none"})
     with h5py.File(root + ".h5", "r") as artifact:
       payload = artifact["config_resolved_yaml"][()]
     if isinstance(payload, bytes):

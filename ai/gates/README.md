@@ -102,7 +102,7 @@ These examples show the board's range; they are not the full inventory.
 
 | Gate ID | Concrete job |
 | --- | --- |
-| `adapter-contracts` | Most checks use small stand-ins, and one check uses the installed Cobaya lifecycle; none trains a model. The gate refuses a quoted `"false"` where a Boolean is required, checks that cosmic-shear sections are assembled in physical order, validates exact scalar and CMB request forms, and confirms that changing a covered returned array cannot corrupt the next result. |
+| `adapter-contracts` | Most checks use small stand-ins, and one check uses the installed Cobaya lifecycle; none trains a model. The gate refuses a setting name outside each adapter's documented list, checks that cosmic-shear sections are assembled in physical order, validates exact scalar and CMB request forms, and confirms that changing a covered returned array cannot corrupt the next result. |
 | `generator-seed` | Checks on the CPU that every random draw in the dataset generator comes from the one required, recorded seed, so a saved parameter table can be reproduced from its recorded inputs. |
 | `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |
 | `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |

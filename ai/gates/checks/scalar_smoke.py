@@ -662,7 +662,7 @@ def check_train_and_predict(tmp, device):
     cfg = build_cfg(tmp, n_train=4000, n_val=1000)
 
     exp = EmulatorExperiment.from_config(cfg, device=device, quiet=True)
-    # Stage both files first, then authenticate their rows before geometry
+    # Stage both files first, then validate their rows before geometry
     # construction or training.  This is the expanded form of exp.run():
     # run() normally performs stage_train, stage_val, build_geometry, and
     # train in that order.  Keeping those calls separate makes the refusal

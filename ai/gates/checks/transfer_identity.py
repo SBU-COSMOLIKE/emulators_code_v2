@@ -987,9 +987,9 @@ def check_diagonal(device, tmp):
                      "train_covmat": "c.covmat"},
             "transfer": {"from": "grid_base", "form": "sum"},
             "train_args": {"nepochs": 1}}
-  # Save and authenticate the source before embedding it.  The transfer
-  # artifact is self-contained, but its path-free output identity still names
-  # the exact artifact pair whose frozen state was copied into the file.
+  # Save the source first so the transfer run can embed its frozen state.
+  # The transfer artifact is self-contained: the base's recipe, geometries,
+  # and tensors are copied into the file rather than referenced by path.
   source_root = Path(tmp) / "diag_source"
   source_config = dict(config)
   source_config["transfer"] = None

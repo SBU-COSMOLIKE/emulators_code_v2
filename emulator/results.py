@@ -1154,10 +1154,10 @@ def save_emulator(path_root,
     train_args_yaml  the collapsed train_args actually used (search
                      ranges resolved to their defaults), as YAML.
   plus one root attribute per entry of `attrs` (run identity: model name,
-  activation, rescale, N_train, best epoch, ...), the writer-owned pair
-  identifier and checkpoint SHA-256, a "created" timestamp, the torch version,
-  the git commit, and the schema version. Every successful save carries both
-  resolved recipes and the scientific record, and it always writes schema 3.
+  activation, rescale, N_train, best epoch, ...), a "created" timestamp, the
+  torch version, the git commit, and the schema version. Every successful save
+  carries both resolved recipes and the scientific record, and it always
+  writes schema 3.
   save_emulator has no option for writing an older format.
 
   Reversible map (write here -> read in rebuild_emulator):
@@ -1169,14 +1169,14 @@ def save_emulator(path_root,
     _need / _read_artifact_composition helpers, which raise a named error when
     the key is absent instead of substituting a value. The few rows marked
     "not read (provenance)" are written on purpose as a paper trail. The
-    model recipe and output identity are checked before executable
+    model recipe and composition record are checked before executable
     reconstruction begins. Training plans and histories describe how the run
     was made; they do not control how its learned model is reopened.
 
       written by save_emulator      | read back in rebuild_emulator
       ------------------------------|------------------------------------
-      <root>.emul (state_dict,      | identifier + exact SHA-256 checked,
-        cpu, compile-prefix         |   then weights-only torch.load and
+      <root>.emul (state_dict,      | weights-only torch.load through the
+        cpu, compile-prefix         |   handle opened at the start, then
         stripped)                   |   strict _rebuild_model
       param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
         its "cls" attr              |   -> <cls>.from_state; "cls" is
@@ -2403,8 +2403,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
 
     # Composition and geometry validation deliberately precede deserialization,
     # preserving their more useful refusal messages.  The checkpoint handle is
-    # still the same one hashed above, so no pathname swap can occur between the
-    # digest check and this explicit tensor-only load.
+    # still the same one opened before those checks began, so no pathname swap
+    # can occur between the validation and this explicit tensor-only load.
     sd = _load_tensor_state_dict(
       checkpoint, device=device, where=path_root + ".emul")
 

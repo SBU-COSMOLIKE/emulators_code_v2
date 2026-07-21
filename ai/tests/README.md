@@ -635,7 +635,7 @@ files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
-| `test_artifact_recipe_preflight.py` | Does saving stop before reading model weights when the model recipe is incomplete or the five history arrays have incompatible shapes? When reopening, does a damaged reconstruction input—such as the model recipe, saved geometry, composition record, or output identity—stop before saved Python classes or checkpoint tensors are used? The same test proves that removing the optional history group does not prevent reconstruction. |
+| `test_artifact_recipe_preflight.py` | Does saving stop before reading model weights when the model recipe is incomplete or the five history arrays have incompatible shapes? When reopening, does a damaged reconstruction input—such as the model recipe, saved geometry, or composition record—stop before saved Python classes or checkpoint tensors are used? The same test proves that removing the optional history group does not prevent reconstruction. |
 | `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact store its base weights without duplicate state hashes, and does ordinary strict model loading refuse missing, extra, or wrong-shaped tensors? |
 | `test_cobaya_adapter_contracts.py` | Do all five Cobaya adapters interpret settings strictly, combine only compatible cosmic-shear sections, publish scalar results through Cobaya, and give each reader an independent result object? |
@@ -696,8 +696,8 @@ saved descriptions before the library may inspect model weights, import a
 saved Python class, construct a geometry, or load checkpoint tensors.
 
 - **Example used:** a complete one-epoch ResMLP artifact is saved. One copy
-  loses a required model field. Another receives a model recipe that no longer
-  agrees with its saved output identity. A third copy loses the entire optional
+  loses a required model field. Another declares an input width that no longer
+  agrees with its saved geometry. A third copy loses the entire optional
   history group.
 - **What the test does:** it places sentinels on weight access, dynamic Python
   import, and checkpoint loading. Each damaged file must report its metadata
@@ -705,12 +705,12 @@ saved Python class, construct a geometry, or load checkpoint tensors.
 - **Pass means:** saving refuses incomplete main and transfer recipes before
   staging a file or reading `model.state_dict`. It also refuses nonfinite or
   incompatible training-history arrays. Reopening checks the model recipe,
-  saved geometry and analytic law, composition mode, and output identity. It
+  saved geometry and analytic law, composition mode, and declared widths. It
   does not interpret the pass description or history curves.
 - **A refusal it proves:** a missing constructor field, changed valid recipe,
   malformed saved geometry, or incompatible history arrays cannot be hidden by
   a checkpoint that still has plausible tensor shapes. Removing the history
-  after publication does not prevent the learned model from reopening because
+  from a saved file does not prevent the learned model from reopening because
   those curves are a record for readers, not reconstruction instructions.
 - **Why it matters:** imported code and learned tensors can perform work. A
   damaged plain record must be rejected before either surface can influence
@@ -810,38 +810,31 @@ sampled input is named `p0`.
 - **Why it matters:** a long training run must not finish with files that the
   library's own reader immediately rejects.
 
-#### Learned weights matched to their scientific record
+#### Learned weights beside their scientific record
 
 `test_results_artifact_pair.py` checks the two files that together make one
-saved emulator. The `.emul` file contains learned tensors. The `.h5` file
-contains the scientific facts, model instructions, and a SHA-256 fingerprint
-of those exact tensor-file bytes.
+saved emulator. The `.emul` file contains the learned tensors. The `.h5` file
+explains how those tensors must be interpreted: the scientific facts and the
+model instructions.
 
-- **Example used:** two tiny models have the same architecture and tensor
-  shapes but different learned values. Each is saved with its own record.
-- **What the test does:** it rebuilds an unchanged pair, then copies the second
-  model's tensor file beside the first model's record. It tries to save over a
-  complete pair, either lone member, either symbolic-link member, and an
-  interrupted-save marker. It also interrupts a fresh save between the two
-  final filename changes and injects ordinary HDF5, allocation, and rename
-  failures.
+- **Example used:** one small two-input, one-output model with deterministic
+  weights, saved as a complete pair in a temporary folder.
+- **What the test does:** it rebuilds an unchanged pair. It then tries to save
+  over a complete pair, either lone member, and either symbolic-link member.
+  It injects an ordinary HDF5 failure into a fresh save, replaces a checkpoint
+  value with an unrestricted pickle operation that would create a file, and
+  replaces the checkpoint with a non-tensor text value.
 - **Pass means:** the unchanged pair rebuilds. Every occupied name refuses
-  before temporary-file creation and remains byte-for-byte unchanged. An
-  ordinary failure on a new name removes the new partial files. A hard
-  interruption leaves a visible marker that makes the incomplete root refuse.
-  If two writers race for one unused name, the first completed pair wins and
-  the later writer cannot replace it. Warm-start receives its model
-  instructions and data settings from the same authenticated HDF5 open rather
-  than reopening a pathname that another process could change.
-- **A refusal it proves:** swapped tensors stop before PyTorch or model
-  construction begins. Missing or malformed identifiers stop. A checkpoint
-  containing a text value or an unsafe pickle operation is opened with
-  `weights_only=True`, performs no side effect, and is refused before a model
-  is constructed.
-- **Why it matters:** matching tensor names and shapes cannot prove that
-  weights were trained under the scientific assumptions in the neighboring
-  record. Loading unrestricted pickle data can also run code instead of merely
-  reading model tensors.
+  before any temporary file is created and remains byte-for-byte unchanged;
+  a refused symbolic link keeps both the link and its target. An ordinary
+  failure on a new name removes the new partial files, so a failed save
+  leaves nothing behind.
+- **A refusal it proves:** a checkpoint containing a text value or an unsafe
+  pickle operation is opened with `weights_only=True`, performs no side
+  effect, and is refused before a model is constructed.
+- **Why it matters:** an occupied name may hold an accepted scientific result,
+  so a later run must never replace it. Loading unrestricted pickle data can
+  also run code instead of merely reading model tensors.
 
 #### Padded-head coordinates preserved across save and rebuild
 
@@ -969,11 +962,12 @@ emulators and the Cobaya components that use them. It does not train a model.
 Most cases use small predictors with fixed facts so that a failure identifies
 the adapter rule rather than model fitting or HDF5 input.
 
-- **Examples used:** one setting supplies the text `"false"` where a Boolean
-  is required. Two path spellings point to the same saved root. Two
-  cosmic-shear sections are listed in reverse order but represent distinct
-  physical blocks. A first likelihood changes an array returned by the
-  adapter before a second likelihood asks for the same result.
+- **Examples used:** one adapter receives a setting name outside its
+  documented list. A background-distance adapter receives one saved root
+  where its paired emulators require exactly two. Two cosmic-shear sections
+  are listed in reverse order but represent distinct physical blocks. A first
+  likelihood changes an array returned by the adapter before a second
+  likelihood asks for the same result.
 - **What the test does:** it runs the shared setting checks through all five
   public adapter initializers. It builds valid and invalid cosmic-shear
   section plans, requests an exact CMB multipole range, publishes one scalar
@@ -981,15 +975,16 @@ the adapter rule rather than model fitting or HDF5 input.
   Cobaya package is installed, one additional case asks a small likelihood
   for `rdrag` and follows that value through Cobaya's normal derived-result
   path.
-- **Pass means:** settings keep their documented types, saved roots are
-  unique, disjoint shear sections follow physical block order, scalar output
-  appears under `derived`, and every second reader sees the original arrays
-  and metadata. A matter-power pair that already requires `As_1e9` does not
-  gain a redundant `As` input.
-- **A refusal it proves:** quoted Booleans, invented devices, malformed or
-  repeated roots, overlapping shear blocks, incompatible layouts, two full
-  shear vectors, a wrong section width, and a non-integer CMB maximum all
-  stop before they can become a scientific likelihood result.
+- **Pass means:** unknown setting names refuse loudly, each derived parameter
+  comes from exactly one emulator, disjoint shear sections follow physical
+  block order, scalar output appears under `derived`, and every second reader
+  sees the original arrays and metadata. A matter-power pair that already
+  requires `As_1e9` does not gain a redundant `As` input.
+- **A refusal it proves:** an unrecognized setting, an empty or wrongly
+  counted emulator list, two emulators claiming one derived parameter,
+  overlapping shear blocks, incompatible layouts, two full shear vectors, a
+  wrong section width, and a CMB request beyond the stored multipole range
+  all stop before they can become a scientific likelihood result.
 - **Why it matters:** these mistakes can preserve valid array shapes while
   reordering or repeating physical measurements. Returning an internal array
   directly also lets one consumer silently change the value served to the
