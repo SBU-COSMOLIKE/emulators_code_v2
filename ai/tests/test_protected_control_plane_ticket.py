@@ -29,6 +29,10 @@ def load_isolated_daemon(root):
   source_tools = Path(daemon.__file__).resolve().parent
   shutil.copy2(source_tools / "mailbox_daemon.py", tools)
   shutil.copy2(source_tools / "role_contract.py", tools)
+  # The daemon loads its mailbox_*.py part files from its own directory.
+  for part in sorted(source_tools.glob("mailbox_*.py")):
+    if part.name != "mailbox_daemon.py":
+      shutil.copy2(part, tools)
   for name in (
       "candidate_admission.py", "control_plane_handoff.py",
       "provider_health.py", "reopen_transition.py", "review_dispatch.py"):

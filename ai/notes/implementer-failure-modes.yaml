@@ -11,29 +11,29 @@ failure_modes:
     symptom: Candidate C changes ordinary files outside the Architect's saved list.
     response: Preserve C, report SCOPE_EXCEEDED, and require an Architect decision before landing.
     enforced_by:
-      - ai/tools/mailbox_daemon.py::classify_candidate_scope
-      - ai/tools/mailbox_daemon.py::record_implementer_candidate
+      - ai/tools/mailbox_landing.py::classify_candidate_scope
+      - ai/tools/mailbox_landing.py::record_implementer_candidate
 
   - id: protected_path_change
     symptom: Candidate C changes a globally protected file or prefix.
     response: Refuse candidate admission with PROTECTED_PATH_VIOLATION; never reclassify it silently.
     enforced_by:
       - ai/tools/mailbox_daemon.py::candidate_forbidden_paths
-      - ai/tools/mailbox_daemon.py::record_implementer_candidate
+      - ai/tools/mailbox_landing.py::record_implementer_candidate
 
   - id: false_progress
     symptom: A handoff claims completion without the exact candidate and required evidence.
     response: Refuse the handoff, preserve the request and work, and create no landing decision.
     enforced_by:
-      - ai/tools/mailbox_daemon.py::matching_new_implementer_handoff
+      - ai/tools/mailbox_envelopes.py::matching_new_implementer_handoff
       - ai/tools/handoff_contract.py::validate_implementer_handoff_subagent_evidence
 
   - id: candidate_identity_mismatch
     symptom: An approval or return names another candidate, cycle, or abbreviated commit.
     response: Refuse the decision and preserve the exact saved candidate for correction.
     enforced_by:
-      - ai/tools/mailbox_daemon.py::matching_new_architect_go
-      - ai/tools/mailbox_daemon.py::execute_architect_go_locked
+      - ai/tools/mailbox_envelopes.py::matching_new_architect_go
+      - ai/tools/mailbox_control_plane.py::execute_architect_go_locked
 
   - id: oversized_fix
     symptom: Candidate C exceeds the ticket's positive --max character limit.
@@ -47,8 +47,8 @@ failure_modes:
     configuration: ai/notes/role-contract.yaml::runtime.implementer_review_minutes
     response: Save a checkpoint, stop editing, and request one Architect complexity decision.
     enforced_by:
-      - ai/tools/mailbox_daemon.py::checkpoint_handoff_problem
-      - ai/tools/mailbox_daemon.py::prove_blocked_implementer_checkpoint
+      - ai/tools/mailbox_envelopes.py::checkpoint_handoff_problem
+      - ai/tools/mailbox_envelopes.py::prove_blocked_implementer_checkpoint
 
   - id: subagent_capability_unavailable
     symptom: The required first subagent launch fails before implementation begins.
@@ -61,5 +61,5 @@ failure_modes:
     symptom: A provider reports that the Architect, Implementer, or Red Team is out of tokens.
     response: Preserve inflight work, stop the watch cleanly, and print which role needs account recovery.
     enforced_by:
-      - ai/tools/mailbox_daemon.py::provider_is_out_of_tokens
+      - ai/tools/mailbox_dispatch.py::provider_is_out_of_tokens
       - ai/tools/mailbox_daemon.py::RoleTokenExhaustionError

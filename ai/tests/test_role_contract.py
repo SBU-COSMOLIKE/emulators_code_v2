@@ -219,6 +219,10 @@ class RoleContractTests(unittest.TestCase):
             shutil.copy2(
                 REPO_ROOT / "ai/tools/mailbox_daemon.py",
                 tools / "mailbox_daemon.py")
+            # The daemon loads its mailbox_*.py part files from its own
+            # directory, so the isolated tree needs every part beside it.
+            for part in sorted((REPO_ROOT / "ai/tools").glob("mailbox_*.py")):
+                shutil.copy2(part, tools / part.name)
             shutil.copy2(
                 REPO_ROOT / "ai/tools/role_contract.py",
                 tools / "role_contract.py")

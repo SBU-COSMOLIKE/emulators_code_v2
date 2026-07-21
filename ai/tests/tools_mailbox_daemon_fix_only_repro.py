@@ -12,6 +12,7 @@ import importlib.util
 import io
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 import threading
@@ -43,8 +44,52 @@ class AttributeProxy:
         return getattr(self._base, name)
 
 
+def daemon_source_files():
+    """Return every daemon source file's text, keyed by file name.
+
+    The daemon's source spans mailbox_daemon.py plus its mailbox_*.py part
+    files, so a mutation run must be able to change any one of them.
+    """
+    files = {DAEMON_PATH.name: DAEMON_PATH.read_text(encoding="utf-8")}
+    for part in sorted(DAEMON_PATH.parent.glob("mailbox_*.py")):
+        if part.name != DAEMON_PATH.name:
+            files[part.name] = part.read_text(encoding="utf-8")
+    return files
+
+
 def load_daemon(source=None):
-    """Load one fresh production daemon, or a caller-supplied source mutant."""
+    """Load one fresh production daemon, or a caller-supplied source mutant.
+
+    Arguments:
+      source = None to load the production daemon in place; a string to run
+               a mutant of the entry file beside the production part files;
+               or a mapping of daemon file name to source text (see
+               ``daemon_source_files``) to run a mutant whose change may
+               live in any daemon source file.
+    """
+    if isinstance(source, dict):
+        holder = tempfile.TemporaryDirectory(prefix="mailbox-mutant-")
+        root = pathlib.Path(holder.name)
+        tools = root / "ai" / "tools"
+        notes = root / "ai" / "notes"
+        tools.mkdir(parents=True)
+        notes.mkdir(parents=True)
+        for name, text in source.items():
+            (tools / name).write_text(text, encoding="utf-8")
+        for name in ("role_contract.py", "reopen_transition.py",
+                     "provider_health.py", "candidate_admission.py",
+                     "review_dispatch.py", "control_plane_handoff.py"):
+            shutil.copy2(DAEMON_PATH.parent / name, tools / name)
+        shutil.copy2(
+            DAEMON_PATH.parent.parent / "notes" / "role-contract.yaml",
+            notes / "role-contract.yaml")
+        spec = importlib.util.spec_from_file_location(
+            "mailbox_daemon_fix_only_mutant", tools / "mailbox_daemon.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # Keep the scratch tree alive for as long as the mutant is in use.
+        module._scratch_source_directory = holder
+        return module
     if source is not None:
         module = types.ModuleType("mailbox_daemon_fix_only_mutant")
         module.__file__ = str(DAEMON_PATH)

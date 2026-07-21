@@ -238,6 +238,12 @@ def scratch_repository(source=None):
         for tool_name in OTHER_TRUSTED_TOOLS:
             write_exact(root / "ai" / "tools" / tool_name,
                         (AI_ROOT / "tools" / tool_name).read_bytes())
+        # The daemon loads its mailbox_*.py part files from its own
+        # directory; the scratch copy needs every part beside it.
+        for part_path in sorted((AI_ROOT / "tools").glob("mailbox_*.py")):
+            if part_path.name != "mailbox_daemon.py":
+                write_exact(root / "ai" / "tools" / part_path.name,
+                            part_path.read_bytes())
         write_exact(
             root / "ai" / "notes" / "role-contract.yaml",
             ROLE_CONTRACT_PATH.read_bytes())
@@ -273,6 +279,9 @@ def scratch_repository(source=None):
             "ai/tools/permanent_note_guard.py",
             "ai/tools/role_contract.py",
             *["ai/tools/" + name for name in OTHER_TRUSTED_TOOLS],
+            *["ai/tools/" + part.name for part in
+              sorted((AI_ROOT / "tools").glob("mailbox_*.py"))
+              if part.name != "mailbox_daemon.py"],
             "ai/notes/role-contract.yaml",
             "ai/notes/implementer-failure-modes.yaml",
             "ai/notes/backlog.md")

@@ -268,7 +268,13 @@ def runtime_heartbeat_line():
 
 def main():
     """Run static, runtime, documentation, and mutation checks."""
+    # The daemon's terminal prose spans mailbox_daemon.py plus its
+    # mailbox_*.py part files; scan them as one concatenated source.
     source = DAEMON_PATH.read_text(encoding="utf-8")
+    for part_path in sorted(DAEMON_PATH.parent.glob("mailbox_*.py")):
+        if part_path.name == "mailbox_daemon.py":
+            continue
+        source = source + "\n" + part_path.read_text(encoding="utf-8")
     readme = README_PATH.read_text(encoding="utf-8")
     violations = terminal_literal_violations(source=source)
 

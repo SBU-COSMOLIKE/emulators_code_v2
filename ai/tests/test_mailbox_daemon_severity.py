@@ -12,6 +12,7 @@ from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_dispatch
 from ai.tests.tools_mailbox_daemon_fix_only_repro import captured_send
 from ai.tests.tools_mailbox_daemon_fix_only_repro import clean_process
 from ai.tests.tools_mailbox_daemon_fix_only_repro import DAEMON_PATH
+from ai.tests.tools_mailbox_daemon_fix_only_repro import daemon_source_files
 from ai.tests.tools_mailbox_daemon_fix_only_repro import read_text_exact
 from ai.tests.tools_mailbox_daemon_fix_only_repro import run_main
 from ai.tests.tools_mailbox_daemon_fix_only_repro import scratch_daemon
@@ -997,11 +998,20 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             self.assertTrue(outcome)
 
     def test_source_mutations_break_saved_severity_contract(self):
-        source = DAEMON_PATH.read_text(encoding="utf-8")
+        # The daemon's source spans the entry file plus its part files; a
+        # mutation may live in any one of them.
+        sources = daemon_source_files()
 
         def replace_exact(old, new):
-            self.assertEqual(source.count(old), 1)
-            return source.replace(old, new, 1)
+            total = 0
+            for text in sources.values():
+                total += text.count(old)
+            self.assertEqual(total, 1)
+            mutated = dict(sources)
+            for name, text in sources.items():
+                if old in text:
+                    mutated[name] = text.replace(old, new, 1)
+            return mutated
 
         def default_is_medium(candidate):
             with mock.patch.dict(os.environ, {}, clear=True), \
@@ -1089,16 +1099,16 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
              'DEFAULT_DISCOVERY_SEVERITY = "low"', default_is_medium),
             ("inherited value ignored",
              "    if cli_value is None:\n"
-             "        return (DEFAULT_DISCOVERY_SEVERITY\n"
+             "        return (daemon.DEFAULT_DISCOVERY_SEVERITY\n"
              "                if inherited is None else inherited)\n",
              "    if cli_value is None:\n"
-             "        return DEFAULT_DISCOVERY_SEVERITY\n",
+             "        return daemon.DEFAULT_DISCOVERY_SEVERITY\n",
              inherited_is_saved),
             ("explicit value not persisted",
-             '                   + SOL_SEVERITY_HEADER + discovery_severity '
-             '+ "\\n"\n',
-             '                   + SOL_SEVERITY_HEADER '
-             '+ DEFAULT_DISCOVERY_SEVERITY + "\\n"\n',
+             '                   + daemon.SOL_SEVERITY_HEADER '
+             '+ discovery_severity + "\\n"\n',
+             '                   + daemon.SOL_SEVERITY_HEADER '
+             '+ daemon.DEFAULT_DISCOVERY_SEVERITY + "\\n"\n',
              explicit_is_saved),
             ("saved value ignored",
              "        if saved_severity is not None:\n"
@@ -1107,10 +1117,10 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
              "            effective_discovery_severity = saved_severity\n",
              saved_value_reaches_child),
             ("child receives run default",
-             "        env[DISCOVERY_SEVERITY_ENVIRONMENT] = "
+             "        env[daemon.DISCOVERY_SEVERITY_ENVIRONMENT] = "
              "effective_discovery_severity\n",
-             "        env[DISCOVERY_SEVERITY_ENVIRONMENT] = "
-             "DISCOVERY_SEVERITY\n", saved_value_reaches_child),
+             "        env[daemon.DISCOVERY_SEVERITY_ENVIRONMENT] = "
+             "daemon.DISCOVERY_SEVERITY\n", saved_value_reaches_child),
             ("saved banner removed",
              '        saved_discovery=(ticket_kind == "discovery"),\n',
              "        saved_discovery=False,\n",
@@ -1125,16 +1135,16 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
             ("high bypasses demand",
              '    if (ticket_kind == "discovery"\n'
              '            and admission_count >= '
-             'DISCOVERY_ADMISSION_THRESHOLD):\n',
+             'daemon.DISCOVERY_ADMISSION_THRESHOLD):\n',
              '    if (ticket_kind == "discovery"\n'
              '            and admission_count >= '
-             'DISCOVERY_ADMISSION_THRESHOLD\n'
+             'daemon.DISCOVERY_ADMISSION_THRESHOLD\n'
              '            and discovery_severity != "high"):\n',
              high_still_refuses),
         )
         for label, old, new, probe in mutations:
             with self.subTest(mutation=label):
-                self.assertTrue(probe(source), "baseline failed: " + label)
+                self.assertTrue(probe(sources), "baseline failed: " + label)
                 self.assertFalse(
                     probe(replace_exact(old, new)),
                     "mutation survived: " + label)

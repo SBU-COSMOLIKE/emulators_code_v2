@@ -16,6 +16,17 @@ CONTROLLER_FILES = (
     "ai/tools/candidate_admission.py",
     "ai/tools/control_plane_handoff.py",
     "ai/tools/mailbox_daemon.py",
+    "ai/tools/mailbox_worktrees.py",
+    "ai/tools/mailbox_watch.py",
+    "ai/tools/mailbox_providers.py",
+    "ai/tools/mailbox_envelopes.py",
+    "ai/tools/mailbox_tickets.py",
+    "ai/tools/mailbox_store.py",
+    "ai/tools/mailbox_dispatch.py",
+    "ai/tools/mailbox_landing.py",
+    "ai/tools/mailbox_control_plane.py",
+    "ai/tools/mailbox_recovery.py",
+    "ai/tools/mailbox_cycles.py",
     "ai/tools/handoff_contract.py",
     "ai/tools/provider_health.py",
     "ai/tools/review_dispatch.py",
@@ -321,14 +332,15 @@ def migrate_ticket_state_schema(repository, ticket_path, candidate_path):
     with tempfile.TemporaryDirectory(prefix="protected-shadow-stale-") as tmp:
       repository, _base = make_controller_repository(tmp)
       d0 = load_controller(repository)
-      daemon_path = repository / "ai/tools/mailbox_daemon.py"
+      # The stale-main refusal lives in the landing part file.
+      daemon_path = repository / "ai/tools/mailbox_landing.py"
       source = daemon_path.read_text(encoding="utf-8")
       boundary = "    if current_main in {parent_commit, landing_commit}:\n"
       self.assertEqual(source.count(boundary), 1)
       daemon_path.write_text(
           source.replace(boundary, "    return None\n" + boundary),
           encoding="utf-8")
-      git(repository, "add", "ai/tools/mailbox_daemon.py")
+      git(repository, "add", "ai/tools/mailbox_landing.py")
       git(repository, "commit", "--quiet", "-m", "weaken stale guard")
       candidate = git(repository, "rev-parse", "HEAD")
 

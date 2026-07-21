@@ -35,6 +35,10 @@ def isolated_daemon(root):
       "mailbox_daemon.py", "provider_health.py", "reopen_transition.py",
       "review_dispatch.py", "role_contract.py"):
     shutil.copy2(source / name, tools / name)
+  # The daemon loads its mailbox_*.py part files from its own directory.
+  for part in sorted(source.glob("mailbox_*.py")):
+    if part.name != "mailbox_daemon.py":
+      shutil.copy2(part, tools / part.name)
   shutil.copy2(
       source.parent / "notes/role-contract.yaml",
       notes / "role-contract.yaml")
