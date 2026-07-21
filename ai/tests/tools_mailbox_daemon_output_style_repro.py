@@ -19,7 +19,8 @@ README_PATH = AI_ROOT / "tools" / "README.md"
 BASE_COMMIT = "1" * 40
 CYCLE_ID = "output-style@" + BASE_COMMIT
 ALLOWED_TERMINAL_ACRONYMS = {
-    "AGENT", "CLI", "GO", "HEAD", "MINUTES", "NUL", "TOKENS", "UTF",
+    "AGENT", "AI", "CLI", "GO", "HEAD", "MINUTES", "NUL", "TOKENS",
+    "UTF", "WARNING",
 }
 
 
@@ -65,6 +66,16 @@ def terminal_literal_violations(source):
         prose = (literal.replace(".claude/FABLE_ROLE.md", "")
                  .replace("MAILBOX_ROLE", "")
                  .replace("MAILBOX-ADMIN", "")
+                 .replace("SHADOW_VALIDATION_FAILED", "")
+                 .replace("BLOCKED_RED_TEAM_REQUIRED", "")
+                 .replace("CONTROL_PLANE_HEALTH_FAILED", "")
+                 .replace("IMPLEMENTER AUTHORITY VIOLATION", "")
+                 .replace("CONTEXT HANDOFF", "")
+                 .replace("SCOPE_EXCEEDED", "")
+                 .replace("ACCEPT-CONTROL-PLANE", "")
+                 .replace("ACCEPT(C)", "")
+                 .replace("REJECT-CONTROL-PLANE", "")
+                 .replace("BUG FIX", "")
                  .replace("'- OPEN'", "")
                  .replace("REOPEN", "")
                  .replace("NO-GO", "")
@@ -127,6 +138,8 @@ def scratch_daemon():
             BASE_COMMIT)
         daemon.record_implementer_candidate = (
             lambda cycle_id, starting_head, replace_prior=False: None)
+        daemon.implementer_authority_snapshot = lambda: {}
+        daemon.implementer_authority_changes = lambda before: []
         daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         daemon._exact_git_object = (
             lambda arguments, label: BASE_COMMIT)
