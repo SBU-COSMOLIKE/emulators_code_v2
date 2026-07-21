@@ -10,9 +10,15 @@ import contextlib
 import io
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 import types
+
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
 
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -39,6 +45,8 @@ class FinishedProcess:
 
 def load_daemon(source=None):
     """Load a fresh production daemon, optionally from mutated source."""
+    if isinstance(source, dict):
+        return fix_only_repro.load_daemon(source=source)
     if source is None:
         source = DAEMON_PATH.read_text(encoding="utf-8")
     module = types.ModuleType("mailbox_daemon_max_repro")
@@ -75,10 +83,17 @@ def install_test_agent_topology_proof(daemon):
 
 
 def tree_snapshot(root):
-    """Return the byte-and-type state below a disposable folder."""
+    """Return the byte-and-type state below a disposable folder.
+
+    Kernel-lock files are ignored: the daemon may create an empty
+    ``*.lock`` file whose lock dies with the process, and that inert
+    file is not workflow state.
+    """
     result = []
     for path in sorted(root.rglob("*"), key=lambda item: str(item)):
         relative = str(path.relative_to(root))
+        if path.name.endswith(".lock"):
+            continue
         if path.is_symlink():
             result.append((relative, "symlink", os.readlink(path)))
         elif path.is_file():
@@ -100,6 +115,8 @@ def scratch_daemon(source=None):
         relay = ai_root / "notes" / "relay"
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
+        shutil.copy2(AI_ROOT / "notes" / "role-contract.yaml",
+                     ai_root / "notes" / "role-contract.yaml")
         backlog.write_text(
             "- OPEN **MEDIUM** **BUG FIX** — "
             "[Character budget](#character-budget)\n\n"
@@ -236,9 +253,9 @@ class ExitAfterOnePass:
     """A watch controller that requests a clean source-change exit."""
 
     def __init__(self, source_path, source_stamp, ticket_cycle_limit=None,
-                 ticket_cycle_topology=None):
+                 ticket_cycle_topology=None, companion_sources=None):
         del source_path, source_stamp, ticket_cycle_limit
-        del ticket_cycle_topology
+        del ticket_cycle_topology, companion_sources
 
     def source_changed(self):
         return True
@@ -463,23 +480,32 @@ def arm_zero_banner(source=None):
     return passed
 
 
-def replace_exact(source, old, new):
-    """Replace one production anchor, or return None when it drifted."""
-    if source.count(old) != 1:
+def replace_exact(sources, old, new):
+    """Replace one anchor across the daemon files, or None when it drifted."""
+    total = 0
+    target = None
+    for name in sorted(sources):
+        count = sources[name].count(old)
+        total += count
+        if count:
+            target = name
+    if total != 1:
         return None
-    return source.replace(old, new, 1)
+    mutated = dict(sources)
+    mutated[target] = sources[target].replace(old, new, 1)
+    return mutated
 
 
 def arm_source_mutations():
     """Kill ignored CLI, banner, and child-environment propagation."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = fix_only_repro.daemon_source_files()
     cases = [
         (
             "numeric grammar accepts non-ASCII digits",
             lambda text: replace_exact(
                 text,
-                're.fullmatch(r"[0-9]+", value)',
-                're.fullmatch(r"\\d+", value)'),
+                'daemon.re.fullmatch(r"[0-9]+", value)',
+                'daemon.re.fullmatch(r"\\d+", value)'),
             arm_invalid_values_and_actions,
         ),
         (
@@ -496,9 +522,9 @@ def arm_source_mutations():
             "banner reads default",
             lambda text: replace_exact(
                 text,
-                "    if MAX_CHARACTERS == 0:\n"
+                "    if daemon.MAX_CHARACTERS == 0:\n"
                 "        lines.append(\n",
-                "    if DEFAULT_MAX_CHARACTERS == 0:\n"
+                "    if daemon.DEFAULT_MAX_CHARACTERS == 0:\n"
                 "        lines.append(\n"),
             arm_banner_environment_and_suffix,
         ),
@@ -506,8 +532,8 @@ def arm_source_mutations():
             "child environment omitted",
             lambda text: replace_exact(
                 text,
-                "        env[MAX_CHARACTERS_ENVIRONMENT] = "
-                "str(MAX_CHARACTERS)\n",
+                "        env[daemon.MAX_CHARACTERS_ENVIRONMENT] = "
+                "str(daemon.MAX_CHARACTERS)\n",
                 ""),
             arm_banner_environment_and_suffix,
         ),
@@ -515,7 +541,7 @@ def arm_source_mutations():
     failures = []
     for label, mutate, probe in cases:
         mutant = mutate(source)
-        armed = mutant is not None and mutant != source
+        armed = mutant is not None
         baseline = probe(source) if armed else False
         mutant_passed = probe(mutant) if armed and baseline else True
         killed = armed and baseline and not mutant_passed
