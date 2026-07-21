@@ -54,6 +54,9 @@ data:
   train_params: params_train_mps_unifs.1.txt
   val_params:   params_val_mps_unifs.1.txt
   train_covmat: params_train_mps_unifs.covmat
+  # the generator failure files: rows flagged 1 failed and never train.
+  train_failure_mask: failed_train_mps_unifs.txt
+  val_failure_mask:   failed_val_mps_unifs.txt
 
   n_train:    50000
   n_val:      10000

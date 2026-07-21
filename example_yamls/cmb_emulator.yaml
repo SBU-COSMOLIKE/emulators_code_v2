@@ -49,6 +49,9 @@ data:
   train_params: params_train_cmblensed_unifs.1.txt
   val_params:   params_val_cmblensed_unifs.1.txt
   train_covmat: params_train_cmblensed_unifs.covmat
+  # the generator failure files: rows flagged 1 failed and never train.
+  train_failure_mask: failed_train_cmblensed_unifs.txt
+  val_failure_mask:   failed_val_cmblensed_unifs.txt
 
   # absolute row counts (kept after any optional cuts).
   n_train:    50000

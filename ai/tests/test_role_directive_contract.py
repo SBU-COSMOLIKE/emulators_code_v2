@@ -769,7 +769,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.readme_contract)
         self.assertIn("`test_parameter_table.py` gives the loader a table",
                       self.ai_readme)
-        self.assertIn("the dataset-publication gate runs",
+        self.assertIn("the parameter-table gate runs",
                       self.ai_readme)
         self.assertIn("**validation board** is the saved list of all gates",
                       self.ai_readme)
@@ -1170,17 +1170,17 @@ class RoleDirectiveContractTests(unittest.TestCase):
     def test_gates_guide_keeps_tests_gates_and_board_concrete(self):
         self.assertIn("It is not limited to the cosmic-shear emulator",
                       self.gates_readme)
-        self.assertIn("supplies saved CMB progress\nfiles without `dv_ell.npy`",
+        self.assertIn("writes a failure file\ncontaining the word `true`",
                       self.gates_readme)
         self.assertIn("python3 -m unittest", self.gates_readme)
         self.assertIn("python3 ai/gates/run_board.py --gate "
-                      "dataset-publication", self.gates_readme)
-        self.assertIn("[harness] GATE dataset-publication: PASS",
+                      "parameter-table", self.gates_readme)
+        self.assertIn("[harness] GATE parameter-table: PASS",
                       self.gates_readme)
         self.assertIn("`pre-manifest`", self.gates_readme)
         self.assertIn("`UNAVAILABLE` is additional information inside a PASS",
                       self.gates_readme)
-        self.assertIn("dataset-publication.20260716-143012-123456.log",
+        self.assertIn("parameter-table.20260716-143012-123456.log",
                       self.gates_readme)
         self.assertIn("`.inprogress` added at the end",
                       self.gates_readme)

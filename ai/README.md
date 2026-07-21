@@ -1132,12 +1132,12 @@ The three checking tools have different jobs:
 
 - A **gate** is a larger named check whose required result is written down
   before it runs. A gate may run tests, compare a scientific answer, or use
-  configured data or hardware. For example, the dataset-publication gate runs
-  44 small publication tests. One test changes an already-copied file while a
-  second file is being copied and requires the operation to stop. The gate
-  prints `PASS` or `FAIL` for each of its six required results. Before the
-  command runs, the board states which six results are required and what each
-  must show. The command is not a general request to “check the code.”
+  configured data or hardware. For example, the parameter-table gate runs
+  the parameter-schema tests on literal fixture tables and requires refusal
+  before any data-vector file is opened. The gate prints `PASS` or `FAIL`
+  for each of its required results. Before the command runs, the board states
+  which results are required and what each must show. The command is not a
+  general request to “check the code.”
 
 - The **validation board** is the saved list of all gates. For example,
   `python3 ai/gates/run_board.py --list` prints each gate's name and its saved

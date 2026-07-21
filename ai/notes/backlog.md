@@ -190,7 +190,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **BUG FIX** — [Save every effective setting and reset each repeated study](#open-resolved-run-record)
 - OPEN **MEDIUM** **BUG FIX** — [Protect control files and keep candidates from weakening their own audit](#open-control-plane-protection)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Finish safe fine-tuning against the original weights](#open-finetune-anchor)
-- OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Continue generated datasets exactly and manage old generations](#open-dataset-continuation-features)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Retry failed generator rows reproducibly](#open-generator-failure-retry)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Record which physics formulas produced each dataset and trained emulator](#open-physics-implementation-identity)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Refuse polynomial-emulator requests outside the fitted parameter range](#open-pce-domain-enforcement)
@@ -467,24 +466,15 @@ for pinning consumers and removing old generations.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** This work starts after the High publication-integrity ticket has
-made every completed generation safe to read.
-
-**Severity: MEDIUM.** Exact continuation and lifecycle controls save time and
-improve reproducibility, but they are additional capabilities. The separate
-High ticket already covers silent data mixing and false row relationships.
-
-### What is already fixed
-
-Continuation uses a private writable copy, and generation manifests can name
-immutable members.
-
-### What is missing
-
-Save and restore the NumPy PCG64 state, sampler state, walker coordinates and
-log probabilities, and unique-row selection. Prove that appending `M` rows
-matches a one-shot `N + M` run. Add consumer pinning plus explicit retention
-and removal rules for old generations.
+**CLOSED.** The publication framework this ticket extended was removed when
+`compute_data_vectors/` returned to plain files: a generator run's outputs
+are ordinary files under `chains/`, there are no generations to pin or
+retire, and append now draws from a stream derived from the seed plus the
+existing row count, so it is reproducible and never repeats saved rows. The
+remaining idea this ticket described — an append whose rows are bitwise
+identical to one uninterrupted longer run — is retired with that framework:
+it required persisting complete sampler state and is not needed for a
+reproducible dataset.
 
 <details><summary>Technical record for development tools</summary>
 Owners: `compute_data_vectors/generator_core.py`, MPI coordination, generation
@@ -842,8 +832,9 @@ with the same seed disagree.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** This feature waits for the High ticket that prevents failed rows
-from entering a ready dataset.
+**OPEN.** Resume (`--loadchk 1`) already recomputes rows still flagged
+failed without consuming new random draws; this ticket is about drawing
+replacement parameter rows instead.
 
 **Severity: MEDIUM.** Automatic reproducible replacement is useful during
 ordinary long runs, but a safe program may instead stop without publishing.
@@ -856,9 +847,9 @@ finite-value checks.
 
 ### What is missing
 
-Define which random state advances after a failed calculation, how MPI workers
-receive replacement work, and how the manifest records retries. Prove that
-serial and MPI runs follow the documented policy for the same seed.
+Define which random state advances after a failed calculation, how MPI
+workers receive replacement work, and how the failfile records retries. Prove
+that serial and MPI runs follow the documented policy for the same seed.
 
 <details><summary>Technical record for development tools</summary>
 Owner: serial and MPI scheduling in

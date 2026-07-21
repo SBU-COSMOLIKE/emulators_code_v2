@@ -966,6 +966,11 @@ def _optional_family_ceiling_contract():
         [3001, 3002],
         [4001, 4002],
       ], dtype=np.float32))
+      # a data-vector source requires the generator failure mask; every
+      # fixture row succeeded.
+      mask_path = os.path.join(tmp, "families_failed.txt")
+      with open(mask_path, "w", encoding="ascii") as mask_file:
+        mask_file.write("0\n0\n0\n0\n")
 
       # omega_b h^2 is .010, .032, .0108, .0486. The active window
       # therefore retains exactly two rows; no cuts retains all four.
@@ -983,6 +988,7 @@ def _optional_family_ceiling_contract():
           }
           if family != "scalar":
             instance.data["train_dv"] = dv_path
+            instance.data["train_failure_mask"] = mask_path
           if cuts is not None:
             instance.data["param_cuts"] = cuts
           instance.names = ["omegab", "H0"]

@@ -347,9 +347,11 @@ Valid `2..L` controls pass. Gapped, start-at-three, duplicate, descending,
 fractional, and width-mismatch cases refuse with the first offending
 multipole. Two spectra may have different complete maxima and satisfy
 independent valid requests. A same-shaped HDF5 axis mutation must be caught
-before serving. `ai/tests/test_cmb_checkpoint_axis.py` separately proves that
-fresh generator allocation writes the exact sidecar and that checkpoint load
-refuses a missing or corrupt sidecar before reading spectra.
+before serving. On the generator side, fresh allocation writes the exact
+sidecar and checkpoint load refuses a missing or mismatched sidecar before
+reading spectra (`_load_axis_checkpoint` in
+`compute_data_vectors/generator_core.py`, exercised by the `cmb-smoke`
+gate).
 
 ### Gaussian whitening
 

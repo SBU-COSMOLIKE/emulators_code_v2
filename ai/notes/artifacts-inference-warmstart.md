@@ -85,24 +85,19 @@ the gate configuration. The **driver file root** is the configured filename
 stem for that training run. Together they determine generated paths such as
 `<driver_root>/chains/gates_emul_evaluate.h5`.
 
-## Four identities connect generation to inference
+## Two identities connect generation to inference
 
 Identity answers “is this the same saved object?” Compatibility answers “may
-these different objects be used together?” The library keeps four identities
+these different objects be used together?” The library keeps two identities
 separate:
 
-1. **Request identity** describes the intended scientific setup: family,
-   product, variant, parameter order, resolved scientific settings, sampling
-   rule, random-engine policy, and the implementations of every formula that
-   produces a scientific target. It remains stable across a valid append.
-2. **Generation identity** binds that request identity to the exact sealed
-   manifest and every semantic member from one generator run, including
-   schema, chain, covariance, ranges, payloads, axes, failure facts, fixed
-   facts, and continuation state.
-3. **Staged-selection identity** binds both source generation identities, the
-   exact training and validation parameter rows, covariance, fixed facts,
-   axes, payloads, cuts, split rule, and final row order after staging.
-4. **Artifact identity** binds the saved model pair, resolved model and
+1. **Staged-selection identity** records which source rows a training run
+   staged and in what order: the source row count, split seed, physical
+   cuts, selected count, and an order-sensitive digest of the exact disk
+   rows, one record for training and one for validation, saved in the run's
+   configuration. The scientific description of the dataset itself lives in
+   the generator's `.facts.yaml` record beside the chain.
+2. **Artifact identity** binds the saved model pair, resolved model and
    training recipes, output decoder and loss composition, staged-selection
    identity, composition mode, and any source artifact or analytic base.
 

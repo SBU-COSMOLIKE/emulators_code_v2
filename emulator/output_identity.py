@@ -9,9 +9,10 @@ human reader.
 
 The digest never depends on a checkout path, a timestamp, a random artifact
 identifier, or dictionary insertion order.  Production callers must provide
-the two immutable dataset records after staging has added the exact selected
-row order.  Low-level fixture saves may omit those records; that allowance is
-for isolated tests that do not represent a production training run.
+the two staged-row records (the exact selected row order for training and
+validation) after staging finishes.  Low-level fixture saves may omit those
+records; that allowance is for isolated tests that do not represent a
+production training run.
 """
 
 from __future__ import annotations
@@ -124,18 +125,6 @@ def _required_text(value, *, where):
   return value
 
 
-def _source_identity(data):
-  """Return the train source identity when Cocoa published one."""
-  sources = data.get("_dataset_sources")
-  if type(sources) is not dict:
-    return None
-  train = sources.get("train")
-  if type(train) is not dict:
-    return None
-  identity = train.get("identity")
-  return identity if type(identity) is dict else None
-
-
 def digest_cmb_covariance_inputs(ell, sigma, fiducial_cl):
   """Fingerprint the exact covariance arrays used by one CMB experiment.
 
@@ -168,7 +157,6 @@ def digest_cmb_covariance_inputs(ell, sigma, fiducial_cl):
 
 def _family_product(data, *, require_executed_inputs):
   """Return a readable family, product, and path-free scientific descriptor."""
-  source_identity = _source_identity(data) or {}
   if "outputs" in data:
     outputs = data["outputs"]
     if not isinstance(outputs, (list, tuple)) or not outputs:
@@ -231,13 +219,10 @@ def _family_product(data, *, require_executed_inputs):
     }
     return "mps", quantity, descriptor
 
-  probe = source_identity.get("probe")
-  if type(probe) is not str or not probe:
-    # A direct-library fixture has no published dataset.  Its generic product
-    # remains distinct through its recipes and fixed scientific record; a
-    # production driver asks for published selection records below and cannot
-    # take this fallback.
-    probe = "data-vector"
+  # the cosmolike product stays generic: the descriptor's dataset name and
+  # the recipes distinguish runs, and the config carries no probe name of
+  # its own (the probe lives in the generator YAML, not the training YAML).
+  probe = "data-vector"
   descriptor = {
     "probe": probe,
     "cosmolike_data_dir": data.get("cosmolike_data_dir"),
@@ -246,63 +231,37 @@ def _family_product(data, *, require_executed_inputs):
   return "cosmolike", probe, descriptor
 
 
-def _stable_generation_pin(pin, *, split):
-  """Remove path spelling while retaining every authenticated source fact."""
-  if type(pin) is not dict or pin.get("schema") != 1:
-    raise ValueError(split + " dataset source pin must use schema 1")
-  selection = pin.get("selection")
-  if type(selection) is not dict or selection.get("schema") != 1:
+def _staged_row_record(record, *, split):
+  """Validate one recorded staged-row selection for the identity subject."""
+  if type(record) is not dict or record.get("schema") != 1:
     raise ValueError(
-      split + " dataset source pin has no schema-1 staged row selection")
-  _require_digest(
-    selection.get("row_order_sha256"),
-    where=split + " staged row order")
-  _require_digest(pin.get("active_sha256"), where=split + " active record")
-  _require_digest(
-    pin.get("manifest_sha256"), where=split + " dataset manifest")
-  members = pin.get("members")
-  if type(members) is not dict or not members:
-    raise ValueError(split + " dataset source pin has no authenticated members")
-  stable_members = {}
-  for role, member in members.items():
-    if type(role) is not str or not role or type(member) is not dict:
-      raise ValueError(split + " dataset members must be named mappings")
-    size = member.get("size")
-    if type(size) is not int or size < 0:
-      raise ValueError(split + " dataset member " + role + " has invalid size")
-    stable_members[role] = {
-      "size": size,
-      "sha256": _require_digest(
-        member.get("sha256"), where=split + " dataset member " + role),
-    }
-  return {
-    "schema": 1,
-    "slot_id": pin.get("slot_id"),
-    "slot": pin.get("slot"),
-    "generation": pin.get("generation"),
-    "active_sha256": pin["active_sha256"],
-    "manifest_sha256": pin["manifest_sha256"],
-    "identity": pin.get("identity"),
-    "members": stable_members,
-    "selection": selection,
-  }
-
-
-def _staged_selection(data, *, require_published_selection):
-  sources = data.get("_dataset_sources")
-  if sources is None:
-    if require_published_selection:
+      split + " staged-selection record must be the schema-1 mapping the "
+      "experiment writes after staging its rows")
+  for field in ("source_rows", "selected_rows"):
+    if type(record.get(field)) is not int or record[field] < 1:
       raise ValueError(
-        "production output identity needs data._dataset_sources after both "
+        split + " staged-selection " + field + " must be a native integer "
+        ">= 1")
+  _require_digest(
+    record.get("row_order_sha256"), where=split + " staged row order")
+  return dict(record)
+
+
+def _staged_selection(data, *, require_staged_selection):
+  selection = data.get("_staged_selection")
+  if selection is None:
+    if require_staged_selection:
+      raise ValueError(
+        "production output identity needs data._staged_selection after both "
         "training and validation rows have been staged")
-    return {"fixture_without_published_dataset": True}
-  if type(sources) is not dict or sources.get("schema") != 1:
-    raise ValueError("data._dataset_sources must use schema 1")
+    return {"fixture_without_staged_selection": True}
+  if type(selection) is not dict or selection.get("schema") != 1:
+    raise ValueError("data._staged_selection must use schema 1")
   return {
     "schema": 1,
-    "train": _stable_generation_pin(sources.get("train"), split="training"),
-    "validation": _stable_generation_pin(
-      sources.get("validation"), split="validation"),
+    "train": _staged_row_record(selection.get("train"), split="training"),
+    "validation": _staged_row_record(
+      selection.get("validation"), split="validation"),
   }
 
 
@@ -343,7 +302,7 @@ def build_output_identity(
     transfer_refined,
     resolved_pce,
     resolved_transfer,
-    require_published_selection=False):
+    require_staged_selection=False):
   """Return the shared, versioned identity for one completed training run.
 
   The returned mapping contains the full digest, the readable filename tag,
@@ -364,7 +323,7 @@ def build_output_identity(
     raise TypeError("output identity transfer_refined must be a native bool")
 
   family, product, product_record = _family_product(
-    data, require_executed_inputs=require_published_selection)
+    data, require_executed_inputs=require_staged_selection)
   path_free_transfer = None
   if resolved_transfer is not None:
     path_free_transfer = _path_free_reuse_block(
@@ -378,7 +337,7 @@ def build_output_identity(
     "training_recipe": _path_free_training_recipe(resolved_train),
     "loss_recipe": {"rescale": resolved_rescale},
     "staged_selection": _staged_selection(
-      data, require_published_selection=require_published_selection),
+      data, require_staged_selection=require_staged_selection),
     "composition": {
       "mode": composition_mode,
       "transfer_refined": transfer_refined,
@@ -431,7 +390,7 @@ def build_experiment_output_identity(experiment):
     resolved_transfer=(resolved_train.get("transfer")
                        if transfer_base is not None
                        and type(resolved_train) is dict else None),
-    require_published_selection=True)
+    require_staged_selection=True)
 
 
 def require_same_output_identity(expected, observed):

@@ -326,27 +326,22 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
 
         for text in (artifact, generation):
             for identity in (
-                    "Request identity",
-                    "Generation identity",
                     "Staged-selection identity",
                     "Artifact identity"):
                 with self.subTest(note=text[:40], identity=identity):
                     self.assertIn(identity, text)
         self.assertIn("<data-vector-root>_ell.npy", cmb)
-        self.assertIn("ai/tests/test_cmb_checkpoint_axis.py", cmb)
+        self.assertIn("_load_axis_checkpoint", cmb)
         self.assertIn("Dense covariance training is unsupported", cmb)
         self.assertIn(
-            "target-producing physics implementations belong to request "
-            "identity",
+            "moves each requested endpoint one representable floating-point "
+            "value toward the interval interior",
             generation)
         self.assertIn(
-            "current sealed generation does not save enough changing "
-            "random-engine, sampler, walker, log-probability, and "
-            "unique-row-selection state to continue the sequence exactly",
+            "derived from the seed together with the existing row count",
             generation)
         self.assertIn(
-            "Append therefore authenticates the active generation and then "
-            "refuses without drawing or publishing a row",
+            "never silently becomes fresh generation",
             generation)
         self.assertIn("output decoder and loss composition", artifact)
         self.assertIn("When `TCMB` is a sampled input", cmb)

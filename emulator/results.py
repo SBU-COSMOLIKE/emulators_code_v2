@@ -1588,7 +1588,7 @@ def save_emulator(path_root,
     transfer_refined=transfer_refined,
     resolved_pce=resolved_pce,
     resolved_transfer=resolved_transfer,
-    require_published_selection=False)
+    require_staged_selection=False)
   if output_identity is not None:
     require_same_output_identity(output_identity, derived_output_identity)
     required_suffix = "_" + derived_output_identity["tag"]
@@ -2541,7 +2541,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
       transfer_refined=transfer_refined,
       resolved_pce=resolved_config.get("pce"),
       resolved_transfer=resolved_config.get("transfer"),
-      require_published_selection=False)
+      require_staged_selection=False)
     rebuilt_subject = validate_saved_output_identity(
       rebuilt_identity["canonical_json"], rebuilt_identity["sha256"])
     if rebuilt_identity["sha256"] != output_identity_sha256 \

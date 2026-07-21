@@ -461,17 +461,16 @@ data:
   train_params: params_train_background_unifs.1.txt
   val_params:   params_val_background_unifs.1.txt
   train_covmat: params_train_background_unifs.covmat
+
+  train_failure_mask: failed_train_background_unifs.txt
+  val_failure_mask:   failed_val_background_unifs.txt
 ```
 
-The five filenames directly under `data`—`train_dv`, `val_dv`, `train_params`,
-`val_params`, and `train_covmat`—are read from
-`$ROOTDIR/<project>/chains/`. The `z_file` name inside the `grid` group is
-instead read from the folder where training starts.
-
-With the documented `$ROOTDIR` launch, `start_cocoa.sh` makes that
-generated file available there
-through a symbolic link (a short pointer to the file in `chains`). The bare
-name therefore works without copying the data.
+Every filename in the `data` block—the flat entries and the `z_file` name
+inside the `grid` group—is read from `$ROOTDIR/<project>/chains/`, the folder
+the generator wrote into. The two `failure_mask` entries name the generator's
+failure files; training refuses to treat a failed row's zero-filled payload
+as data, so a data-vector source must always name its mask.
 
 The complete background trainer example is
 [`example_yamls/baosn_hubble_emulator.yaml`](../example_yamls/baosn_hubble_emulator.yaml).
@@ -569,14 +568,15 @@ inverse; a matrix that cannot support those calculations is refused.
 YAML types are checked without converting text or Booleans into numbers.
 Write a point count as `8`, not `8.0`, `"8"`, or `true`. Write a switch as
 `false`, not `0` or `"false"`. Grid limits, extrapolation limits, and
-fiducial values must be finite YAML numbers rather than quoted text.
-Misspelled or family-inappropriate `train_args` keys are rejected rather than
-ignored.
+fiducial values must be finite YAML numbers rather than quoted text. The
+matter-power `write_syren_base` switch must be a real YAML Boolean; the
+quoted strings `"true"` and `"false"` are both rejected.
 
-These checks cover all common and family-specific `train_args` settings
-before the generator creates output. If tempered MCMC sampling later produces
-fewer unique rows than requested at the dataset's saved `float32` precision,
-the run also stops before publishing a smaller dataset.
+Each family driver validates its own `train_args` grids and limits (ranges,
+ordering, and minimum sizes) before the generator creates output. If tempered
+MCMC sampling later produces fewer unique rows than requested, the run warns
+and continues with the smaller table; the row count is visible in every
+saved file.
 
 The optional `latex` entry under a Cobaya parameter only controls its display
 label. If `latex` is absent, `null`, or blank, the saved GetDist label is the
@@ -791,9 +791,10 @@ arrays:
 | failure `.txt` | one `0` or `1` for each physical row; `1` means the calculation failed |
 
 On a fresh run, the first comment line in `.1.txt` records the sampling seed
-and random-number generator. Exact append is not available because the saved
-dataset does not yet contain all random and sampler state needed to continue
-without repeating or skipping rows. A uniform run stores `1` as a placeholder
+and random-number generator. An append run draws from a stream derived from
+that seed together with the number of rows already saved, so it never repeats
+the original rows and remains reproducible from the recorded inputs. A
+uniform run stores `1` as a placeholder
 `lnp`; a tempered run stores emcee's log probability. The asterisk marks
 `chi2*` as a derived GetDist column rather than a sampled parameter.
 
@@ -1189,16 +1190,18 @@ moments.
 
 ## FAQ C3. How do I add more rows? <a id="faq-c3-append"></a>
 
-Exact append is not available yet. The command form is reserved:
+Load the finished result set and request the extra rows:
 
-```text
---loadchk 1 --append 1
+```bash
+--loadchk 1 --append 1 --nparams 5000
 ```
 
-When requested, the generator checks the existing dataset and then stops
-without creating a draft or changing a file. A seed alone cannot continue an
-earlier random stream exactly. Create a fresh larger dataset under new output
-names instead.
+with the same names, YAML, and seed as the original run. The generator loads
+the saved rows, draws `--nparams` new parameter rows from a stream derived
+from the seed plus the existing row count (so the new rows never repeat the
+old ones), extends every saved file with the new rows, and then computes the
+new data vectors. Rerunning the same append command reproduces the same
+appended rows.
 
 ## FAQ C4. Which files in this folder are commands? <a id="faq-c4-program-files"></a>
 
@@ -1217,10 +1220,6 @@ Do not run these helper modules as commands:
 | File | Purpose inside the programs |
 | --- | --- |
 | `generator_core.py` | shared options, sampling, file writing, and MPI work |
-| `dataset_manifest.py` | file-set and run-control validation helpers |
-| `dataset_publication.py` | tested file-saving helper that is not yet used by the four generators |
 
-Current generator runs write the normal files directly under `chains/`.
-The two helper files in this table are not commands. In particular,
-`dataset_publication.py` does not change how the four generators currently
-save or replace their results.
+Generator runs write their files directly under `chains/`; there is no
+hidden state beside them.

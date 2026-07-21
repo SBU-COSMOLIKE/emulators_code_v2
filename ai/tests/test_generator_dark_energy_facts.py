@@ -2,7 +2,7 @@
 
 Cobaya can sample one set of coordinates and calculate the values used by a
 theory.  These CPU tests compile only the relevant production helper and
-publication method, so they exercise the real decision without importing
+record method, so they exercise the real decision without importing
 Cobaya, MPI, GetDist, or a Boltzmann solver.
 """
 
@@ -19,11 +19,6 @@ from unittest import mock
 import numpy as np
 
 from emulator import fixed_facts
-from compute_data_vectors.generator_ingress import (
-  finite_number,
-  native_boolean,
-  native_integer,
-)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +32,7 @@ def _compile_publication_boundary():
   helpers = [
     copy.deepcopy(node) for node in tree.body
     if isinstance(node, ast.FunctionDef)
-    and node.name == "_dark_energy_publication_facts"
+    and node.name == "dark_energy_facts"
   ]
   classes = [
     node for node in tree.body
@@ -66,7 +61,7 @@ def _compile_publication_boundary():
   exec(compile(module, str(GENERATOR), "exec"), namespace)
   core_class = namespace["PublicationCore"]
   core_class.dark_energy_helper = staticmethod(
-    namespace["_dark_energy_publication_facts"])
+    namespace["dark_energy_facts"])
   return core_class
 
 
@@ -85,7 +80,7 @@ def _compile_mps_boundary(publication_helper):
     if isinstance(node, ast.ClassDef) and node.name == "dataset"
   ]
   wanted = {
-    "_read_train_args", "_read_write_base", "_compute_dvs_from_sample",
+    "_read_train_args", "_compute_dvs_from_sample",
   }
   if len(classes) != 1:
     raise AssertionError("MPS generator has no unique dataset class")
@@ -103,10 +98,7 @@ def _compile_mps_boundary(publication_helper):
     "np": np,
     "math": math,
     "capture_native_output": _captured_output,
-    "finite_number": finite_number,
-    "native_boolean": native_boolean,
-    "native_integer": native_integer,
-    "_dark_energy_publication_facts": publication_helper,
+    "dark_energy_facts": publication_helper,
   }
   exec(compile(module, str(MPS_GENERATOR), "exec"), namespace)
   return namespace["MPSCore"]
@@ -155,12 +147,10 @@ def _facts(core_class, parameterization, *, sampled, pinned=None,
   core = object.__new__(core_class)
   core.model = SimpleNamespace(parameterization=parameterization)
   core.sampled_params = list(sampled)
-  core.dataset_route = {
-    "family": family,
-    "family_variant": "standard",
-    "generator": ("dataset_generator_background"
-                  if family == "grid" else "dataset_generator_mps"),
-  }
+  core.FAMILY = family
+  core.PROGRAM = ("dataset_generator_background"
+                  if family == "grid" else "dataset_generator_mps")
+  core._facts_base_identity = lambda: fixed_facts.NOT_APPLICABLE
   resolved = dict(pinned or {})
   core._resolved_constants = lambda: dict(resolved)
   return core._resolve_fixed_facts()
@@ -191,7 +181,7 @@ class GeneratorDarkEnergyFactsTests(unittest.TestCase):
     self.assertNotIn("wa", facts["cosmology_fixed"])
     self.assertEqual(
       parameterization.calls,
-      ["input_params", "constant_params", "sampled_params"])
+      ["sampled_params", "constant_params"])
 
   def test_canonical_sampled_coordinates_publish_the_same_cpl(self):
     """Sampling w0 and wa directly has the same physical law and names."""

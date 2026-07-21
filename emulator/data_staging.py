@@ -660,9 +660,10 @@ def _load_failure_mask(path, expected_rows):
   scientific data.
 
   Arguments:
-    path = authenticated failure-mask path for a data-vector source. Chain-only
-           scalar sources use ``load_scalar_source`` and never call this
-           function.
+    path = the generator's failure-mask file (the failfile beside the dump,
+           named by data.train_failure_mask / data.val_failure_mask).
+           Chain-only scalar sources use ``load_scalar_source`` and never
+           call this function.
     expected_rows = number of rows in the parameter and data-vector files.
 
   Returns:
@@ -678,8 +679,8 @@ def _load_failure_mask(path, expected_rows):
       + repr(expected_rows))
   if path is None:
     raise ValueError(
-      "a data-vector source requires an authenticated generator failure mask; "
-      "resolve the published dataset before staging it")
+      "a data-vector source requires the generator's failure mask; name the "
+      "failfile in data.train_failure_mask / data.val_failure_mask")
 
   tokens = []
   with open(path, "r", encoding="ascii") as failure_file:

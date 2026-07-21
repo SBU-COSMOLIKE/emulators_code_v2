@@ -1,10 +1,14 @@
 import numpy as np
 import math, os, sys, traceback
+import inspect
 import psutil
 from numpy.lib.format import open_memmap
-from generator_core import (_dark_energy_publication_facts, GeneratorCore,
-                            capture_native_output, run_generator)
-from generator_ingress import finite_number, native_boolean, native_integer
+from generator_core import (GeneratorCore, capture_native_output,
+                            dark_energy_facts, run_generator)
+# generator_core prepends the repo root to sys.path when it is imported, so
+# the emulator package (fixed_facts, syren_base) resolves when this driver
+# runs by path.
+from emulator import fixed_facts
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -86,6 +90,8 @@ class dataset(GeneratorCore):
   VALID_PROBES = ("mps",)
   EXTRA_TRAIN_KEYS = ("z_segments", "k_log10", "extrap_kmax",
                       "write_syren_base")
+  FAMILY = "grid2d"                     # scientific-record family name
+  PROGRAM = "dataset_generator_mps"     # producer name in the record
 
   def _read_train_args(self, train_args):
     """Build the grids, resolve the base switch, register requirements.
@@ -103,29 +109,17 @@ class dataset(GeneratorCore):
       raise ValueError("train_args.z_segments must be a non-empty list "
                        "of [zmin, zmax, n, endpoint] segments")
     pieces = []
-    for segment_index, seg in enumerate(segs):
+    for seg in segs:
       if (not isinstance(seg, (list, tuple))) or len(seg) != 4:
         raise ValueError(f"z_segments entry must be [zmin, zmax, n, "
                          f"endpoint], got {seg!r}")
-      label = f"train_args.z_segments[{segment_index}]"
-      zmin = finite_number(seg[0], label + "[0]")
-      zmax = finite_number(seg[1], label + "[1]")
-      n = native_integer(
-        seg[2], label + "[2]", minimum=2)
-      endpoint = native_boolean(seg[3], label + "[3]")
+      zmin, zmax, n, endpoint = (float(seg[0]), float(seg[1]),
+                                 int(seg[2]), bool(seg[3]))
       if not (zmin < zmax) or n < 2:
         raise ValueError(f"z_segments entry needs zmin < zmax and "
                          f"n >= 2, got {seg!r}")
-      with np.errstate(over="ignore", invalid="ignore"):
-        piece = np.linspace(zmin, zmax, n, endpoint=endpoint)
-      if not np.isfinite(piece).all():
-        raise ValueError(
-          "train_args.z_segments did not resolve to a finite redshift grid")
-      pieces.append(piece)
+      pieces.append(np.linspace(zmin, zmax, n, endpoint=endpoint))
     z = np.concatenate(pieces)
-    if not np.isfinite(z).all():
-      raise ValueError(
-        "train_args.z_segments did not resolve to a finite redshift grid")
     if not (np.diff(z) > 0).all():
       raise ValueError("z_segments must concatenate to a strictly "
                        "ascending grid (segments overlap or repeat an "
@@ -137,36 +131,36 @@ class dataset(GeneratorCore):
     if (not isinstance(kk, (list, tuple))) or len(kk) != 3:
       raise ValueError(f"train_args.k_log10 must be [log10 kmin, "
                        f"log10 kmax, nk], got {kk!r}")
-    lo = finite_number(kk[0], "train_args.k_log10[0]")
-    hi = finite_number(kk[1], "train_args.k_log10[1]")
-    nk = native_integer(kk[2], "train_args.k_log10[2]", minimum=8)
+    lo, hi, nk = float(kk[0]), float(kk[1]), int(kk[2])
     if not (lo < hi) or nk < 8:
       raise ValueError(f"k_log10 needs log10 kmin < log10 kmax and "
                        f"nk >= 8, got {kk!r}")
     self.z_mps = z
-    with np.errstate(over="ignore", invalid="ignore"):
-      self.k_mps = np.logspace(lo, hi, nk)
-    if (not np.isfinite(self.k_mps).all() or
-        not (self.k_mps > 0.0).all()):
-      raise ValueError(
-        "train_args.k_log10 did not resolve to a finite positive "
-        "wavenumber grid")
-    self.extrap_kmax = finite_number(
-      train_args["extrap_kmax"], "train_args.extrap_kmax")
+    self.k_mps = np.logspace(lo, hi, nk)
+    self.extrap_kmax = float(train_args["extrap_kmax"])
     if self.extrap_kmax < self.k_mps[-1]:
       raise ValueError(
         f"train_args.extrap_kmax ({self.extrap_kmax}) must reach the "
         f"k grid's top ({self.k_mps[-1]}); the interpolator cannot be "
         f"evaluated beyond its extrapolation edge")
-    self.write_base = self._read_write_base(train_args)
-    (_, _, self.dark_energy_law,
-     _) = _dark_energy_publication_facts(
-       self.model.parameterization, self._resolved_constants())
+    self.write_base = train_args["write_syren_base"]
+    if type(self.write_base) is not bool:
+      # bool(x) would silently accept the YAML strings "true"/"false"
+      # (both nonempty, both True); the switch must be a YAML boolean.
+      raise ValueError(
+        "train_args.write_syren_base must be the YAML boolean true or "
+        "false; got " + repr(self.write_base))
     if self.write_base:
       # fail at setup, not at sample 1 of an MPI farm: prove the base
       # formulas import on this rank (the syren package is vendored
       # in-repo and numpy-only, so this only fails on a broken tree).
       from emulator.syren_base import base_pklin, base_boost  # noqa: F401
+    # the dark-energy law of this run in canonical (w, wa) form, resolved
+    # once at setup. The per-sample syren base call needs it: a run that
+    # samples w0pwa and derives wa must hand the base a varying wa, not
+    # the LCDM default a name-only reading would give.
+    (_, _, self.dark_energy_law, _) = dark_energy_facts(
+      self.model.parameterization, self._resolved_constants())
 
     # explicit requirements on the model itself (the YAML likelihood
     # may be the dummy `one`). The Cl quirk is the legacy convention,
@@ -195,57 +189,39 @@ class dataset(GeneratorCore):
         'tt': 0
       }})
 
-  def _read_write_base(self, train_args):
-    """Require the YAML base-file switch to be a native boolean."""
-    write_base = train_args["write_syren_base"]
-    if type(write_base) is not bool:
-      raise ValueError(
-        "train_args.write_syren_base must be the YAML boolean true or false; "
-        "got " + repr(write_base))
-    return write_base
-
-  def _family_variant(self):
-    """Name whether this matter-power dataset includes both base members."""
-    if self.write_base:
-      return "syren-base"
-    return "native"
-
   def _quantities(self):
     """The store's quantity tags (base files ride the switch)."""
     if self.write_base:
       return ("pklin", "boost", "pklin_base", "boost_base")
     return ("pklin", "boost")
 
-  def _dv_payload_names(self):
-    """Return the exact matter-power members required from each sample."""
-    return self._quantities()
+  def _facts_base_identity(self):
+    """
+    Name the syren analytic base these dumps sit on top of, or "n/a".
 
-  def _dv_payload_mapping(self, payload):
-    """Return one matter-power payload dict for shared row validation."""
-    if type(payload) is not dict:
+    Only a run with write_syren_base on has a base: it writes the *_base
+    files the emulator corrects. The base formulas evaluate their growth
+    factors at a neutrino mass pinned in base_pklin's own signature, so an
+    emulator trained against this base carries that pin whether or not the
+    run sampled mnu — the record names the base and the pinned mass
+    together, because the pair is what a consumer must match. The pinned
+    mass is read from the formula's own default (the generator calls
+    base_pklin without an mnu argument), so the record cannot drift from
+    the base it names.
+    """
+    if not self.write_base:
+      return fixed_facts.NOT_APPLICABLE
+    from emulator.syren_base import base_pklin
+    parameters = inspect.signature(base_pklin).parameters
+    if "mnu" not in parameters \
+        or parameters["mnu"].default is inspect.Parameter.empty:
       raise ValueError(
-        "a matter-power payload must be a dict with the configured quantity "
-        f"arrays; got {type(payload).__name__}")
-    return payload
-
-  def _dv_expected_payload_shape(self, name):
-    """Return the flattened (redshift, wavenumber) row shape."""
-    quantities = self._quantities()
-    if name not in quantities:
-      raise ValueError(
-        f"unknown matter-power payload member {name!r}; expected one of "
-        f"{quantities!r}")
-    width = len(self.z_mps) * len(self.k_mps)
-    return (width,)
-
-  def _dv_payload_store(self, name):
-    """Return the 2D checkpoint store for one matter-power member."""
-    quantities = self._quantities()
-    if name not in quantities:
-      raise ValueError(
-        f"unknown matter-power payload member {name!r}; expected one of "
-        f"{quantities!r}")
-    return self.datavectors[name]
+        "the neutrino mass the syren base is pinned at cannot be read from "
+        "base_pklin's mnu default in emulator/syren_base.py; the dataset's "
+        "record must name the base together with that pinned mass")
+    return ("syren analytic base, owned by emulator/syren_base.py (the "
+            "symbolic_pofk formulas vendored in syren/), with mnu pinned at "
+            + fixed_facts.format_value(value=parameters["mnu"].default))
 
   #-----------------------------------------------------------------------------
   # data-vector store: per-quantity 2D files -> {dvsf}_<q>.npy
@@ -260,41 +236,36 @@ class dataset(GeneratorCore):
 
   def _dv_load_chk(self):
     """Load every per-quantity store (RAM-aware, one shared policy)."""
-    self._load_axis_checkpoint(
-      path=f"{self.dvsf}_z.npy",
-      expected=self.z_mps,
-      label="mps redshift")
-    self._load_axis_checkpoint(
-      path=f"{self.dvsf}_k.npy",
-      expected=self.k_mps,
-      label="mps wavenumber")
-
-    read_only = getattr(self, "_checkpoint_read_only", False)
-    if read_only:
-      self.dvs_is_memmap = True
+    # a checkpoint written for one (z, k) grid must never be continued on
+    # another: the flattened columns would silently change meaning.
+    self._load_axis_checkpoint(path=f"{self.dvsf}_z.npy",
+                               expected=self.z_mps,
+                               label="mps redshift")
+    self._load_axis_checkpoint(path=f"{self.dvsf}_k.npy",
+                               expected=self.k_mps,
+                               label="mps wavenumber")
+    RAMneed = self.samples.nbytes + self.failed.nbytes
+    for q in self._quantities():
+      arr = np.load(f"{self.dvsf}_{q}.npy",
+                    mmap_mode = "r",
+                    allow_pickle = False)
+      RAMneed += arr.nbytes
+      del arr
+    RAMavail = psutil.virtual_memory().available
+    if RAMneed < 0.75 * RAMavail:
+      self.dvs_is_memmap = False
     else:
-      RAMneed = self.samples.nbytes + self.failed.nbytes
-      for q in self._quantities():
-        arr = np.load(f"{self.dvsf}_{q}.npy",
-                      mmap_mode = "r",
-                      allow_pickle = False)
-        RAMneed += arr.nbytes
-        del arr
-      RAMavail = psutil.virtual_memory().available
-      if RAMneed < 0.75 * RAMavail:
-        self.dvs_is_memmap = False
-      else:
-        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-              f"We will read dvs from HD (slow)")
-        self.dvs_is_memmap = True
+      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+            f"We will read dvs from HD (slow)")
+      self.dvs_is_memmap = True
 
     width = len(self.z_mps) * len(self.k_mps)
     self.datavectors = {}
     for q in self._quantities():
       if self.dvs_is_memmap:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
-                                      mmap_mode = "r" if read_only else "r+",
+                                      mmap_mode = "r+",
                                       allow_pickle = False)
       else:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
@@ -502,9 +473,6 @@ class dataset(GeneratorCore):
 #-------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-  # the syren base lives in the emulator package one folder up; the shared
-  # prepend makes `import emulator` resolve when the script runs by path.
-  sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
   run_generator(dataset, prog='dataset_generator_mps')
 
 #-------------------------------------------------------------------------------

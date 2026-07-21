@@ -16,42 +16,17 @@ training. A **sidecar** is a small companion file that records names, order,
 axes, or other facts about a larger data file. A **gate** is a named
 validation job whose required result is written before it starts.
 
-A **publication transaction** turns one complete draft dataset into the
-dataset visible to readers without exposing a partial copy. A **slot** is the
-stable destination assigned to one append-stable request identity. A
-**generation** is one complete version stored in that slot; a **draft**
-remains writable, while a **sealed generation** no longer changes. A
-**locator** connects the familiar parameter-chain filename in a training YAML
-to its stable slot and request. It never names a particular generation. A
-file **descriptor** is the operating system's handle for one open file.
-
 A **digest** is a fixed-size fingerprint calculated from exact bytes. A
-**manifest** is the complete list of a generation's members together with
-their paths, lengths, and digests. The **active record** is
-the small `active.json` file that names the sealed generation readers must
-open. Replacing that record is the **active-pointer switch**.
-
-A **random-engine policy** names every random-number algorithm and the saved
-state needed to continue its sequence exactly. It is different from a seed,
-which chooses only the initial state.
-
-A **probe** names the requested physical output, such as background or CMB. A
+**probe** names the requested physical output, such as background or CMB. A
 family **variant** selects one documented representation, such as native or
-Syren-base matter power. A **registry** is a fixed mapping of accepted names
-to their owners. A **canonical projection** is the documented subset of
-resolved settings, written in one stable order and encoding before its digest
-is calculated.
+Syren-base matter power.
 
-Four identities carry a dataset into a saved emulator. **Request identity**
-describes the intended scientific setup and stays stable across a valid
-append. **Generation identity** binds that request to the exact sealed manifest
-and every semantic member from one generator run. **Staged-selection identity**
-binds both source generation identities, parameter rows, covariance, fixed
-facts, axes, payloads, cuts, split rule, and final training and validation row
-order.
+Two identities carry a dataset into a saved emulator. **Staged-selection
+identity** records which source rows a training run staged and in what order
+(an order-sensitive digest saved with the run's configuration).
 **Artifact identity** then binds that staged selection to the resolved model,
 training recipe, composition, and saved weights. The artifact note owns the
-last identity. A matching filename or array shape proves none of them.
+second identity. A matching filename or array shape proves neither of them.
 
 The **maximum-correlation policy** limits the largest absolute off-diagonal
 correlation in the covariance used by Gaussian Markov-chain Monte Carlo
@@ -71,8 +46,7 @@ early universe measured by the CMB family.
 | Shared command line, sampling, MPI, and checkpoints | `compute_data_vectors/generator_core.py` |
 | Family-specific physics and family sidecars | `compute_data_vectors/dataset_generator_*.py` |
 | CMB covariance generation | `compute_data_vectors/compute_cmb_covariance.py` |
-| Dataset publication transaction | `compute_data_vectors/dataset_publication.py` |
-| Logical filename and generation resolution | `emulator/cocoa.py` |
+| Project path resolution for training configs | `emulator/cocoa.py` |
 | Parameter-table schema | `emulator/parameter_table.py` |
 | Row selection and host-memory staging | `emulator/data_staging.py` |
 | Family staging and pool-size decisions | `emulator/experiment.py` |
@@ -103,46 +77,23 @@ drivers own only family physics and family-specific files:
 the script's own names, including `omegabh2` and `omegach2`, and contains plain
 resolved numbers.
 
-<a id="cmb-covariance-publication-transactional-output"></a>
-### CMB covariance publication
+### CMB covariance output
 
 #### Rule
 
 The CMB covariance archive is a generated scientific dataset, not an emulator
-artifact. `compute_cmb_covariance.py` must refuse when any path entry already
-owns the requested final name. This includes a regular file, a directory, a
-symlink to an existing target, and a dangling symlink whose target is missing.
-The command performs this check before it reads the YAML configuration or asks
-CAMB to calculate a spectrum, so a rerun cannot spend computation or alter an
-existing destination.
-
-Publication uses one hidden temporary file in the final file's directory.
-After `numpy.savez` finishes and closes that file, one hard-link operation
-gives the completed bytes their final name. A hard link refuses an existing
-destination, so a file or link created after the early check wins unchanged.
-During ordinary execution, the temporary name is removed after success and
-after a handled write, interruption, or link failure.
+artifact. `compute_cmb_covariance.py` refuses when the requested output file
+already exists, because an emulator may already be trained against it and a
+silent replacement would change what that emulator's saved whitening meant.
+Every persisted array must be finite before anything is written; the write
+goes to a temporary name in the same folder and is renamed into place, so a
+crash mid-write cannot leave a truncated archive under the public name.
 
 #### Why
 
-A covariance calculation can take substantial time. The private write keeps a
-partial archive away from the name used by readers. The non-overwriting link
-also preserves an earlier result and resolves two simultaneous writers without
-replacing either one's completed output silently.
-
-#### Acceptance evidence
-
-The gate claim `cmb-covariance-publication.transactional-output` receives GO
-only when all of the following checks pass:
-
-- a successful publication produces an archive with the expected member names,
-  dtypes, shapes, and values and leaves no temporary file;
-- an existing file and a dangling-link destination both refuse before YAML
-  parsing, CAMB evaluation, or staging-file creation;
-- handled faults during the private write or final-name creation leave no
-  public partial result and no temporary file; and
-- a destination created immediately before the hard link remains
-  byte-for-byte unchanged while the losing temporary file is removed.
+A covariance calculation can take substantial time, and training trusts the
+archive bytes. A partial or silently replaced archive corrupts every later
+training run that reads it.
 
 ### Generator evaluation boundaries
 
@@ -159,7 +110,7 @@ separate, validated extrapolation limit.
 
 ### Why
 
-The shared core prevents checkpoint and publication rules from drifting among
+The shared core prevents checkpoint and output-file rules from drifting among
 families. Family physics remains explicit so changes to one scientific product
 do not hide inside a generic storage abstraction. Lifecycle rules exist because
 a finite provider cache can contain values from an earlier cosmology after a
@@ -177,77 +128,62 @@ later cosmology is rejected.
 - A mutation that restores silent zip truncation or discards the lifecycle
   verdict must fail.
 
-## Sampling and request or generation identity
+## Sampling
 
 ### Rule
 
 Fresh tempered sampling uses the resolved parameter covariance and an owned
-random number generator. Fresh uniform sampling uses the resolved legal
-interval after the boundary-interior policy has moved each endpoint one
-representable value toward the interval interior. No boundary policy may
-depend on distance from zero.
+random number generator. Fresh uniform sampling moves each requested endpoint
+one representable floating-point value toward the interval interior before
+drawing, so a draw can never sit exactly on a hard prior edge. The movement is
+defined in float representation steps, so it is correct for endpoints of any
+sign or magnitude, including zero; no boundary policy may depend on distance
+from zero. The resolved (moved) bounds are what the `.ranges` file and the
+scientific record publish.
 
-Temperature, maximum-correlation value and applicability, boundary policy,
-requested and resolved support, sampling algorithm, seed, random-engine
-policy, ordered parameter names, family, mode, scientific settings, and the
-target-producing physics implementations belong to request identity.
-Coincident numeric bounds do not erase the requested policy.
-
-The current sealed generation does not save enough changing random-engine,
-sampler, walker, log-probability, and unique-row-selection state to continue
-the sequence exactly. Append therefore authenticates the active generation
-and then refuses without drawing or publishing a row. Before exact append may
-be enabled, that complete continuation state must become authenticated
-checkpoint state. Reinitializing from the seed is not continuation.
+Append draws its new rows from a stream derived from the seed together with
+the existing row count. A stream derived from the bare seed alone would repeat
+the original run's draws exactly and duplicate every existing row.
 
 ### Why
 
 Uniform support changes when infinite prior endpoints are resolved with a
-temperature. A filename that records only `unifs` cannot distinguish those
-scientific supports. Seed-only append restarts the random stream and can
-duplicate the original dataset.
+temperature, and a relative-factor endpoint shrink is wrong at and near zero.
+Seed-only append restarts the random stream and can duplicate the original
+dataset.
 
 ### Acceptance evidence
 
 - Same-width intervals translated along the number line retain the same
   fractional interior width.
-- Narrow offset intervals either have a representable interior or refuse before
+- Narrow intervals either have a representable interior or refuse before
   output mutation.
-- Two temperatures produce distinct request identities even if hard bounds make
-  their effective numeric supports equal.
-- Current append intent authenticates the active generation and then refuses
-  without changing it.
-- A future exact-append implementation must prove that fresh `N` followed by
-  append `M` produces the same canonical parameter rows and order as one fresh
-  `N+M` run.
-- A future append implementation must refuse missing, stale, or corrupt
-  continuation state without changing the prior generation.
-- A mutation that restores endpoint multiplication or
-  `default_rng(seed)` at append must fail.
+- Append on a checkpoint of `N` rows produces rows distinct from the first
+  `N`, and rerunning the same append reproduces the same appended rows.
+- A mutation that restores endpoint multiplication or `default_rng(seed)` at
+  append must fail.
 
 <a id="generator-seed-owned-rng"></a>
 ### Owned random-number generation
 
 #### Rule
 
-A required native integer seed initializes an owned NumPy PCG64 generator for
+A required native integer seed initializes an owned NumPy generator for
 parameter draws, Gaussian walker initialization, and unique-row selection.
-The emcee sampler owns a separate NumPy `RandomState` using MT19937 for its
-moves. Process-global `np.random` draws are not part of the generator contract.
-The current published members do not contain the complete states needed for
-continuation. Before append may be enabled, it must authenticate both random
-states, walker coordinates, walker log probabilities, and unique-row-selection
-state; a seed alone is insufficient.
+The emcee sampler receives a separate random state seeded from that owned
+generator, so the walk itself is replayable. Process-global `np.random` draws
+are not part of the generator contract. The seed and generator name are
+recorded in the chain header. Append derives its stream from the seed plus
+the existing row count, as the sampling section above states.
 
 #### Acceptance evidence
 
 - Equal seed and equal request produce equal rows.
 - A different seed changes the selected rows.
-- Current append refuses after authenticating the active generation. A future
-  exact append must equal a one-shot run.
-- Worker count does not change the canonical parameter table.
+- Worker count does not change the parameter table (sampling happens on rank
+  zero only).
 - A scan and mutation check prove that no process-global random draw enters the
-  generation path.
+  generation path (the `generator-seed` gate).
 
 ## Canonical parameter rows
 
@@ -255,10 +191,10 @@ state; a seed alone is insufficient.
 
 One canonical parameter representation is materialized before any science
 evaluation. Every family producer receives rows bitwise equal to the rows the
-training loader later recovers from the published table. Fresh serial and MPI
-paths share that representation and row order. Resume copies the authenticated
-representation into a private draft. Append has no accepted row-producing path
-until complete continuation state is saved.
+training loader later recovers from the saved table (the `%.9e` chain format
+round-trips the generator's float32 rows exactly). Fresh serial and MPI paths
+share that representation and row order. Resume reads the saved rows back;
+append extends them with rows from the derived stream.
 
 In MPI mode, rank zero records which row it assigned to each worker. A result
 may change a payload store only when it comes from a worker with a live
@@ -289,8 +225,8 @@ precision range output can also collapse two distinct bounds.
 
 - A midpoint-adjacent witness is bitwise equal at producer input, table
   readback, and staging.
-- Fresh serial and MPI paths agree on canonical rows, and resume preserves the
-  authenticated rows exactly. Current append refuses before producing rows.
+- Fresh serial and MPI paths agree on canonical rows, and resume preserves
+  the saved rows exactly.
 - Scripted MPI replies prove that a valid out-of-order result reaches only its
   assigned row, while a wrong row, inactive worker, duplicate reply, malformed
   reply, and false stop acknowledgement change no stored row.
@@ -303,528 +239,156 @@ precision range output can also collapse two distinct bounds.
 
 ### Rule
 
-A row is successful only when all of these statements are true:
+A row's failure flag is cleared only after the family computation returned a
+complete payload and that payload was written to the stores. A failed or
+timed-out row keeps its flag set and a zero-filled payload. The failure flags
+are saved beside the dump as the failfile (one ASCII `0` or `1` per row), in
+the same checkpoint save as the payload stores, so the flags and the rows
+they describe cannot drift apart.
 
-1. The lifecycle accepted that exact cosmology.
-2. The complete family payload has the exact declared key set and shape.
-3. Validation runs after conversion to the exact storage dtype.
-4. Every stored value is finite.
-5. Family-specific domain rules hold.
-6. The row was written once and the accepted cast payload can be read back.
-7. Only then may the failure flag be cleared.
+Training must never treat a failed row's zero-filled payload as scientific
+data: the training YAML names the failfile explicitly
+(`data.train_failure_mask` / `data.val_failure_mask`) and staging excludes
+the flagged rows before cuts and selection.
 
-Failure metadata belongs to the same dataset generation as the parameter
-table, payloads, axes, and facts. Missing, stale, forged, or wrong-length
-failure metadata makes the dataset unreadable.
-
-A production-ready dataset contains the exact requested number of successful
-rows. A loader may reject failed rows or explicitly exclude them, but an
-exclusion policy still has to deliver the requested successful-row count.
-Failed proposals may remain in a retry checkpoint; they are not training data.
-
-`boundary` is a finite native non-Boolean real with
-`0 < boundary <= 1`. Invalid values refuse before any output path is opened.
+`--boundary` is a finite real with `0 < boundary <= 1`; an invalid value
+refuses before any output path is opened, never silently becomes `1`.
 
 ### Why
 
 A provider failure can leave a zero-filled row while the program exits zero.
-Finiteness before a float32 cast misses overflow created by that cast. A
-broadcast-compatible shape can fill a row without representing the declared
-family structure. Structural checkpoint checks alone can also republish a
-not-a-number value (`NaN`) or infinity (`Inf`) under a success bit.
-
-### Owner
-
-- lifecycle acceptance: the shared lifecycle helper;
-- stored-payload predicate: one shared family-aware validator;
-- resume revalidation: every family checkpoint loader;
-- final readiness: generator publication and staging entry points.
+Zero rows poison the training whitening and the learned function. An
+out-of-range boundary silently coerced to `1` would generate a test/val dump
+on the full interval the flag was supposed to trim.
 
 ### Acceptance evidence
 
-- Finite control rows publish.
-- NaN, positive or negative Inf, and finite-float64-to-float32 overflow fail.
-- A second-row scalar or length-one payload cannot broadcast into a full row.
-- Missing or extra family keys fail.
-- Signed CMB TE remains legal while family auto-spectrum rules remain active.
-- Serial and MPI result handlers invoke the same validator.
-- A successful flag paired with an invalid resumed payload refuses before a
-  “loaded” report and leaves all files unchanged.
-- A failed-row zero placeholder remains legal.
-- Boundary controls cover zero, negative, above one, NaN, Boolean, one, and a
-  valid interior value.
-- Restoring unconditional success or removing the staging-side readiness check
-  makes the gate fail.
+- A failed sample leaves a set flag and a zero row; a successful sample
+  clears the flag and stores its payload.
+- Staging refuses a missing, short, or malformed failure mask and cannot
+  satisfy a requested training size with a failed row.
+- Boundary controls cover zero, negative, above one, nonfinite, and a valid
+  interior value.
 
-## Native-output and lifecycle acceptance
+## Native-output capture
 
 ### Rule
 
-Native-output capture is supplementary diagnostic evidence. The scientific
-acceptance fact is a finite accepted Cobaya `LogPosterior.logpost`, checked
-before the first getter call. Terminal keyword scans never decide scientific
-success.
-
-Python streams are flushed before file-descriptor redirection. Every supported
-writer is flushed after the theory call and before reading captured text. If a
-native writer cannot be synchronized reliably, the solver must be isolated
-behind a process boundary. The other valid choice is a supported application
-programming interface (API) for status or exceptions. An API here means the
-documented calls that report solver state. Capture cleanup and descriptor
-restoration remain exception-safe.
+Fortran and C output from the solver is captured at the file-descriptor
+level around each sample's evaluation, and known error keywords in that text
+fail the sample. Capture cleanup and descriptor restoration are
+exception-safe. The background generator additionally requires a finite
+accepted Cobaya log-posterior before reading any provider result, because a
+rejected point returns `-inf` without raising or printing anything.
 
 ### Why
 
-Buffered Python or C output can appear in the next sample's capture. A rejected
-Cobaya point normally returns `-inf`; it need not raise or print a keyword.
-The provider can still contain a finite array from an earlier accepted point.
+CAMB reports some failures only as Fortran text on the raw descriptors, where
+Python-level redirection cannot see them. A rejected Cobaya point need not
+raise; the provider can still contain a finite array from an earlier accepted
+point.
 
 ### Acceptance evidence
 
-- Immediate `os.write`, buffered Python output, and a genuinely buffered native
-  writer are captured in the correct sample.
-- Text written before entry is not assigned to the sample.
-- Exceptions restore both descriptors.
-- A rejected result with a stale finite provider array performs zero getters
-  and cannot write.
-- An accepted lifecycle followed by a nonfinite payload reaches the payload
-  validator and fails there.
-- Generator and gate-side lifecycle calls use the same acceptance definition.
+- Native writes during a sample are captured and scanned; exceptions restore
+  both descriptors.
+- A background point rejected by the prior or the theory cannot clear its
+  failure flag.
 
-## Run-control state
+## Run controls and checkpoints
 
-<a id="generator-run-control-binary-state"></a>
-### Binary controls
+### Rule
 
-#### Rule
-
-`loadchk`, `append`, and `chain` accept only native non-Boolean integers
-`0` or `1`. The normalized run-control record is immutable. Legal
+`--loadchk`, `--append`, and `--chain` are `0` or `1`. The legal
 `(loadchk, append)` pairs are exactly `(0,0)` for fresh generation, `(1,0)`
-for resume, and `(1,1)` for append. `chain` independently selects `full` or
-`chain-only` mode.
+for resume, and `(1,1)` for append; `append=1, loadchk=0` refuses with an
+error naming both flags, because append extends a validated prior dataset and
+never means fresh generation at an existing path. `--chain 1` independently
+selects a chain-only run.
 
-#### Acceptance evidence
+A requested load (`--loadchk 1`) whose checkpoint files are missing refuses,
+naming every missing file. A failed load never silently becomes fresh
+generation: a mistyped path would otherwise regenerate, and overwrite,
+instead of resuming.
 
-- Boolean and coerced numeric controls refuse.
-- The three legal operation pairs reach their intended branches.
-- Every other pair refuses before setup.
+Resume and append require the run's complete file set before trusting a
+checkpoint: the chain, `.covmat`, and `.ranges` for every run, plus the
+failfile, every family data-vector store, and every axis sidecar for a full
+run. Loaded stores must match the configuration: row counts against the
+chain, column counts against the configured grid or multipole range, and
+every axis sidecar exactly equal to the coordinates `train_args` resolves to.
+A checkpoint written for one grid must never be continued on another, because
+the row payloads would silently mean different coordinates.
 
-<a id="generator-run-control-append-requires-load"></a>
-### Append requires a validated prior generation
+### Chain-only isolation
 
-#### Rule
-
-`append=1, loadchk=0` is illegal. The error names both values and explains
-that append extends a validated prior dataset. It never means fresh generation
-at an existing path.
-
-#### Acceptance evidence
-
-A complete sentinel dataset keeps every byte and modification time after the
-illegal command. Restoring independent flag handling must visibly damage the
-sentinel and fail the gate.
-
-<a id="generator-run-control-pre-mutation-refusal"></a>
-### Validation precedes setup
-
-#### Rule
-
-The constructor assigns the direct run-control validator before environment
-lookup, configuration reads, directory creation, or setup. Setup consumes the
-normalized values. Final mode selection consumes the normalized record rather
-than raw command-line attributes.
-
-#### Acceptance evidence
-
-Filesystem sentinels prove that invalid intent creates no setup event or file.
-Legal full mode reaches sampling and family work. Legal chain-only mode reaches
-sampling but no data-vector work. Statement-order, hidden-expression,
-shadow-binding, raw-value, and setup-first mutations must fail.
-
-## Requested checkpoint refusal
-
-<a id="checkpoint-refusal-missing-member"></a>
-### Complete member census
-
-#### Rule
-
-Fresh mode may start without a checkpoint. Resume and append require the exact
-mode- and family-specific member census. Missing members are all named, and no
-surviving member is changed.
-
-#### Acceptance evidence
-
-Each generic and family member is removed in turn for resume and append. Every
-case refuses before parsing or writing, with unchanged bytes and timestamps.
-
-<a id="checkpoint-refusal-corrupt-load"></a>
-### Corrupt checkpoints remain errors
-
-#### Rule
-
-Checkpoint readback uses the shared producer-schema resolver. Bookkeeping,
-sampled, and derived numeric cells must be finite. The exact producer
-`.paramnames` sidecar owns sampled order and the final `chi2*` declaration.
-Failure lines are literal `0` or `1` producer tokens. Similar numeric text,
-shadow sidecars, control separators, and mislabeled derived columns refuse.
-
-#### Acceptance evidence
-
-Tests cover a resolver error, nonfinite values in every column role, wrong
-sidecar root, wrong derived label, and malformed failure tokens. Three
-physical line endings are accepted: line feed (LF), used on Unix; carriage
-return followed by line feed (CRLF), used on Windows; and bare carriage return
-(CR), used by older systems. Vertical tab, form feed, and record separators
-are not reinterpreted as rows. Every refusal preserves the original cause and
-all checkpoint bytes and times.
-
-<a id="checkpoint-refusal-no-fresh-fallback"></a>
-### No fresh fallback
-
-#### Rule
-
-Only normalized `fresh` may enter the fresh writer. A failed resume or append
-may not become fresh generation. Valid resume reads without sampling.
-
-#### Acceptance evidence
-
-Sentinels at the first fresh operation stay untouched when requested loaders
-raise. The exception chain retains the original failure. A fallback mutation
-must touch the sentinel and fail.
-
-<a id="checkpoint-refusal-family-geometry"></a>
-### Family geometry at checkpoint readback
-
-#### Rule
-
-Background and MPS axes are one-dimensional, have the configured shape, and
-equal the configured coordinates exactly. CMB members have widths consistent
-with the configured inclusive multipole range until the persisted CMB axis is
-the authoritative manifest member.
-
-#### Acceptance evidence
-
-Changed background coordinates, short MPS axes, and short CMB spectra refuse.
-Valid controls pass. Removing the axis or width checks must fail.
-
-## Full and chain-only isolation
-
-<a id="generator-run-control-dataset-mode-isolation"></a>
-### Rule
-
-Chain-only parameter, failure, and data-vector stems carry `_chain_only`.
-Scoping all stems prevents later code from borrowing an unsuffixed full-dataset
-member. A requested chain-only resume or append requires exactly covariance,
-parameter names, ranges, chain, and facts, then returns before any failure,
-payload, or axis I/O. Full mode keeps the full family census.
+A `--chain 1` run writes only the parameter-side files, and all three output
+stems carry a `_chain_only` suffix. A chain-only run therefore can never
+overwrite, or resume from, the failure and data-vector files of a full run
+that used the same names; chain-only resume and append read and extend only
+the parameter-side files.
 
 ### Why
 
-A chain-only run at full-dataset stems can replace parameter rows while leaving
-old payload rows and failure flags, creating a same-shaped but scientifically
-false pairing.
+A chain-only run at full-dataset stems could replace parameter rows while
+leaving old payload rows and failure flags, creating a same-shaped but
+scientifically false pairing. An axis mismatch on resume is the same failure
+inside one dataset.
 
 ### Acceptance evidence
 
-- Full and chain-only stems are distinct.
-- Chain-only resume and append read exactly five parameter-side members.
-- Chain-only paths perform no family payload or axis I/O.
-- Full mode retains the complete family census.
-- Unscoped stems, borrowed members, and a bypassed or misplaced mode barrier
-  make the focused gate fail.
-
-## Immutable dataset publication
-
-The production generator, Cocoa configuration resolver, and staging path use
-this transaction. The lower-level publisher owns immutable files and the
-active switch; the sections below also state where the production bridge adds
-request binding, worker coordination, reader pinning, and row selection.
-
-<a id="dataset-publication-slot-identity"></a>
-### Slot identity
-
-#### Rule
-
-A slot identity binds portable parameter, payload, and failure basenames,
-family, and explicit mode. Relocating the complete `chains/` directory keeps
-the identity. Changing any identity axis changes it. Stems must remain distinct
-on case-insensitive filesystems. Descriptor, manifest, and active records use
-one sorted whitespace-free JavaScript Object Notation (JSON) encoding in
-Unicode Transformation Format, 8-bit (UTF-8), with an LF terminator. JSON is
-the key-and-value text format used for these records; UTF-8 defines how that
-text is stored as bytes. Unknown or duplicate keys, nonfinite values,
-unsupported types, and unbounded integers refuse.
-
-#### Acceptance evidence
-
-Relocation preserves the slot id; changing each identity field changes it.
-Canonical-format and resource-bound mutations refuse.
-
-<a id="dataset-publication-exact-census"></a>
-### Exact census
-
-#### Rule
-
-The caller supplies a complete semantic role-to-relative-path map. Every role
-and path occurs once. Observed files and directories equal the declaration.
-Missing, extra, empty, traversing, linked, symlinked, special, renamed, or
-writable published entries refuse. The manifest records path, length, and
-SHA-256, the cryptographic digest of the exact file bytes. Readers provide the
-expected identity and exact census.
-
-#### Acceptance evidence
-
-Neither a familiar digest at a wrong basename nor a valid subset of a larger
-generation is accepted. Every unsafe entry class has a refusal leg.
-
-<a id="dataset-publication-sealed-epoch"></a>
-### Sealed epoch
-
-#### Rule
-
-Rank zero prepares a private draft before sampling. If draft preparation or
-sampling refuses, it broadcasts that refusal before any worker enters the
-data-vector calculation. On success, every retained memory map is flushed and
-closed, and the Message Passing Interface (MPI) barrier completes before rank
-zero publishes. The barrier waits until every parallel process reaches the
-same point.
-
-The publisher opens and fingerprints every source before copying the first
-one and keeps each file descriptor, the operating system's open-file handle,
-active. After the final copy, the publisher rechecks the inode, the filesystem
-identity of the underlying file, together with size, time tokens, and census.
-Published members receive new sealed inodes. Resume copies an authenticated
-active generation into a new mutable draft. Append authenticates the active
-generation and then refuses until complete continuation state is available.
-Neither path creates a hardlink or another writable name for a published
-member.
-
-#### Acceptance evidence
-
-A source mutation at any acquisition or copy boundary refuses. Retained source
-descriptors cannot change the sealed generation.
-
-<a id="dataset-publication-copy-on-write-continuation"></a>
-### Copy-on-write continuation
-
-#### Rule
-
-`begin_dataset_continuation` authenticates the requested active generation
-before creating a new draft. It opens every published member before copying
-the first member and keeps those file handles open until the complete copy has
-been checked. Each copy has the authenticated size and SHA-256, a different
-inode from its source, mode `0600`, and one filename. The draft and its member
-directories have mode `0700` and exactly the declared files and directories.
-Copied files and the complete draft directory tree are synchronized before
-the function returns.
-
-The source member handles and their named paths are rechecked after the last
-copy. The manifest bytes, manifest SHA-256, read-only directory modes, and
-complete source census are read and checked again at that point. The manifest
-is authenticated by content; the operation does not claim that the manifest's
-inode stays unchanged throughout the copy.
-
-The returned `ContinuationDraft` retains the original
-`ActiveGeneration.active_sha256`. If another writer selects generation B while
-a continuation copies generation A, the A copy may finish, but a later
-publication with A's saved active-record SHA-256 must refuse and leave B
-active. That later publication refusal keeps the completed A draft for
-inspection or retry.
-
-A refusal while `begin_dataset_continuation` is preparing the copy asks for
-best-effort removal of only the new draft. If that cleanup fails, the partial
-draft may remain in the work folder. Preparation and cleanup do not change the
-active record, the published source, or another draft in the same work folder.
-
-#### Why
-
-A hardlink or other writable alias would let continuation work change a
-published dataset. Refreshing the saved active-record SHA-256 after a competing
-writer succeeds would let stale work replace that writer's result. Separate
-files and the original saved value prevent both failures.
-
-#### Implementation boundary
-
-This helper prepares a safe mutable copy. Generator resume uses it and keeps
-the returned active-record digest for compare-and-swap publication. Exact
-append, recovery of a first interrupted unpublished draft, saved random state,
-and old-generation removal remain separate functionality. Cocoa reader
-pinning and MPI publication order have their own production checks.
-
-#### Acceptance evidence
-
-- Request identity and the complete member map refuse before a draft exists.
-- Nested members copy with identical bytes but different inodes and private
-  writable modes.
-- Writable, replaced, linked, changed, missing, extra, or wrongly sized source
-  and draft entries refuse.
-- Instrumentation proves member-file synchronization and final synchronization
-  of every draft directory plus the work folder.
-- Copy, validation, and file-close failures ask for best-effort removal of only
-  the new draft; a cleanup failure may leave that draft for inspection.
-- A concurrent A-to-B switch returns A's original saved value, and a later
-  stale publication refuses while B remains active and keeps the completed A
-  draft.
-
-<a id="dataset-publication-atomic-switch"></a>
-### Atomic active pointer
-
-#### Rule
-
-One per-slot advisory lock serializes compliant publishers. A publisher
-compares the SHA-256 of the complete previously read active record. It installs
-the sealed generation before replacing `active.json` last. A reader opens the
-active record once and resolves paths below one named generation. Garbage
-collection retains that generation for the entire consuming operation.
-
-#### Acceptance evidence
-
-A live reader sees complete generation A or complete generation B, never mixed
-members. A stale active token refuses even when only the generation field
-changed.
-
-<a id="dataset-publication-durability-and-recovery"></a>
-### Durability and recovery
-
-#### Rule
-
-Sealed members, manifest, installed tree, the temporary file that will become
-`active.json`, the replacement of `active.json`, and the slot directory are
-synchronized in that order. Here **synchronized** means that pending writes
-are forced from memory toward durable storage. Regular files use the strongest
-available platform synchronization, including Darwin `F_FULLFSYNC` when
-available. Directory creation synchronizes both the child and parent on every
-retry. A refusal before the active-pointer switch removes only temporary
-publication material and preserves the source draft. Cleanup after a
-successful switch cannot turn a committed publication into a reported
-failure.
-
-#### Acceptance evidence
-
-Instrumentation proves a successful sync after final read-only mode for every
-member and manifest, an installed-generation directory sync before pointer
-replacement, and an immediate slot-directory sync afterward. Retry after a
-parent-sync failure repeats both child and parent syncs. Fault injection shows
-the old pointer before replacement and a complete new pointer afterward.
-
-## Invariant dataset request
-
-<a id="dataset-request-contract-identity"></a>
-### Request identity
-
-#### Rule
-
-One strict request schema binds mode, generator, family, probe, variant,
-sampling mode, temperature, boundary, maximum-correlation applicability,
-algorithm, seed, random-engine policy, ordered float32 parameter names,
-canonical parsed configuration digest, append-stable scientific-contract
-digest, and ordered semantic or content identifiers for every target-producing
-physics formula.
-Immutable registries bind probe to family and generator and sampling mode to
-algorithm and random-engine policy.
-
-The scientific-contract digest hashes a versioned, resource-bounded canonical
-projection of resolved facts. A generation-specific dataset or chain digest is
-not part of the append-invariant request. Run controls and append row count are
-also not scientific identity. The current member map contains no complete
-continuation-state member. A future exact-append implementation must add and
-authenticate that state without moving it into request identity.
-
-#### Acceptance evidence
-
-Requests with missing or unknown fields, Boolean seeds, wrong family or
-algorithm, reordered parameters, omitted temperature, changed scientific
-facts, or excessive canonical structures refuse. Current append intent keeps
-the same invariant request identity, authenticates the active generation, and
-then refuses without changing its chain digest. A future successful append
-must keep that request identity while changing generation-specific content.
-
-<a id="dataset-request-contract-family-members"></a>
-### Family member map
-
-#### Rule
-
-Every chain-only generation has five members: chain, parameter schema,
-covariance, ranges, and facts. Full generation adds the failure mask and:
-
-| Family | Additional members |
-|---|---|
-| CosmoLike | one vector payload |
-| CMB | TT, TE, EE, PP, and exact integer multipole axis |
-| Background grid | Hubble rate `H` and transverse comoving distance `D_M`, each with its redshift axis |
-| Native grid2d | linear power, boost, redshift axis, wavenumber axis |
-| Syren-base grid2d | native members plus both base arrays |
-
-The two base members are all-or-none. Temporary files, locks, caches, manifest,
-and pointer are not semantic members. CMB multipoles are never inferred from
-width, covariance, filename, or configured range.
-
-#### Acceptance evidence
-
-Every family and variant has an exact-census control. Missing CMB axis,
-one-sided Syren base, extra cache files, or chain-only borrowing fails.
-
-<a id="dataset-request-contract-generator-member-binding"></a>
-### Generator member binding
-
-#### Rule
-
-Each generator binds its route and progress-file names once, after it reads
-the driver-specific settings and chooses the full or chain-only output stems.
-The running class's defining Python filename supplies the generator name. The
-immutable probe registry must agree with that filename, the output family,
-and the family variant.
-
-The parameter, data-vector, and failure stems are normalized to absolute
-paths and must share one folder. Only their portable basenames enter the
-immutable member census. Checkpoint preflight joins that saved folder to the
-saved member names; it does not ask a family driver to rebuild a second list.
-Chain-only mode therefore remains the same five common members for every
-family.
-
-For matter-power generation, `write_syren_base` must be a YAML Boolean. A
-false value binds the native Grid2D variant; a true value binds the
-Syren-base variant and both base members. Fixed scientific facts reuse the
-saved family, variant, and generator. Changing a probe, filename, or base
-switch later cannot reclassify an already bound run.
-
-This early census is not the complete dataset request and is not a published
-manifest. It deliberately contains no configuration digest, scientific
-digest, random state, transaction state, or consumer pin.
-
-#### Acceptance evidence
-
-Both modes and every family or variant produce the same members as the full
-request contract. The complete family checkpoint methods agree with the
-bound full census. A wrong driver filename, mismatched folder, case-colliding
-stem, missing module filename, invalid family variant, or non-Boolean base
-switch refuses before a checkpoint file is opened. Independent source
-mutations fail when they restore the old family list, copy the expected
-driver instead of observing the running file, erase the matter-power
-variant, lend full members to chain-only mode, or recompute fixed facts from
-mutable state. Further mutations fail when they move the binding before
-driver settings and scoped stems, or bypass the matter-power Boolean
-validator at its real assignment. Family-parity mutations also fail when a
-lensing driver adds an override or when CMB and background change their
-source-owned member constants without the canonical census changing with
-them.
-
-<a id="dataset-request-contract-mutation-controls"></a>
-### Load-bearing request controls
-
-#### Rule
-
-Mutation evidence must cover omission or corruption of temperature, parameter
-order, boundary policy, seed type, scientific digest, CMB axis, Syren base
-pairing, chain-only census, family/generator mapping, algorithm, path-collision
-checks, canonical integer bounds, append-stable projection, and recursive
-resource bounds.
-
-#### Acceptance evidence
-
-Every listed mutation must be observed by a distinct refusal. A test that
-mutates two consumers together does not prove either consumer independently.
+- Boolean-invalid and illegal flag pairs refuse before setup.
+- A load request with missing files refuses naming them; the refusal changes
+  no existing file.
+- Changed background/MPS coordinates, a changed CMB multipole range, and
+  short stores refuse on resume; matching controls pass.
+- Full and chain-only stems are distinct; chain-only paths perform no
+  failure, payload, or axis input/output.
+
+## Plain-file dataset outputs
+
+### Rule
+
+A generator run writes ordinary files into the project `chains/` folder, and
+those files are the complete dataset:
+
+- the parameter side: `<paramfile stem>.1.txt` (the chain),
+  `.paramnames`, `.ranges`, `.covmat`, and the `.facts.yaml` scientific
+  record;
+- the payload side: one or more 2-D `.npy` stores named
+  `<datavsfile stem>_<member>.npy`, with axis sidecars
+  (`_z.npy`, `_k.npy`, `_ell.npy`) written once beside them;
+- the failfile `<failfile stem>.txt`, one `0`/`1` line per row.
+
+Stems follow `<name>_<probe>_<temp|unifs>` with the optional `_chain_only`
+suffix. There is no publication layer, no locator, and no hidden state: the
+files a run names are the files it writes, checkpoint saves go through a
+temporary file and an atomic rename, and a training YAML names these same
+files directly (resolved against the project `chains/` folder by
+`emulator/cocoa.py`).
+
+The `.facts.yaml` sidecar (format owned by `emulator/fixed_facts.py`) records
+the cosmology the run held fixed, the dark-energy law in canonical `(w, wa)`
+form, and the requested and resolved sampling supports, keyed by the digest
+of the chain file it sits beside. The generator writes it whenever it writes
+the chain; training staging refuses a dump without it.
+
+### Why
+
+Plain files keep the dataset inspectable with ordinary tools and keep the
+generator understandable line by line. The scientific record and the failure
+mask carry the two facts a payload file cannot: which cosmology produced the
+rows, and which rows must not train.
+
+### Acceptance evidence
+
+- Each family smoke gate runs its generator and finds every named output
+  file, including the axis sidecars and the scientific record.
+- The dump-variance tripwire in `bsn-smoke` fails if every row carries the
+  same background (the stale-cache failure the background lifecycle rule
+  prevents).
+- Checkpoint interruption and resume produce the same files as one
+  uninterrupted run.
 
 ## Parameter-table schema
 
@@ -897,27 +461,28 @@ named loader and disk-backed source in the witness.
 
 #### Rule
 
-A full data-vector source resolved by Cocoa requires the authenticated
-failure-mask member from its pinned generation. The mask contains exactly one
-ASCII `0` or `1` line for every parameter and payload row. A missing mask,
-another token, or a different row count refuses. Chain-only scalar data has no
-data-vector failure mask. A caller that invokes staging directly supplies its
-own mask path; staging validates the tokens and row count but does not prove
-that file came from a sealed generation. That direct caller owns the source
-trust decision.
+A full data-vector source requires the generator's failure mask, named
+explicitly in the training YAML (`data.train_failure_mask` /
+`data.val_failure_mask`). The mask contains exactly one ASCII `0` or `1` line
+for every parameter and payload row. A missing mask, another token, or a
+different row count refuses. Chain-only scalar data has no data-vector
+failure mask. Staging validates the tokens and row count; the user owns the
+choice of which mask pairs with which dump.
 
-The generator may keep a private draft containing failed placeholder rows for
-diagnosis, but a mask containing any `1` refuses publication. Staging removes
-failed rows before physical cuts, seeded selection, and pool-size reporting.
-It cannot satisfy a requested training size with a failed row.
+Staging removes failed rows before physical cuts, seeded selection, and
+pool-size reporting. It cannot satisfy a requested training size with a
+failed row.
 
-Cocoa resolves training and validation once each and saves both generation
-pins. After staging, the saved source pin adds the original source row count,
-split seed, physical cuts, selected count, and an order-sensitive SHA-256 of
-the exact disk rows addressed by the loader. For a compact resident source,
-that order is `dump_rows[idx]`. For a disk-backed source, `idx` already holds
-global disk rows. The recorder derives the applicable order from the staged
-array sizes and refuses unless it equals `selected_rows` exactly.
+After staging, the experiment records the staged selection in the
+configuration saved with the emulator (`data._staged_selection`, one record
+per split): the original source row count, split seed, physical cuts,
+selected count, and an order-sensitive SHA-256 of the exact disk rows
+addressed by the loader. For a compact resident source, that order is
+`dump_rows[idx]`. For a disk-backed source, `idx` already holds global disk
+rows. The recorder derives the applicable order from the staged array sizes
+and refuses unless it equals `selected_rows` exactly. The output identity
+includes both records, so two runs trained on different rows cannot claim
+the same artifact name.
 
 #### Acceptance evidence
 
@@ -927,8 +492,8 @@ array sizes and refuses unless it equals `selected_rows` exactly.
   that the loader actually addresses.
 - Equal counts with a different permutation refuse before the fingerprint is
   saved.
-- Both saved configuration records retain the accepted generation and row
-  selection identity.
+- Both saved configuration records retain the staged row-selection
+  identity.
 
 ## Host-memory staging
 
@@ -1049,91 +614,64 @@ reversed bounds, one-row validation, identical paths, symlink and hardlink
 aliases, separately named duplicate payloads, partial overlap, and a valid
 disjoint pair.
 
-<a id="generator-ingress"></a>
-<a id="generator-ingress-valid-before-output"></a>
-## Generator ingress
+## Input validation before output
 
 ### Rule
 
-`train_args.ord` is one nonempty list of unique native strings. Each name is one
-visible token without whitespace or control characters. Cardinality,
-membership, and order are checked against Cobaya's sampled parameter set, with
-missing, extra, and duplicate names reported separately. The covariance
-filename is one direct child of the YAML folder. Covariance headers are
-nonempty and unique; matrices are finite, two-dimensional, square, positive on
-the diagonal, and aligned before subsetting. Opposite entries may differ only
-by floating-point roundoff and are then averaged to exact symmetry. A
-covariance header may be a superset of the requested parameters, but its
-complete ordered name list must match the complete matrix dimension before the
-requested submatrix is selected. `fiducial` is a mapping from sampled parameter
-names to finite non-Boolean numbers.
+Generator inputs are validated before any output file is created:
 
-Family grid counts and multipoles are native non-Boolean integers. Switches are
-native Booleans. Grid edges and extrapolation limits are finite. Unknown family
-keys refuse. `extrap_kmax >= max(k)` after validation. Priors, covariance,
-Cholesky factors, triangular matrices `L` satisfying `L @ L.T = covariance`,
-inverses, modeled columns, and metadata are finite. A
-Markov-chain Monte Carlo (MCMC) unique-row shortfall at the saved `float32`
-parameter precision refuses rather than publishing a smaller dataset. Unknown
-command-line arguments refuse.
+- `train_args.ord` must be one permutation of Cobaya's sampled parameter
+  set (same names, same count);
+- the family `train_args` keys are validated by each driver before the model
+  requirements are registered (grid shapes and ordering, multipole range,
+  `extrap_kmax >= max(k)`, the Syren-base switch a native Boolean);
+- `--boundary`, `--maxcorr`, `--freqchk`, `--nparams`, and `--temp` have
+  explicit legal ranges, and the command line parses strictly: an unknown or
+  misspelled flag is a usage error, never silently ignored (the `cli-strict`
+  gate);
+- Cobaya's raw confidence-one prior endpoints may be infinite; every resolved
+  bound used for sampling or written to an output file is finite and
+  increasing, checked after the temperature stretch and boundary trim.
 
-Cobaya's raw confidence-one prior endpoints may be infinite when a prior is
-unbounded. Those raw endpoints are permitted only as inputs to interval
-resolution. Every resolved bound used for sampling or written to a published
-file is finite and increasing. A finite raw endpoint that overflows the
-generator's parameter dtype refuses rather than being mistaken for an open
-endpoint.
+Optional `latex` is presentation metadata: when absent the parameter name is
+the GetDist label, and its absence may not abort an otherwise valid run.
 
-Common and family-specific `train_args`, parameter order, covariance,
-fiducials, and resolved bounds are validated before output creation. MCMC row
-cardinality is validated after sampling but before output creation. Refusal
-for one of these input rules, including a unique-row shortfall, must not create
-`chains/`, an output draft, or a partial public dataset.
-
-Optional `latex` is presentation metadata. When absent, `None`, or blank, the
-parameter name is the GetDist label. Its absence may not abort an otherwise
-valid run. A label may contain ordinary spaces and LaTeX commands, but it may
-not contain a line break, tab, NUL byte, or another control character that can
-split a saved table.
+A Gaussian-mode unique-row shortfall (fewer unique MCMC rows than requested)
+warns and continues with the smaller table; the row count is visible in every
+output file.
 
 ### Acceptance evidence
 
-Unique reorder controls preserve index maps. Duplicate, missing, extra,
-wrong-nesting, non-string, whitespace-bearing names, escaping covariance paths,
-header/matrix mismatch, nonfinite covariance or fiducial, unsafe display-label
-controls, lossy integer/Boolean coercion, unknown key, and unknown flag cases
-all refuse before sampling or output mutation. A unique-row shortfall refuses
-after MCMC selection and before output mutation. The CPU gate proves the label
-fallback and that the production writer uses the label prepared during setup.
-When a release changes the Cobaya or GetDist boundary, a separate workstation
-acceptance run should also publish a real Cobaya parameter with no `latex` and
-read the resulting sidecar through the installed GetDist.
+- A wrong, duplicated, or missing `ord` name refuses before sampling.
+- Invalid flag values and unknown flags refuse before output creation.
+- The label fallback is proved by the CPU gate for a parameter with no
+  `latex` entry.
 
-## Nested data paths and axis identity
+## Data paths and axis identity
 
 ### Rule
 
-One dotted-path registry resolves every file-valued config leaf against its
-documented project base. Absolute paths pass through. Errors name the full
-dotted key. Resolved consumed paths or a documented portable-root form are
-persisted consistently.
+`emulator/cocoa.py` resolves every file-valued key in the training config's
+`data` block against the project `chains/` folder: the flat keys (dumps,
+parameter files, covariance, failure masks) and the family sub-block keys
+(`grid.z_file`, `grid2d.z_file` / `k_file` / `train_base` / `val_base`,
+`cmb.covariance`). Absolute paths pass through unchanged. The YAML therefore
+carries bare filenames and a driver may run from any working directory.
 
-Train and validation payloads each declare their own axes. Exact train/val
-axis equality is required before staging. The dataset manifest binds every raw
-and base payload to axis bytes, parameter order, failure state, settings, and
-generation id. CMB payloads carry their own exact integer multipole sidecar;
-width is never axis identity.
+Coordinate axes are read from the generator's sidecar files, never re-declared
+in a YAML. Each config names one axis file per coordinate, shared by the
+training and validation payloads it describes; a payload trained against the
+wrong axis file is a user configuration error the axis-shape checks at
+staging and geometry construction catch when the widths disagree.
 
 ### Acceptance evidence
 
 - Shipped family configs resolve from a working directory different from the
   chain directory.
-- Absolute paths stay unchanged; missing paths name their dotted key; an old
-  cwd-relative decoy is not consulted.
-- Shifted, reversed, permuted, duplicated, gapped, and same-width wrong axes
-  refuse before geometry or training.
-- Separately written but byte-identical axes pass.
-- CMB missing or anonymous multipole identity refuses with migration guidance.
+- Absolute paths stay unchanged; a missing file fails naming its resolved
+  path.
+- A grid or multipole width that disagrees with the payload refuses before
+  training.
 
 ## Physical parameter cuts
 
@@ -1242,16 +780,12 @@ or copy without reconstructing old gate history.
 
 ## Claims that must remain explicit
 
-- A member census is not a cryptographic dataset manifest.
-- A manifest authenticates bytes and identity; it does not replace payload
-  validity, axis semantics, or lifecycle acceptance.
-- Production YAML filenames are logical locator keys, not mutable flat-file
-  paths. Missing locators require explicit regeneration or migration; there is
-  no legacy flat-file fallback.
-- A first interrupted unpublished draft cannot yet be resumed. Exact append
-  also refuses because NumPy, sampler, walker, log-probability, and unique-row
-  selection state are not yet persisted. Both limitations fail closed and do
-  not change an earlier active generation.
+- The failure mask and the scientific record are trusted as named: the
+  library validates their form, not their pairing with a particular dump.
+  The user owns the choice of which files belong together.
+- Append reproducibility comes from deriving the stream from the seed plus
+  the existing row count; a fresh `N` run followed by an append of `M` rows
+  is replayable, but it is not row-identical to one fresh `N+M` run.
 - Bounded grid2d staging does not certify production-sized PCE fitting.
 - Temporary-file recovery does not promise survival of `SIGKILL`, the
   operating-system signal that stops a process without cleanup; an

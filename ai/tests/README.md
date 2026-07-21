@@ -11,7 +11,7 @@ again before handing the result to the Architect. A user can run the same
 commands to see the result. A test answers one narrow question such as the two
 examples above. A gate is a larger named check whose required result is stated
 before it runs. A gate may run tests, compare a scientific result, or use
-configured data or hardware. For example, the dataset-publication gate runs
+configured data or hardware. For example, the parameter-table gate runs
 the tests that prove an accepted generated dataset cannot be changed. The next
 section explains why both levels are useful.
 
@@ -47,10 +47,9 @@ next change. If it fails, the recent edit and the narrow question give a small
 set of places to inspect.
 
 A **gate** checks several related results together. For example, the
-dataset-publication gate checks that accepted generated-data files remain
-read-only, damaged files are refused, and later work starts from separate
-writable copies. The gate runs the tests for those results and checks that no
-required test disappeared. If one required result needs a GPU or configured
+fixed-facts-schema gate checks that the scientific record beside a dataset
+parses, validates, and round-trips through a saved emulator. The gate runs
+the tests for those results and checks that no required test disappeared. If one required result needs a GPU or configured
 scientific data, the gate records that missing requirement as `UNAVAILABLE`
 rather than calling an unperformed check a pass.
 
@@ -217,22 +216,9 @@ redshift-by-wavenumber surface.
 | File | Question answered |
 | --- | --- |
 | `test_background_grid_contract.py` | Do training setup and the Cobaya adapter accept the same background quantities and physical units? |
-| `test_cmb_checkpoint_axis.py` | Can each saved CMB spectrum column be matched to the correct multipole `ell` value before any spectrum is loaded? |
-| `test_cmb_covariance_publication.py` | Can a completed CMB covariance receive its public filename without replacing an earlier result or exposing an interrupted write? |
 | `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
-| `test_dataset_locator.py` | Can a familiar parameter-chain filename find the current complete dataset without changing that filename after every publication? |
-| `test_dataset_publication.py` | Can readers see only one complete, unchanged generated dataset while resume or append work uses separate writable copies? |
-| `test_dataset_request_contract.py` | Does a saved request describe the exact scientific calculation and the exact files that calculation must produce? |
-| `test_cocoa_dataset_resolution.py` | Do the training and validation filenames in a user YAML resolve to two complete, internally consistent generated datasets? |
 | `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
-| `test_generator_checkpoint_refusal.py` | Does an explicit resume or append stop when any required progress file is missing or damaged? |
 | `test_generator_dark_energy_facts.py` | Does the generator recognize that sampled `w0pwa` and `w` make the calculated `wa` vary, then save the physical `w, wa` law? |
-| `test_generator_ingress.py` | Does a generator validate every requested parameter, covariance entry, fiducial value, family grid, and final sample count before it creates output? |
-| `test_generator_member_binding.py` | Does each generator determine its complete, safe list of filenames before touching the filesystem? |
-| `test_generator_mpi_message_binding.py` | Can an MPI worker result update only the parameter row that rank zero actually assigned to that worker? |
-| `test_generator_payload_success.py` | Is a generated row marked successful only after its scientific values survive validation, writing, and exact read-back? |
-| `test_generator_publication_bridge.py` | Does the real generator keep new files private until every required file is ready, closed, and safe to publish together? |
-| `test_generator_run_control.py` | Do the three legal run choices select new work, resume, or append without allowing one output kind to overwrite another? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
 | `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
 | `test_mps_generator_dark_energy_binding.py` | Does every generated Syren base row reuse the explicit dark-energy law obtained once during setup? |
@@ -260,52 +246,6 @@ Hubble rate or transverse distance at two redshifts.
   the wrong physical units. Such an array can produce a finite but
   scientifically incorrect prediction.
 
-#### CMB multipole labels
-
-`test_cmb_checkpoint_axis.py` checks the coordinate labels saved beside the
-four CMB spectra `TT`, `TE`, `EE`, and `PP`.
-
-- **Example used:** four spectrum columns represent
-  `ell = 2, 3, 4, 5`. The companion NumPy file must contain those exact
-  consecutive integers using the `int64` format.
-- **What the test does:** it first asks the loader to verify the coordinate
-  file, and records whether the loader tries to open any spectrum.
-- **Pass means:** the exact coordinate file is accepted, all four spectra load,
-  and none of the checkpoint files change.
-- **A refusal it proves:** a missing coordinate file, `int32` storage, a
-  two-dimensional array, the wrong length, a shifted range, reversed values, a
-  gap, or a changed order must stop before the first spectrum is read.
-- **Why it matters:** without this check, a valid number in one spectrum
-  column could be interpreted as the power at the wrong multipole.
-
-#### Publishing one completed CMB covariance
-
-`test_cmb_covariance_publication.py` checks the final file-writing part of the
-CMB covariance command. It uses tiny NumPy archives and does not run CAMB or
-train an emulator. Run it from the repository root with:
-
-```bash
-python3 -m unittest ai.tests.test_cmb_covariance_publication
-```
-
-- **Example used:** the candidate archive contains multipoles `2, 3, 4`, three
-  temperature uncertainties, and a short record of how it was made. An earlier
-  archive and a file created late by a second writer use visibly different
-  values, so the test can tell which bytes survived.
-- **What the test does:** it completes one normal publication, then separately
-  stops the private write and final-name step. Another case creates a competing
-  archive just before the final name is claimed. The command-line
-  case places an archive at the requested name while naming a missing YAML file.
-- **Pass means:** a normal run publishes the exact member names, shapes, data
-  types, and values. Every stopped run removes its private temporary file. An
-  archive that already owns the requested name remains byte-for-byte unchanged,
-  and the command refuses it before trying to read YAML or start CAMB.
-- **A refusal it proves:** neither an ordinary rerun nor a file that appears
-  while the calculation is running may be replaced. A write or final-name
-  failure may not leave a partial archive at the name used by readers.
-- **Why it matters:** calculating a CMB covariance can be expensive. A rerun or
-  interrupted save must not destroy the preceding usable scientific result.
-
 #### Parameter names used while selecting training rows
 
 `test_data_staging_paramnames.py` checks how a numeric table is connected to
@@ -326,143 +266,6 @@ training is called **staging** in this library.
   before the data-vector file is opened.
 - **Why it matters:** opening the data vector first could pair one cosmological
   parameter name with another column's numbers.
-
-#### Publishing one complete generated dataset
-
-`test_dataset_publication.py` checks how a finished group of generated files
-becomes the group that readers use. A **generation** is one complete named
-group. A small active-record file names the currently selected generation.
-
-- **Example used:** the test publishes nested files as generation A, publishes
-  generation B, and opens readers before and after the change. It also starts
-  a writable continuation from A.
-- **What the test does:** it records every required path, byte count, and
-  SHA-256 fingerprint; makes the accepted files read-only; and then simulates
-  changed bytes, extra files, links, interrupted copies, failed disk
-  synchronization, cleanup failures, and two writers finishing in a different
-  order.
-- **Pass means:** a reader that already opened A keeps reading A, a later
-  reader sees complete B, and continuation files are separate writable copies
-  whose edits cannot change A. An older writer cannot replace a newer active
-  record.
-- **A refusal it proves:** missing or extra files, changed bytes, symbolic or
-  hard links, a filename that leaves the generation folder, a file changed
-  during copying, or a stale writer must stop without changing the usable
-  active generation.
-- **Why it matters:** training must never combine some files from A with other
-  files from B, nor use files that changed after they were accepted.
-
-#### Finding a dataset from the filename written in a YAML file
-
-`test_dataset_locator.py` checks the small read-only record that connects a
-familiar chain filename to the generated dataset that currently owns it. This
-record is called a **locator**. It does not contain a particular generation
-name, so the same locator can find a newer accepted generation later.
-
-- **Example used:** the logical filename is `params.1.txt`. The test publishes
-  a first generation and then a second one. The locator file stays unchanged,
-  while a new lookup finds the second generation and an earlier reader keeps
-  its valid view of the first.
-- **What the test does:** it installs the locator twice, loads it by basename
-  and by its full path inside `chains/`, and tries to change its scientific
-  request, file list, formatting, permissions, and destination.
-- **Pass means:** repeated installation leaves the same read-only bytes in
-  place. The locator accepts only the exact logical filename, request, output
-  list, and dataset folder that created it.
-- **A refusal it proves:** a different random seed cannot take over an existing
-  logical filename. A writable, reformatted, linked, missing, nested, or
-  parent-traversing locator also stops before any generated file is returned.
-- **If this module fails:** a YAML filename may find the wrong calculation, or
-  a later publication may become unreachable. Do not train from that filename
-  until the locator failure is understood.
-- **Why it matters:** users should not have to edit a training YAML every time
-  a complete replacement generation is accepted, but one stable name must
-  never silently change scientific meaning.
-
-#### The saved description of a requested dataset
-
-`test_dataset_request_contract.py` checks the record that says exactly which
-scientific dataset a generator was asked to produce.
-
-- **Example used:** records cover uniform and Gaussian sampling, the random
-  seed, ordered parameter names, full or chain-only output, configuration
-  fingerprint, generator family, and matter-power variant. The **probe** is
-  the observable being requested, such as cosmic shear, CMB, background
-  quantities, or matter power.
-- **What the test does:** it converts each record to a fixed JSON byte
-  sequence and separately lists the required output files, such as four CMB
-  spectra plus their multipole coordinates or matter-power grids plus their
-  coordinate arrays.
-- **Pass means:** the same scientific request always gives the same JSON bytes
-  and file list. Changing a scientific choice, including the seed, parameter
-  order, sampling temperature, probe, or variant, changes the record.
-- **A refusal it proves:** duplicate parameter names, a uniform-sampling
-  boundary factor or Gaussian maximum-correlation value outside its allowed
-  range, an incompatible family, probe, generator, or variant, or a field
-  belonging to the other sampling method must stop. Checkpoint frequency and
-  other write-management choices must not be inserted as if they changed the
-  science.
-- **Why it matters:** a resume must continue the same calculation, not a
-  different calculation that happens to use similar filenames and shapes.
-
-#### Moving generator output from private work to an accepted generation
-
-`test_generator_publication_bridge.py` checks the production code that joins
-the numerical generator to immutable dataset publication. The test extracts
-only those real methods, so it does not start Cobaya, MPI, or a scientific
-calculation.
-
-- **Example used:** a new chain-only run writes all required files inside one
-  private folder. A resume copies an accepted generation into a different
-  writable folder. The examples also use one memory-mapped array and a family
-  represented by a dictionary of memory-mapped arrays.
-- **What the test does:** it checks the request fingerprint made from parsed
-  YAML and the final uniform-sampling bounds, publishes a fresh draft, resumes
-  from an unchanged accepted generation, and inspects the constructor order
-  used around MPI worker startup and shutdown.
-- **Pass means:** no familiar flat output file appears while work is in
-  progress. Memory-mapped files are flushed and closed, all MPI workers have
-  stopped, the failure mask contains only successful rows, and then the whole
-  generation becomes visible in one step.
-- **A refusal it proves:** a second fresh run cannot replace an existing
-  accepted generation. A crash before the first publication is not presented
-  as resumable work. Append stops after checking the existing generation
-  because the random-number and sampler state required for an exact append is
-  not yet saved. A failure-mask row containing `1` stops publication.
-- **If this module fails:** the generator may expose a partial file group,
-  replace newer work, publish a failed scientific row, or continue sampling
-  from incomplete state. Keep the preceding accepted generation in use.
-- **Why it matters:** the lower-level publication tests prove the file
-  mechanism. This module proves that the real generator calls that mechanism
-  at the correct points.
-
-#### Resolving training and validation files from a user YAML
-
-`test_cocoa_dataset_resolution.py` checks the step that reads the filenames in
-a training YAML and replaces them with files from complete accepted
-generations. Training and validation are looked up separately, so each one is
-fixed to one generation before data loading begins.
-
-- **Example used:** temporary datasets cover a CosmoLike vector, one CMB
-  spectrum with its multipole values, background quantities with redshift
-  values, and matter-power surfaces with redshift, wavenumber, and optional
-  Syren base files.
-- **What the test does:** it writes a small user YAML, resolves its logical
-  filenames, and compares every resulting path with the exact member of the
-  selected training or validation generation. It also records the generation,
-  member fingerprints, and scientific request in ordinary YAML-safe values.
-- **Pass means:** a payload, parameter table, covariance, failure mask,
-  coordinate array, and optional base all come from the correct selected
-  generation. Chain-only scalar data add no payload or failure-mask path.
-- **A refusal it proves:** loose older files are not accepted when no locator
-  exists. A user YAML cannot insert the resolver's private source record.
-  Different probes, parameter order, scientific facts, coordinate bytes, or a
-  payload borrowed from the other dataset stop before staging.
-- **If this module fails:** training may combine parameter rows from one
-  generation with vectors or coordinates from another. The resolved YAML must
-  not be used until every related path points to its proper generation.
-- **Why it matters:** individually valid files are not enough. The files used
-  for one training source must describe the same rows and the same science.
 
 #### Keeping failed generated rows out of training
 
@@ -490,155 +293,6 @@ means it did not produce a usable scientific vector.
 - **Why it matters:** a failed generator row can have a legal shape and finite
   zeros. The separate mask is what distinguishes that placeholder from a
   valid scientific result.
-
-#### Missing or damaged progress files
-
-`test_generator_checkpoint_refusal.py` checks the files used to continue an
-interrupted data-generation run.
-
-- **Example used:** it creates complete, incomplete, and damaged progress
-  groups for lensing, CMB, background, and matter-power generation.
-- **What the test does:** it requests a new run, a resume, or an append and
-  watches whether sampling begins. It also checks full-data and chain-only
-  requests separately.
-- **Pass means:** a new run may correctly report that no progress exists. A
-  requested resume or append loads only after every required parameter file,
-  failure marker, data file, and coordinate array for that generator passes
-  its checks. Chain-only work requires only its parameter-chain files.
-- **A refusal it proves:** a missing CMB multipole file, a coordinate array
-  with the wrong length, an invalid failure marker, or any other missing
-  required member stops instead of silently starting again from row zero.
-- **Why it matters:** silently starting over could overwrite useful progress
-  or combine old and newly generated rows under one filename.
-
-#### Generator settings checked before output creation
-
-`test_generator_ingress.py` checks the information a generator receives from
-its YAML, covariance file, command options, and sampled rows. It runs on the
-CPU with small temporary inputs. It does not call CAMB or CosmoLike and does
-not train an emulator. Run it from the repository root with:
-
-```bash
-python3 -m unittest ai.tests.test_generator_ingress
-```
-
-- **Example used:** a valid request writes `ord` as one outer list containing
-  `[H0, omegam]`. Its fiducial mapping supplies finite values for both names.
-  A covariance header adds one unused `nuisance` name and supplies the matching
-  three-by-three matrix, then requests the two sampled rows in `ord` order.
-- **What the test does:** it calls the small validation functions used by the
-  generator. These functions check the exact `train_args` fields, ordinary
-  YAML number and Boolean types, parameter-to-covariance alignment, fiducial
-  conversion, prior-bound conversion, supporting filenames, display labels,
-  and unique sampled rows at the saved parameter precision.
-  Production-source checks also prove that each shared command option still
-  calls its named strict validator. The row-count example passes four tiny
-  arrays directly to the selector; it does not run MCMC.
-- **Pass means:** valid native YAML integers, numbers, and Booleans keep their
-  meaning; the requested covariance is selected in `ord` order; the final row
-  count equals the requested count; and a parameter without usable `latex`
-  text uses its parameter name as the display label.
-- **A refusal it proves:** a duplicate or wrongly nested `ord`, a sampled name
-  containing whitespace, a covariance filename that leaves the YAML folder,
-  a repeated covariance header, a nonsquare or nonfinite matrix, meaningfully
-  different opposite covariance entries, a nonpositive variance, a Boolean
-  fiducial, a quoted point count, a control character in a display label, an
-  unknown `train_args` setting, or too few unique MCMC rows is rejected by the
-  validator that runs before output creation.
-- **Why it matters:** a malformed request can still contain plausible names
-  and numbers. Refusing it before file creation avoids leaving a smaller or
-  differently ordered dataset that looks complete.
-
-#### The filenames owned by each generator
-
-`test_generator_member_binding.py` checks the complete file list assigned to
-each scientific generator.
-
-- **Example used:** lensing, CMB, background, and matter-power generators are
-  tested in full-data and chain-only modes. The optional Syren matter-power
-  base adds exactly two base arrays.
-- **What the test does:** after validating the settings, it asks the generator
-  for every absolute path it may use and compares that list with the files the
-  generator's real save and load methods expect. No candidate file is opened
-  during this step.
-- **Pass means:** each generator receives only its own family and variant
-  files, full and chain-only names remain separate, and the saved file list is
-  reused by later operations.
-- **A refusal it proves:** a family sent to the wrong generator, an
-  incompatible family variant, output names that resolve to different
-  folders, two names differing only by letter case, a driver whose file list
-  cannot be verified, or a non-Boolean Syren switch stops before the program
-  checks whether any path exists.
-- **Why it matters:** similar filenames must not let one generator read files
-  that belong to another scientific calculation.
-
-#### Matching a parallel result to its assigned row
-
-`test_generator_mpi_message_binding.py` checks the messages returned by
-parallel data-generator workers. MPI is the tool that lets rank zero give
-different parameter rows to several worker processes at the same time.
-
-- **Example used:** rank zero assigns row 4 to worker 2 and row 17 to worker 3.
-  Worker 3 replies first, followed by worker 2. A stale, repeated, or damaged
-  reply may instead name row 5, arrive from a worker with no current
-  assignment, or claim that the wrong worker finished shutting down.
-- **What the test does:** it runs the real message validators without starting
-  MPI or a scientific calculation. It also reads the generator source to
-  confirm that both result-receiving loops and the shutdown loop validate a
-  message before removing the worker's assignment.
-- **Pass means:** a valid result keeps its payload and uses the row stored in
-  rank zero's assignment. A valid shutdown reply names the same worker that
-  sent it. The validator itself never edits the assignment table.
-- **A refusal it proves:** an unknown worker, a duplicate reply, a different
-  row number, a Boolean or negative row, an unknown result kind, a malformed
-  error report, or a false shutdown reply stops before a data-vector row is
-  changed.
-- **Why it matters:** without this binding, a perfectly finite scientific
-  vector calculated for one cosmology could be written beside another
-  cosmology's parameters. The saved arrays would have valid shapes and could
-  silently train the emulator on false row-to-target pairs.
-
-#### When a generated row becomes successful
-
-`test_generator_payload_success.py` checks the point at which one generated
-sample changes from failed to successful.
-
-- **Example used:** small flat vectors, four CMB spectra, two background
-  quantities, and matter-power output with and without the optional base are
-  saved in temporary progress files.
-- **What the test does:** it validates a row, converts it to the configured
-  storage format, writes it once, reads it back, and compares the stored bytes
-  with the validated values. Existing rows already marked successful or
-  failed are also checked during resume.
-- **Pass means:** the failure marker clears only after names, shape, finite
-  numbers, storage type, and exact read-back values all agree. A saved row
-  already marked failed stays failed.
-- **A refusal it proves:** `NaN`, infinity, conversion overflow, a missing
-  background quantity, a wrong CMB spectrum length, an unexpected
-  matter-power quantity, or changed bytes after writing leaves the row failed
-  and does not silently repair an existing file.
-- **Why it matters:** an interrupted or overflowing calculation must not be
-  counted as valid training data merely because some bytes were written.
-
-#### New work, resume, append, and chain-only output
-
-`test_generator_run_control.py` checks the three command settings
-`loadchk`, `append`, and `chain`.
-
-- **Example used:** the test tries every combination of omitted values, the
-  exact integers `0` and `1`, and look-alikes such as `True`, `1.0`,
-  and the text `"1"`.
-- **What the test does:** it turns the first two settings into one operation
-  and the third setting into either full-data or chain-only output. It then
-  asks for the filename beginning used by that output.
-- **Pass means:** `(0, 0)` selects new work, `(1, 0)` selects resume, and
-  `(1, 1)` selects append. Chain-only output adds `_chain_only`, and the
-  validated decision cannot later be edited.
-- **A refusal it proves:** append without resume, a value other than an exact
-  integer `0` or `1`, or an empty or unknown output choice stops before a
-  generator file changes.
-- **Why it matters:** these checks prevent an accidental fresh run or a
-  chain-only request from overwriting a complete generated dataset.
 
 #### Selecting Grid2D rows from memory or disk
 

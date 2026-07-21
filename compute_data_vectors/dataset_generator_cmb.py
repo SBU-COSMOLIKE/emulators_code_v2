@@ -4,7 +4,6 @@ import psutil
 from numpy.lib.format import open_memmap
 from generator_core import (GeneratorCore, capture_native_output,
                             run_generator)
-from generator_ingress import native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -59,7 +58,7 @@ from generator_ingress import native_integer
 #      lcdm_dvs_train_cmblensed_unifs_te.npy
 #      lcdm_dvs_train_cmblensed_unifs_ee.npy
 #      lcdm_dvs_train_cmblensed_unifs_pp.npy
-#      # Exact int64 multipoles shared by the four spectrum files:
+#      # The exact int64 multipoles shared by the four spectrum files:
 #      lcdm_dvs_train_cmblensed_unifs_ell.npy
 #      # Training parameters in which the computation failed (or not computed)
 #      lcdm_params_failed_train_cmblensed_unifs.txt
@@ -68,7 +67,7 @@ from generator_ingress import native_integer
 #  per-spectrum files (one emulator per spectrum, data.cmb.spectrum names it).
 #
 # Deviations from the legacy emultraining/dataset_generator_cmb.py, ruled in
-# the shared-generator design (ai/notes/families-scalar-cmb.md):
+# the shared-generator design (notes/families-scalar-cmb.md):
 #   1. Four per-spectrum 2D .npy files replace the legacy 3D (N, ell, 5)
 #      array — the training stack stages 2D dv files.
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and
@@ -88,12 +87,14 @@ class dataset(GeneratorCore):
   CMB spectra generator: one CAMB-through-cobaya call per sample yields
   all four spectra at once, stored as four per-spectrum 2D arrays
   ({dvsf}_tt.npy ... {dvsf}_pp.npy) — the core's dv-store hooks are all
-  overridden together. The companion {dvsf}_ell.npy file stores the exact
-  int64 multipole axis. The per-sample payload is a (4, nell) float32 array
-  in SPECTRA row order.
+  overridden together. The companion {dvsf}_ell.npy sidecar stores the
+  exact int64 multipole axis the columns mean. The per-sample payload is
+  a (4, nell) float32 array in SPECTRA row order.
   """
   VALID_PROBES = ("cmblensed", "cmbunlensed")
   EXTRA_TRAIN_KEYS = ("lrange",)
+  FAMILY = "cmb"                      # scientific-record family name
+  PROGRAM = "dataset_generator_cmb"   # producer name in the record
 
   def _read_train_args(self, train_args):
     """
@@ -109,15 +110,10 @@ class dataset(GeneratorCore):
     training YAML's likelihood block can be the dummy `one` — the script
     never depends on a likelihood having requested the spectra.
     """
-    lrange_spec = train_args["lrange"]
-    if (not isinstance(lrange_spec, (list, tuple)) or
-        len(lrange_spec) != 2):
+    lrange = np.array(train_args["lrange"], dtype=int)
+    if lrange.shape != (2,):
       raise ValueError(f"train_args.lrange must be [lmin, lmax], "
-                       f"got {lrange_spec!r}")
-    lmin = native_integer(
-      lrange_spec[0], "train_args.lrange[0]", minimum=2)
-    lmax = native_integer(lrange_spec[1], "train_args.lrange[1]")
-    lrange = np.array((lmin, lmax), dtype=np.int64)
+                       f"got {train_args['lrange']!r}")
     if lrange[0] < 2 or lrange[1] <= lrange[0]:
       raise ValueError(f"train_args.lrange must satisfy 2 <= lmin < lmax, "
                        f"got [{lrange[0]}, {lrange[1]}]")
@@ -142,73 +138,9 @@ class dataset(GeneratorCore):
   #-----------------------------------------------------------------------------
   # data-vector store: four per-spectrum 2D arrays -> {dvsf}_<spec>.npy
   #-----------------------------------------------------------------------------
-  def _dv_payload_names(self):
-    """Return the four required spectrum members in stored row order."""
-    return SPECTRA
-
-  def _dv_payload_mapping(self, payload):
-    """Split one exact (spectrum, multipole) array into named rows."""
-    if not isinstance(payload, np.ndarray):
-      raise ValueError(
-        "a CMB payload must be a NumPy array with one row per spectrum; got "
-        f"{type(payload).__name__}")
-    expected_shape = (len(SPECTRA), self._multipole_axis().shape[0])
-    if payload.shape != expected_shape:
-      raise ValueError(
-        f"a CMB payload has shape {payload.shape}, expected {expected_shape} "
-        "for (tt, te, ee, pp) on train_args.lrange")
-    mapping = {}
-    for spectrum_index, spectrum in enumerate(SPECTRA):
-      mapping[spectrum] = payload[spectrum_index]
-    return mapping
-
-  def _dv_expected_payload_shape(self, name):
-    """Return the configured multipole-row shape for one spectrum."""
-    if name not in SPECTRA:
-      raise ValueError(
-        f"unknown CMB payload member {name!r}; expected one of {SPECTRA!r}")
-    return (self._multipole_axis().shape[0],)
-
-  def _dv_payload_store(self, name):
-    """Return the 2D checkpoint store for one spectrum member."""
-    if name not in SPECTRA:
-      raise ValueError(
-        f"unknown CMB payload member {name!r}; expected one of {SPECTRA!r}")
-    return self.datavectors[name]
-
   def _multipole_axis(self):
-    """Return every configured CMB multipole as a 1D int64 array."""
-    lmin = int(self.lrange[0])
-    lmax = int(self.lrange[1])
-    return np.arange(lmin, lmax + 1, dtype=np.int64)
-
-  def _load_multipole_axis(self):
-    """Load the CMB axis sidecar and require its exact saved coordinates."""
-    axis_path = f"{self.dvsf}_ell.npy"
-    observed = np.load(axis_path, allow_pickle=False)
-    expected_dtype = np.dtype(np.int64)
-    if observed.dtype != expected_dtype:
-      raise ValueError(
-        f"checkpoint CMB multipole axis has dtype {observed.dtype}, "
-        f"expected {expected_dtype}; use a checkpoint written for this "
-        "CMB train_args.lrange")
-    if observed.ndim != 1:
-      raise ValueError(
-        f"checkpoint CMB multipole axis must be 1D, got {observed.shape}; "
-        "use a checkpoint written for this CMB train_args.lrange")
-
-    expected = self._multipole_axis()
-    if observed.shape != expected.shape:
-      raise ValueError(
-        f"checkpoint CMB multipole axis has shape {observed.shape}, "
-        f"expected {expected.shape} from train_args.lrange; use a matching "
-        "checkpoint")
-    if not np.array_equal(observed, expected):
-      raise ValueError(
-        "checkpoint CMB multipole axis must contain every integer from "
-        f"{expected[0]} through {expected[-1]} in increasing order; use a "
-        "checkpoint written for this CMB train_args.lrange")
-    return observed
+    """The multipole grid the stored columns mean: lmin..lmax inclusive."""
+    return np.arange(self.lrange[0], self.lrange[1] + 1, dtype=np.int64)
 
   def _dv_chk_files(self):
     """Files the checkpoint loader must find before trusting a chk."""
@@ -220,33 +152,32 @@ class dataset(GeneratorCore):
 
   def _dv_load_chk(self):
     """Load all four per-spectrum stores (RAM-aware, one shared policy)."""
-    self._load_multipole_axis()
-
-    read_only = getattr(self, "_checkpoint_read_only", False)
-    if read_only:
-      self.dvs_is_memmap = True
+    # a checkpoint written for one lrange must never be continued on
+    # another: the columns would silently mean different multipoles.
+    self._load_axis_checkpoint(path=f"{self.dvsf}_ell.npy",
+                               expected=self._multipole_axis(),
+                               label="CMB multipole")
+    RAMneed = self.samples.nbytes + self.failed.nbytes
+    for spec in SPECTRA:
+      arr = np.load(f"{self.dvsf}_{spec}.npy",
+                    mmap_mode = "r",
+                    allow_pickle = False)
+      RAMneed += arr.nbytes
+      del arr
+    RAMavail = psutil.virtual_memory().available
+    if RAMneed < 0.75 * RAMavail:
+      self.dvs_is_memmap = False
     else:
-      RAMneed = self.samples.nbytes + self.failed.nbytes
-      for spec in SPECTRA:
-        arr = np.load(f"{self.dvsf}_{spec}.npy",
-                      mmap_mode = "r",
-                      allow_pickle = False)
-        RAMneed += arr.nbytes
-        del arr
-      RAMavail = psutil.virtual_memory().available
-      if RAMneed < 0.75 * RAMavail:
-        self.dvs_is_memmap = False
-      else:
-        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-              f"We will read dvs from HD (slow)")
-        self.dvs_is_memmap = True
+      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+            f"We will read dvs from HD (slow)")
+      self.dvs_is_memmap = True
 
     self.datavectors = {}
     for spec in SPECTRA:
       if self.dvs_is_memmap:
         self.datavectors[spec] = np.load(f"{self.dvsf}_{spec}.npy",
-                                         mmap_mode = "r" if read_only else "r+",
+                                         mmap_mode = "r+",
                                          allow_pickle = False)
       else:
         self.datavectors[spec] = np.load(f"{self.dvsf}_{spec}.npy",
@@ -256,7 +187,7 @@ class dataset(GeneratorCore):
                          f"got {self.datavectors[spec].shape}")
       if self.datavectors[spec].shape[0] != self.samples.shape[0]:
         raise ValueError(f"Incompatible samples/datavector ({spec}) chk files")
-      expected_width = int(self.lrange[1] - self.lrange[0] + 1)
+      expected_width = (self.lrange[1] - self.lrange[0]) + 1
       if self.datavectors[spec].shape[1] != expected_width:
         raise ValueError(
           f"chk datavectors ({spec}) have "
@@ -332,14 +263,13 @@ class dataset(GeneratorCore):
     """
     Allocate all four stores for nrows samples, sized from the first
     computed (4, nell) payload (RAM-aware: in-RAM zeros or on-disk
-    memmaps, one shared policy). Save the exact int64 multipole axis beside
-    those stores.
+    memmaps, one shared policy). The exact int64 multipole axis is saved
+    beside the stores — the training path reads the grid from the FILE
+    (resolved values, never re-declared in a YAML).
     """
-    multipoles = self._multipole_axis()
-    expected_shape = (len(SPECTRA), multipoles.shape[0])
-    if first_dvs.shape != expected_shape:
+    if first_dvs.shape != (len(SPECTRA), (self.lrange[1]-self.lrange[0])+1):
       raise ValueError(f"first computed payload has shape {first_dvs.shape}, "
-                       f"expected {expected_shape} "
+                       f"expected {(len(SPECTRA), (self.lrange[1]-self.lrange[0])+1)} "
                        f"from train_args.lrange {self.lrange.tolist()}")
     ncols = first_dvs.shape[1]
     RAMneed = ( self.samples.nbytes +
@@ -365,13 +295,13 @@ class dataset(GeneratorCore):
         self.datavectors[spec].flush()
       else:
         self.datavectors[spec] = np.zeros((nrows, ncols), dtype=self.dtype)
-
-    np.save(f"{self.dvsf}_ell.npy", multipoles)
+    # the multipole sidecar, written once beside the stores.
+    np.save(f"{self.dvsf}_ell.npy", self._multipole_axis())
 
   def _dv_write(self, i, dvs):
-    """Write one validated spectrum mapping to row i of every store."""
-    for spec in SPECTRA:
-      self.datavectors[spec][i] = dvs[spec]
+    """Write one (4, nell) payload at row i of each per-spectrum store."""
+    for j, spec in enumerate(SPECTRA):
+      self.datavectors[spec][i] = dvs[j]
 
   def _dv_zero(self, i):
     """Zero row i of each per-spectrum store (a failed sample)."""

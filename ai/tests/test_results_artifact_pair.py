@@ -118,7 +118,7 @@ def _fixture_output_identity(variant="default"):
     transfer_refined=False,
     resolved_pce=None,
     resolved_transfer=None,
-    require_published_selection=False)
+    require_staged_selection=False)
 
 
 def _rebuild(root):

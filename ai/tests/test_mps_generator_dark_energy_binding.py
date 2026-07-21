@@ -20,9 +20,6 @@ from unittest import mock
 
 import numpy as np
 
-from compute_data_vectors.generator_ingress import finite_number
-from compute_data_vectors.generator_ingress import native_boolean
-from compute_data_vectors.generator_ingress import native_integer
 from emulator import syren_base
 
 
@@ -39,12 +36,12 @@ def _compile_generator_boundary(publication_facts):
   ]
   if len(classes) != 1:
     raise AssertionError("matter-power generator has no unique dataset class")
-  selected = {"_read_train_args", "_read_write_base", "_compute_dvs_from_sample"}
+  selected = {"_read_train_args", "_compute_dvs_from_sample"}
   methods = [
     copy.deepcopy(node) for node in classes[0].body
     if isinstance(node, ast.FunctionDef) and node.name in selected
   ]
-  if {method.name for method in methods} != selected or len(methods) != 3:
+  if {method.name for method in methods} != selected or len(methods) != 2:
     raise AssertionError(
       "matter-power dark-energy methods changed shape; update this focused "
       "production-method test")
@@ -62,10 +59,7 @@ def _compile_generator_boundary(publication_facts):
   namespace = {
     "np": np,
     "math": math,
-    "finite_number": finite_number,
-    "native_boolean": native_boolean,
-    "native_integer": native_integer,
-    "_dark_energy_publication_facts": publication_facts,
+    "dark_energy_facts": publication_facts,
     "capture_native_output": capture_native_output,
   }
   exec(compile(module, str(GENERATOR), "exec"), namespace)

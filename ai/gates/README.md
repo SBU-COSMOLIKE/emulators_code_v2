@@ -39,15 +39,16 @@ GPU and the project data. Developers can still run the smaller checks in
 ## Tests, gates, and the board are different
 
 A **test** asks one narrow question about the code. For example,
-`test_missing_axis_is_a_requested_load_refusal` supplies saved CMB progress
-files without `dv_ell.npy`, the file that records the multipole values. The
-test confirms that loading stops before any spectrum file is opened.
+`test_failure_mask_refuses_bad_tokens_and_row_counts` writes a failure file
+containing the word `true` instead of the digits `0` and `1`, the only two
+tokens the generator ever writes. The test confirms that staging refuses the
+file instead of quietly reading `true` as a number.
 
 From the repository root, the folder that contains `ai/` and `emulator/`, run:
 
 ```bash
 python3 -m unittest \
-  ai.tests.test_cmb_checkpoint_axis.CmbCheckpointAxisTests.test_missing_axis_is_a_requested_load_refusal
+  ai.tests.test_failed_row_staging.FailedRowStagingTests.test_failure_mask_refuses_bad_tokens_and_row_counts
 ```
 
 The command uses temporary files, does not update the gates board, and ends
@@ -55,18 +56,17 @@ with `Ran 1 test` followed by `OK` when the refusal works.
 
 A **gate** is one named final check registered in `ai/gates/board.py`. A gate
 may combine many tests, run a check program, start a real training job, or do
-all three. For example, the `dataset-publication` gate groups focused CPU
-tests into six required results. Those tests follow generated files from the
-generator's private work folder to the exact saved train and validation data
-that Cocoa gives to training. On the configured workstation, this command runs
-that gate:
+all three. For example, the `parameter-table` gate groups the focused CPU
+tests that follow a saved parameter table from its producer-declared schema
+to the exact rows staging gives to training. On the configured workstation,
+this command runs that gate:
 
 ```bash
-python3 ai/gates/run_board.py --gate dataset-publication
+python3 ai/gates/run_board.py --gate parameter-table
 ```
 
 A successful attempt exits with code 0 and prints a line beginning
-`[harness] GATE dataset-publication: PASS`. Code 0 is the number the terminal
+`[harness] GATE parameter-table: PASS`. Code 0 is the number the terminal
 uses for a successful command. The attempt also updates the board's saved
 results and writes a text log containing the commands, output, and results.
 
@@ -104,9 +104,7 @@ These examples show the board's range; they are not the full inventory.
 | --- | --- |
 | `artifact-output-identity` | Builds small identities for CMB, background, matter-power, CosmoLike, and scalar products. It checks that scientific changes receive different names, moving unchanged inputs does not rename them, and an existing output root is refused without changing its files. |
 | `adapter-contracts` | Most checks use small stand-ins, and one check uses the installed Cobaya lifecycle; none trains a model. The gate refuses a quoted `"false"` where a Boolean is required, checks that cosmic-shear sections are assembled in physical order, validates exact scalar and CMB request forms, and confirms that changing a covered returned array cannot corrupt the next result. |
-| `cmb-covariance-publication` | Uses tiny NumPy archives on the CPU; it does not run CAMB or train an emulator. It checks that an existing CMB covariance survives unchanged, interrupted writes leave no public partial file, a completed private archive receives its final name without replacement, and a second file created during the calculation is not overwritten. |
-| `dataset-publication` | Creates temporary generated datasets. It checks that the generator saves one complete read-only version, Cocoa selects one saved train dataset and one saved validation dataset, and rows marked as failed do not reach training. |
-| `generator-ingress` | Runs the focused generator-input tests on the CPU. It checks parameter order, covariance path and contents, fiducial input, every shared scalar command control, the number, integer, and Boolean validators used by family grids, unique-row count, and safe GetDist label fallback. It uses temporary small inputs; the MCMC case passes arrays directly to the row selector and does not run CAMB, CosmoLike, MCMC, or emulator training. |
+| `generator-seed` | Checks on the CPU that every random draw in the dataset generator comes from the one required, recorded seed, so a saved parameter table can be reproduced from its recorded inputs. |
 | `scalar-identity` | Requires a scalar emulator's prediction before saving and after rebuilding to match exactly. |
 | `cmb-smoke` | Builds a small CMB dataset and covariance, trains an emulator, asks it for predictions through Cobaya, and creates diagnostic plots. |
 | `bsn-smoke` | Compares a background-distance emulator with values from CAMB, the reference cosmology program used by this check. |
@@ -147,17 +145,17 @@ First print a plan. A dry run shows commands but does not perform the
 workstation check, run a gate, or update the saved results.
 
 ```bash
-python3 ai/gates/run_board.py --dry-run --gate dataset-publication
+python3 ai/gates/run_board.py --dry-run --gate parameter-table
 ```
 
-The first line is `selected 1 gate(s): dataset-publication`. The next line
+The first line is `selected 1 gate(s): parameter-table`. The next line
 begins `dry-run plan`, followed by the check program the gate would start. No
 board result or log is written.
 
 On the configured workstation, run that one gate with:
 
 ```bash
-python3 ai/gates/run_board.py --gate dataset-publication
+python3 ai/gates/run_board.py --gate parameter-table
 ```
 
 This real run updates the board result files and writes a log for the completed
@@ -185,7 +183,7 @@ The optional `triangle-shading` gate runs only when named explicitly. The live
 ## Read the result
 
 A completed gate attempt writes a file such as
-`dataset-publication.20260716-143012-123456.log` inside the existing
+`parameter-table.20260716-143012-123456.log` inside the existing
 `ai/gates/logs/` folder. The name contains the gate ID followed by the date,
 time, and microseconds, so each attempt has a different name. The log contains
 the command that started the check, the program output, the individual

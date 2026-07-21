@@ -39,10 +39,13 @@ from generator_core import (GeneratorCore, capture_native_output,
 #
 #  Even on Uniform Sampling, the temperature parameter is needed to set hard boundary on parameters with Gaussian prior
 #
+#- The required `--seed` flag makes the parameter table reproducible: the same
+#  seed, YAML, and code draw the same samples, and the seed is recorded in the
+#  chain header.
+#
 #- For visualization purposes, `--chain 1` generates only the training
-#  parameters. It adds `_chain_only` to the output stem and writes `.1.txt`,
-#  `.paramnames`, `.covmat`, `.ranges`, and `.facts.yaml`; it neither computes
-#  nor reuses failure, data-vector, or axis files from a full run.
+#  parameters (no data vectors). It adds `_chain_only` to the output stem, so
+#  it can never overwrite the files of a full run with the same names.
 #
 #- The output files are
 #
@@ -81,6 +84,8 @@ class dataset(GeneratorCore):
   """
   VALID_PROBES = ("cs", "ggl", "gc")
   EXTRA_TRAIN_KEYS = ()
+  FAMILY = "cosmolike"                    # scientific-record family name
+  PROGRAM = "dataset_generator_lensing"   # producer name in the record
 
   def _compute_dvs_from_sample(self, sample):
     # Define fortran errors we want to capture ---------------------------------

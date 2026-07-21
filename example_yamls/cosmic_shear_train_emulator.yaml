@@ -15,6 +15,9 @@ data:
   train_covmat: w0wa_takahashi_params_train_cs_16.covmat
   val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
   val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+  # the generator failure files: rows flagged 1 failed and never train.
+  train_failure_mask: w0wa_takahashi_params_failed_train_cs_16.txt
+  val_failure_mask:   w0wa_takahashi_params_failed_train_cs_8.txt
 
   cosmolike_data_dir: lsst_y1
   cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset

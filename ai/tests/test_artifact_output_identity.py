@@ -56,60 +56,21 @@ def _digest(character):
   return character * 64
 
 
-def _source_pin(*, split, probe="cs", generation=None,
-                row_order_character=None):
-  """Return one path-rich source pin with an authenticated row selection."""
-  if split == "train":
-    defaults = ("train-generation", "1", "2", "3", "4", "5")
-  else:
-    defaults = ("validation-generation", "6", "7", "8", "9", "a")
-  (default_generation, active_character, manifest_character,
-   parameter_character, payload_character, default_row_character) = defaults
-  generation = default_generation if generation is None else generation
-  row_character = (default_row_character if row_order_character is None
-                   else row_order_character)
+def _staged_record(*, row_order_character):
+  """Return one plain staged-row selection record for a fixture."""
   return {
     "schema": 1,
-    "slot_id": split + "-slot-id",
-    "slot": split,
-    "generation": generation,
-    # These path fields model resolver bookkeeping.  Output identity must use
-    # the authenticated facts below, not the spelling of a checkout path.
-    "publication_root": "/machine-a/publications/" + split,
-    "active_path": "/machine-a/ACTIVE-" + split + ".json",
-    "active_sha256": _digest(active_character),
-    "manifest_sha256": _digest(manifest_character),
-    "identity": {
-      "probe": probe,
-      "dataset_mode": "published",
-      "sampling": "latin-hypercube",
-    },
-    "members": {
-      "parameters.chain": {
-        "path": "/machine-a/generations/" + generation + "/params.txt",
-        "size": 120,
-        "sha256": _digest(parameter_character),
-      },
-      "payload.vector": {
-        "path": "/machine-a/generations/" + generation + "/values.npy",
-        "size": 240,
-        "sha256": _digest(payload_character),
-      },
-    },
-    "selection": {
-      "schema": 1,
-      "source_rows": 10,
-      "selected_rows": 3,
-      "row_order_encoding": "uint64-big-endian-v1",
-      "row_order_sha256": _digest(row_character),
-      "split_seed": 17,
-      "param_cuts": {"omegabh2_hi": 0.024, "omegabh2_lo": 0.019},
-    },
+    "source_rows": 10,
+    "selected_rows": 3,
+    "row_order_encoding": "uint64-big-endian-v1",
+    "row_order_sha256": _digest(row_order_character),
+    "split_seed": 17,
+    "param_cuts": {"omegabh2_hi": 0.024, "omegabh2_lo": 0.019},
   }
 
 
-def _data(*, probe="cs", block=None, outputs=None):
-  """Return a resolved data mapping with both production source pins."""
+def _data(*, block=None, outputs=None):
+  """Return a resolved data mapping with both staged-selection records."""
   data = {
     "train_params": "/machine-a/chains/train.1.txt",
     "val_params": "/machine-a/chains/validation.1.txt",
@@ -118,10 +79,10 @@ def _data(*, probe="cs", block=None, outputs=None):
     "train_covmat": "/machine-a/chains/train.covmat",
     "cosmolike_data_dir": "lsst_y1",
     "cosmolike_dataset": "3x2pt.dataset",
-    "_dataset_sources": {
+    "_staged_selection": {
       "schema": 1,
-      "train": _source_pin(split="train", probe=probe),
-      "validation": _source_pin(split="validation", probe=probe),
+      "train": _staged_record(row_order_character="5"),
+      "validation": _staged_record(row_order_character="a"),
     },
   }
   if outputs is not None:
@@ -165,7 +126,7 @@ def _arguments(*, data=None):
     "transfer_refined": False,
     "resolved_pce": None,
     "resolved_transfer": None,
-    "require_published_selection": True,
+    "require_staged_selection": True,
   }
 
 
@@ -310,14 +271,16 @@ class ScientificProductIdentityTests(unittest.TestCase):
     self.assertEqual(boost["family"], "mps")
     self.assertNotEqual(pklin["tag"], boost["tag"])
 
-  def test_cosmolike_cs_ggl_and_gc_have_three_distinct_identities(self):
-    """The three CosmoLike probes cannot reuse one generic data-vector root."""
-    identities = [_build(data=_data(probe=probe))
-                  for probe in ("cs", "ggl", "gc")]
-    self.assertEqual(
-      [identity["product"] for identity in identities],
-      ["cs", "ggl", "gc"])
-    self.assertEqual(len({identity["tag"] for identity in identities}), 3)
+  def test_cosmolike_identity_uses_the_generic_data_vector_product(self):
+    """The CosmoLike family names one generic data-vector product.
+
+    The training config carries no probe name (the probe lives in the
+    generator YAML), so runs are distinguished by their dataset descriptor,
+    staged rows, and recipes rather than by a per-probe product label.
+    """
+    identity = _build(data=_data())
+    self.assertEqual(identity["family"], "cosmolike")
+    self.assertEqual(identity["product"], "data-vector")
 
   def test_scalar_output_order_is_part_of_the_identity(self):
     """Scalar columns with reversed meanings cannot share one artifact."""
@@ -357,19 +320,15 @@ class RecipeAndDatasetIdentityTests(unittest.TestCase):
         self.assertNotEqual(
           baseline["sha256"], _build(resolved_model=model)["sha256"])
 
-  def test_training_generation_and_row_order_change_the_identity(self):
-    """A republished dataset or a new selected-row order receives a new root."""
+  def test_staged_row_order_changes_the_identity(self):
+    """A new selected-row order in either split receives a new root."""
     baseline_data = _data(outputs=["sigma8"])
     baseline = _build(data=baseline_data)
 
     cases = []
     for split in ("train", "validation"):
-      changed_generation = copy.deepcopy(baseline_data)
-      changed_generation["_dataset_sources"][split]["generation"] += "-new"
-      cases.append((split + " generation", changed_generation))
-
       changed_order = copy.deepcopy(baseline_data)
-      changed_order["_dataset_sources"][split]["selection"][
+      changed_order["_staged_selection"][split][
         "row_order_sha256"] = _digest("b" if split == "train" else "c")
       cases.append((split + " row order", changed_order))
 
@@ -451,19 +410,13 @@ class RecipeAndDatasetIdentityTests(unittest.TestCase):
 class PathIndependenceTests(unittest.TestCase):
   """Check that moving identical authenticated inputs does not rename a run."""
 
-  def test_dataset_and_member_paths_do_not_change_the_identity(self):
-    """Only member bytes and staged rows matter, not local source locations."""
+  def test_dataset_paths_do_not_change_the_identity(self):
+    """Only staged rows and recipes matter, not local source locations."""
     first_data = _data(outputs=["sigma8"])
     moved_data = copy.deepcopy(first_data)
     for key in ("train_params", "val_params", "train_dv", "val_dv",
                 "train_covmat"):
       moved_data[key] = "/machine-b/relocated/" + key
-    for split in ("train", "validation"):
-      pin = moved_data["_dataset_sources"][split]
-      pin["publication_root"] = "/machine-b/publications/" + split
-      pin["active_path"] = "/machine-b/ACTIVE-" + split + ".json"
-      for role, member in pin["members"].items():
-        member["path"] = "/machine-b/relocated/" + split + "/" + role
 
     self.assertEqual(_build(data=first_data), _build(data=moved_data))
 
@@ -508,63 +461,45 @@ class PathIndependenceTests(unittest.TestCase):
     self.assertEqual(first, moved)
 
 
-class ProductionPinRefusalTests(unittest.TestCase):
+class ProductionRecordRefusalTests(unittest.TestCase):
   """Check that a production identity cannot silently use fixture fallback."""
 
-  def test_production_refuses_missing_dataset_sources(self):
-    """A completed production run needs two resolver-published source pins."""
+  def test_production_refuses_missing_staged_selection(self):
+    """A completed production run needs both staged-row records."""
     data = _data(outputs=["sigma8"])
-    del data["_dataset_sources"]
+    del data["_staged_selection"]
     with self.assertRaisesRegex(ValueError, "production output identity"):
       _build(data=data)
 
-  def test_production_refuses_a_missing_split_pin(self):
+  def test_production_refuses_a_missing_split_record(self):
     """Neither training nor validation provenance may be omitted."""
     for missing in ("train", "validation"):
       with self.subTest(missing=missing):
         data = _data(outputs=["sigma8"])
-        del data["_dataset_sources"][missing]
+        del data["_staged_selection"][missing]
         with self.assertRaisesRegex(ValueError, missing):
           _build(data=data)
 
-  def test_production_refuses_a_split_without_staged_selection(self):
-    """A generation pin alone does not say which rows were trained or tested."""
-    for split in ("train", "validation"):
-      with self.subTest(split=split):
-        data = _data(outputs=["sigma8"])
-        del data["_dataset_sources"][split]["selection"]
-        with self.assertRaisesRegex(ValueError, "staged row selection"):
-          _build(data=data)
-
-  def test_production_refuses_missing_authenticated_pin_facts(self):
-    """Active record, manifest, members, and row order are all mandatory."""
-    cases = (
-      ("active_sha256", "active record"),
-      ("manifest_sha256", "dataset manifest"),
-      ("members", "authenticated members"),
-    )
-    for key, message in cases:
+  def test_production_refuses_missing_record_facts(self):
+    """Row counts and the staged row order are all mandatory."""
+    for key, message in (("source_rows", "source_rows"),
+                         ("selected_rows", "selected_rows"),
+                         ("row_order_sha256", "staged row order")):
       with self.subTest(missing=key):
         data = _data(outputs=["sigma8"])
-        del data["_dataset_sources"]["train"][key]
+        del data["_staged_selection"]["train"][key]
         with self.assertRaisesRegex(ValueError, message):
           _build(data=data)
 
-    data = _data(outputs=["sigma8"])
-    del data["_dataset_sources"]["train"]["selection"][
-      "row_order_sha256"]
-    with self.assertRaisesRegex(ValueError, "staged row order"):
-      _build(data=data)
-
-  def test_direct_library_fixture_may_explicitly_omit_published_sources(self):
+  def test_direct_library_fixture_may_explicitly_omit_staged_records(self):
     """The documented low-level fixture allowance remains separate and visible."""
     data = _data(outputs=["sigma8"])
-    del data["_dataset_sources"]
-    identity = _build(data=data, require_published_selection=False)
+    del data["_staged_selection"]
+    identity = _build(data=data, require_staged_selection=False)
     subject = json.loads(identity["canonical_json"])
     self.assertEqual(
       subject["staged_selection"],
-      {"fixture_without_published_dataset": True})
+      {"fixture_without_staged_selection": True})
 
   def test_finetune_and_transfer_sources_refuse_missing_pair_bindings(self):
     """A reusable source path is never accepted as its scientific identity."""
@@ -610,8 +545,8 @@ class ExperimentAndDriverWiringTests(unittest.TestCase):
     npce = build_experiment_output_identity(experiment)
     self.assertNotEqual(plain["sha256"], npce["sha256"])
 
-    del experiment.data["_dataset_sources"]["validation"]["selection"]
-    with self.assertRaisesRegex(ValueError, "staged row selection"):
+    del experiment.data["_staged_selection"]["validation"]
+    with self.assertRaisesRegex(ValueError, "validation"):
       build_experiment_output_identity(experiment)
 
   def test_experiment_wrapper_refuses_npce_and_transfer_together(self):

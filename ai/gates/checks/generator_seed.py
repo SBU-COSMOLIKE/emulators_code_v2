@@ -24,8 +24,6 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _GEN = os.path.join(_REPO, "compute_data_vectors", "generator_core.py")
-_INGRESS = os.path.join(
-    _REPO, "compute_data_vectors", "generator_ingress.py")
 
 FAILURES = []
 
@@ -39,7 +37,6 @@ def report(label, ok, detail=""):
 def check_no_global_random():
     """No sampling draw uses the process-global np.random.<dist>."""
     src = open(_GEN).read()
-    ingress = open(_INGRESS).read()
     # the global sampling calls the fix removed (default_rng / RandomState for
     # the owned generator remain legitimate).
     for bad in ("np.random.uniform(", "np.random.normal(", "np.random.choice(",
@@ -50,22 +47,43 @@ def check_no_global_random():
            "self.rng = np.random.default_rng(self.seed)" in src
            and "self.rng.uniform(" in src
            and "self.rng.standard_normal(" in src
-           and "rng=self.rng" in src
-           and 'getattr(rng, "choice", None)' in ingress,
-           "self.rng threaded through row selection")
+           and "self.rng.choice(" in src,
+           "self.rng threaded through sampling and row selection")
     report("the emcee sampler gets a seeded random state",
            "sampler._random = np.random.RandomState(" in src, "seeded moves")
 
 
 def check_seed_required_and_recorded():
-    """The seed is a required CLI arg, validated, and written to the header."""
+    """The seed is a required integer CLI arg written to the chain header."""
     src = open(_GEN).read()
-    ingress = open(_INGRESS).read()
+    # find the add_argument("--seed", ...) call in the syntax tree and
+    # require the argparse contract: required=True and type=int, so a run
+    # without a seed (or with a non-integer one) refuses at the CLI.
+    seed_required = False
+    seed_integer = False
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "--seed"):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "required" \
+                    and isinstance(keyword.value, ast.Constant) \
+                    and keyword.value.value is True:
+                seed_required = True
+            if keyword.arg == "type" \
+                    and isinstance(keyword.value, ast.Name) \
+                    and keyword.value.id == "int":
+                seed_integer = True
     report("--seed is a required CLI argument",
-           '"--seed"' in src and "required=True" in src, "no default seed")
-    report("a non-integer / bool seed is refused",
-           'native_integer(self.args.seed, "--seed", minimum=0)' in src
-           and "if type(value) is not int:" in ingress, "type-checked")
+           seed_required, "no default seed")
+    report("--seed parses as an integer",
+           seed_integer, "argparse type=int")
     report("the seed + RNG are recorded in the chain header",
            "seed={self.seed}" in src and "rng=numpy.default_rng" in src,
            "replayable from the recorded inputs")

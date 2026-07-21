@@ -1185,9 +1185,6 @@ _DATA_READ_COVERS = {
                                    "cosmic_shear_sweep_ntrain_emulator.py",
                                    "cosmic_shear_tune_emulator.py"),
   "ai/gates/checks/generator_seed.py": ("compute_data_vectors/generator_core.py",),
-  "ai/tests/test_generator_publication_bridge.py": (
-    "compute_data_vectors/generator_core.py",
-  ),
   # diagnostics-domain reads emulator/diagnostics.py as data (ast-parses its
   # text); the scanner flags it, so it is reviewed here. (cli-strict also reads
   # its eight driver entry points as data, but it already DECLARES all eight as
@@ -1204,28 +1201,7 @@ _DATA_READ_HARNESS = _SHARED_HARNESS
 # qualified function and the canonical AST of its root expression, and may be
 # consumed only once. A renamed, removed, duplicated, or altered call becomes
 # an unreviewed site rather than widening the exception to a whole function.
-_DATA_READ_WALK_WAIVERS = {
-  "compute_data_vectors/dataset_publication.py": frozenset((
-    ("_relative_regular_census", "Name(id='root')"),
-    ("_make_tree_read_only", "Name(id='root')"),
-    ("_fsync_tree_directories", "Name(id='root')"),
-  )),
-  "ai/tests/test_dataset_publication.py": frozenset((
-    ("DatasetPublicationTests._make_test_tree_writable",
-     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
-     "attr='root')])"),
-  )),
-  "ai/tests/test_dataset_locator.py": frozenset((
-    ("DatasetLocatorTests._make_tree_writable",
-     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
-     "attr='root')])"),
-  )),
-  "ai/tests/test_cocoa_dataset_resolution.py": frozenset((
-    ("CocoaDatasetResolutionTests._make_tree_writable",
-     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
-     "attr='rootdir')])"),
-  )),
-}
+_DATA_READ_WALK_WAIVERS = {}
 
 
 def _qualified_ast_scope(node, parents):

@@ -35,8 +35,6 @@ import torch
 from emulator.experiment import EmulatorExperiment
 from emulator.training import ordinary_median
 from emulator.results import save_emulator
-from compute_data_vectors.dataset_publication import (
-    load_dataset_locator, load_located_generation)
 
 FAILURES = []
 REPO = Path(__file__).resolve().parents[3]
@@ -176,41 +174,31 @@ def check_generate(rootdir, rel_root):
     out = {}
     for tag in ("train", "val"):
         proc = run_generator(rootdir, rel_root, tag)
-        published = {}
-        publication_error = None
-        if proc.returncode == 0:
-            try:
-                locator = load_dataset_locator(
-                    chains,
-                    logical_parameter=(
-                        "params_%s_background_unifs.1.txt" % tag))
-                active = load_located_generation(locator)
-                roles = {
-                    "params": "parameters.chain",
-                    "covmat": "parameters.covariance",
-                    "h": "payload.grid.h",
-                    "h_z": "axis.grid.h.redshift",
-                    "dm": "payload.grid.dm",
-                    "dm_z": "axis.grid.dm.redshift",
-                    "failed": "rows.failure-mask",
-                }
-                published = {
-                    name: str(active.member(role).path)
-                    for name, role in roles.items()
-                }
-            except Exception as exc:
-                publication_error = type(exc).__name__ + ": " + str(exc)
-        files_ok = bool(published) and all(
-            os.path.isfile(path) for path in published.values())
+        # the generator's plain output files in chains/: params sidecar set,
+        # the two per-quantity dumps with their _z grid sidecars, and the
+        # failure mask. The stems follow the shared generator convention
+        # <name>_<probe>_unifs for a --unif 1 run.
+        stem = "_%s_background_unifs" % tag
+        paths = {
+            "params": os.path.join(chains, "params" + stem + ".1.txt"),
+            "covmat": os.path.join(chains, "params" + stem + ".covmat"),
+            "facts":  os.path.join(chains, "params" + stem + ".facts.yaml"),
+            "h":      os.path.join(chains, "dvs" + stem + "_h.npy"),
+            "h_z":    os.path.join(chains, "dvs" + stem + "_h_z.npy"),
+            "dm":     os.path.join(chains, "dvs" + stem + "_dm.npy"),
+            "dm_z":   os.path.join(chains, "dvs" + stem + "_dm_z.npy"),
+            "failed": os.path.join(chains, "failed" + stem + ".txt"),
+        }
+        files_ok = all(os.path.isfile(path) for path in paths.values())
         detail = "rc=%d" % proc.returncode
         if not files_ok:
-            detail += " missing"
-            if publication_error:
-                detail += "; " + publication_error[:200]
+            missing = [name for name, path in paths.items()
+                       if not os.path.isfile(path)]
+            detail += " missing " + ",".join(missing)
             detail += "; stderr tail: " + proc.stderr.strip()[-200:]
         report("background dump (%s): both quantities + grids" % tag,
                proc.returncode == 0 and files_ok, detail)
-        out[tag] = published
+        out[tag] = paths
     return out
 
 

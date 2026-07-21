@@ -4,7 +4,6 @@ import psutil
 from numpy.lib.format import open_memmap
 from generator_core import (GeneratorCore, capture_native_output,
                             run_generator)
-from generator_ingress import finite_number, native_integer
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Example how to run this program
@@ -83,13 +82,17 @@ class dataset(GeneratorCore):
   """
   VALID_PROBES = ("background",)
   EXTRA_TRAIN_KEYS = ("z_sn", "z_rec")
+  FAMILY = "grid"                            # scientific-record family name
+  PROGRAM = "dataset_generator_background"   # producer name in the record
 
   def _read_train_args(self, train_args):
     """Read the two grids and register the background requirements.
 
     z_sn / z_rec = [zmin, zmax, nz] linspace specs. The SN grid starts
-    exactly at zero because the distance integral starts there. The
-    recombination grid starts above zero. The two windows must not overlap.
+    exactly at zero, because the distance integral starts there and the
+    adapter serves H(z) down to z = 0. The recombination grid starts
+    above zero, and the two windows must not overlap (the desert between
+    them is the adapter's loud-error region).
     """
     grids = {}
     for key in ("z_sn", "z_rec"):
@@ -97,21 +100,17 @@ class dataset(GeneratorCore):
       if (not isinstance(spec, (list, tuple))) or len(spec) != 3:
         raise ValueError(f"train_args.{key} must be [zmin, zmax, nz], "
                          f"got {spec!r}")
-      zmin = finite_number(spec[0], f"train_args.{key}[0]")
-      zmax = finite_number(spec[1], f"train_args.{key}[1]")
-      nz = native_integer(spec[2], f"train_args.{key}[2]", minimum=8)
-      valid_limits = (zmin == 0.0 < zmax if key == "z_sn"
-                      else 0.0 < zmin < zmax)
-      if not valid_limits:
-        rule = "zmin = 0 < zmax" if key == "z_sn" else "0 < zmin < zmax"
-        raise ValueError(
-          f"train_args.{key} needs {rule}; got [{zmin}, {zmax}, {nz}]")
-      with np.errstate(over="ignore", invalid="ignore"):
-        grid = np.linspace(zmin, zmax, nz)
-      if not np.isfinite(grid).all():
-        raise ValueError(
-          f"train_args.{key} did not resolve to a finite redshift grid")
-      grids[key] = grid
+      zmin, zmax, nz = float(spec[0]), float(spec[1]), int(spec[2])
+      if key == "z_sn":
+        limits_ok = (zmin == 0.0 < zmax)
+        rule = "zmin = 0 < zmax"
+      else:
+        limits_ok = (0.0 < zmin < zmax)
+        rule = "0 < zmin < zmax"
+      if not limits_ok or nz < 8:
+        raise ValueError(f"train_args.{key} needs {rule} and "
+                         f"nz >= 8, got [{zmin}, {zmax}, {nz}]")
+      grids[key] = np.linspace(zmin, zmax, nz)
     if grids["z_sn"][-1] >= grids["z_rec"][0]:
       raise ValueError(
         f"train_args.z_sn must end below train_args.z_rec (the desert "
@@ -124,23 +123,13 @@ class dataset(GeneratorCore):
     # YAML may carry only the dummy `one` likelihood). Hubble in
     # km/s/Mpc; comoving_radial_distance is served in Mpc. Background
     # products ONLY — no Cl requirement, so CAMB never computes
-    # perturbations and one evaluation per sample stays cheap.
-    #
-    # History, recorded because it cost two board runs: with these
-    # background-only requirements the hand-rolled
-    # check_cache_and_compute(cached=True) component loop (the idiom
-    # the other generators inherit from the legacy code) returned the
-    # SAME background for every sample (board run 1: bitwise-constant
-    # H(z) columns). Adding the MPS generator's wants-Cl quirk
-    # ("Cl": {tt: 0}) did NOT cure it — board run 3's dump-variance
-    # tripwire still measured relative spread exactly 0.0, falsifying
-    # the transfers-cache hypothesis. The real fix lives in
-    # _compute_dvs_from_sample: THIS generator evaluates through the
-    # standard model.logposterior(point, cached=False) lifecycle,
-    # which recomputes every component with cobaya's own parameter
-    # routing and cannot serve stale physics. The quirk is therefore
-    # gone again on purpose; if background staleness ever returns,
-    # bsn-smoke's tripwire fails at the dump naming this history.
+    # perturbations and one evaluation per sample stays cheap. With this
+    # background-only requirement set, the hand-rolled
+    # check_cache_and_compute(cached=True) component loop the other
+    # generators use serves the SAME background for every sample (stale
+    # cache); that is why _compute_dvs_from_sample evaluates through the
+    # standard model.logposterior(point, cached=False) lifecycle instead.
+    # The bsn-smoke gate's dump-variance tripwire guards this boundary.
     self.model.add_requirements(
       {"Hubble": {"z": self.z_sn, "units": "km/s/Mpc"},
        "comoving_radial_distance": {"z": self.z_rec}})
@@ -152,34 +141,6 @@ class dataset(GeneratorCore):
     """The stored grid for one quantity tag ("h" -> z_sn, "dm" -> z_rec)."""
     return self.z_sn if quantity == "h" else self.z_rec
 
-  def _dv_payload_names(self):
-    """Return the exact background quantities required from each sample."""
-    return QUANTITIES
-
-  def _dv_payload_mapping(self, payload):
-    """Return one background payload dict for shared row validation."""
-    if type(payload) is not dict:
-      raise ValueError(
-        "a background payload must be a dict with 'h' and 'dm' arrays; got "
-        f"{type(payload).__name__}")
-    return payload
-
-  def _dv_expected_payload_shape(self, name):
-    """Return the configured redshift-row shape for one background member."""
-    if name not in QUANTITIES:
-      raise ValueError(
-        f"unknown background payload member {name!r}; expected one of "
-        f"{QUANTITIES!r}")
-    return (len(self._grid_of(name)),)
-
-  def _dv_payload_store(self, name):
-    """Return the 2D checkpoint store for one background member."""
-    if name not in QUANTITIES:
-      raise ValueError(
-        f"unknown background payload member {name!r}; expected one of "
-        f"{QUANTITIES!r}")
-    return self.datavectors[name]
-
   def _dv_chk_files(self):
     """Files the checkpoint loader must find before trusting a chk."""
     files = []
@@ -190,37 +151,33 @@ class dataset(GeneratorCore):
 
   def _dv_load_chk(self):
     """Load both per-quantity stores (RAM-aware, one shared policy)."""
+    # a checkpoint written for one pair of redshift grids must never be
+    # continued on another: the columns would silently change meaning.
     for q in QUANTITIES:
-      self._load_axis_checkpoint(
-        path=f"{self.dvsf}_{q}_z.npy",
-        expected=self._grid_of(q),
-        label=q + " redshift")
-
-    read_only = getattr(self, "_checkpoint_read_only", False)
-    if read_only:
-      self.dvs_is_memmap = True
+      self._load_axis_checkpoint(path=f"{self.dvsf}_{q}_z.npy",
+                                 expected=self._grid_of(q),
+                                 label=f"{q} redshift")
+    RAMneed = self.samples.nbytes + self.failed.nbytes
+    for q in QUANTITIES:
+      arr = np.load(f"{self.dvsf}_{q}.npy",
+                    mmap_mode = "r",
+                    allow_pickle = False)
+      RAMneed += arr.nbytes
+      del arr
+    RAMavail = psutil.virtual_memory().available
+    if RAMneed < 0.75 * RAMavail:
+      self.dvs_is_memmap = False
     else:
-      RAMneed = self.samples.nbytes + self.failed.nbytes
-      for q in QUANTITIES:
-        arr = np.load(f"{self.dvsf}_{q}.npy",
-                      mmap_mode = "r",
-                      allow_pickle = False)
-        RAMneed += arr.nbytes
-        del arr
-      RAMavail = psutil.virtual_memory().available
-      if RAMneed < 0.75 * RAMavail:
-        self.dvs_is_memmap = False
-      else:
-        print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
-              f"There is {RAMavail/1e9:.2f} GB of RAM available. "
-              f"We will read dvs from HD (slow)")
-        self.dvs_is_memmap = True
+      print(f"Warning: samples & dvs need {RAMneed/1e9:.2f} GB of RAM. "
+            f"There is {RAMavail/1e9:.2f} GB of RAM available. "
+            f"We will read dvs from HD (slow)")
+      self.dvs_is_memmap = True
 
     self.datavectors = {}
     for q in QUANTITIES:
       if self.dvs_is_memmap:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
-                                      mmap_mode = "r" if read_only else "r+",
+                                      mmap_mode = "r+",
                                       allow_pickle = False)
       else:
         self.datavectors[q] = np.load(f"{self.dvsf}_{q}.npy",
@@ -366,27 +323,30 @@ class dataset(GeneratorCore):
       raise RuntimeError(f"Prior is -inf (this should not happen). "
                          f"Values: {dict(zip(self.sampled_params, sample))}")
 
-    # Evaluate through the STANDARD cobaya lifecycle, not the legacy
-    # hand-rolled check_cache_and_compute component loop the other
-    # generators inherit. With this generator's background-only
-    # requirement set that loop returned the SAME background for every
-    # sample (board run 1: bitwise-constant H(z) dump columns), and the
-    # wants-Cl quirk did not cure it (board run 3: the bsn-smoke
-    # tripwire still measured spread exactly 0.0 — hypothesis
-    # falsified). logposterior(point, cached=False) recomputes every
-    # component with cobaya's own parameter routing (the dropped
-    # omegam + the omch2 lambda included), so it cannot serve stale
-    # physics; the dummy `one` likelihood keeps it as cheap as the
-    # theory call itself.
+    # Evaluate through the STANDARD cobaya lifecycle, not the hand-rolled
+    # check_cache_and_compute component loop the other generators use.
+    # With this generator's background-only requirement set, that loop
+    # serves the SAME background for every sample (a stale component
+    # cache: bitwise-constant H(z) columns in the dump).
+    # logposterior(point, cached=False) recomputes every component with
+    # cobaya's own parameter routing (derived inputs such as an omch2
+    # lambda included), so it cannot serve stale physics; the dummy `one`
+    # likelihood keeps it as cheap as the theory call itself.
     captured = 0 # variable that will hold terminal output
     with capture_native_output() as tmp:
-      self.model.logposterior(sample[idx], cached=False)
+      logpost = self.model.logposterior(sample[idx], cached=False)
       tmp.seek(0)
       captured = tmp.read() # copy terminal output -----------------------------
 
     # check for CAMB errors in the terminal output -----------------------------
     if any(kw in captured for kw in camb_error_keywords):
       raise RuntimeError(f"CAMB Fortran error: {captured.strip()}")
+    # a rejected point returns -inf without raising or printing anything;
+    # the finite log-posterior is the acceptance fact, never the terminal scan.
+    if not math.isfinite(logpost.logpost):
+      raise RuntimeError(
+        f"cobaya rejected the point (log-posterior {logpost.logpost}); "
+        f"values: {dict(zip(self.sampled_params, sample))}")
 
     # get results from the provider (already computed): H in km/s/Mpc on
     # the SN grid; the comoving distance (flat: D_M = chi) in Mpc on the

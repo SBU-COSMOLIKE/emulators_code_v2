@@ -140,7 +140,7 @@ class FailedRowStagingTests(unittest.TestCase):
   def test_failure_mask_refuses_bad_tokens_and_row_counts(self):
     """The mask cannot silently coerce text or omit a parameter row."""
     with tempfile.TemporaryDirectory() as directory:
-      with self.assertRaisesRegex(ValueError, "requires an authenticated"):
+      with self.assertRaisesRegex(ValueError, "requires the generator's"):
         data_staging._load_failure_mask(
           path=None,
           expected_rows=2)
@@ -181,15 +181,10 @@ class FailedRowStagingTests(unittest.TestCase):
       self.assertEqual(staged["source_n_rows"], 4)
       np.testing.assert_array_equal(staged["selected_rows"], expected)
 
-  def test_saved_source_pin_binds_exact_staged_row_order(self):
-    """The saved config fingerprints order, cuts, seed, and source size."""
+  def test_staged_selection_record_binds_exact_staged_row_order(self):
+    """The recorded selection fingerprints order, cuts, seed, and size."""
     experiment = EmulatorExperiment.__new__(EmulatorExperiment)
     experiment.data = {
-      "_dataset_sources": {
-        "schema": 1,
-        "train": {"generation": "generation-a"},
-        "validation": {"generation": "generation-b"},
-      },
       "param_cuts": {"omegabh2_hi": 0.024},
       "split_seed": 19,
     }
@@ -203,7 +198,7 @@ class FailedRowStagingTests(unittest.TestCase):
     }
     experiment._record_staged_selection("train", source)
     first = dict(
-      experiment.data["_dataset_sources"]["train"]["selection"])
+      experiment.data["_staged_selection"]["train"])
 
     self.assertEqual(first["source_rows"], 6)
     self.assertEqual(first["selected_rows"], 3)
@@ -220,22 +215,17 @@ class FailedRowStagingTests(unittest.TestCase):
       "dv": np.zeros((3, 1), dtype=np.float32),
     }
     experiment._record_staged_selection("train", reversed_source)
-    second = experiment.data["_dataset_sources"]["train"]["selection"]
+    second = experiment.data["_staged_selection"]["train"]
     self.assertNotEqual(
       first["row_order_sha256"], second["row_order_sha256"])
     self.assertNotIn(
-      "selection",
-      experiment.data["_dataset_sources"]["validation"])
+      "validation",
+      experiment.data["_staged_selection"])
 
-  def test_saved_source_pin_refuses_a_partial_staged_identity(self):
+  def test_staged_selection_record_refuses_a_partial_staged_identity(self):
     """The recorded row list must cover every loader index."""
     experiment = EmulatorExperiment.__new__(EmulatorExperiment)
     experiment.data = {
-      "_dataset_sources": {
-        "schema": 1,
-        "train": {"generation": "generation-a"},
-        "validation": {"generation": "generation-b"},
-      },
       "param_cuts": {},
       "split_seed": 19,
     }
@@ -251,15 +241,10 @@ class FailedRowStagingTests(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "staged idx supplies 2"):
       experiment._record_staged_selection("train", source)
 
-  def test_saved_source_pin_refuses_an_equal_count_wrong_row_order(self):
+  def test_staged_selection_record_refuses_an_equal_count_wrong_row_order(self):
     """A permutation mismatch cannot receive a truthful saved fingerprint."""
     experiment = EmulatorExperiment.__new__(EmulatorExperiment)
     experiment.data = {
-      "_dataset_sources": {
-        "schema": 1,
-        "train": {"generation": "generation-a"},
-        "validation": {"generation": "generation-b"},
-      },
       "param_cuts": {},
       "split_seed": 19,
     }
@@ -278,30 +263,7 @@ class FailedRowStagingTests(unittest.TestCase):
   def test_saved_emulator_keeps_the_staged_source_identity(self):
     """Both saved config records retain the exact selection fingerprint."""
     experiment = EmulatorExperiment.__new__(EmulatorExperiment)
-    def complete_pin(label, character):
-      """Return the authenticated generation fields a real resolver supplies."""
-      return {
-        "schema": 1,
-        "slot_id": "slot-" + label,
-        "slot": {"family": "cosmolike", "schema": 1},
-        "generation": "generation-" + label,
-        "active_sha256": character * 64,
-        "manifest_sha256": chr(ord(character) + 1) * 64,
-        "identity": {"probe": "cs"},
-        "members": {
-          "parameters.chain": {
-            "size": 120,
-            "sha256": chr(ord(character) + 2) * 64,
-          },
-        },
-      }
-
     experiment.data = {
-      "_dataset_sources": {
-        "schema": 1,
-        "train": complete_pin("train", "1"),
-        "validation": complete_pin("validation", "4"),
-      },
       "param_cuts": {},
       "split_seed": 19,
     }
@@ -316,7 +278,7 @@ class FailedRowStagingTests(unittest.TestCase):
     experiment._record_staged_selection("train", source)
     experiment._record_staged_selection("validation", source)
     expected = dict(
-      experiment.data["_dataset_sources"]["train"]["selection"])
+      experiment.data["_staged_selection"]["train"])
 
     device = torch.device("cpu")
     model = ResMLP(
@@ -389,8 +351,7 @@ class FailedRowStagingTests(unittest.TestCase):
       with h5py.File(h5_path, "r") as artifact:
         for dataset in ("config_yaml", "config_resolved_yaml"):
           saved = yaml.safe_load(artifact[dataset][()].decode("utf-8"))
-          observed = saved["data"]["_dataset_sources"]["train"][
-            "selection"]
+          observed = saved["data"]["_staged_selection"]["train"]
           self.assertEqual(observed, expected)
 
 

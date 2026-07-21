@@ -815,7 +815,7 @@ DATA_KEYS = {
   "train_dv", "train_params", "train_covmat",
   "val_dv", "val_params",
   "train_failure_mask", "val_failure_mask",
-  "_dataset_sources",
+  "_staged_selection",
   "cosmolike_data_dir", "cosmolike_dataset",
   "param_cuts",
   "n_train", "n_val",
@@ -3447,46 +3447,34 @@ class EmulatorExperiment:
 
   # --- staging + geometry (the expensive, cached pieces) ---
   def _record_staged_selection(self, split, source):
-    """Bind one ordered staged-row selection to its published source pin.
+    """Record which source rows this run staged, in their exact order.
 
-    The dataset resolver records the exact immutable generation and every
-    member digest before staging starts. This method adds the exact order of
-    source rows chosen after the failure mask, physical cuts, and seeded
-    shuffle. The order is represented by a platform-independent SHA-256
-    fingerprint rather than a potentially million-entry YAML list.
+    Two runs on the same dump can train on different rows (a different
+    failure mask, physical cut, or seeded shuffle). This method records the
+    exact order of source rows chosen, as a platform-independent SHA-256
+    fingerprint rather than a potentially million-entry YAML list, in the
+    in-memory config saved with the emulator (data._staged_selection). The
+    output identity includes the record, so two such runs cannot claim the
+    same name.
 
     Arguments:
-      split = ``"train"`` or ``"validation"``; selects the source pin to
-              extend.
+      split = ``"train"`` or ``"validation"``; names the recorded slot.
       source = staged source mapping returned by ``load_source`` or
                ``load_scalar_source``. It must contain ``source_n_rows`` and
                the one-dimensional integer ``selected_rows`` sequence.
 
     Returns:
-      None. When the config did not come through the Cocoa dataset resolver,
-      no source pin exists and the method leaves the direct-library path
-      unchanged.
+      None. The method changes only the in-memory config saved with the
+      emulator; it does not write a dataset file.
 
     Raises:
-      ValueError when a resolver-owned pin or staged row identity is malformed.
-      The method changes only the in-memory config saved with the emulator; it
-      does not write a dataset file.
+      ValueError when the staged row identity is malformed.
     """
-    sources = self.data.get("_dataset_sources")
-    if sources is None:
-      return
-    if type(sources) is not dict or sources.get("schema") != 1:
-      raise ValueError(
-        "data._dataset_sources must be the schema-1 record created by "
-        "resolve_cocoa_config")
     if split not in ("train", "validation"):
       raise ValueError(
         "staged selection split must be 'train' or 'validation'; got "
         + repr(split))
-    pin = sources.get(split)
-    if type(pin) is not dict:
-      raise ValueError(
-        "data._dataset_sources is missing its " + split + " source pin")
+    record_root = self.data.setdefault("_staged_selection", {"schema": 1})
 
     source_n_rows = source.get("source_n_rows")
     if type(source_n_rows) is not int or source_n_rows < 1:
@@ -3581,7 +3569,7 @@ class EmulatorExperiment:
     digest = hashlib.sha256(
       b"cocoa-staged-row-order-v1\x00" + encoded_count + encoded_rows)
     cuts = self.data.get("param_cuts", {})
-    pin["selection"] = {
+    record_root[split] = {
       "schema": 1,
       "source_rows": source_n_rows,
       "selected_rows": int(selected.size),
