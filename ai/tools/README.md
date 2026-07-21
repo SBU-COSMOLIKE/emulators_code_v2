@@ -60,6 +60,13 @@ Most users can ignore six of the seven programs until a command or error
 message points to one of them. Begin with `mailbox_daemon.py`; it previews or
 runs the ordinary workflow and sends every user request to the Architect.
 
+The other `mailbox_*.py` files in this folder, for example
+`mailbox_dispatch.py` and `mailbox_recovery.py`, are parts of the daemon
+program itself, not separate commands. `mailbox_daemon.py` loads every part
+from its own folder when it starts, so the only file to run is
+`mailbox_daemon.py`; editing any part file makes a running watcher exit so
+a restart loads the new code.
+
 The table starts with the task. Git names, saved-record names, and helper
 rules are introduced later, next to the command that needs them.
 
@@ -123,30 +130,37 @@ python3 ai/tools/handoff_router.py --status
 This command only reads. It summarizes saved work, reviews that have finished,
 reviews that are still waiting, and the next suggested action.
 
-### Stop only during the safe message
+### Stop the watcher with Ctrl-C
 
-Press Ctrl-C only while the latest status line literally says
+The cleanest moment to stop is while the latest status line literally says
 `safe to Ctrl-C`. For example:
 
 ```text
 every enabled role is idle; safe to Ctrl-C for 19s more; 3 messages waiting.
 ```
 
-Do not interrupt while a role is running or the watcher is preparing to start
-one. [FAQ B1](#appendix-b--when-is-it-safe-to-stop-the-watcher) explains each
+Ctrl-C at any other moment still stops the watcher without losing saved
+work. The first press starts no further AI turn and waits for running turns
+to finish. A second press kills the running turns; each killed request
+moves to `failed/`, the folder for requests that did not complete, and can
+be sent again by moving the file back into the mailbox folder. The AI
+programs themselves never receive the keyboard interrupt; only the watcher
+decides whether a running turn is kept or killed.
+[FAQ B1](#appendix-b--when-is-it-safe-to-stop-the-watcher) explains each
 stop-related message.
 
-### Restart after an accidental Ctrl-C
+### Restart after a killed turn
 
-If Ctrl-C stopped the Implementer, preserve the Architect's plan and discard
-only the partial implementation:
+If a kill — a second Ctrl-C, a timeout, or a machine failure — stopped the
+Implementer, preserve the Architect's plan and discard only the partial
+implementation:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --restart-implementer
 ```
 
-If Ctrl-C stopped the Red Team, preserve its exact review request and discard
-only the interrupted review work:
+If a kill stopped the Red Team, preserve its exact review request and
+discard only the interrupted review work:
 
 ```bash
 python3 ai/tools/mailbox_daemon.py --restart-redteam
@@ -285,7 +299,7 @@ The opening workflow already gives the three commands used most often:
 
 - [Read the current AI work status](#read-the-current-status).
 - [Preview and send one request to the Architect](#send-one-request-to-the-architect).
-- [Stop during a printed safe interval](#stop-only-during-the-safe-message).
+- [Stop the watcher with Ctrl-C](#stop-the-watcher-with-ctrl-c).
 
 <a id="read-the-current-ai-work-status"></a>
 <a id="preview-one-request-to-the-architect"></a>
@@ -1626,28 +1640,35 @@ evidence review.
 
 ### FAQ B1. When can I interrupt the watcher? <a id="appendix-b--when-is-it-safe-to-stop-the-watcher"></a>
 
-Press Ctrl-C only while the watcher literally prints `safe to Ctrl-C`. If the
-line says that a role is running, starting, or timing out, wait.
+Any time. Ctrl-C never corrupts saved work; the status lines only tell you
+how much running work a stop would cost. During `safe to Ctrl-C`, nothing
+is running and the watcher exits at once. At any other moment the first
+press starts no further AI turn and waits for running turns to finish,
+and a second press kills those turns; each killed request moves to
+`failed/` for requeue. On exit the watcher prints
+`stopped by Ctrl-C; run the same command again to resume.`
 
 #### Match the latest message
 
 Read the watcher's latest status line:
 
-| Printed status | Plain meaning | Safe to press Ctrl-C? |
+| Printed status | Plain meaning | What Ctrl-C costs here |
 | --- | --- | --- |
-| A periodic progress message, `turn in flight`, or `turns in flight` | An AI role is running | No |
-| `dispatch preparation admitted; not safe to stop` | The watcher is starting a role | No |
-| `safe interval ended; not safe to stop` | An earlier safe period has ended | No |
-| `safe to Ctrl-C` | No AI role is running or starting during the printed countdown | Yes |
-| `watcher stopped` | The watcher has already stopped | Yes; no action is needed |
-| A timeout message | The watcher is stopping one long-running role and saving its result | No; wait for a later safe or stopped message |
+| A periodic progress message, `turn in flight`, or `turns in flight` | An AI role is running | One press keeps the running turns; a second press kills them and their requests move to `failed/` |
+| `dispatch preparation admitted; not safe to stop` | The watcher is starting a role | The same as a running role: the started turn either finishes or is killed by a second press |
+| `safe interval ended; not safe to stop` | An earlier safe period has ended and new turns may start | The same as a running role |
+| `safe to Ctrl-C` | No AI role is running or starting during the printed countdown | Nothing; the watcher exits at once |
+| `watcher stopped` | The watcher has already stopped | Nothing; no action is needed |
+| A timeout message | The watcher is stopping one long-running role and saving its result | Prefer to wait; the watcher is already recording that turn's outcome |
 
-#### After a timeout
+#### After a timeout or a killed turn
 
 Wait for `safe to Ctrl-C` or `watcher stopped`. Then inspect `failed/`, the
 folder for requests that did not complete, and `inflight/`, the folder for
 requests whose outcome still needs inspection. Do not send the request again
-until the saved request and its log show what happened.
+until the saved request and its log show what happened. A timeout kill stops
+the AI program together with every helper program it started, so nothing
+keeps editing a work folder after the watcher declares the turn dead.
 
 ### FAQ B2. What does `--cycle` count? <a id="faq-b2-cycle-count"></a>
 
@@ -1802,10 +1823,10 @@ refused it.
 | A command refuses and lists several AI request folders | It found old or duplicate locations and cannot safely choose one | Do not delete any folder. Rerun the command from the saved Architect work folder you intend to use; [FAQ E2](#faq-e2-primary-recovery) explains how to identify it |
 | The tool refuses a saved Architect, Implementer, or Sol folder | The saved path or branch does not match what Git currently knows | Keep the folder. Run `git worktree list --porcelain`, which only prints Git-managed work folders and their branches, and compare it with the error |
 | The elapsed time increases but the Claude log stays small | Claude may still be working but has not printed more text yet | Keep watching the elapsed time |
-| Neither elapsed time nor log size changes | The AI program may be stuck | Let the normal timeout handle it. Stop manually only after the watcher prints `safe to Ctrl-C`, and press Ctrl-C before that countdown ends |
+| Neither elapsed time nor log size changes | The AI program may be stuck | Let the normal timeout handle it: the timeout kills the stuck program and every helper program it started, then parks the request in `failed/`. To stop earlier, press Ctrl-C twice; the second press kills the stuck turn the same way |
 | The watcher says one uncertain request prevents later work | The earlier AI job may have ended without a confirmed final record | Read the subsection below before moving or resending anything |
 | Sol cannot start a new search | Optional searches are paused by fix-only mode or by important recorded tickets | Continue the known work first. Read [Fix-only watches](#fix-only-watches) and [discovery severity](#choose-the-minimum-discovery-severity) for the exact rule |
-| The watcher exits after you edit `mailbox_daemon.py` | The running watcher noticed that its own program file changed | Start the watcher again so it loads the new code |
+| The watcher exits after you edit `mailbox_daemon.py` or a `mailbox_*.py` part file | The running watcher noticed that one of its own program files changed | Start the watcher again so it loads the new code |
 | `--send` warns that no watcher is active | The request was saved, but no watcher is currently handling that mailbox | Start a watcher. The saved request remains safe while it waits |
 
 #### Inspect an uncertain request

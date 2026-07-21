@@ -40,6 +40,19 @@ AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
 needs enough tool permission to work unattended (set via the harness
 settings or the flags there).
 
+The daemon's source spans this file and the mailbox_*.py part files beside
+it. A part holds one area's functions (worktrees, watch control, message
+envelopes, dispatch, landing, recovery, and so on); this file keeps every
+constant and runtime setting, loads each part at start, and stays the one
+namespace through which every function is reached. Run only this file.
+
+Ctrl-C is recoverable at any moment. During an idle safe countdown the
+watcher exits at once. While turns run, the first press starts no further
+turn and waits; a second press kills the running turns, whose requests are
+parked in failed/ for requeue. Every lock dies with the process, and every
+saved state file is written whole or not at all, so the next start resumes
+from consistent state.
+
 Usage:
     python ai/tools/mailbox_daemon.py --help           # all options + defaults
     python ai/tools/mailbox_daemon.py --dry-run        # show what would run
@@ -1753,9 +1766,9 @@ def main():
                     release_fix_only_lock(lock_file=fix_only_lock)
                 release_dispatch_lock(lock_file=dispatch_lock)
                 return 1
-        print("watching " + MAILBOX + " (press Ctrl-C only when the program "
-              "says every enabled role is idle and shows the 20-second "
-              "countdown; do not stop while a role is starting or running)")
+        print("watching " + MAILBOX + " (Ctrl-C stops cleanly: the first "
+              "press lets running turns finish, a second press kills them "
+              "and parks their requests in failed/)")
         if fix_only:
             print("fix-only watch active: finish only work already listed "
                   "in ai/notes/backlog.md; do not add tickets for newly "

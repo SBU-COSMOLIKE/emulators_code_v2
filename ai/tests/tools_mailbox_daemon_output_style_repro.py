@@ -123,9 +123,10 @@ def scratch_daemon():
             lambda agent: {"agent": agent})
         daemon.recheck_persistent_role_state = lambda proof: None
         daemon.prepare_implementer_cycle_checkout = (
-            lambda cycle_id: BASE_COMMIT)
+            lambda cycle_id, preserve_current=False, restart_from_base=False:
+            BASE_COMMIT)
         daemon.record_implementer_candidate = (
-            lambda cycle_id, starting_head: None)
+            lambda cycle_id, starting_head, replace_prior=False: None)
         daemon.git_commit_exists = lambda commit: commit == BASE_COMMIT
         daemon._exact_git_object = (
             lambda arguments, label: BASE_COMMIT)
