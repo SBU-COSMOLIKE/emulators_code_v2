@@ -11,6 +11,11 @@ import sys
 import tempfile
 import types
 
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
@@ -21,6 +26,8 @@ OTHER_WARNING = (
 
 def load_daemon(source=None):
     """Load a fresh daemon module for one isolated reproduction."""
+    if isinstance(source, dict):
+        return fix_only_repro.load_daemon(source=source)
     if source is not None:
         module = types.ModuleType("mailbox_daemon_dead_mailbox_mutant")
         module.__file__ = str(DAEMON_PATH)
@@ -340,8 +347,12 @@ def arm_advisory_send_and_ping_succeed():
         ping_ok = (
             rc == 0 and checks == [{
                 "architect_model": daemon.DEFAULT_ARCHITECT_MODEL,
+                "implementer_provider": daemon.DEFAULT_IMPLEMENTER_PROVIDER,
+                "implementer_model": daemon.DEFAULT_IMPLEMENTER_MODEL,
                 "include_sol": True,
                 "dry_run": False,
+                "implementer_compaction_limit":
+                daemon.DEFAULT_IMPLEMENTER_CONTEXT_BUDGET,
             }]
             and sorted(str(path.relative_to(root))
                        for path in root.rglob("*")) == before
@@ -476,29 +487,29 @@ def witness_main_lock_mode(source, flag):
 
 def run_source_mutations():
     """Kill load-bearing source mutations for each warning decision leg."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = fix_only_repro.daemon_source_files()
     cases = [
         (
             "any held lock accepted",
-            'return WATCH_LOCK_OWNER_RE.fullmatch(owner) is not None',
+            'return daemon.WATCH_LOCK_OWNER_RE.fullmatch(owner) is not None',
             'return True',
             witness_once_warns,
         ),
         (
             "exclusive diagnostic probe",
-            'fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)',
-            'fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)',
+            'daemon.fcntl.flock(descriptor, daemon.fcntl.LOCK_SH | daemon.fcntl.LOCK_NB)',
+            'daemon.fcntl.flock(descriptor, daemon.fcntl.LOCK_EX | daemon.fcntl.LOCK_NB)',
             witness_shared_probe_stays_dead,
         ),
         (
             "dry-run diagnosis dropped",
-            '        warn_if_mailbox_unwatched()\n        return True',
+            '        daemon.warn_if_mailbox_unwatched()\n        return True',
             '        return True',
             witness_dry_run_warns,
         ),
         (
             "other-mailbox listing dropped",
-            '    for candidate in mailbox_candidates():',
+            '    for candidate in daemon.mailbox_candidates():',
             '    for candidate in []:',
             witness_other_watch_listed,
         ),
@@ -510,8 +521,8 @@ def run_source_mutations():
         ),
         (
             "once main mode dropped",
-            'acquire_dispatch_lock(mode="once")',
-            'acquire_dispatch_lock()',
+            '    if args.once:\n        dispatch_lock = acquire_dispatch_lock(mode="once")',
+            '    if args.once:\n        dispatch_lock = acquire_dispatch_lock()',
             lambda candidate: witness_main_lock_mode(candidate, "once"),
         ),
         (
@@ -523,8 +534,18 @@ def run_source_mutations():
     ]
     outcomes = []
     for label, anchor, replacement, witness in cases:
-        mutant = source.replace(anchor, replacement, 1)
-        armed = mutant != source
+        target = None
+        for name in sorted(source):
+            if anchor in source[name]:
+                target = name
+                break
+        if target is None:
+            mutant = source
+            armed = False
+        else:
+            mutant = dict(source)
+            mutant[target] = source[target].replace(anchor, replacement, 1)
+            armed = True
         baseline_green = witness(source)
         mutant_green = witness(mutant) if armed else True
         killed = armed and baseline_green and not mutant_green
