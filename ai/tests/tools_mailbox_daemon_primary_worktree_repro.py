@@ -5435,7 +5435,8 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
                 "MAILBOX-MODE: normal\n\n" + returned_body(),
                 encoding="utf-8", newline="")
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del command, stdout, stderr, cwd, env
             return ReturningProcess(callback=publish_return)
 

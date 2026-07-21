@@ -50,7 +50,8 @@ def captured_role_dispatch(daemon, path, launches):
     """Dispatch one message while recording the child environment."""
     original_popen = daemon.subprocess.Popen
 
-    def fake_popen(command, stdout, stderr, cwd, env):
+    def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
         del stderr
         return clean_process(stdout, launches, command, cwd, env)
 

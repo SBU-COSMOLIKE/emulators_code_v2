@@ -132,7 +132,8 @@ class FinishedProcess:
 
 def success_popen(calls, inspect=None, output="live stub output\n"):
     """Return a harmless Popen replacement that captures the full call."""
-    def fake_popen(command, stdout, stderr, cwd, env):
+    def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
         call = {
             "command": list(command),
             "stdout_name": stdout.name,
@@ -152,7 +153,8 @@ def success_popen(calls, inspect=None, output="live stub output\n"):
 
 def failed_popen(calls, returncode=1):
     """Return a harmless Popen replacement with an ordinary nonzero rc."""
-    def fake_popen(command, stdout, stderr, cwd, env):
+    def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
         del stderr, cwd, env
         calls.append(list(command))
         stdout.write("ordinary child failure\n")

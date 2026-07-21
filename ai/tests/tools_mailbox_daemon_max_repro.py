@@ -318,7 +318,8 @@ def arm_invalid_values_and_actions(source=None):
 
 def fake_popen(calls):
     """Capture command, prompt, and environment for one harmless child."""
-    def replacement(command, stdout, stderr, cwd, env):
+    def replacement(command, stdout, stderr, cwd, env,
+                    start_new_session):
         del stderr
         calls.append({
             "command": list(command),

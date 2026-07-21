@@ -1142,7 +1142,8 @@ def captured_dispatch(daemon, path, fix_only, launches,
     original_snapshot = daemon.implementer_authority_snapshot
     original_changes = daemon.implementer_authority_changes
 
-    def fake_popen(command, stdout, stderr, cwd, env):
+    def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
         del stderr
         if review_receipt is not None:
             write_pending(
@@ -1281,7 +1282,8 @@ def probe_pipeline_enforcement(source):
         launches = []
         original_popen = daemon.subprocess.Popen
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del stderr
             return clean_process(stdout, launches, command, cwd, env)
 

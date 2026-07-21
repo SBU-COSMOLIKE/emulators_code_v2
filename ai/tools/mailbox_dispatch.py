@@ -14,6 +14,8 @@ daemon keeps one shared namespace no matter how many files store its source.
 daemon = None
 
 PART_EXPORTS = (
+    "kill_agent_process",
+    "kill_live_agent_processes",
     "park_failed_outcome",
     "park_failed_turn_outcome",
     "park_prelaunch_outcome",
@@ -91,6 +93,36 @@ def provider_failure_guidance(agent, reply_lines):
     return ("the Ollama/Claude Code integration failed; inspect the relay "
             "log, verify `ollama launch claude --model " + model
             + "`, then requeue from failed/.")
+
+
+def kill_agent_process(proc):
+    """Stop one dispatched agent CLI together with its process group.
+
+    Arguments:
+      proc = the launched agent process.
+
+    The CLI is launched as its own session leader, so its group id equals
+    its pid and killing the group also stops every tool subprocess the CLI
+    itself started; nothing keeps writing to a role worktree after the
+    daemon declares the turn dead. A process that cannot be group-killed
+    (already reaped, or a test double without a real pid) falls back to
+    the direct kill. The process is always reaped before returning.
+    """
+    try:
+        daemon.os.killpg(proc.pid, daemon.signal.SIGKILL)
+    except (AttributeError, TypeError, ProcessLookupError,
+            PermissionError, OSError):
+        proc.kill()
+    proc.wait()
+
+
+def kill_live_agent_processes():
+    """Kill every currently launched agent CLI (second-Ctrl-C path)."""
+    with daemon._LIVE_AGENT_PROCESSES_LOCK:
+        live = list(daemon._LIVE_AGENT_PROCESSES.values())
+    for proc in live:
+        if proc.poll() is None:
+            daemon.kill_agent_process(proc=proc)
 
 
 def park_failed_outcome(dispatch_path):
@@ -804,11 +836,15 @@ def dispatch_under_main_checkout_lock(
                 daemon.revalidate_agent_dispatch_topology(
                     proof=agent_topology_proof)
             daemon.recheck_persistent_role_state(proof=persistent_role_state)
+            # The child leads its own session: the terminal's Ctrl-C then
+            # reaches only this daemon, which finishes or kills the turn
+            # deliberately, and a timeout kill can stop the whole group.
             proc = daemon.subprocess.Popen(command,
                                     stdout=f,
                                     stderr=daemon.subprocess.STDOUT,
                                     cwd=daemon.AGENT_CWD[agent],
-                                    env=env)
+                                    env=env,
+                                    start_new_session=True)
             child_started = True
             try:
                 if agent in {"fable", "opus", "sol"}:
@@ -822,8 +858,7 @@ def dispatch_under_main_checkout_lock(
                     daemon.recheck_persistent_role_state(
                         proof=persistent_role_state)
             except (OSError, daemon.PrimaryWorktreeError):
-                proc.kill()
-                proc.wait()
+                daemon.kill_agent_process(proc=proc)
                 raise
         except (OSError, ValueError) as exc:
             launch_error = exc
@@ -834,6 +869,8 @@ def dispatch_under_main_checkout_lock(
             f.write("\n--- dispatch topology changed before launch: "
                     + str(exc) + " ---\n")
         if proc is not None:
+            with daemon._LIVE_AGENT_PROCESSES_LOCK:
+                daemon._LIVE_AGENT_PROCESSES[id(proc)] = proc
             daemon._rendezvous_turn_started()
             try:
                 next_beat = started + 60.0
@@ -853,8 +890,7 @@ def dispatch_under_main_checkout_lock(
                         # a turn printed "Execution error" then produced
                         # nothing for 21 minutes). Kill it; the non-zero exit
                         # code below parks the claimed message in failed/.
-                        proc.kill()
-                        proc.wait()
+                        daemon.kill_agent_process(proc=proc)
                         timed_out = True
                         # The timeout setting is the stable killed-after
                         # threshold promised to a later retry. The poll loop
@@ -899,9 +935,10 @@ def dispatch_under_main_checkout_lock(
                 # in flight and permanently closes admissions.
                 try:
                     if proc.poll() is None:
-                        proc.kill()
-                        proc.wait()
+                        daemon.kill_agent_process(proc=proc)
                 finally:
+                    with daemon._LIVE_AGENT_PROCESSES_LOCK:
+                        daemon._LIVE_AGENT_PROCESSES.pop(id(proc), None)
                     if proc.poll() is not None:
                         daemon._rendezvous_turn_finished()
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")

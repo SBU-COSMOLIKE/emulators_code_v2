@@ -230,7 +230,8 @@ def arm_atomic_dispatch_claim():
         calls = []
         gate = threading.Barrier(2)
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del stderr, cwd, env
             calls.append(command)
             try:
@@ -435,7 +436,8 @@ def arm_literal_marker_is_not_a_placeholder():
         path = write_message(daemon, "0001-to-sol.md", body)
         calls = []
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del stderr, cwd, env
             calls.append(command)
             write_message(

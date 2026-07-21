@@ -673,7 +673,8 @@ def arm_production_dispatch_lifecycle(source=None):
             pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
         calls = []
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             calls.append((list(command), stderr, cwd, dict(env)))
             stdout.write("fake child completed\n")
             stdout.flush()
@@ -1167,7 +1168,8 @@ def arm_finite_architect_admission_blocks_second_user_request(source=None):
         launches = []
         outbound = mailbox / "0003-to-opus.md"
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del command, stderr, cwd
             launches.append(first.name)
             token = env.get("MAILBOX_ARCHITECT_ADMISSION")
@@ -1350,7 +1352,8 @@ def arm_public_architect_non_ticket_outcomes_release_admission(source=None):
         launches = []
         issued_tokens = {}
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del command, stderr, cwd
             token = env["MAILBOX_ARCHITECT_ADMISSION"]
             request_name = token.split("@", 1)[0]

@@ -213,7 +213,8 @@ def runtime_heartbeat_line():
 
         times = iter([0.0, 180.0, 180.0, 180.0])
 
-        def fake_popen(command, stdout, stderr, cwd, env):
+        def fake_popen(command, stdout, stderr, cwd, env,
+                   start_new_session):
             del command, stderr, cwd, env
             # Fill the relay log to exactly 12.4 kB after the daemon's header.
             # Newline-delimited bytes keep the reply-tail print compact.

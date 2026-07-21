@@ -91,6 +91,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -695,6 +696,13 @@ _ACTIVE_WATCH_RENDEZVOUS = None
 _RENDEZVOUS_LOCAL = threading.local()
 _TOKEN_EXHAUSTION_STOP = threading.Event()
 _NO_ELIGIBLE_MAINTENANCE_WORK = threading.Event()
+# Set by the first Ctrl-C during a mailbox pass: lanes finish their current
+# turn but claim no further message. Cleared when a new pass begins.
+_WATCH_INTERRUPT_STOP = threading.Event()
+# Every launched agent CLI process, keyed by object identity so a second
+# Ctrl-C can kill the running turns instead of waiting for them.
+_LIVE_AGENT_PROCESSES = {}
+_LIVE_AGENT_PROCESSES_LOCK = threading.Lock()
 
 
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
@@ -1975,4 +1983,11 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # Locks are flock-based and die with this process; interrupted
+        # moves and landings are re-proved by the next start's recovery.
+        print("stopped by Ctrl-C; run the same command again to resume.",
+              flush=True)
+        sys.exit(130)

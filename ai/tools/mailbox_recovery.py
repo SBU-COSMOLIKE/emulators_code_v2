@@ -14,6 +14,7 @@ daemon keeps one shared namespace no matter how many files store its source.
 daemon = None
 
 PART_EXPORTS = (
+    "DeferredInterrupts",
     "consume_daemon_message",
     "release_unstarted_ticket_reservation",
     "ticket_cycle_has_live_message",
@@ -44,6 +45,49 @@ PART_EXPORTS = (
     "landing_debt_snapshot",
     "report_landing_debt",
 )
+
+
+class DeferredInterrupts:
+    """Delay Ctrl-C while one daemon transition must finish whole.
+
+    On entry, the interrupt signal is redirected to a recorder; on exit
+    the previous handler returns and one recorded interrupt is raised, so
+    the user's Ctrl-C takes effect at the transition boundary instead of
+    half-way through a Git landing sequence. Outside the main thread, or
+    when no handler can be installed, the manager does nothing: Python
+    delivers Ctrl-C only to the main thread, so worker threads need no
+    protection.
+    """
+
+    def __init__(self):
+        self._pending = False
+        self._previous = None
+        self._installed = False
+
+    def _record(self, signum, frame):
+        del signum, frame
+        self._pending = True
+        print("interrupt received: finishing the current mailbox "
+              "transition first.", flush=True)
+
+    def __enter__(self):
+        in_main_thread = (daemon.threading.current_thread()
+                          is daemon.threading.main_thread())
+        if in_main_thread:
+            try:
+                self._previous = daemon.signal.signal(
+                    daemon.signal.SIGINT, self._record)
+                self._installed = True
+            except (ValueError, OSError):
+                self._installed = False
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._installed:
+            daemon.signal.signal(daemon.signal.SIGINT, self._previous)
+            if self._pending and exc_type is None:
+                raise KeyboardInterrupt
+        return False
 
 
 def consume_daemon_message(path, dry_run=False, return_outcome=False):
@@ -1076,7 +1120,8 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
     """
     all_consumed = True
     for path in paths:
-        if daemon._TOKEN_EXHAUSTION_STOP.is_set():
+        if daemon._TOKEN_EXHAUSTION_STOP.is_set() \
+                or daemon._WATCH_INTERRUPT_STOP.is_set():
             all_consumed = False
             break
         try:
@@ -1201,6 +1246,7 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
       protected contract update, before another message can start.
     """
     daemon._TOKEN_EXHAUSTION_STOP.clear()
+    daemon._WATCH_INTERRUPT_STOP.clear()
     if not dry_run:
         try:
             daemon.read_ticket_cycle_state()
@@ -1236,9 +1282,11 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         # This GO belongs to a ticket already admitted against the finite
         # limit. Always finish its durable landing/archive recovery. The
         # positive limit gates new role work in drain_lane(), never this
-        # already-admitted daemon transition.
-        outcome = daemon.consume_daemon_message(
-            path=daemon_path, dry_run=dry_run, return_outcome=True)
+        # already-admitted daemon transition. A Ctrl-C arriving while the
+        # transition runs takes effect right after it, never inside it.
+        with daemon.DeferredInterrupts():
+            outcome = daemon.consume_daemon_message(
+                path=daemon_path, dry_run=dry_run, return_outcome=True)
         if outcome == daemon.DAEMON_NOTE_DEFERRED:
             # An unlanded P can wait behind a later, already-admitted
             # ordinary GO. Continue the daemon lane so that exact ticket can
@@ -1408,10 +1456,34 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
                                           "skip_redteam": skip_redteam})
         worker.start()
         workers.append(worker)
-    for worker in workers:
-        worker.join()
+    # A Ctrl-C here must not abandon running lane turns behind released
+    # watch locks. The first interrupt stops new claims and keeps waiting;
+    # a second interrupt kills the running agent turns so their lanes can
+    # park the requests in failed/ and finish quickly. Either way the
+    # interrupt is honored only after every lane worker has returned.
+    interrupts = 0
+    remaining = list(workers)
+    while remaining:
+        try:
+            remaining[0].join()
+        except KeyboardInterrupt:
+            interrupts += 1
+            if interrupts == 1:
+                daemon._WATCH_INTERRUPT_STOP.set()
+                print("interrupt received: no new role turn will start; "
+                      "waiting for running turns to finish (press Ctrl-C "
+                      "again to kill them).", flush=True)
+            else:
+                print("second interrupt: killing running role turns; "
+                      "their requests will be parked in failed/ for "
+                      "requeue.", flush=True)
+                daemon.kill_live_agent_processes()
+            continue
+        remaining.pop(0)
     if not dry_run:
         daemon.recover_failed_public_architect_admissions()
+    if interrupts:
+        raise KeyboardInterrupt
     if token_errors:
         order = {"fable": 0, "opus": 1, "sol": 2}
         ordered = sorted(token_errors, key=lambda error: order[error.agent])
