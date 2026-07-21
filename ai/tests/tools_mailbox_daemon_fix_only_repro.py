@@ -57,6 +57,36 @@ def daemon_source_files():
     return files
 
 
+def write_daemon_tree(sources, root):
+    """Write one runnable daemon source tree under ``root``.
+
+    Arguments:
+      sources = mapping of daemon file name to source text (see
+                ``daemon_source_files``).
+      root    = an existing empty directory; receives ai/tools with every
+                daemon file plus the sibling tools, and ai/notes with the
+                role contract, so the written entry file loads exactly
+                like the production one.
+
+    Returns:
+      The path of the written mailbox_daemon.py entry file.
+    """
+    tools = root / "ai" / "tools"
+    notes = root / "ai" / "notes"
+    tools.mkdir(parents=True)
+    notes.mkdir(parents=True)
+    for name, text in sources.items():
+        (tools / name).write_text(text, encoding="utf-8")
+    for name in ("role_contract.py", "reopen_transition.py",
+                 "provider_health.py", "candidate_admission.py",
+                 "review_dispatch.py", "control_plane_handoff.py"):
+        shutil.copy2(DAEMON_PATH.parent / name, tools / name)
+    shutil.copy2(
+        DAEMON_PATH.parent.parent / "notes" / "role-contract.yaml",
+        notes / "role-contract.yaml")
+    return tools / "mailbox_daemon.py"
+
+
 def load_daemon(source=None):
     """Load one fresh production daemon, or a caller-supplied source mutant.
 
@@ -69,22 +99,10 @@ def load_daemon(source=None):
     """
     if isinstance(source, dict):
         holder = tempfile.TemporaryDirectory(prefix="mailbox-mutant-")
-        root = pathlib.Path(holder.name)
-        tools = root / "ai" / "tools"
-        notes = root / "ai" / "notes"
-        tools.mkdir(parents=True)
-        notes.mkdir(parents=True)
-        for name, text in source.items():
-            (tools / name).write_text(text, encoding="utf-8")
-        for name in ("role_contract.py", "reopen_transition.py",
-                     "provider_health.py", "candidate_admission.py",
-                     "review_dispatch.py", "control_plane_handoff.py"):
-            shutil.copy2(DAEMON_PATH.parent / name, tools / name)
-        shutil.copy2(
-            DAEMON_PATH.parent.parent / "notes" / "role-contract.yaml",
-            notes / "role-contract.yaml")
+        entry = write_daemon_tree(
+            sources=source, root=pathlib.Path(holder.name))
         spec = importlib.util.spec_from_file_location(
-            "mailbox_daemon_fix_only_mutant", tools / "mailbox_daemon.py")
+            "mailbox_daemon_fix_only_mutant", entry)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         # Keep the scratch tree alive for as long as the mutant is in use.
@@ -1143,7 +1161,7 @@ def captured_dispatch(daemon, path, fix_only, launches,
     original_changes = daemon.implementer_authority_changes
 
     def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
         del stderr
         if review_receipt is not None:
             write_pending(
@@ -1283,7 +1301,7 @@ def probe_pipeline_enforcement(source):
         original_popen = daemon.subprocess.Popen
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del stderr
             return clean_process(stdout, launches, command, cwd, env)
 

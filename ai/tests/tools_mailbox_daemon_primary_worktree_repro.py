@@ -2122,7 +2122,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             pending_before = file_identity(message)
             launches = []
 
-            def redirected_parent_popen(command, stdout, stderr, cwd, env):
+            def redirected_parent_popen(command, stdout, stderr, cwd, env,
+                                start_new_session=False):
                 del command, stdout, stderr, cwd, env
                 launches.append("admitted")
                 return ObservedProcess()
@@ -2156,7 +2157,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         pending_before = file_identity(message)
         launches = []
 
-        def forbidden_popen(command, stdout, stderr, cwd, env):
+        def forbidden_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return ObservedProcess()
@@ -2197,7 +2199,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
                 git(sol, "switch", "--ignore-other-worktrees", "main")
             return claimed
 
-        def observed_popen(command, stdout, stderr, cwd, env):
+        def observed_popen(command, stdout, stderr, cwd, env,
+                       start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return child
@@ -2233,7 +2236,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         retry_child.returncode = 1
         retry_launches = []
 
-        def retry_popen(command, stdout, stderr, cwd, env):
+        def retry_popen(command, stdout, stderr, cwd, env,
+                    start_new_session=False):
             del command, stdout, stderr, cwd, env
             retry_launches.append("admitted")
             return retry_child
@@ -2277,7 +2281,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
                     encoding="utf-8")
             return claimed
 
-        def role_race_popen(command, stdout, stderr, cwd, env):
+        def role_race_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return child
@@ -2310,7 +2315,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         retry_child.returncode = 1
         retry_launches = []
 
-        def retry_popen(command, stdout, stderr, cwd, env):
+        def retry_popen(command, stdout, stderr, cwd, env,
+                    start_new_session=False):
             del command, stdout, stderr, cwd, env
             retry_launches.append("admitted")
             return retry_child
@@ -2342,7 +2348,8 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
         launches = []
         child = ObservedProcess()
 
-        def switching_popen(command, stdout, stderr, cwd, env):
+        def switching_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del command, stderr, cwd, env
             launches.append("admitted")
             git(sol, "switch", "--ignore-other-worktrees", "main")
@@ -2460,7 +2467,8 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
         before = file_identity(message)
         launches = []
 
-        def forbidden_popen(command, stdout, stderr, cwd, env):
+        def forbidden_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return ObservedProcess()
@@ -2496,7 +2504,8 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
                 git(implementer, "switch", "--ignore-other-worktrees", "main")
             return claimed
 
-        def observed_popen(command, stdout, stderr, cwd, env):
+        def observed_popen(command, stdout, stderr, cwd, env,
+                       start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return child
@@ -2532,7 +2541,8 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
         retry_child.returncode = 1
         retry_launches = []
 
-        def retry_popen(command, stdout, stderr, cwd, env):
+        def retry_popen(command, stdout, stderr, cwd, env,
+                    start_new_session=False):
             del command, stdout, stderr, cwd, env
             retry_launches.append("admitted")
             return retry_child
@@ -2561,7 +2571,8 @@ def arm_implementer_launch_boundary_revalidates_branch_and_state(source=None):
         child = ObservedProcess()
         state = load_implementer_state(root)
 
-        def corrupting_popen(command, stdout, stderr, cwd, env):
+        def corrupting_popen(command, stdout, stderr, cwd, env,
+                         start_new_session=False):
             del command, stderr, cwd, env
             launches.append("admitted")
             corrupt = dict(state)
@@ -2726,7 +2737,8 @@ def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
         retry_child.returncode = 1
         retry_launches = []
 
-        def retry_popen(command, stdout, stderr, cwd, env):
+        def retry_popen(command, stdout, stderr, cwd, env,
+                    start_new_session=False):
             del command, stdout, stderr, cwd, env
             retry_launches.append("admitted")
             return retry_child
@@ -5436,7 +5448,7 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
                 encoding="utf-8", newline="")
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del command, stdout, stderr, cwd, env
             return ReturningProcess(callback=publish_return)
 

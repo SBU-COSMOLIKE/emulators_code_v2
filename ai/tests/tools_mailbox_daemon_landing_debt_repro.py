@@ -15,13 +15,25 @@ import sys
 import tempfile
 import types
 
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
 
 
 def load_daemon(source=None):
-    """Execute one fresh production module, optionally from mutated source."""
+    """Execute one fresh production module, optionally from mutated source.
+
+    ``source`` may be None (production), the entry file's text, or a
+    mapping of daemon file name to text so a mutation may live in any of
+    the daemon's source files.
+    """
+    if isinstance(source, dict):
+        return fix_only_repro.load_daemon(source=source)
     if source is None:
         source = DAEMON_PATH.read_text(encoding="utf-8")
     module = types.ModuleType("mailbox_daemon_landing_debt_repro")
@@ -142,7 +154,8 @@ def filesystem_manifest(root):
 def arm_no_automatic_publication_surface(source=None):
     """No retired auto-Fable publisher, watch hook, state, or marker remains."""
     if source is None:
-        source = DAEMON_PATH.read_text(encoding="utf-8")
+        files = fix_only_repro.daemon_source_files()
+        source = "\n".join(files[name] for name in sorted(files))
     forbidden = (
         "def reconcile_landing_debt_handoff(",
         "reconcile_landing_debt_handoff()",
@@ -263,21 +276,25 @@ def arm_report_is_truthful_and_read_only(source=None):
 
 
 def old_main_head_mutant(source):
-    """Replace the candidate meter with the retired branch-tip comparison."""
+    """Replace the candidate meter with the retired branch-tip comparison.
+
+    ``source`` is the text of ``mailbox_recovery.py``, the daemon part
+    file that owns the landing-debt meter.
+    """
     start = source.find("def landing_debt_snapshot():\n")
     end = source.find("\ndef report_landing_debt(snapshot=None):\n", start)
     if start < 0 or end < 0:
         raise ValueError("landing-debt function boundary is not unique")
     replacement = '''def landing_debt_snapshot():
     """Incorrect historical branch-tip meter used only as a mutant."""
-    process = subprocess.run(
+    process = daemon.subprocess.run(
         ["git", "diff", "--shortstat", "main..HEAD"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        cwd=AGENT_CWD["fable"], check=False)
+        stdout=daemon.subprocess.PIPE, stderr=daemon.subprocess.PIPE,
+        text=True, cwd=daemon.AGENT_CWD["fable"], check=False)
     if process.returncode != 0:
         return {"available": False, "stat": "", "changed_lines": 0,
                 "returncode": process.returncode}
-    changed_lines = sum(int(value) for value, _kind in re.findall(
+    changed_lines = sum(int(value) for value, _kind in daemon.re.findall(
         r"(\\d+) (insertion|deletion)", process.stdout))
     return {"available": True, "stat": process.stdout.strip(),
             "changed_lines": changed_lines, "returncode": 0}
@@ -288,10 +305,13 @@ def old_main_head_mutant(source):
 
 def mutation_old_main_head_is_killed():
     """The active-C witness must reject a return to main..HEAD sizing."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
-    mutant = old_main_head_mutant(source=source)
-    compile(mutant, str(DAEMON_PATH), "exec")
-    return not arm_active_candidate_exact_size(source=mutant)
+    sources = fix_only_repro.daemon_source_files()
+    part = sources["mailbox_recovery.py"]
+    mutant_part = old_main_head_mutant(source=part)
+    compile(mutant_part, "mailbox_recovery.py", "exec")
+    mutated = dict(sources)
+    mutated["mailbox_recovery.py"] = mutant_part
+    return not arm_active_candidate_exact_size(source=mutated)
 
 
 def main():

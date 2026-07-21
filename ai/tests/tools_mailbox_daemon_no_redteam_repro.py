@@ -135,9 +135,9 @@ def scratch_daemon(source=None):
             lambda agent: {"agent": agent})
         daemon.recheck_persistent_role_state = lambda proof: None
         daemon.prepare_implementer_cycle_checkout = (
-            lambda cycle_id: BASE_COMMIT)
+            lambda cycle_id, preserve_current=False, restart_from_base=False: BASE_COMMIT)
         daemon.record_implementer_candidate = (
-            lambda cycle_id, starting_head: None)
+            lambda cycle_id, starting_head, replace_prior=False: None)
         daemon.create_audit_snapshot = (
             lambda cycle_id, commit, agent:
             str(root / ("audit-" + agent)))
@@ -331,7 +331,8 @@ def install_harmless_children(daemon, captures, commit_two_role=False,
         def kill(self):
             self.returncode = -9
 
-    def harmless_popen(command, stdout, stderr, cwd, env):
+    def harmless_popen(command, stdout, stderr, cwd, env,
+                       start_new_session=False):
         del stderr
         command_agent = Path(command[0]).name.replace("-cli", "")
         if command_agent in {"fable", "opus", "sol"}:

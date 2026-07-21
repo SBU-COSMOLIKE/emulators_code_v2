@@ -74,6 +74,20 @@ class DeferredInterruptsTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGINT), before)
 
 
+class AgentLaunchShapeTests(unittest.TestCase):
+    """Pin the session-isolating launch of agent CLI children."""
+
+    def test_the_one_launch_site_starts_a_new_session(self):
+        import pathlib
+        dispatch_source = pathlib.Path(
+            daemon.SCRIPT_DIR, "mailbox_dispatch.py").read_text(
+                encoding="utf-8")
+        launches = dispatch_source.count("daemon.subprocess.Popen(")
+        self.assertEqual(launches, 1)
+        self.assertEqual(
+            dispatch_source.count("start_new_session=True"), 1)
+
+
 class KillAgentProcessTests(unittest.TestCase):
     """Pin the group-kill fallback and the live-process registry sweep."""
 

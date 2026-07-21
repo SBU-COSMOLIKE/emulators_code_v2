@@ -231,7 +231,7 @@ def arm_atomic_dispatch_claim():
         gate = threading.Barrier(2)
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del stderr, cwd, env
             calls.append(command)
             try:
@@ -437,7 +437,7 @@ def arm_literal_marker_is_not_a_placeholder():
         calls = []
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del stderr, cwd, env
             calls.append(command)
             write_message(

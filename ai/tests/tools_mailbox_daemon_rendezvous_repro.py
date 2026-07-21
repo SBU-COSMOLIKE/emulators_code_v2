@@ -674,7 +674,7 @@ def arm_production_dispatch_lifecycle(source=None):
         calls = []
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             calls.append((list(command), stderr, cwd, dict(env)))
             stdout.write("fake child completed\n")
             stdout.flush()
@@ -715,7 +715,8 @@ def arm_no_child_launch_is_restartable(source=None):
         for cwd in set(daemon.AGENT_CWD.values()):
             pathlib.Path(cwd).mkdir(parents=True, exist_ok=True)
 
-        def refused_popen(command, stdout, stderr, cwd, env):
+        def refused_popen(command, stdout, stderr, cwd, env,
+                      start_new_session=False):
             del command, stdout, stderr, cwd, env
             raise OSError("provider process did not start")
 
@@ -756,7 +757,8 @@ def arm_candidate_audit_requires_one_outcome(source=None):
         daemon._validate_current_protected_primary_state = (
             lambda primary_worktree: None)
 
-        def silent_popen(command, stdout, stderr, cwd, env):
+        def silent_popen(command, stdout, stderr, cwd, env,
+                     start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("Architect exited without an outcome.\n")
             stdout.flush()
@@ -778,7 +780,8 @@ def arm_candidate_audit_requires_one_outcome(source=None):
             text=("- **Directive:** [ai/notes/ticket.md, exact "
                   "Implementation directive section]"))
 
-        def repair_popen(command, stdout, stderr, cwd, env):
+        def repair_popen(command, stdout, stderr, cwd, env,
+                     start_new_session=False):
             del command, stderr, cwd, env
             write_pending(mailbox, "0004-to-opus.md", repair)
             stdout.write("Architect requested one repair.\n")
@@ -1169,7 +1172,7 @@ def arm_finite_architect_admission_blocks_second_user_request(source=None):
         outbound = mailbox / "0003-to-opus.md"
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del command, stderr, cwd
             launches.append(first.name)
             token = env.get("MAILBOX_ARCHITECT_ADMISSION")
@@ -1353,7 +1356,7 @@ def arm_public_architect_non_ticket_outcomes_release_admission(source=None):
         issued_tokens = {}
 
         def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
             del command, stderr, cwd
             token = env["MAILBOX_ARCHITECT_ADMISSION"]
             request_name = token.split("@", 1)[0]

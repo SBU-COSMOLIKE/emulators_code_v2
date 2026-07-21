@@ -20,6 +20,11 @@ import tempfile
 import threading
 import types
 
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
@@ -133,7 +138,7 @@ class FinishedProcess:
 def success_popen(calls, inspect=None, output="live stub output\n"):
     """Return a harmless Popen replacement that captures the full call."""
     def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
         call = {
             "command": list(command),
             "stdout_name": stdout.name,
@@ -154,7 +159,7 @@ def success_popen(calls, inspect=None, output="live stub output\n"):
 def failed_popen(calls, returncode=1):
     """Return a harmless Popen replacement with an ordinary nonzero rc."""
     def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
         del stderr, cwd, env
         calls.append(list(command))
         stdout.write("ordinary child failure\n")
@@ -314,7 +319,8 @@ def arm_timeout_history_and_retry_hint(daemon_path=DAEMON_PATH):
             def sleep(self, _seconds):
                 self.now = 7.0 * 60.0
 
-        def hung_popen(command, stdout, stderr, cwd, env):
+        def hung_popen(command, stdout, stderr, cwd, env,
+                   start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("child appears hung\n")
             stdout.flush()
@@ -474,7 +480,13 @@ def arm_token_exhaustion_uses_all_role_routes():
                     pathlib.Path(daemon.ticket_cycle_state_path()),
                     pathlib.Path(daemon.candidate_state_path())]
                 daemon.prepare_implementer_cycle_checkout = (
-                    lambda cycle_id: "1" * 40)
+                    lambda cycle_id, preserve_current=False, restart_from_base=False: "1" * 40)
+                daemon.git_commit_exists = lambda commit: True
+                daemon.git_ref_commit = (
+                    lambda reference: "2" * 40)
+                daemon.implementer_authority_snapshot = lambda: {}
+                daemon.implementer_authority_changes = (
+                    lambda before: [])
             elif agent == "sol":
                 landing = "3" * 40
                 body = (
@@ -489,13 +501,29 @@ def arm_token_exhaustion_uses_all_role_routes():
                 saved_records = [
                     pathlib.Path(daemon.ticket_cycle_state_path())]
                 daemon.create_audit_snapshot = lambda **_kwargs: None
+                pathlib.Path(daemon.BACKLOG_LEDGER).write_text(
+                    "# Closed tickets\n\n"
+                    '<a id="token-role-route"></a>\n'
+                    "## Token route\n\n"
+                    "**CLOSED.** Reviewed by this witness.\n\n"
+                    "**Severity: MEDIUM.**\n\n"
+                    "**Red Team reopen count: 0.**\n\n"
+                    "**Red Team reopening: allowed.**\n",
+                    encoding="utf-8")
+                daemon._validate_sealed_backlog = (
+                    lambda primary_worktree:
+                    pathlib.Path(daemon.BACKLOG_LEDGER).read_bytes())
+                daemon.routine_review_command = (
+                    lambda command_prefix, **_kwargs:
+                    (command_prefix, None))
             else:
                 body = "Architect request.\n"
             saved_bytes = {path: path.read_bytes() for path in saved_records}
             path = write_message(daemon, name, body)
             source_inode = pathlib.Path(path).stat().st_ino
 
-            def exhausted_popen(command, stdout, stderr, cwd, env):
+            def exhausted_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
                 del command, stderr, env
                 if agent == "opus":
                     pathlib.Path(cwd, "partial-edit.txt").write_text(
@@ -514,8 +542,22 @@ def arm_token_exhaustion_uses_all_role_routes():
             partial_ok = (agent != "opus" or pathlib.Path(
                 daemon.AGENT_CWD["opus"], "partial-edit.txt").read_text(
                     encoding="utf-8") == "preserve me\n")
-            state_ok = all(path.read_bytes() == content
-                           for path, content in saved_bytes.items())
+            state_ok = True
+            for record_path, content in saved_bytes.items():
+                after_bytes = record_path.read_bytes()
+                if after_bytes == content:
+                    continue
+                if record_path.name != daemon.TICKET_CYCLE_STATE_NAME:
+                    state_ok = False
+                    continue
+                # An admitted Implementer turn durably stamps its
+                # runtime onto the active cycle; nothing else may
+                # change in the saved records.
+                before_state = json.loads(content)
+                after_state = json.loads(after_bytes)
+                for record in after_state.get("active", {}).values():
+                    record.pop("implementer_runtime", None)
+                state_ok = state_ok and after_state == before_state
             outcomes.append(
                 error is not None and error.agent == agent
                 and failed.is_file() and failed.stat().st_ino == source_inode
@@ -533,7 +575,8 @@ def arm_unverified_token_move_still_stops():
         body = "Preserve this uncertain request.\n"
         path = write_message(daemon, name, body)
 
-        def exhausted_popen(command, stdout, stderr, cwd, env):
+        def exhausted_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("Credit balance is too low\n")
             stdout.flush()
@@ -580,7 +623,8 @@ def arm_token_exhaustion_stops_after_join():
         barrier = threading.Barrier(2)
         launches = []
 
-        def coordinated_popen(command, stdout, stderr, cwd, env):
+        def coordinated_popen(command, stdout, stderr, cwd, env,
+                          start_new_session=False):
             del stderr, cwd, env
             agent = ("fable" if command[0] == "harmless-fable" else "sol")
             launches.append(agent)
@@ -649,7 +693,8 @@ def arm_simultaneous_token_exhaustion_reports_both():
             "MAILBOX-SCOPE: bounded\n\nReview this scope.\n")
         barrier = threading.Barrier(2)
 
-        def exhausted_popen(command, stdout, stderr, cwd, env):
+        def exhausted_popen(command, stdout, stderr, cwd, env,
+                        start_new_session=False):
             del stderr, cwd, env
             agent = "fable" if command[0] == "harmless-fable" else "sol"
             barrier.wait(timeout=30)
@@ -1021,7 +1066,8 @@ def arm_natural_completion_at_deadline():
 
         child = DeadlineProcess()
 
-        def deadline_popen(command, stdout, stderr, cwd, env):
+        def deadline_popen(command, stdout, stderr, cwd, env,
+                       start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("natural completion\n")
             stdout.flush()
@@ -1076,7 +1122,8 @@ def arm_killed_child_reporting_rc0_is_still_timeout():
 
         child = KillReportsSuccess()
 
-        def misleading_popen(command, stdout, stderr, cwd, env):
+        def misleading_popen(command, stdout, stderr, cwd, env,
+                         start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("still live at deadline\n")
             stdout.flush()
@@ -1138,7 +1185,8 @@ def arm_timeout_history_replace_failure_is_conservative():
 
         child = HungProcess()
 
-        def hung_popen(command, stdout, stderr, cwd, env):
+        def hung_popen(command, stdout, stderr, cwd, env,
+                   start_new_session=False):
             del command, stderr, cwd, env
             stdout.write("hung before atomic replace\n")
             stdout.flush()
@@ -1289,23 +1337,34 @@ def arm_hostile_timeout_histories_are_controlled():
 
 
 def mutation_killed(label, old, new, probe):
-    """Write one source mutant to scratch and prove its probe goes red."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
-    occurrences = source.count(old)
+    """Write one source mutant to scratch and prove its probe goes red.
+
+    The anchor may live in any daemon source file; the mutant tree keeps
+    every other file at its production text.
+    """
+    sources = fix_only_repro.daemon_source_files()
+    occurrences = 0
+    target = None
+    for name in sorted(sources):
+        count = sources[name].count(old)
+        occurrences += count
+        if count:
+            target = name
     if occurrences != 1:
         print("MUTATION " + label + " INVALID anchor_count="
               + str(occurrences))
         return False
-    mutant = source.replace(old, new, 1)
+    mutated = dict(sources)
+    mutated[target] = sources[target].replace(old, new, 1)
     try:
-        compile(mutant, str(DAEMON_PATH), "exec")
+        compile(mutated[target], target, "exec")
     except SyntaxError as exc:
         print("MUTATION " + label + " INVALID syntax=" + str(exc))
         return False
     with tempfile.TemporaryDirectory(
             prefix="mailbox-daemon-source-mutant-") as tmp:
-        mutant_path = pathlib.Path(tmp) / "mailbox_daemon.py"
-        mutant_path.write_text(mutant, encoding="utf-8")
+        mutant_path = fix_only_repro.write_daemon_tree(
+            sources=mutated, root=pathlib.Path(tmp))
         try:
             survived = probe(mutant_path)
             detail = "probe_returned=" + str(survived)
@@ -1321,19 +1380,22 @@ def mutation_killed(label, old, new, probe):
 def arm_source_mutations():
     """Kill load-bearing source mutants for each new safety property."""
     recursive_snapshot = (
-        '    snapshot = glob.glob(os.path.join(MAILBOX, "**", "*.md"),\n'
+        '    snapshot = daemon.glob.glob'
+        '(daemon.os.path.join(daemon.MAILBOX, "**", "*.md"),\n'
         '                         recursive=True)')
     root_only_snapshot = (
-        '    snapshot = glob.glob(os.path.join(MAILBOX, "*.md"))')
-    role_lane = '    return AGENT_CWD[agent]'
-    collapsed_roles = '    return AGENT_CWD["fable"]'
+        '    snapshot = daemon.glob.glob'
+        '(daemon.os.path.join(daemon.MAILBOX, "*.md"))')
+    role_lane = '    return daemon.AGENT_CWD[agent]'
+    collapsed_roles = '    return daemon.AGENT_CWD["fable"]'
     timeout_write = (
-        '                            write_timeout_history(\n'
+        '                            daemon.write_timeout_history(\n'
         '                                name=name,\n'
         '                                killed_after_minutes=killed_after_minutes,\n'
         '                                observed_elapsed_minutes=(\n'
         '                                    observed_elapsed_minutes))')
-    timeout_read = '            history = timeout_events(name=name)'
+    timeout_read = ('            history = '
+                    'daemon.timeout_events(name=name)')
     archive_return = (
         '    return archived\n\n\n'
         'def park_failed_message(dispatch_path):')
@@ -1343,7 +1405,7 @@ def arm_source_mutations():
         '            and all(lane_outcomes.values()))')
     archive_verify = (
         '    verified = (destination_inode == source_inode\n'
-        '                and not os.path.lexists(dispatch_path))')
+        '                and not daemon.os.path.lexists(dispatch_path))')
     exact_newlines = (
         '        with open(dispatch_path, encoding="utf-8", newline="") as f:')
     lane_break = (

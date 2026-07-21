@@ -51,7 +51,7 @@ def captured_role_dispatch(daemon, path, launches):
     original_popen = daemon.subprocess.Popen
 
     def fake_popen(command, stdout, stderr, cwd, env,
-                   start_new_session):
+                   start_new_session=False):
         del stderr
         return clean_process(stdout, launches, command, cwd, env)
 
