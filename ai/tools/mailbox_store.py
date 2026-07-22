@@ -1,5 +1,14 @@
 """Mailbox file claims, watch locks, and dispatch topology validation.
 
+Only one watcher may claim a message, and two watchers must never
+share one mailbox. This file owns the filesystem rules that keep that
+true: the atomic claim that moves a message into the work-in-progress
+folder without overwriting, the advisory file locks (locks that die
+with their process) marking a live watch and its fix-only and
+skip-redteam policies, and the checks that every directory a dispatch
+is about to use is the exact saved, unredirected path the daemon
+recorded.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name

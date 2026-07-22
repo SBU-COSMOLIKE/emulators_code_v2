@@ -1,5 +1,18 @@
 """Candidate records, audit snapshots, and the exact squash landing.
 
+The Implementer's finished proposal is one saved commit, called
+candidate C. The daemon accepts it by creating a different commit,
+landing L, whose content is exactly C squashed onto the current
+``main`` together with the sealed backlog. This file records
+candidates and the private Git references that keep them reachable,
+snapshots the repository state an Architect audit saw, prepares and
+re-verifies the exact squash landing, and installs that landing in
+the user's clean checkout without rewriting saved history.
+
+Docstrings here also name the ticket's base commit B, the main commit
+observed before and after an integration M0 and M1, and the running
+watcher D0.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
@@ -358,7 +371,7 @@ def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
 
 
 def candidate_changed_paths(base_commit, candidate_commit, repository=None):
-    """Return every repository path changed from ticket base B to C."""
+    """Return every repository path changed from ticket base B to candidate C."""
     if repository is None:
         repository = daemon.AGENT_CWD["opus"]
     changed = daemon._run_git(
@@ -376,7 +389,7 @@ def candidate_changed_paths(base_commit, candidate_commit, repository=None):
 
 def classify_candidate_scope(changed_paths, path_scope,
                              ticket_class="ordinary"):
-    """Classify C against global protection and its ticket file list."""
+    """Classify candidate C against global protection and its ticket file list."""
     protected = daemon.candidate_forbidden_paths(
         changed_paths, ticket_class=ticket_class)
     return daemon._CANDIDATE_ADMISSION.classify(
@@ -1147,7 +1160,7 @@ def _candidate_commit_message(candidate_commit):
 
 
 def _landing_commit_message(cycle_id, candidate_commit):
-    """Copy C's approved message and append exact recovery facts for L."""
+    """Copy candidate C's approved message and add exact recovery facts for L."""
     candidate_message = daemon._candidate_commit_message(candidate_commit)
     if candidate_message.endswith("\n\n"):
         separator = ""
@@ -1163,7 +1176,7 @@ def _landing_commit_message(cycle_id, candidate_commit):
 
 def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
                              expected_backlog=None):
-    """Return L's parent after proving the exact journaled C -> L squash."""
+    """Return landing L's parent after proving the journaled C -> L squash."""
     parent_commit = daemon._single_commit_parent(commit=landing_commit)
     backlog = daemon._landing_backlog(landing_commit=landing_commit)
     if expected_backlog is not None and backlog != expected_backlog:
@@ -1203,7 +1216,7 @@ def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
 
 def prepare_exact_squash_landing(cycle_id, candidate_commit, mode,
                                  sealed_backlog=None):
-    """Create or reuse exact L without touching any checkout or branch."""
+    """Create or reuse exact landing L without touching any checkout or branch."""
     tool_changes = sorted(
         path for path in daemon.candidate_changed_paths(
             base_commit=daemon.cycle_starting_commit(cycle_id),
@@ -1362,6 +1375,7 @@ def land_prepared_commit_in_clean_user_checkout(
 
 
 def _push_debt_path(landing):
+    """Return the push-debt record path for one landing commit."""
     return daemon.os.path.join(daemon.RELAY_DIR, "pending-main-push-" + landing + ".txt")
 
 
@@ -1459,7 +1473,7 @@ def retire_cycle_landing_ref(cycle_id, landing):
 
 
 def recorded_landing_for_architect_go(cycle_id, mode):
-    """Return durable L after a prior partial consume, or ``None``."""
+    """Return durable landing L after a prior partial consume, or ``None``."""
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1566,7 +1580,7 @@ def publish_control_plane_review_request(cycle_id, candidate):
 
 
 def publish_control_plane_repair_request(cycle_id, candidate, mode):
-    """Return a rejected protected C to the Architect exactly once."""
+    """Return a rejected protected candidate C to the Architect exactly once."""
     marker = "CONTROL-PLANE-REPAIR: " + candidate
     for path in daemon.glob.glob(
             daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),

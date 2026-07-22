@@ -71,6 +71,7 @@ class BundleError(Exception):
 
 
 def _git(repo, *args, check=True):
+    """Run one Git command in ``repo``; refuse a failure when ``check``."""
     result = subprocess.run(
         ["git", "-C", str(repo)] + list(args),
         stdout=subprocess.PIPE,
@@ -119,6 +120,7 @@ def canonical_repository_id(remote):
 
 
 def repository_identity(repo):
+    """Return the credential-free origin identity and its display name."""
     remote = _git(repo, "remote", "get-url", "origin").stdout.strip()
     identity = canonical_repository_id(remote)
     return {
@@ -129,6 +131,7 @@ def repository_identity(repo):
 
 
 def _is_int(value):
+    """Return True for a real integer; a Boolean does not count here."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -167,6 +170,7 @@ def validate_repo_path(value):
 
 
 def _repo_relative(repo, path_text):
+    """Resolve one validated path inside ``repo``, refusing symlinks."""
     validate_repo_path(path_text)
     candidate = repo.joinpath(*path_text.split("/"))
     current = repo
@@ -253,6 +257,7 @@ def stable_read(repo, path_text):
 
 
 def _commit_file_digest(repo, commit, path_text):
+    """Return the Git object name of one protected file at the base."""
     result = _git(repo, "rev-parse", commit + ":" + path_text, check=False)
     if result.returncode != 0:
         raise BundleError(
@@ -261,6 +266,7 @@ def _commit_file_digest(repo, commit, path_text):
 
 
 def require_clean_permanent_notes(repo, base_commit):
+    """Refuse to pack while a protected note differs from the base."""
     dirty = []
     for path_text in sorted(PROTECTED_KNOWLEDGE):
         path = _repo_relative(repo, path_text)
@@ -278,6 +284,7 @@ def require_clean_permanent_notes(repo, base_commit):
 
 
 def _top_level_local_notes(repo):
+    """List the non-permanent Markdown notes directly under ai/notes."""
     notes_root = repo / "ai" / "notes"
     result = []
     for path in sorted(notes_root.glob("*.md")):
@@ -288,6 +295,7 @@ def _top_level_local_notes(repo):
 
 
 def _support_files(repo):
+    """List every regular file under the support root, refusing symlinks."""
     root = repo / SUPPORT_ROOT
     if not root.exists():
         return []
@@ -333,6 +341,7 @@ def selected_files(repo, explicit):
 
 
 def open_backlog_lines(data):
+    """Return every backlog line that begins with ``- OPEN``."""
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -341,11 +350,13 @@ def open_backlog_lines(data):
 
 
 def canonical_json(value):
+    """Encode one value as deterministic ASCII JSON ending in a newline."""
     return (json.dumps(value, sort_keys=True, separators=(",", ":"),
                        ensure_ascii=True) + "\n").encode("ascii")
 
 
 def build_bundle(repo, explicit):
+    """Collect the selected files into a validated manifest and payload."""
     base_commit = _git(
         repo, "rev-parse", "HEAD^{commit}").stdout.strip()
     require_clean_permanent_notes(repo, base_commit)
@@ -388,6 +399,7 @@ def build_bundle(repo, explicit):
 
 
 def _tar_info(name, size):
+    """Return the one normalized tar member record every writer uses."""
     info = tarfile.TarInfo(name)
     info.size = size
     info.mode = 0o644
@@ -500,6 +512,7 @@ class _BytesReader:
 
 
 def sha256_file(path):
+    """Return the SHA-256 hex digest of one file read in bounded chunks."""
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(IO_CHUNK), b""):
@@ -580,6 +593,7 @@ def decompress_xz(archive_path, tar_path):
 
 
 def _parse_octal(field, label):
+    """Parse one octal USTAR header field, refusing base-256 values."""
     if field and field[0] & 0x80:
         raise BundleError("base-256 tar " + label + " is forbidden")
     raw = field.rstrip(b"\0 ").lstrip(b" ")
@@ -647,6 +661,7 @@ def scan_raw_tar(tar_path):
 
 
 def _object_no_duplicates(pairs):
+    """Build one JSON object while refusing any repeated key."""
     value = {}
     for key, item in pairs:
         if key in value:
@@ -656,11 +671,13 @@ def _object_no_duplicates(pairs):
 
 
 def _exact_keys(value, keys, label):
+    """Require one mapping to contain exactly the named keys."""
     if not isinstance(value, dict) or set(value) != set(keys):
         raise BundleError(label + " has an unexpected schema")
 
 
 def validate_manifest(manifest):
+    """Validate the complete manifest schema before any content is used."""
     _exact_keys(manifest, [
         "backlog_path", "base_commit", "base_tree", "files", "format",
         "open_items", "repository", "version",
@@ -791,6 +808,7 @@ def validate_archive(archive_path):
 
 
 def _terminal_line(value):
+    """Escape control characters so untrusted text cannot steer a terminal."""
     return "".join(
         char if char.isprintable() and char not in "\r\n" else
         "\\x" + format(ord(char), "02x")
@@ -799,6 +817,7 @@ def _terminal_line(value):
 
 
 def print_inspection(manifest, bundle_id, archive_digest, show_backlog, payload):
+    """Print the validated summary a recipient reviews before unpacking."""
     print("Bundle id:", bundle_id)
     print("Archive SHA-256:", archive_digest)
     print("Repository:", json.dumps(manifest["repository"]["id"]))
@@ -819,6 +838,12 @@ def print_inspection(manifest, bundle_id, archive_digest, show_backlog, payload)
 
 
 def verify_import_repository(repo, manifest):
+    """Require this checkout to match the archive's repository and base.
+
+    Returns True when the archive's base commit is an ancestor of the
+    current ``HEAD``, and False when the base is present but unrelated;
+    the caller only warns in the second case.
+    """
     # A recipient is free to clone into a differently named directory.  The
     # credential-free remote identity and exact Git objects are authoritative;
     # repository.name is display-only metadata.
@@ -838,6 +863,7 @@ def verify_import_repository(repo, manifest):
 
 
 def _import_destination(repo, requested, bundle_id):
+    """Resolve the one fresh directory allowed under ai/backlog-imports."""
     import_root = Path(os.path.abspath(str(repo / DEFAULT_IMPORT_ROOT)))
     if requested is None:
         destination = import_root / bundle_id[:16]
@@ -858,6 +884,7 @@ def _import_destination(repo, requested, bundle_id):
 
 
 def _directory_open_flags():
+    """Return the no-follow directory open flags this platform supports."""
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY
@@ -867,6 +894,7 @@ def _directory_open_flags():
 
 
 def _open_directory_at(parent_fd, name):
+    """Open one child directory by descriptor, refusing links and files."""
     try:
         descriptor = os.open(name, _directory_open_flags(), dir_fd=parent_fd)
     except OSError as error:
@@ -932,6 +960,7 @@ def _write_file_at(parent_fd, name, data):
 
 
 def _open_or_create_directory_at(parent_fd, name):
+    """Create the child directory when missing, then open it by descriptor."""
     try:
         os.mkdir(name, 0o700, dir_fd=parent_fd)
     except FileExistsError:
@@ -940,6 +969,7 @@ def _open_or_create_directory_at(parent_fd, name):
 
 
 def _read_file_at(root_fd, parts, expected_size, allow_short=False):
+    """Read one import file by descriptor path; None on any disagreement."""
     current = os.dup(root_fd)
     descriptor = None
     try:
@@ -1033,6 +1063,12 @@ def _complete_prefix_at(root_fd, parts, wanted):
 
 
 def _collect_import_tree(root_fd):
+    """Walk one import tree by descriptor; return files and directories.
+
+    Returns None when the walk meets anything unexpected: a non-regular
+    entry, an unreadable directory, or more entries than one bundle may
+    contain. The callers treat None as "do not touch this directory".
+    """
     files = set()
     directories = set()
     budget = [0]
@@ -1156,6 +1192,15 @@ def _resumable_import_files(destination_fd, manifest, payload, bundle_id):
 
 
 def unpack_archive(repo, archive_path, requested_output):
+    """Validate one archive and copy it into a fresh review directory.
+
+    The destination lives under ``ai/backlog-imports/`` and is locked for
+    the whole copy. An ``.INCOMPLETE`` marker file owns the directory
+    until every payload file is written and verified; an interrupted run
+    resumes only when the marker names this exact bundle and every file
+    already present is a byte-exact prefix of the expected content. Live
+    notes are never modified.
+    """
     manifest, payload, bundle_id, archive_digest = validate_archive(archive_path)
     base_is_ancestor = verify_import_repository(repo, manifest)
     destination = _import_destination(repo, requested_output, bundle_id)
@@ -1237,6 +1282,7 @@ def unpack_archive(repo, archive_path, requested_output):
 
 
 def command_pack(args):
+    """Run ``pack``: build, preview, and write one ignored archive file."""
     repo = repository_root()
     manifest, manifest_bytes, payload = build_bundle(repo, args.include)
     bundle_id = hashlib.sha256(manifest_bytes).hexdigest()
@@ -1275,12 +1321,14 @@ def command_pack(args):
 
 
 def command_inspect(args):
+    """Run ``inspect``: fully validate one archive and print its summary."""
     manifest, payload, bundle_id, archive_digest = validate_archive(args.archive)
     print_inspection(manifest, bundle_id, archive_digest,
                      args.show_backlog, payload)
 
 
 def build_parser():
+    """Build the ``pack`` / ``inspect`` / ``unpack`` command-line parser."""
     parser = argparse.ArgumentParser(
         description="Package and safely read an offline backlog handoff.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1318,6 +1366,14 @@ def build_parser():
 
 
 def main(argv=None):
+    """Run one pack, inspect, or unpack command from the command line.
+
+    Every unsafe or inconsistent condition surfaces as a ``BundleError``
+    and exits with status 2 after printing one refusal line; a completed
+    command exits 0. No command edits the live notes: ``pack`` writes one
+    new ignored archive, ``inspect`` only reads, and ``unpack`` writes a
+    fresh review directory under ``ai/backlog-imports/``.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

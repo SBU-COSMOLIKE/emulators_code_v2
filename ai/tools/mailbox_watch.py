@@ -1,5 +1,14 @@
 """Watch-loop rendezvous, safe-kill windows, and cycle barriers.
 
+A watch runs one lane thread for each enabled role, and a person may
+press Ctrl-C at any moment. This file coordinates the two: the
+rendezvous that counts running turns so the watcher prints an honest
+``safe to Ctrl-C`` countdown only while nothing runs, the status
+lines that name what is in flight, the barriers that let a finite
+``--cycle`` watch exit only after every admitted ticket completes,
+and the validators for command-line values such as ``--cycle`` and
+``--max``.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
@@ -102,15 +111,18 @@ class SafeKillRendezvous:
 
     @staticmethod
     def _next_deadline():
+        """Return the monotonic time of the next scheduled safe window."""
         return (daemon.time.monotonic()
                 + float(daemon.RENDEZVOUS_MINUTE_INTERVAL) * 60.0)
 
     def _arm_if_due_locked(self):
+        """Start draining when the dispatch count or clock deadline hits."""
         if (self._completed >= daemon.RENDEZVOUS_DISPATCH_INTERVAL
                 or daemon.time.monotonic() >= self._deadline):
             self._draining = True
 
     def _stop_for_source_change_locked(self):
+        """Flag a stop when any watched daemon source file changed on disk."""
         if self._source_path is None:
             return
         watched = ((self._source_path, self._source_stamp),)

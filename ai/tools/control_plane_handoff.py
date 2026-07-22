@@ -1,8 +1,10 @@
 """Copy D0 state and test whether a proposed D1 can inherit it.
 
-The trusted controller imports this module from its own checkout.  The module
-copies live records into a temporary Git checkout and supplies a D0-owned
-Python probe.  Candidate tests never decide whether the takeover succeeds.
+D0 is the watcher program currently in charge; D1 is a proposed
+replacement watcher. The trusted controller imports this module from its
+own checkout.  The module copies live records into a temporary Git
+checkout and supplies a D0-owned Python probe.  Candidate tests never
+decide whether the takeover succeeds.
 """
 
 import glob

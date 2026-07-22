@@ -1,5 +1,16 @@
 """Ticket-cycle state, registration, completion, and message publication.
 
+A ticket cycle is one ticket's trip from its first Implementer
+handoff to its recorded landing. Its name joins the ticket's backlog
+anchor and full starting commit, as in ``TICKET-ANCHOR@COMMIT``. This
+file owns the durable cycle record: the small JSON state files that
+remember each active cycle's phase, mode, and landing commit, the
+file locks that serialize every state read and write, admission
+against a finite ``--cycle`` budget, and the numbered publication of
+new mailbox messages. How a landing commit is created lives in the
+landing part; this file records that the cycle reached it. Docstrings
+here call the accepted squash landing L and the running watcher D0.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name

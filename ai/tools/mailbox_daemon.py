@@ -1250,6 +1250,16 @@ def attempt_cycle_zero_completion(backlog_outcome, skip_redteam,
 
 
 def main():
+    """Parse one command line and run the selected mailbox action.
+
+    Exactly one action runs per invocation: a preview (``--dry-run``), one
+    pass (``--once``), a watch (``--watch``), a cleanup (``--clean-all``),
+    a role restart, a request save (``--send``), or a connection check
+    (``--ping``). The parsed options are installed into module constants
+    before any mailbox work starts, so every part file sees one consistent
+    runtime. Returns the process exit code: 0 after a completed action and
+    nonzero after a refusal or failure.
+    """
     # both are rebound below from the parsed command line; Python wants
     # the global declaration before the first mention of either name.
     global AGENT_COMMANDS

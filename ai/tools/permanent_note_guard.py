@@ -186,6 +186,7 @@ def _require_exact_note_set(paths, label):
 
 
 def _base_paths(repo, base):
+    """List every tracked notes-root path in the base commit."""
     result = _git(
         repo,
         "ls-tree",
@@ -200,6 +201,7 @@ def _base_paths(repo, base):
 
 
 def _head_paths(repo):
+    """List every tracked notes-root path at the current ``HEAD``."""
     result = _git(
         repo,
         "ls-tree",
@@ -214,6 +216,7 @@ def _head_paths(repo):
 
 
 def _index_paths(repo):
+    """List every notes-root path in the Git staging area."""
     result = _git(repo, "ls-files", "-z", "--", str(NOTES_ROOT))
     return _decode_paths(result.stdout, "Git staging area")
 
@@ -227,6 +230,7 @@ def _git_bytes(repo, object_name, path):
 
 
 def _stat_signature(metadata):
+    """Reduce one stat result to the identity fields compared for change."""
     return (
         metadata.st_dev,
         metadata.st_ino,
@@ -291,10 +295,12 @@ def _working_bytes(repo, path_text):
 
 
 def _sha256(data):
+    """Return the SHA-256 hex digest of exact bytes."""
     return hashlib.sha256(data).hexdigest()
 
 
 def _require_same(path, expected, observed, state):
+    """Refuse with both digests when one protected file differs."""
     if observed == expected:
         return
     raise GuardError(
@@ -351,6 +357,7 @@ def verify(repo, base):
 
 
 def build_parser():
+    """Build the ``--base`` / ``--repo`` command-line parser."""
     parser = argparse.ArgumentParser(
         description=(
             "Compare the eleven permanent notes and protected role contract "
@@ -370,6 +377,15 @@ def build_parser():
 
 
 def main(argv=None):
+    """Compare the protected files with the pinned base and report.
+
+    The comparison covers four states of every protected file: the base
+    commit, the current ``HEAD``, the Git staging area, and the working
+    files. A complete match prints one digest line per file and a final
+    ``PERMANENT-NOTE-GUARD PASS`` line, then exits 0. Any difference or
+    unreadable state prints one refusal line to standard error and exits
+    2; the tool never modifies a file either way.
+    """
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:

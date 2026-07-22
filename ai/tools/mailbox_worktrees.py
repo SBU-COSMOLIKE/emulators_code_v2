@@ -1,5 +1,17 @@
 """Role worktree state, provisioning, bootstrap, and cleanup.
 
+Each role works in its own Git worktree: an extra project folder on
+its own branch, so an agent edits without touching the user's
+checkout. This file creates or safely adopts those folders, records
+each folder's saved identity (path, branch, commit) in small state
+files, validates every identity before a dispatch, and carries the
+Architect's tracked backlog forward when the primary folder advances.
+It owns ``--clean-all``, the explicit command that discards every AI
+worktree and branch. It also loads the machine role contract and
+refuses to run when the shipped trusted tools do not match it.
+Docstrings here call a note-only permanent-note landing P and its base
+main commit B.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name

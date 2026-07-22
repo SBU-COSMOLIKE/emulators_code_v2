@@ -1263,6 +1263,16 @@ def status_report():
 
 
 def main():
+    """Run one router action: status, admin queue, route release, or relay.
+
+    ``--status`` only reads and reports. ``--architect-notes-admin`` queues
+    one permanent-note update turn from an already bound Architect process.
+    ``--abandon-route`` releases one obsolete manual route. A ``--note``
+    relay validates the Architect's source note, then drives the clipboard
+    workflow: it copies each generated block, waits for the returned block,
+    runs the named check commands, and saves the records under
+    ``ai/notes/relay/``. Exactly one action is accepted per invocation.
+    """
     parser = argparse.ArgumentParser(
         description="copy approved Architect instructions between manual "
                     "web conversations")

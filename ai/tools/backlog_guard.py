@@ -167,6 +167,7 @@ def _canonical_state_bytes(document):
 
 
 def _reject_duplicate_json_pairs(pairs):
+    """Build the state object while refusing any repeated JSON field."""
     document = {}
     for key, value in pairs:
         if key in document:
@@ -213,6 +214,7 @@ def _parse_state(data):
 
 
 def _read_state(state_path):
+    """Read and validate the saved state; return its bytes and document."""
     data = _read_regular_bytes(
         state_path, "backlog guard state", MAX_STATE_BYTES)
     return data, _parse_state(data)
@@ -432,6 +434,7 @@ def seal(repo, previous_digest, acknowledged=False):
 
 
 def build_parser():
+    """Build the ``check`` / ``initialize`` / ``seal`` command parser."""
     parser = argparse.ArgumentParser(
         description=(
             "Detect accidental changes to the Architect-owned backlog."))
@@ -473,6 +476,14 @@ def build_parser():
 
 
 def main(argv=None):
+    """Run one guard command and print its verdict lines.
+
+    ``check`` compares the backlog with the accepted fingerprint and
+    changes nothing. ``initialize`` and ``seal`` write the ignored state
+    file and are Architect-only. A completed command prints the accepted
+    SHA-256 and a final ``BACKLOG-GUARD-... PASS`` line and exits 0; any
+    refusal prints one reason to standard error and exits 2.
+    """
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:

@@ -1,5 +1,19 @@
 """Message preambles, ticket-flow envelopes, and return matching.
 
+An envelope is the machine-read header block at the top of a mailbox
+message: lines such as ``MAILBOX-CYCLE`` and ``MAILBOX-MODE`` that
+bind the message to one exact ticket. This file builds each role's
+preamble (the fixed instruction text placed before the routed
+request), lists the pending messages a watch may claim, and matches
+every returned block — an Architect GO, an Implementer handoff, a Red
+Team receipt — to the exact cycle, commit, and mode it claims to
+answer, refusing a mismatch instead of guessing.
+
+Docstrings here shorten repeated names: the Implementer's candidate
+commit is C, its accepted squash landing is L, a note-only
+permanent-note landing is P, that landing's base main commit is B, and
+the running watcher is D0.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
@@ -355,7 +369,7 @@ def user_message_inode_snapshot():
 
 def matching_new_architect_go(cycle_id, candidate_commit, mode,
                                before_inodes):
-    """Prove any GO created by this Architect turn names its exact C."""
+    """Prove any GO created by this Architect turn names its exact candidate C."""
     fresh = []
     problems = []
     problem_paths = []
@@ -483,7 +497,7 @@ def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes,
 
 def matching_new_architect_notes_go(base_commit, notes_commit,
                                      before_inodes):
-    """Prove exactly one fresh note-only GO binds this Fable turn's B and P."""
+    """Prove exactly one fresh note-only GO binds this Architect turn's B and P."""
     fresh = []
     invalid = []
     problems = []

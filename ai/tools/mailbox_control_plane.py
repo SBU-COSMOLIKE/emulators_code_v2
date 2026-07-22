@@ -1,5 +1,22 @@
 """Protected control-plane two-key state and landing execution.
 
+The control plane is the watcher program itself together with the
+protected policy files it obeys. A protected ticket changes those
+Architect-owned files under ``ai/notes/``; landing one needs two
+recorded keys on the same exact candidate commit: the Architect's GO
+decision and the Red Team's separate accept decision. This file keeps
+that two-key record and its trusted shadow and health checks. It also
+owns the landing steps shared by every ticket: executing an accepted
+GO as one recorded squash landing, proving a landing still binds its
+cycle and candidate, retiring the candidate's private Git reference,
+and updating each clean, idle role checkout to the landed commit.
+
+Docstrings here shorten repeated names: the Implementer's candidate
+commit is C, its accepted squash landing is L, a note-only
+permanent-note landing is P, the running watcher is D0, and a proposed
+replacement watcher is D1. The main commits observed before and after
+an integration audit are M0 and M1.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
@@ -179,7 +196,7 @@ def record_control_plane_redteam_decision(cycle_id, candidate_commit,
 
 def record_control_plane_integration_stale(
         cycle_id, candidate_commit, stale_landing, old_main, new_main):
-    """Preserve both C approvals while recording that prepared L is stale."""
+    """Preserve both approvals of candidate C while marking prepared L stale."""
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -780,7 +797,7 @@ def record_control_plane_check(cycle_id, candidate_commit, kind, ok,
 
 def execute_architect_go_locked(cycle_id, candidate_commit, mode,
                                 sealed_backlog=None):
-    """Land C as exact L and durably advance state before any push."""
+    """Land candidate C as its exact landing L and record it before any push."""
     protected = daemon.control_plane_ticket_state(
         cycle_id=cycle_id, candidate_commit=candidate_commit) is not None
     if protected and not daemon.protected_landing_ready(
@@ -881,7 +898,7 @@ def require_architect_landing_locked(cycle_id, landing_commit,
 
 def _require_retirement_landing_locked(cycle_id, landing_commit,
                                        ticket_state):
-    """Prove one durable L authorizes retirement of this cycle's C."""
+    """Prove one durable landing L authorizes retiring this cycle's candidate C."""
     active = ticket_state["active"].get(cycle_id)
     completed = ticket_state["completed"].get(cycle_id)
     recorded = completed
@@ -906,7 +923,7 @@ def _require_retirement_landing_locked(cycle_id, landing_commit,
 
 def retire_cycle_candidate_locked(cycle_id, candidate_commit,
                                   landing_commit):
-    """Hand off exact clean C to L, then delete only C's ownership."""
+    """Hand off exact clean candidate C to landing L, then delete only C's ownership."""
     if daemon.ACTIVE_TOPOLOGY is None:
         return True
     ticket_state = daemon.read_ticket_cycle_state()
@@ -982,7 +999,7 @@ def retire_superseded_failed_architect_go(cycle_id, candidate_commit, mode):
 
 
 def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit, mode):
-    """Retire exact C after durable GO state, preserving concurrent work."""
+    """Retire exact candidate C after durable GO state, preserving concurrent work."""
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         retired = daemon.retire_cycle_candidate_locked(
@@ -1309,7 +1326,7 @@ def _require_no_ordinary_landing_transition_locked(current_dispatch_path):
 
 
 def require_no_ordinary_landing_transition(current_dispatch_path):
-    """Refuse P while any ordinary ticket, C/ref, landing ref, or GO remains."""
+    """Refuse P while any ordinary ticket, candidate, landing ref, or GO remains."""
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         daemon._require_no_ordinary_landing_transition_locked(

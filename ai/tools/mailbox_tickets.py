@@ -1,5 +1,15 @@
 """Sol ticket payloads, admission tokens, timeout history, and the dispatch banner.
 
+This file writes the daemon-owned request texts: the Sol Red Team
+ticket bodies for discovery, closure, and control-plane review, the
+saved form of a user's request to the Architect, and the banner a
+starting watch prints. An admission token is the short saved proof
+that one user request already holds a slot of a finite ``--cycle``
+budget, so a restart cannot admit the same ticket twice. The timeout
+history is a per-message record of every timeout kill, so a retried
+message keeps the killed-after threshold it was promised. Docstrings
+here call the Implementer's candidate commit C.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name

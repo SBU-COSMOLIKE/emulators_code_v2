@@ -1,5 +1,14 @@
 """One message dispatch: launch, monitor, and verify a role turn.
 
+A dispatch takes one claimed mailbox message, launches the assigned
+role's command-line program inside that role's own work folder, and
+watches the process until the turn ends. This file owns that
+lifecycle: the launch, the periodic progress line, the timeout kill,
+the process-group kill that stops a turn together with every helper
+program it started, and the verified move of the finished request
+into ``done/`` or ``failed/``. It does not interpret the returned
+text; the envelope part matches returns to their tickets.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name

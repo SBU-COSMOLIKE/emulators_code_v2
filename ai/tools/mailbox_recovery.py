@@ -1,5 +1,14 @@
 """Daemon receipts, interruption recovery, and the backlog pass.
 
+Any run can stop between two steps: a crash, a timeout kill, or
+Ctrl-C. This file owns the recovery that makes the next start resume
+instead of losing work: replaying a recorded Architect GO whose
+archive step never ran, requeueing parked requests whose refusal was
+transient, and restarting a killed role turn from its exact saved
+handoff. It also owns the backlog pass itself: ``process_backlog``
+claims each waiting message in order, runs the matching lane, and
+defers Ctrl-C so a durable transition always finishes whole.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
@@ -65,6 +74,7 @@ class DeferredInterrupts:
         self._installed = False
 
     def _record(self, signum, frame):
+        """Remember one Ctrl-C and tell the user it is deferred, not lost."""
         del signum, frame
         self._pending = True
         print("interrupt received: finishing the current mailbox "

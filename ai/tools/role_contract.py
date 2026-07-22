@@ -88,6 +88,7 @@ class RoleContractError(ValueError):
 
 
 def _object(pairs):
+    """Build one YAML mapping while refusing any repeated key."""
     result = {}
     for key, value in pairs:
         if key in result:
@@ -97,6 +98,7 @@ def _object(pairs):
 
 
 def _keys(value, expected, where):
+    """Require ``value`` to be a mapping with exactly the expected keys."""
     if type(value) is not dict:
         raise RoleContractError(where + " must be a mapping")
     if set(value) != set(expected):
@@ -105,11 +107,13 @@ def _keys(value, expected, where):
 
 
 def _type(value, expected, where):
+    """Require ``value`` to have exactly the expected Python type."""
     if type(value) is not expected:
         raise RoleContractError(where + " has the wrong value type")
 
 
 def _path(value, where):
+    """Require one repository-relative POSIX path with no escapes."""
     _type(value, str, where)
     path = PurePosixPath(value)
     if (not value or path.is_absolute() or ".." in path.parts
@@ -118,6 +122,7 @@ def _path(value, where):
 
 
 def _path_list(value, where):
+    """Require one nonempty list of unique repository-relative paths."""
     _type(value, list, where)
     if not value or len(value) != len(set(value)):
         raise RoleContractError(where + " must be a nonempty unique list")
@@ -126,6 +131,7 @@ def _path_list(value, where):
 
 
 def _path_map(value, names, where):
+    """Require one mapping from the named keys to valid paths."""
     _keys(value, names, where)
     for name in names:
         _path(value[name], where + "." + name)

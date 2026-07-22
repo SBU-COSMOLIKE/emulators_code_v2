@@ -185,7 +185,7 @@ continues to the Architect without paying for the implementation again.
 | Detect an accidental change to the tracked backlog | `backlog_guard.py` | `python3 ai/tools/backlog_guard.py check` | `check` only reads. Architect-only `initialize` and `seal` commands write the ignored fingerprint record. |
 | Count the text added and removed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Reads two saved versions of one ticket and reports the character count. |
 | Classify the files changed by one candidate | `candidate_admission.py` | Called automatically by `mailbox_daemon.py` | Separates an in-scope candidate, an ordinary scope expansion that needs the Architect, and a protected-path violation. It cannot read Git or accept, reject, or land a candidate. |
-| Test whether a replacement controller understands D0's saved work | `control_plane_handoff.py` | Called automatically by `mailbox_daemon.py` for an external controller update | Copies bounded records into a temporary checkout and supplies D0's takeover probe. It never edits the live state or decides that D1 may land. |
+| Test whether a replacement watcher program understands the current watcher's saved work | `control_plane_handoff.py` | Called automatically by `mailbox_daemon.py` for an external controller update | Copies bounded records into a temporary checkout and supplies the current watcher's takeover probe. It never edits the live state or decides that the replacement may land. |
 | Check one Red Team closure or reopening | `reopen_transition.py` | Called automatically by `mailbox_daemon.py` | Reads verified backlog lines and supplies the ticket state and legal outcomes. It refuses a wrong counter, severity, or status. It never edits the backlog or decides whether the evidence is persuasive. |
 | Check that the selected AI services answer | `provider_health.py` | Called automatically by `mailbox_daemon.py --ping` | Makes the small Claude, Ollama, and Sol connection requests. It cannot read the mailbox, change a worktree, or make a ticket decision. |
 | Select the cheaper effort for a routine review | `review_dispatch.py` | Called automatically by `mailbox_daemon.py` | Recognizes later Architect checks and bounded Red Team ticket reviews, changes only the reasoning-effort option, and lets the daemon omit unrelated discovery instructions. It cannot classify evidence or change planning, implementation, or discovery effort. |
@@ -902,9 +902,9 @@ off limits unless the Architect explicitly reopens it. If the provider stops
 before writing the record, the ordinary out-of-token recovery above preserves
 the files without inventing missing history.
 
-On every pass, the watcher checks when `mailbox_daemon.py` was last modified.
-If the file changed, the running watcher exits. Start it again to load the new
-code.
+On every pass, the watcher checks when `mailbox_daemon.py` and each of its
+`mailbox_*.py` part files were last modified. If any of these program files
+changed, the running watcher exits. Start it again to load the new code.
 
 ## Exact command reference
 
@@ -1160,7 +1160,7 @@ folder, its branch, and the full 40-character name of the saved version where
 the ticket starts. Every requested edit and test also names a real location:
 
 ```markdown
-- `ai/tools/mailbox_daemon.py::agent_preamble`: Keep `agent="user"` invalid.
+- `ai/tools/mailbox_envelopes.py::agent_preamble`: Keep `agent="user"` invalid.
   Require a `ValueError` containing `unknown mailbox agent`, without changing
   the accepted `fable`, `opus`, or `sol` cases.
 - `ai/tests/test_role_directive_contract.py::RoleDirectiveContractTests`:
@@ -1826,7 +1826,7 @@ refused it.
 | The elapsed time increases but the Claude log stays small | Claude may still be working but has not printed more text yet | Keep watching the elapsed time |
 | Neither elapsed time nor log size changes | The AI program may be stuck | Let the normal timeout handle it: the timeout kills the stuck program and every helper program it started, then parks the request in `failed/`. To stop earlier, press Ctrl-C twice; the second press kills the stuck turn the same way |
 | The watcher says one uncertain request prevents later work | The earlier AI job may have ended without a confirmed final record | Read the subsection below before moving or resending anything |
-| Sol cannot start a new search | Optional searches are paused by fix-only mode or by important recorded tickets | Continue the known work first. Read [Fix-only watches](#fix-only-watches) and [discovery severity](#choose-the-minimum-discovery-severity) for the exact rule |
+| Sol cannot start a new search | Optional searches are paused by fix-only mode or by important recorded tickets | Continue the known work first. Read [Fix-only maintenance](#fix-only-watches) and [discovery severity](#choose-the-minimum-discovery-severity) for the exact rule |
 | The watcher exits after you edit `mailbox_daemon.py` or a `mailbox_*.py` part file | The running watcher noticed that one of its own program files changed | Start the watcher again so it loads the new code |
 | `--send` warns that no watcher is active | The request was saved, but no watcher is currently handling that mailbox | Start a watcher. The saved request remains safe while it waits |
 

@@ -1,5 +1,14 @@
 """Implementer runtime records, provider checks, and backlog ledger queries.
 
+The Implementer may be served by Claude or by an Ollama-served model,
+and a restart must not silently change that choice in the middle of a
+ticket. This file records the verified provider, model, and context
+values for the active cycle and compares a later start against them.
+It also selects the cheaper reasoning effort for routine review turns
+and answers small questions about the tracked backlog: how many
+tickets are open, at which severities, and which bug entries fix-only
+maintenance may choose.
+
 This file is one part of the mailbox daemon and holds definitions only.
 ``mailbox_daemon.py`` loads it from its own directory, binds the name
 ``daemon`` below to a live view of its own namespace, and adopts every name
