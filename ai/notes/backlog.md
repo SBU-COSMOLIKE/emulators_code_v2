@@ -188,7 +188,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Record which physics formulas produced each dataset and trained emulator](#open-physics-implementation-identity)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Refuse polynomial-emulator requests outside the fitted parameter range](#open-pce-domain-enforcement)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Add advertised CMB unit and multipole conversions](#open-cmb-serving-conversions)
-- OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Let the Implementer stop honestly when a ticket cannot proceed](#open-implementer-blocked-outcome)
 
 ### Low
 
@@ -1523,15 +1522,25 @@ must never trigger an automatic instruction to try harder.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** A blocked `IMPLEMENTER_HANDOFF` already exists for failed subagent
-launches, and the 90-minute checkpoint lets a long implementation ask for a
-complexity decision. Other honest blockers do not yet share one validated
-format and recovery path.
-
-**Priority: MEDIUM.** Missing dependencies, inconsistent checks, and necessary
-scope changes can arise during normal work. A structured stop reduces wasted
-tokens and unauthorized work, but its absence does not directly corrupt a
-scientific result or lose user data.
+**CLOSED — the honest stop exists as the checkpoint family, and the enum on
+top of it is declined.** The Implementer role protocol requires a relayable
+`IMPLEMENTER_HANDOFF` block for every stop, including hitting a blocker: a
+mid-unit stop is titled `CHECKPOINT` and carries the changed files, the
+completed checks, the unfinished work, and the decision requested from the
+Architect. The specialized stops each have their exact validated shape —
+`BUDGET BLOCKED` with the over-limit measurement, the digest-bound
+capability checkpoint for a rejected subagent launch, and the
+`CONTEXT HANDOFF` for a replaced context. The daemon accepts the checkpoint
+headings, routes the return to an Architect checkpoint audit instead of
+retrying, preserves active Implementer work and saved checkpoints across a
+restart, and a checkpoint commit is never candidate C. What remains of the
+request is a five-value blocker-reason vocabulary with parser validation
+and per-reason tests. That vocabulary has no mechanical consumer: the
+daemon must treat every reason identically — route to the Architect, never
+retry, never manufacture a candidate — and the Architect reads the required
+free-text evidence regardless of which label sits above it. A taxonomy
+whose only reader already reads the evidence is parser surface without a
+failure it prevents.
 
 ### What is already fixed
 
@@ -1541,45 +1550,10 @@ The Architect can revise the same ticket after inspecting saved evidence.
 
 ### What is missing
 
-Reuse `### IMPLEMENTER_HANDOFF: BLOCKED`; do not add another role or a parallel
-ticket pipeline. Add one exact **Blocker reason** chosen from:
-
-- `architectural-decision-required`;
-- `repeated-implementation-failure`;
-- `missing-dependency-or-hardware`;
-- `acceptance-test-appears-inconsistent`;
-- `forbidden-scope-expansion`.
-
-The handoff must also name the commands attempted, relevant output, current
-full commit, modified files, and the decision requested from the Architect.
-The Implementer stops further edits before sending it. Partial work may be
-saved in a clean checkpoint commit, but that commit is not candidate C and
-cannot be landed.
-
-<details><summary>Technical record for development tools</summary>
-
-The daemon validates the bounded fields, preserves the same ticket and cycle,
-and routes the record to the Architect. It must not increment a failure count,
-repeat the Implementer request, manufacture a candidate, or convert `BLOCKED`
-into GO. Restart must preserve one exact blocked record without duplicate
-delivery.
-
-The Architect may respond with a revised directive, an explicit permitted
-scope expansion, a smaller ticket split, a decision to park the still-Open
-ticket, or closure with an explanation. Only an explicit Architect action may
-resume implementation. Parking must release active execution cleanly so other
-permitted tickets can proceed; it does not claim that the blocked ticket is
-fixed or completed.
-
-Extend the current handoff parser and checkpoint path rather than introducing
-dozens of lifecycle states. Tests must cover every reason, missing or duplicate
-fields, conflicting reasons, restart, no automatic retry, no candidate or
-landing creation, Architect revision, explicit parking, and compatibility with
-the existing 90-minute and subagent-capability checkpoints. Update the short
-human explanation in `ai/README.md` and keep the exact field reference in
-`ai/tools/README.md`.
-
-</details>
+Nothing. The checkpoint family in `.claude/OPUS_ROLE.md` and the daemon's
+checkpoint routing carry every load-bearing property the ticket asked for;
+the blocker-reason vocabulary is declined as validation machinery without a
+mechanical consumer.
 
 <a id="open-stale-landing-reaudit"></a>
 ## Recover safely when main advances after a landing is prepared
