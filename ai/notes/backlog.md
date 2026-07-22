@@ -199,7 +199,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Plan a limited ticket across code, documentation, and protected notes](#open-character-budget-planning)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Normalize untrusted Implementer output before the Architect reads it](#open-normalized-implementer-output)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Bind each landing to its candidate and sealed backlog](#open-landing-backlog-identity)
@@ -2094,11 +2093,22 @@ as untrusted evidence that cannot issue instructions.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Candidate and test evidence are already bound to commits in several
-paths, but raw role output can still enter later prompts as ordinary prose.
-
-**Priority: LOW.** This is an important prompt-boundary hardening task under a
-non-hostile threat model. It follows known emulator and normal-operation bugs.
+**CLOSED — the prompt boundary already exists where it decides anything.**
+Every dispatched turn places the trusted material first: the daemon's own
+banner, the role preamble pointing at the authoritative role file, and the
+byte-unchanged common preamble. The raw mailbox body enters only after the
+exact `--- MESSAGE ---` delimiter, as the prompt's suffix, so a reader
+always knows where evidence begins. Structured validation also exists for
+the returns that carry authority: the handoff contract checks envelope,
+exact rows, and admission values, and the daemon acts only on parsed exact
+headers — instruction-shaped prose inside a message body cannot become an
+action, whichever role wrote it. What remains of the proposal is a
+versioned report format with Unicode normalization, terminal-escape
+scrubbing, and duplicate-field rejection. That is input sanitation
+proportioned to hostile bytes, not to a cooperating Implementer whose worst
+case is prose that imitates an instruction — prose the Architect role file
+already directs the reader to treat as evidence under review, never as
+authority.
 
 ### What is already fixed
 
@@ -2107,27 +2117,10 @@ and structured mailbox fields already exist for several handoffs.
 
 ### What is missing
 
-Define a versioned report with bounded fields for cycle, authorized base,
-candidate commit, changed paths, named acceptance commands, exit codes, and log
-digests. Reject unknown or duplicate fields, malformed Unicode, terminal
-escapes, absolute or parent-traversing paths, unexpected path types, symlink
-escapes, oversized values, and command fragments where an identifier is
-required.
-
-Present trusted role instructions first, then normalized metadata, then only
-bounded excerpts inside explicit `BEGIN UNTRUSTED CANDIDATE CONTENT` and
-`END UNTRUSTED CANDIDATE CONTENT` markers. Raw content remains available for
-evidence but never becomes privileged instruction text.
-
-<details><summary>Technical record for development tools</summary>
-
-Owners: Implementer handoff parsing and Architect prompt assembly in
-`ai/tools/mailbox_daemon.py` and their temporary-directory reproductions. Test
-duplicate JSON keys, control characters, Unicode edge cases, unsafe paths,
-oversized values, forged instruction-like comments, and test output that prints
-fake GO or system messages.
-
-</details>
+Nothing. The trusted-first prompt order, the exact message delimiter, the
+handoff contract's structural checks, and header-only daemon parsing cover
+the routes where imitated authority could matter; the remaining sanitation
+format is declined as disproportionate to a cooperating Implementer.
 
 <a id="open-authenticated-control-messages"></a>
 ## Authenticate trusted ticket and landing messages proportionally
