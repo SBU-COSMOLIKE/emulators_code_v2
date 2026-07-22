@@ -182,7 +182,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **BUG FIX** — [Run saved PyTorch compilation settings on CUDA](#open-compile-modes)
 - OPEN **MEDIUM** **BUG FIX** — [Complete older cross-family workstation checks](#open-workstation-debt)
 - OPEN **MEDIUM** **BUG FIX** — [Finish real workstation checks for the current saved-file format](#open-schema-v3-gate-fixtures)
-- OPEN **MEDIUM** **BUG FIX** — [Measure memory without changing the model and reserve capacity before allocation](#open-memory-planner)
 - OPEN **MEDIUM** **BUG FIX** — [Save every effective setting and reset each repeated study](#open-resolved-run-record)
 - OPEN **MEDIUM** **BUG FIX** — [Protect control files and keep candidates from weakening their own audit](#open-control-plane-protection)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Finish safe fine-tuning against the original weights](#open-finetune-anchor)
@@ -1316,25 +1315,47 @@ chance to stop the allocation.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Exact target-array byte arithmetic and minimum complete-batch refusal
-are implemented; full resident accounting and allocation order are not.
+**CLOSED — the described repair is not worth building.** An audit of the
+current sizing path found no demonstrated failure behind any of the three
+requested changes:
+
+- The batch-term probe runs one dummy forward on zeros through the live
+  model with scoped saved-tensor hooks. The current model families carry no
+  batch-normalization running statistics and no active dropout, so that
+  forward changes no model state and consumes no random numbers; the graph
+  is discarded. A state-preserving rework would guard against module types
+  the library does not use.
+- The parameter budget already multiplies weight bytes by five (weights,
+  gradients, and a three-slot optimizer worst case), and the probe measures
+  the real autograd-saved activations. The omitted terms — index buffers,
+  bound vectors — are kilobytes against that padded budget. Finer
+  accounting would add estimate complexity without a failure it prevents.
+- A capacity-token reservation before worker allocation is concurrency
+  machinery whose only benefit is converting a visible out-of-memory
+  failure into a queue wait. Sweeps already size each source against the
+  device's reported free memory and refuse a budget that cannot hold
+  resident state plus one complete batch.
+
+The one real remainder — a future model family with stateful-forward
+modules would make the probe mutate state — is below Low and parked as
+[Guard the sizing probe if a stateful-forward family is added](#parked-memory-probe-stateful-forward).
 
 ### What is already fixed
 
-Batch sizing accounts for packed target bytes and refuses a budget that cannot
-hold one complete batch.
+Batch sizing accounts for packed target bytes, measures real saved
+activations, and refuses a budget that cannot hold one complete batch.
 
 ### What is missing
 
-Make sizing state-preserving, count parameters, buffers, optimizer, activations,
-resident inputs, and dtype copies, and acquire a capacity token before any
-worker model/data/accelerator allocation.
+Nothing. The described extension is declined as disproportionate to any
+demonstrated failure.
 
 <details><summary>Technical record for development tools</summary>
-Severity: MEDIUM; probable out-of-memory failures in sweeps. Owners:
-`emulator/batching.py`, `emulator/scheduling.py`, and sweep workers. State
-digest, mixed-dtype/buffer, accounting, and allocate-before-token mutations are
-required.
+Audit surface: `emulator/batching.py::compute_batch_byte_terms`,
+`compute_model_size_bytes`, `batches_per_load`, and
+`emulator/scheduling.py::estimate_train_vram_fraction`. No
+`register_buffer` site in the model designs stores more than index or bound
+vectors; no batch-normalization or dropout module appears in any design.
 </details>
 
 <a id="open-resolved-run-record"></a>
@@ -2587,6 +2608,49 @@ a diary of old bugs or development sessions.
 
 - PARKED **LOW — EDGE CASE** **BUG FIX** — [Remove hidden covariance files left by forced process termination](#parked-cmb-covariance-cleanup)
 - PARKED **LOW — EDGE CASE** **BUG FIX** — [Certify the vendored Syren formulas independently](#parked-syren-formula-certificate)
+- PARKED **LOW — EDGE CASE** **BUG FIX** — [Guard the sizing probe if a stateful-forward family is added](#parked-memory-probe-stateful-forward)
+
+<a id="parked-memory-probe-stateful-forward"></a>
+## Guard the sizing probe if a stateful-forward family is added
+
+### High-level summary
+
+The batch-memory estimate runs one dummy forward on zeros through the live
+model to measure its autograd-saved activations. The current model families
+change no state during a forward pass, so the probe is harmless. A future
+family containing batch-normalization running statistics or active dropout
+would make that probe mutate model state or consume random numbers before
+training begins.
+
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**PARKED. Severity: LOW — EDGE CASE.** No supported design contains such a
+module, so this ticket is below Low and is not actionable unless the user
+explicitly asks the Architect to solve this ticket by name.
+
+### What is already fixed
+
+Every current design's forward pass is stateless: the probe on zeros with
+scoped saved-tensor hooks changes nothing and draws no random numbers.
+
+### What is missing
+
+No automatic work is authorized. If a stateful-forward family is added,
+run the probe under an evaluation-mode guard that restores training mode,
+or measure on a throwaway copy. Do not build a general state-digest
+framework for module types the library does not use.
+
+<details><summary>Technical record for development tools</summary>
+Owner: `emulator/batching.py::compute_batch_byte_terms`. The trigger is any
+design registering a batch-normalization module or a dropout module with a
+nonzero rate.
+</details>
 
 <a id="parked-cmb-covariance-cleanup"></a>
 ## Remove hidden covariance files left by forced process termination
