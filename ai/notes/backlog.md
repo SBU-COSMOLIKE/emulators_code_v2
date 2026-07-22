@@ -195,7 +195,6 @@ Medium work begins only after the permitted High work above.
 
 - OPEN **LOW** **BUG FIX** — [Give every role run its own relay-log filename](#open-relay-log-identity)
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
-- OPEN **LOW** **BUG FIX** — [Recover safely when main advances after a landing is prepared](#open-stale-landing-reaudit)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
@@ -1612,15 +1611,22 @@ future watcher command must make that recovery explicit and repeatable.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The current Critical cycle-control repair detects a moved `main`,
-preserves the exact candidate and prepared landing, and exits the finite watch
-with a nonzero result. It deliberately does not rebuild a landing from an old
-GO decision.
-
-**Priority: LOW.** The watcher already stops before an unsafe merge and
-preserves every relevant object and file. This ticket improves convenience and
-independent revalidation; it does not repair data loss, a wrong scientific
-result, or a broken core landing guarantee.
+**CLOSED — the supported recovery is the ordinary path, and a shortcut
+would weaken it.** When `main` moves under a prepared landing, the watcher
+refuses, preserves the candidate and prepared commit, and exits nonzero;
+the ticket that cycle served is still open in this backlog, so restarting
+the watch runs a fresh cycle against the new `main`. The Implementer redoes
+the work on the actual new parent and the Architect audits the real final
+candidate under the same uniform rule as every other landing. The cost of
+that fallback is one repeated Implementer turn for a rare event — a user
+advancing `main` in the middle of a watch. The requested alternative —
+stale-marking, a recomputed provisional integration of the old candidate
+onto the new parent, a bounded re-audit protocol, replacement-landing
+binding, and real-Git witnesses for each scenario — is a second acceptance
+route through the daemon's highest-trust code, in which the Architect
+reviews only the interaction between the old GO and the intervening
+commits instead of a complete candidate. Maintaining a permanently weaker
+route to save one occasional turn is a bad trade.
 
 ### What is already fixed
 
@@ -1629,27 +1635,9 @@ user checkout is not reset, cleaned, overwritten, or silently merged.
 
 ### What is missing
 
-Add one explicit user-authorized recovery operation. Mark the old landing
-stale rather than failed or quarantined, preserve the approved candidate, and
-recompute a provisional integration on the new `main`. The Architect audits
-only the interaction between the intervening main changes and the candidate:
-changed assumptions, semantic conflicts, newly relevant tests, and whether the
-combined result still satisfies the original ticket. The Architect does not
-reapprove the intervening commits themselves. Add real-Git witnesses for
-restart, refusal of the old landing, focused revalidation, and the replacement
-landing.
-
-<details><summary>Technical record for development tools</summary>
-
-Owners: `ai/tools/mailbox_daemon.py` Architect-GO consumption and
-`ai/tests/tools_mailbox_daemon_primary_worktree_repro.py`. The old prepared
-landing is `L(P,C)`; when `main` advances to `P2`, neither reusing `L` nor
-silently calculating `L(P2,C)` is allowed. Compare candidate delta `P..C`,
-intervening delta `P..P2`, and the combined provisional tree. A replacement
-landing must bind the focused Architect revalidation to `P2`, the same cycle,
-and the exact saved candidate `C`.
-
-</details>
+Nothing. Restarting the watch on the still-open ticket is the supported
+recovery; it keeps one uniform full-audit landing rule instead of adding a
+focused-revalidation shortcut.
 
 <a id="open-relay-log-identity"></a>
 ## Give every role run its own relay-log filename
