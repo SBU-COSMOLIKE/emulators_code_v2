@@ -1411,7 +1411,22 @@ def write_push_debt(landing, detail):
 
 
 def push_exact_landing_or_record_debt(landing):
-    """Attempt one non-force push; preserve a durable user action on failure."""
+    """Attempt one non-force push; preserve a durable user action on failure.
+
+    Arguments:
+      landing = full commit that verified local ``main`` already contains.
+
+    Returns:
+      ``(True, "")`` when the exact push was verified on the remote,
+      ``(False, detail)`` when a durable push-debt record was written, and
+      ``(None, "")`` when the user chose ``--github no``: nothing contacts
+      the remote, no debt is recorded for that choice, and debt records
+      from earlier runs stay on disk untouched.
+    """
+    if not daemon.GITHUB_PUSH_ENABLED:
+        print("local landing " + landing + " is verified; the GitHub push "
+              "was skipped by user choice (--github no).")
+        return None, ""
     command = ["git", "-C", daemon.AGENT_CWD["fable"], "push", "--porcelain",
                "origin", landing + ":refs/heads/main"]
     try:

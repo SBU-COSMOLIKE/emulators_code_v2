@@ -356,6 +356,16 @@ DEFAULT_SOL_CONTEXT_BUDGET = 500000
 DEFAULT_MAX_CHARACTERS = 0
 MAX_CHARACTERS = DEFAULT_MAX_CHARACTERS
 
+# The user chooses whether each verified local landing is also pushed to
+# GitHub. "yes" keeps the exact non-force push and remote verification.
+# "no" stops after the verified local merge: nothing contacts the remote,
+# no push-debt record is written for that intentional choice, and debt
+# records from earlier runs stay on disk untouched. The daemon's
+# self-restart re-executes the original command line, so the chosen value
+# survives a restart of the active watch.
+DEFAULT_GITHUB_PUSH = "yes"
+GITHUB_PUSH_ENABLED = True
+
 # Discovery severity is a per-ticket statement of the user's minimum harm
 # level for opening new work. A watch also supplies the default that its
 # Architect must save on any discovery ticket it creates. The saved ticket
@@ -1267,6 +1277,7 @@ def main():
     global ARCHITECT_CONTEXT_BUDGET
     global IMPLEMENTER_RUNTIME
     global MAX_CHARACTERS
+    global GITHUB_PUSH_ENABLED
     global REVIEW_EFFORT
     global DISCOVERY_SEVERITY
     global _ACTIVE_WATCH_RENDEZVOUS
@@ -1322,6 +1333,14 @@ def main():
                              "remain waiting for a later watch without this "
                              "option; with --ping, check the Architect and "
                              "Implementer providers but not Sol")
+    parser.add_argument("--github", choices=("yes", "no"),
+                        default=DEFAULT_GITHUB_PUSH,
+                        help="yes (default) pushes each verified local "
+                             "landing to GitHub with the existing non-force "
+                             "push and remote check; no stops after the "
+                             "verified local merge, contacts no remote, and "
+                             "records no push debt for that choice, while "
+                             "debt records from earlier runs stay on disk")
     parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
                         default=None,
                         help="with --send architect, save a backlog-repair "
@@ -1576,6 +1595,7 @@ def main():
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     ARCHITECT_CONTEXT_BUDGET = args.architect_context
     REVIEW_EFFORT = args.review_effort
+    GITHUB_PUSH_ENABLED = args.github == "yes"
 
     if args.watch or args.once:
         try:
@@ -1634,6 +1654,9 @@ def main():
     if args.watch:
         print("role providers: architect=claude implementer="
               + args.implementer_provider + " red-team=codex")
+        if not GITHUB_PUSH_ENABLED:
+            print("github push: off by user choice (--github no); verified "
+                  "landings stay on local main")
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model
               + " (internal mailbox names: fable/opus)")

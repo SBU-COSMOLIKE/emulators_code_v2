@@ -923,8 +923,9 @@ The current transcript is kept here for offline reading and regression checks.
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--clean-all]
                          [--restart-implementer] [--restart-redteam] [--watch]
                          [--cycle count] [--max characters] [--skip-redteam]
-                         [--fix-only value] [--send {architect}] [--ping]
-                         [--unit UNIT] [--severity {high,medium,low}]
+                         [--github {yes,no}] [--fix-only value]
+                         [--send {architect}] [--ping] [--unit UNIT]
+                         [--severity {high,medium,low}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--implementer-provider {claude,ollama}]
                          [--fable-effort {low,medium,high,xhigh,max}]
@@ -973,6 +974,12 @@ options:
                         no Red Team job; Red Team messages remain waiting for
                         a later watch without this option; with --ping, check
                         the Architect and Implementer providers but not Sol
+  --github {yes,no}     yes (default) pushes each verified local landing to
+                        GitHub with the existing non-force push and remote
+                        check; no stops after the verified local merge,
+                        contacts no remote, and records no push debt for that
+                        choice, while debt records from earlier runs stay on
+                        disk
   --fix-only value      with --send architect, save a backlog-repair request;
                         with --watch, run existing bug fixes at the watcher's
                         severity; the value accepts 1, true, or yes in any
@@ -1023,7 +1030,7 @@ options:
                         move its request file to failed/; if the result or
                         move cannot be verified, the file may remain in
                         inflight/ for inspection (default: 120)
-  --architect-context TOKENS, --claude-context TOKENS
+  --architect-context, --claude-context TOKENS
                         inside one Architect turn, replace older context with
                         a shorter summary at this many tokens; --claude-
                         context is a compatibility name for this Architect-
@@ -1476,6 +1483,12 @@ After L, the watcher makes one non-force push attempt: one try to send L
 without overwriting newer remote work. An uncertain or failed attempt creates
 `pending-main-push-<L>.txt`. This **push-debt record** names the exact version
 and command still owed; it does not reopen the ticket or repeat the landing.
+
+With `--github no`, the watcher stops at the verified local merge instead:
+it runs no push, asks the remote nothing, and prints one sentence naming L
+and the user choice. That intentional skip creates no push-debt record,
+because nothing is owed, while debt records left by earlier runs stay on
+disk until a later `--github yes` watch (the default) retries them.
 
 In plain terms, before the next ticket starts, the watcher updates every safe,
 unused AI folder to L so no role starts from older code.

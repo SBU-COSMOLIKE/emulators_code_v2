@@ -1,7 +1,11 @@
 """Exercise role boundaries through code rather than explanatory wording."""
 
+import contextlib
+import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -70,6 +74,68 @@ class RoleWorkflowBehaviorTests(unittest.TestCase):
             self.assertIn(
                 "Last push result: ! [rejected] non-fast-forward",
                 debt_text)
+
+    def test_github_no_skips_the_push_and_preserves_earlier_debt(self):
+        """--github no contacts no remote and erases no earlier debt file."""
+        landing = "c" * 40
+        earlier = "d" * 40
+        earlier_payload = ("Local main contains verified landing " + earlier
+                           + ".\nPush is still required: git push origin "
+                           + earlier + ":refs/heads/main\n")
+        original_relay = mailbox_daemon.RELAY_DIR
+        original_choice = mailbox_daemon.GITHUB_PUSH_ENABLED
+        original_cwd = mailbox_daemon.AGENT_CWD
+
+        with tempfile.TemporaryDirectory(prefix="github-choice-") as tmp:
+            relay = str(Path(tmp, "relay"))
+            Path(relay).mkdir()
+            earlier_debt = Path(relay, "pending-main-push-" + earlier + ".txt")
+            earlier_debt.write_text(earlier_payload, encoding="utf-8")
+            # Any accidental Git command would run inside this missing
+            # folder, fail, and write a new debt record that the assertions
+            # below would catch — so no subprocess replacement is needed.
+            missing_repo = str(Path(tmp, "missing-repo"))
+            captured = io.StringIO()
+            try:
+                mailbox_daemon.RELAY_DIR = relay
+                mailbox_daemon.GITHUB_PUSH_ENABLED = False
+                mailbox_daemon.AGENT_CWD = {"fable": missing_repo,
+                                            "opus": missing_repo,
+                                            "sol": missing_repo}
+                with contextlib.redirect_stdout(captured):
+                    pushed, detail = (
+                        mailbox_daemon.push_exact_landing_or_record_debt(
+                            landing=landing))
+            finally:
+                mailbox_daemon.RELAY_DIR = original_relay
+                mailbox_daemon.GITHUB_PUSH_ENABLED = original_choice
+                mailbox_daemon.AGENT_CWD = original_cwd
+
+            self.assertIsNone(pushed)
+            self.assertEqual(detail, "")
+            printed = captured.getvalue()
+            self.assertIn("skipped by user choice (--github no)", printed)
+            self.assertIn(landing, printed)
+            new_debt = Path(relay, "pending-main-push-" + landing + ".txt")
+            self.assertFalse(new_debt.exists())
+            self.assertEqual(
+                earlier_debt.read_text(encoding="utf-8"), earlier_payload)
+
+    def test_github_push_stays_on_by_default(self):
+        """Existing commands keep pushing unless the user says otherwise."""
+        self.assertEqual(mailbox_daemon.DEFAULT_GITHUB_PUSH, "yes")
+        self.assertTrue(mailbox_daemon.GITHUB_PUSH_ENABLED)
+
+    def test_github_value_outside_yes_no_fails_before_any_work(self):
+        """The command line refuses an unknown --github value at parse time."""
+        daemon_path = Path(mailbox_daemon.__file__).resolve()
+        result = subprocess.run(
+            [sys.executable, str(daemon_path), "--github", "maybe"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            timeout=60)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--github", result.stderr)
+        self.assertIn("invalid choice", result.stderr)
 
     def test_candidate_scope_has_three_mechanical_results(self):
         allowed = {"emulator/training.py", "ai/tests/test_training.py",

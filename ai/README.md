@@ -203,6 +203,13 @@ change. The watcher exits after that one ticket and its Red Team review result.
 If no eligible bug exists, the Architect reports that there is no ticket to
 start; press Ctrl-C during the next printed safe interval.
 
+By default the watcher also sends each accepted change to GitHub with one
+non-force push. Add `--github no` to any watch command to stop after the
+verified local `main` merge instead: nothing contacts GitHub, the skip is
+printed as a user choice rather than recorded as a failed push, and you can
+inspect or push the accepted commits yourself later. Every review step above
+stays the same.
+
 ### Claude Implementer instead of Ollama
 
 If Claude and Sol are available but Ollama is not, keep the setup and

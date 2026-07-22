@@ -1783,7 +1783,7 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
         detail = str(exc)
     if pushed:
         print("verified remote main at exact landing " + landing + ".")
-    else:
+    elif pushed is not None:
         print("local landing is complete; remote push remains follow-up "
               "debt for " + landing + (": " + detail if detail else "."))
     return True, completed, landing
@@ -1911,7 +1911,7 @@ def finish_claimed_architect_notes_go(dispatch_path, base_commit,
     if pushed:
         print("verified remote main at permanent-note commit "
               + notes_commit + ".")
-    else:
+    elif pushed is not None:
         print("permanent-note landing is complete; remote push remains "
               "follow-up debt for " + notes_commit
               + (": " + detail if detail else "."))

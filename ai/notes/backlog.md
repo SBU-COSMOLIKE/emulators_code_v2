@@ -195,7 +195,6 @@ Medium work begins only after the permitted High work above.
 
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
 <a id="open-mps-test-import-isolation"></a>
@@ -2282,11 +2281,23 @@ does not describe that intentional choice as failed push debt.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The watcher always attempts the remote push after a successful local
-landing. No command-line choice separates local landing from GitHub upload.
-
-**Priority: LOW.** Local landing and push-failure recovery already work. This
-option adds user control over when accepted local work reaches GitHub.
+**CLOSED.** The watcher accepts `--github yes|no` with the documented
+default `yes`, so existing commands keep pushing unchanged. The choice is
+read in exactly one place — inside the push function that every landing
+kind and every debt retry already calls — so the local landing path is
+byte-identical for both values. With `no`, the function returns before any
+Git command: nothing contacts the remote, one sentence names the verified
+local landing and the user choice, no push-debt record is written for that
+choice, and debt records from earlier runs stay on disk. The three callers
+that report push outcomes distinguish the intentional skip from failed-push
+debt, and the watch banner states the choice once at startup. The daemon's
+self-restart re-executes the original command line, so the value survives a
+restart of the active watch. Tests in
+`ai/tests/test_role_workflow_behavior.py` prove the skip contacts no
+remote against a deliberately missing repository path, preserves an earlier
+debt file byte for byte, keeps the default at `yes`, and that an unknown
+value fails at command-line parsing before any work; the existing
+non-force-push test keeps covering `yes`.
 
 ### What is already fixed
 
@@ -2296,36 +2307,10 @@ durable follow-up information when an intended push fails.
 
 ### What is missing
 
-Add `--github yes|no` to the watcher settings and save the chosen value for the
-whole run. Preserve the current behavior as the documented default so existing
-commands do not change silently. Apply the choice to ordinary, protected
-control-plane, and permanent-note landings without changing who may create or
-land a commit.
-
-When the value is `no`, do not execute `git push`, do not query the remote to
-verify a push, and do not create a pending-push record for that intentional
-local-only result. Print one clear sentence naming the local landing and saying
-that GitHub was skipped by user choice. Existing pending-push records from
-earlier runs must remain preserved rather than being silently deleted.
-
-<details><summary>Technical record for development tools</summary>
-
-Primary implementation points are the watcher argument parser,
-`push_exact_landing_or_record_debt`, ordinary and protected landing completion,
-permanent-note landing completion, startup recovery of pending push records,
-and the corresponding status text. Keep daemon ownership of L, exact
-compare-and-swap-style main protection, remote verification under `yes`, and
-the prohibition on force pushes.
-
-Tests must prove that both values land the same exact commit locally; `yes`
-invokes and verifies one non-force push; `no` performs no network command and
-creates no new push debt; a restart preserves the choice for the active watch;
-old debt is not erased; invalid values fail before work begins; and existing
-commands retain their documented default. Update the concise runtime-control
-example in `ai/README.md` and the detailed push-recovery explanation in
-`ai/tools/README.md`.
-
-</details>
+Nothing. `ai/README.md` explains the choice beside the watch example,
+`ai/tools/README.md` explains it beside the push-debt record, and daemon
+ownership of L, remote verification under `yes`, and the force-push
+prohibition are untouched.
 
 <a id="open-landing-backlog-identity"></a>
 ## Bind each landing to its candidate and sealed backlog

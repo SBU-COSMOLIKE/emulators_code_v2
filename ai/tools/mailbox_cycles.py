@@ -1503,7 +1503,7 @@ def land_architect_reopen_decision(dispatch_path, cycle_id,
         pushed, detail = False, str(exc)
     if pushed:
         print("verified remote main at reopening decision " + landing + ".")
-    else:
+    elif pushed is not None:
         print("reopening decision is local; remote push remains follow-up "
               "debt for " + landing + (": " + detail if detail else "."))
     return landing, completed
