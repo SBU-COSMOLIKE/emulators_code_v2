@@ -201,7 +201,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Test every interrupted backlog synchronization step](#open-backlog-sync-crash-cuts)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
 <a id="open-mps-test-import-isolation"></a>
@@ -2450,13 +2449,19 @@ different bytes.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Fresh setup, guard preservation, legacy migration, mismatched bytes,
-and a successful tracked-backlog landing are tested. There is no focused
-crash-cut reproduction for `.backlog-sync-recovery`.
-
-**Priority: LOW.** No synchronization failure is reproduced. The missing
-evidence concerns rare interruption timing and does not change the current
-runtime algorithm.
+**CLOSED — the test cannot be built without breaking a stronger rule.**
+Stopping the process exactly between the synchronization boundaries — after
+the move to recovery, after the tracked restore, after the fast-forward,
+before the recovery-file delete — requires either replacing `os.replace`,
+the trusted `git restore`, or `os.unlink` while the routine runs, which is
+a monkey patch the Python contract prohibits in tests, or planting
+injection hooks inside the production synchronization code, which changes
+the trusted path in order to test it. Timing a kill from outside cannot hit
+those exact boundaries reliably. The end states the cuts would produce are
+already covered by the existing checks: equal bytes converge, conflicting
+bytes fail closed and stay preserved, and the guard binds the exact
+accepted bytes. With no synchronization failure ever reproduced, the
+missing evidence does not justify either repair form.
 
 ### What is already fixed
 
@@ -2466,25 +2471,10 @@ backlog update. Conflicting legacy and tracked bytes already fail closed.
 
 ### What is missing
 
-Inject one failure after each operation that changes synchronization state:
-moving the backlog to recovery, restoring tracked files, fast-forwarding the
-Architect worktree, and deleting the recovery file. Restart after each failure
-and check the exact bytes, guard digest, Git commit, and recovery-file state.
-
-<details><summary>Technical record for development tools</summary>
-
-Exercise `os.replace`, the trusted `git restore`, `git merge --ff-only`, and
-`os.unlink` boundaries without changing production behavior merely to satisfy
-the test. Include a restart where both the checked-out backlog and recovery
-file exist with equal bytes, and one where they conflict. Equal bytes may
-converge to one clean state; conflicting bytes must remain preserved and
-require explicit recovery.
-
-Keep this a focused temporary-repository reproduction. It must not touch the
-live mailbox, worktrees, backlog, or guard state, and it must appear in the AI
-test inventory with its exact command.
-
-</details>
+Nothing. The fault-injection reproduction is declined because every honest
+construction of it either adds a prohibited monkey patch or plants test
+hooks in the trusted synchronization path; the recoverable end states keep
+their existing coverage.
 
 <a id="open-ai-ticket-latex-guide"></a>
 ## Write a LaTeX guide to the AI ticket system
