@@ -201,7 +201,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Bind each landing to its candidate and sealed backlog](#open-landing-backlog-identity)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Test every interrupted backlog synchronization step](#open-backlog-sync-crash-cuts)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
@@ -2403,13 +2402,17 @@ landing commit?
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Runtime verification includes the Architect-sealed backlog overlay,
-but durable landing state and the machine contract do not yet name that digest
-as part of the landing identity.
-
-**Priority: LOW.** The existing trusted-Architect process verifies the bytes
-before landing, so no current correctness failure is demonstrated. This work
-improves later audit and recovery evidence.
+**CLOSED — Git already stores the answer the ticket wants recorded.** The
+question "which candidate and which exact backlog bytes produced this
+landing commit" is answerable from the repository alone: durable landing
+state names candidate C and landing L, and the exact backlog bytes are the
+landing commit's own tree, so their digest is recomputable at any time with
+`git show L:ai/notes/backlog.md`. The daemon verifies the sealed overlay
+before it builds L, which is the moment verification can still refuse.
+Writing the digest again into contract fields, commit trailers, and a saved
+tuple would create a second record that can only ever agree with the tree
+or falsely disagree with it, and every added disagreement case needs its
+own recovery handling — bookkeeping surface without a failure it prevents.
 
 ### What is already fixed
 
@@ -2419,27 +2422,9 @@ the permitted backlog update. The Implementer cannot edit or seal the backlog.
 
 ### What is missing
 
-State the expanded invariant in `role-contract.yaml`: L contains the audited
-candidate delta and the Architect-sealed backlog overlay. Save candidate C,
-the exact backlog SHA-256 digest, landing parent M, and landing L together in
-durable landing state.
-
-<details><summary>Technical record for development tools</summary>
-
-Use explicit contract fields such as `audited_candidate_delta_required` and
-`architect_backlog_overlay_required`; do not weaken the existing one-parent or
-audited-delta rules. The digest comes from the exact sealed bytes already
-validated for this landing, not from a later reread.
-
-If landing commit metadata is added, use stable trailers such as
-`Mailbox-Candidate` and `Mailbox-Backlog-SHA256`. Recovery must verify that the
-saved tuple `(C, backlog digest, M, L)` agrees with the actual commit and tree.
-Tests must reject a substituted digest, backlog bytes changed after sealing,
-another candidate, another parent, or metadata that disagrees with durable
-state. Keep the catalog informational: the daemon and structured role contract
-remain authoritative.
-
-</details>
+Nothing. The pre-landing overlay verification, the one-parent audited-delta
+rules, and the landing tree itself already carry the complete relationship;
+a duplicate digest record is declined as a second source of truth.
 
 <a id="open-backlog-sync-crash-cuts"></a>
 ## Test every interrupted backlog synchronization step
