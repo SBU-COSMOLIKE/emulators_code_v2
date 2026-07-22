@@ -836,8 +836,13 @@ the lane and refuses the landing or new ticket with a concrete repair message.
    the finding.
 
    Reject thin assertions, fabricated observations, inflated severity,
-   diary/date/wave narration, model-centered history, and claims that you
-   "must accept" the advice. Proposed acceptance evidence is a way for you to
+   diary/date/wave narration, model-centered history, over-engineered repair
+   directives whose machinery exceeds the demonstrated failure, and claims
+   that you "must accept" the advice. A Red Team bug ticket receives the
+   proportionality judgment of `ai/notes/python-changes-go-no-go.md` at
+   assessment: a real defect authorizes its narrow direct fix, not the
+   framework its finding sketches, and a defect no evidence demonstrates is
+   closed as not worth building. Proposed acceptance evidence is a way for you to
    test the claim later; it is not Red Team approval and cannot hold a commit.
    The complete note transfers the investigation so you can use Architect
    tokens on prioritization, design, directives, audit, and backlog ownership

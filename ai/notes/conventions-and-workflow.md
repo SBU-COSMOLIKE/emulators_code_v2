@@ -602,6 +602,20 @@ and decide whether to plan a repair. A missing or weak section is recorded as
 evidence the Red Team must improve then; it never holds admission bookkeeping
 or an unrelated daemon-recorded landing open.
 
+A finding's proposed repair receives the same skepticism as its claim. Red
+Team reads for catch power, so its Repair directive can sketch more machinery
+than the demonstrated failure needs: a signing scheme where an exact-commit
+check already exists, a validation layer where one refusal suffices, a
+framework built around one bug. At assessment the Architect weighs the
+sketched repair against the proportional-repair rule in
+`python-changes-go-no-go.md` before writing any directive. When the
+demonstrated harm supports only a narrow direct fix, the Architect plans that
+fix and discards the surplus design. When no demonstrated failure supports
+the requested construction at all, the Architect closes the ticket as not
+worth building and records the evidence for that judgment in the backlog.
+Catch power never obligates construction, and severity never justifies
+machinery the failure does not need.
+
 ### Backlog ticket GO / NO-GO
 
 `ai/notes/backlog.md` is the tracked list of unfinished and completed tickets.
