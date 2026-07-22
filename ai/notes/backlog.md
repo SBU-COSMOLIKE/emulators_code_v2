@@ -200,7 +200,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Plan a limited ticket across code, documentation, and protected notes](#open-character-budget-planning)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Normalize untrusted Implementer output before the Architect reads it](#open-normalized-implementer-output)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Authenticate trusted ticket and landing messages proportionally](#open-authenticated-control-messages)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Bind each landing to its candidate and sealed backlog](#open-landing-backlog-identity)
@@ -2152,12 +2151,22 @@ operator with full access to the machine.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Full commit identities and several SHA-bound records already prevent
-simple candidate substitution. Control messages do not yet share one verified
-issuer-and-cycle token.
-
-**Priority: LOW.** Existing role separation remains useful, and no concrete
-forgery has been demonstrated. This is proportional defense in depth.
+**CLOSED — the described defense answers a threat this workflow does not
+face.** The protection target is an Implementer that bends rules to make its
+own ticket pass, not an operator who studies the control plane to counterfeit
+credentials. Against the real target, the structural controls already close
+every forgery route the ticket names: the daemon acts only on parsed exact
+envelope headers, never on free text inside a role's output; an Architect GO
+is consumed only from the Architect lane's own outbound and must bind the
+exact candidate commit; the daemon alone creates the landing commit, after
+the deciding Architect process has exited; and the sealed backlog plus full
+commit hashes bind every durable record to exact bytes. Text that merely
+imitates an approval therefore has no path to authority, whichever role
+prints it. A local secret-key layer on top would not add a boundary — the
+key would live on the same machine where every role runs, so any process
+able to write a forged message could also read the key — while key creation,
+storage, rotation, restart, and recovery would become permanent control-plane
+complexity guarding against a forgery class never observed here.
 
 ### What is already fixed
 
@@ -2167,20 +2176,10 @@ critical paths.
 
 ### What is missing
 
-Issue short-lived records containing ticket ID, cycle ID, base commit, allowed
-and forbidden paths, named acceptance commands, expiry, nonce, and a verified
-digest or local HMAC. Keep the authentication secret outside
-Implementer-controlled files. Reject replay, changed fields, wrong-cycle use,
-and claims from an unauthorized role without adding public-key infrastructure.
-
-<details><summary>Technical record for development tools</summary>
-
-First inventory every trusted message and its current persistence path. Define
-key creation, storage, rotation, restart behavior, and recovery before making
-authentication mandatory. Tests must use temporary repositories and secrets;
-no real credential or reusable token may enter Git or relay logs.
-
-</details>
+Nothing. The secret-key layer is declined: it guards against deliberate
+credential counterfeiting, which is outside this workflow's protection
+target, and it cannot create a real boundary on a single machine where
+every role can read the same files the daemon reads.
 
 <a id="open-control-plane-regression-runner"></a>
 ## Run every required control-plane regression with one command
