@@ -244,26 +244,76 @@ def _validate_optimizer_opts(opt_opts, lr):
 def _effective_optimizer_extras(opt_opts, device):
   """Resolve the extra kwargs the optimizer constructor actually receives.
 
-  CUDA deliberately forces the fused implementation.  Construction and the
-  saved recipe must read the same resolved mapping; otherwise a configured
-  ``fused: false`` runs as ``True`` but is later reported as ``False``.
+  CUDA deliberately forces the fused implementation when the optimizer
+  class supports one.  Construction and the saved recipe must read the
+  same resolved mapping; otherwise a configured ``fused: false`` runs as
+  ``True`` but is later reported as ``False``.  A class whose
+  constructor has no ``fused`` argument keeps its ordinary kernels, and
+  a spec that explicitly sets ``fused`` for such a class is refused by
+  name instead of failing inside the constructor call.
 
   Arguments:
     opt_opts = the optimizer spec mapping ("cls" and "weight_decay" are
                consumed elsewhere; everything else passes through).
     device   = the torch device the run trains on (CUDA forces
-               ``fused=True``).
+               ``fused=True`` on a fused-capable class).
 
   Returns:
     the mapping of extra keyword arguments for the optimizer class.
+
+  Raises:
+    ValueError when the spec sets ``fused`` but the optimizer class
+    accepts no such argument.
   """
   extra = {}
   for key, value in opt_opts.items():
     if key not in ("cls", "weight_decay"):
       extra[key] = value
-  if device.type == "cuda":
-    extra["fused"] = True
+  cls = opt_opts["cls"]
+  if device.type == "cuda" or "fused" in extra:
+    constructor_parameters = inspect.signature(cls.__init__).parameters
+    fused_supported = "fused" in constructor_parameters
+    if "fused" in extra and not fused_supported:
+      raise ValueError(
+        "optimizer " + cls.__name__ + " accepts no 'fused' argument, but "
+        "the optimizer spec sets fused=" + repr(extra["fused"]) + "; "
+        "remove the key or choose a fused-capable optimizer such as "
+        "AdamW")
+    if device.type == "cuda" and fused_supported:
+      extra["fused"] = True
   return extra
+
+
+def resolve_amp_policy(use_amp, device):
+  """Resolve the reduced-precision policy for one training run.
+
+  bfloat16 keeps float32's exponent range, so unscaled gradients cannot
+  underflow the way float16 gradients can. MPS autocast offers only
+  float16, and no gradient-scaling policy is implemented (every pass
+  runs ``scaler_policy`` "unscaled"), so reduced precision on MPS is
+  refused rather than run with silently vanishing small gradients.
+
+  Arguments:
+    use_amp = whether the run requests reduced-precision autocast.
+    device  = the torch device the run trains on.
+
+  Returns:
+    (amp_dtype, scaler_policy): the autocast dtype (inert while
+    ``use_amp`` is False) and the fixed "unscaled" scaling policy.
+
+  Raises:
+    ValueError when reduced precision is requested on an MPS device.
+  """
+  if use_amp and device.type == "mps":
+    raise ValueError(
+      "train_args.use_amp is not supported on the MPS device: MPS "
+      "autocast runs in float16, whose small gradients underflow to "
+      "zero without gradient scaling, and no scaling policy is "
+      "implemented. Train at full precision (use_amp: false) or on a "
+      "CUDA device, where bfloat16 autocast is safe unscaled.")
+  amp_dtype = (torch.float16 if device.type == "mps"
+               else torch.bfloat16)
+  return amp_dtype, "unscaled"
 
 
 def make_optimizer(model, opt_opts, lr, device):
@@ -325,6 +375,14 @@ def make_optimizer(model, opt_opts, lr, device):
     else:
       no_decay.append(p)
   _validate_optimizer_opts(opt_opts, lr)
+  # The training loop calls optimizer.step() with no closure argument,
+  # but LBFGS re-evaluates the loss through a required closure. Rather
+  # than run its first step and fail mid-epoch, refuse at construction.
+  if opt_opts["cls"].__name__ == "LBFGS":
+    raise ValueError(
+      "optimizer LBFGS requires a step closure that re-evaluates the "
+      "loss, and this training loop calls step() without one; choose a "
+      "first-order optimizer such as AdamW")
   wd    = opt_opts.get("weight_decay", 0.0)
   cls   = opt_opts["cls"]
   # Resolve every forwarded kwarg once.  In particular, this is the same
@@ -551,8 +609,24 @@ def make_scheduler(optimizer, sched_opts):
 
   Returns:
     the constructed scheduler.
+
+  Raises:
+    ValueError for a scheduler class whose protocol advances once per
+    batch; the training loop steps its scheduler once per epoch.
   """
   cls   = sched_opts["cls"]
+  # The training loop advances the scheduler once per epoch after the
+  # warmup ramp (ReduceLROnPlateau with the validation median, every
+  # other class through a plain step()). A class whose schedule is
+  # defined per BATCH would silently follow a wrong, stretched-out
+  # schedule under that cadence, so the two torch per-batch classes
+  # are refused by name.
+  if cls.__name__ in ("OneCycleLR", "CyclicLR"):
+    raise ValueError(
+      "scheduler " + cls.__name__ + " advances once per batch, but this "
+      "training loop steps its scheduler once per epoch after warmup; "
+      "choose an epoch-cadence scheduler such as ReduceLROnPlateau, "
+      "StepLR, or CosineAnnealingLR")
   # forward every key except cls to the constructor.
   extra = {}
   for k, v in sched_opts.items():
@@ -3229,10 +3303,10 @@ def run_emulator(train_set,
   loss_top = validate_loss(loss, "train_args")
 
   # Resolve the numerical AMP policy once, beside the artifact record that
-  # persists it. Every training pass consumes these same resolved values.
-  amp_dtype = (torch.float16 if device.type == "mps"
-               else torch.bfloat16)
-  scaler_policy = "unscaled"
+  # persists it. Every training pass consumes these same resolved values;
+  # the resolver refuses reduced precision on MPS, whose float16 autocast
+  # has no gradient scaling here.
+  amp_dtype, scaler_policy = resolve_amp_policy(use_amp, device)
 
   # the CMB residual-roughness term: configured once on the run's
   # loss object (the term is per-sample state on the chi2fn, not a per-pass

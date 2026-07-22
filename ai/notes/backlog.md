@@ -182,7 +182,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **BUG FIX** — [Run saved PyTorch compilation settings on CUDA](#open-compile-modes)
 - OPEN **MEDIUM** **BUG FIX** — [Complete older cross-family workstation checks](#open-workstation-debt)
 - OPEN **MEDIUM** **BUG FIX** — [Finish real workstation checks for the current saved-file format](#open-schema-v3-gate-fixtures)
-- OPEN **MEDIUM** **BUG FIX** — [Reject unsupported training options before a run starts](#open-optimizer-scheduler-protocol)
 - OPEN **MEDIUM** **BUG FIX** — [Measure memory without changing the model and reserve capacity before allocation](#open-memory-planner)
 - OPEN **MEDIUM** **BUG FIX** — [Save every effective setting and reset each repeated study](#open-resolved-run-record)
 - OPEN **MEDIUM** **BUG FIX** — [Protect control files and keep candidates from weakening their own audit](#open-control-plane-protection)
@@ -1253,25 +1252,43 @@ record.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Numeric optimizer inputs and several schedule values are checked;
-capability and execution-protocol checks are partial.
+**CLOSED.** Every named capability is now checked before construction or
+resolution, where the user can still fix the configuration. CUDA forces the
+fused optimizer implementation only when the optimizer class's constructor
+accepts a `fused` argument; an explicitly configured `fused` on a class
+without one is refused by name. LBFGS is refused because the loop steps with
+no closure. The two per-batch scheduler classes (`OneCycleLR`, `CyclicLR`)
+are refused because the loop advances its scheduler once per epoch after
+warmup, which would silently stretch a per-batch schedule. Reduced precision
+on MPS is refused: MPS autocast runs in float16, whose small gradients
+underflow without gradient scaling, and no scaling policy is implemented.
+
+Persisting a scheduler cadence field in the resolved record was judged
+unnecessary and is deliberately not done: the cadence is a code-owned
+constant, not a configuration choice, and the per-batch refusal removes the
+one way a run could follow a different cadence than the record implies. The
+plateau scheduler already advances only after its named event (the
+post-warmup epoch's validation median).
 
 ### What is already fixed
 
-AdamW is the shipped path, warmup and plateau behavior have focused tests, and
-full precision remains available.
+Everything actionable in this ticket, as described above.
 
 ### What is missing
 
-Resolve optimizer signature/backend/closure capability before construction,
-persist scheduler cadence and metric source, advance it only after its named
-event, and refuse MPS float16 when correct scaling is unavailable.
+Nothing for this ticket.
 
 <details><summary>Technical record for development tools</summary>
-Severity: MEDIUM; normal backend or optimizer choices can fail or train under
-the wrong protocol. Owners: optimizer factory, training loop, and resolved run
-record. Split implementation into capability, cadence, and MPS-scaling slices
-if needed.
+Owners: `emulator/training.py::_effective_optimizer_extras` (fused
+capability by constructor signature), `make_optimizer` (LBFGS closure
+refusal), `make_scheduler` (per-batch class refusal), and the new
+`resolve_amp_policy` (MPS float16 refusal; bfloat16 elsewhere; policy
+"unscaled"). Evidence: `OptimizerSchedulerProtocolTests` in
+`ai/tests/test_training_pass_recipe.py` — fused forced on AdamW under CUDA,
+absent for Rprop, explicit fused on Rprop refused, LBFGS refused, both
+per-batch schedulers refused, MPS use_amp refused while MPS full precision
+and CPU bfloat16 resolve unchanged. The pre-existing CUDA recipe test still
+records the forced fused value.
 </details>
 
 <a id="open-memory-planner"></a>

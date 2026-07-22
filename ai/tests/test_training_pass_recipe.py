@@ -267,5 +267,69 @@ class TrainingPassRecipeTests(unittest.TestCase):
     self.assertEqual(group_rates, {0.004})
 
 
+class OptimizerSchedulerProtocolTests(unittest.TestCase):
+  """Capability refusals that stop before an expensive run starts.
+
+  Each case would otherwise fail after setup (a constructor TypeError
+  deep in a driver, an LBFGS step without its closure, a per-batch
+  schedule silently stretched to per-epoch, or float16 gradients
+  underflowing on MPS), so the refusal must happen at resolution time
+  with a message naming the corrective action.
+  """
+
+  def test_cuda_fused_is_forced_only_on_a_fused_capable_class(self):
+    """A class without a fused argument keeps its ordinary kernels."""
+    fused_capable = training._effective_optimizer_extras(
+      {"cls": torch.optim.AdamW, "weight_decay": 0.0},
+      torch.device("cuda"))
+    self.assertIs(fused_capable["fused"], True)
+    no_fused_argument = training._effective_optimizer_extras(
+      {"cls": torch.optim.Rprop, "weight_decay": 0.0},
+      torch.device("cuda"))
+    self.assertNotIn("fused", no_fused_argument)
+
+  def test_explicit_fused_on_an_unsupported_class_is_refused(self):
+    """A configured fused key on a fused-less class stops by name."""
+    with self.assertRaisesRegex(ValueError, "Rprop.*fused"):
+      training._effective_optimizer_extras(
+        {"cls": torch.optim.Rprop, "weight_decay": 0.0, "fused": True},
+        torch.device("cpu"))
+
+  def test_lbfgs_is_refused_before_construction(self):
+    """The loop steps without a closure, so LBFGS cannot run here."""
+    model = torch.nn.Linear(2, 2)
+    with self.assertRaisesRegex(ValueError, "closure"):
+      training.make_optimizer(
+        model=model,
+        opt_opts={"cls": torch.optim.LBFGS, "weight_decay": 0.0},
+        lr=1.0e-3,
+        device=torch.device("cpu"))
+
+  def test_per_batch_schedulers_are_refused(self):
+    """A per-batch schedule cannot run under the per-epoch cadence."""
+    model = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+    for scheduler_class in (torch.optim.lr_scheduler.OneCycleLR,
+                            torch.optim.lr_scheduler.CyclicLR):
+      with self.subTest(cls=scheduler_class.__name__):
+        with self.assertRaisesRegex(ValueError, "per batch"):
+          training.make_scheduler(
+            optimizer, {"cls": scheduler_class})
+
+  def test_reduced_precision_on_mps_is_refused(self):
+    """MPS float16 autocast without gradient scaling cannot start."""
+    with self.assertRaisesRegex(ValueError, "use_amp"):
+      training.resolve_amp_policy(use_amp=True,
+                                  device=torch.device("mps"))
+    amp_dtype, policy = training.resolve_amp_policy(
+      use_amp=False, device=torch.device("mps"))
+    self.assertIs(amp_dtype, torch.float16)
+    self.assertEqual(policy, "unscaled")
+    amp_dtype, policy = training.resolve_amp_policy(
+      use_amp=True, device=torch.device("cpu"))
+    self.assertIs(amp_dtype, torch.bfloat16)
+    self.assertEqual(policy, "unscaled")
+
+
 if __name__ == "__main__":
   unittest.main()
