@@ -1,212 +1,93 @@
 """CPU checks for the conventional sigma-eight calculation.
 
-Sigma-eight measures the linear matter fluctuations inside a spherical
-top-hat of radius 8 Mpc/h.  These tests use a power spectrum with an analytic
-answer, so they can distinguish the required 8/h-Mpc radius from the old
-literal 8-Mpc radius without using the production calculation as its own
-reference.  Separate cases prove that a nearby redshift or an incomplete
-wavenumber range cannot return a plausible number.
+The numeric checks live in ai/tests/mps_sigma8_child_checks.py and run
+in a child process.  That child imports the matter-power adapter through
+the on-disk stand-in package ai/tests/cobaya_minimal_stub, placed ahead
+of every installed package on the child's PYTHONPATH before the child
+starts.  Loading the adapter that way keeps this process's import table
+and the shared ``emulator`` package untouched, so no other test can
+observe a half-restored module.  This file launches the child, requires
+it to pass, and launches one negative control that must fail — proving
+the child's known-answer assertion still bites and that a child failure
+reaches this process as a nonzero exit code.
+
+The live-Cobaya routing test stays in this process because it needs the
+real installed cobaya, not the stand-in.
 """
 
-import importlib.util
-import math
+import os
 from pathlib import Path
+import subprocess
 import sys
-import types
 import unittest
-from unittest import mock
 
 import numpy as np
-import scipy.interpolate  # Load SciPy before the temporary Cobaya stand-ins.
-import torch  # Load PyTorch before the temporary Cobaya stand-ins.
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CHILD_CHECKS = ROOT / "ai" / "tests" / "mps_sigma8_child_checks.py"
+COBAYA_STUB_DIR = ROOT / "ai" / "tests" / "cobaya_minimal_stub"
 
 
-def _load_mps_adapter():
-  """Load the adapter with the small part of Cobaya used by these tests."""
-  cobaya = types.ModuleType("cobaya")
-  theory_module = types.ModuleType("cobaya.theory")
-  log_module = types.ModuleType("cobaya.log")
+def run_isolated_child_checks(child_path, extra_env=None):
+  """Run one child-process check file against the cobaya stand-in.
 
-  class _Theory:
-    extra_args = {}
-    output_params = []
+  The child's PYTHONPATH is written before launch: the cobaya stand-in
+  directory first, then the repository root (for ``cobaya_theory`` and
+  ``emulator``).  Any inherited PYTHONPATH is replaced so the child's
+  imports do not depend on this process's environment.
 
-    def initialize(self):
-      return None
+  Arguments:
+    child_path = the check file to run (a Path; the file ends in
+                 ``unittest.main()``).
+    extra_env  = optional mapping merged into the child's environment;
+                 the negative control passes the wrong-expectation key.
 
-    def must_provide(self, **requirements):
-      del requirements
-      return None
-
-  class _LoggedError(Exception):
-    pass
-
-  class _Logger:
-    def debug(self, *args, **kwargs):
-      del args, kwargs
-
-  theory_module.Theory = _Theory
-  log_module.LoggedError = _LoggedError
-  log_module.get_logger = lambda name: _Logger()
-  path = ROOT / "cobaya_theory" / "emul_mps.py"
-  spec = importlib.util.spec_from_file_location("sigma8_adapter", path)
-  module = importlib.util.module_from_spec(spec)
-  stand_ins = {
-    "cobaya": cobaya,
-    "cobaya.theory": theory_module,
-    "cobaya.log": log_module,
-  }
-  with mock.patch.dict(sys.modules, stand_ins):
-    spec.loader.exec_module(module)
-  return module
-
-
-def _analytic_surface(*, points=4001, x_min=1.0e-4, x_max=400.0,
-                      h=0.64, dtype=np.float64):
-  """Return a z=0 surface whose infinite-domain sigma-eight equals h.
-
-  For ``P(k) = C/k`` with ``C = 512 pi^2 / 9``, direct integration gives
-  ``sigma_R = 8/R``.  Conventional ``R = 8/h`` therefore gives
-  ``sigma8 = h``.  The finite x range used by the main known-answer test has
-  the independently integrated result 0.6399980037465730.
+  Returns:
+    the finished subprocess.CompletedProcess with captured text output.
   """
-  radius = 8.0 / h
-  k = np.geomspace(x_min / radius, x_max / radius, points).astype(dtype)
-  constant = 512.0 * np.pi ** 2 / 9.0
-  p_at_zero = (constant / k.astype(np.float64)).astype(dtype)
-  z = np.array([0.0, 0.009, 0.5, 1.0], dtype=dtype)
-  surface = np.stack((p_at_zero, 4.0 * p_at_zero,
-                      0.5 * p_at_zero, 0.25 * p_at_zero))
-  return h, k, z, surface
+  env = dict(os.environ)
+  env["PYTHONPATH"] = str(COBAYA_STUB_DIR) + os.pathsep + str(ROOT)
+  if extra_env is not None:
+    env.update(extra_env)
+  return subprocess.run(
+    [sys.executable, str(child_path), "-v"],
+    env=env,
+    capture_output=True,
+    text=True,
+    check=False)
 
 
-class _Predictor:
-  """Return one fixed law-free matter-power surface."""
+class SigmaEightChildProcessTests(unittest.TestCase):
+  """Launch the isolated numeric checks and their negative control."""
 
-  law = "none"
+  def test_numeric_checks_pass_in_child_process(self):
+    """The child suite passes without touching this process's modules."""
+    modules_before = set(sys.modules)
+    completed = run_isolated_child_checks(CHILD_CHECKS)
+    self.assertEqual(
+      completed.returncode, 0,
+      "child sigma-eight checks failed:\n" + completed.stdout
+      + completed.stderr)
+    # All five numeric checks must actually have run; a child that
+    # collected nothing would exit 0 without testing anything.
+    self.assertIn("Ran 5 tests", completed.stderr)
+    self.assertEqual(modules_before, set(sys.modules))
 
-  def __init__(self, quantity, value):
-    self.quantity = quantity
-    self.value = value
+  def test_negative_control_wrong_expectation_fails_in_child(self):
+    """A wrong known answer must fail the child, visibly, at the parent."""
+    completed = run_isolated_child_checks(
+      CHILD_CHECKS,
+      extra_env={"MPS_SIGMA8_EXPECTED_OVERRIDE": "0.9"})
+    self.assertNotEqual(
+      completed.returncode, 0,
+      "the child accepted a wrong sigma-eight known answer")
+    self.assertIn("test_analytic_known_answer_uses_eight_over_h_mpc",
+                  completed.stderr)
 
-  def predict(self, params):
-    del params
-    return {self.quantity: self.value}
 
-
-class SigmaEightContractTests(unittest.TestCase):
-  """Check units, exact redshift, input validity, and k completeness."""
-
-  @classmethod
-  def setUpClass(cls):
-    cls.module = _load_mps_adapter()
-
-  def test_analytic_known_answer_uses_eight_over_h_mpc(self):
-    """A checked analytic spectrum returns h, not the old value one."""
-    expected_finite_grid = 0.6399980037465730
-    for dtype in (np.float64, np.float32):
-      with self.subTest(dtype=dtype.__name__):
-        h, k, z, surface = _analytic_surface(dtype=dtype)
-        got = self.module.emul_mps()._compute_sigma8(
-          surface, k, z, h=h)
-        self.assertAlmostEqual(got, expected_finite_grid, delta=2.0e-8)
-
-    # A wider grid supports both radii.  Passing h=1 deliberately asks for an
-    # 8-Mpc radius and returns approximately one; ignoring the supplied h
-    # would therefore make the h=0.64 assertion above fail by about 0.36.
-    h, k, z, surface = _analytic_surface(
-      points=8001, x_min=1.0e-5, x_max=1000.0)
-    conventional = self.module.emul_mps()._compute_sigma8(
-      surface, k, z, h=h)
-    literal_eight_mpc = self.module.emul_mps()._compute_sigma8(
-      surface, k, z, h=1.0)
-    self.assertLess(abs(conventional - h), 2.0e-6)
-    self.assertGreater(literal_eight_mpc - conventional, 0.3)
-
-  def test_sigma8_requires_an_exact_zero_redshift_row(self):
-    """A z=0.009 row is never relabelled or interpolated as z=0."""
-    h, k, z, surface = _analytic_surface()
-    got = self.module.emul_mps()._compute_sigma8(surface, k, z, h=h)
-    self.assertAlmostEqual(got, 0.6399980037465730, delta=2.0e-8)
-
-    for missing_zero in (
-        np.array([0.009, 0.1, 0.5, 1.0]),
-        np.array([0.011, 0.1, 0.5, 1.0])):
-      with self.subTest(z=missing_zero[0]):
-        with self.assertRaisesRegex(ValueError, "exact z=0"):
-          self.module.emul_mps()._compute_sigma8(
-            surface, k, missing_zero, h=h)
-
-  def test_truncated_k_grids_refuse(self):
-    """A k range that cuts the integrand stops instead of returning a bias."""
-    cases = (
-      ("low-only", 1.0e-6, 0.1, 4001),
-      ("high-only", 10.0, 1.0e6, 4001),
-      ("narrow-window", 12.5, 125.0, 4001),
-    )
-    for label, x_min, x_max, points in cases:
-      with self.subTest(case=label):
-        h, k, z, surface = _analytic_surface(
-          points=points, x_min=x_min, x_max=x_max)
-        with self.assertRaisesRegex(ValueError, "truncates the sigma8"):
-          self.module.emul_mps()._compute_sigma8(
-            surface, k, z, h=h)
-
-  def _law_free_adapter(self):
-    """Build the public calculate path without reading artifact files."""
-    h, k, z, surface = _analytic_surface(points=2001)
-    adapter = self.module.emul_mps()
-    adapter._k = k
-    adapter._z = z
-    adapter.p_lin = _Predictor("pklin", surface)
-    adapter.p_boost = _Predictor("boost", 3.0 * np.ones_like(surface))
-    adapter._dark_energy_law = "cosmological-constant"
-    adapter._fixed_dark_energy = {}
-    adapter._dark_energy_needed = True
-    adapter.output_params = ["sigma8"]
-    adapter.log = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
-    return h, adapter
-
-  def test_calculate_passes_h0_to_law_free_sigma8_atomically(self):
-    """Even law-free artifacts receive H0 and publish only after sigma8."""
-    h, adapter = self._law_free_adapter()
-    seen = {}
-
-    def sigma8_spy(power, k, z, *, h):
-      seen["power"] = np.array(power, copy=True)
-      seen["shape"] = power.shape
-      seen["h"] = h
-      seen["k"] = k
-      seen["z"] = z
-      return 0.8
-
-    adapter._compute_sigma8 = sigma8_spy
-    state = {}
-    self.assertTrue(adapter.calculate(
-      state, want_derived=True, H0=100.0 * h))
-    self.assertEqual(seen["shape"], adapter.p_lin.value.shape)
-    np.testing.assert_array_equal(seen["power"], adapter.p_lin.value)
-    self.assertAlmostEqual(seen["h"], h)
-    self.assertEqual(state["derived"], {"sigma8": 0.8})
-
-    for params, message in (({}, "requires H0"),
-                            ({"H0": 0.0}, "finite positive")):
-      with self.subTest(params=params):
-        state = {}
-        with self.assertRaisesRegex(ValueError, message):
-          adapter.calculate(state, want_derived=True, **params)
-        self.assertEqual(state, {})
-
-  def test_cobaya_declares_sigma8_as_output_and_conditionally_needs_h0(self):
-    """Cobaya sees a derived result, not three invented input parameters."""
-    adapter = self.module.emul_mps()
-    self.assertEqual(adapter.get_can_support_params(), [])
-    self.assertEqual(adapter.get_can_provide_params(), ["sigma8"])
-    self.assertEqual(adapter.must_provide(sigma8=None), {"H0": None})
-    self.assertIsNone(adapter.must_provide(Pk_grid={}))
+class RealCobayaRoutingTests(unittest.TestCase):
+  """Exercise the live dependency resolver when cobaya is installed."""
 
   def test_real_cobaya_routes_h0_only_when_sigma8_is_requested(self):
     """The live dependency resolver preserves P(k) and both sigma8 routes."""

@@ -382,7 +382,10 @@ leave the saved matter-power workflow.
   calculated `wa` is requested instead. The adapter then reconstructs all
   names needed by a saved predictor before either learned model or analytic
   base runs. A saved file that lists `w0pwa` as an input but calls its law
-  constant-`w` is refused with instructions to regenerate it.
+  constant-`w` is refused with instructions to regenerate it. The checks
+  themselves live in `mps_dark_energy_child_checks.py` and run in a child
+  process, so loading the adapter without Cobaya never edits the modules the
+  rest of the suite shares.
 - `test_dark_energy_vertical_identity.py` checks the narrow fixed-value
   comparison used at serving time. It compares concrete values only when the
   artifact and live model use the same coordinate name. Renamed, derived, or
@@ -642,6 +645,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_dark_energy_vertical_identity.py` | Does serving compare a concrete fixed value when the artifact and live model expose it under the same name, without interpreting custom aliases or transformations? |
 | `test_grid2d_const_mask.py` | Does a saved Grid2D geometry remember exactly which coordinates use fixed stored values instead of neural-network predictions? |
 | `test_mps_dark_energy_adapter.py` | Does the matter-power adapter ask Cobaya for physical `w, wa`, reconstruct saved coordinate names, and stop conflicts before either predictor runs? |
+| `mps_dark_energy_child_checks.py` | Holds the dark-energy adapter checks that `test_mps_dark_energy_adapter.py` launches in a child process. The child imports the adapter through the on-disk stand-in package in `cobaya_minimal_stub/`, placed first on the child's PYTHONPATH before it starts, so the discovering test process never edits its own imported modules. Run directly without the stand-in, the file refuses and names the launcher. |
 | `test_mps_dark_energy_real_cobaya.py` | Does real Cobaya turn dropped sampled `w0pwa` into a nonzero calculated `wa` and give the data generator and adapter the same Syren coordinates? |
 | `test_padded_head_artifact.py` | Does a structured head refuse a model/geometry layout disagreement before saving, reopen a valid pair with the exact physical map and mask, and refuse a checkpoint that omits or replaces either fixed record? |
 | `test_pce_strict_selection.py` | Does a polynomial base enter a saved emulator only after a finite leave-one-out check passes in the same number format that will be stored? |
@@ -649,6 +653,7 @@ files belong together and constructing the model needed for new predictions.
 | `test_results_composition_mode.py` | Does the result file state how its neural-network output and any saved base are combined into a physical prediction? |
 | `test_results_rebuild_fixed_facts_names.py` | Does reopening an emulator stop when saved input names disagree, even if the structured scientific record and its saved text copy were changed together? |
 | `test_mps_sigma8_contract.py` | Does the matter-power adapter calculate conventional sigma-eight with the correct physical radius, exact redshift, and enough wavenumber coverage? |
+| `mps_sigma8_child_checks.py` | Holds the numeric sigma-eight checks that `test_mps_sigma8_contract.py` launches in a child process, in the same `cobaya_minimal_stub/` arrangement as the dark-energy child checks. The launcher also runs the child once with a deliberately wrong expected value; that run must fail, proving a wrong sigma-eight cannot pass silently. |
 | `test_public_prediction_validation.py` | Does every public prediction stop at the first invalid number, wrong array shape, or unsupported saved target transformation, before an adapter can publish a partial result? |
 | `test_schema3_production.py` | Does training stop early when a dataset has no scientific record, and does a complete current-format save reopen successfully? |
 
@@ -1003,6 +1008,11 @@ the adapter rule rather than model fitting or HDF5 input.
 called sigma-eight. Its spherical averaging radius is 8 Mpc/$h$, where
 `h = H0/100`. Because this repository stores wavenumber in inverse Mpc, the
 number used for the radius must be `8/h` Mpc rather than the literal number 8.
+The numeric cases live in `mps_sigma8_child_checks.py` and run in a child
+process. The child imports the adapter through the on-disk stand-in package
+in `cobaya_minimal_stub/`, placed first on the child's PYTHONPATH before the
+child starts, so the adapter loads without a Cobaya installation and the
+discovering test process never edits its own imported modules.
 
 - **Example used:** the artificial spectrum
   $P(k)=512\pi^2/(9k)$ has an analytic answer. With `H0 = 64`, `h = 0.64`,

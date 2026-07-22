@@ -169,7 +169,6 @@ No open CRITICAL tickets.
 High new functionality appears before High bug fixes. No High feature is
 currently open.
 
-- OPEN **HIGH** **BUG FIX** — [Isolate the matter-power adapter test without replacing imported modules](#open-mps-test-import-isolation)
 - OPEN **HIGH** **BUG FIX** — [Test saved activation defaults without replacing a live function](#open-artifact-drift-import-isolation)
 
 ### Medium
@@ -237,9 +236,17 @@ apparently temporary replacement has ended.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The order-dependent failure is reproduced. The future contract now
-forbids new monkey patches, but this existing test loader still needs its own
-bounded replacement.
+**CLOSED.** The in-process loader that replaced `sys.modules` entries is
+removed. The numeric sigma-eight checks and the dark-energy adapter checks —
+the second consumer of the same loader — now run in child processes launched
+by their discovery-visible test files. Each child imports the adapter through
+the on-disk stand-in package `ai/tests/cobaya_minimal_stub/`, placed first on
+the child's PYTHONPATH before the child starts, so the parent process's import
+table and `emulator` package attributes are never edited. The launcher also
+runs one negative control with a deliberately wrong known answer; that child
+run must fail. Both explicit module orders with the dark-energy generator test
+pass, and the moved dark-energy check now proves wa sensitivity against the
+real Syren base instead of a replaced function.
 
 **Severity: HIGH.** The leak makes independent validation depend on test order
 and can produce a false gate result. It does not alter normal emulator runtime
@@ -247,22 +254,25 @@ or scientific output, so it does not meet the Critical boundary.
 
 ### What is already fixed
 
-The exact leaking loader and the two affected test orders are known. The hard
-future rule is recorded separately and does not require a broad cleanup.
+Everything: the loader, both consumers, and the negative control described
+below.
 
 ### What is missing
 
-Load the adapter in a child process whose Cobaya test package and import path
-are visible inputs. Do not conceal the leak with manual cleanup and do not
-introduce a general mocking framework. Both test orders must pass, and a
-negative control must still make the sigma-eight known-answer test fail.
+Nothing for this ticket.
 
 <details><summary>Technical record for development tools</summary>
 
-Owner: `ai/tests/test_mps_sigma8_contract.py::_load_mps_adapter`. Required
-orders: that module before and after `ai.tests.test_generator_dark_energy_facts`.
-The accepted replacement must leave the parent process's import table and
-existing `emulator` package attributes unchanged.
+Former owner: `ai/tests/test_mps_sigma8_contract.py::_load_mps_adapter`,
+also imported by `ai/tests/test_mps_dark_energy_adapter.py`. Replacement:
+`run_isolated_child_checks` launches `ai/tests/mps_sigma8_child_checks.py`
+and `ai/tests/mps_dark_energy_child_checks.py` with
+`PYTHONPATH=cobaya_minimal_stub:ROOT`; each child refuses to run when the
+imported cobaya lacks the `COBAYA_MINIMAL_STUB` marker. Verified: both
+explicit orders with `ai.tests.test_generator_dark_energy_facts` pass, the
+full discovery suite passes, the negative control
+(`MPS_SIGMA8_EXPECTED_OVERRIDE=0.9`) fails the child, and each launcher
+asserts `Ran 5 tests` plus an unchanged parent `sys.modules`.
 
 </details>
 
