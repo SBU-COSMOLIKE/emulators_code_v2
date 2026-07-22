@@ -1480,11 +1480,29 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
     """Finish or replay one already-claimed, well-formed Architect GO."""
     name = daemon.os.path.basename(dispatch_path)
     try:
-        active = daemon.read_ticket_cycle_state()["active"].get(cycle_id)
-        if (active is None or active["mode"] != mode
-                or daemon.candidate_commit_for_cycle(cycle_id) != candidate_commit):
+        state = daemon.read_ticket_cycle_state()
+        active = state["active"].get(cycle_id)
+        # A crash between the durable landing record and the GO archive
+        # leaves the cycle recorded (completed, or active past the
+        # implementation phase) while its exact GO is still pending. That
+        # replay must reach execute_architect_go_locked, which re-proves
+        # the landing's binding to this cycle and candidate; the strict
+        # active-candidate check below only guards first-time consumption.
+        recorded = state["completed"].get(cycle_id)
+        if (recorded is None and active is not None
+                and active["phase"] != "implementation"
+                and active["commit"] is not None):
+            recorded = active["commit"]
+        if recorded is None:
+            if (active is None or active["mode"] != mode
+                    or daemon.candidate_commit_for_cycle(cycle_id)
+                    != candidate_commit):
+                raise daemon.TicketCycleStateError(
+                    "Architect GO changed the active cycle, mode, or "
+                    "candidate")
+        elif active is not None and active["mode"] != mode:
             raise daemon.TicketCycleStateError(
-                "Architect GO changed the active cycle, mode, or candidate")
+                "Architect GO changed the ticket's saved mode")
         sealed_backlog = daemon._validate_sealed_backlog(
             primary_worktree=daemon.AGENT_CWD["fable"])
         daemon.require_closed_backlog_ticket(

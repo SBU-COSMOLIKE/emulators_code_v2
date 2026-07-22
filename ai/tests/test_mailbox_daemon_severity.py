@@ -532,7 +532,10 @@ class MailboxDiscoverySeverityTests(unittest.TestCase):
                         daemon, "read_ticket_cycle_state",
                         return_value={"active": {
                             anchor + "@" + BASE_COMMIT: {
-                                "mode": "normal"}}}), \
+                                "phase": "implementation",
+                                "commit": None,
+                                "mode": "normal"}},
+                            "completed": {}}), \
                     mock.patch.object(
                         daemon, "candidate_commit_for_cycle",
                         return_value="2" * 40), \
