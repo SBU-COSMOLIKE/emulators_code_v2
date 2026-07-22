@@ -194,7 +194,6 @@ Medium work begins only after the permitted High work above.
 ### Low
 
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
@@ -1834,13 +1833,23 @@ maximum-security system.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The current workflow binds evidence to the exact candidate and keeps
-the Implementer from accepting or landing its own work. The Architect role
-does not yet present the complete circumvention checklist in one concise
-place.
-
-**Priority: LOW.** This is a modest process safeguard, not an emulator defect.
-It does not begin while any permitted Critical, High, or Medium work remains.
+**CLOSED.** The audit section of `.claude/FABLE_ROLE.md` carries the
+consolidated **CIRCUMVENTION CHECK**: five questions answered against the
+exact base-to-candidate diff before any GO — prohibition rows preserved
+even through generated files and wrappers, no rejected design recreated
+under other names, no optional route restoring denied behavior, no checker
+change that lets the same candidate pass where the unchanged checker would
+object, and no evidence bound to a different commit. The daemon boundary
+facts the ticket requested already exist in the admission path: the
+candidate must descend from its saved base, changed paths come from a real
+`git diff` with non-UTF-8 names refused, undeclared paths surface as scope
+findings for the Architect, protected paths refuse outright, and the
+character guard walks every raw diff entry with its modes and refuses
+submodule entries and uncountable binaries. Hard daemon refusals for
+executable bits, symlinks, and large additions are declined: Git prints
+every mode and type change in the same raw diff the audit reads, and a
+legitimate candidate can contain an executable script, so those cases are
+Architect judgment, not admission mechanics.
 
 ### What is already fixed
 
@@ -1851,41 +1860,9 @@ workaround or edit the Architect-owned backlog.
 
 ### What is missing
 
-Add a short Architect checklist that asks whether the candidate preserves
-every explicit prohibition; changes tests or tolerances to make acceptance
-easier; edits files outside the declared scope; recreates a rejected design
-under different names; hides it in generated files, configuration, or
-wrappers; adds an optional route that restores denied behavior; or reports
-evidence from a different candidate.
-
-The daemon also establishes basic candidate facts independently. Confirm that
-candidate `C` descends from authorized base `B`, compute the actual
-`git diff --name-status B C`, and compare every changed path with the approved
-scope. Refuse protected-file edits, unexpected deletions or executables,
-submodules, unusual Git object types, repository-escaping symbolic links, and
-unexpectedly large binary additions. These are practical boundary checks, not
-an attempt to build an impossible-to-break security system.
-
-Keep the response proportional to the affected ticket. A focused mutation or
-negative case is appropriate when the candidate changes the test that proves
-its own behavior. Do not require universal mutation testing, cryptographic
-infrastructure, a blanket ban on test edits, or a Red Team GO before every
-landing. The threat is accidental or goal-driven circumvention by a capable
-agent, not a hostile attacker with full repository control.
-
-<details><summary>Technical record for development tools</summary>
-
-Primary owners: the Architect review rule in `.claude/FABLE_ROLE.md`, the
-candidate-review section of `ai/notes/conventions-and-workflow.md`, and their
-focused role-contract tests. The daemon-side owner is the candidate admission
-path in `ai/tools/mailbox_daemon.py`; real-Git witnesses should cover unrelated
-ancestry, unauthorized paths, deletions, executable bits, symlinks, submodule
-entries, unusual modes, and binary-size limits. Preserve the existing
-exact-candidate binding, Architect-only landing authority, advisory Red Team,
-and no-force-push rule. Do not add a new daemon role, approval round, or
-blocking Red Team phase.
-
-</details>
+Nothing. The checklist lives in the role file's audit section, and the
+admission mechanics named in the status cover the boundary facts; the
+declined hard refusals stay Architect judgment over the audited raw diff.
 
 <a id="open-control-plane-protection"></a>
 ## Protect control files and keep candidates from weakening their own audit

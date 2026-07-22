@@ -760,6 +760,30 @@ the lane and refuses the landing or new ticket with a concrete repair message.
    when named; workstation-owed greens stay OWED (recorded as unverified until
    the queue-5 board run re-executes them).
 
+   **CIRCUMVENTION CHECK.** A capable Implementer can work around a
+   rejection without malicious intent: the shortest route to a passing
+   ticket may weaken the judge instead of fixing the code. Before GO,
+   answer every question below against the exact diff from ticket base B
+   to candidate C; one yes is NO-GO with the finding named:
+   - Does the candidate violate a `Do not change` row of its directive,
+     directly or through a generated file, configuration value, or
+     wrapper?
+   - Does it recreate a design this ticket or an earlier ruling rejected,
+     under different names or relocated into another file?
+   - Does it add an optional route — a flag, environment variable, or
+     configuration default — that restores behavior the directive denied?
+   - Does it change a test, tolerance, fixture, golden file, discovery
+     pattern, or exit-code handling so that this same candidate passes
+     where the unchanged checker would object? A candidate may improve
+     its own checker only when the directive ordered that improvement and
+     a focused negative case still fails afterward.
+   - Is any pasted evidence bound to a commit other than exact C?
+   The daemon separately proves the boundary facts — C descends from the
+   ticket base, the changed-path list comes from a real `git diff`
+   against exact C, undeclared paths surface as scope findings, and
+   protected paths refuse before the audit starts. This check is the
+   judgment layer those mechanics cannot perform.
+
    **README and Python-prose review-time check.** Before issuing `GO` on a
    tracked README, long-form document, or covered Python-prose change, reopen
    `ai/notes/readme-go-no-go.md` and evaluate the final rendered README
