@@ -175,7 +175,6 @@ No open HIGH tickets.
 
 Medium work begins only after the permitted High work above.
 
-- OPEN **MEDIUM** **BUG FIX** — [Validate matter-power requests before a run starts](#open-mps-request-contract)
 - OPEN **MEDIUM** **BUG FIX** — [Write the GetDist posterior column with the correct meaning](#open-getdist-column)
 - OPEN **MEDIUM** **BUG FIX** — [Record which saved weights the training run chose](#open-training-selection-record)
 - OPEN **MEDIUM** **BUG FIX** — [Publish structured study and diagnostic results](#open-study-diagnostics)
@@ -1445,28 +1444,34 @@ science.
 
 **Red Team reopening: allowed.**
 
-**OPEN. Severity: MEDIUM.** Normal configuration mistakes can stop a run late
-with a less useful message. Current evidence does not show a wrong spectrum
-escaping the public getters.
+**CLOSED. Severity: MEDIUM.** `must_provide` now validates every `Pk_grid`
+and `Pk_interpolator` requirement while Cobaya setup can still stop: only the
+`delta_tot` density pair is accepted, the nonlinear choice must be boolean,
+requested redshifts must lie inside the stored z grid (z is never
+extrapolated), and a requested `k_max` must be servable — inside the stored
+grid for the raw grid, and beyond it for the interpolator only when the
+power-law tails are enabled. Each refusal names the observed request, the
+stored bound, and the corrective action. The caller's requirement mapping is
+only read, and the sigma8-to-H0 behavior is unchanged.
 
 ### What is already fixed
 
-The bridge validates saved axes, composed spectra, getter particle pairs,
-redshift support, and the explicit wavenumber-extrapolation choice. It returns
-owned arrays so a caller cannot alter cached results.
+Everything: the early request validation plus the previously completed getter
+and serving-range checks.
 
 ### What is missing
 
-Validate the public matter-power request combinations inside `must_provide`
-without changing the caller's mapping. Accept only the supported
-`delta_tot` pair and native nonlinear choices, and check requested redshift
-and wavenumber bounds before sampling begins. Add small accepted and refused
-Cobaya request examples.
+Nothing for this ticket.
 
 <details><summary>Technical record for development tools</summary>
-Owner: `cobaya_theory/emul_mps.py::must_provide`. Keep this separate from the
-closed serving-domain ticket: it concerns when configuration errors are
-reported, not interpolation mathematics.
+Owner: `cobaya_theory/emul_mps.py::must_provide` with the new
+`_validate_matter_power_request` helper. Evidence: the
+`MatterPowerRequestContractTests` group in
+`ai/tests/mps_sigma8_child_checks.py` — accepted in-range requests (with
+sigma8 still adding only H0), refused wrong pair, out-of-range z above and
+below, grid `k_max` beyond the stored edge, interpolator `k_max` obeying
+`allow_k_extrapolation`, non-mapping options, and non-boolean nonlinear. The
+live-Cobaya routing test still passes with bare `None` requirements.
 </details>
 
 <a id="open-implementer-blocked-outcome"></a>

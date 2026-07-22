@@ -69,9 +69,10 @@ class SigmaEightChildProcessTests(unittest.TestCase):
       completed.returncode, 0,
       "child sigma-eight checks failed:\n" + completed.stdout
       + completed.stderr)
-    # All five numeric checks must actually have run; a child that
-    # collected nothing would exit 0 without testing anything.
-    self.assertIn("Ran 5 tests", completed.stderr)
+    # Every child check must actually have run (five numeric plus six
+    # matter-power request checks); a child that collected nothing
+    # would exit 0 without testing anything.
+    self.assertIn("Ran 11 tests", completed.stderr)
     self.assertEqual(modules_before, set(sys.modules))
 
   def test_negative_control_wrong_expectation_fails_in_child(self):

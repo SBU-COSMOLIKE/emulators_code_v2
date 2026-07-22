@@ -1,11 +1,14 @@
-"""Numeric sigma-eight checks, run in a child process by the contract test.
+"""Matter-power adapter checks, run in a child process by the contract test.
 
 Sigma-eight measures the linear matter fluctuations inside a spherical
-top-hat of radius 8 Mpc/h.  These checks use a power spectrum with an
-analytic answer, so they can distinguish the required 8/h-Mpc radius from
-the old literal 8-Mpc radius without using the production calculation as
-its own reference.  Separate cases prove that a nearby redshift or an
-incomplete wavenumber range cannot return a plausible number.
+top-hat of radius 8 Mpc/h.  The numeric checks here use a power spectrum
+with an analytic answer, so they can distinguish the required 8/h-Mpc
+radius from the old literal 8-Mpc radius without using the production
+calculation as its own reference.  Separate cases prove that a nearby
+redshift or an incomplete wavenumber range cannot return a plausible
+number.  A second group checks the adapter's early request contract:
+``must_provide`` refuses an unsupported density pair, redshift, or
+wavenumber request while Cobaya setup can still stop cleanly.
 
 This file is not collected by the test discovery pattern.  The public
 entry is ai/tests/test_mps_sigma8_contract.py, which launches this file
@@ -218,6 +221,85 @@ class SigmaEightContractTests(unittest.TestCase):
     self.assertEqual(adapter.get_can_provide_params(), ["sigma8"])
     self.assertEqual(adapter.must_provide(sigma8=None), {"H0": None})
     self.assertIsNone(adapter.must_provide(Pk_grid={}))
+
+
+class MatterPowerRequestContractTests(unittest.TestCase):
+  """must_provide refuses unservable requests while setup can stop.
+
+  Cobaya forwards each likelihood's matter-power requirement options
+  before sampling starts.  The adapter checks them at that moment, so a
+  wrong density pair, an out-of-range redshift, or a wavenumber the
+  stored grid cannot serve stops with a startup error the user can fix
+  in the YAML, instead of failing deep inside a running chain.
+  """
+
+  def _adapter(self, *, allow_extrapolation=True):
+    """Return a bare adapter carrying one stored (z, k) grid."""
+    adapter = adapter_module.emul_mps()
+    adapter._z = np.array([0.0, 0.5, 1.0, 2.0])
+    adapter._k = np.geomspace(1.0e-4, 50.0, 16)
+    adapter._allow_k_extrapolation = allow_extrapolation
+    adapter._sigma8_requested = False
+    adapter.log = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
+    return adapter
+
+  def test_supported_requests_pass_and_sigma8_still_adds_h0(self):
+    """In-range products pass; a sigma8 request still adds only H0."""
+    adapter = self._adapter()
+    supported = {
+      "z": [0.0, 1.0, 2.0],
+      "k_max": 10.0,
+      "nonlinear": (True, False),
+      "vars_pairs": [("delta_tot", "delta_tot")],
+    }
+    self.assertIsNone(adapter.must_provide(
+      Pk_grid=dict(supported), Pk_interpolator=dict(supported)))
+    self.assertEqual(
+      adapter.must_provide(Pk_grid=dict(supported), sigma8=None),
+      {"H0": None})
+
+  def test_unsupported_density_pair_is_refused(self):
+    """A pair other than delta_tot stops at setup, naming the rule."""
+    adapter = self._adapter()
+    with self.assertRaisesRegex(adapter_module.LoggedError, "delta_tot"):
+      adapter.must_provide(
+        Pk_grid={"vars_pairs": [("delta_nonu", "delta_nonu")]})
+
+  def test_redshift_outside_the_stored_range_is_refused(self):
+    """z is never extrapolated, above or below the stored grid."""
+    adapter = self._adapter()
+    for bad_z in ([0.0, 5.0], [-0.5, 1.0]):
+      with self.subTest(z=bad_z):
+        with self.assertRaisesRegex(adapter_module.LoggedError,
+                                    "stored redshift range"):
+          adapter.must_provide(Pk_interpolator={"z": bad_z})
+
+  def test_grid_k_max_above_the_stored_edge_is_refused(self):
+    """The fixed stored grid cannot extend for a raw-grid consumer."""
+    adapter = self._adapter()
+    with self.assertRaisesRegex(adapter_module.LoggedError,
+                                "cannot extend"):
+      adapter.must_provide(Pk_grid={"k_max": 100.0})
+
+  def test_interpolator_k_max_follows_the_extrapolation_choice(self):
+    """Power-law tails serve a wider k_max only when they are enabled."""
+    tail_request = {"k_max": 100.0}
+    self.assertIsNone(
+      self._adapter(allow_extrapolation=True).must_provide(
+        Pk_interpolator=dict(tail_request)))
+    with self.assertRaisesRegex(adapter_module.LoggedError,
+                                "allow_k_extrapolation"):
+      self._adapter(allow_extrapolation=False).must_provide(
+        Pk_interpolator=dict(tail_request))
+
+  def test_malformed_options_and_nonlinear_values_are_refused(self):
+    """Non-mapping options and non-boolean nonlinear choices stop."""
+    adapter = self._adapter()
+    with self.assertRaisesRegex(adapter_module.LoggedError, "mapping"):
+      adapter.must_provide(Pk_grid=[("delta_tot", "delta_tot")])
+    with self.assertRaisesRegex(adapter_module.LoggedError, "boolean"):
+      adapter.must_provide(Pk_grid={"nonlinear": "yes"})
+    self.assertIsNone(adapter.must_provide(Pk_grid=None))
 
 
 if __name__ == "__main__":

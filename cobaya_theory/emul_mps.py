@@ -692,18 +692,141 @@ class emul_mps(Theory):
         """
         return ["sigma8"]
 
-    def must_provide(self, **requirements):
-        """Request H0 only when Cobaya assigns sigma8 to this adapter.
+    def _validate_matter_power_request(self, product, options):
+        """Refuse an unservable matter-power request while setup can stop.
+
+        Cobaya forwards each likelihood's requirement options before
+        sampling starts. Checking them here turns a configuration
+        mistake into an immediate startup error the user can fix in the
+        YAML, instead of a failure deep inside a running chain.
 
         Arguments:
-          requirements = the requirement mapping Cobaya forwards; only
-                         a "sigma8" key concerns this theory.
+          product = the requirement name, "Pk_grid" or
+                    "Pk_interpolator" (used in every refusal message).
+          options = that requirement's option mapping as Cobaya passed
+                    it; None and an empty mapping mean "defaults" and
+                    pass. The mapping is only read, never edited.
+
+        Raises:
+          LoggedError when the options are not a mapping, request a
+          density pair other than ("delta_tot", "delta_tot"), carry a
+          non-boolean nonlinear choice, ask for a redshift outside the
+          stored z grid, or ask for wavenumbers the stored grid cannot
+          serve (the fixed grid for Pk_grid; beyond the power-law
+          tails' reach for Pk_interpolator when extrapolation is
+          disabled).
+        """
+        if options is None:
+            return
+        if not isinstance(options, dict):
+            raise LoggedError(
+                self.log,
+                f"emul_mps: {product} requirement options must be a "
+                f"mapping of option names to values, got {options!r}; "
+                "see Cobaya's Pk_grid / Pk_interpolator requirement "
+                "format")
+
+        pairs = options.get("vars_pairs")
+        if pairs:
+            for pair in pairs:
+                if tuple(pair) != ("delta_tot", "delta_tot"):
+                    raise LoggedError(
+                        self.log,
+                        f"emul_mps: {product} requests the density pair "
+                        f"{tuple(pair)!r}; this adapter serves only "
+                        "('delta_tot', 'delta_tot'). Correct vars_pairs "
+                        "in the likelihood's requirements")
+
+        nonlinear = options.get("nonlinear")
+        if nonlinear is not None:
+            if isinstance(nonlinear, (list, tuple, set)):
+                nonlinear_values = list(nonlinear)
+            else:
+                nonlinear_values = [nonlinear]
+            for value in nonlinear_values:
+                if not isinstance(value, bool):
+                    raise LoggedError(
+                        self.log,
+                        f"emul_mps: {product} nonlinear must be boolean "
+                        "(True for P_nl, False for P_lin), got "
+                        f"{value!r}")
+
+        requested_z = options.get("z")
+        if requested_z is not None:
+            z_values = np.atleast_1d(np.asarray(requested_z,
+                                                dtype=np.float64))
+            if z_values.size == 0 or not np.isfinite(z_values).all():
+                raise LoggedError(
+                    self.log,
+                    f"emul_mps: {product} z request must be nonempty "
+                    f"and finite, got {requested_z!r}")
+            stored_z_min = float(self._z[0])
+            stored_z_max = float(self._z[-1])
+            requested_min = float(z_values.min())
+            requested_max = float(z_values.max())
+            if requested_min < stored_z_min or requested_max > stored_z_max:
+                raise LoggedError(
+                    self.log,
+                    f"emul_mps: {product} requests z in "
+                    f"[{requested_min:g}, {requested_max:g}] outside "
+                    f"the stored redshift range [{stored_z_min:g}, "
+                    f"{stored_z_max:g}]; z is never extrapolated, so "
+                    "lower the likelihood's z request or retrain the "
+                    "emulators on a wider range")
+
+        k_max = options.get("k_max")
+        if k_max is not None:
+            k_max = float(k_max)
+            if not math.isfinite(k_max) or k_max <= 0.0:
+                raise LoggedError(
+                    self.log,
+                    f"emul_mps: {product} k_max must be a finite "
+                    f"positive wavenumber in 1/Mpc, got {k_max!r}")
+            stored_k_max = float(self._k[-1])
+            if product == "Pk_grid" and k_max > stored_k_max:
+                raise LoggedError(
+                    self.log,
+                    f"emul_mps: Pk_grid requests k_max={k_max:g} 1/Mpc "
+                    f"above the stored grid edge {stored_k_max:g} "
+                    "1/Mpc; the fixed stored grid cannot extend, so "
+                    "lower k_max or retrain with a wider k range")
+            if (product == "Pk_interpolator" and k_max > stored_k_max
+                    and not self._allow_k_extrapolation):
+                raise LoggedError(
+                    self.log,
+                    f"emul_mps: Pk_interpolator requests "
+                    f"k_max={k_max:g} 1/Mpc above the stored grid edge "
+                    f"{stored_k_max:g} 1/Mpc while allow_k_extrapolation "
+                    "is false; enable the power-law tails or retrain "
+                    "with a wider k range")
+
+    def must_provide(self, **requirements):
+        """Check matter-power requests early; request H0 for sigma8.
+
+        Every "Pk_grid" and "Pk_interpolator" requirement is validated
+        against the loaded artifacts before sampling starts (see
+        :meth:`_validate_matter_power_request`), so an unsupported
+        density pair, redshift, or wavenumber request stops while the
+        user can still correct the YAML.
+
+        Arguments:
+          requirements = the requirement mapping Cobaya forwards; the
+                         matter-power products are validated, and a
+                         "sigma8" key adds the H0 dependency.
 
         Returns:
           {"H0": None} when sigma8 was assigned (the top-hat radius is
           8/h Mpc, so the calculation needs H0); None otherwise, so a
           power-grid-only run acquires no extra dependency.
+
+        Raises:
+          LoggedError from the validation helper for an unservable
+          matter-power request.
         """
+        for name in ("Pk_grid", "Pk_interpolator"):
+            if name in requirements:
+                self._validate_matter_power_request(
+                    name, requirements[name])
         super().must_provide(**requirements)
         if "sigma8" in requirements:
             self._sigma8_requested = True
