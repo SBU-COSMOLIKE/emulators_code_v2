@@ -767,10 +767,11 @@ clear refusal:
   zero to code that allocates an empty gate tensor. Validation must preserve
   the declared type instead of coercing these values.
 - A zero-initialized correction layer initially sends zero into its activation.
-  `relu`, `power`, and `gated_power` currently have zero derivative there, so
-  they cannot wake the entire requested CNN or Transformer head. `H`,
-  `multigate`, and `tanh` remain live at that starting point. ReLU is still a
-  valid activation inside an MLP trunk.
+  `relu` has zero derivative there, so it cannot wake the entire requested CNN
+  or Transformer head. `H`, `multigate`, `tanh`, and the power families
+  (`power`, `gated_power`, whose signed power transform is an even magnitude
+  ratio with analytic origin derivative one) are live at that starting point.
+  ReLU is still a valid activation inside an MLP trunk.
 
 **Implementation boundary.** One pure active-model value validator runs twice.
 `EmulatorExperiment.from_config` calls it after selecting the model class and

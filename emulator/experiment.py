@@ -576,9 +576,9 @@ def validate_active_model_values(
         "model." + head_block + " uses "
         + repr(effective_head_activation["type"])
         + " after a zero-initialized correction layer. Its input "
-        "derivative at zero is currently zero, so the requested head "
-        "cannot fully begin learning. Use H, multigate, or tanh for the "
-        "head; ReLU remains valid in model.mlp trunks.")
+        "derivative at zero is zero, so the requested head cannot "
+        "fully begin learning. Use H, multigate, power, gated_power, "
+        "or tanh for the head; ReLU remains valid in model.mlp trunks.")
   else:
     head_pin = None
     effective_head_activation = None

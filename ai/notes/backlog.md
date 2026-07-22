@@ -183,7 +183,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **BUG FIX** — [Run saved PyTorch compilation settings on CUDA](#open-compile-modes)
 - OPEN **MEDIUM** **BUG FIX** — [Complete older cross-family workstation checks](#open-workstation-debt)
 - OPEN **MEDIUM** **BUG FIX** — [Finish real workstation checks for the current saved-file format](#open-schema-v3-gate-fixtures)
-- OPEN **MEDIUM** **BUG FIX** — [Preserve the power activation gradient at zero](#open-power-zero-gradient)
 - OPEN **MEDIUM** **BUG FIX** — [Reject unsupported training options before a run starts](#open-optimizer-scheduler-protocol)
 - OPEN **MEDIUM** **BUG FIX** — [Measure memory without changing the model and reserve capacity before allocation](#open-memory-planner)
 - OPEN **MEDIUM** **BUG FIX** — [Save every effective setting and reset each repeated study](#open-resolved-run-record)
@@ -997,23 +996,41 @@ learn even though ordinary prediction checks look correct.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The permanent model note contains the analytic replacement and test
-contract; both production activation classes still use the sign formula.
+**CLOSED.** Both production activation classes now compute the signed power
+transform as `x` times an even magnitude ratio with analytic limit one at
+zero: the direct quotient away from the origin (matching the previous tail
+values to rounding) and a justified quadratic series below `|x| = 1e-3`,
+with safe substituted inputs so no unselected branch can poison a gradient.
+Constructors validate finite positive `p_min < p_max` before any forward
+pass. Because the origin derivative is now exactly one, the power families
+left the zero-derivative head-refusal set: a power head pin is accepted, and
+a frozen-trunk step moves power-activated CNN and transformer heads.
 
 ### What is already fixed
 
-Power bounds and activation selection are represented in the model code and
-artifacts.
+Everything in this ticket: the formula, the bound validation, the origin
+tests, and the head-liveness consequences.
 
 ### What is missing
 
-Implement the stable analytic-limit formula, validate finite positive power
-bounds, and test exact-zero and near-zero values and gradients.
+Nothing for this ticket. The GPU acceptance leg from the permanent model
+note remains owed with the other workstation runs.
 
 <details><summary>Technical record for development tools</summary>
-Severity: MEDIUM; training can stall on reachable exact zeros. Owners:
-`emulator/activations.py::PowerGatedActivation,GatedPowerActivation`. A
-`p=1` exact-zero derivative and float64 gradcheck distinguish the repair.
+Owners: `emulator/activations.py::signed_power_transform`,
+`require_power_bounds`, `PowerGatedActivation`, `GatedPowerActivation`;
+`ZERO_DERIVATIVE_HEAD_ACTIVATIONS` reduced to `relu`, with the matching
+refusal text in `emulator/experiment.py::validate_active_model_values`.
+Evidence: `ai/tests/test_power_activation_origin.py` (exact-zero derivative
+one for five exponents — the assertion a restored `sign(x) * f(|x|)`
+mutation fails — p=1 series-region bitwise identity, tail parity at
+rtol 1e-12, seam agreement, float64 gradcheck through zero, bound refusals,
+zero-initialized-layer first gradient) and
+`ai/tests/test_active_model_validation.py` (power head pins accepted;
+frozen-trunk step moves ResCNN and ResTRF power heads; ReLU refusals
+unchanged). Whole-model CPU forward with gated_power everywhere measured
+1.15x the sign form; the delta is the guarded singular point's extra
+elementwise branches.
 </details>
 
 <a id="open-adapter-contracts"></a>

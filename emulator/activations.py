@@ -12,6 +12,8 @@ the matching factory, so the activation can be chosen by string from a
 driver or YAML.
 """
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -21,13 +23,98 @@ from .validation import require_exact_int
 ACTIVATION_NAMES = (
   "H", "power", "multigate", "gated_power", "relu", "tanh")
 
-# These families currently have a zero input derivative at exactly zero.
-# Correction heads zero their last layer, so using one of them after that
-# layer prevents at least part of the requested head from learning.  The
-# power-family entries leave this set when their separate analytic-origin
-# repair is implemented and tested.
-ZERO_DERIVATIVE_HEAD_ACTIVATIONS = frozenset(
-  ("relu", "power", "gated_power"))
+# ReLU has a zero input derivative at exactly zero (Torch's convention on
+# the closed negative side). Correction heads zero their last layer, so
+# using it after that layer prevents the requested head from learning.
+# The power-tail families are not in this set: their signed power
+# transform is computed as x times an even magnitude ratio whose analytic
+# origin limit is one, so they pass a usable gradient through exact zero.
+ZERO_DERIVATIVE_HEAD_ACTIVATIONS = frozenset(("relu",))
+
+# Below this |x|, the signed power transform's ratio uses its quadratic
+# Taylor series instead of the direct quotient. The truncation error is
+# about |(p-1)(p-2)(p-3)| / 24 * |x|^3 relative, under 1e-9 at the
+# boundary for the supported exponents -- beneath float32 resolution and
+# far inside float64 gradient-check tolerances.
+_POWER_SERIES_THRESHOLD = 1.0e-3
+
+
+def require_power_bounds(p_min, p_max):
+  """Refuse malformed power-tail bounds before any forward pass.
+
+  The signed power transform divides by the learnable exponent
+  p = p_min + (p_max - p_min) * sigmoid(rho), so p must be confined to
+  a finite positive interval: p_min <= 0 would let the denominator
+  reach or cross zero.
+
+  Arguments:
+    p_min = the smallest tail exponent; must be finite and > 0.
+    p_max = the largest tail exponent; must be finite and > p_min.
+
+  Returns:
+    (p_min, p_max) as plain floats, unchanged in value.
+
+  Raises:
+    ValueError naming the offending bound and the required condition.
+  """
+  p_min = float(p_min)
+  p_max = float(p_max)
+  if not math.isfinite(p_min) or p_min <= 0.0:
+    raise ValueError(
+      "power activation p_min must be a finite positive number, got "
+      + repr(p_min))
+  if not math.isfinite(p_max) or p_max <= p_min:
+    raise ValueError(
+      "power activation p_max must be finite and greater than p_min="
+      + repr(p_min) + ", got " + repr(p_max))
+  return p_min, p_max
+
+
+def signed_power_transform(x, p):
+  """The power tail psi_p(x), with its exact analytic origin derivative.
+
+    psi_p(x) = x * ratio(|x|),   ratio(u) = ((1 + u)^p - 1) / (p u)
+
+  ratio is an even, smooth function of the input with the analytic
+  limit one at u = 0, so psi_p is linear with slope exactly one at the
+  origin for every p -- including under automatic differentiation. A
+  sign(x) * f(|x|) form has the same forward values but a zero
+  derivative at exactly x = 0, because sign and abs both differentiate
+  to zero there; a zero-initialized correction layer then receives no
+  gradient and cannot begin learning. That form must not return.
+
+  Both branches below are finite everywhere they are evaluated, so the
+  torch.where selection cannot mix a NaN from an unselected position
+  into the gradient:
+
+    - |x| >= 1e-3: the direct quotient, with the substituted safe input
+      keeping the unselected positions' denominator away from zero.
+      These values match the sign-form tail to rounding.
+    - |x| <  1e-3: the quadratic Taylor series of ratio (coefficients
+      (p-1)/2 and (p-1)(p-2)/6), whose truncation error at the boundary
+      is below float32 resolution. At p = 1 the series is exactly the
+      identity; the direct branch keeps the sign form's rounding.
+
+  shape flow: x [..., dim], p [dim] -> psi [..., dim]
+
+  legend: dim=feature width (p broadcasts over the leading axes)
+
+  Arguments:
+    x = the activation input tensor.
+    p = the per-feature exponent, confined to a finite positive
+        interval by the owning constructor's require_power_bounds.
+
+  Returns:
+    psi_p(x), the same shape and dtype as x.
+  """
+  u = x.abs()
+  near_zero = u < _POWER_SERIES_THRESHOLD
+  u_safe = torch.where(near_zero, torch.ones_like(u), u)
+  ratio_direct = ((1.0 + u_safe) ** p - 1.0) / (p * u_safe)
+  ratio_series = (1.0 + (p - 1.0) / 2.0 * u
+                  + (p - 1.0) * (p - 2.0) / 6.0 * u * u)
+  ratio = torch.where(near_zero, ratio_series, ratio_direct)
+  return x * ratio
 
 
 def activation_factory_name(factory):
@@ -124,11 +211,12 @@ def require_live_head_activation(factory, source):
 
   A correction head initializes its last linear layer to zero, so at the
   first training step every head input is exactly x = 0. An activation
-  with a(0) = 0 AND a'(0) = 0 (ReLU on the closed negative side, and the
-  current power-tail families) then passes zero forward and zero gradient
-  backward: part of the requested correction can never begin learning.
-  The safe families -- H, multigate, tanh -- have slope 1/2 or 1 at the
-  origin, so the head trains from the first step.
+  with a(0) = 0 AND a'(0) = 0 (ReLU, on Torch's closed negative side)
+  then passes zero forward and zero gradient backward: part of the
+  requested correction can never begin learning. Every other family --
+  H, multigate, tanh, and the power tails through their analytic-origin
+  ratio -- has a nonzero origin derivative, so the head trains from the
+  first step.
 
   Arguments:
     factory = the head's activation factory, a callable
@@ -147,9 +235,9 @@ def require_live_head_activation(factory, source):
   if name in ZERO_DERIVATIVE_HEAD_ACTIVATIONS:
     raise ValueError(
       source + " uses " + repr(name) + " after a zero-initialized head "
-      "layer. Its input derivative at zero is currently zero, so the "
-      "requested correction cannot fully begin learning. Use H, multigate, "
-      "or tanh for the head.")
+      "layer. Its input derivative at zero is zero, so the requested "
+      "correction cannot fully begin learning. Use H, multigate, power, "
+      "gated_power, or tanh for the head.")
   return factory
 
 
@@ -249,20 +337,29 @@ class PowerGatedActivation(nn.Module):
   [0.5, 1.5], between sqrt(x) and x^1.5). p = 1 recovers H.
 
     gate(x) = gamma + (1 - gamma) * sigmoid(beta * x)
-    psi_p(x) = sign(x) * ((1 + |x|)^p - 1) / p
+    psi_p(x) = x * ((1 + |x|)^p - 1) / (p |x|)   (limit 1 at x=0)
     H(x)     = gate(x) * psi_p(x)
 
-  psi_p has slope 1 at x=0 for any p (the /p normalizes it), so p
-  reshapes only the tail, not the behavior near 0. The base
-  1+|x| >= 1 keeps any real p finite (no NaN), and the sigmoid box
-  blocks a blow-up power (safe on a narrow prior, unlike a raw
-  x^n). rho=0 at init -> p=1 -> starts as H.
+  psi_p has slope exactly 1 at x=0 for any p, and the even-ratio
+  form above keeps that derivative under automatic differentiation
+  (signed_power_transform owns the computation and its near-zero
+  series), so a zero-initialized correction layer trains from the
+  first step. p reshapes only the tail, not the behavior near 0.
+  The base 1+|x| >= 1 keeps any real p finite (no NaN), and the
+  sigmoid box blocks a blow-up power (safe on a narrow prior,
+  unlike a raw x^n). rho=0 at init -> p=1 -> starts as H.
 
   Arguments:
     dim   = feature width (per-element gamma/beta/rho vectors).
-    p_min = smallest tail exponent (default 0.5, sqrt-like).
+    p_min = smallest tail exponent (default 0.5, sqrt-like); must
+            be finite and positive.
     p_max = largest tail exponent (default 1.5, mildly super-
-            linear). p ranges in (p_min, p_max) via a sigmoid.
+            linear); must be finite and greater than p_min. p
+            ranges in (p_min, p_max) via a sigmoid.
+
+  Raises:
+    ValueError from require_power_bounds for a nonpositive,
+    nonfinite, or inverted bound pair.
   """
   def __init__(self, dim, p_min=0.5, p_max=1.5):
     super().__init__()
@@ -271,17 +368,14 @@ class PowerGatedActivation(nn.Module):
     # rho sets the exponent: p = p_min + (p_max-p_min)*sig(rho).
     # rho=0 -> midpoint p=1 for [0.5,1.5] -> identity tail.
     self.rho   = nn.Parameter(torch.zeros(dim))
-    self.p_min = p_min
-    self.p_max = p_max
+    self.p_min, self.p_max = require_power_bounds(p_min, p_max)
 
   def forward(self, x):
     # bounded learnable exponent in (p_min, p_max), per element.
     p = self.p_min + (self.p_max - self.p_min) * torch.sigmoid(
       self.rho)
-    # signed power: linear (slope 1) near 0, ~|x|^p in the tail;
-    # base 1+|x| >= 1 keeps any p finite (no NaN).
-    ax  = x.abs()
-    psi = torch.sign(x) * ((1.0 + ax) ** p - 1.0) / p
+    # signed power tail with derivative exactly 1 at the origin.
+    psi = signed_power_transform(x, p)
     # leaky/Swish gate (your H), applied to the power transform.
     g = self.gamma + (1.0 - self.gamma) * torch.sigmoid(
       self.beta * x)
@@ -296,14 +390,17 @@ class GatedPowerActivation(nn.Module):
   exponent), the two orthogonal generalizations of H(x).
 
     gate(x) = a0 + sum_k w_k * sigmoid(beta_k * (x - mu_k))
-    psi_p(x) = sign(x) * ((1 + |x|)^p - 1) / p
+    psi_p(x) = x * ((1 + |x|)^p - 1) / (p |x|)   (limit 1 at x=0)
     H(x)     = gate(x) * psi_p(x)
     p        = p_min + (p_max - p_min) * sigmoid(rho)
 
   The K sigmoids shape the slope vs x in the bulk; psi_p reshapes
-  only the tail (slope 1 at x=0 for any p), with p boxed into
-  [p_min, p_max] so it cannot blow up. Every term is a bounded
-  sigmoid times a mild power, keeping the output finite.
+  only the tail, with p boxed into [p_min, p_max] so it cannot blow
+  up. The even-ratio psi_p has slope exactly 1 at x=0 for any p,
+  kept under automatic differentiation by signed_power_transform's
+  near-zero series, so a zero-initialized correction layer trains
+  from the first step. Every term is a bounded sigmoid times a mild
+  power, keeping the output finite.
 
   Recovers H at K=1 and the default init: gate 0 (w=1, beta=0,
   mu=0) -> 0.5, and rho=0 -> p=1 -> psi=x, so H = 0.5 x at init.
@@ -315,8 +412,14 @@ class GatedPowerActivation(nn.Module):
   Arguments:
     dim     = feature width (per-element parameter vectors).
     n_gates = number of bulk sigmoid gates K (default 1).
-    p_min   = smallest tail exponent (default 0.5, sqrt-like).
-    p_max   = largest  tail exponent (default 1.5, super-linear).
+    p_min   = smallest tail exponent (default 0.5, sqrt-like);
+              must be finite and positive.
+    p_max   = largest  tail exponent (default 1.5, super-linear);
+              must be finite and greater than p_min.
+
+  Raises:
+    ValueError from require_power_bounds for a nonpositive,
+    nonfinite, or inverted bound pair.
   """
   def __init__(self, dim, n_gates=1, p_min=0.5, p_max=1.5):
     super().__init__()
@@ -338,8 +441,7 @@ class GatedPowerActivation(nn.Module):
     self.mu   = nn.Parameter(mu0)
     # --- bounded tail exponent ---
     self.rho   = nn.Parameter(torch.zeros(dim))  # rho=0 -> p=1
-    self.p_min = p_min
-    self.p_max = p_max
+    self.p_min, self.p_max = require_power_bounds(p_min, p_max)
 
   def forward(self, x):
     # bulk gate: a0 + sum_k w_k sigmoid(beta_k (x - mu_k)).
@@ -352,9 +454,8 @@ class GatedPowerActivation(nn.Module):
     # bounded learnable tail exponent in (p_min, p_max).
     p = self.p_min + (self.p_max - self.p_min) * torch.sigmoid(
       self.rho)
-    # signed power: linear (slope 1) near 0, ~|x|^p in the tail.
-    ax  = x.abs()
-    psi = torch.sign(x) * ((1.0 + ax) ** p - 1.0) / p
+    # signed power tail with derivative exactly 1 at the origin.
+    psi = signed_power_transform(x, p)
     return gate * psi
 
 

@@ -20,11 +20,7 @@ from unittest import mock
 import torch
 import torch.nn as nn
 
-from emulator.activations import (
-  GatedPowerActivation,
-  PowerGatedActivation,
-  make_activation,
-)
+from emulator.activations import make_activation
 from emulator import data_staging
 from emulator import experiment as experiment_module
 from emulator.designs.ia import TemplateResCNN
@@ -399,6 +395,22 @@ class ActiveModelValueTests(unittest.TestCase):
     self.assertEqual(checked["trunk_activation"]["type"], "relu")
     self.assertEqual(checked["head_activation"]["type"], "H")
 
+    # The power families carry the analytic origin derivative, so a
+    # power head pin is an accepted configuration, not a refusal.
+    power_head = _train_args(
+      "rescnn",
+      activation="relu",
+      head_values={"activation": {"type": "gated_power", "n_gates": 2}},
+    )
+    power_head["trunk_epochs"] = 1
+    power_head["freeze_trunk"] = True
+    checked_power = validate_active_model_values(
+      train_args=power_head,
+      model_cls=ResCNN,
+    )
+    self.assertEqual(checked_power["head_activation"]["type"],
+                     "gated_power")
+
   def test_geometry_checks_attention_width_and_physical_cnn_groups(self):
     """The known output layout licenses only compatible heads and grouping."""
     transformer = _train_args(
@@ -590,33 +602,64 @@ class ActiveModelConstructionTests(unittest.TestCase):
     )
     self.assertIsInstance(model.mlp[1].acts[0], nn.ReLU)
 
-  def test_direct_constructors_refuse_power_families_in_zeroed_heads(self):
-    """Known zero-gradient power factories cannot bypass YAML validation."""
-    cases = (
-      ("CNN power", "power", lambda: ResCNN(
-        input_dim=3,
-        output_dim=4,
-        int_dim_res=5,
-        geom=_cnn_geometry(),
-        kernel_size=3,
-        head_act=PowerGatedActivation,
-      )),
-      ("transformer gated power", "gated_power", lambda: ResTRF(
-        input_dim=3,
-        output_dim=8,
-        int_dim_res=5,
-        geom=_trf_geometry(),
-        n_heads=2,
-        head_act=GatedPowerActivation,
-      )),
+  def test_power_families_are_live_heads_with_the_analytic_origin(self):
+    """One frozen-trunk step moves power-activated correction heads.
+
+    The signed power transform is computed as x times an even magnitude
+    ratio with the analytic limit one at zero, so the power families
+    now pass a usable gradient through the exact zeros a
+    zero-initialized head produces. Under the earlier
+    sign(x) * f(|x|) form this step moved nothing.
+    """
+    torch.manual_seed(826)
+    cnn = ResCNN(
+      input_dim=3,
+      output_dim=4,
+      int_dim_res=5,
+      geom=_cnn_geometry(),
+      kernel_size=3,
+      n_blocks=1,
+      n_blocks_cnn=1,
+      gate_init=0.1,
+      head_act=make_activation("power"),
     )
-    for label, family, construct in cases:
-      with self.subTest(case=label), mock.patch.object(
-          nn, "Linear",
-          side_effect=AssertionError(
-            "an unsafe head activation reached a learned layer")):
-        with self.assertRaisesRegex(ValueError, family):
-          construct()
+    cnn_inputs = torch.tensor((
+      (0.2, -0.4, 0.8),
+      (-0.7, 0.5, 0.1),
+      (1.0, -0.2, -0.6),
+    ), dtype=torch.float32)
+    _assert_head_step_moves(
+      self,
+      cnn,
+      lambda: (cnn.convs[-1].weight, cnn.convs[-1].bias),
+      cnn_inputs,
+    )
+
+    torch.manual_seed(827)
+    transformer = ResTRF(
+      input_dim=3,
+      output_dim=8,
+      int_dim_res=5,
+      geom=_trf_geometry(),
+      n_heads=2,
+      n_blocks=1,
+      n_blocks_trf=1,
+      n_mlp_blocks=1,
+      gate_init=0.1,
+      head_act=make_activation("gated_power", n_gates=2),
+    )
+    trf_inputs = torch.tensor((
+      (0.4, -0.1, 0.9),
+      (-0.2, 0.8, -0.5),
+      (0.7, 0.3, -0.6),
+    ), dtype=torch.float32)
+    _assert_head_step_moves(
+      self,
+      transformer,
+      lambda: tuple(
+        transformer.trf[-1].mlp_lins[-1].parameters()),
+      trf_inputs,
+    )
 
   def test_invalid_bin_sizes_refuse_before_any_linear_layer(self):
     """Empty, zero-width, and fractional output bins have no model layout."""
