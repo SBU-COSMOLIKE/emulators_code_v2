@@ -202,7 +202,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Normalize untrusted Implementer output before the Architect reads it](#open-normalized-implementer-output)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Authenticate trusted ticket and landing messages proportionally](#open-authenticated-control-messages)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Reduce daemon risk through small authority-boundary extractions](#open-daemon-authority-modules)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Bind each landing to its candidate and sealed backlog](#open-landing-backlog-identity)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Test every interrupted backlog synchronization step](#open-backlog-sync-crash-cuts)
@@ -2278,13 +2277,19 @@ responsibilities gradually move into smaller modules with clear authority.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The daemon remains one large coordinator and implementation module.
-Existing tests cover many individual states and recovery paths, but the file
-is increasingly difficult to reason about as one unit.
-
-**Priority: LOW.** No current failure has been demonstrated. This is gradual
-maintenance work that must not displace scientific bugs or urgent workflow
-repairs.
+**CLOSED — the requested extraction exists in the tree.** The daemon is a
+coordinator of about two thousand lines beside part files split along the
+responsibility boundaries this ticket proposed: provider commands
+(`mailbox_providers.py`), dispatch (`mailbox_dispatch.py`), the durable
+store (`mailbox_store.py`), message envelopes (`mailbox_envelopes.py`),
+ticket cycles (`mailbox_cycles.py`, `mailbox_tickets.py`), landing and push
+debt (`mailbox_landing.py`), recovery (`mailbox_recovery.py`), worktrees
+(`mailbox_worktrees.py`), watch settings (`mailbox_watch.py`), and the
+protected control plane (`mailbox_control_plane.py`). Every cross-file
+reference routes through the coordinator's namespace, so each repeated
+decision keeps exactly one owner. The child-ticket planning this body
+describes staged an extraction that is complete; a future extraction
+request needs its own ticket with its own boundary.
 
 ### What is already fixed
 
@@ -2294,17 +2299,9 @@ control-plane work. Important operations fail closed and preserve evidence.
 
 ### What is missing
 
-Keep `mailbox_daemon.py` as the coordinator while gradually extracting stable
-operations along authority boundaries. Candidate module names include
-`provider_dispatch.py`, `candidate_state.py`, `handoff_state.py`,
-`backlog_transition.py`, `landing.py`, `push_debt.py`, and `recovery.py`; these
-names are suggestions, not a requirement to create every file.
-
-This ticket does **not** authorize a broad rewrite or one enormous extraction.
-Before implementation, the Architect must divide the work into independent
-Low tickets, each covering one small boundary and one commit. Each child
-ticket must state which behavior remains unchanged, which caller owns the
-operation, which files may change, and how restart compatibility is proved.
+Nothing. The split named in the status above is in the tree, its part files
+are listed in the machine contract's trusted tools, and the daemon suite and
+standalone workflow reproductions run against the split layout.
 
 <details><summary>Technical record for development tools</summary>
 
