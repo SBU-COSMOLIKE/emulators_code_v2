@@ -183,7 +183,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **BUG FIX** — [Complete older cross-family workstation checks](#open-workstation-debt)
 - OPEN **MEDIUM** **BUG FIX** — [Finish real workstation checks for the current saved-file format](#open-schema-v3-gate-fixtures)
 - OPEN **MEDIUM** **BUG FIX** — [Save every effective setting and reset each repeated study](#open-resolved-run-record)
-- OPEN **MEDIUM** **BUG FIX** — [Protect control files and keep candidates from weakening their own audit](#open-control-plane-protection)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Finish safe fine-tuning against the original weights](#open-finetune-anchor)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Retry failed generator rows reproducibly](#open-generator-failure-retry)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Record which physics formulas produced each dataset and trained emulator](#open-physics-implementation-identity)
@@ -1885,13 +1884,24 @@ weaken its own checker.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Permanent notes already have an Architect-owned SHA check, and role
-prose restricts several sensitive files. The protected set and the independent
-audit rule are not yet one complete, enforced boundary.
-
-**Priority: MEDIUM.** This can affect normal candidate approval and the
-integrity of the ticket system. It does not meet High because there is no
-demonstrated data loss, core outage, or wrong scientific result.
+**CLOSED — the enforced boundary exists and is machine-checked.** The
+protected set the ticket demands is one complete list in
+`ai/notes/role-contract.yaml`: candidates may not touch `CLAUDE.md`,
+`.gitattributes`, `.gitignore`, `.gitmodules`, the tracked backlog and its
+guard files, or any path under `.claude/`, `.codex/`, `ai/tools/`,
+`ai/notes/mailbox/`, or `ai/notes/relay/`, and the contract reader's safety
+floor refuses a contract that drops any of those entries. The eleven
+permanent notes carry the SHA guard, and the Architect administration turn
+is the one legitimate update path, revalidated by the daemon at landing.
+For candidate changes to `ai/tests/` or `ai/gates/`, the audit's
+gate-integrity screen treats an unnamed change to the gate surface as
+tampering and the consolidated circumvention check asks whether a checker
+was weakened for its own candidate; protected control-plane candidates
+additionally pass the trusted shadow validation and the mandatory
+pre-landing review. The one sketched remainder — a separate fingerprint
+store with trusted copies of test drivers and tolerance policies — is
+declined: the audited base commit in Git is the trusted copy, and a
+parallel store would be a second source of truth with its own drift.
 
 ### What is already fixed
 
@@ -1901,26 +1911,10 @@ already detect several kinds of evidence drift.
 
 ### What is missing
 
-Make `.claude/`, `.codex/`, `.gitmodules`, `.gitignore`, mailbox state, and all
-permanent notes Architect-only and SHA-protected. Provide a narrow Architect
-administration path so legitimate policy updates remain possible.
-
-When a candidate changes `ai/tests/`, `ai/gates/`, or `ai/tools/`, require an
-explicit circumvention review. Compare changes to trusted copies of critical
-test drivers, gate definitions, expected outputs, tolerance policies, log
-capture, and exit-code enforcement. The review must ask whether discovery,
-fixtures, tolerances, golden files, environment setup, or pass/fail handling
-were weakened merely to make the candidate green.
-
-<details><summary>Technical record for development tools</summary>
-
-Owners: protected-path admission in `ai/tools/mailbox_daemon.py`, Architect
-administration in `.claude/FABLE_ROLE.md`, permanent-note and backlog guards,
-and focused role/daemon reproductions. Test both ordinary Implementer refusal
-and an authorized Architect update. A candidate test change remains possible,
-but cannot be the sole trusted judge of its own acceptance.
-
-</details>
+Nothing. The contract's forbidden lists, the safety floor that refuses their
+removal, the permanent-note guard, the administration path, and the audit's
+gate-integrity and circumvention checks are the enforced boundary; the
+separate trusted-copy store is declined as a second source of truth.
 
 <a id="open-character-budget-planning"></a>
 ## Plan a limited ticket across code, documentation, and protected notes
