@@ -197,7 +197,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
 - OPEN **LOW** **BUG FIX** — [Recover safely when main advances after a landing is prepared](#open-stale-landing-reaudit)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
@@ -2035,12 +2034,19 @@ changes should receive stronger checks even when their character count is low.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Severity describes why a ticket matters, and `--max` limits its text
-size. The plan does not yet classify the kind of changed surface for validation.
-
-**Priority: LOW.** This improves review selection after the existing safety
-rules. No current defect shows that the size guard is being treated as the sole
-risk decision.
+**CLOSED — the directive machinery already forces this decision per
+ticket.** Choosing validation proportionate to the changed surface is an
+existing Architect duty with concrete enforcement points: every changed
+Python path must carry a hot or cold classification, every applicable
+style-contract row must be copied into the directive with named evidence, a
+numerical or scientific change triggers the benchmark and regression rows
+of the Python contract, and the Architect selects the acceptance commands
+for each ticket individually. A parallel label taxonomy would restate that
+duty as vocabulary while adding its own maintenance: labels need stable
+meanings, boundary adjudication, and focused examples, all reviewed like
+any other tracked guidance. The ticket's own record shows no case where the
+size guard was treated as the risk decision, so there is no failure for the
+taxonomy to prevent.
 
 ### What is already fixed
 
@@ -2049,19 +2055,9 @@ the Architect already chooses acceptance commands for each ticket.
 
 ### What is missing
 
-Define clear labels such as documentation-only, test-only, tooling, runtime
-behavior, numerical behavior, and scientific-model behavior. Use the label to
-suggest stronger evidence for the final two classes without treating a large
-character count as automatic danger or a small count as automatic safety.
-
-<details><summary>Technical record for development tools</summary>
-
-Start as Architect guidance rather than a new CLI gate. If later automation is
-useful, add it only after the labels have stable meanings and focused examples.
-Do not duplicate ticket severity: severity orders work, while this label chooses
-validation appropriate to the affected surface.
-
-</details>
+Nothing. The label taxonomy is declined; the hot/cold classification,
+per-ticket contract rows, and Architect-selected acceptance commands are
+the working form of the same decision.
 
 <a id="open-normalized-implementer-output"></a>
 ## Normalize untrusted Implementer output before the Architect reads it
