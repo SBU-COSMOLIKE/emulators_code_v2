@@ -183,7 +183,8 @@ def write_bound_architect_note(
     role_plan = (
         "- Roles: `" + roles + "`\n"
         "- Discovery severity: `" + discovery_severity + "`\n"
-        "- Review scope: `" + review_scope + "`")
+        "- Review scope: `" + review_scope + "`\n"
+        "- Ticket class: `ordinary`")
     bodies = {
         "Execution checkout": checkout,
         "Role plan": role_plan,
@@ -2203,7 +2204,8 @@ def arm_structured_review_scope():
         valid_role_plan = (
             "- Roles: `Architect + Implementer + Red Team`\n"
             "- Discovery severity: `low`\n"
-            "- Review scope: `widespread`")
+            "- Review scope: `widespread`\n"
+            "- Ticket class: `ordinary`")
         malformed_plans = (
             valid_role_plan.replace(
                 "\n- Review scope: `widespread`", ""),

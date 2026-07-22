@@ -12,11 +12,17 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
-import types
 
 
 AI_ROOT = Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+if str(AI_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(AI_ROOT.parent))
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+daemon_source_files = fix_only_repro.daemon_source_files
 BASE_COMMIT = "1" * 40
 CANDIDATE_COMMIT = "2" * 40
 ACCEPTED_COMMIT = "3" * 40
@@ -61,13 +67,12 @@ def install_fast_clock(daemon):
 
 
 def load_daemon(source=None):
-    """Execute one fresh daemon module, optionally from a source mutant."""
-    if source is None:
-        source = DAEMON_PATH.read_text(encoding="utf-8")
-    module = types.ModuleType("mailbox_daemon_no_redteam_repro")
-    module.__file__ = str(DAEMON_PATH)
-    exec(compile(source, str(DAEMON_PATH), "exec"), module.__dict__)
-    return module
+    """Execute one fresh daemon module, optionally from a source mutant.
+
+    Delegates to the shared loader, which accepts None, an entry-file
+    mutant string, or a mapping of daemon file name to source text.
+    """
+    return fix_only_repro.load_daemon(source=source)
 
 
 def install_test_agent_topology_proof(daemon):
@@ -104,6 +109,10 @@ def scratch_daemon(source=None):
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
         backlog.write_text("", encoding="utf-8")
+        # Every watch pass re-reads the role contract from the redirected
+        # repository root, so the scratch tree carries the real one.
+        (ai_root / "notes" / "role-contract.yaml").write_bytes(
+            (AI_ROOT / "notes" / "role-contract.yaml").read_bytes())
         architect_lane = root / "architect-lane"
         implementer_lane = root / "implementer-lane"
         sol_lane = root / "sol-lane"
@@ -134,6 +143,17 @@ def scratch_daemon(source=None):
         daemon.capture_persistent_role_state = (
             lambda agent: {"agent": agent})
         daemon.recheck_persistent_role_state = lambda proof: None
+        # The scratch root is not a Git repository, so the Implementer
+        # authority probes are answered synthetically.
+        daemon.implementer_authority_snapshot = (
+            lambda repository_root=None: {})
+        daemon.implementer_authority_changes = (
+            lambda before, repository_root=None: [])
+        # A Sol closure dispatch reads the reopen ledger before launch;
+        # these topology witnesses do not exercise that Git-facing proof.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
         daemon.prepare_implementer_cycle_checkout = (
             lambda cycle_id, preserve_current=False, restart_from_base=False: BASE_COMMIT)
         daemon.record_implementer_candidate = (
@@ -1213,14 +1233,49 @@ def arm_process_filter_preserves_sol(source=None):
 
 
 def replace_exact(source, old, new):
-    """Replace one unique source anchor, or return ``None`` when unarmed."""
+    """Replace one unique source anchor, or return ``None`` when unarmed.
+
+    ``source`` is either one file's text or a mapping of daemon file name
+    to text; a mapping requires the anchor to be unique across every file.
+    """
+    if isinstance(source, dict):
+        matches = []
+        for file_name in source:
+            if old in source[file_name]:
+                matches.append(file_name)
+        if len(matches) != 1 or source[matches[0]].count(old) != 1:
+            return None
+        mutant = dict(source)
+        mutant[matches[0]] = source[matches[0]].replace(old, new, 1)
+        return mutant
     if source.count(old) != 1:
         return None
     return source.replace(old, new, 1)
 
 
+def mutate_owning_file(source, marker, mutator):
+    """Apply one single-file mutator to the daemon file holding ``marker``."""
+    matches = []
+    for file_name in source:
+        if marker in source[file_name]:
+            matches.append(file_name)
+    if len(matches) != 1:
+        return None
+    mutant_text = mutator(source[matches[0]])
+    if mutant_text is None:
+        return None
+    mutant = dict(source)
+    mutant[matches[0]] = mutant_text
+    return mutant
+
+
 def replace_once_in_function(source, function_name, old, new):
     """Replace one exact source site inside one production function."""
+    if isinstance(source, dict):
+        return mutate_owning_file(
+            source, "def " + function_name + "(",
+            lambda text: replace_once_in_function(
+                text, function_name, old, new))
     start = source.find("def " + function_name + "(")
     end = source.find("\ndef ", start + 1)
     if start < 0:
@@ -1236,24 +1291,35 @@ def replace_once_in_function(source, function_name, old, new):
 
 def mutate_skip_activation_without_sequence_lock(source):
     """Publish the two-role sidecar without serializing Sol senders."""
+    if isinstance(source, dict):
+        return mutate_owning_file(
+            source, "def acquire_skip_redteam_lock():",
+            mutate_skip_activation_without_sequence_lock)
     start = source.find("def acquire_skip_redteam_lock():")
     end = source.find("\ndef ", start + 1)
     if start < 0 or end < 0:
         return None
     function_source = source[start:end]
     body_start = function_source.find(
-        "    os.makedirs(MAILBOX, exist_ok=True)\n")
+        "    daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)\n")
     if body_start < 0:
         return None
     replacement = (
-        "    os.makedirs(MAILBOX, exist_ok=True)\n"
-        "    return acquire_skip_redteam_lock_while_sequence_locked()")
+        "    daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)\n"
+        "    return daemon."
+        "acquire_skip_redteam_lock_while_sequence_locked()")
     mutant_function = function_source[:body_start] + replacement
     return source[:start] + mutant_function + source[end:]
 
 
 def mutate_drop_skip_final_send_recheck(source):
     """Remove the Sol policy probe made inside sequence publication."""
+    if isinstance(source, dict):
+        return mutate_owning_file(
+            source,
+            "def send(agent, text, dry_run, ticket_kind=None, "
+            "severity=None, scope=None):",
+            mutate_drop_skip_final_send_recheck)
     start = source.find(
         "def send(agent, text, dry_run, ticket_kind=None, severity=None, "
         "scope=None):")
@@ -1262,12 +1328,13 @@ def mutate_drop_skip_final_send_recheck(source):
         return None
     function_source = source[start:end]
     old = (
-        "            reason = refusal_now()\n"
-        "            if reason is not None:\n"
-        "                print(\"refused --send \" + agent + \": \" + reason + \".\")\n"
-        "                return False\n"
-        "            for _ in range(20):\n")
-    new = "            for _ in range(20):\n"
+        "        reason = refusal_now()\n"
+        "        if reason is not None:\n"
+        "            print(\"refused --send \" + agent + \": \" + reason "
+        "+ \".\")\n"
+        "            return False\n"
+        "        for _ in range(20):\n")
+    new = "        for _ in range(20):\n"
     mutant_function = replace_exact(function_source, old, new)
     if mutant_function is None:
         return None
@@ -1276,6 +1343,11 @@ def mutate_drop_skip_final_send_recheck(source):
 
 def mutate_drop_skip_post_flock_inode_check(source):
     """Remove the identity check immediately after the sidecar flock."""
+    if isinstance(source, dict):
+        return mutate_owning_file(
+            source,
+            "def acquire_skip_redteam_lock_while_sequence_locked():",
+            mutate_drop_skip_post_flock_inode_check)
     start = source.find(
         "def acquire_skip_redteam_lock_while_sequence_locked():")
     end = source.find("\ndef ", start + 1)
@@ -1287,7 +1359,7 @@ def mutate_drop_skip_post_flock_inode_check(source):
         "        print(\"cannot disable the red-team route: mode lock path "
         "changed \"\n"
         "              \"while its lock was acquired\")\n"
-        "        release_skip_redteam_lock(lock_file=lock_file)\n"
+        "        daemon.release_skip_redteam_lock(lock_file=lock_file)\n"
         "        return None\n")
     mutant_function = replace_exact(function_source, old, "")
     if mutant_function is None:
@@ -1313,7 +1385,7 @@ def probe_skip_post_flock_inode_check(source):
 
 def arm_source_mutations():
     """Kill one source mutant for every binding two-role contract."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = daemon_source_files()
     cases = [
         (
             "process filter admits only Sol",
@@ -1331,12 +1403,12 @@ def arm_source_mutations():
             lambda text: replace_once_in_function(
                 text,
                 "acquire_cycle_completion_barrier",
-                "        waiting_before = enabled_pending_messages(\n"
+                "        waiting_before = daemon.enabled_pending_messages(\n"
                 "            skip_redteam=skip_redteam)\n"
-                "        waiting_after = enabled_pending_messages(\n"
+                "        waiting_after = daemon.enabled_pending_messages(\n"
                 "            skip_redteam=skip_redteam)\n",
-                "        waiting_before = pending_messages()\n"
-                "        waiting_after = pending_messages()\n"),
+                "        waiting_before = daemon.pending_messages()\n"
+                "        waiting_after = daemon.pending_messages()\n"),
             arm_completion_barrier_ignores_deferred_sol,
         ),
         (
@@ -1348,14 +1420,18 @@ def arm_source_mutations():
                 "        discovery_severity=effective_discovery_severity,\n"
                 "        discovery_scope=effective_discovery_scope,\n"
                 "        saved_discovery=(ticket_kind == \"discovery\"),\n"
-                "        saved_architect_request=(saved_architect_severity is not None))\n"
-                "    # The dynamic banner precedes",
+                "        saved_architect_request="
+                "(saved_architect_severity is not None),\n"
+                "        candidate_scope=candidate_scope,\n"
+                "        routine_review=routine_review)\n",
                 "        skip_redteam=False,\n"
                 "        discovery_severity=effective_discovery_severity,\n"
                 "        discovery_scope=effective_discovery_scope,\n"
                 "        saved_discovery=(ticket_kind == \"discovery\"),\n"
-                "        saved_architect_request=(saved_architect_severity is not None))\n"
-                "    # The dynamic banner precedes"),
+                "        saved_architect_request="
+                "(saved_architect_severity is not None),\n"
+                "        candidate_scope=candidate_scope,\n"
+                "        routine_review=routine_review)\n"),
             arm_two_role_watch_preserves_sol,
         ),
         (
@@ -1363,17 +1439,18 @@ def arm_source_mutations():
             lambda text: replace_exact(
                 text,
                 "        if skip_redteam:\n"
-                "            env[SKIP_REDTEAM_ENVIRONMENT] = \"1\"\n"
+                "            env[daemon.SKIP_REDTEAM_ENVIRONMENT] = \"1\"\n"
                 "        else:\n"
-                "            env.pop(SKIP_REDTEAM_ENVIRONMENT, None)\n",
-                "        env.pop(SKIP_REDTEAM_ENVIRONMENT, None)\n"),
+                "            env.pop(daemon.SKIP_REDTEAM_ENVIRONMENT, "
+                "None)\n",
+                "        env.pop(daemon.SKIP_REDTEAM_ENVIRONMENT, None)\n"),
             arm_two_role_watch_preserves_sol,
         ),
         (
             "active mode permits Sol sends",
             lambda text: replace_exact(
                 text,
-                "        if skip_redteam_policy_active():\n"
+                "        if daemon.skip_redteam_policy_active():\n"
                 "            return (\"an active two-role watch has the Sol route disabled; \"\n"
                 "                    \"wait for it to end or restart without --skip-redteam\")\n",
                 "        if False:\n"
@@ -1452,20 +1529,24 @@ def arm_source_mutations():
                 "            if fix_only_lock is not None:\n"
                 "                release_fix_only_lock("
                 "lock_file=fix_only_lock)\n"
-                "            if skip_redteam_lock is None:\n",
-                "            if skip_redteam_lock is None:\n"),
+                "            release_dispatch_lock("
+                "lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n",
+                "            release_dispatch_lock("
+                "lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n"),
             arm_combined_watch_exception_cleans_all_locks,
         ),
         (
             "combined exception omits dispatch cleanup",
             lambda text: replace_exact(
                 text,
-                "            else:\n"
-                "                release_dispatch_lock("
+                "            release_dispatch_lock("
                 "lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n"
                 "                release_skip_redteam_lock("
                 "lock_file=skip_redteam_lock)\n",
-                "            else:\n"
+                "            if skip_redteam_lock is not None:\n"
                 "                release_skip_redteam_lock("
                 "lock_file=skip_redteam_lock)\n"),
             arm_combined_watch_exception_cleans_all_locks,
@@ -1474,13 +1555,12 @@ def arm_source_mutations():
             "combined exception omits skip-lock cleanup",
             lambda text: replace_exact(
                 text,
-                "            else:\n"
-                "                release_dispatch_lock("
+                "            release_dispatch_lock("
                 "lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n"
                 "                release_skip_redteam_lock("
                 "lock_file=skip_redteam_lock)\n",
-                "            else:\n"
-                "                release_dispatch_lock("
+                "            release_dispatch_lock("
                 "lock_file=dispatch_lock)\n"),
             arm_combined_watch_exception_cleans_all_locks,
         ),

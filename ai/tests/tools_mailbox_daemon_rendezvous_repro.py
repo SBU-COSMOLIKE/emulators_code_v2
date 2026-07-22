@@ -15,11 +15,17 @@ import pathlib
 import sys
 import tempfile
 import threading
-import types
 
 
 AI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+if str(AI_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(AI_ROOT.parent))
+try:
+    from ai.tests import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+except ImportError:
+    import tools_mailbox_daemon_fix_only_repro as fix_only_repro
+daemon_source_files = fix_only_repro.daemon_source_files
 COUNTDOWN_SECONDS = 20
 BASE_COMMIT = "1" * 40
 ACCEPTED_COMMIT = "2" * 40
@@ -53,17 +59,12 @@ class ImmediateProcess:
 
 
 def load_daemon(source=None):
-    """Load a fresh production daemon, optionally from mutated source."""
-    if source is not None:
-        module = types.ModuleType("mailbox_daemon_rendezvous_mutant")
-        module.__file__ = str(DAEMON_PATH)
-        exec(compile(source, str(DAEMON_PATH), "exec"), module.__dict__)
-        return module
-    spec = importlib.util.spec_from_file_location(
-        "mailbox_daemon_rendezvous_repro", DAEMON_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Load a fresh production daemon, optionally from mutated source.
+
+    Delegates to the shared loader, which accepts None, an entry-file
+    mutant string, or a mapping of daemon file name to source text.
+    """
+    return fix_only_repro.load_daemon(source=source)
 
 
 def install_test_role_state_proofs(daemon):
@@ -98,12 +99,18 @@ def install_test_role_state_proofs(daemon):
 def scratch_daemon(source=None):
     """Redirect a fresh daemon into one disposable repository."""
     with tempfile.TemporaryDirectory(prefix="mailbox-rendezvous-") as tmp:
-        root = pathlib.Path(tmp)
+        # Resolved so no path crosses a symlink (macOS /var redirects);
+        # the daemon's source-note checks refuse redirected paths.
+        root = pathlib.Path(tmp).resolve()
         ai_root = root / "ai"
         mailbox = ai_root / "notes" / "mailbox"
         mailbox.mkdir(parents=True)
         backlog = ai_root / "notes" / "backlog.md"
         backlog.write_text("", encoding="utf-8")
+        # Every watch pass re-reads the role contract from the redirected
+        # repository root, so the scratch tree carries the real one.
+        (ai_root / "notes" / "role-contract.yaml").write_bytes(
+            (AI_ROOT / "notes" / "role-contract.yaml").read_bytes())
         relay = ai_root / "notes" / "relay"
 
         daemon = load_daemon(source=source)
@@ -125,6 +132,12 @@ def scratch_daemon(source=None):
             "opus": str(root / "implementer-lane"),
             "sol": str(root / "sol-lane"),
         }
+        # Journaling an Architect outcome loads the authoritative handoff
+        # contract from the Architect lane.
+        architect_tools = root / "architect-lane" / "ai" / "tools"
+        architect_tools.mkdir(parents=True)
+        (architect_tools / "handoff_contract.py").write_bytes(
+            (AI_ROOT / "tools" / "handoff_contract.py").read_bytes())
         daemon._production_warn_if_mailbox_unwatched = (
             daemon.warn_if_mailbox_unwatched)
         daemon.warn_if_mailbox_unwatched = lambda: None
@@ -145,6 +158,23 @@ def scratch_daemon(source=None):
             if arguments == ["rev-parse", "--verify",
                              "refs/heads/main^{commit}"]
             else ACCEPTED_COMMIT)
+        # The scratch root is not a Git repository, so the Implementer
+        # authority probes and private cycle refs are answered
+        # synthetically.
+        daemon.implementer_authority_snapshot = (
+            lambda repository_root=None: {})
+        daemon.implementer_authority_changes = (
+            lambda before, repository_root=None: [])
+        daemon.git_ref_commit = lambda reference: None
+        # A Sol closure dispatch reads the reopen ledger before launch;
+        # these rendezvous witnesses do not exercise that Git-facing proof.
+        daemon.current_reopen_ticket = lambda cycle_id: None
+        daemon._REOPEN_TRANSITION.redteam_brief = (
+            lambda ticket, cycle, landing: "")
+        # Scratch agent commands are bare stand-ins with no reasoning
+        # effort option, so the routine-review effort swap cannot apply.
+        daemon.routine_review_command = (
+            lambda command_prefix, **_kwargs: (list(command_prefix), None))
         yield daemon, root, mailbox
 
 
@@ -744,6 +774,10 @@ def arm_candidate_audit_requires_one_outcome(source=None):
             cycle_id=cycle_id, text="Audit the saved candidate.")
         daemon.register_ticket_cycle_message(agent="opus", message=flow)
         daemon.candidate_commit_for_cycle = lambda cycle_id: ACCEPTED_COMMIT
+        daemon.candidate_record_locked = (
+            lambda cycle_id, ticket_state, candidate_state:
+            {"ref": "refs/mailbox/scratch/candidate",
+             "commit": ACCEPTED_COMMIT})
         daemon.create_audit_snapshot = (
             lambda **kwargs: str(root / "candidate-audit"))
         daemon.remove_audit_snapshot = lambda **kwargs: None
@@ -775,6 +809,14 @@ def arm_candidate_audit_requires_one_outcome(source=None):
             and (mailbox / "failed" / request.name).is_file()
             and state["active"][cycle_id]["phase"] == "implementation")
 
+        # The journaled repair handoff must cite a real directive note in
+        # the Architect lane.
+        from ai.tests.test_handoff_contract import packet
+        architect_note = (pathlib.Path(daemon.AGENT_CWD["fable"])
+                          / "ai" / "notes" / "ticket.md")
+        architect_note.parent.mkdir(parents=True, exist_ok=True)
+        architect_note.write_text(
+            packet(role="architect"), encoding="utf-8", newline="")
         repair = ticket_flow_payload(
             cycle_id=cycle_id,
             text=("- **Directive:** [ai/notes/ticket.md, exact "
@@ -1435,7 +1477,8 @@ def arm_public_architect_non_ticket_outcomes_release_admission(source=None):
             lambda primary_worktree: None)
         receipt = mailbox / "0002-to-user.md"
 
-        def fake_terminal(command, stdout, stderr, cwd, env):
+        def fake_terminal(command, stdout, stderr, cwd, env,
+                      start_new_session=False):
             del command, stderr, cwd
             token = env["MAILBOX_ARCHITECT_ADMISSION"]
             receipt.write_text(
@@ -1494,7 +1537,8 @@ def arm_public_architect_ambiguous_outcomes_fail_closed(source=None):
                 lambda primary_worktree: None)
             created = []
 
-            def fake_invalid(command, stdout, stderr, cwd, env):
+            def fake_invalid(command, stdout, stderr, cwd, env,
+                         start_new_session=False):
                 del command, stderr, cwd
                 token = env["MAILBOX_ARCHITECT_ADMISSION"]
                 receipt_text = (
@@ -2129,7 +2173,21 @@ def arm_cycle_ledger_preopen_fifo_is_bounded(source=None):
 
 
 def replace_exact(source, old, new):
-    """Return a single-site source mutant, else None when not armed."""
+    """Return a single-site source mutant, else None when not armed.
+
+    ``source`` is either one file's text or a mapping of daemon file name
+    to text; a mapping requires the anchor to be unique across every file.
+    """
+    if isinstance(source, dict):
+        matches = []
+        for file_name in source:
+            if old in source[file_name]:
+                matches.append(file_name)
+        if len(matches) != 1 or source[matches[0]].count(old) != 1:
+            return None
+        mutant = dict(source)
+        mutant[matches[0]] = source[matches[0]].replace(old, new, 1)
+        return mutant
     if source.count(old) != 1:
         return None
     return source.replace(old, new, 1)
@@ -2137,7 +2195,7 @@ def replace_exact(source, old, new):
 
 def arm_source_mutations():
     """Kill rendezvous boundary mutants once production exposes anchors."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = daemon_source_files()
     cases = [
         (
             "countdown shortened to 19",
@@ -2158,20 +2216,22 @@ def arm_source_mutations():
             "pre-claim unsafe transition omitted",
             lambda text: replace_exact(
                 text,
-                "                report_admitted_status()\n",
+                "                daemon.report_admitted_status()\n",
                 "                pass  # omitted unsafe transition\n"),
             arm_safe_line_expires_before_claim,
         ),
         (
             "production child-start hook omitted",
             lambda text: replace_exact(
-                text, "            _rendezvous_turn_started()\n", ""),
+                text, "            daemon._rendezvous_turn_started()\n", ""),
             arm_production_dispatch_lifecycle,
         ),
         (
             "production child-finish hook omitted",
             lambda text: replace_exact(
-                text, "                        _rendezvous_turn_finished()\n",
+                text,
+                "                        daemon._rendezvous_turn_finished()"
+                "\n",
                 "                        pass  # child finish omitted\n"),
             arm_production_dispatch_lifecycle,
         ),
@@ -2190,8 +2250,10 @@ def arm_source_mutations():
                 "                except RoleTokenExhaustionError as exc:\n"
                 "                    report_role_token_exhaustion(error=exc)\n"
                 "                    return 1\n"
-                "                except FatalArchitectLandingError as exc:\n",
-                "                except FatalArchitectLandingError as exc:\n"),
+                "                except ImplementerAuthorityViolationError:"
+                "\n",
+                "                except ImplementerAuthorityViolationError:"
+                "\n"),
             arm_watch_exits_on_token_exhaustion,
         ),
         (
@@ -2201,17 +2263,19 @@ def arm_source_mutations():
                 "            except RoleTokenExhaustionError as exc:\n"
                 "                report_role_token_exhaustion(error=exc)\n"
                 "                return 1\n"
-                "            except FatalArchitectLandingError as exc:\n",
-                "            except FatalArchitectLandingError as exc:\n"),
+                "            except ImplementerAuthorityViolationError:\n",
+                "            except ImplementerAuthorityViolationError:\n"),
             arm_once_exits_on_token_exhaustion,
         ),
         (
             "countdown queue count frozen",
             lambda text: replace_exact(
                 text,
-                "    for seconds_more in range(SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):\n"
-                "        waiting = len(pending_messages())\n",
-                "    for seconds_more in range(SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):\n"
+                "    for seconds_more in range("
+                "daemon.SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):\n"
+                "        waiting = len(daemon.pending_messages())\n",
+                "    for seconds_more in range("
+                "daemon.SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):\n"
                 "        waiting = 1\n"),
             arm_dispatch_cadence_global_window,
         ),
@@ -2239,7 +2303,8 @@ def arm_source_mutations():
             lambda text: replace_exact(
                 text,
                 "                deferred, architect_admission = (\n"
-                "                    reserve_architect_ticket_before_claim(\n"
+                "                    daemon."
+                "reserve_architect_ticket_before_claim(\n"
                 "                        path=path, skip_redteam=skip_redteam))\n",
                 "                deferred, architect_admission = (None, None)\n"),
             arm_finite_architect_admission_blocks_second_user_request,
@@ -2248,11 +2313,11 @@ def arm_source_mutations():
             "public Architect admissions omitted from finite capacity",
             lambda text: replace_exact(
                 text,
-                "            + len(active_cycle_records_for_topology(\n"
+                "            + len(daemon.active_cycle_records_for_topology(\n"
                 "                state=state, skip_redteam=skip_redteam))\n"
-                "            + len(architect_admissions_for_topology(\n"
+                "            + len(daemon.architect_admissions_for_topology(\n"
                 "                state=state, skip_redteam=skip_redteam)))\n",
-                "            + len(active_cycle_records_for_topology(\n"
+                "            + len(daemon.active_cycle_records_for_topology(\n"
                 "                state=state, skip_redteam=skip_redteam)))\n"),
             arm_finite_architect_admission_blocks_second_user_request,
         ),
@@ -2285,16 +2350,19 @@ def arm_source_mutations():
                 "    gives zero mode a real cutoff: a racing send either lands before the scan\n"
                 "    and prevents exit, or lands after the watcher is no longer advertised.\n"
                 '    """\n'
-                "    failed_debt = architect_notes_failed_debt_error()\n"
+                "    failed_debt = daemon.architect_notes_failed_debt_error()"
+                "\n"
                 "    if failed_debt is not None:\n"
                 "        return None, failed_debt\n"
                 "    if backlog_outcome is False:\n"
                 "        return None, None\n"
-                '    lock_path = os.path.join(MAILBOX, ".sequence.lock")\n'
+                "    lock_path = daemon.os.path.join("
+                'daemon.MAILBOX, ".sequence.lock")\n'
                 "    lock_file = None\n"
                 "    try:\n"
                 '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
-                "        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)\n",
+                "        daemon.fcntl.flock(lock_file.fileno(), "
+                "daemon.fcntl.LOCK_EX)\n",
                 "def acquire_cycle_completion_barrier(backlog_outcome,\n"
                 "                                     skip_redteam=False):\n"
                 '    """Return a held send barrier only when cycle-zero work is verified done.\n'
@@ -2304,12 +2372,14 @@ def arm_source_mutations():
                 "    gives zero mode a real cutoff: a racing send either lands before the scan\n"
                 "    and prevents exit, or lands after the watcher is no longer advertised.\n"
                 '    """\n'
-                "    failed_debt = architect_notes_failed_debt_error()\n"
+                "    failed_debt = daemon.architect_notes_failed_debt_error()"
+                "\n"
                 "    if failed_debt is not None:\n"
                 "        return None, failed_debt\n"
                 "    if backlog_outcome is False:\n"
                 "        return None, None\n"
-                '    lock_path = os.path.join(MAILBOX, ".sequence.lock")\n'
+                "    lock_path = daemon.os.path.join("
+                'daemon.MAILBOX, ".sequence.lock")\n'
                 "    lock_file = None\n"
                 "    try:\n"
                 '        lock_file = open(lock_path, "a+", encoding="utf-8")\n'
@@ -2320,16 +2390,20 @@ def arm_source_mutations():
             "cycle completion barrier released before watch lock",
             lambda text: replace_exact(
                 text,
-                "            if skip_redteam_lock is None:\n"
-                "                release_dispatch_lock(lock_file=dispatch_lock)\n"
-                "                if cycle_completion_barrier is not None:\n"
-                "                    release_cycle_completion_barrier(\n"
-                "                        lock_file=cycle_completion_barrier)\n",
-                "            if skip_redteam_lock is None:\n"
-                "                if cycle_completion_barrier is not None:\n"
-                "                    release_cycle_completion_barrier(\n"
-                "                        lock_file=cycle_completion_barrier)\n"
-                "                release_dispatch_lock(lock_file=dispatch_lock)\n"),
+                "            release_dispatch_lock(lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n"
+                "                release_skip_redteam_lock("
+                "lock_file=skip_redteam_lock)\n"
+                "            if cycle_completion_barrier is not None:\n"
+                "                release_cycle_completion_barrier(\n"
+                "                    lock_file=cycle_completion_barrier)\n",
+                "            if cycle_completion_barrier is not None:\n"
+                "                release_cycle_completion_barrier(\n"
+                "                    lock_file=cycle_completion_barrier)\n"
+                "            release_dispatch_lock(lock_file=dispatch_lock)\n"
+                "            if skip_redteam_lock is not None:\n"
+                "                release_skip_redteam_lock("
+                "lock_file=skip_redteam_lock)\n"),
             arm_zero_cycle_cutoff_serializes_sender,
         ),
         (
@@ -2354,8 +2428,8 @@ def arm_source_mutations():
             "ledger open can block on FIFO replacement",
             lambda text: replace_exact(
                 text,
-                '    if hasattr(os, "O_NONBLOCK"):\n'
-                "        flags = flags | os.O_NONBLOCK\n",
+                '    if hasattr(daemon.os, "O_NONBLOCK"):\n'
+                "        flags = flags | daemon.os.O_NONBLOCK\n",
                 ""),
             arm_cycle_ledger_preopen_fifo_is_bounded,
         ),

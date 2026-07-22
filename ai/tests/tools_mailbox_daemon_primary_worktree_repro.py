@@ -29,6 +29,11 @@ REPO_ROOT = AI_ROOT.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 DAEMON_PATH = AI_ROOT / "tools" / "mailbox_daemon.py"
+try:
+    from ai.tests.tools_mailbox_daemon_fix_only_repro import (
+        daemon_source_files)
+except ImportError:
+    from tools_mailbox_daemon_fix_only_repro import daemon_source_files
 HANDOFF_CONTRACT_PATH = AI_ROOT / "tools" / "handoff_contract.py"
 PERMANENT_NOTE_GUARD_PATH = AI_ROOT / "tools" / "permanent_note_guard.py"
 ROLE_CONTRACT_TOOL_PATH = AI_ROOT / "tools" / "role_contract.py"
@@ -200,14 +205,27 @@ def source_with_repo_paths(source):
 
 @contextlib.contextmanager
 def scratch_repository(source=None):
-    """Yield a committed minimal repository containing the selected daemon."""
+    """Yield a committed minimal repository containing the selected daemon.
+
+    Arguments:
+      source = mapping of daemon file name to source text covering
+               mailbox_daemon.py and its mailbox_*.py part files (see
+               ``daemon_source_files``); None loads the shipped sources.
+    """
     if source is None:
-        source = DAEMON_PATH.read_text(encoding="utf-8")
+        source = daemon_source_files()
     with tempfile.TemporaryDirectory(prefix="mailbox-primary-repro-") as tmp:
         root = Path(tmp).resolve()
-        write_exact(
-            root / "ai" / "tools" / "mailbox_daemon.py",
-            source_with_repo_paths(source).encode("utf-8"))
+        for file_name in sorted(source):
+            if file_name == "role-contract.yaml":
+                # The role contract lives beside the notes, not the tools,
+                # and is part of the mutation surface for protected paths.
+                target = root / "ai" / "notes" / file_name
+            else:
+                target = root / "ai" / "tools" / file_name
+            write_exact(
+                target,
+                source_with_repo_paths(source[file_name]).encode("utf-8"))
         # Production deliberately requires the repository's real .claude
         # directory to pre-exist; only its worktrees child may be bootstrapped.
         write_exact(root / ".claude" / ".keep", b"")
@@ -238,15 +256,10 @@ def scratch_repository(source=None):
         for tool_name in OTHER_TRUSTED_TOOLS:
             write_exact(root / "ai" / "tools" / tool_name,
                         (AI_ROOT / "tools" / tool_name).read_bytes())
-        # The daemon loads its mailbox_*.py part files from its own
-        # directory; the scratch copy needs every part beside it.
-        for part_path in sorted((AI_ROOT / "tools").glob("mailbox_*.py")):
-            if part_path.name != "mailbox_daemon.py":
-                write_exact(root / "ai" / "tools" / part_path.name,
-                            part_path.read_bytes())
-        write_exact(
-            root / "ai" / "notes" / "role-contract.yaml",
-            ROLE_CONTRACT_PATH.read_bytes())
+        if "role-contract.yaml" not in source:
+            write_exact(
+                root / "ai" / "notes" / "role-contract.yaml",
+                ROLE_CONTRACT_PATH.read_bytes())
         write_exact(
             root / "ai" / "notes" / "implementer-failure-modes.yaml",
             FAILURE_MODES_PATH.read_bytes())
@@ -534,6 +547,10 @@ def load_scratch_daemon(worktree):
         "mailbox_daemon_primary_worktree_scratch", str(path))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Scratch agent commands are bare python children with no reasoning
+    # effort option, so the routine-review effort swap cannot apply here.
+    module.routine_review_command = (
+        lambda command_prefix, **_kwargs: (list(command_prefix), None))
     return module
 
 
@@ -598,14 +615,17 @@ def arm_all_live_actions_bootstrap(source=None):
 def arm_stale_primary_protocol_refuses(source=None):
     """Refuse re-exec when the saved daemon lacks the current protocol."""
     marker = "MAILBOX_PROTOCOL_VERSION = 5"
-    if source is None or source.count(marker) != 1:
+    if source is None:
+        source = daemon_source_files()
+    entry = source["mailbox_daemon.py"]
+    if entry.count(marker) != 1:
         return False
     with scratch_repository(source=source) as root:
         rc, _stdout, stderr = invoke(root, ["--once"])
         if rc != 0 or stderr or not validate_topology(root):
             return False
         primary = default_primary(root)
-        stale_source = source.replace(
+        stale_source = entry.replace(
             marker, "MAILBOX_PROTOCOL_VERSION = 4", 1)
         write_exact(
             primary / "ai" / "tools" / "mailbox_daemon.py",
@@ -1049,7 +1069,7 @@ def arm_clean_user_main_advances_only_from_clean_checkout(source=None):
         outcomes.append(refused)
         print("Implementer-only main ref move refused=" + str(refused))
 
-    return outcomes == [True, True, True, True, True, True]
+    return outcomes == [True] * 8
 
 
 def arm_failed_ancestor_handoff_requeues_and_advances(source=None):
@@ -2704,7 +2724,8 @@ def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
                 os.replace(replacement, role)
             return claimed
 
-        def observed(command, stdout, stderr, cwd, env):
+        def observed(command, stdout, stderr, cwd, env,
+                 start_new_session=False):
             del command, stdout, stderr, cwd, env
             launches.append("admitted")
             return child
@@ -2767,7 +2788,8 @@ def arm_architect_launch_boundary_revalidates_branch_and_role(source=None):
         launches = []
         child = ObservedProcess()
 
-        def switching(command, stdout, stderr, cwd, env):
+        def switching(command, stdout, stderr, cwd, env,
+                  start_new_session=False):
             del command, stderr, cwd, env
             launches.append("admitted")
             git(primary, "switch", "--ignore-other-worktrees", "main")
@@ -2936,7 +2958,8 @@ def arm_permanent_note_admin_is_exclusive_and_lands(source=None):
             return (self.popen if name == "Popen"
                     else getattr(self.module, name))
 
-        def popen(self, command, stdout, stderr, cwd, env):
+        def popen(self, command, stdout, stderr, cwd, env,
+              start_new_session=False):
             del command, stderr
             self.launches.append((Path(cwd), dict(env)))
             stdout.write("completed scratch note administration\n")
@@ -3390,7 +3413,8 @@ def arm_persistent_roles_refuse_tracked_and_untracked_source_edits(
             return (self.popen if name == "Popen"
                     else getattr(self.module, name))
 
-        def popen(self, command, stdout, stderr, cwd, env):
+        def popen(self, command, stdout, stderr, cwd, env,
+              start_new_session=False):
             del command, stdout, stderr, cwd, env
             return MutatingProcess(callback=self.callback)
 
@@ -4175,7 +4199,12 @@ def arm_landed_candidate_hands_off_without_clobbering_pipeline(source=None):
             if not pipeline:
                 # A planning-role branch can legitimately lag main. It is
                 # not implementation debt once C/ref/state were retired.
+                # The ledger is a tracked file, so the branch rewind must
+                # not also rewind the Architect's sealed ledger; the landing
+                # preserved those exact bytes.
                 git(primary, "reset", "--hard", base)
+                git(primary, "checkout", landing_a, "--",
+                    "ai/notes/backlog.md")
             after_landing_debt = daemon.landing_debt_snapshot()
             with contextlib.redirect_stdout(io.StringIO()):
                 daemon.report_landing_debt(snapshot=after_landing_debt)
@@ -4762,10 +4791,12 @@ def arm_architect_go_user_checkout_stop_is_finite(source=None):
             git(implementer, "commit", "-m", "scratch " + case)
             candidate = daemon.record_implementer_candidate(
                 cycle_id=cycle_id, starting_head=starting)
+            # The ticket closes and reseals before any landing preparation,
+            # so the journaled landing embeds the exact final seal.
+            close_backlog_ticket(primary=primary, anchor=anchor)
             landing, parent, _reference = daemon.prepare_exact_squash_landing(
                 cycle_id=cycle_id, candidate_commit=candidate,
                 mode="normal")
-            close_backlog_ticket(primary=primary, anchor=anchor)
             if case == "dirty-landed":
                 daemon.land_prepared_commit_in_clean_user_checkout(
                     landing=landing, parent=parent)
@@ -4945,7 +4976,8 @@ def arm_timed_checkpoint_refusals(source=None):
         ordinary_checks = {
             "refused": result is False,
             "exact-reason": (
-                "the 90-minute hook fired without its checkpoint handoff"
+                "the 90-minute hook or context hook fired without its "
+                "checkpoint handoff"
                 in output.getvalue()),
             "request-failed": (
                 (mailbox / "failed" / inbound.name).is_file()),
@@ -5090,6 +5122,15 @@ def arm_timed_checkpoint_refusals(source=None):
             "**Red Team reopening: allowed.**\n",
             encoding="utf-8", newline="")
         seal_backlog(primary)
+        # The journaled checkpoint decision must cite a real directive note.
+        checkout = (
+            "- Worktree: `" + str(implementer) + "`\n"
+            "- Branch: `claude/mailbox-implementer`\n"
+            "- Base: `" + base + "`")
+        note = primary / "ai" / "notes" / "timed-spec.md"
+        note.write_text(
+            packet(role="architect", bodies={"Execution checkout": checkout}),
+            encoding="utf-8", newline="")
         flow = (
             "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
             "MAILBOX-MODE: normal\n\n")
@@ -5191,7 +5232,9 @@ def arm_timed_checkpoint_refusals(source=None):
             "(mailbox / '0007-to-opus.md').write_text("
             + repr(
                 flow + "### ARCHITECT_HANDOFF: IMPLEMENTATION\n\n"
-                "- **Checkpoint decision:** `NO-GO`\n")
+                "- **Checkpoint decision:** `NO-GO`\n"
+                "- **Directive:** [ai/notes/timed-spec.md, section "
+                "Implementation directive]\n")
             + ", encoding='utf-8', newline='')\n")
         write_exact(positive_child, positive_source.encode("utf-8"))
         daemon.AGENT_COMMANDS["fable"] = [
@@ -5434,14 +5477,23 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
                 (implementer / "hallucinated_source.py").write_text(
                     "raise RuntimeError('not an accepted checkpoint')\n",
                     encoding="utf-8", newline="")
-            if edit_mode[0] in {"dirty", "committed", "capability"}:
+            if edit_mode[0] in {"dirty", "committed"}:
                 tracked.write_text(
                     tracked.read_text(encoding="utf-8")
                     + "# forbidden blocked-attempt edit\n",
                     encoding="utf-8", newline="")
-            if edit_mode[0] in {"committed", "capability"}:
+            if edit_mode[0] == "committed":
                 git(implementer, "add", str(tracked.relative_to(implementer)))
                 git(implementer, "commit", "-m", "forbidden blocked edit")
+            if edit_mode[0] == "capability":
+                # The authorized fallback delivers an ordinary candidate;
+                # a trusted-tool edit would be a protected-path violation.
+                ordinary = implementer / "fallback-change.txt"
+                ordinary.write_text(
+                    "bounded fallback implementation\n",
+                    encoding="utf-8", newline="")
+                git(implementer, "add", ordinary.name)
+                git(implementer, "commit", "-m", "scratch fallback change")
             outbound[0].write_text(
                 "MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle + "\n"
                 "MAILBOX-MODE: normal\n\n" + returned_body(),
@@ -5455,10 +5507,11 @@ def arm_blocked_evidence_is_checkpoint_not_candidate(source=None):
         calls = []
         real_record = daemon.record_implementer_candidate
 
-        def record_probe(cycle_id, starting_head):
+        def record_probe(cycle_id, starting_head, replace_prior=False):
             calls.append((cycle_id, starting_head))
             return real_record(
-                cycle_id=cycle_id, starting_head=starting_head)
+                cycle_id=cycle_id, starting_head=starting_head,
+                replace_prior=replace_prior)
 
         original = daemon.subprocess
         daemon.record_implementer_candidate = record_probe
@@ -5909,10 +5962,25 @@ def arm_route_topology_remains_role_based(source=None):
 
 
 def replace_exact(source, old, new):
-    """Return a one-site source mutant or None when its anchor drifted."""
-    if source.count(old) != 1:
+    """Return a one-site source mutant or None when its anchor drifted.
+
+    Arguments:
+      source = mapping of daemon file name to source text.
+      old    = anchor that must appear exactly once across every file.
+      new    = replacement text for that one site.
+    """
+    total = 0
+    target = None
+    for file_name in source:
+        count = source[file_name].count(old)
+        total += count
+        if count > 0:
+            target = file_name
+    if total != 1:
         return None
-    return source.replace(old, new, 1)
+    mutant = dict(source)
+    mutant[target] = source[target].replace(old, new, 1)
+    return mutant
 
 
 def mutation_cases(source):
@@ -5962,16 +6030,16 @@ def mutation_cases(source):
         arm_architect_receipt_binds_candidate_to_squash_landing)
     add("unrelated landing tree accepted",
         "    if landing_tree != expected_tree:\n"
-        "        raise TicketCycleStateError(\n"
+        "        raise daemon.TicketCycleStateError(\n"
         "            \"prepared landing tree is not the exact candidate "
         "squash\")\n",
         "    if False:\n"
-        "        raise TicketCycleStateError(\n"
+        "        raise daemon.TicketCycleStateError(\n"
         "            \"prepared landing tree is not the exact candidate "
         "squash\")\n",
         arm_architect_receipt_binds_candidate_to_squash_landing)
     add("candidate ownership deleted without clean C-to-L handoff",
-        '        _run_git(\n'
+        '        daemon._run_git(\n'
         '            repository_root=worktree,\n'
         '            arguments=["reset", "--hard", landing_commit])\n',
         '        pass  # mutation: C remains checked out after retirement\n',
@@ -5990,20 +6058,20 @@ def mutation_cases(source):
         arm_candidate_retirement_internal_crash_replays)
     add("persistent role end-state recheck dropped",
         '            else:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
         '            if not notes_admin_turn:\n'
-        '                recheck_persistent_role_state(\n'
+        '                daemon.recheck_persistent_role_state(\n'
         '                    proof=persistent_role_state)\n'
-        '        except (OSError, PrimaryWorktreeError) as exc:\n'
+        '        except (OSError, daemon.PrimaryWorktreeError) as exc:\n'
         '            persistent_role_error = exc',
         '            else:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
         '            if False:  # mutation: persistent edits are ignored\n'
-        '                recheck_persistent_role_state(\n'
+        '                daemon.recheck_persistent_role_state(\n'
         '                    proof=persistent_role_state)\n'
-        '        except (OSError, PrimaryWorktreeError) as exc:\n'
+        '        except (OSError, daemon.PrimaryWorktreeError) as exc:\n'
         '            persistent_role_error = exc',
         arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
     add("Sol untracked source files omitted from status proof",
@@ -6016,22 +6084,22 @@ def mutation_cases(source):
         arm_persistent_roles_refuse_tracked_and_untracked_source_edits)
     add("Opus shared protected-note recheck dropped",
         '    if agent in {"opus", "sol"}:\n'
-        '        _recheck_shared_protected_state(proof=proof['
+        '        daemon._recheck_shared_protected_state(proof=proof['
         '"shared_proof"])\n',
         '    if agent == "sol":\n'
-        '        _recheck_shared_protected_state(proof=proof['
+        '        daemon._recheck_shared_protected_state(proof=proof['
         '"shared_proof"])\n',
         arm_shared_protected_notes_require_architect_authority)
     add("Sol shared protected-note recheck dropped",
         '    if agent in {"opus", "sol"}:\n'
-        '        _recheck_shared_protected_state(proof=proof['
+        '        daemon._recheck_shared_protected_state(proof=proof['
         '"shared_proof"])\n',
         '    if agent == "opus":\n'
-        '        _recheck_shared_protected_state(proof=proof['
+        '        daemon._recheck_shared_protected_state(proof=proof['
         '"shared_proof"])\n',
         arm_shared_protected_notes_require_architect_authority)
     add("permanent MEMORY note omitted from protection",
-        '    "ai/notes/MEMORY.md",\n',
+        '      "ai/notes/MEMORY.md",\n',
         '',
         arm_shared_protected_notes_require_architect_authority)
     add("blocked Implementer evidence treated as final candidate",
@@ -6040,7 +6108,7 @@ def mutation_cases(source):
         arm_blocked_evidence_is_checkpoint_not_candidate)
     add("fired timer accepts an ordinary Implementer return",
         '            if (evidence_problem is None\n'
-        '                    and implementer_checkpoint_delivered(\n'
+        '                    and daemon.implementer_checkpoint_delivered(\n'
         '                        checkpoint_state_path)):\n',
         '            if False:  # mutation: timed return is not checked\n',
         arm_timed_checkpoint_refusals)
@@ -6055,7 +6123,7 @@ def mutation_cases(source):
         '                    evidence_problem = "unreachable"\n',
         arm_timed_checkpoint_refusals)
     add("contradictory checkpoint state reaches Architect",
-        '        checkpoint_problem = (checkpoint_handoff_problem('
+        '        checkpoint_problem = (daemon.checkpoint_handoff_problem('
         'message=message)\n'
         '                              if checkpoint_request else None)\n',
         '        checkpoint_problem = None  # mutation: state not checked\n',
@@ -6072,154 +6140,156 @@ def mutation_cases(source):
         arm_timed_checkpoint_refusals)
     add("checkpoint decision handoff is optional",
         '            handoff_path, invalid_handoffs, handoff_problem = (\n'
-        '                matching_new_checkpoint_handoff(\n'
+        '                daemon.matching_new_checkpoint_handoff(\n'
         '                    cycle_id=audit_cycle_id, mode=flow_mode,\n'
-        '                    before_inodes=architect_opus_before))\n',
+        '                    before_inodes=architect_opus_before,\n'
+        '                    budget=architect_budget_audit))\n',
         '            handoff_path, invalid_handoffs, handoff_problem = (\n'
         '                None, [], None)  # mutation: no decision required\n',
         arm_timed_checkpoint_refusals)
     add("checkpoint prompt restores ordinary landing instructions",
-        '    common_preamble = common_preamble_for_dispatch(\n'
+        '    common_preamble = daemon.common_preamble_for_dispatch(\n'
         '        checkpoint_audit=architect_checkpoint_audit)\n',
-        '    common_preamble = PREAMBLE  # mutation: checkpoint may land\n',
+        '    common_preamble = daemon.PREAMBLE'
+        '  # mutation: checkpoint may land\n',
         arm_timed_checkpoint_refusals)
     add("stale capability cycle accepted",
         '                or checkpoint.get("cycle") != cycle_id):',
         '                or False):',
         arm_blocked_evidence_is_checkpoint_not_candidate)
     add("missing active Sol topology accepted",
-        '    if ACTIVE_TOPOLOGY is None:\n'
-        '        raise PrimaryWorktreeError(\n'
+        '    if daemon.ACTIVE_TOPOLOGY is None:\n'
+        '        raise daemon.PrimaryWorktreeError(\n'
         '            "live " + agent + " dispatch has no validated '
         'topology")',
-        '    if ACTIVE_TOPOLOGY is None and agent != "sol":\n'
-        '        raise PrimaryWorktreeError(\n'
+        '    if daemon.ACTIVE_TOPOLOGY is None and agent != "sol":\n'
+        '        raise daemon.PrimaryWorktreeError(\n'
         '            "mutation lets Sol dispatch without live topology")',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("authoritative parent and role proof dropped",
-        '        authoritative_files = validate_authoritative_role_files(\n'
+        '        authoritative_files = '
+        'daemon.validate_authoritative_role_files(\n'
         '            primary_path=primary["path"])',
         '        authoritative_files = {"directories": (), "files": ()}',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("pre-Popen Architect topology revalidation dropped",
         '            if agent in {"fable", "opus", "sol"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         '            if agent in {"opus", "sol"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         arm_architect_launch_boundary_revalidates_branch_and_role)
     add("post-Popen Architect topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
         '                    if notes_admin_turn:\n'
-        '                        revalidate_protected_policy_admin_topology(\n'
+        '                        daemon.'
+        'revalidate_protected_policy_admin_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                    else:\n'
-        '                        revalidate_agent_dispatch_topology(\n'
+        '                        daemon.revalidate_agent_dispatch_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         '                if agent in {"opus", "sol"}:\n'
-        '                    revalidate_agent_dispatch_topology(\n'
+        '                    daemon.revalidate_agent_dispatch_topology(\n'
         '                        proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         arm_architect_launch_boundary_revalidates_branch_and_role)
     add("pre-Popen Sol topology revalidation dropped",
         '            if agent in {"fable", "opus", "sol"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         '            if agent in {"fable", "opus"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("post-Popen Sol topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
         '                    if notes_admin_turn:\n'
-        '                        revalidate_protected_policy_admin_topology(\n'
+        '                        daemon.'
+        'revalidate_protected_policy_admin_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                    else:\n'
-        '                        revalidate_agent_dispatch_topology(\n'
+        '                        daemon.revalidate_agent_dispatch_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         '                if agent in {"fable", "opus"}:\n'
         '                    if notes_admin_turn:\n'
-        '                        revalidate_protected_policy_admin_topology(\n'
+        '                        daemon.'
+        'revalidate_protected_policy_admin_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                    else:\n'
-        '                        revalidate_agent_dispatch_topology(\n'
+        '                        daemon.revalidate_agent_dispatch_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("pre-Popen Implementer topology revalidation dropped",
         '            if agent in {"fable", "opus", "sol"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         '            if agent in {"fable", "sol"}:\n'
-        '                revalidate_agent_dispatch_topology(\n'
+        '                daemon.revalidate_agent_dispatch_topology(\n'
         '                    proof=agent_topology_proof)\n'
-        '            recheck_persistent_role_state('
-        'proof=persistent_role_state)\n'
-        '            proc = subprocess.Popen(command,',
+        '            daemon.recheck_persistent_role_state('
+        'proof=persistent_role_state)\n',
         arm_implementer_launch_boundary_revalidates_branch_and_state)
     add("post-Popen Implementer topology revalidation dropped",
         '                if agent in {"fable", "opus", "sol"}:\n'
         '                    if notes_admin_turn:\n'
-        '                        revalidate_protected_policy_admin_topology(\n'
+        '                        daemon.'
+        'revalidate_protected_policy_admin_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                    else:\n'
-        '                        revalidate_agent_dispatch_topology(\n'
+        '                        daemon.revalidate_agent_dispatch_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         '                if agent in {"fable", "sol"}:\n'
         '                    if notes_admin_turn:\n'
-        '                        revalidate_protected_policy_admin_topology(\n'
+        '                        daemon.'
+        'revalidate_protected_policy_admin_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                    else:\n'
-        '                        revalidate_agent_dispatch_topology(\n'
+        '                        daemon.revalidate_agent_dispatch_topology(\n'
         '                            proof=agent_topology_proof)\n'
         '                if not notes_admin_turn:\n'
-        '                    recheck_persistent_role_state(\n'
+        '                    daemon.recheck_persistent_role_state(\n'
         '                        proof=persistent_role_state)\n'
-        '            except (OSError, PrimaryWorktreeError):',
+        '            except (OSError, daemon.PrimaryWorktreeError):',
         arm_implementer_launch_boundary_revalidates_branch_and_state)
     add("around-Popen Sol Git revalidation reduced to inode check",
-        '    current = validate_live_agent_dispatch_topology('
+        '    current = daemon.validate_live_agent_dispatch_topology('
         'agent=proof["agent"])\n'
         '    if current != proof:\n',
         '    current = proof  # mutation: branch and state not re-read\n'
         '    if current != proof:\n',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     legacy_refusal = (
-        '    raise PrimaryWorktreeError(\n'
+        '    raise daemon.PrimaryWorktreeError(\n'
         '        "the saved mailbox topology predates the separate '
         'Implementer "\n'
         '        "worktree and cannot be migrated safely while an "\n'
@@ -6237,9 +6307,9 @@ def mutation_cases(source):
         "    return state  # mutation: legacy root-Sol runtime can resume",
         arm_legacy_v1_state_refuses_without_mutation)
     add("duplicate keys accepted",
-        "        state = json.loads(text, "
-        "object_pairs_hook=_duplicate_key_refusal)",
-        "        state = json.loads(text, object_pairs_hook=dict)",
+        "        state = daemon.json.loads(text, "
+        "object_pairs_hook=daemon._duplicate_key_refusal)",
+        "        state = daemon.json.loads(text, object_pairs_hook=dict)",
         arm_corrupt_and_redirected_state_fail_closed)
     add("completed daemon GO blocked by finite cycle limit",
         "    for daemon_path in daemon_paths:\n"
@@ -6249,9 +6319,12 @@ def mutation_cases(source):
         "The\n"
         "        # positive limit gates new role work in drain_lane(), never "
         "this\n"
-        "        # already-admitted daemon transition.\n",
+        "        # already-admitted daemon transition. A Ctrl-C arriving "
+        "while the\n"
+        "        # transition runs takes effect right after it, never inside "
+        "it.\n",
         "    for daemon_path in daemon_paths:\n"
-        "        controller = (_ACTIVE_WATCH_RENDEZVOUS\n"
+        "        controller = (daemon._ACTIVE_WATCH_RENDEZVOUS\n"
         "                      if not dry_run else None)\n"
         "        if (controller is not None\n"
         "                and controller.ticket_cycle_limit_reached()):\n"
@@ -6264,7 +6337,7 @@ def mutation_cases(source):
     add("transport evidence ignored",
         '    evidence = []\n'
         '    for record in records:\n'
-        '        reasons = coordination_transport_evidence('
+        '        reasons = daemon.coordination_transport_evidence('
         'worktree=record["path"])',
         '    evidence = []\n'
         '    for record in records:\n'
@@ -6276,11 +6349,11 @@ def mutation_cases(source):
         arm_legacy_transport_refuses_new_primary)
     add("unsafe current coordinator adopted",
         "                and set(evidence[0][1]).issubset(\n"
-        "                    CURRENT_ADOPTION_SAFE_REASONS)\n",
+        "                    daemon.CURRENT_ADOPTION_SAFE_REASONS)\n",
         "",
         arm_unsafe_existing_coordinator_is_not_adopted)
     add("bootstrap lock dropped",
-        "        fcntl.flock(descriptor, fcntl.LOCK_EX)\n",
+        "        daemon.fcntl.flock(descriptor, daemon.fcntl.LOCK_EX)\n",
         "        pass  # mutation: provisioning is no longer serialized\n",
         arm_concurrent_bootstrap_obeys_global_lock)
     add("concurrent managed-root winner refused",
@@ -6296,19 +6369,20 @@ def mutation_cases(source):
         "            raise\n",
         arm_concurrent_managed_root_winner_is_accepted)
     add("fresh publication fence dropped",
-        "    return _publish_primary_record(\n"
+        "    return daemon._publish_primary_record(\n"
         "        record=created, repository_root=repository_root,\n"
         "        bridge_main=bridge_main, fence_empty_main=not bridge_main)",
-        "    return _publish_primary_record(\n"
+        "    return daemon._publish_primary_record(\n"
         "        record=created, repository_root=repository_root,\n"
         "        bridge_main=bridge_main, fence_empty_main=False)",
         arm_final_publication_fences_late_sender)
     add("saved path containment dropped",
-        "    if os.path.dirname(stored_path) != managed_root:\n",
+        "    if daemon.os.path.dirname(stored_path) != managed_root:\n",
         "    if False:\n",
         arm_corrupt_and_redirected_state_fail_closed)
     add("registered branch identity skipped",
-        '    _validate_primary_record(record=record, branch=state["branch"],\n'
+        '    daemon._validate_primary_record('
+        'record=record, branch=state["branch"],\n'
         "                             repository_root=repository_root)\n",
         "    pass  # mutation: registry identity is trusted without proof\n",
         arm_git_identity_and_collisions_fail_closed)
@@ -6332,7 +6406,7 @@ def mutation_cases(source):
     add("unknown archive locks wildcarded",
         "                        if (len(parts) == 1\n"
         "                                and name in "
-        "PRIMARY_ARCHIVE_RUNTIME_LOCKS):\n",
+        "daemon.PRIMARY_ARCHIVE_RUNTIME_LOCKS):\n",
         "                        if (len(parts) == 1 and name.startswith('.')\n"
         "                                and name.endswith('.lock')):\n",
         arm_archive_bridge_bounds_and_sequences_refuse)
@@ -6343,14 +6417,15 @@ def mutation_cases(source):
         arm_all_live_actions_bootstrap)
     add("stale primary protocol accepted",
         "    if protocol_declarations != [\n"
-        "            str(MAILBOX_PROTOCOL_VERSION).encode(\"ascii\")]:\n"
-        "        raise PrimaryWorktreeError(\n"
+        "            str(daemon.MAILBOX_PROTOCOL_VERSION).encode(\"ascii\")]:"
+        "\n"
+        "        raise daemon.PrimaryWorktreeError(\n"
         "            \"saved primary daemon does not enforce the current \"\n"
         "            \"Architect-only user entry point; \"\n"
         "            \"update that non-main worktree from main without discarding \"\n"
         "            \"its local work, then retry: \" + primary_path)",
         "    if False:\n"
-        "        raise PrimaryWorktreeError(\n"
+        "        raise daemon.PrimaryWorktreeError(\n"
         "            \"mutation accepts a stale primary protocol\")",
         arm_stale_primary_protocol_refuses)
     return cases
@@ -6377,7 +6452,11 @@ def run_mutations(source):
 
 def main():
     """Run every scratch runtime arm and targeted source mutation."""
-    source = DAEMON_PATH.read_text(encoding="utf-8")
+    source = daemon_source_files()
+    # The role contract carries the protected-path lists, so it belongs to
+    # the mutation surface alongside the daemon part files.
+    source["role-contract.yaml"] = ROLE_CONTRACT_PATH.read_text(
+        encoding="utf-8")
     runtime = [
         ("all live actions", arm_all_live_actions_bootstrap),
         ("stale primary protocol refusal",
