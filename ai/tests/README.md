@@ -116,6 +116,7 @@ The validation board lists and runs those gates.
 | --- | --- | --- | --- |
 | Check one Python, numerical, file, or policy rule | A `test_*.py` file in this folder | `python3 -m unittest ai.tests.test_parameter_table` | CPU and the project Python environment |
 | Rebuild a mailbox, Git, archive, or process failure | A `*_repro.py` file in this folder | `python3 ai/tests/tools_mailbox_daemon_role_models_repro.py` | CPU, temporary disk space, and sometimes the Git program |
+| Accept a change to the AI workflow controller | `run_control_plane_regressions.py` in this folder | `python3 ai/tests/run_control_plane_regressions.py` | CPU, temporary disk space, and the Git program |
 | Accept a result that needs configured scientific data or named hardware | [`ai/gates/`](../gates/README.md) | `python3 ai/gates/run_board.py --gate finetune-smoke` | A configured CosmoLike installation and a supported GPU, as the gate guide explains |
 
 The `unittest discover` command does not run the reproduction scripts because
@@ -123,6 +124,16 @@ their names do not start with `test_`. Run a reproduction only when the
 source note or the part of the code being changed names it. The **source note** is the
 Markdown file that records the requested change and required checks. Passing
 this folder's tests does not replace a gate required by that note.
+
+For a change to the AI workflow controller under `ai/tools/`, run
+`python3 ai/tests/run_control_plane_regressions.py` instead of assembling
+those commands by hand. It runs the workflow `test_*.py` modules and every
+reproduction program from one explicit manifest, each in its own child
+process, prints one verdict line per command with complete output in a named
+log file, and returns exit code 0 only for a complete pass. It refuses to
+start when a reproduction on disk is missing from its manifest, so adding a
+reproduction without registering it there fails loudly instead of quietly
+narrowing the regression surface.
 
 ## Read the result
 
@@ -1116,6 +1127,7 @@ code when its witness fails.
 
 | File | What it rebuilds inside temporary folders |
 | --- | --- |
+| `run_control_plane_regressions.py` | Runs the AI workflow acceptance surface with one command: the control-plane `test_*.py` modules plus every reproduction program in this folder, each in its own child process. It prints each command and one verdict line, writes complete output to a named log file, refuses to start when its manifest and the folder disagree, and returns exit code 0 only for a complete pass with no skips. |
 | `finite_contract_cuda_wording_repro.py` | Runs the finite-number gate on a machine that cannot perform its required CUDA compilation. The gate must report that this machine check is still unavailable and name the missing CUDA action; it must not print wording that could be mistaken for a scientific pass. |
 | `tools_backlog_bundle_repro.py` | Creates a backlog and supporting files, packs them into `.tar.xz`, imports that archive into a new temporary folder, and compares every byte. It also tries an existing destination, changed protected files, links, names that escape the destination, malformed archives, and oversized inputs; each unsafe case must stop without replacing the receiver's files. |
 | `tools_handoff_router_repro.py` | Creates a temporary Git repository and sends sample Architect and Implementer handoffs through the manual clipboard router. It checks the selected work folder, message order, lock cleanup, detailed directive, severity, and character-limit values. One set of examples plans two named helper jobs and proves that the returned `Subagent work` blocks must use those same names and order with concrete evidence; a missing, extra, renamed, reordered, or weak result is refused before an archive or local command is created. Other examples refuse a wrong role, bad source note, malformed instruction file, or any plan that turns Sol into an Implementer. Two-role notes may omit the later advisory Red Team review. |

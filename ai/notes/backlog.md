@@ -194,7 +194,6 @@ Medium work begins only after the permitted High work above.
 ### Low
 
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
 <a id="open-mps-test-import-isolation"></a>
@@ -2144,13 +2143,21 @@ every required check passed.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Unit-test discovery and direct reproductions are documented
-separately. No single command defines the complete required control-plane
-regression surface.
-
-**Priority: LOW.** Existing checks can already be run individually, and no
-runtime failure has been demonstrated. The missing runner primarily risks an
-incomplete acceptance claim during future maintenance.
+**CLOSED.** `python3 ai/tests/run_control_plane_regressions.py` is the
+acceptance command for changes to the AI workflow controller. It runs the
+control-plane `test_*.py` modules and every reproduction program from one
+explicit manifest, each command in its own child process from the
+repository root, prints each command with one verdict line, writes complete
+output to a named log file, and returns zero only for a complete pass. It
+refuses to start — exit code 2, before any check — when a manifest entry is
+missing or duplicated, lacks its README inventory row, or when a
+`*_repro.py` file on disk is not listed, so adding a reproduction without
+registering it fails loudly instead of quietly narrowing the surface. There
+is no skip mechanism: a check that cannot run is a failure. The
+trusted-runner escalation this body sketched for protected control-plane
+candidates is declined as this ticket's scope: the protected path already
+has its own shadow validation, and a convenience command must not become a
+second authority over what lands.
 
 ### What is already fixed
 
@@ -2161,37 +2168,9 @@ return nonzero when their scenario fails.
 
 ### What is missing
 
-Add `python3 ai/tests/run_control_plane_regressions.py` as the documented
-acceptance command for changes to the AI workflow controller. It must run the
-required discoverable workflow tests, structured contract checks, candidate
-and landing recovery cases, and direct reproductions for Red Team presence and
-absence, interruption, worktrees, push debt, finite cycles, and restart.
-
-The runner must print each command before it runs, preserve the command's exit
-status, identify every skipped check with a concrete reason, and return nonzero
-when any required check fails or was silently omitted. Its final message must
-distinguish a complete pass from a partial run.
-
-<details><summary>Technical record for development tools</summary>
-
-Maintain one explicit manifest of required control-plane checks rather than
-discovering arbitrary files by filename alone. Validate that every manifest
-entry exists, appears once, and is represented in `ai/tests/README.md`. Run
-stand-alone reproductions in fresh child processes so their module state and
-temporary Git repositories cannot contaminate later checks.
-
-For protected-control-plane candidates, the authoritative manifest and runner
-must come from trusted D0. Candidate D1 may add tests but cannot remove, replace,
-skip, or reinterpret the checks that decide whether D1 may land. Add behavior
-tests proving that a missing reproduction, duplicate manifest row, failing
-child, unexpected signal, and candidate attempt to weaken the runner all make
-the acceptance command fail clearly.
-
-Keep the command focused on the AI control plane. Scientific training gates and
-tests requiring configured data or accelerators remain in their own documented
-acceptance paths rather than making this CPU workflow command unusable.
-
-</details>
+Nothing. The runner, its manifest checks, and its README documentation are
+in the tree; scientific gates and accelerator-bound tests stay in their own
+documented acceptance paths so this command needs only a CPU and Git.
 
 <a id="open-daemon-authority-modules"></a>
 ## Reduce daemon risk through small authority-boundary extractions
