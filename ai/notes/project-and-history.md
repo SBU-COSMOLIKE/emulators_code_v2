@@ -210,8 +210,8 @@ must preserve sampling state rather than replaying the original rows.
 
 AI-only notes, tests, gates, and tools live under `ai/`. Permanent notes contain
 current general properties. Ticket chronology remains in ignored local records.
-The Architect is the only public ticket contact and controls every downstream
-Implementer or Red Team handoff.
+The user-facing role boundary and every handoff rule are owned by
+`conventions-and-workflow.md`.
 
 The role system is optional when one capable model has enough tokens to plan,
 implement, test, and review a change. Its purpose is cost control when that is

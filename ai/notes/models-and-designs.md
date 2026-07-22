@@ -183,9 +183,12 @@ must refuse.
 correction head, not only an IA model. Plain ResCNN and ResTRF implement
 `set_train_phase` for joint, trunk, and head phases. The trunk phase bypasses
 the head at pure-trunk cost. The head phase freezes the trunk under
-`torch.no_grad()`. The same trunk-then-head schedule, `trunk:` and `head:`
-configuration blocks, and head-activation pin apply to cosmic shear, CMB, and
-both grid families. ResMLP is the only single-phase design.
+`torch.no_grad()` when `freeze_trunk` keeps its frozen default; setting
+`freeze_trunk` false makes the second phase train trunk and head jointly
+(`training-stack.md` owns the schedule options). The same trunk-then-head
+schedule, `trunk:` and `head:` configuration blocks, and head-activation pin
+apply to cosmic shear, CMB, and both grid families. ResMLP is the only
+single-phase design.
 
 **Convolutional head.** `pad_idx` scatters each ragged bin into a tensor shaped
 `(number of bins, maximum bin length)`. `Conv1d` blocks mix those channels;
@@ -234,7 +237,8 @@ exercise valid construction, exact routing text, incompatibility refusals,
 and the activation/norm combinations named by their stable anchors below.
 
 `make_activation` provides six activation families. H is a learnable
-interpolation between the identity and Swish with nonsaturating linear tails.
+interpolation between the identity and Swish, the smooth ramp
+`x * sigmoid(x)`, with nonsaturating linear tails.
 The other families are power, `multigate(K)` with `K` learned gates,
 gated-power, ReLU, and hyperbolic tangent (`tanh`). Learnable shape parameters
 are feature-specific. The module-role allowlist defined in
@@ -272,8 +276,8 @@ The acceptance blocks below use the following terms:
 - A **gate manifest** is the declared list of files and capabilities on which a
   gate depends. A **manifest-bound** input is named directly by that manifest.
   The **manifest hash** is the digest that protects the declared inputs from
-  unnoticed changes. The **gate runner** executes the gate and records its raw
-  log.
+  unnoticed changes. The board runner defined at the top of this note
+  executes the gate and records its raw log.
 - **Transitive reads** are files reached indirectly through a declared pointer
   or configuration file. Unless the manifest also names them, they are not
   protected by the manifest hash.
@@ -295,7 +299,7 @@ or numerical prediction agreement.
   also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
   the configured driver fileroot for both the candidate and pinned drivers.
   Successful training calls write the driver's ordinary `.emul` and `.h5`
-  products, but this gate does not read those products back; the gate runner
+  products, but this gate does not read those products back; the board runner
   writes the gate's raw log.
 - subprocess: runs `cosmic_shear_train_emulator.py` for the pinned-head
   configuration, for that configuration plus `--activation=power`, and for
@@ -367,7 +371,7 @@ the required workstation is available.
   also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
   the configured driver fileroot for both the candidate and pinned drivers.
   Successful calls write the driver's ordinary `.emul` and `.h5` products,
-  but this gate does not read those products back; the gate runner writes the
+  but this gate does not read those products back; the board runner writes the
   gate's raw log.
 - subprocess: runs `cosmic_shear_train_emulator.py` once for the
   `relu`/`per_feature` configuration and once for the `tanh`/`affine`
@@ -489,7 +493,10 @@ The top-level `pce:` block uses these values:
 - `form` is `residual` or `ratio` and states how the neural correction combines
   with the polynomial base.
 - `p_max` bounds the polynomial degree under the hyperbolic basis rule and is
-  the main smoothness limit.
+  the main smoothness limit. The hyperbolic rule keeps a term whose
+  per-parameter degrees are `a_1 ... a_m` only when
+  `(sum_i a_i^q)^(1/q) <= p_max`; for `q < 1` this prunes terms that spread
+  degree across several parameters before terms that concentrate it in one.
 - `r_max` is the largest number of input parameters allowed to interact in one
   polynomial term.
 - `q`, in `(0, 1]`, is the hyperbolic sparsity exponent. Smaller values penalize
@@ -513,9 +520,10 @@ shape modes are not low-degree polynomials. NPCE is supported infrastructure,
 not an established way to lower the sample-efficiency floor. The fit uses low
 degree to limit Runge oscillation, retains only modes with acceptable
 leave-one-out (LOO) error near the default `loo_max` of 0.05, stops early, and
-uses a greedy residual-correlation search on the CPU with closed-form
-PRESS/LOO. The function retains its historical `select_lars_loo` name, but it
-does not execute the least-angle-regression path algorithm.
+uses a greedy residual-correlation search on the CPU with the closed-form
+predicted-residual-sum-of-squares (PRESS) form of the leave-one-out (LOO)
+error. The function keeps its public `select_lars_loo` name, but it does not
+execute the least-angle-regression path algorithm.
 
 Scalar, CMB, one-dimensional grid, and two-dimensional grid families wrap
 `emulator/losses/pce.py::PCEResidualDiagChi2`, a subclass of

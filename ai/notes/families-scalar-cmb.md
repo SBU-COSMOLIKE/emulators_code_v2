@@ -733,10 +733,10 @@ for this section.
 fiducial params block must be fixed flat-LCDM, only the allowed parameter
 names may appear, and a dark-energy or curvature name refuses with the
 allowed set named. A required YAML block that is absent raises a KeyError
-naming it; the script reads no silent scientific default. The write side
-refuses an existing output (an emulator may already be trained against
-it), requires every computed array finite, and goes through a temporary
-name plus one atomic rename.
+naming it; the script reads no silent scientific default. The write side —
+the refusal of an existing output, the finite-array requirement, and the
+temporary-name rename — is owned by the CMB covariance output section of
+`ai/notes/data-generation-and-cuts.md`.
 
 Raw and scaled lensing arrays cover every multipole through the requested
 maximum. No zero padding substitutes for absent input. Main requests power

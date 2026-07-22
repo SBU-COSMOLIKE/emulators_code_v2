@@ -373,9 +373,10 @@ retired legacy ones. `emulators` must be a nonempty list, with exactly two
 entries for BAOSN or MPS. A relative root is joined onto `ROOTDIR`. The
 device pick resolves `cpu` / `cuda` / `mps` and falls back toward the CPU
 when the requested accelerator is unavailable. Values are otherwise read
-with the plain YAML types the sampler configuration produces; the deleted
-shared strict-value validator module is not restored (ruled
-over-engineering and removed).
+with the plain YAML types the sampler configuration produces. A shared
+strict-value validator module is a forbidden design here: the few inline
+checks in each adapter are the complete requirement, and a central
+validation layer would add a subsystem where a direct check suffices.
 
 **Composition rule.** Multi-emulator mode must never concatenate full-vector
 predictions blindly. Under `dv_return: 3x2pt`, multiple predictors are refused
@@ -450,8 +451,12 @@ Boolean, not-a-number value (`NaN`), infinity (`Inf`), or nonscalar value can
 enter parameter whitening and
 propagate through a model. Decoding can likewise produce a nonfinite or
 wrong-shaped result that looks structurally valid to an adapter. The CMB
-factor `exp(2 * tau) / A_s` adds a family-specific domain: the scalar
-amplitude `A_s` must be positive and the optical depth `tau` must be finite.
+amplitude law `as_exp2tau_ref` adds a family-specific domain: its factor
+divides a stored reference amplitude by the sampled amplitude and
+exponentiates twice the optical-depth difference from the stored reference,
+so the scalar amplitude `A_s` must be strictly positive and the optical
+depth `tau` must be finite. `ai/notes/families-scalar-cmb.md` owns the
+complete law, including the refusal of its retired raw form.
 
 **Rule.** `EmulatorPredictor._as_row` requires each supplied value to be a
 finite real scalar and refuses Booleans, naming the stored parameter. The
@@ -613,7 +618,7 @@ Frobenius norm means “square every selected displacement and add the squares.�
 Explain that ordinary weight decay pulls `W_j` toward zero, whereas this
 quantity measures movement away from an already-trained source emulator.
 
-Then state the executable truth. CoCoA SONIC deliberately does **not** add
+Then state the executable truth. The library deliberately does **not** add
 `R(W)` to the scalar scientific loss seen by AdamW, the adaptive optimizer
 that performs the ordinary parameter update and applies decoupled weight
 decay. After the ordinary
@@ -984,10 +989,9 @@ separate alias-precedence rule.
 4. `w0pwa` means `w0 + wa`. A complete transformed input supplies a
    present-day alias and `w0pwa`; the resolver derives `wa`. If `wa` is also
    present, require the supplied and derived values to agree.
-5. Incomplete coordinates never select a law. `w0wa-cpl` supplies no missing
-   value. `constant-w` supplies `wa = 0` only after a present-day value is
-   supplied. `cosmological-constant` supplies `w0 = -1, wa = 0` and checks
-   every repeated value against that pair.
+5. Incomplete coordinates never select a law. Each explicit saved law's
+   completion values are owned by `ai/notes/families-background-mps.md`
+   (item 1 above), and every repeated value is checked against them.
 6. Canonicalize only after every repeated value agrees. Never prefer one
    conflicting alias or silently replace missing evolution information with
    zero.
@@ -1016,12 +1020,14 @@ adapter from sampled `w = -0.9, w0pwa = -0.7`, and generation and serving give
 Syren the same pair. An adapter refusal leaves no partial power result, and a
 generator refusal leaves no raw or starting-surface row.
 
-**Amplitude-alias work still required.** The amplitude rule above remains
-mandatory, but the current `syren_params_from` does not yet compare both names
-when `As_1e9` and `As` are supplied together. That behavior must not be
-reported as accepted until focused generator and adapter tests prove that
-consistent names pass and inconsistent names refuse before either Syren
-formula runs.
+**Amplitude-alias enforcement.** `emulator/syren_base.py::syren_params_from`
+is the one mapping from named parameters to the Syren formula arguments.
+When `As_1e9` and `As` are supplied together, it requires
+`As_1e9 == 1e9 * As` within the combined absolute-and-relative
+float32-storage tolerance and refuses a disagreement naming both supplied
+values before either Syren formula runs.
+`ai/tests/test_mps_amplitude_aliases.py` proves that consistent names pass
+and inconsistent names refuse.
 
 ## Geometry scales remain valid after conversion to the storage dtype
 
@@ -1282,11 +1288,10 @@ and nothing about the numbers looks unusual.
 purpose and requires the guarding legs to go red: accepting a legacy schema
 must fail the version leg, and a stored block edited away from the producer
 text beside it must fail the verbatim-copy leg. A valid control confirms
-that the faithful file still reads. (The chain-digest dataset identity
-this leg once carried was ruled over-engineering and removed: which rows
-trained is recorded by the staged-selection records, and which universe an
-artifact belongs to is recorded by its facts — a byte digest of the chain
-added only an identity layer on top of both.)
+that the faithful file still reads. (A chain-level byte digest is a
+forbidden identity layer here: which rows trained is recorded by the
+staged-selection records, and which universe an artifact belongs to is
+recorded by its facts, so a digest of the chain would only duplicate both.)
 
 <a id="fixed-facts-schema-vertical-law-enforced"></a>
 `fixed-facts-schema.vertical-law-enforced` provides a basic fixed-value check.

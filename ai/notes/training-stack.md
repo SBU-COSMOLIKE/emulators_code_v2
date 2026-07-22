@@ -138,8 +138,9 @@ score-domain rule:
 band = max(1.0e-6, 32 * eps(compute_dtype) * kept_width)
 ```
 
-`kept_width` is the per-row reduction depth for every CosmoLike-style loss,
-not its square. The dtype is the dtype in which the contraction was computed,
+`kept_width` counts the kept coordinates one row sums over in the chi-square
+contraction — the kept data-vector length for every CosmoLike-style loss —
+so the band grows linearly with that count, not with its square. The dtype is the dtype in which the contraction was computed,
 not a later storage or reporting upcast.
 
 - A finite score at or above zero is unchanged.

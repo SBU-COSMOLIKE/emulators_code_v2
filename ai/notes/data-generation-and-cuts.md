@@ -21,6 +21,13 @@ A **digest** is a fixed-size fingerprint calculated from exact bytes. A
 family **variant** selects one documented representation, such as native or
 Syren-base matter power.
 
+**Grid2d** is the two-dimensional grid family: each stored row is one
+surface over redshift `z` and wavenumber `k`. The **boost** is the ratio of
+nonlinear to linear matter power. **Law space** is the transformed target
+representation a family stores and trains in, and the **law transform** is
+the staging step that produces it from raw and base columns;
+`ai/notes/families-background-mps.md` owns the law definitions.
+
 Two identities carry a dataset into a saved emulator. **Staged-selection
 identity** records which source rows a training run staged and in what order
 (an order-sensitive digest saved with the run's configuration).
