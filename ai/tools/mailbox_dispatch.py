@@ -30,6 +30,7 @@ PART_EXPORTS = (
     "park_prelaunch_outcome",
     "provider_is_out_of_tokens",
     "provider_failure_guidance",
+    "reserve_dispatch_log_path",
     "dispatch",
     "dispatch_under_main_checkout_lock",
     "park_failed_message",
@@ -165,6 +166,44 @@ def park_prelaunch_outcome(dispatch_path):
     if parked:
         return "retained in prelaunch/."
     return "failed-state move was not verified."
+
+
+def reserve_dispatch_log_path(stamp, agent, relay_directory):
+    """Reserve one dispatch relay-log path that no other run can claim.
+
+    Two dispatches of the same role inside one clock second would choose the
+    same second-precision filename, and the later ``open(..., "w")`` would
+    truncate the earlier turn's archived output. Exclusive creation makes
+    the reservation atomic: the operating system refuses a name that already
+    exists, and the loop appends a two-digit suffix until a fresh name is
+    accepted. The reserved file is created empty here; the caller fills it.
+
+    Arguments:
+      stamp = readable local-time text for the filename, one-second
+              precision; equal stamps exercise the suffix loop.
+      agent = mailbox role name embedded in the filename.
+      relay_directory = directory that stores the relay logs, created when
+                        missing.
+
+    Returns:
+      the reserved log path inside ``relay_directory``.
+    """
+    daemon.os.makedirs(relay_directory, exist_ok=True)
+    suffix = 0
+    while True:
+        name = stamp + "-dispatch-" + agent
+        if suffix > 0:
+            name += "-" + str(suffix).zfill(2)
+        log_path = daemon.os.path.join(relay_directory, name + ".log")
+        create_exclusively = (daemon.os.O_CREAT | daemon.os.O_EXCL
+                              | daemon.os.O_WRONLY)
+        try:
+            descriptor = daemon.os.open(log_path, create_exclusively)
+        except FileExistsError:
+            suffix += 1
+            continue
+        daemon.os.close(descriptor)
+        return log_path
 
 
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
@@ -730,10 +769,9 @@ def dispatch_under_main_checkout_lock(
     # mailbox body, and the body remains the prompt's exact suffix. The
     # Architect route receives decision authority. The parent daemon owns the
     # exact local landing after that process exits.
-    daemon.os.makedirs(daemon.RELAY_DIR, exist_ok=True)
     stamp = daemon.datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_path = daemon.os.path.join(
-        daemon.RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
+    log_path = daemon.reserve_dispatch_log_path(
+        stamp=stamp, agent=agent, relay_directory=daemon.RELAY_DIR)
     checkpoint_state_path = None
     if agent == "opus":
         checkpoint_state_path = log_path + "." + name + ".checkpoint"

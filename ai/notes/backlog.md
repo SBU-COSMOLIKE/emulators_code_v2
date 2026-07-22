@@ -193,7 +193,6 @@ Medium work begins only after the permitted High work above.
 
 ### Low
 
-- OPEN **LOW** **BUG FIX** — [Give every role run its own relay-log filename](#open-relay-log-identity)
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
@@ -1660,13 +1659,18 @@ log even though two mailbox messages were processed.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** A focused staleness reproduction had to provide two synthetic
-seconds to keep two same-role log files distinct. The production log-name
-builder still has the collision.
-
-**Severity: LOW.** Real AI turns normally take longer than one second, so the
-collision is unlikely during ordinary paid work. It is nevertheless concrete
-and can lose audit evidence during fast local models, refusals, or test roles.
+**CLOSED.** The dispatch log path comes from an exclusive-creation
+reservation: the operating system refuses an existing name, and a two-digit
+suffix is appended until a fresh name is accepted, so a second turn of the
+same role inside one clock second keeps its own complete log instead of
+truncating the first. The readable timestamp and role name stay in the
+filename. `ai/tests/test_relay_log_reservation.py` hands the reservation
+one frozen stamp — no clock mocking — and requires both same-second logs to
+survive with their own contents, the exact suffix order, no suffix across
+different roles, and creation of a missing relay folder. The
+`handoff_router` transport-copy path already reserved its sequence
+atomically; the dispatch path uses the same reservation idea at its own
+boundary.
 
 ### What is already fixed
 
@@ -1675,18 +1679,8 @@ archive does not depend on the relay-log timestamp.
 
 ### What is missing
 
-Include a collision-proof identifier, such as the claimed mailbox sequence
-plus an exclusive same-directory reservation, in every relay-log filename.
-Add a same-second two-run witness that preserves both complete logs without
-mocking different clock values. Keep the readable timestamp and role name.
-
-<details><summary>Technical record for development tools</summary>
-
-Owner: the relay-log creation path in `ai/tools/mailbox_daemon.py`. Witness:
-two sequential messages for the same role with a frozen clock must create two
-different regular files, each containing only its own command and output.
-
-</details>
+Nothing. `ai/tools/mailbox_dispatch.py::reserve_dispatch_log_path` owns the
+reservation, and the frozen-stamp witness covers the same-second collision.
 
 <a id="open-python-prose-review"></a>
 ## Make tracked explanations describe one coherent current library
