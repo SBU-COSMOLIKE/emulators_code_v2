@@ -22,9 +22,13 @@ How it works, in order:
      observes the device recorded in the file, not a load-time relocation.
   4. Repeat the save/rebuild comparison for the factored, neural-PCE, and
      conv-head variants.
-  5. The drift test: change an activation default, rebuild once more, and
-     confirm the output is still identical. That can only hold if rebuild reads
-     the saved file and ignores the changed default.
+  5. The drift test: rebuild once more in a child process that imports the
+     emulator package from a copied source tree whose only change is
+     ``make_activation``'s ``n_gates`` default, and confirm the output is
+     still identical. The changed default exists on disk before the child
+     starts, so no running process ever has its behavior replaced. Identity
+     can only hold if rebuild reads the saved file and ignores the changed
+     source default.
   6. Confirm old-format files are refused, not silently
      mis-loaded — and a head save whose persisted bin split is deleted
      (an artifact predating the persistence) is refused naming the fix,
@@ -44,6 +48,8 @@ the PCE data both survive a reload.
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -162,8 +168,8 @@ def tiny_config(data_dir, *, ia=None, pce=False, head=False):
           "n_train": 200,
           "n_val": 100,
           "split_seed": 0}
-  # gated_power (n_gates 3) so the drift proof's make_activation n_gates
-  # patch bites; compile_mode None so the live model is never
+  # gated_power (n_gates 3) so the drift proof's modified n_gates source
+  # default bites; compile_mode None so the live model is never
   # torch.compiled, keeping the bitwise leg on the save contract, not
   # compile float reordering.
   model = {"name": "resmlp",
@@ -286,6 +292,133 @@ def train_save(cfg, device, save_root, persist_root=None):
   return exp, probe, live_out
 
 
+# The drift proof's anchor line in emulator/activations.py and its
+# test-only replacement. The child process imports a copied source tree
+# holding the replacement, so the changed default is a file selected
+# before the child starts, never a live edit to a running process.
+_DRIFT_DEFAULT_LINE = "def make_activation(name, n_gates=3):"
+_DRIFT_MODIFIED_LINE = "def make_activation(name, n_gates=7):"
+_DRIFT_MODIFIED_N_GATES = 7
+
+
+def prepare_drift_source_copy(destination):
+  """Copy the emulator package with a test-only n_gates default of 7.
+
+  The drift proof must observe a source default that differs from the
+  value recorded in the artifact. This helper builds that observation as
+  files: a copy of the emulator package whose only changed line is
+  ``make_activation``'s ``n_gates`` default. A child process started
+  with the copy first on PYTHONPATH imports the changed default from
+  disk.
+
+  Arguments:
+    destination = the folder that will hold the copied package; created
+                  here, inside the gate's temporary directory.
+
+  Returns:
+    the destination Path, the child's PYTHONPATH entry.
+
+  Raises:
+    RuntimeError when the expected default line is not found exactly
+    once; a substitution that missed would make the proof vacuous.
+  """
+  package_copy = Path(destination) / "emulator"
+  shutil.copytree(
+    repo_root() / "emulator",
+    package_copy,
+    ignore=shutil.ignore_patterns("__pycache__"))
+  activations_path = package_copy / "activations.py"
+  source_text = activations_path.read_text(encoding="utf-8")
+  occurrences = source_text.count(_DRIFT_DEFAULT_LINE)
+  if occurrences != 1:
+    raise RuntimeError(
+      "drift proof: expected exactly one " + repr(_DRIFT_DEFAULT_LINE)
+      + " in " + str(activations_path) + ", found " + str(occurrences)
+      + "; the modified-copy substitution would prove nothing")
+  modified_text = source_text.replace(
+    _DRIFT_DEFAULT_LINE, _DRIFT_MODIFIED_LINE)
+  activations_path.write_text(modified_text, encoding="utf-8")
+  return Path(destination)
+
+
+def run_drift_child(*, save_root, device, probe, work_dir, modified_root):
+  """Rebuild the plain save in a child that sees the modified default.
+
+  Arguments:
+    save_root     = the plain artifact pair's path root.
+    device        = the torch device this run uses.
+    probe         = the probe input rows; saved to a file for the child.
+    work_dir      = the folder for the probe and output files.
+    modified_root = the folder holding the modified emulator copy.
+
+  Returns:
+    (output, detail): the child's rebuilt output as a CPU tensor plus a
+    short description, or (None, detail) when the child failed. The
+    child's own first step is to verify that the modified default is
+    live; a launch that imported the ordinary package exits 3, so a
+    broken harness cannot pass as a proof.
+  """
+  probe_path = Path(work_dir) / "drift_probe.pt"
+  output_path = Path(work_dir) / "drift_output.pt"
+  torch.save(probe.detach().cpu(), probe_path)
+  env = dict(os.environ)
+  env["PYTHONPATH"] = str(modified_root)
+  command = [
+    sys.executable,
+    str(Path(__file__).resolve()),
+    "--drift-child",
+    str(save_root),
+    str(device),
+    str(probe_path),
+    str(output_path),
+  ]
+  completed = subprocess.run(
+    command, env=env, capture_output=True, text=True, check=False)
+  if completed.returncode != 0:
+    detail = ("drift child exit " + str(completed.returncode) + ": "
+              + (completed.stdout + completed.stderr).strip()[-300:])
+    return None, detail
+  output = torch.load(output_path, weights_only=True)
+  return output, "drift child exit 0"
+
+
+def drift_child_main(argv):
+  """Run the drift proof's child side: verify the default, then rebuild.
+
+  Started by run_drift_child with the modified emulator copy first on
+  PYTHONPATH, so this process's ``emulator`` imports come from that
+  copy.
+
+  Arguments:
+    argv = [save_root, device, probe_path, output_path].
+
+  Returns:
+    the process exit code: 0 after writing the rebuilt output, 2 for a
+    malformed command line, and 3 when the imported default is not the
+    modified value (the copy was not first on PYTHONPATH, so a rebuild
+    here would prove nothing).
+  """
+  if len(argv) != 4:
+    print("usage: gsv_bitwise_drift.py --drift-child "
+          "SAVE_ROOT DEVICE PROBE_PATH OUTPUT_PATH")
+    return 2
+  save_root, device_name, probe_path, output_path = argv
+  factory = make_activation("gated_power")
+  observed = factory._emulator_activation_n_gates
+  if observed != _DRIFT_MODIFIED_N_GATES:
+    print("drift child: imported make_activation n_gates default is "
+          + repr(observed) + ", not the modified copy's "
+          + repr(_DRIFT_MODIFIED_N_GATES)
+          + "; the modified emulator copy is not first on PYTHONPATH")
+    return 3
+  device = torch.device(device_name)
+  probe = torch.load(probe_path, weights_only=True)
+  probe = probe.to(device=device)
+  output = rebuilt_out(save_root=save_root, device=device, probe=probe)
+  torch.save(output.detach().cpu(), output_path)
+  return 0
+
+
 def rebuilt_out(save_root, device, probe, *, compile_model=False):
   """Rebuild the emulator from its saved artifact pair and run the probe.
 
@@ -378,8 +511,9 @@ def main():
   and conv-head variants. The plain artifact pair is also saved to a stable
   location for the board's cobaya-adapter evaluate leg; the head pair proves
   the persisted bin split reconstructs the ResCNN with no dataset ini. Then
-  patch ``make_activation``'s ``n_gates`` default, rebuild the plain pair, and
-  require identical output. Last, two old schema versions and a
+  rebuild the plain pair in a child process that imports a copied emulator
+  source tree whose ``make_activation`` ``n_gates`` default is changed on
+  disk, and require identical output. Last, two old schema versions and a
   head save with its physical coordinate map deleted (a pre-map artifact)
   must raise loudly. Any failed step prints a FAIL
   line; main returns 1 if any failed, else 0.
@@ -409,24 +543,39 @@ def main():
     "head", tiny_config(data_dir, head=True), device, tmp,
     aid="save-rebuild-drift.head-rebuild-matches-live")
 
-  # drift test: monkeypatch the telling default, make_activation's
-  # n_gates (activations.py). If rebuild trusted the code default the
+  # drift test: the artifact records n_gates=3 for its gated_power
+  # activation. A child process re-imports the emulator package from a
+  # copied source tree whose only change is make_activation's n_gates
+  # default (3 -> 7, a file written before the child starts) and
+  # rebuilds the same save. If rebuild trusted the source default, the
   # rebuilt gated_power activation would carry K=7 parameters and the
   # strict weight load / output would break; with the file-recorded
-  # n_gates=3 it rebuilds unchanged. The plain save uses gated_power
-  # (n_gates 3).
+  # n_gates=3 the child's output is bit-for-bit the parent's. The child
+  # first proves the modified default is live (exit 3 otherwise), so a
+  # launch that quietly imported the ordinary package cannot pass.
   n_drift = len(FAILURES)
   base_reb = rebuilt_out(plain_root, device, plain_probe)
-  saved_defaults = make_activation.__defaults__
+  drift_label = "drift proof: rebuild ignores the modified n_gates source default"
   try:
-    make_activation.__defaults__ = (7,)
-    drift_reb = rebuilt_out(plain_root, device, plain_probe)
-  finally:
-    make_activation.__defaults__ = saved_defaults
-  report("drift proof: rebuild ignores the monkeypatched n_gates default",
-         torch.equal(base_reb, drift_reb),
-         "make_activation n_gates default 3 -> 7 patched; max abs diff "
-         + repr(float((base_reb - drift_reb).abs().max())))
+    modified_root = prepare_drift_source_copy(
+      Path(tmp) / "drift_modified_source")
+  except RuntimeError as error:
+    report(drift_label, False, str(error))
+  else:
+    drift_reb, drift_detail = run_drift_child(
+      save_root=plain_root,
+      device=device,
+      probe=plain_probe,
+      work_dir=tmp,
+      modified_root=modified_root)
+    if drift_reb is None:
+      report(drift_label, False, drift_detail)
+    else:
+      base_cpu = base_reb.detach().cpu()
+      report(drift_label,
+             torch.equal(base_cpu, drift_reb),
+             drift_detail + "; max abs diff "
+             + repr(float((base_cpu - drift_reb).abs().max())))
   emit_aid("save-rebuild-drift.code-default-drift-ignored", n_drift)
 
   # A saved emulator now records the science it was born under: the cosmology
@@ -499,4 +648,6 @@ def main():
 
 
 if __name__ == "__main__":
+  if len(sys.argv) >= 2 and sys.argv[1] == "--drift-child":
+    sys.exit(drift_child_main(sys.argv[2:]))
   sys.exit(main())

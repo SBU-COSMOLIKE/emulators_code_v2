@@ -212,9 +212,10 @@ saved model remains in use.
   data files below `ROOTDIR`, the environment variable naming the active
   CoCoA project root, during inference.
 - Acceptance evidence: save -> rebuild -> bitwise-equal prediction,
-  plus a drift test that monkeypatches a sharp code default
-  (`make_activation` `n_gates` 3 -> 7) and requires the rebuilt prediction to
-  remain unchanged. `ai/tests/test_model_recipe.py` removes each
+  plus a drift test that rebuilds in a child process importing a copied
+  emulator source tree whose only change is a sharp code default
+  (`make_activation` `n_gates` 3 -> 7, written to disk before the child
+  starts) and requires the rebuilt prediction to remain unchanged. `ai/tests/test_model_recipe.py` removes each
   required recipe field in turn, distinguishes explicit null from absence,
   compares the registry with all six live constructor signatures, and proves
   that the production validator imports no executable model code. Adding a
@@ -1864,10 +1865,17 @@ network (`ResCNN`) from the persisted bin split alone, without reading a
 dataset configuration file.
 
 <a id="save-rebuild-drift-code-default-drift-ignored"></a>
-`save-rebuild-drift.code-default-drift-ignored` monkeypatches
-`make_activation`'s `n_gates` default (3 -> 7), rebuilds the plain save, and
-requires the output to be unchanged: the rebuild reads the file, not the
-activation code's runtime default. Compile-mode persistence is not claimed by
+`save-rebuild-drift.code-default-drift-ignored` rebuilds the plain save in a
+child process that imports the emulator package from a copied source tree
+whose only change is `make_activation`'s `n_gates` default (3 -> 7), written
+to disk before the child starts, and requires the output to be unchanged: the
+rebuild reads the file, not the activation code's source default. The child
+first proves the changed default is live and refuses with its own exit code
+otherwise, so a launch that imported the ordinary package cannot pass as a
+proof. `ai/tests/test_drift_gate_child_isolation.py` runs the same helpers on
+a small synthetic gated-power artifact, so the copy substitution, the bitwise
+child comparison, and the unmodified-copy refusal are verified without the
+workstation data. Compile-mode persistence is not claimed by
 this arm because rebuild is deliberately called with `compile_model=False`.
 
 <a id="save-rebuild-drift-v1-schema-refusal"></a>

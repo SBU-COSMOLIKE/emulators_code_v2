@@ -169,7 +169,7 @@ No open CRITICAL tickets.
 High new functionality appears before High bug fixes. No High feature is
 currently open.
 
-- OPEN **HIGH** **BUG FIX** — [Test saved activation defaults without replacing a live function](#open-artifact-drift-import-isolation)
+No open HIGH tickets.
 
 ### Medium
 
@@ -299,8 +299,15 @@ changing executable behavior shared by the rest of the test process.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The durable artifact note states the current in-process replacement
-honestly. The gate still needs the isolated test shape described below.
+**CLOSED.** The drift proof no longer edits `make_activation.__defaults__`
+in a running process. The gate copies the emulator package into its
+temporary folder, changes only the `n_gates` default line on disk, and
+rebuilds the plain save in a child process whose PYTHONPATH names the copy
+first. The child's first step verifies the changed default is live and
+refuses with a dedicated exit code otherwise, so a launch that imported the
+ordinary package cannot pass as a proof. The bitwise prediction comparison
+is unchanged, and a focused CPU test exercises the same helpers on a small
+synthetic gated-power artifact, including the unmodified-copy refusal.
 
 **Severity: HIGH.** The patch changes a function used by artifact rebuilding
 and can weaken or contaminate acceptance evidence. It does not change normal
@@ -308,21 +315,27 @@ runtime unless the test leaks, so it does not meet the Critical boundary.
 
 ### What is already fixed
 
-The test has a strong scientific known answer: a saved three-gate artifact
-must rebuild identically even when the test-only source default is seven.
+Everything: the child-process observation, the live-default control, and the
+local CPU verification described below.
 
 ### What is missing
 
-Run the altered default in a child process or an equivalent explicit isolated
-input. Keep the bitwise prediction comparison and a negative control. Do not
-add a general patching or dependency-injection framework.
+Nothing for this ticket. The full gate run on the configured workstation
+remains owed under
+[Complete older cross-family workstation checks](#open-workstation-debt).
 
 <details><summary>Technical record for development tools</summary>
-Owner: `ai/gates/checks/gsv_bitwise_drift.py::main`, where the current check
-saves, replaces, and restores `make_activation.__defaults__`. The durable
+Former owner: the `__defaults__` save/replace/restore in
+`ai/gates/checks/gsv_bitwise_drift.py::main`. Replacement helpers in the
+same file: `prepare_drift_source_copy` (one-line substitution, refuses
+unless the anchor line appears exactly once), `run_drift_child`
+(PYTHONPATH-selected copy, probe and output files), and `drift_child_main`
+(exit 3 without the live modified default). Local evidence:
+`ai/tests/test_drift_gate_child_isolation.py` — copy differs in exactly one
+file, child rebuild of a gated-power save is bitwise-equal, an unmodified
+copy is refused, and the synthetic fixture rebuilds in-process. The durable
 behavior is described by `save-rebuild-drift.code-default-drift-ignored` in
-`ai/notes/artifacts-inference-warmstart.md`. Do not search for unrelated
-patches.
+`ai/notes/artifacts-inference-warmstart.md`, updated with this repair.
 </details>
 
 <a id="open-finite-cycle-admission"></a>
