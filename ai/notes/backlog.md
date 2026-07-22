@@ -197,7 +197,6 @@ Medium work begins only after the permitted High work above.
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
 - OPEN **LOW** **BUG FIX** — [Recover safely when main advances after a landing is prepared](#open-stale-landing-reaudit)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Check an accepted candidate for workarounds around rejected instructions](#open-candidate-circumvention-review)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Plan a limited ticket across code, documentation, and protected notes](#open-character-budget-planning)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Use change risk as well as character count when choosing checks](#open-change-risk-classification)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Run every required control-plane regression with one command](#open-control-plane-regression-runner)
 - OPEN **LOW** **NEW FUNCTIONALITY** — [Let the user choose whether accepted work is pushed to GitHub](#open-github-push-choice)
@@ -1990,12 +1989,18 @@ may choose a different balance for the actual ticket.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Exact added and deleted characters are already measured for the final
-candidate. Planning instructions do not yet remind the Architect that every
-required file class shares that one allowance.
-
-**Priority: LOW.** This is a cost-planning aid. Existing enforcement already
-refuses a candidate that exceeds the user-selected maximum.
+**CLOSED — the reminder guards a failure that already recovers cleanly.**
+When a clean candidate exceeds a positive limit, the Implementer returns the
+exact over-limit blocked handoff with its measured count, and the Architect
+revises the plan; the cost of discovering a bad allocation late is one
+returned turn, not lost work. Estimating the whole landing before writing
+the directive is ordinary Architect planning that the directive template
+already forces, because the acceptance checklist must require the exact
+candidate's guard result to be within the limit. Publishing a starting
+proportion as tracked guidance — with a contract test that polices the
+wording of that guidance — converts a planning habit into machinery that
+must itself be maintained, reviewed, and defended, for no enforcement gain
+over the refusal that already exists.
 
 ### What is already fixed
 
@@ -2005,20 +2010,9 @@ evidence cannot be sacrificed to meet the number.
 
 ### What is missing
 
-Teach the Architect to estimate the whole landing before writing the
-Implementer directive. State the 40/50/10 proportions as a rule of thumb, never
-as a pass/fail threshold. The Architect records a different allocation when a
-ticket clearly needs more implementation, more documentation, or more
-Architect-only note space.
-
-<details><summary>Technical record for development tools</summary>
-
-Owners: character-budget guidance in `ai/notes/conventions-and-workflow.md`,
-the Architect role, and the didactic `ai/README.md` explanation. A focused
-contract test must reject wording that turns the proportions into mandatory
-percentages or measures only the Implementer's files.
-
-</details>
+Nothing. The advisory proportions are declined as tracked machinery; the
+existing over-limit refusal and the blocked-handoff return already make a
+bad allocation visible and recoverable at the cost of one turn.
 
 <a id="open-change-risk-classification"></a>
 ## Use change risk as well as character count when choosing checks
