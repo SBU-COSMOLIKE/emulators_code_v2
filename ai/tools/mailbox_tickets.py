@@ -378,25 +378,58 @@ def _architect_user_request_envelope(message):
 
 
 def architect_user_request_problem(message):
-    """Return a malformed public-envelope reason, or ``None``."""
+    """Check one public Architect request's envelope.
+
+    Arguments:
+      message = the decoded public request.
+
+    Returns:
+      A printable reason the envelope is malformed, or ``None`` for a
+      valid public request.
+    """
     return daemon._architect_user_request_envelope(message=message)[3]
 
 
 def architect_user_request_severity(message):
-    """Return a valid public Architect envelope severity, or ``None``."""
+    """Read the severity header from one public Architect request.
+
+    Arguments:
+      message = the decoded public request.
+
+    Returns:
+      The envelope's severity value, or ``None`` when the envelope is
+      malformed.
+    """
     severity, _, _, problem = daemon._architect_user_request_envelope(
         message=message)
     return severity if problem is None else None
 
 
 def architect_user_request_scope(message):
-    """Return a valid public Architect envelope scope, or ``None``."""
+    """Read the scope header from one public Architect request.
+
+    Arguments:
+      message = the decoded public request.
+
+    Returns:
+      The envelope's scope value, or ``None`` when the envelope is
+      malformed.
+    """
     _, scope, _, problem = daemon._architect_user_request_envelope(message=message)
     return scope if problem is None else None
 
 
 def architect_user_request_body(message):
-    """Return the exact user text after a valid Architect envelope."""
+    """Read the user's own text from one public Architect request.
+
+    Arguments:
+      message = the decoded public request.
+
+    Returns:
+      The body after a valid envelope's header lines; a malformed
+      envelope returns the whole message unchanged, so later
+      diagnostics can quote exactly what arrived.
+    """
     _, _, body, problem = daemon._architect_user_request_envelope(message=message)
     return message if problem is not None else body
 
@@ -508,7 +541,15 @@ def architect_admission_prompt(token):
 
 
 def valid_sol_transport(message):
-    """Return whether ``message`` is exactly the daemon's Sol ping."""
+    """Test whether one message is exactly the daemon's Sol ping.
+
+    Arguments:
+      message = the decoded message.
+
+    Returns:
+      True only for a byte-exact match with the transport ping the
+      daemon itself builds; any edit disqualifies the message.
+    """
     return message == daemon.sol_ticket_payload(
         ticket_kind="transport", text=daemon.transport_ping_text(agent="sol"))
 
@@ -1191,7 +1232,15 @@ def report_ticket_character_limit():
 
 
 def report_discovery_severity(fix_only=False, skip_redteam=False):
-    """Print the default saved on new discovery tickets for this run."""
+    """Print the severity default that applies to this run's tickets.
+
+    Arguments:
+      fix_only     = True when the watch closes existing bug fixes
+                     only; the line then reads as the minimum bug-fix
+                     severity.
+      skip_redteam = True when the Sol route is disabled; the line
+                     then notes the default is inactive.
+    """
     line = "discovery severity default: " + daemon.DISCOVERY_SEVERITY
     if fix_only:
         line = "minimum bug-fix severity: " + daemon.DISCOVERY_SEVERITY
