@@ -3923,9 +3923,9 @@ class EmulatorExperiment:
         law_rows[a:b] = law_chunk.astype("float32")
         if with_means:
           # merge the EXACT stored float32 rows (read back, promoted to
-          # float64), so the geometry stats match the materialized-float32
-          # path the standardization used to take (from_targets promoted
-          # the stored float32 targets); the pre-cast law_chunk would drift.
+          # float64), so the geometry stats match the from_targets
+          # standardization exactly (it promotes the stored float32
+          # targets); the pre-cast law_chunk would drift.
           stored = np.asarray(law_rows[a:b], dtype="float64")
           m_count, m_mean, m2 = _merge_chunk_moments(
             count=m_count, mean=m_mean, m2=m2, chunk=stored)
