@@ -469,12 +469,28 @@ class _WriteLock:
     """
 
     def __init__(self, path):
-        """Remember the lock path; nothing is opened until ``with``."""
+        """Remember the lock path; nothing is opened until ``with``.
+
+        Arguments:
+          path = the lock file's location beside the backlog.
+        """
         self.path = path
         self.descriptor = None
 
     def __enter__(self):
-        """Acquire the exclusive lock or raise; returns this holder."""
+        """Acquire the exclusive lock, with the identity re-proofs.
+
+        The lock file is opened without following symlinks, must be
+        one regular file with a single name, must still be the file
+        at the path after locking, and records this process id.
+
+        Returns:
+          This holder, as the ``with`` statement expects.
+
+        Raises:
+          GuardError: when the lock is held elsewhere, redirected,
+            swapped, or cannot be written.
+        """
         flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_CLOEXEC"):
             flags |= os.O_CLOEXEC
@@ -524,7 +540,16 @@ class _WriteLock:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Release the lock and close the descriptor; never swallows."""
+        """Release the lock and close the descriptor; never swallows.
+
+        Arguments:
+          exc_type  = the in-flight exception class, or ``None``.
+          exc_value = its instance, or ``None``.
+          traceback = its traceback object, or ``None``.
+
+        Returns:
+          False, so an exception raised inside the block propagates.
+        """
         if self.descriptor is not None:
             try:
                 fcntl.flock(self.descriptor, fcntl.LOCK_UN)
@@ -820,6 +845,14 @@ def main(argv=None):
     file and are Architect-only. A completed command prints the accepted
     SHA-256 and a final ``BACKLOG-GUARD-... PASS`` line and exits 0; any
     refusal prints one reason to standard error and exits 2.
+
+    Arguments:
+      argv = the command-line arguments to parse, or ``None`` to use
+             the process's own.
+
+    Returns:
+      The process exit code: 0 for a completed command; refusals exit
+      with status 2 instead of returning.
     """
     parser = build_parser()
     arguments = parser.parse_args(argv)
