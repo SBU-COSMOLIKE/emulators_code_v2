@@ -65,7 +65,20 @@ PART_EXPORTS = (
 
 
 def sol_ticket_body(message):
-    """Return the human body after valid Sol envelope lines."""
+    """Return the human body after valid Sol envelope lines.
+
+    Each Sol ticket kind saves its own machine-read header lines
+    before the human text. When the envelope parses, the body after
+    the headers is returned; when it does not, the remainder after
+    the kind line is returned unchanged so a malformed message still
+    shows its text.
+
+    Arguments:
+      message = the decoded mailbox message.
+
+    Returns:
+      The human-readable ticket body.
+    """
     remainder = daemon.sol_ticket_body_after_kind(message=message)
     if daemon.sol_ticket_kind(message=message) == "closure":
         _, _, body, problem = daemon._redteam_closure_envelope(message=message)
@@ -86,6 +99,13 @@ def architect_request_scope(text):
     A quotation, a negation, leading prose, or a later mention remains
     bounded. This recognizer is used only while constructing the public
     Architect envelope; dispatch trusts the saved ``MAILBOX-SCOPE`` value.
+
+    Arguments:
+      text = the user's request text.
+
+    Returns:
+      ``"widespread"`` only for an explicit positive command at the
+      start of the text, otherwise ``"bounded"``.
     """
     positive = (
         r"\A(?:please(?:,)?[ \t]+)?"
@@ -96,7 +116,19 @@ def architect_request_scope(text):
 
 
 def mailbox_role_for_dispatch(agent, message=None):
-    """Return the checksum-guard role for one exact dispatch route."""
+    """Return the checksum-guard role for one exact dispatch route.
+
+    Arguments:
+      agent   = ``"fable"``, ``"opus"``, or ``"sol"``.
+      message = unused; accepted so every dispatch call site can pass
+                the message uniformly.
+
+    Returns:
+      ``"architect"``, ``"implementer"``, or ``"red-team"``.
+
+    Raises:
+      ValueError: for an unknown agent.
+    """
     if agent == "fable":
         return "architect"
     if agent == "opus":
@@ -107,7 +139,15 @@ def mailbox_role_for_dispatch(agent, message=None):
 
 
 def transport_ping_text(agent):
-    """Return the one no-work transport payload reserved for ``--ping``."""
+    """Return the one no-work transport payload reserved for ``--ping``.
+
+    Arguments:
+      agent = the pinged route name, embedded in the text.
+
+    Returns:
+      The exact ping text; the receiving model must reply with one
+      PONG line and stop.
+    """
     return (
         "RELAY CONFIRMATION PING for " + agent + ". This is a "
         "transport test only; no unit is assigned and no repository "
@@ -122,7 +162,33 @@ def transport_ping_text(agent):
 def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
                        discovery_scope=None, review_cycle=None,
                        review_commit=None):
-    """Build the byte-stable persisted envelope for a Sol message."""
+    """Build the byte-stable persisted envelope for a Sol message.
+
+    Byte-stable means the same inputs always produce identical bytes,
+    so a saved message can be compared exactly later. A discovery
+    ticket saves its severity and scope headers; a closure or
+    control-plane review may save its cycle and commit identity;
+    every other combination is refused.
+
+    Arguments:
+      ticket_kind        = one of the Sol ticket kinds, such as
+                           ``"discovery"`` or ``"closure"``.
+      text               = the human ticket text.
+      discovery_severity = severity header, discovery tickets only;
+                           ``None`` selects the default.
+      discovery_scope    = scope header, discovery tickets only;
+                           ``None`` selects the default.
+      review_cycle       = cycle identity for a closure or
+                           control-plane review.
+      review_commit      = reviewed commit for the same reviews.
+
+    Returns:
+      The newline-terminated payload text.
+
+    Raises:
+      ValueError: for an option on the wrong ticket kind or a
+        malformed cycle or commit.
+    """
     if ticket_kind == "discovery":
         if review_cycle is not None or review_commit is not None:
             raise ValueError(
@@ -177,7 +243,20 @@ def sol_ticket_payload(ticket_kind, text, discovery_severity=None,
 
 def redteam_review_receipt_payload(review_cycle, review_commit, result,
                                    text):
-    """Build the exact Red Team return that completes one ticket cycle."""
+    """Build the exact Red Team return that completes one ticket cycle.
+
+    Arguments:
+      review_cycle  = the cycle identifier being closed.
+      review_commit = the landing commit the Red Team reviewed.
+      result        = ``"NO CHANGE"`` or ``"REOPEN"``.
+      text          = the review's human text.
+
+    Returns:
+      The newline-terminated return payload.
+
+    Raises:
+      ValueError: for a malformed cycle, commit, or result.
+    """
     if (not isinstance(review_cycle, str)
             or daemon.CYCLE_ID_RE.fullmatch(review_cycle) is None):
         raise ValueError("invalid Red Team review cycle: "
@@ -199,7 +278,22 @@ def redteam_review_receipt_payload(review_cycle, review_commit, result,
 
 def control_plane_review_receipt_payload(review_cycle, candidate, result,
                                          text):
-    """Build one exact Red Team decision for protected candidate C."""
+    """Build one exact Red Team decision for protected candidate C.
+
+    C is the Implementer's candidate commit.
+
+    Arguments:
+      review_cycle = the control-plane cycle identifier.
+      candidate    = the reviewed candidate commit C.
+      result       = one of the allowed control-plane results.
+      text         = the review's human text.
+
+    Returns:
+      The newline-terminated decision payload.
+
+    Raises:
+      ValueError: for a malformed cycle, candidate, or result.
+    """
     if (not isinstance(review_cycle, str)
             or daemon.CYCLE_ID_RE.fullmatch(review_cycle) is None):
         raise ValueError("invalid control-plane review cycle")
@@ -216,7 +310,24 @@ def control_plane_review_receipt_payload(review_cycle, candidate, result,
 
 
 def architect_user_request_payload(text, discovery_severity=None):
-    """Build the persisted public envelope addressed only to Architect."""
+    """Build the persisted public envelope addressed only to Architect.
+
+    The exact fix-only request line is saved bare. Every other
+    request gains severity and scope headers; a request that begins
+    with an explicit widespread-search command is forced to Low
+    severity, the only severity a widespread search may carry.
+
+    Arguments:
+      text               = the user's request text.
+      discovery_severity = severity to save, or ``None`` for the
+                           default.
+
+    Returns:
+      The newline-terminated payload.
+
+    Raises:
+      ValueError: for an unknown severity.
+    """
     if text == daemon.ARCHITECT_FIX_ONLY_REQUEST:
         return text
     if discovery_severity is None:
@@ -235,7 +346,17 @@ def architect_user_request_payload(text, discovery_severity=None):
 
 
 def _architect_user_request_envelope(message):
-    """Return ``(severity, scope, body, problem)`` for a public envelope."""
+    """Return ``(severity, scope, body, problem)`` for a public envelope.
+
+    Arguments:
+      message = the decoded mailbox message.
+
+    Returns:
+      The parsed fields with ``problem`` ``None`` on success. A
+      missing or misordered header, or a second header-like line in
+      the body, returns the original message as the body with a
+      printable problem.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.SOL_SEVERITY_HEADER)
         + r"(" + "|".join(map(daemon.re.escape, daemon.DISCOVERY_SEVERITIES)) + r")\r?\n"
@@ -281,7 +402,20 @@ def architect_user_request_body(message):
 
 
 def architect_admission_token(request_name, digest):
-    """Return the exact token binding one public request to its handoff."""
+    """Return the exact token binding one public request to its handoff.
+
+    Arguments:
+      request_name = the public request's mailbox filename; it must
+                     be addressed to the Architect route.
+      digest       = SHA-256 hexadecimal digest of the saved request.
+
+    Returns:
+      ``request_name@digest`` — the token a later ticket must quote.
+
+    Raises:
+      daemon.TicketCycleStateError: for a name that is not a pending
+        Architect message or a malformed digest.
+    """
     match = (daemon.PENDING_MESSAGE_RE.fullmatch(request_name)
              if isinstance(request_name, str) else None)
     if (match is None or match.group(1) != "fable"
@@ -293,7 +427,18 @@ def architect_admission_token(request_name, digest):
 
 
 def split_architect_admission_token(token):
-    """Return ``(request_name, digest)`` for one exact admission token."""
+    """Return ``(request_name, digest)`` for one exact admission token.
+
+    Arguments:
+      token = the saved token.
+
+    Returns:
+      The two halves, revalidated through architect_admission_token.
+
+    Raises:
+      daemon.TicketCycleStateError: for a token without ``@`` or with
+        invalid halves.
+    """
     if not isinstance(token, str) or "@" not in token:
         raise daemon.TicketCycleStateError(
             "invalid public Architect admission token")
@@ -303,7 +448,16 @@ def split_architect_admission_token(token):
 
 
 def message_claims_architect_admission(path, token):
-    """Return whether one mailbox file names this exact public request."""
+    """Return whether one mailbox file names this exact public request.
+
+    Arguments:
+      path  = the mailbox file to inspect.
+      token = the admission token to look for.
+
+    Returns:
+      True only when the file is readable and carries the exact
+      admission header line; any read problem counts as no.
+    """
     try:
         message = daemon.read_cycle_message(path=path)
     except (OSError, ValueError, daemon.TicketCycleStateError):
@@ -312,7 +466,17 @@ def message_claims_architect_admission(path, token):
 
 
 def architect_admission_prompt(token):
-    """Tell one public Architect turn how to bind its single outcome."""
+    """Tell one public Architect turn how to bind its single outcome.
+
+    Arguments:
+      token = the request's admission token, or ``None`` for no
+              admission (returns the empty string).
+
+    Returns:
+      The instruction block requiring exactly one outcome — an
+      Implementer ticket, a Sol discovery request, or a no-ticket
+      receipt — each quoting the exact admission line.
+    """
     if token is None:
         return ""
     request_name, digest = daemon.split_architect_admission_token(token=token)
@@ -350,7 +514,14 @@ def valid_sol_transport(message):
 
 
 def fix_only_environment_active():
-    """Return whether this send inherited a fix-only watch contract."""
+    """Return whether this send inherited a fix-only watch contract.
+
+    The watch exports the setting to its children, so a helper send
+    started inside a fix-only watch obeys the same restriction.
+
+    Returns:
+      True when the environment variable holds 1, true, or yes.
+    """
     value = daemon.os.environ.get(daemon.FIX_ONLY_ENVIRONMENT)
     if value is None:
         return False
@@ -358,7 +529,14 @@ def fix_only_environment_active():
 
 
 def skip_redteam_environment_active():
-    """Return whether this send inherited a two-role watch contract."""
+    """Return whether this send inherited a two-role watch contract.
+
+    The watch exports the setting to its children, so a helper send
+    started inside a two-role watch also avoids the Sol route.
+
+    Returns:
+      True when the environment variable holds 1, true, or yes.
+    """
     value = daemon.os.environ.get(daemon.SKIP_REDTEAM_ENVIRONMENT)
     if value is None:
         return False
@@ -366,7 +544,21 @@ def skip_redteam_environment_active():
 
 
 def resolve_discovery_severity(cli_value=None):
-    """Bind an explicit severity to the inherited run default."""
+    """Bind an explicit severity to the inherited run default.
+
+    Arguments:
+      cli_value = the ``--severity`` option, or ``None`` when
+                  omitted.
+
+    Returns:
+      The severity to use: the explicit value when it matches any
+      inherited environment value, otherwise the inherited or default
+      one.
+
+    Raises:
+      ValueError: for an invalid value or a disagreement with the
+        inherited environment.
+    """
     inherited = daemon.os.environ.get(daemon.DISCOVERY_SEVERITY_ENVIRONMENT)
     if inherited is not None and inherited not in daemon.DISCOVERY_SEVERITIES:
         raise ValueError(
@@ -388,7 +580,31 @@ def sol_ticket_refusal(ticket_kind, admission_count, fix_only,
                        transport_valid=False, discovery_severity=None,
                        discovery_scope=None, unclassified_count=0,
                        ledger_problem=None):
-    """Return the binding refusal reason for a Sol ticket, or ``None``."""
+    """Return the binding refusal reason for a Sol ticket, or ``None``.
+
+    The checks run in a fixed order: the transport ping must be the
+    daemon's exact payload; the ticket kind must be known; the
+    backlog must be readable and classified; discovery needs a valid
+    severity and scope; a fix-only watch admits closing work only; a
+    widespread search must be Low and wait for an empty non-Low
+    backlog; and ordinary discovery stops at the admission threshold.
+
+    Arguments:
+      ticket_kind        = the ticket kind from the message.
+      admission_count    = open Critical, High, and Medium tickets.
+      fix_only           = True in a fix-only watch.
+      transport_valid    = True when the transport payload matched.
+      discovery_severity = discovery severity, or ``None`` for the
+                           default.
+      discovery_scope    = saved discovery scope.
+      unclassified_count = open backlog lines without one exact
+                           classification.
+      ledger_problem     = a backlog read problem, or ``None``.
+
+    Returns:
+      A printable refusal sentence, or ``None`` when the ticket may
+      proceed.
+    """
     if ticket_kind == "transport":
         if transport_valid:
             return None
@@ -457,6 +673,14 @@ def inflight_lane_blockers(skip_redteam=False):
     Live topology gives Architect, Implementer, and Sol distinct saved
     directories, so one unresolved role blocks only that role. Imported tests
     may still deliberately assign a shared cwd and retain shared-tree safety.
+
+    Arguments:
+      skip_redteam = True to ignore Sol messages whose lane is not
+                     shared with an enabled Claude role.
+
+    Returns:
+      Mapping from lane identity to its blocker paths, sorted by
+      message sequence.
     """
     blockers = {}
     seen = {}
@@ -493,7 +717,14 @@ def inflight_lane_blockers(skip_redteam=False):
 
 
 def blocker_message_name(path):
-    """Return the exact agent basename encoded by an inflight blocker."""
+    """Return the exact agent basename encoded by an inflight blocker.
+
+    Arguments:
+      path = the inflight file, possibly a state-guard sidecar.
+
+    Returns:
+      The message basename with any state-guard suffix removed.
+    """
     name = daemon.os.path.basename(path)
     if name.endswith(daemon.STATE_GUARD_SUFFIX):
         return name[:-len(daemon.STATE_GUARD_SUFFIX)]
@@ -501,7 +732,12 @@ def blocker_message_name(path):
 
 
 def report_inflight_lane_block(blocker_paths, pending_count):
-    """Print one clear cross-pass lane-block diagnostic."""
+    """Print one clear cross-pass lane-block diagnostic.
+
+    Arguments:
+      blocker_paths = the unresolved inflight files for one lane.
+      pending_count = pending root messages waiting on that lane.
+    """
     blocker_names = [daemon.blocker_message_name(path=path)
                      for path in blocker_paths]
     if pending_count:
@@ -590,7 +826,18 @@ def dispatch_currency(dispatch_path, agent):
 
 
 def timeout_history_path(name):
-    """Return the daemon-owned timeout history sidecar for one message."""
+    """Return the daemon-owned timeout history sidecar for one message.
+
+    A sidecar is a small companion file that stores facts about
+    another file without changing it.
+
+    Arguments:
+      name = the message basename.
+
+    Returns:
+      The JSON sidecar path under the mailbox's dispatch-history
+      folder.
+    """
     return daemon.os.path.join(daemon.MAILBOX, ".dispatch-history", name + ".json")
 
 
@@ -600,6 +847,17 @@ def timeout_events(name):
     A missing sidecar means the message has never timed out. A malformed
     daemon-owned sidecar is not treated as an empty history: dispatch must not
     erase the only evidence that an earlier turn was killed.
+
+    Arguments:
+      name = the message basename.
+
+    Returns:
+      The list of normalized timeout events, oldest first; empty when
+      the message never timed out.
+
+    Raises:
+      ValueError: for an oversized, malformed, or misidentified
+        sidecar.
     """
     path = daemon.timeout_history_path(name=name)
     try:
@@ -647,6 +905,15 @@ def valid_duration(value, strictly_positive):
     Integers are finite by definition; avoiding ``math.isfinite`` for them
     also keeps an attacker-controlled enormous JSON integer from raising an
     OverflowError during validation.
+
+    Arguments:
+      value             = the JSON value to check.
+      strictly_positive = True to require a value above zero, False
+                          to also allow zero.
+
+    Returns:
+      True for a numeric, finite, in-range duration. Booleans are
+      refused even though Python counts them as integers.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
@@ -665,6 +932,15 @@ def write_timeout_history(name, killed_after_minutes,
 
     This function is called only after the timeout guard kills a child.
     Ordinary nonzero exits never create or append a sidecar.
+
+    Arguments:
+      name                     = the message basename.
+      killed_after_minutes     = the promised kill threshold that
+                                 fired.
+      observed_elapsed_minutes = the measured runtime, when known.
+
+    Raises:
+      ValueError: for invalid durations or a full event history.
     """
     if not daemon.valid_duration(value=killed_after_minutes,
                           strictly_positive=True):
@@ -697,7 +973,17 @@ def write_timeout_history(name, killed_after_minutes,
 
 
 def exact_duration(value):
-    """Format a stored float without changing its represented value."""
+    """Format a stored float without changing its represented value.
+
+    The ``.17g`` format prints enough digits that reading the text
+    back yields the identical floating-point number.
+
+    Arguments:
+      value = the stored duration.
+
+    Returns:
+      The exact decimal text.
+    """
     return format(value, ".17g")
 
 
@@ -707,7 +993,40 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
                     saved_discovery=False,
                     saved_architect_request=False,
                     candidate_scope=None, routine_review=None):
-    """Build the mechanical pre-preamble hint for a live dispatch."""
+    """Build the mechanical pre-preamble hint for a live dispatch.
+
+    The banner is prepended to a dispatched message. It carries only
+    mechanical facts and binding reminders: the store's newest
+    sequence, newer messages queued on this lane, a previous timeout,
+    the fix-only and two-role restrictions, a candidate's path-scope
+    verdict, the routine-review kind, the discovery severity and
+    scope ladders, and the ticket character budget with the exact
+    guard commands to run.
+
+    Arguments:
+      store_max                = newest sequence anywhere in the
+                                 store.
+      newer_in_lane            = newer pending messages on this lane.
+      previous_timeout_minutes = last kill threshold, or ``None``.
+      fix_only                 = True in a fix-only watch.
+      skip_redteam             = True in a two-role watch.
+      discovery_severity       = severity to display, or ``None`` for
+                                 the run default.
+      discovery_scope          = scope to display, or ``None`` for
+                                 the default.
+      saved_discovery          = True when severity and scope came
+                                 saved on this discovery message.
+      saved_architect_request  = True when they came saved on a
+                                 public Architect request.
+      candidate_scope          = the candidate's path verdict
+                                 mapping, or ``None``.
+      routine_review           = routine-review display name, or
+                                 ``None``; a routine review shortens
+                                 the banner to its own block.
+
+    Returns:
+      The banner text ending in one blank line.
+    """
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
         "store-wide mailbox max sequence at claim: %04d" % store_max,
