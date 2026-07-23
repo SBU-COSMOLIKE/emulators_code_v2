@@ -1,5 +1,4 @@
-"""This module provides work-balancing and process-pool helpers for
-multi-GPU sweeps.
+"""Work-balancing and process-pool helpers for multi-GPU sweeps.
 
 A sweep of many independent jobs (one training run per N_train value,
 or per hyperparameter value) must split the jobs so every GPU finishes
@@ -9,7 +8,8 @@ round-robin. run_gpu_pool then executes the buckets: one spawned
 process per (GPU, lane), each building its own experiment once and
 draining its GPU's job queue, with optional VRAM-token packing
 (estimate_train_vram_fraction + vram_tokens) so several small
-trainings can share one large GPU.
+trainings can share one large GPU.  VRAM is the GPU's own on-board
+memory, the resource the packing model budgets.
 
 The pool's execution model, one GPU shown:
 
@@ -38,16 +38,20 @@ The pool's execution model, one GPU shown:
 
 PS: spawn = the multiprocessing start method that launches a fresh
 interpreter per child (a forked child cannot reuse the parent's CUDA
-context); sentinel = a special queue item (None here) telling a
-worker to exit; LPT = Longest-Processing-Time, biggest job first to
-the least-loaded worker; token = one quarter of a GPU's capacity in
-the packing model; resident = held in GPU memory the whole run, not
-re-loaded each batch; loader = a closure load(rows) -> a
-ready-to-train batch on the device, hiding where the data lives
-(resident on GPU, streamed from RAM, or read from a disk memmap);
-dump = the full on-disk array from the data-generation run, one row
-per cosmology; encoded = a dv put through the geometry's encode (kept
-entries, centered, whitened).
+context, the per-process state CUDA keeps for a GPU); Queue = a
+process-safe channel — items put by one process can be got by
+another; Lock = mutual exclusion, at most one holder at a time;
+Semaphore(n) = a counter of n slots, acquire takes one and blocks at
+zero, release returns one; sentinel = a special queue item (None
+here) telling a worker to exit; LPT = Longest-Processing-Time,
+biggest job first to the least-loaded worker; token = one quarter of
+a GPU's capacity in the packing model; resident = held in GPU memory
+the whole run, not re-loaded each batch; loader = a closure
+load(rows) -> a ready-to-train batch on the device, hiding where the
+data lives (resident on GPU, streamed from RAM, or read from a disk
+memmap); dump = the full on-disk array from the data-generation run,
+one row per cosmology; encoded = a dv put through the geometry's
+encode (kept entries, centered, whitened).
 """
 
 import queue as queue_mod
@@ -56,8 +60,7 @@ import torch
 
 
 def lpt_assign(sizes, n_workers):
-  """
-  Balance the sweep points across GPUs by total N_train.
+  """Balance the sweep points across GPUs by total N_train.
 
   Longest-Processing-Time rule: hand the points out largest-N first, each to
   the GPU with the least work so far. A point's cost is about proportional to
@@ -104,8 +107,7 @@ def lpt_assign(sizes, n_workers):
 
 
 def even_assign(jobs, n_workers):
-  """
-  Round-robin split for equal-cost jobs.
+  """Round-robin split for equal-cost jobs.
 
   Job j goes to bucket j mod n_workers, preserving order within a
   bucket. Use it when every job costs about the same (one training
@@ -146,19 +148,19 @@ VRAM_OVERHEAD_BYTES = 2 * 1024 ** 3
 
 
 def estimate_train_vram_fraction(n_rows, dv_width, total_bytes):
-  """
-  Conservative fraction of one GPU a single training run needs.
+  """Conservative fraction of one GPU a single training run needs.
 
   The resident-regime peak is dominated by the encoded target set
   plus the pre-shuffle's transient copy of the current chunk (worst
   case: the whole resident set again), so the data term is budgeted
-  at 2 * n_rows * dv_width float32 values. dv_width is the full
-  on-disk dv width, an upper bound on the kept (masked) width the
-  loaders actually stage, so the estimate errs high. The fixed
-  VRAM_OVERHEAD_BYTES rides on top. If a run overflows the estimate
-  anyway, the loaders degrade to streaming against the GPU's real
-  free memory rather than crashing (batching.py sizes each source
-  against torch.cuda.mem_get_info at build time).
+  at 2 * n_rows * dv_width float32 values, at 4 bytes per float32
+  value. dv_width is the full on-disk dv width, an upper bound on the
+  kept (masked) width the loaders actually stage, so the estimate
+  errs high. The fixed VRAM_OVERHEAD_BYTES rides on top. If a run
+  overflows the estimate anyway, the loaders degrade to streaming
+  against the GPU's real free memory rather than crashing
+  (batching.py sizes each source against torch.cuda.mem_get_info at
+  build time).
 
   Arguments:
     n_rows      = training rows this job stages (its N_train).
@@ -176,8 +178,7 @@ def estimate_train_vram_fraction(n_rows, dv_width, total_bytes):
 
 
 def vram_tokens(fraction):
-  """
-  Map an estimated VRAM fraction to capacity tokens (of GPU_TOKENS).
+  """Map an estimated VRAM fraction to capacity tokens (of GPU_TOKENS).
 
   The packing rule, quantized to quarters of a GPU:
 
@@ -207,15 +208,15 @@ def _lane_main(gpu_id,
                result_q,
                gate,
                extra):
-  """
-  One worker process: pin the GPU, set up once, drain the job queue.
+  """One worker process: pin the GPU, set up once, drain the job queue.
 
   Runs in a spawned child. ``torch.cuda.set_device(gpu_id)`` sets this
   process's current CUDA device. CUDA calls that omit an explicit device
   use that current device. The call does not move existing tensors and
   does not override an explicitly supplied device. The worker then builds
   its state once via setup_fn and loops: pull (payload, tokens) items until
-  the None sentinel, run job_fn on each, put its result. Under
+  the None sentinel (the queue item that means "no more jobs, exit"),
+  run job_fn on each, put its result. Under
   packing the gate (lock, semaphore) serializes token acquisition --
   see the module docstring's graph.
 
@@ -274,8 +275,7 @@ def run_gpu_pool(setup_fn,
                  lanes_per_gpu=1,
                  job_tokens=None,
                  on_result=None):
-  """
-  Run pre-assigned job buckets across GPUs, one process per lane.
+  """Run pre-assigned job buckets across GPUs, one process per lane.
 
   Spawns min(lanes_per_gpu, len(bucket)) worker processes per GPU
   (spawn start method: each child is a fresh interpreter with its
@@ -287,6 +287,11 @@ def run_gpu_pool(setup_fn,
   lanes_per_gpu > 1 a per-GPU (lock, Semaphore(GPU_TOKENS)) gate
   enforces the token packing; job_tokens maps each payload to its
   token count (vram_tokens of its estimated fraction).
+
+  Both callables must be module-level functions because spawn sends a
+  function to the child by pickling its module-qualified name; a
+  function defined inside another function or a lambda has no such
+  name and cannot cross the process boundary.
 
   Arguments:
     setup_fn      = module-level setup_fn(gpu_id, extra) -> state.
