@@ -719,6 +719,14 @@ def main(argv=None):
     ``PERMANENT-NOTE-GUARD PASS`` line, then exits 0. Any difference or
     unreadable state prints one refusal line to standard error and exits
     2; the tool never modifies a file either way.
+
+    Arguments:
+      argv = the command-line arguments to parse, or ``None`` to use
+             the process's own.
+
+    Returns:
+      The process exit code: 0 for a complete match; refusals exit
+      with status 2 instead of returning.
     """
     parser = build_parser()
     arguments = parser.parse_args(argv)
