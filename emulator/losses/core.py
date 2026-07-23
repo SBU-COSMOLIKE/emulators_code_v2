@@ -158,9 +158,9 @@ def screen_chi2(chi2, loss, label, positions=None):
   One public helper for every site that PUBLISHES or RANKS a per-sample chi2
   * eval_val, eval_source_chi2, and the diagnostics producers (the local
   linear floor, the CMB / grid / grid2d residual functions). It derives the
-  family's roundoff band from the loss object's OWN adjudicated term count
-  (_chi2_n_terms, increment (g)) and the chi2's COMPUTE dtype (increment (g)
-  second addendum: pass the compute-dtype tensor, NEVER a .double() storage
+  family's roundoff band from the loss object's OWN term count
+  (_chi2_n_terms) and the chi2's COMPUTE dtype (pass the compute-dtype
+  tensor, NEVER a .double() storage
   upcast, or the band is relabelled to float64 and floored to 1e-6, splitting
   one score into two verdicts), applies the shared _chi2_domain predicate,
   and RAISES on any non-finite or materially-negative score. A within-band
@@ -168,10 +168,10 @@ def screen_chi2(chi2, loss, label, positions=None):
   NaN, so one score is never exact in training and negative in scoring, and
   a valid positive score passes through byte-identical.
 
-  Why raise here (unit 9 clause): a corrupted score must be REFUSED, never
+  Why raise here: a corrupted score must be REFUSED, never
   converted to "statistically unavailable" and carried on. A negative
   compares False to every positive threshold and would crown a broken model.
-  A geometry positive-definiteness check (unit 11) is defense in depth
+  The geometry positive-definiteness check is defense in depth
   UPSTREAM, not a substitute for this boundary: a same-shaped h5 edit that
   strict weight loading accepts can still produce an out-of-domain score.
 
@@ -331,9 +331,9 @@ class CosmolikeChi2:
     squares, also w deep. Both depths are the kept per-row width w, so this
     is ONE definition on the base class for EVERY family. A flat w^2 product
     count both overcounts the depth and ignores that the terms near zero are
-    themselves small; it made the band 34.3 at w = 3000, swallowing a
-    chi2 = -2.0 as a "perfect" row (the false-crowning hole increment (e)
-    closed). ScalarChi2 (a diagonal sum of n_out squares) inherits this
+    themselves small; at w = 3000 it would put the band at 34.3, wide
+    enough to swallow a chi2 = -2.0 as a "perfect"
+    row. ScalarChi2 (a diagonal sum of n_out squares) inherits this
     unchanged and is correct with no override. The value is a per-run
     constant, read once at the top of _reduce and by the eval / diagnostic
     boundaries. GROWTH CLAUSE: the band may only ever WIDEN on
@@ -628,8 +628,8 @@ class CosmolikeChi2:
       min=0.0)
     h = (c / (c + focus_scale)).detach()
     # the trim enters as a weight: dropped samples get w = 0, so
-    # both sums below run over the kept prefix only, the same
-    # numerator and normalizer as the old topk form.
+    # both sums below run over the kept prefix only — the trim and
+    # the focus weighting share one numerator and one normalizer.
     w = keep * h ** gamma
     # normalized weighted mean (stable scale as w anneals).
     return (w * v).sum() / (w.sum() + 1e-12)
