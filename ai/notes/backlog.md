@@ -1722,8 +1722,19 @@ and the atomic save), with `dataset_generator_lensing.py` and
 COMPLETE: all five adapters now teach the Cobaya lifecycle (who calls
 initialize and what extra_args is), the closed-option-list reason, and
 (emul_mps) the bicubic spline; their module and class docstrings were
-audited clean. Remaining under this ticket: the remaining `ai/tools/`
-files, `ai/tests/`, and the repository-wide chronology rewrite. The
+audited clean. The `ai/tools/` arm is underway: twelve more files are
+complete (`candidate_admission.py`, `review_dispatch.py`,
+`implementer_checkpoint_hook.py`, `reopen_transition.py`,
+`control_plane_handoff.py`, `provider_health.py`,
+`mailbox_providers.py`, `ticket_change_guard.py`, `mailbox_watch.py`,
+`mailbox_tickets.py`, `mailbox_store.py`, `backlog_bundle.py`),
+joining the three swept earlier for fifteen of twenty-five.
+Remaining under this ticket: the ten large daemon-part files
+(`mailbox_daemon.py`, `mailbox_dispatch.py`,
+`mailbox_control_plane.py`, `mailbox_landing.py`,
+`mailbox_envelopes.py`, `mailbox_recovery.py`, `mailbox_cycles.py`,
+`mailbox_worktrees.py`, `handoff_contract.py`, `handoff_router.py`),
+`ai/tests/`, and the repository-wide chronology rewrite. The
 required depth follows the recorded reader standard: no unstated
 Python mechanic or term of art, with Arguments, Returns, and Raises
 blocks in the aligned name = description form.
