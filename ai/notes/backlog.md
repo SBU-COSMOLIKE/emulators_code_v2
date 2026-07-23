@@ -1743,6 +1743,11 @@ files (`mailbox_daemon.py`, `mailbox_dispatch.py`,
 `mailbox_control_plane.py`, `mailbox_cycles.py`,
 `handoff_contract.py`, `mailbox_envelopes.py`,
 `mailbox_landing.py`, `mailbox_worktrees.py`).
+A later user spot check caught undefined jargon surviving in the
+completed emulator arm: `family_drivers.py` used "sweep",
+"N-train sweep", and "sweep point" without defining them, and its
+docstrings now define that vocabulary in plain words (one commit,
+same stripped-AST and full-suite proofs).
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite. The
 required depth follows the recorded reader standard: no unstated
