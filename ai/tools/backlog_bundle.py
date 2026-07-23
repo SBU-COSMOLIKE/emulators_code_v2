@@ -180,7 +180,15 @@ def repository_identity(repo):
 
 
 def _is_int(value):
-    """Return True for a real integer; a Boolean does not count here."""
+    """Test for a real integer, refusing the Boolean subtype.
+
+    Arguments:
+      value = the manifest value to test.
+
+    Returns:
+      True only for a real ``int``; ``True`` and ``False`` are
+      integers to Python but must not pass a manifest size check.
+    """
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -744,10 +752,24 @@ class _BytesReader:
     """Small file-like reader accepted by TarFile.addfile on Python 3.9."""
 
     def __init__(self, data):
+        """Wrap one bytes value with a read cursor at its start.
+
+        Arguments:
+          data = the complete bytes the reader will serve.
+        """
         self.data = data
         self.offset = 0
 
     def read(self, size=-1):
+        """Read the next chunk, following the file-object convention.
+
+        Arguments:
+          size = the maximum number of bytes to return; a negative
+                 value means everything that remains.
+
+        Returns:
+          The next bytes from the cursor, empty at end of data.
+        """
         if size < 0:
             size = len(self.data) - self.offset
         result = self.data[self.offset:self.offset + size]
@@ -756,7 +778,15 @@ class _BytesReader:
 
 
 def sha256_file(path):
-    """Return the SHA-256 hex digest of one file read in bounded chunks."""
+    """Fingerprint one file without loading it whole into memory.
+
+    Arguments:
+      path = the file to hash, as a pathlib path.
+
+    Returns:
+      The SHA-256 hex digest of the file's bytes, read in bounded
+      chunks so archive-sized files never fill memory.
+    """
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(IO_CHUNK), b""):
@@ -1202,13 +1232,14 @@ def print_inspection(manifest, bundle_id, archive_digest, show_backlog, payload)
 def verify_import_repository(repo, manifest):
     """Require this checkout to match the archive's repository and base.
 
-    Returns True when the archive's base commit is an ancestor of the
-    current ``HEAD``, and False when the base is present but unrelated;
-    the caller only warns in the second case.
-
     Arguments:
       repo     = this checkout's root.
       manifest = the validated manifest.
+
+    Returns:
+      True when the archive's base commit is an ancestor of the
+      current ``HEAD``; False when the base is present but unrelated,
+      where the caller only warns.
 
     Raises:
       BundleError: for a different repository identity, a missing
@@ -1269,7 +1300,13 @@ def _import_destination(repo, requested, bundle_id):
 
 
 def _directory_open_flags():
-    """Return the no-follow directory open flags this platform supports."""
+    """Choose the strictest directory-open flags this platform has.
+
+    Returns:
+      Read-only open flags extended with ``O_DIRECTORY`` (fail unless
+      the path is a directory) and ``O_NOFOLLOW`` (fail on a symlink)
+      whenever the operating system provides them.
+    """
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY
@@ -1385,7 +1422,20 @@ def _write_file_at(parent_fd, name, data):
 
 
 def _open_or_create_directory_at(parent_fd, name):
-    """Create the child directory when missing, then open it by descriptor."""
+    """Create the child directory when missing, then open it by descriptor.
+
+    Arguments:
+      parent_fd = the open descriptor of the parent directory.
+      name      = the child directory's single-component name.
+
+    Returns:
+      An open descriptor for the child, created with owner-only
+      permissions when it did not exist, and opened with the same
+      link-refusing checks as _open_directory_at.
+
+    Raises:
+      BundleError: when the opened child is not a plain directory.
+    """
     try:
         os.mkdir(name, 0o700, dir_fd=parent_fd)
     except FileExistsError:
@@ -1534,6 +1584,18 @@ def _collect_import_tree(root_fd):
     budget = [0]
 
     def visit(directory_fd, prefix, depth):
+        """Walk one directory level by descriptor, within hard bounds.
+
+        Arguments:
+          directory_fd = the open descriptor being listed.
+          prefix       = the relative path accumulated so far.
+          depth        = the current recursion depth.
+
+        Returns:
+          True when this level and everything below it was listed
+          within the depth and member budgets with no filesystem
+          surprise; False stops the whole scan as untrustworthy.
+        """
         if depth > MAX_PATH_DEPTH + 2:
             return False
         try:
@@ -1851,7 +1913,16 @@ def command_inspect(args):
 
 
 def build_parser():
-    """Build the ``pack`` / ``inspect`` / ``unpack`` command-line parser."""
+    """Build the command-line interface for the three bundle actions.
+
+    ``pack`` creates a deterministic archive, ``inspect`` (alias
+    ``read``) fully validates and summarizes one, and ``unpack``
+    (alias ``import``) copies one into a fresh review directory.
+
+    Returns:
+      The configured argparse parser; each subcommand carries its
+      handler as a default, so main only parses and dispatches.
+    """
     parser = argparse.ArgumentParser(
         description="Package and safely read an offline backlog handoff.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1896,6 +1967,10 @@ def main(argv=None):
     command exits 0. No command edits the live notes: ``pack`` writes one
     new ignored archive, ``inspect`` only reads, and ``unpack`` writes a
     fresh review directory under ``ai/backlog-imports/``.
+
+    Arguments:
+      argv = the command-line arguments to parse, or ``None`` to use
+             the process's own.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
