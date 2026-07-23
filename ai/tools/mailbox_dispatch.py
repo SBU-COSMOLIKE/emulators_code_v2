@@ -75,7 +75,20 @@ def provider_is_out_of_tokens(agent, reply_lines, implementer_provider=None):
 
 
 def provider_failure_guidance(agent, reply_lines):
-    """Return provider-specific recovery text for a failed role process."""
+    """Return provider-specific recovery text for a failed role process.
+
+    The last lines of the role's reply are searched for known failure
+    marks; the returned sentence names the failing service and the
+    exact command to run before requeueing from ``failed/``.
+
+    Arguments:
+      agent       = the dispatched role.
+      reply_lines = the role process's captured output lines.
+
+    Returns:
+      One recovery sentence; a generic inspect-the-log sentence when
+      no known mark matches.
+    """
     text = "\n".join(reply_lines[-40:]).replace("’", "'").casefold()
     if agent != "opus" or daemon.IMPLEMENTER_RUNTIME["provider"] != "ollama":
         if "not logged in" in text:
@@ -127,7 +140,12 @@ def kill_agent_process(proc):
 
 
 def kill_live_agent_processes():
-    """Kill every currently launched agent CLI (second-Ctrl-C path)."""
+    """Kill every currently launched agent CLI (second-Ctrl-C path).
+
+    The live-process table is copied under its lock, then each still
+    running child is stopped with its whole process group, so a
+    second Ctrl-C ends real work instead of waiting politely for it.
+    """
     with daemon._LIVE_AGENT_PROCESSES_LOCK:
         live = list(daemon._LIVE_AGENT_PROCESSES.values())
     for proc in live:
@@ -153,7 +171,15 @@ def park_failed_outcome(dispatch_path):
 
 
 def park_failed_turn_outcome(dispatch_path):
-    """Word the failed/ outcome for a message whose turn already ran."""
+    """Word the failed/ outcome for a message whose turn already ran.
+
+    Arguments:
+      dispatch_path = the claimed mailbox file to park.
+
+    Returns:
+      The sentence tail reporting the verified move, or the
+      unverified-move wording.
+    """
     parked = daemon.park_failed_message(dispatch_path=dispatch_path)
     if parked:
         return "message parked in failed/."
@@ -161,7 +187,15 @@ def park_failed_turn_outcome(dispatch_path):
 
 
 def park_prelaunch_outcome(dispatch_path):
-    """Park one claimed message in prelaunch/ and word the verified outcome."""
+    """Park one claimed message in prelaunch/ and word the verified outcome.
+
+    Arguments:
+      dispatch_path = the claimed mailbox file to retain.
+
+    Returns:
+      The sentence tail reporting the verified retention, or the
+      unverified-move wording.
+    """
     parked = daemon.park_prelaunch_message(dispatch_path=dispatch_path)
     if parked:
         return "retained in prelaunch/."
@@ -208,7 +242,32 @@ def reserve_dispatch_log_path(stamp, agent, relay_directory):
 
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False,
              new_reservation_cycle=None, architect_admission=None):
-    """Serialize Architect GO decisions, then run one dispatch."""
+    """Serialize Architect GO decisions, then run one dispatch.
+
+    Only a live Architect turn takes the main-checkout turn lock: its
+    GO decision may land commits on the user's main, so two such
+    turns must never overlap. A permanent-note administration turn
+    additionally requires an idle ticket boundary and is deferred,
+    not failed, when a ticket transition is underway. Every other
+    turn goes straight to the locked dispatch body.
+
+    Arguments:
+      path                  = the pending mailbox message.
+      dry_run               = preview without starting a role.
+      fix_only              = True in a fix-only watch.
+      skip_redteam          = True in a two-role watch.
+      new_reservation_cycle = finite-watch reservation for a new
+                              ticket, or ``None``.
+      architect_admission   = admission token for a public Architect
+                              request, or ``None``.
+
+    Returns:
+      True when the dispatch consumed the message; False when it was
+      refused or deferred with the root message left in place.
+
+    Raises:
+      ValueError: when the path is not a pending agent message.
+    """
     match = daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(path))
     if match is None:
         raise ValueError("not a pending agent message: " + path)
@@ -1104,7 +1163,8 @@ def dispatch_under_main_checkout_lock(
                               if parked else None))
         # a failed dispatch is NOT done: park it in failed/ so it is never
         # silently consumed, and never hot-retried while the cause persists.
-        # Requeue after fixing the cause:  mv ai/notes/mailbox/failed/<f> ai/notes/mailbox/
+        # Requeue after fixing the cause:
+        #   mv ai/notes/mailbox/failed/<f> ai/notes/mailbox/
         parked = daemon.park_failed_message(dispatch_path=dispatch_path)
         # the turn's output lives in the log file (it streams there;
         # proc.stdout is None under Popen with a file handle).
@@ -1726,7 +1786,15 @@ def dispatch_under_main_checkout_lock(
 
 
 def park_failed_message(dispatch_path):
-    """Move a claimed message to failed and verify its exact inode."""
+    """Move a claimed message to failed and verify its exact inode.
+
+    Arguments:
+      dispatch_path = the claimed mailbox file.
+
+    Returns:
+      True only when the destination provably owns the same inode
+      and the source name is gone.
+    """
     _, verified = daemon.verified_state_move(
         dispatch_path=dispatch_path,
         directory=daemon.os.path.join(daemon.MAILBOX, "failed"))
@@ -1734,7 +1802,14 @@ def park_failed_message(dispatch_path):
 
 
 def park_prelaunch_message(dispatch_path):
-    """Retain a request that was refused before its agent process started."""
+    """Retain a request that was refused before its agent process started.
+
+    Arguments:
+      dispatch_path = the claimed mailbox file.
+
+    Returns:
+      True only when the verified move into ``prelaunch/`` succeeded.
+    """
     _, verified = daemon.verified_state_move(
         dispatch_path=dispatch_path,
         directory=daemon.os.path.join(daemon.MAILBOX, "prelaunch"))
@@ -1742,7 +1817,19 @@ def park_prelaunch_message(dispatch_path):
 
 
 def regular_inode(path):
-    """Return ``(device, inode)`` only for an exact regular-file path."""
+    """Return ``(device, inode)`` only for an exact regular-file path.
+
+    An inode is the filesystem's identity for a file's contents,
+    independent of its name; together with the device number it names
+    one file uniquely.
+
+    Arguments:
+      path = the path to inspect, without following a final symlink.
+
+    Returns:
+      The ``(device, inode)`` pair, or ``None`` for a missing or
+      non-regular path.
+    """
     try:
         details = daemon.os.lstat(path)
     except OSError:
@@ -1753,7 +1840,23 @@ def regular_inode(path):
 
 
 def regular_file_has_prefix(path, prefix):
-    """Read only one ASCII prefix while proving a stable regular inode."""
+    """Read only one ASCII prefix while proving a stable regular inode.
+
+    The file's identity and metadata are captured four times around
+    the read; any change refuses the check rather than trusting a
+    file that moved underneath it.
+
+    Arguments:
+      path   = the file to check.
+      prefix = the nonempty expected leading bytes.
+
+    Returns:
+      True when the file starts with exactly those bytes.
+
+    Raises:
+      ValueError: for an empty prefix or a file that changed during
+        the check.
+    """
     if not isinstance(prefix, bytes) or not prefix:
         raise ValueError("file prefix must be nonempty bytes")
     initial = daemon.os.lstat(path)
@@ -1785,7 +1888,16 @@ def regular_file_has_prefix(path, prefix):
 
 
 def restore_state_source(guard_path, dispatch_path, source_inode):
-    """Restore the exact claimed inode from its safety guard if necessary."""
+    """Restore the exact claimed inode from its safety guard if necessary.
+
+    Arguments:
+      guard_path    = the same-inode safety hardlink.
+      dispatch_path = the original claimed name to restore.
+      source_inode  = the identity the restored file must have.
+
+    Returns:
+      True when the claimed name again holds the source inode.
+    """
     if not daemon.os.path.lexists(dispatch_path):
         try:
             daemon.os.link(guard_path, dispatch_path)
@@ -1796,7 +1908,15 @@ def restore_state_source(guard_path, dispatch_path, source_inode):
 
 
 def remove_state_guard(guard_path, source_inode):
-    """Remove only the unchanged safety hardlink owned by this move."""
+    """Remove only the unchanged safety hardlink owned by this move.
+
+    Arguments:
+      guard_path   = the safety hardlink.
+      source_inode = the identity the guard must still hold.
+
+    Returns:
+      True when the guard held the inode and its name is now gone.
+    """
     if daemon.regular_inode(path=guard_path) != source_inode:
         return False
     try:
@@ -1809,9 +1929,20 @@ def remove_state_guard(guard_path, source_inode):
 def verified_state_move(dispatch_path, directory):
     """Move one regular inode and prove the destination owns that inode.
 
+    A hardlink is a second name for the same inode. The move
+    publishes the destination by hardlink, keeps one same-inode
+    guard beside the source until the destination's identity is
+    proven, and restores the source from the guard when anything
+    disagrees.
+
+    Arguments:
+      dispatch_path = the claimed source file.
+      directory     = the destination state directory.
+
     Returns:
-      ``(destination, verified)``. The destination is None when publication
-      itself failed; verification also requires the source path to be absent.
+      ``(destination, verified)``. The destination is None when
+      publication itself failed; verification also requires the
+      source path to be absent and the guard to be cleanly removed.
     """
     source_inode = daemon.regular_inode(path=dispatch_path)
     if source_inode is None:
@@ -1871,8 +2002,13 @@ def verified_state_move(dispatch_path, directory):
 def archive_consumed_message(dispatch_path):
     """Move a clean dispatch to done and verify the archive before success.
 
+    Arguments:
+      dispatch_path = the consumed inflight message.
+
     Returns:
-      True only when the exact destination is a regular file after the move.
+      True only when the exact destination owns the source inode
+      after the move; any other state leaves the message where it is
+      and reports that dispatch is not consumed.
     """
     name = daemon.os.path.basename(dispatch_path)
     done_path, verified = daemon.verified_state_move(
