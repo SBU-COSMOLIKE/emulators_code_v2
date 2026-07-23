@@ -1,19 +1,29 @@
-"""This module computes the analytic cosmic-shear rescaling R, the As /
-shape preprocessor.
+"""Analytic cosmic-shear rescaling R: the As / shape preprocessor.
 
-It evaluates a fast, closed-form reference xi (Eisenstein-Hu zero-baryon
-transfer, linear, single-plane Limber) to divide out the broadband
-cosmology dependence so the network emulates a flatter target. _analytic_R
-holds the formula (numpy or torch, picked by input type).
-analytic_shape_ratio wraps it over the masked data vector (the emulator
-path); rescale_xi wraps it over the (theta, xip, xim) matrix layout (for
-plotting and visual checks). The RescaledChi2 and ResidualBaseChi2 losses
-call _analytic_R on-device.
+Cosmic shear is the correlated distortion of galaxy shapes produced by
+gravitational lensing from large-scale structure.  Its data vector is
+built from the two correlation functions xi+ and xi-, measured between
+tomographic bins (redshift slices of the galaxy sample) as functions
+of the angular separation theta.  This module evaluates a fast
+closed-form reference for that signal — the Eisenstein-Hu zero-baryon
+transfer function, linear theory, and a single-plane Limber mapping
+from angle to wavenumber — and divides it out, so the network emulates
+a flatter target: R removes the broadband dependence on the primordial
+amplitude As and on the spectrum's shape, leaving the network the
+residual physics the closed form misses.
 
-PS: squeeze = keep only the unmasked dv entries (the geometry's squeeze),
-so the squeezed dv has one column per kept element; unsqueeze scatters them
-back into the full-length vector. resident = held in GPU memory the whole
-run, not re-loaded each batch.
+_analytic_R holds the formula once (numpy or torch, picked by input
+type).  analytic_shape_ratio wraps it over the masked data vector (the
+emulator path); rescale_xi wraps it over the (theta, xip, xim) matrix
+layout (for plotting and visual checks).  The RescaledChi2 and
+ResidualBaseChi2 losses call _analytic_R on-device, with tensors
+already resident on the training GPU.
+
+Vocabulary used throughout: the geometry's squeeze keeps only the
+unmasked data-vector entries, so the squeezed dv has one column per
+kept element, and unsqueeze scatters them back into the full-length
+vector; "resident" means held in GPU memory the whole run, not
+re-loaded each batch.
 """
 
 import numpy as np
@@ -27,24 +37,32 @@ def _analytic_R(theta_arcmin,
                 names,
                 u_star=0.5,
                 include_amp=False):
-  """
-  Core analytic cosmic-shear rescaling R: the one place the
-  formula lives.
+  """Core analytic cosmic-shear rescaling R: the one place the formula lives.
 
     R = (As_mid/As) * q_mid^ns_mid T(q_mid)^2 / (q^ns T(q)^2),
     q = K / (theta_rad * z_eff * Omega_m h),
     K = 100 Theta^2 / (c[km/s] * u*),
-  with T the Eisenstein-Hu zero-baryon transfer function. Each
-  cosmology uses its own ns.
+
+  T is the Eisenstein-Hu zero-baryon transfer function: the closed-form
+  fit for how matter physics filters the shape of the primordial power
+  spectrum when baryon features are neglected.  The q map is the
+  single-plane Limber step — it converts an angular separation, at one
+  effective lens plane set by z_eff and u_star, into the wavenumber
+  ratio the transfer function is evaluated at.  As is the primordial
+  amplitude and ns the spectral tilt; each cosmology uses its own ns,
+  and R = 1 for a row equal to the reference cosmology.  Theta = the
+  CMB temperature in units of 2.7 K, the EH fit's convention.
 
   One formula supports two array libraries. NumPy is used by the
   analysis and plotting wrappers. Torch is used by the training loop
   with tensors already placed on the selected device. The arithmetic
   is shared, while the logarithm and input conversion differ.
 
-  theta_arcmin and z_eff broadcast to the element shape S (both
-  (n_keep,) for the masked dv; (ntheta,1,1) and (1,nt,nt) for
-  the full xi matrix).
+  theta_arcmin and z_eff broadcast to the element shape S.
+  Broadcasting is the numpy/torch rule that stretches axes of length 1
+  to match the other operand, so both can be (n_keep,) for the masked
+  data vector, or (ntheta,1,1) and (1,nt,nt) for the full xi matrix —
+  the two spellings expand to the same grid without copying data.
 
   Arguments:
     theta_arcmin = per-element angular scale(s) [arcmin].
@@ -161,11 +179,15 @@ def analytic_shape_ratio(cosmo,
                          zsrc_j,
                          u_star=0.5,
                          include_amp=False):
-  """
-  Cosmic-shear rescaling R over the masked (kept) data vector,
-  for the emulator pipeline: column k aligns with kept element
-  dest_idx[k]. Multiply the squeezed dv by R to preprocess;
-  divide it back out before the chi2. Calls _analytic_R with the
+  """Cosmic-shear rescaling R over the masked (kept) data vector.
+
+  The emulator-pipeline wrapper: column k of R aligns with kept
+  element dest_idx[k] of the squeezed data vector (the geometry's
+  squeeze keeps only the unmasked entries).  Multiply the squeezed dv
+  by R to preprocess; divide it back out before the chi2.  The
+  effective redshift of each kept element is min(zsrc_i, zsrc_j),
+  because the shear signal of a tomographic bin pair is dominated by
+  the nearer of the two source planes.  Calls _analytic_R with the
   kept-element geometry.
 
   Arguments:
@@ -201,13 +223,14 @@ def rescale_xi(xi,
                z_src,
                u_star=0.5,
                include_amp=True):
-  """
-  Rescale a list of xi curves by R, in the (theta, xip, xim)
-  matrix layout, for plotting/visual checks. Calls _analytic_R
-  with the full-block matrix geometry (all tomographic pairs and
-  theta, unmasked). R > 0, so xi- keeps its sign; R = 1 for a
-  curve equal to cosmo_mid. z_eff = min(z_i, z_j) for the cross
-  pairs.
+  """Rescale a list of xi curves by R in the (theta, xip, xim) layout.
+
+  The plotting/visual-check wrapper: it calls _analytic_R with the
+  full-block matrix geometry — every tomographic bin pair at every
+  theta, no mask applied — so a whole xi curve can be flattened for
+  inspection.  R is strictly positive, so xi- keeps its sign; R = 1
+  for a curve equal to cosmo_mid.  The effective redshift of a cross
+  pair is min(z_i, z_j), the nearer source plane.
 
   Arguments:
     xi          = list of (theta, xip, xim); xip/xim are
