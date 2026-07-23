@@ -1,13 +1,13 @@
 """The scientific identity a dataset and an emulator are born under.
 
 A trained emulator answers questions about one cosmology, over one region of
-one parameter space. Nothing in a saved emulator used to record either fact.
-The file kept the names of the parameters that were sampled and nothing about
-the world those names lived in: not the parameters held fixed while they
-varied, not the interval each was allowed to range over, not which dataset the
-weights were fitted to. A consumer could therefore hand a w-varying emulator to
-a cosmological-constant likelihood, or ask an emulator trained on 0.1 < omegam
-< 0.5 about omegam = 0.7, and get a confident number back with no warning.
+one parameter space. A saved emulator that recorded only the names of its
+sampled parameters -- and nothing about the world those names lived in: not
+the parameters held fixed while they varied, not the interval each was allowed
+to range over, not which dataset the weights were fitted to -- would let a
+consumer hand a w-varying emulator to a cosmological-constant likelihood, or
+ask an emulator trained on 0.1 < omegam < 0.5 about omegam = 0.7, and get a
+confident number back with no warning.
 
 This module is the record that closes that hole. It defines two blocks of
 persisted truth and the laws that read them:
@@ -68,7 +68,7 @@ sampled parameter is the interval it was drawn from. "Shortest-roundtrip
 decimal" is the shortest decimal string that reads back as exactly the same
 32-bit float it was written from.
 
-Spec and accepted contract: ai/notes/artifacts-inference-warmstart.md,
+The full specification lives in ai/notes/artifacts-inference-warmstart.md,
 "fixed-facts-schema: a saved emulator records the science it was born under."
 """
 
@@ -472,7 +472,8 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
 
   Raises:
     ValueError when a declared support does not cover exactly the sampled names
-    (build_sidecar's law, unchanged: a support is a per-name contract).
+    (build_sidecar's law: every sampled name carries its own support
+    interval, no more and no fewer).
   """
   fixed = {}
   for key in COSMOLOGY_FIXED_KEYS:
@@ -1150,9 +1151,9 @@ def check_support(compiled, point):
 
   An emulator interpolates inside the region it was trained over, and outside
   it, it extrapolates: it returns a number of the right shape, with the right
-  sign, and no warning. Nothing in a saved emulator used to record the region
-  at all, so nothing could refuse. This is the refusal, and it is the ONE author
-  of it: check_domain below and predict() in emulator/inference.py both arrive
+  sign, and no warning. A recorded region is therefore only worth saving with
+  a refusal attached, and this is that refusal, with ONE author:
+  check_domain below and predict() in emulator/inference.py both arrive
   here, so a point cannot be refused in one place and served in another, and the
   words a cosmologist reads are the same words whichever door was walked
   through.
