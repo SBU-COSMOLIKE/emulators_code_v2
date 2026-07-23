@@ -277,10 +277,14 @@ class PowerSpectrumInterpolator(RectBivariateSpline):
                  logsign=1):
         """Build the bicubic spline, adding power-law tails on request.
 
-        The class docstring documents every parameter. Extrapolation
-        works by extending the log(k) axis with two synthetic columns on
-        the requested side whose values continue the edge slope of
-        log(P) -- a power law in k -- before the spline is fitted.
+        A bicubic spline interpolates a surface with piecewise cubic
+        polynomials that are smooth in both axes; here it is fitted on
+        (z, log k), the axes the spectrum varies gently over. The class
+        docstring documents every parameter. Extrapolation works by
+        extending the log(k) axis with two synthetic columns on the
+        requested side whose values continue the edge slope of
+        log(P) -- a straight line in log-log space is a power law in
+        k -- before the spline is fitted.
         """
         self.islog = logP
         z, k, P_or_logP = np.asarray(z), np.asarray(k), np.asarray(P_or_logP)
@@ -475,7 +479,22 @@ class emul_mps(Theory):
     _allow_k_extrapolation = True
 
     def initialize(self):
-        """Build the two predictors; check grids, laws, requirements."""
+        """Build the two predictors; check grids, laws, requirements.
+
+        Cobaya constructs one instance of this class from the sampling
+        YAML's theory block and calls initialize() once, before any
+        sampling; extra_args is that block's option mapping, handed
+        over by Cobaya as an attribute. This method validates the
+        options, picks the device, rebuilds the linear-spectrum and
+        boost predictors, checks that their (z, k) grids and analytic
+        laws agree, and derives the required sampled inputs from the
+        artifacts' own stored names.
+
+        Raises:
+          ValueError for an unknown option, a malformed emulators
+          list, an artifact of the wrong family, or predictors whose
+          grids or laws disagree.
+        """
         super().initialize()
         self._sigma8_requested = False
         self._check_extra_args()
@@ -624,7 +643,13 @@ class emul_mps(Theory):
             provider=provider)
 
     def _check_extra_args(self):
-        """Reject any extra_args key outside the v2 convention, loudly."""
+        """Reject any extra_args key outside the v2 convention, loudly.
+
+        Cobaya passes the theory block's options through without
+        checking them, so a typo'd key would otherwise be silently
+        ignored and its intended setting silently defaulted; the
+        closed list turns that into a named error.
+        """
         unknown = []
         for key in self.extra_args:
             if key not in _ALLOWED_EXTRA_ARGS:
