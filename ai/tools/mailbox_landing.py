@@ -157,17 +157,39 @@ def cycle_candidate_ref(cycle_id):
 
 
 def candidate_state_path():
-    """Return the ignored primary record binding cycles to immutable refs."""
+    """Name the file binding ticket cycles to their candidate refs.
+
+    Returns:
+      The path of the Git-ignored JSON record inside the mailbox
+      directory.
+    """
     return daemon.os.path.join(daemon.MAILBOX, daemon.CANDIDATE_STATE_NAME)
 
 
 def empty_candidate_state():
-    """Return a fresh candidate-state payload."""
+    """Build the starting value for a mailbox with no candidates yet.
+
+    Returns:
+      A fresh payload holding the schema tag and an empty cycles
+      table.
+    """
     return {"schema": daemon.CANDIDATE_STATE_SCHEMA, "cycles": {}}
 
 
 def read_candidate_state():
-    """Read the bounded exact-schema candidate record."""
+    """Read and validate the durable candidate record from disk.
+
+    A missing file is the one clean absence and returns the empty
+    starting payload; anything else must parse as strict JSON with
+    unique keys and pass schema validation.
+
+    Returns:
+      The validated candidate-state payload.
+
+    Raises:
+      daemon.TicketCycleStateError: for an unreadable, oversized,
+        non-JSON, duplicate-key, or schema-invalid record.
+    """
     try:
         raw = daemon.stable_regular_bytes(
             path=daemon.candidate_state_path(),
@@ -417,6 +439,10 @@ def prepare_implementer_cycle_checkout(
                           replacement Implementer.
       restart_from_base = True to discard the candidate and restart
                           at the cycle base.
+
+    Returns:
+      The full commit the Implementer checkout now sits on: the
+      preserved head, the saved candidate, or the cycle base.
 
     Raises:
       daemon.TicketCycleStateError: when the checkout cannot be
@@ -746,9 +772,13 @@ def write_implementer_delivery_receipt(request_path, return_path):
       request_path = the dispatched request file.
       return_path  = the validated return file.
 
+    Returns:
+      The receipt hardlink's path inside the mailbox directory.
+
     Raises:
-      daemon.TicketCycleStateError: for an invalid name or an
-        unrecognized request-to-return route.
+      daemon.TicketCycleStateError: for an invalid name, an
+        unrecognized request-to-return route, or a return whose bytes
+        changed while the receipt was saved.
     """
     request = daemon.stable_regular_bytes(
         path=request_path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
@@ -795,7 +825,23 @@ def write_implementer_delivery_receipt(request_path, return_path):
 
 
 def recover_implementer_deliveries():
-    """Finish exact candidate deliveries interrupted after a valid return."""
+    """Finish exact candidate deliveries interrupted after a valid return.
+
+    A delivery receipt hardlink proves a validated return answered one
+    exact request, both bound by name and SHA-256. For each receipt
+    still present, the named return is located in exactly one mailbox
+    state, its bytes are re-proved against the receipt, and the
+    interrupted step — the request archive, a repair-scope record, or
+    the candidate adoption — is finished so the work counts without
+    any role rerunning.
+
+    Returns:
+      The number of interrupted deliveries finished.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed receipt filename,
+        an ambiguous or changed return, or a failed replay step.
+    """
     pattern = daemon.os.path.join(
         daemon.MAILBOX, daemon.IMPLEMENTER_DELIVERY_PREFIX + "*")
     recovered = 0
@@ -1390,7 +1436,19 @@ def _tree_with_backlog(tree, backlog):
         environment["GIT_INDEX_FILE"] = daemon.os.path.join(tmp, "index")
 
         def git(arguments, input_bytes=None):
-            """Run one Git step against the scratch index."""
+            """Run one Git step against the scratch index.
+
+            Arguments:
+              arguments   = the git arguments after the command name.
+              input_bytes = bytes for standard input, or ``None``.
+
+            Returns:
+              The step's standard-output bytes.
+
+            Raises:
+              daemon.TicketCycleStateError: when the step exits
+                nonzero.
+            """
             result = daemon.subprocess.run(
                 ["git", "-C", daemon.AGENT_CWD["fable"]] + arguments,
                 env=environment, input=input_bytes, stdout=daemon.subprocess.PIPE,
@@ -1563,6 +1621,16 @@ def _candidate_commit_message(candidate_commit):
     already part of the immutable object under review. The daemon reads that
     message instead of inventing an internal-only subject for the squash
     landing.
+
+    Arguments:
+      candidate_commit = C, the full audited candidate commit hash.
+
+    Returns:
+      The candidate's decoded commit message text.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed hash, an
+        unreadable commit object, or a commit with no message.
     """
     if daemon.FULL_COMMIT_RE.fullmatch(candidate_commit) is None:
         raise daemon.TicketCycleStateError(
@@ -1801,7 +1869,16 @@ def prepare_exact_squash_landing(cycle_id, candidate_commit, mode,
 
 
 def _user_checkout_status():
-    """Return exact tracked/untracked status without refreshing the index."""
+    """Inspect the user's main checkout without touching its index.
+
+    Returns:
+      Raw NUL-separated ``git status`` bytes for tracked and untracked
+      files; empty means completely clean. The optional-locks setting
+      keeps the read from rewriting the index it inspects.
+
+    Raises:
+      daemon.TicketCycleStateError: when the status command fails.
+    """
     environment = daemon.os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = daemon.subprocess.run(
@@ -1892,6 +1969,9 @@ def write_push_debt(landing, detail):
       landing = the locally verified landing L.
       detail  = the last push attempt's result text; the record names
                 the exact push command still owed.
+
+    Returns:
+      The debt record's path after its atomic replacement landed.
     """
     daemon.os.makedirs(daemon.RELAY_DIR, exist_ok=True)
     debt = daemon._push_debt_path(landing=landing)
