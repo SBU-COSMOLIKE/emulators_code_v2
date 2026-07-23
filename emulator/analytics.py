@@ -95,7 +95,14 @@ def _analytic_R(theta_arcmin,
   if is_torch:
     log = torch.log
     def coerce(a):
-      """Match one constant to the input's tensor dtype and device."""
+      """Match one constant to the input's tensor dtype and device.
+
+      Arguments:
+        a = the geometry constant (array-like) to convert.
+
+      Returns:
+        the constant as a tensor on cosmo's dtype and device.
+      """
       return torch.as_tensor(a, dtype=cosmo.dtype, device=cosmo.device)
     # a lone 1D row -> (1, n_param): the tensor np.atleast_2d, so
     # the [:, col] indexing below works.
@@ -104,7 +111,14 @@ def _analytic_R(theta_arcmin,
   else:
     log = np.log
     def coerce(a):
-      """Match one constant to the numpy float64 the branch computes in."""
+      """Match one constant to the numpy float64 the branch computes in.
+
+      Arguments:
+        a = the geometry constant (array-like) to convert.
+
+      Returns:
+        the constant as a float64 numpy array.
+      """
       return np.asarray(a, dtype="float64")
     cosmo = np.atleast_2d(
       np.asarray(cosmo, dtype="float64"))
