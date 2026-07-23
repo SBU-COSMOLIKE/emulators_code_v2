@@ -683,7 +683,7 @@ class ResCNN(DesignSpec, nn.Module):
   def set_train_phase(self, phase):
     """Switch the two-phase training mode (run_emulator calls this).
 
-    Identical contract to TemplateResCNN.set_train_phase — the plain
+    Identical rules to TemplateResCNN.set_train_phase — the plain
     heads carry it because two-phase training is not an IA-template
     privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):
@@ -1137,7 +1137,7 @@ class ResTRF(DesignSpec, nn.Module):
   def set_train_phase(self, phase):
     """Switch the two-phase training mode (run_emulator calls this).
 
-    Identical contract to TemplateResTRF.set_train_phase — the plain
+    Identical rules to TemplateResTRF.set_train_phase — the plain
     heads carry it because two-phase training is not an IA-template
     privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):
