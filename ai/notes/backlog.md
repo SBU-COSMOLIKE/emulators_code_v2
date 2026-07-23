@@ -1714,12 +1714,19 @@ depth with nothing to change (`inference.py`, `warmstart.py`,
 `fixed_facts.py`, `results.py`, `training.py`, `experiment.py`, and
 the designs/geometries/losses subpackages, whose nn.Module classes
 teach through class docstrings with forward-Arguments blocks).
-Remaining under this ticket: the remaining `ai/tools/` files,
-`ai/tests/`, `compute_data_vectors/`, `cobaya_theory/`, and the
-repository-wide chronology rewrite. The required depth follows the
-recorded reader standard: no unstated Python mechanic or term of art,
-with Arguments, Returns, and Raises blocks in the aligned
-name = description form.
+The `compute_data_vectors/` arm is COMPLETE: four files rewritten
+(`generator_core.py` and the background / cmb / mps drivers, whose
+store overrides now teach the memmap modes, the shared RAM decision,
+and the atomic save), with `dataset_generator_lensing.py` and
+`compute_cmb_covariance.py` audited clean. The `cobaya_theory/` arm is
+COMPLETE: all five adapters now teach the Cobaya lifecycle (who calls
+initialize and what extra_args is), the closed-option-list reason, and
+(emul_mps) the bicubic spline; their module and class docstrings were
+audited clean. Remaining under this ticket: the remaining `ai/tools/`
+files, `ai/tests/`, and the repository-wide chronology rewrite. The
+required depth follows the recorded reader standard: no unstated
+Python mechanic or term of art, with Arguments, Returns, and Raises
+blocks in the aligned name = description form.
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
