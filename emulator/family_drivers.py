@@ -1,18 +1,31 @@
 """Shared sweep-block helpers for the hyperparameter-sweep drivers.
 
-The `sweep:` YAML block (one dotted train_args leaf + a value list) is
-parsed and applied through exactly one definition, used by
-cosmic_shear_sweep_hyperparam_emulator.py and, through it, by every
-per-family wrapper. The per-family drivers themselves are thin
-wrappers over the cosmic-shear drivers' main(prog, family) surface —
-the same code path, so the multi-GPU pool, --gpu-pack, and the Optuna
-journal study carry over to every family (see any
-<family>_<verb>_emulator.py header).
+A hyperparameter is a training choice fixed before learning starts —
+the learning rate, the batch size, the number of epochs — as opposed
+to the weights training itself adjusts.  A hyperparameter sweep trains
+one model per candidate value of ONE such choice at a fixed number of
+training rows, holding everything else constant, so the values can be
+compared on one score.
 
-PS: a hyperparameter sweep = one training per value of ONE YAML-chosen
-train_args leaf at fixed N_train; act_mode = the activation special
-case, where the family is resolved onto the experiment rather than
-through train_args.
+The choice is named in the YAML ``sweep:`` block by a dotted path into
+the ``train_args`` mapping plus a list of values to try; in a dotted
+path such as ``lr.lr_base``, each dot descends one nesting level, and
+the final key is called the leaf.  That block is parsed and applied
+through exactly one definition, in this module, used by
+cosmic_shear_sweep_hyperparam_emulator.py and, through it, by every
+per-family wrapper.  The per-family drivers themselves are thin
+wrappers over the cosmic-shear drivers' main(prog, family) surface —
+the same code path, so the multi-GPU worker pool, --gpu-pack, and the
+Optuna journal study (Optuna is the hyperparameter-search library the
+tune drivers use; its journal file lets several processes share one
+search) carry over to every family (see any <family>_<verb>_emulator.py
+header).
+
+One special case, flagged as act_mode by read_sweep_block: sweeping
+the activation — the nonlinear function applied between network
+layers — cannot go through train_args, because the experiment resolves
+its activation family at construction; the sweep sets it directly on
+the experiment object per value instead.
 """
 
 import copy
@@ -46,14 +59,30 @@ def resolved_sweep_record(exp,
                           activation_values=None):
   """Build the immutable resolved identity shared by one sweep run.
 
-  The experiment has already applied command-line-over-YAML precedence, so
-  this function reads the values it will execute. A tuple of pairs keeps the
-  record immutable and pickle-safe while workers cross process boundaries.
+  The record answers "which exact configuration did this sweep run?"
+  for every saved table and figure.  It is built AFTER the experiment
+  has applied its command-line-over-YAML precedence, so the values here
+  are the ones that will actually execute, not the ones any one file
+  requested.  The record is a tuple of (key, value) pairs rather than a
+  dict: a tuple cannot be edited after creation, and it survives
+  pickling — pickle is Python's object serializer, and worker processes
+  receive their arguments through it — without any dict-ordering doubt.
+
+  Two of the recorded facts deserve definition.  The activation is the
+  nonlinear function between network layers, and n_gates counts the
+  learned parameters inside the adaptive activation variants.  A head
+  is a model's final family-specific output stage; when the
+  configuration pins the head's activation separately from the trunk's,
+  that pin and its gate count are recorded too, and None records that
+  no separate pin exists.
 
   Arguments:
     exp               = the resolved EmulatorExperiment.
     family            = the output-family identity.
-    threshold         = the delta-chi2 cutoff scored by the sweep.
+    threshold         = the delta-chi2 cutoff the sweep scores against
+                        (chi2 is the covariance-weighted squared
+                        difference between the emulated and the exact
+                        data vector).
     n_gpus            = the resolved number of worker GPUs.
     pool              = the available training-pool size for an N-train
                         sweep, or None for an ordinary sweep.
@@ -109,6 +138,11 @@ def resolved_sweep_record(exp,
 def sweep_record_value(record, key):
   """Read one named value from an immutable sweep record.
 
+  The record is a tuple of (key, value) pairs, not a dict, so this
+  helper does the lookup by walking the pairs; a missing field is an
+  error rather than a silent None, because every field a consumer asks
+  for is part of the record's contract.
+
   Arguments:
     record = tuple returned by resolved_sweep_record.
     key    = field name to read.
@@ -127,6 +161,12 @@ def sweep_record_value(record, key):
 
 def sweep_design_label(record):
   """Format the resolved model and activation facts for a figure legend.
+
+  The label states the facts a reader needs to reproduce the plotted
+  sweep: the model class, the analytic-R rescaling mode, the activation
+  and its gate count, the swept value list when the activation itself
+  is the swept axis, and the head's separately pinned activation when
+  one exists.
 
   Arguments:
     record = tuple returned by resolved_sweep_record.
@@ -159,16 +199,18 @@ def sweep_design_label(record):
 
 
 def set_by_path(train_args, path, value):
-  """
-  A deep copy of train_args with one dotted-path leaf replaced.
+  """A deep copy of train_args with one dotted-path leaf replaced.
 
-  Walks the nested mapping along `path` ("lr.lr_base" -> ["lr",
-  "lr_base"]), creating intermediate mappings that do not exist yet
-  (so `head.lr.lr_base` sweeps even when the YAML has no head: block;
-  a head. / trunk_epochs / trunk. sweep on a single-phase model is
+  ``copy.deepcopy`` duplicates the whole nested mapping, new inner
+  dicts included, so editing the copy can never change the original —
+  each sweep point trains from its own configuration and the shared
+  baseline stays pristine.  The walk then splits the dotted path
+  ("lr.lr_base" -> ["lr", "lr_base"]), descends one mapping per
+  segment, creating intermediate mappings that do not exist yet (so
+  ``head.lr.lr_base`` sweeps even when the YAML has no head: block; a
+  head. / trunk_epochs / trunk. sweep on a single-phase model is
   rejected up front by validate_sweep_paths, since resolve_phase_args
-  would demote it away), and sets the final key. The input is never
-  mutated; each sweep point gets its own copy.
+  would demote it away), and sets the final key.
 
   Arguments:
     train_args = the resolved train_args mapping to copy.
@@ -192,15 +234,32 @@ def set_by_path(train_args, path, value):
 
 
 def read_sweep_block(cfg):
-  """
-  Validate and unpack the YAML `sweep` block.
+  """Validate and unpack the YAML `sweep` block.
+
+  Three refusals guard the sweep before any training starts.  A
+  missing block is refused with a paste-ready example.  The two keys
+  that select the model class (model.name, model.ia) are refused
+  because changing the class mid-sweep would compare architectures,
+  not values of one choice; that comparison is a separate sweep per
+  architecture with the saved tables overlaid.  Finally the path's
+  first segment must be one of SWEEPABLE_TOP_KEYS (defined with its
+  reason at the top of this module): training reads train_args
+  permissively, so a typo'd path would otherwise be ignored and the
+  sweep would silently train the identical configuration once per
+  value.
 
   Arguments:
     cfg = the resolved config mapping (data + train_args + sweep).
 
   Returns:
     (param, values, act_mode): the dotted path, the value list, and
-    whether this is the activation-family special case.
+    whether this is the activation special case that bypasses
+    train_args (see the module docstring).
+
+  Raises:
+    KeyError when the sweep block is absent; ValueError for a missing
+    parameter or value list, a model-class key, or a first segment
+    outside SWEEPABLE_TOP_KEYS.
   """
   if "sweep" not in cfg:
     raise KeyError(
