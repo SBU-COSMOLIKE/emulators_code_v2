@@ -242,9 +242,27 @@ class _DaemonNamespace:
     """
 
     def __init__(self, module_globals):
+        """Wrap one module's globals dictionary as attribute storage.
+
+        Arguments:
+          module_globals = the dictionary the view reads and writes;
+                           stored via object.__setattr__ so this
+                           class's own attribute hook is bypassed.
+        """
         object.__setattr__(self, "_module_globals", module_globals)
 
     def __getattr__(self, name):
+        """Read one daemon name from the wrapped globals.
+
+        Arguments:
+          name = the attribute being read.
+
+        Returns:
+          The current value bound to ``name`` in the wrapped module.
+
+        Raises:
+          AttributeError: when the daemon namespace has no such name.
+        """
         try:
             return self._module_globals[name]
         except KeyError:
@@ -252,6 +270,13 @@ class _DaemonNamespace:
                 "mailbox daemon namespace has no name " + repr(name))
 
     def __setattr__(self, name, value):
+        """Bind one daemon name in the wrapped globals.
+
+        Arguments:
+          name  = the attribute being written.
+          value = the value to bind; a test monkeypatching through
+                  this view therefore rebinds the live module name.
+        """
         self._module_globals[name] = value
 
 
@@ -1298,6 +1323,12 @@ class ImplementerAuthorityViolationError(RuntimeError):
     """The Implementer turn coincided with forbidden Git-state movement."""
 
     def __init__(self, changes):
+        """Record which forbidden Git movements were observed.
+
+        Arguments:
+          changes = the observed forbidden movements; saved as a
+                    tuple so the report cannot be edited later.
+        """
         self.changes = tuple(changes)
         super().__init__("Implementer authority boundary changed")
 
@@ -1313,6 +1344,14 @@ class RoleTokenExhaustionError(RuntimeError):
     ROLE_NAMES = {"fable": "Architect", "opus": "Implementer", "sol": "Sol"}
 
     def __init__(self, agent, request_path):
+        """Save the exhausted role and the request it was serving.
+
+        Arguments:
+          agent        = "fable", "opus", or "sol"; the display role
+                         name and worktree are derived from it.
+          request_path = the request being dispatched when the
+                         account ran out, so recovery can requeue it.
+        """
         self.agent = agent
         self.role = self.ROLE_NAMES[agent]
         self.request_path = request_path
@@ -1362,8 +1401,11 @@ def main():
     a role restart, a request save (``--send``), or a connection check
     (``--ping``). The parsed options are installed into module constants
     before any mailbox work starts, so every part file sees one consistent
-    runtime. Returns the process exit code: 0 after a completed action and
-    nonzero after a refusal or failure.
+    runtime.
+
+    Returns:
+      The process exit code: 0 after a completed action and nonzero
+      after a refusal or failure.
     """
     # both are rebound below from the parsed command line; Python wants
     # the global declaration before the first mention of either name.
