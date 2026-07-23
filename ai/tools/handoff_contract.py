@@ -284,7 +284,19 @@ class DirectiveError(ValueError):
 
 
 def _without_leading_frontmatter(text):
-    """Mask one leading YAML frontmatter block while preserving line rows."""
+    """Mask one leading YAML frontmatter block while preserving line rows.
+
+    Frontmatter is a metadata block between ``---`` delimiters at the
+    very top of a Markdown file. Its lines are blanked rather than
+    removed, so every later line keeps its original row number in
+    error messages. An unterminated block blanks the whole text.
+
+    Arguments:
+      text = the Markdown text.
+
+    Returns:
+      The text with any leading frontmatter blanked.
+    """
     lines = text.split("\n")
     delimiter_re = re.compile(r"^(?:---|\.\.\.)[ \t]*$")
     if not lines or re.fullmatch(r"---[ \t]*", lines[0]) is None:
@@ -300,7 +312,19 @@ def _without_leading_frontmatter(text):
 
 
 def _visible_without_comments(line, in_comment):
-    """Remove Markdown HTML comments from one line without losing state."""
+    """Remove Markdown HTML comments from one line without losing state.
+
+    Arguments:
+      line       = the line to clean.
+      in_comment = True when an earlier line opened a comment that
+                   has not closed yet.
+
+    Returns:
+      ``(visible, in_comment)``: the line without comment text (each
+      removed comment leaves one space so its removal cannot
+      manufacture heading syntax) and whether a comment is still
+      open.
+    """
     visible = []
     cursor = 0
     while cursor < len(line):
@@ -325,7 +349,19 @@ def _visible_without_comments(line, in_comment):
 
 
 def _fence_opening(line):
-    """Return ``(character, width, info)`` for one valid opening fence."""
+    """Return ``(character, width, info)`` for one valid opening fence.
+
+    A fence is the three-backtick or ``~~~`` line that opens a code
+    block. A backtick fence whose info text itself contains a
+    backtick is not a valid opening.
+
+    Arguments:
+      line = the line to inspect.
+
+    Returns:
+      The fence character, its repeat count, and the lowercased info
+      string, or ``None`` when the line opens no fence.
+    """
     match = FENCE_OPEN_RE.match(line)
     if match is None:
         return None
@@ -337,13 +373,36 @@ def _fence_opening(line):
 
 
 def _is_fence_close(line, character, width):
-    """Return whether line is a CommonMark-style matching close fence."""
+    """Return whether line is a CommonMark-style matching close fence.
+
+    CommonMark is the standardized Markdown dialect this validator
+    follows: a close fence repeats the opening character at least as
+    many times, with at most three leading spaces.
+
+    Arguments:
+      line      = the line to inspect.
+      character = the opening fence character.
+      width     = the opening fence's repeat count.
+
+    Returns:
+      True for a matching close fence.
+    """
     pattern = r"^[ ]{0,3}" + re.escape(character) + "{" + str(width) + r",}[ \t]*$"
     return re.match(pattern, line) is not None
 
 
 def _visible_markdown_text(text):
-    """Remove HTML comments outside fences while preserving line structure."""
+    """Remove HTML comments outside fences while preserving line structure.
+
+    Text inside code fences is kept exactly; comments elsewhere are
+    removed with the one-space separator rule.
+
+    Arguments:
+      text = the Markdown text.
+
+    Returns:
+      The text with comments removed, one output row per input row.
+    """
     rows = []
     fence_character = None
     fence_width = 0
@@ -368,7 +427,15 @@ def _visible_markdown_text(text):
 
 
 def _indent_columns(line):
-    """Return CommonMark indentation columns using four-column tab stops."""
+    """Return CommonMark indentation columns using four-column tab stops.
+
+    Arguments:
+      line = the line to measure.
+
+    Returns:
+      The indentation width in columns, counting a tab as advancing
+      to the next multiple of four.
+    """
     columns = 0
     for character in line:
         if character == " ":
@@ -381,7 +448,19 @@ def _indent_columns(line):
 
 
 def _structural_markdown_text(text):
-    """Mask fenced and indented code examples for prose-structure checks."""
+    """Mask fenced and indented code examples for prose-structure checks.
+
+    Everything a Markdown renderer would treat as an example rather
+    than prose — fenced blocks, four-column indented code, and
+    blockquotes — is blanked, so a structure check cannot be fooled
+    by heading-like text inside an example.
+
+    Arguments:
+      text = the Markdown text.
+
+    Returns:
+      The prose-only text, one output row per input row.
+    """
     rows = []
     fence_character = None
     fence_width = 0
@@ -421,7 +500,24 @@ def _structural_markdown_text(text):
 
 
 def _binding_markdown_text(text):
-    """Return visible non-example prose used to satisfy binding fields."""
+    """Return visible non-example prose used to satisfy binding fields.
+
+    A binding field is a directive row whose content carries
+    authority, so its prose must be exactly what a reader sees:
+    link-reference definitions are blanked, and inline links, images,
+    HTML entities, and invisible control or format characters are
+    refused outright rather than interpreted.
+
+    Arguments:
+      text = the Markdown text.
+
+    Returns:
+      The binding prose, one output row per input row.
+
+    Raises:
+      DirectiveError: for links, images, entities, or invisible
+        characters inside binding prose.
+    """
     rows = []
     in_reference = False
     for line in _structural_markdown_text(text=text).split("\n"):
@@ -463,7 +559,19 @@ def _binding_markdown_text(text):
 
 
 def _reject_setext_headings(text):
-    """Keep binding packets on canonical ATX headings only."""
+    """Keep binding packets on canonical ATX headings only.
+
+    ATX headings start with ``#`` marks; setext headings instead
+    underline the previous line with ``=`` or ``-``. Only the ATX
+    form is accepted, so a heading can never appear by accident when
+    prose happens to precede a dash row.
+
+    Arguments:
+      text = the Markdown text.
+
+    Raises:
+      DirectiveError: when a setext-style underline follows prose.
+    """
     previous = ""
     for line in _structural_markdown_text(text=text).split("\n"):
         if (previous.strip()
@@ -476,7 +584,18 @@ def _reject_setext_headings(text):
 
 
 def _reject_list_item_fences(text):
-    """Refuse container-nested fences outside the packet's canonical subset."""
+    """Refuse container-nested fences outside the packet's canonical subset.
+
+    A fence indented as a list item renders as code but sits inside a
+    container whose boundaries different renderers disagree on, so
+    packets refuse the form instead of guessing.
+
+    Arguments:
+      text = the Markdown text.
+
+    Raises:
+      DirectiveError: for a fence nested inside a list item.
+    """
     fence_character = None
     fence_width = 0
     in_comment = False
@@ -501,7 +620,17 @@ def _reject_list_item_fences(text):
 
 
 def _reject_display_math_blocks(text):
-    """Refuse GFM display-math containers around binding Markdown rows."""
+    """Refuse GFM display-math containers around binding Markdown rows.
+
+    A GitHub-flavored-Markdown ``$$`` block swallows the rows inside
+    it into rendered mathematics, which could hide binding text.
+
+    Arguments:
+      text = the Markdown text.
+
+    Raises:
+      DirectiveError: for a ``$$`` block delimiter outside a fence.
+    """
     fence_character = None
     fence_width = 0
     in_comment = False
@@ -527,7 +656,18 @@ def _reject_display_math_blocks(text):
 
 
 def _reject_raw_html_blocks(text):
-    """Refuse raw HTML block syntax outside code fences and comments."""
+    """Refuse raw HTML block syntax outside code fences and comments.
+
+    Raw HTML renders invisibly or inconsistently across viewers, so a
+    directive may not carry it as prose.
+
+    Arguments:
+      text = the Markdown text.
+
+    Raises:
+      DirectiveError: for an HTML block start outside a fence or
+        indented code.
+    """
     fence_character = None
     fence_width = 0
     in_comment = False
@@ -555,7 +695,18 @@ def _reject_raw_html_blocks(text):
 
 
 def _heading_rows(text):
-    """Return ``(line, level, title)`` rows for Markdown ATX headings."""
+    """Return ``(line, level, title)`` rows for Markdown ATX headings.
+
+    Headings inside code fences do not count; a trailing run of
+    ``#`` marks is stripped from the title as CommonMark specifies.
+
+    Arguments:
+      text = the Markdown text.
+
+    Returns:
+      List of ``(line_number, level, title)`` for each real heading,
+      where level counts the leading ``#`` marks.
+    """
     rows = []
     fence_character = None
     fence_width = 0
@@ -586,7 +737,24 @@ def _heading_rows(text):
 
 
 def _packet_bounds(text, title):
-    """Return the line interval below one exact level-two packet heading."""
+    """Return the line interval below one exact level-two packet heading.
+
+    A packet is one machine-validated block of the note under a
+    ``## `` heading; the interval runs to the next heading of level
+    two or one, or to the end of the file.
+
+    Arguments:
+      text  = the Markdown text.
+      title = the packet's exact heading title, compared
+              case-insensitively.
+
+    Returns:
+      ``(lines, start, end)``: the split lines and the packet's line
+      interval.
+
+    Raises:
+      DirectiveError: when the heading does not appear exactly once.
+    """
     lines = text.split("\n")
     matches = []
     for line_number, level, heading in _heading_rows(text=text):
@@ -606,7 +774,22 @@ def _packet_bounds(text, title):
 
 
 def _section_bodies(text, title, required):
-    """Return exact required level-three section bodies in declared order."""
+    """Return exact required level-three section bodies in declared order.
+
+    Arguments:
+      text     = the Markdown text.
+      title    = the packet's level-two heading title.
+      required = the exact ordered ``###`` headings the packet must
+                 contain, no more and no fewer.
+
+    Returns:
+      Mapping from heading to its comment-free body with surrounding
+      blank rows trimmed.
+
+    Raises:
+      DirectiveError: when the headings differ from the required
+        order in any way.
+    """
     lines, packet_start, packet_end = _packet_bounds(text=text, title=title)
     headings = []
     for line_number, level, heading in _heading_rows(text=text):
@@ -636,7 +819,24 @@ def _section_bodies(text, title, required):
 
 
 def _require_evidence_destination(text, packet_title):
-    """Require and return the Architect packet's sibling evidence body."""
+    """Require and return the Architect packet's sibling evidence body.
+
+    The directive packet must be followed immediately by the
+    ``## Implementation evidence / resume state`` heading, and that
+    heading may repeat only consecutively, so evidence can never be
+    scattered around the note.
+
+    Arguments:
+      text         = the note's Markdown text.
+      packet_title = the directive packet's heading title.
+
+    Returns:
+      The combined evidence body, or ``None`` when the note has no
+      such packet.
+
+    Raises:
+      DirectiveError: for a missing or misplaced evidence heading.
+    """
     boundary_rows = [(line, level, heading)
                      for line, level, heading in _heading_rows(text=text)
                      if level <= 2]
@@ -680,7 +880,26 @@ def _require_evidence_destination(text, packet_title):
 
 def _require_prior_capability_checkpoint(evidence_body,
                                          parallel_work_plan):
-    """Bind a no-subagent exception to a prior Implementer checkpoint."""
+    """Bind a no-subagent exception to a prior Implementer checkpoint.
+
+    A capability-unavailable plan is honest only when a real prior
+    Implementer turn recorded the failed launch. The evidence must
+    hold exactly one checkpoint heading whose rows repeat the plan's
+    capability, operation, and raw failure word for word, plus the
+    source cycle and handoff digest that identify the prior turn.
+
+    Arguments:
+      evidence_body      = the evidence section's text.
+      parallel_work_plan = the parsed plan claiming the exception.
+
+    Returns:
+      Mapping with the checkpoint's ``cycle`` and
+      ``handoff_sha256``.
+
+    Raises:
+      DirectiveError: for a missing, duplicated, or inexact
+        checkpoint.
+    """
     structural = _binding_markdown_text(text=evidence_body)
     lines = [line.strip() for line in structural.split("\n")
              if line.strip()]
@@ -725,7 +944,20 @@ def _require_prior_capability_checkpoint(evidence_body,
 
 
 def _require_substance(bodies):
-    """Refuse empty, placeholder, or explicitly delegated design choices."""
+    """Refuse empty, placeholder, or explicitly delegated design choices.
+
+    Every section must carry enough visible prose to execute, no
+    template placeholder may remain, and — except in the sections
+    validated separately — no unresolved design choice may be left to
+    the Implementer.
+
+    Arguments:
+      bodies = mapping from section heading to its body text.
+
+    Raises:
+      DirectiveError: naming the failing section and the exact
+        placeholder or choice.
+    """
     for heading, body in bodies.items():
         binding_body = _binding_markdown_text(text=body)
         evaluated_body = (body if heading == "Validation commands"
@@ -759,7 +991,23 @@ def _require_substance(bodies):
 
 
 def _unresolved_choice(body, ignore_locator_spans=False):
-    """Return one explicit unruled choice, allowing a named resolver."""
+    """Return one explicit unruled choice, allowing a named resolver.
+
+    An unresolved choice is prose that offers the Implementer
+    alternatives ("X or Y", "either ... or ...") without one named
+    machine rule that decides them. Concrete condition patterns and
+    negated scopes do not count; one named resolver may bless exactly
+    one alternative pair per clause.
+
+    Arguments:
+      body                 = the binding prose to scan.
+      ignore_locator_spans = True in sections whose ``path::symbol``
+                             code spans are validated separately.
+
+    Returns:
+      The first offending regular-expression match, or ``None`` when
+      every alternative is ruled.
+    """
     # Inline-code spans are visible binding prose. Remove their Markdown
     # delimiters, never their content, so ``Use `JSON or YAML` `` cannot hide
     # an unresolved design choice. Canonical ``path::symbol`` code spans are
@@ -767,6 +1015,7 @@ def _unresolved_choice(body, ignore_locator_spans=False):
     # the locator sections whose rows are validated separately. Fenced
     # examples were already masked by ``_binding_markdown_text``.
     def inline_code(match):
+        """Unwrap one code span, masking only locator spans."""
         content = match.group(1)
         if ignore_locator_spans and "::" in content:
             return ""
@@ -835,7 +1084,16 @@ def _unresolved_choice(body, ignore_locator_spans=False):
 
 def _has_substantive_payload(
         text, minimum_alphanumeric=6, minimum_words=2):
-    """Return whether one structured row carries visible executable prose."""
+    """Return whether one structured row carries visible executable prose.
+
+    Arguments:
+      text                 = the row's text.
+      minimum_alphanumeric = least alphanumeric characters required.
+      minimum_words        = least words required.
+
+    Returns:
+      True when the row meets both minimums.
+    """
     compact = " ".join(text.split())
     words = re.findall(r"[^\W_]+", compact, flags=re.UNICODE)
     return (
@@ -845,7 +1103,20 @@ def _has_substantive_payload(
 
 
 def _valid_locator_rows(body):
-    """Return concrete ``repo/path::symbol`` locator pairs from one body."""
+    """Return concrete ``repo/path::symbol`` locator pairs from one body.
+
+    A locator names one repository file and one symbol inside it.
+    Only concrete pairs survive: absolute paths, drive letters, URL
+    schemes, backslashes, parent-directory parts, glob characters,
+    placeholder names like ``some_file`` or ``example.py``, and
+    generic templates like ``path/to/file`` are all dropped.
+
+    Arguments:
+      body = the text to scan.
+
+    Returns:
+      List of ``(path, symbol)`` pairs.
+    """
     rows = []
     for match in LOCATOR_RE.finditer(body):
         path = match.group(1).strip()
@@ -885,7 +1156,24 @@ def _valid_locator_rows(body):
 
 
 def _require_locator(bodies, heading):
-    """Require one canonical visible repository locator bullet."""
+    """Require one canonical visible repository locator bullet.
+
+    Every nonempty row of the section must be one bullet of the exact
+    form ``- `repo/path::symbol`: exact edit`` with a concrete pair
+    and a substantive description; anything else — a bare bullet,
+    loose prose, a generic path or symbol, or a placeholder — is
+    refused by name.
+
+    Arguments:
+      bodies  = the parsed section bodies.
+      heading = the locator section to validate.
+
+    Returns:
+      The list of ``(path, symbol)`` pairs, at least one.
+
+    Raises:
+      DirectiveError: naming the first offending row.
+    """
     structural = _binding_markdown_text(text=bodies[heading])
     rows = []
     generic_paths = {"repo/path", "path/to/file", "path/to/test"}
@@ -946,7 +1234,22 @@ def _require_locator(bodies, heading):
 
 
 def _require_execution_checkout(body):
-    """Require the exact worktree, branch, and base selected by Architect."""
+    """Require the exact worktree, branch, and base selected by Architect.
+
+    The section may contain only the three backticked rows, each
+    exactly once. The worktree must be a literal absolute path with
+    no traversal or shell characters; the branch may not be main and
+    must be a plain reference name; the base must be one full commit.
+
+    Arguments:
+      body = the section's text.
+
+    Returns:
+      Mapping with the ``Worktree``, ``Branch``, and ``Base`` values.
+
+    Raises:
+      DirectiveError: naming the first violated row rule.
+    """
     values = {field: [] for field in ("Worktree", "Branch", "Base")}
     structural = _binding_markdown_text(text=body)
     for line in structural.split("\n"):
@@ -1125,7 +1428,19 @@ def _require_architect_role_plan(body):
 def _parallel_payload(field, value, minimum_alphanumeric=24,
                       minimum_words=5,
                       context="section 'Parallel work plan'"):
-    """Require one concrete, visible action or observable result."""
+    """Require one concrete, visible action or observable result.
+
+    Arguments:
+      field                = the plan field being checked.
+      value                = its text.
+      minimum_alphanumeric = least alphanumeric characters required.
+      minimum_words        = least words required.
+      context              = section name for error messages.
+
+    Raises:
+      DirectiveError: for thin, placeholder, or vague wording such as
+        "as needed" or "use best judgment".
+    """
     if (not _has_substantive_payload(
             value,
             minimum_alphanumeric=minimum_alphanumeric,
@@ -1149,7 +1464,24 @@ def _parallel_payload(field, value, minimum_alphanumeric=24,
 
 
 def _subagent_ownership(value, mode, name):
-    """Return exact repository locators owned by one named subagent."""
+    """Return exact repository locators owned by one named subagent.
+
+    Ownership is either the literal ``none (read-only)`` (valid only
+    for a read-only subagent) or a comma-separated list of exact
+    backticked ``repo/path::symbol`` entries with no duplicates.
+
+    Arguments:
+      value = the Ownership field text.
+      mode  = the subagent's declared mode.
+      name  = the subagent's name, for error messages.
+
+    Returns:
+      The list of owned ``(path, symbol)`` pairs; empty when
+      read-only.
+
+    Raises:
+      DirectiveError: for malformed, generic, or repeated entries.
+    """
     if value == "`none (read-only)`":
         if mode != "read-only":
             raise DirectiveError(
@@ -1181,7 +1513,24 @@ def _subagent_ownership(value, mode, name):
 
 
 def _capability_exception(lines):
-    """Parse the sole permitted exception to mandatory subagent launch."""
+    """Parse the sole permitted exception to mandatory subagent launch.
+
+    A plan with no launched subagents must record exactly the three
+    rows — Capability checked, Attempted operation, Raw failure — and
+    each must be concrete: the capability names the launch operation,
+    the operation describes really attempting a subagent launch
+    before implementation edits, and the failure is the runtime's raw
+    text.
+
+    Arguments:
+      lines = the plan's remaining rows.
+
+    Returns:
+      Mapping with the three verified field values.
+
+    Raises:
+      DirectiveError: naming the first missing or vague row.
+    """
     if len(lines) != len(CAPABILITY_EXCEPTION_ROWS):
         raise DirectiveError(
             "section 'Parallel work plan' without launched subagents "
@@ -1239,7 +1588,22 @@ def _capability_exception(lines):
 
 
 def _subagents_not_required(lines, context="section 'Parallel work plan'"):
-    """Parse one Architect-owned decision that a helper adds no value."""
+    """Parse one Architect-owned decision that a helper adds no value.
+
+    The decision is exactly one heading plus one Reason row, and the
+    reason must actually argue the point: it must say why a separate
+    helper would produce no independent, non-overlapping work.
+
+    Arguments:
+      lines   = the plan's remaining rows.
+      context = section name for error messages.
+
+    Returns:
+      The parsed not-required plan mapping.
+
+    Raises:
+      DirectiveError: for a malformed heading, row, or reason.
+    """
     if len(lines) != 2 or lines[0] != SUBAGENTS_NOT_REQUIRED_HEADING:
         raise DirectiveError(
             context + " must contain exactly the heading "
@@ -1456,7 +1820,18 @@ def _require_parallel_subagent_plan(body):
 
 def _require_integrator_validation_command(parallel_work_plan,
                                            validation_commands_body):
-    """Bind final integration to one command already named by Architect."""
+    """Bind final integration to one command already named by Architect.
+
+    Arguments:
+      parallel_work_plan       = the parsed plan; only the subagents
+                                 mode is checked.
+      validation_commands_body = the directive's Validation commands
+                                 section text.
+
+    Raises:
+      DirectiveError: when the Integrator's final validation does not
+        repeat exactly one command from that section.
+    """
     if parallel_work_plan.get("mode") != "subagents":
         return
     final_validation = parallel_work_plan["integrator"]["final_validation"]
@@ -1472,7 +1847,21 @@ def _require_integrator_validation_command(parallel_work_plan,
 
 
 def _subagent_evidence_fields(lines, index, name):
-    """Read the three ordered fields, including wrapped prose lines."""
+    """Read the three ordered fields, including wrapped prose lines.
+
+    Arguments:
+      lines = the evidence rows.
+      index = the row where this return's fields begin.
+      name  = the subagent's name, for error messages.
+
+    Returns:
+      ``(fields, index)``: the mapping of the three field values —
+      continuation lines joined into their field — and the row after
+      the last one consumed.
+
+    Raises:
+      DirectiveError: for a missing or misordered field.
+    """
     fields = {}
     for expected in ("Returned artifact", "Acceptance", "Evidence"):
         if index >= len(lines):
@@ -1499,7 +1888,19 @@ def _subagent_evidence_fields(lines, index, name):
 
 
 def _visible_subagent_evidence(text):
-    """Expose only canonical evidence rows nested in a Markdown list."""
+    """Expose only canonical evidence rows nested in a Markdown list.
+
+    A return written as a nested list item indents its rows; up to
+    four leading spaces are stripped from rows that are canonical
+    evidence headings or fields so the validator sees them, while
+    deeper or foreign rows stay untouched.
+
+    Arguments:
+      text = the evidence text.
+
+    Returns:
+      The text with shallow canonical rows unindented.
+    """
     rows = []
     for line in text.split("\n"):
         stripped = line.lstrip(" ")
@@ -1621,7 +2022,23 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
 
 
 def extract_implementer_subagent_evidence(handoff_text):
-    """Extract the one bounded subagent-evidence region from a handoff."""
+    """Extract the one bounded subagent-evidence region from a handoff.
+
+    The handoff must carry exactly one handoff heading, then exactly
+    one Subagent work marker row, and the evidence runs from that
+    marker to the closing field; duplicates or reordering are
+    refused so evidence can never be ambiguous.
+
+    Arguments:
+      handoff_text = the full IMPLEMENTER_HANDOFF text.
+
+    Returns:
+      The evidence region's text.
+
+    Raises:
+      DirectiveError: for a missing, doubled, or reordered heading,
+        marker, or closing field.
+    """
     if not isinstance(handoff_text, str):
         raise DirectiveError("IMPLEMENTER_HANDOFF must be a native string")
     normalized = handoff_text.replace("\r\n", "\n").replace("\r", "\n")
@@ -1753,7 +2170,23 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
 
 def validate_implementer_handoff_subagent_evidence(parallel_work_plan,
                                                     handoff_text):
-    """Extract and validate one full handoff against its Architect plan."""
+    """Extract and validate one full handoff against its Architect plan.
+
+    Ordinary per-subagent returns are tried first; when the plan
+    demanded subagents and the returns do not complete it, the
+    blocked-capability form is accepted instead — but only with its
+    exact rows, so a handoff cannot half-claim both shapes.
+
+    Arguments:
+      parallel_work_plan = the parsed Architect plan.
+      handoff_text       = the full IMPLEMENTER_HANDOFF text.
+
+    Returns:
+      The validated evidence mapping from whichever form matched.
+
+    Raises:
+      DirectiveError: when neither form validates.
+    """
     evidence = extract_implementer_subagent_evidence(
         handoff_text=handoff_text)
     has_blocked_return = any(
@@ -1803,7 +2236,24 @@ def validate_implementer_handoff_subagent_evidence(parallel_work_plan,
 
 
 def _require_redteam_severity_assessment(body, expected_user_severity=None):
-    """Return the five ordered discovery-assessment fields."""
+    """Return the five ordered discovery-assessment fields.
+
+    Each row — User severity setting, Red Team severity, Likelihood,
+    Likelihood evidence, Meets user setting — must appear exactly
+    once, in order, in canonical form, with substantive likelihood
+    evidence; the recorded user setting must match the dispatched
+    one when the caller knows it.
+
+    Arguments:
+      body                   = the Finding and evidence section text.
+      expected_user_severity = the dispatched severity, or ``None``.
+
+    Returns:
+      Mapping from row name to its value.
+
+    Raises:
+      DirectiveError: naming the first malformed or mismatched row.
+    """
     structural = _binding_markdown_text(text=body)
     lines = [line for line in structural.split("\n") if line.strip()]
     positions = []
@@ -1864,7 +2314,17 @@ def _require_redteam_severity_assessment(body, expected_user_severity=None):
 
 
 def _command_blocks(body):
-    """Return ``(tag, lines)`` for closed shell fences in one section."""
+    """Return ``(tag, lines)`` for closed shell fences in one section.
+
+    Only fences whose info tag is a recognized command tag count, and
+    only when they close; an unclosed fence contributes nothing.
+
+    Arguments:
+      body = the section text.
+
+    Returns:
+      List of ``(tag, lines)`` pairs, one per closed command fence.
+    """
     blocks = []
     character = None
     width = 0
@@ -1893,7 +2353,15 @@ def _command_blocks(body):
 
 
 def _logical_shell_commands(lines):
-    """Return simple visible commands, joining backslash continuations."""
+    """Return simple visible commands, joining backslash continuations.
+
+    Arguments:
+      lines = the fence's raw lines.
+
+    Returns:
+      The logical commands, with blank and comment lines dropped and
+      backslash-continued lines joined into one command.
+    """
     commands = []
     pending = ""
     for raw_line in lines:
@@ -1911,7 +2379,18 @@ def _logical_shell_commands(lines):
 
 
 def _has_shell_control_flow(commands):
-    """Return whether a command block can hide a guard behind shell flow."""
+    """Return whether a command block can hide a guard behind shell flow.
+
+    Shell control keywords (if, for, case, function bodies, grouping
+    braces) could make a required guard command conditional, so their
+    presence disqualifies the block from carrying guards.
+
+    Arguments:
+      commands = the logical commands.
+
+    Returns:
+      True when any command opens shell control flow.
+    """
     control_re = re.compile(
         r"^(?:if|then|elif|else|fi|for|select|while|until|do|done|case|"
         r"esac|function)\b|^(?:\(|\)|\{|\})|"
@@ -1988,7 +2467,29 @@ def _parse_ticket_change_guard(command, authoritative_tool=None):
 
 def _require_ticket_change_guard(
         bodies, expected_max, execution_checkout=None):
-    """Require a literal positive-limit guard command and acceptance check."""
+    """Require a literal positive-limit guard command and acceptance check.
+
+    A ticket with a positive character budget must carry exactly one
+    direct, literal size-guard command in its Validation commands —
+    outside any shell control flow, with the exact worktree, base,
+    and limit spelled out — so a lower-capability Implementer can
+    copy it without inference.
+
+    Arguments:
+      bodies             = the parsed section bodies.
+      expected_max       = the ticket's character limit; zero means
+                           unlimited and skips the requirement.
+      execution_checkout = the parsed checkout, when the guard must
+                           name it.
+
+    Returns:
+      The parsed guard invocation, or ``None`` for an unlimited
+      ticket.
+
+    Raises:
+      DirectiveError: for a missing, duplicated, indirect, or
+        mismatched guard command.
+    """
     if expected_max == 0:
         return None
 
@@ -2046,6 +2547,7 @@ def _require_ticket_change_guard(
     conditions = CHECKBOX_RE.findall(checklist)
 
     def is_positive_condition(condition):
+        """Accept only a within-limit condition with no negation."""
         return (
             TICKET_CHANGE_GUARD in condition
             and re.search(r"\bwithin[ -]limit\b", condition,
@@ -2066,7 +2568,18 @@ def _require_ticket_change_guard(
 
 
 def _require_commands(body):
-    """Require one syntactically valid fence led by a real command."""
+    """Require one syntactically valid fence led by a real command.
+
+    Each shell fence's script must pass the shell's own syntax check,
+    and at least one fence must lead with a real command — not a
+    comment, placeholder, assignment, or bare shell builtin.
+
+    Arguments:
+      body = the Validation commands section text.
+
+    Raises:
+      DirectiveError: when no fence carries a valid runnable command.
+    """
     shell_by_tag = {
         "bash": "bash",
         "sh": "sh",
@@ -2269,7 +2782,29 @@ def validate_directive_text(role, text, expected_max=0,
 
 def validate_directive_file(role, path, expected_max=0,
                             expected_severity=None):
-    """Read and validate one bounded UTF-8 directive note."""
+    """Read and validate one bounded UTF-8 directive note.
+
+    The file must sit under the authoritative shared-notes folder
+    when that environment binding exists, this validator must be the
+    authoritative contract copy, and the note must be one bounded
+    regular UTF-8 file before role validation runs.
+
+    Arguments:
+      role              = ``"architect"``, ``"implementer"``, or
+                          ``"redteam"``.
+      path              = the directive note file.
+      expected_max      = the ticket's character limit; zero is
+                          unlimited.
+      expected_severity = dispatched discovery severity, Red Team
+                          role only.
+
+    Returns:
+      The role validator's parsed result.
+
+    Raises:
+      DirectiveError: for an unauthoritative copy, an unsafe path or
+        read, or any failed packet rule.
+    """
     if role == "redteam":
         expected_severity = resolve_discovery_severity(
             cli_value=expected_severity)
@@ -2364,7 +2899,18 @@ def validate_directive_file(role, path, expected_max=0,
 
 
 def nonnegative_character_limit(value):
-    """Parse one command-line decimal character limit."""
+    """Parse one command-line decimal character limit.
+
+    Arguments:
+      value = the command-line text; only plain ASCII digits are
+              accepted.
+
+    Returns:
+      The parsed limit.
+
+    Raises:
+      argparse.ArgumentTypeError: for anything else.
+    """
     if re.fullmatch(r"[0-9]+", value) is None:
         raise argparse.ArgumentTypeError(
             "--max must be a nonnegative decimal character count")
@@ -2372,7 +2918,21 @@ def nonnegative_character_limit(value):
 
 
 def resolve_character_limit(cli_value, environment_value=None):
-    """Bind a CLI limit to the mailbox environment without silent fallback."""
+    """Bind a CLI limit to the mailbox environment without silent fallback.
+
+    Arguments:
+      cli_value         = the ``--max`` value, or ``None`` when
+                          omitted.
+      environment_value = mailbox environment text, or ``None`` to
+                          read the real environment.
+
+    Returns:
+      The limit to enforce; zero means unlimited.
+
+    Raises:
+      DirectiveError: for a malformed value or a disagreement between
+        the command line and the environment.
+    """
     if cli_value is not None and (
             isinstance(cli_value, bool)
             or not isinstance(cli_value, int)
@@ -2402,7 +2962,21 @@ def resolve_character_limit(cli_value, environment_value=None):
 
 
 def resolve_discovery_severity(cli_value, environment_value=None):
-    """Bind a Red Team severity value to the mailbox run setting."""
+    """Bind a Red Team severity value to the mailbox run setting.
+
+    Arguments:
+      cli_value         = the ``--severity`` value, or ``None``.
+      environment_value = the run's inherited severity, or ``None``
+                          to read the real environment.
+
+    Returns:
+      The severity to enforce: the explicit value when it matches any
+      inherited one, otherwise the inherited or default severity.
+
+    Raises:
+      DirectiveError: for an invalid value or a disagreement with the
+        environment.
+    """
     if (cli_value is not None
             and cli_value not in DISCOVERY_SEVERITIES):
         raise DirectiveError(
@@ -2426,7 +3000,15 @@ def resolve_discovery_severity(cli_value, environment_value=None):
 
 
 def parse_args(argv=None):
-    """Parse the read-only directive-validation command line."""
+    """Parse the read-only directive-validation command line.
+
+    Arguments:
+      argv = argument list, or ``None`` for the process arguments.
+
+    Returns:
+      The parsed options: the role, the note path, and the optional
+      ``--max`` and ``--severity`` bindings.
+    """
     parser = argparse.ArgumentParser(
         description="Validate a complete Architect or Red Team directive")
     parser.add_argument("role", choices=tuple(PACKET_TITLES))
@@ -2445,7 +3027,15 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    """Run the read-only directive validator."""
+    """Run the read-only directive validator.
+
+    Arguments:
+      argv = argument list, or ``None`` for the process arguments.
+
+    Returns:
+      The process exit code: 0 with a VALID line, or 1 with an
+      INVALID line naming the exact failed rule.
+    """
     args = parse_args(argv=argv)
     try:
         expected_max = resolve_character_limit(cli_value=args.max)
