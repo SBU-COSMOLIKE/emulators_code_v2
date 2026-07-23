@@ -1703,13 +1703,18 @@ docstrings stripped and by a full green test-suite run. Completed so far in
 `permanent_note_guard.py`. The user then redirected the sweep to the
 emulator package, where docstrings carried the required structure but
 assumed domain and Python knowledge (a sidecar, the bool-int subclass
-trap, struct round trips) without defining it; completed so far in
-`emulator/`: `parameter_table.py`, `validation.py`, and `cocoa.py`. The
-remaining `emulator/` files, the remaining `ai/tools/` files, `ai/tests/`,
-and the repository-wide chronology rewrite stay open under this ticket. The
-required depth follows the recorded reader standard: no unstated Python
-mechanic or term of art, with Arguments, Returns, and Raises blocks in the
-aligned name = description form.
+trap, struct round trips, Simpson's rule, sigmoid, broadcasting) without
+defining it; completed so far in `emulator/`: `parameter_table.py`,
+`validation.py`, `cocoa.py`, `background.py`, `family_drivers.py`,
+`analytics.py`, `syren_base.py`, `scheduling.py`, `model_recipe.py`, and
+`activations.py`. Remaining in `emulator/`: `batching.py`,
+`diagnostics.py`, `data_staging.py`, `inference.py`, `warmstart.py`,
+`fixed_facts.py`, `plotting.py`, `results.py`, `training.py`,
+`experiment.py`, and the designs/geometries/losses subpackages; then the
+remaining `ai/tools/` files, `ai/tests/`, and the repository-wide
+chronology rewrite. The required depth follows the recorded reader
+standard: no unstated Python mechanic or term of art, with Arguments,
+Returns, and Raises blocks in the aligned name = description form.
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
