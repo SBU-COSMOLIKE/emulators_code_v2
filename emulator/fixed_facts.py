@@ -1214,7 +1214,7 @@ def check_support(compiled, point):
         "asked about " + name + " = " + repr(value) + ", which is outside it. "
         "An emulator does not fail outside its training region; it "
         "extrapolates, and it returns a confident number that is wrong. The "
-        "region is the contract the dataset was generated under. Sample inside "
+        "region is the promise the dataset was generated under. Sample inside "
         "it, or generate a dataset that covers the region you mean to sample.")
 
 
