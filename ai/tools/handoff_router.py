@@ -141,7 +141,25 @@ class StatusError(RuntimeError):
 
 
 def _read_regular_file(path, label, maximum_bytes):
-    """Read one bounded regular file without following redirected paths."""
+    """Read one bounded regular file without following redirected paths.
+
+    The path must already be fully resolved — a symlink at any level
+    is refused — and the file's identity and metadata are compared at
+    four moments around the read, so a swapped or edited file is
+    refused rather than half-captured.
+
+    Arguments:
+      path          = the file to read.
+      label         = name used in error messages.
+      maximum_bytes = size bound for the read.
+
+    Returns:
+      The file bytes.
+
+    Raises:
+      BacklogLedgerError: for a redirected path, wrong file type,
+        oversized file, or any change during the read.
+    """
     path = os.path.abspath(path)
     if os.path.realpath(path) != path:
         raise BacklogLedgerError(label + " uses a redirected path: " + path)
@@ -172,6 +190,7 @@ def _read_regular_file(path, label, maximum_bytes):
         current = os.lstat(path)
 
         def snapshot(info):
+            """Return the identity fields compared across the read."""
             return (info.st_dev, info.st_ino, info.st_size,
                     info.st_mtime_ns, info.st_ctime_ns)
 
@@ -191,7 +210,18 @@ def _read_regular_file(path, label, maximum_bytes):
 
 
 def _json_object_without_duplicate_keys(pairs):
-    """Build one JSON object while refusing repeated security fields."""
+    """Build one JSON object while refusing repeated security fields.
+
+    Arguments:
+      pairs = decoded key-value pairs in document order.
+
+    Returns:
+      The mapping.
+
+    Raises:
+      BacklogLedgerError: for a duplicate key, which ordinary JSON
+        parsing would silently collapse.
+    """
     result = {}
     for key, value in pairs:
         if key in result:
@@ -202,7 +232,20 @@ def _json_object_without_duplicate_keys(pairs):
 
 
 def _checked_git(cwd, arguments, label):
-    """Return exact Git output or fail the authoritative-path proof."""
+    """Return exact Git output or fail the authoritative-path proof.
+
+    Arguments:
+      cwd       = folder the Git command runs in.
+      arguments = Git subcommand and options.
+      label     = what is being inspected, for error messages.
+
+    Returns:
+      The stripped standard output.
+
+    Raises:
+      BacklogLedgerError: when Git cannot run, fails, or prints
+        non-UTF-8 output.
+    """
     try:
         proc = subprocess.run(
             ["git"] + list(arguments), cwd=cwd, capture_output=True)
@@ -225,7 +268,17 @@ def _checked_git(cwd, arguments, label):
 
 
 def _git_common_directory(checkout):
-    """Return the real common Git directory for one checkout."""
+    """Return the real common Git directory for one checkout.
+
+    Linked worktrees share one common Git directory; comparing it
+    identifies which repository a checkout belongs to.
+
+    Arguments:
+      checkout = the checkout folder.
+
+    Returns:
+      The resolved common directory path.
+    """
     value = _checked_git(
         checkout, ["rev-parse", "--path-format=absolute", "--git-common-dir"],
         "the repository common Git directory")
@@ -350,7 +403,20 @@ def authoritative_backlog_path():
 
 
 def backlog_severity_counts(backlog_path=None):
-    """Return fully validated open-ticket counts from the primary backlog."""
+    """Return fully validated open-ticket counts from the primary backlog.
+
+    Arguments:
+      backlog_path = the ledger to read, or ``None`` for the saved
+                     authoritative primary copy.
+
+    Returns:
+      Mapping with per-severity totals, High subtotals, and an
+      ``unclassified`` count for open lines that fail validation.
+
+    Raises:
+      BacklogLedgerError: when the ledger cannot be read safely or is
+        not UTF-8.
+    """
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0,
               "high_bug_fix": 0, "high_new_functionality": 0,
               "unclassified": 0}
@@ -557,7 +623,19 @@ def reserve_run_sequence(stamp=None):
 
 
 def _read_recovery_file(path, label, maximum_bytes):
-    """Read a recovery file without accepting a redirected final entry."""
+    """Read a recovery file without accepting a redirected final entry.
+
+    Arguments:
+      path          = the recovery file.
+      label         = name used in error messages.
+      maximum_bytes = size bound for the read.
+
+    Returns:
+      The file bytes.
+
+    Raises:
+      BacklogLedgerError: for a symlink or an unsafe read.
+    """
     if os.path.islink(path):
         raise BacklogLedgerError(label + " must not be a symlink")
     return _read_regular_file(os.path.realpath(path), label, maximum_bytes)
@@ -603,7 +681,28 @@ def active_route_record():
 
 
 def route_sequence(note_path, note_display, base, commands, create=True):
-    """Resume one exact route, or optionally save a new one before work."""
+    """Resume one exact route, or optionally save a new one before work.
+
+    A route is one manual Architect-to-Implementer run identified by
+    a sequence stamp. An unfinished route must match this note, base,
+    note digest, and command list exactly — otherwise the resume is
+    refused rather than silently mixing two runs.
+
+    Arguments:
+      note_path    = the Architect source note file.
+      note_display = its repository-relative display path.
+      base         = the directive's base commit.
+      commands     = the ordered check commands bound to the route.
+      create       = False to only look for an existing route.
+
+    Returns:
+      The route's sequence stamp, or ``None`` when nothing is active
+      and ``create`` is False.
+
+    Raises:
+      BacklogLedgerError: for a mismatched active route or a
+        colliding sequence.
+    """
     note_digest = hashlib.sha256(_read_recovery_file(
         note_path, "Architect source note", MAX_BACKLOG_BYTES)).hexdigest()
     commands_digest = gate_commands_digest(commands)
@@ -631,7 +730,19 @@ def route_sequence(note_path, note_display, base, commands, create=True):
 
 
 def abandon_active_route(expected_sequence):
-    """Remove only the exact active-route pointer named by the user."""
+    """Remove only the exact active-route pointer named by the user.
+
+    Arguments:
+      expected_sequence = the sequence stamp the user asked to
+                          abandon; it must match the active route.
+
+    Returns:
+      The removed route record.
+
+    Raises:
+      BacklogLedgerError: when no route is active or the sequence
+        differs.
+    """
     record = active_route_record()
     if record is None:
         raise BacklogLedgerError("there is no active manual route")
@@ -643,7 +754,19 @@ def abandon_active_route(expected_sequence):
 
 
 def recovered_implementer_return(seq):
-    """Return one complete saved handoff, or None before it is published."""
+    """Return one complete saved handoff, or None before it is published.
+
+    Arguments:
+      seq = the route's sequence stamp.
+
+    Returns:
+      The handoff text without its supporting-copy header, or
+      ``None`` when no return was saved yet.
+
+    Raises:
+      BacklogLedgerError: for a saved file without the complete
+        header.
+    """
     path = os.path.join(RELAY_DIR, seq + "-implementer.md")
     if not os.path.lexists(path):
         return None
@@ -657,7 +780,18 @@ def recovered_implementer_return(seq):
 
 
 def implementer_candidate_commit(handoff):
-    """Read the one canonical candidate row from a saved handoff."""
+    """Read the one canonical candidate row from a saved handoff.
+
+    Arguments:
+      handoff = the saved Implementer return text.
+
+    Returns:
+      The candidate commit, or ``None`` when the handoff names none.
+
+    Raises:
+      BacklogLedgerError: for several candidate rows or a malformed
+        one.
+    """
     candidate_lines = [line for line in handoff.splitlines()
                        if "Candidate commit:" in line]
     if not candidate_lines:
@@ -671,7 +805,23 @@ def implementer_candidate_commit(handoff):
 
 
 def recovered_candidate_commit(note_path, note_display, base, commands):
-    """Return the candidate named by this route's complete saved return."""
+    """Return the candidate named by this route's complete saved return.
+
+    Arguments:
+      note_path    = the Architect source note file.
+      note_display = its display path.
+      base         = the directive's base commit.
+      commands     = the route's check commands.
+
+    Returns:
+      The candidate commit — from the saved return, or from the route
+      record when a candidate was bound before the return was
+      published — or ``None`` when nothing is recoverable.
+
+    Raises:
+      BacklogLedgerError: when the saved return changed after its
+        candidate was bound.
+    """
     seq = route_sequence(
         note_path, note_display, base, commands, create=False)
     if seq is None:
@@ -691,7 +841,17 @@ def recovered_candidate_commit(note_path, note_display, base, commands):
 
 
 def remember_candidate_return(seq, candidate, handoff):
-    """Bind an accepted candidate before publishing its full return."""
+    """Bind an accepted candidate before publishing its full return.
+
+    Arguments:
+      seq       = the route's sequence stamp.
+      candidate = the accepted candidate commit.
+      handoff   = the Implementer return text, bound by digest.
+
+    Raises:
+      BacklogLedgerError: when the active route changed or a
+        replacement return names a different candidate.
+    """
     record = active_route_record()
     if record is None or record[1] != seq:
         raise BacklogLedgerError("active route changed before candidate save")
@@ -713,14 +873,36 @@ def finish_route():
 
 
 def gate_commands_digest(commands):
-    """Bind the ordered check commands without executing them."""
+    """Bind the ordered check commands without executing them.
+
+    Arguments:
+      commands = the ordered command list.
+
+    Returns:
+      SHA-256 of the canonical JSON encoding, so the same commands
+      always produce the same digest.
+    """
     payload = json.dumps(
         list(commands), ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def recovered_gate_result(seq, commands):
-    """Return a verified saved check result, or None before publication."""
+    """Return a verified saved check result, or None before publication.
+
+    Arguments:
+      seq      = the route's sequence stamp.
+      commands = the route's check commands; the saved receipt must
+                 carry their digest and the body's digest.
+
+    Returns:
+      ``(log_path, passed)`` for a verified saved log, or ``None``
+      when no log or no receipt was published yet.
+
+    Raises:
+      BacklogLedgerError: for a log without its header or one that
+        does not match this route.
+    """
     path = os.path.join(RELAY_DIR, seq + "-gates-log.md")
     if not os.path.lexists(path):
         return None
@@ -836,7 +1018,17 @@ def resolve_note_path(note):
 
 
 def publish_complete_text(path, text):
-    """Make a complete synced text file visible in one atomic step."""
+    """Make a complete synced text file visible in one atomic step.
+
+    The text is written to a temporary file, flushed to disk, and
+    renamed over the destination; the directory entry is then synced
+    too, so a crash leaves either the old complete file or the new
+    one, never a partial file.
+
+    Arguments:
+      path = the destination file.
+      text = the complete text to publish.
+    """
     directory = os.path.dirname(path)
     descriptor, temporary = tempfile.mkstemp(
         prefix="." + os.path.basename(path) + ".tmp-", dir=directory)
@@ -883,7 +1075,19 @@ def archive(seq, name, text):
 
 
 def manual_capability_cycle(directive, source_note):
-    """Bind a manual checkpoint to one canonical source note and base."""
+    """Bind a manual checkpoint to one canonical source note and base.
+
+    Arguments:
+      directive   = the parsed directive carrying the execution base.
+      source_note = canonical note path directly under ai/notes/.
+
+    Returns:
+      The checkpoint cycle identifier derived from the note digest
+      and the base commit.
+
+    Raises:
+      DirectiveError: for a non-canonical source note path.
+    """
     if (not isinstance(source_note, str)
             or not source_note.startswith("ai/notes/")
             or source_note.count("/") != 2):
@@ -897,7 +1101,21 @@ def manual_capability_cycle(directive, source_note):
 
 def save_manual_capability_checkpoint(seq, cycle, source_note, archive_path,
                                       handoff_text, capability_failure):
-    """Bind one blocked return to bytes that the router actually received."""
+    """Bind one blocked return to bytes that the router actually received.
+
+    Arguments:
+      seq                = the route's sequence stamp.
+      cycle              = the checkpoint cycle identifier.
+      source_note        = the canonical source note path.
+      archive_path       = where the full return was archived.
+      handoff_text       = the blocked return text.
+      capability_failure = mapping naming the checked capability, the
+                           attempted operation, and the raw failure.
+
+    Returns:
+      SHA-256 of the saved handoff text, as recorded in the
+      checkpoint.
+    """
     saved_handoff = (handoff_text if handoff_text.endswith("\n")
                      else handoff_text + "\n")
     digest = hashlib.sha256(saved_handoff.encode("utf-8")).hexdigest()
@@ -919,7 +1137,18 @@ def save_manual_capability_checkpoint(seq, cycle, source_note, archive_path,
 
 
 def verify_manual_capability_checkpoint(directive, source_note):
-    """Prove a capability exception against a saved blocked handoff."""
+    """Prove a capability exception against a saved blocked handoff.
+
+    Arguments:
+      directive   = the parsed directive; only the
+                    capability-unavailable mode is checked.
+      source_note = the canonical source note path.
+
+    Raises:
+      DirectiveError: when the declared checkpoint cycle does not
+        match this checkout, or no saved checkpoint file matches the
+        declared cycle, note, and handoff digest.
+    """
     if directive["parallel_work_plan"]["mode"] != "capability-unavailable":
         return
     expected = directive["capability_checkpoint"]
@@ -1040,6 +1269,7 @@ def verify_execution_checkout(checkout, recovered_candidate=None,
             "the router from " + worktree)
 
     def git_value(arguments, label):
+        """Return one verified Git value for the execution checkout."""
         proc = subprocess.run(
             ["git"] + arguments,
             cwd=REPO_ROOT,
@@ -1059,6 +1289,7 @@ def verify_execution_checkout(checkout, recovered_candidate=None,
         ["rev-parse", "--git-common-dir"], "common Git directory")
 
     def absolute_git_path(path):
+        """Resolve a Git-reported path against the repository root."""
         if not os.path.isabs(path):
             path = os.path.join(REPO_ROOT, path)
         return os.path.realpath(path)
@@ -1135,7 +1366,19 @@ def _git(args_list):
 
 
 def _branch_is_ancestor(branch, target):
-    """Return Git ancestry while distinguishing false from query failure."""
+    """Return Git ancestry while distinguishing false from query failure.
+
+    Arguments:
+      branch = the possibly ancestral commit or branch.
+      target = the commit whose history is searched.
+
+    Returns:
+      True when ``branch`` is an ancestor of ``target``; False when
+      the query ran and answered no.
+
+    Raises:
+      StatusError: when the ancestry query itself could not run.
+    """
     try:
         proc = subprocess.run(
             ["git", "merge-base", "--is-ancestor", branch, target],
