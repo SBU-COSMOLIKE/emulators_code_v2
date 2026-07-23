@@ -1,19 +1,20 @@
-"""This module runs model diagnostics over a validation set.
+"""Model diagnostics over a validation set.
 
-It provides post-training analyses that describe how the metric varies
-across the validation set. Each function returns a dictionary consumed by
-the plotting code. These summaries measure associations; they do not by
+Post-training analyses that describe how the metric varies across the
+validation set. Each function returns a dictionary consumed by the
+plotting code. These summaries measure associations; they do not by
 themselves identify a causal reason for model error.
 
 The chi2-based analyses are family-generic BY CONSTRUCTION (every
 family's loss exposes a per-sample chi2, and these consume only params +
 per-sample chi2): coverage_diagnostic asks whether the failing val
-points sit in sparse regions of the training set (a kNN-distance vs
-delta-chi2 correlation, i.e. data coverage); local_linear_floor compares
-the model to a local-linear interpolation of the training targets (the
-data-only floor; plain chi2 only); hard_direction_regression fits log10
-delta-chi2 against the (log) parameters to find which combination
-predicts the per-point hardness.
+points sit in sparse regions of the training set (kNN = k nearest
+neighbours: each val point's mean distance to its k closest training
+points, correlated against delta-chi2 — data coverage);
+local_linear_floor compares the model to a local-linear interpolation
+of the training targets (the data-only floor; plain chi2 only);
+hard_direction_regression fits log10 delta-chi2 against the (log)
+parameters to find which combination predicts the per-point hardness.
 
 The PHYSICAL-units analyses are per family, dispatched on the run's
 geometry: cmb_residual_diagnostic (per-multipole residual statistics +
@@ -90,6 +91,16 @@ variance under the covariance used to define the transform. This gives
 decorrelated coordinates with comparable numerical scale. Learning difficulty
 can still differ among coordinates. For the diagonal CMB geometry, whitened means
 the residual divided by its stored per-multipole scale sigma_ell.
+
+Statistics vocabulary used below: rank (Spearman) correlation =
+correlate the two lists' ORDERINGS rather than their values, so any
+monotone rescaling of either list leaves it unchanged; OLS = ordinary
+least squares, the fit minimizing the summed squared misfit, and R^2 =
+the fraction of the target's variance that fit explains (1 = perfect,
+0 = no better than the mean); standardized = mean subtracted, divided
+by the spread; multipole ell = the CMB spectrum's angular-scale index
+(low ell = large angles on the sky); high-pass = remove the smooth
+part of a curve so only variation faster than a chosen scale remains.
 """
 
 import numpy as np
@@ -136,17 +147,19 @@ def coverage_diagnostic(model,
                         device,
                         k_nn=8,
                         bs=256):
-  """
-  Do the failing val points sit in sparse regions of training?
+  """Do the failing val points sit in sparse regions of training?
 
   For each validation cosmology, measure its mean distance to the
   k nearest training cosmologies in whitened (param_geometry)
   parameter space (Euclidean distance there weights each direction
   by its prior spread, so no single wide param dominates) and
-  relate that local sparsity to the per-point delta-chi2. A positive
-  rank correlation reports an association between sparse neighbourhoods
-  and large errors. It does not show that sparse coverage caused the
-  errors or exclude a model limitation. Any trained model can be scored.
+  relate that local sparsity to the per-point delta-chi2. The relation
+  is Spearman's rank correlation — the correlation of the two lists'
+  orderings rather than their values, so the heavy chi2 tail cannot
+  dominate it. A positive rank correlation reports an association
+  between sparse neighbourhoods and large errors. It does not show
+  that sparse coverage caused the errors or exclude a model
+  limitation. Any trained model can be scored.
 
   Estimator: knn_dist, its rank correlation with log10 dchi2, and the
   median knn_dist of the good vs bad populations. Verdict: the boolean
@@ -246,15 +259,16 @@ def local_linear_floor(model,
                        device,
                        k_nn=40,
                        bs=256):
-  """
-  The data-only floor: a local linear map vs the trained model.
+  """The data-only floor: a local linear map vs the trained model.
 
   For each val point, fit a local linear map params -> whitened
-  target over its k nearest training points and predict the val
-  target; that prediction's chi2 is the best a smooth local method
-  extracts from the data. A linear fit is exact for a locally-linear
-  map, so its error is the local nonlinearity (hardness) plus
-  residual coverage. Comparing the fractions:
+  target over its k nearest training points (a least-squares fit:
+  the coefficients minimizing the summed squared misfit, solved by
+  torch.linalg.lstsq) and predict the val target; that prediction's
+  chi2 is the best a smooth local method extracts from the data. A
+  linear fit is exact for a locally-linear map, so its error is the
+  local nonlinearity (hardness) plus residual coverage. Comparing the
+  fractions:
     f_model ~ f_floor  -> model and local-linear errors are similar.
     f_model >> f_floor -> the model error is larger than this local
                           linear reference.
@@ -365,16 +379,20 @@ def hard_direction_regression(model,
                               device,
                               bs=256,
                               log_set=None):
-  """
-  Which log-param combination predicts the per-point hardness?
+  """Which log-param combination predicts the per-point hardness?
 
   Fits log10 dchi2 ~ c0 + sum_i c_i z_i, with z_i = standardized
   ln(param / median) for the positive multiplicative cosmological
   params and standardized centered-linear for the additive
-  nuisances (photo-z DZ, IA A1, which can be <= 0). Reports each
-  feature's univariate correlation (a collinearity-robust ranking),
-  the joint OLS coefficients (the alpha, beta, ... combination) and
-  joint R^2 (how much of the difficulty is a clean log-linear
+  nuisances (photo-z DZ, IA A1, which can be <= 0); standardized
+  means mean-subtracted and divided by the spread, so the fitted
+  coefficients are comparable. Reports each feature's univariate
+  correlation — its own correlation with the target, robust to
+  collinearity (features carrying overlapping information, which
+  makes joint coefficients unstable) — then the joint OLS
+  coefficients (OLS = ordinary least squares, minimizing the summed
+  squared misfit) and joint R^2 (the fraction of the difficulty's
+  variance the fit explains: how much is one clean log-linear
   direction), and the ln(omega_b h^2)-alone R^2 (does it collapse
   to that single physical-baryon direction?). Works for any chi2fn:
   the dchi2 comes from eval_source_chi2's param-aware path.
@@ -466,20 +484,23 @@ def cmb_residual_diagnostic(model,
                             device,
                             bs=256,
                             period_cut=None):
-  """
-  Per-multipole residual statistics for a CMB spectrum run.
+  """Per-multipole residual statistics for a CMB spectrum run.
 
-  Decodes every validation prediction back to physical C_ell through the
+  A multipole ell indexes angular scale on the sky (low ell = large
+  angles), and C_ell is the CMB spectrum's value there. This decodes
+  every validation prediction back to physical C_ell through the
   training chi2fn.decode, which reverses the imposed amplitude law. It
   summarizes the residual against the true spectra two ways
   per multipole: fractionally ((pred - truth) / truth; readable for
   tt / ee / pp, spiky where te crosses zero) and in error-bar units
-  ((pred - truth) / sigma_ell; always well-defined — for te read this
-  one). Also finds the worst validation cosmology (highest per-sample
-  chi2) for a pred-vs-truth overlay, and measures the residual's
-  short-period content, which is the residual component the roughness
-  term penalizes, computed with the same double-boxcar
-  remainder — so over-smoothing or ringing is visible at a glance.
+  ((pred - truth) / sigma_ell, the per-multipole error bar; always
+  well-defined — for te read this one). Also finds the worst
+  validation cosmology (highest per-sample chi2) for a pred-vs-truth
+  overlay, and measures the residual's short-period content, the
+  component the roughness term penalizes, computed with the same
+  double-boxcar remainder (a boxcar is a flat-window moving average;
+  smoothing twice and subtracting leaves only the fast wiggles) — so
+  over-smoothing or ringing is visible at a glance.
 
   Estimator only: the fractional and sigma-unit residual bands, the
   worst-chi2 overlay, and the high-pass remainder are the numbers, with no
@@ -539,9 +560,9 @@ def cmb_residual_diagnostic(model,
         tw = chi2fn.encode(t)
       preds.append(cl.double().cpu().numpy())
       if needs_p:
-        # unit 70 (20M-02): pass THIS batch's params so the physical metric
-        # divides by the right amplitude factor, not the last training batch's
-        # stashed one (a public chi2 call must never read the private stash).
+        # pass THIS batch's params so the physical metric divides by the
+        # right amplitude factor, not the last training batch's stashed
+        # one (a public chi2 call must never read the private stash).
         chi2s.append(chi2fn.chi2(pred=p, target=tw,
                                  params_whitened=x_enc).cpu())  # compute dtype
       else:
@@ -629,10 +650,7 @@ def scalar_output_diagnostic(model,
                              val_set,
                              device,
                              bs=256):
-  """
-  Per-output truth / prediction / residual tables for a scalar run
-  (the diagnostics dispatch's second family — the factoring must prove
-  itself on two).
+  """Per-output truth / prediction / residual tables for a scalar run.
 
   Decodes every validation prediction back to PHYSICAL units
   (chi2fn.decode = the geometry's destandardization) and returns, per
@@ -667,8 +685,9 @@ def scalar_output_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
-  # an NPCE run's loss is param-aware (needs_params: decode evaluates
-  # the frozen base from the whitened inputs) — the doctrine branch.
+  # a PCE-based run's loss is param-aware (needs_params: decode
+  # evaluates the frozen polynomial base from the whitened inputs),
+  # so the decode call needs this batch's params.
   needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
@@ -703,8 +722,7 @@ def grid_residual_diagnostic(model,
                              device,
                              bs=256,
                              n_derived=64):
-  """
-  Per-redshift residual statistics for a grid (background) run.
+  """Per-redshift residual statistics for a grid (background) run.
 
   Decodes every validation prediction back to the PHYSICAL function
   (the geometry's decode inverts the target law) and summarizes the
@@ -748,9 +766,9 @@ def grid_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
-  # an NPCE run's loss is param-aware (needs_params: encode / decode
-  # evaluate the frozen base from the whitened inputs) — the doctrine
-  # branch.
+  # a PCE-based run's loss is param-aware (needs_params: encode and
+  # decode evaluate the frozen polynomial base from the whitened
+  # inputs), so both calls need this batch's params.
   needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
@@ -771,9 +789,9 @@ def grid_residual_diagnostic(model,
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
       if needs_p:
-        # unit 70 (20M-02): pass THIS batch's params so the physical metric
-        # divides by the right amplitude factor, not the last training batch's
-        # stashed one (a public chi2 call must never read the private stash).
+        # pass THIS batch's params so the physical metric divides by the
+        # right amplitude factor, not the last training batch's stashed
+        # one (a public chi2 call must never read the private stash).
         chi2s.append(chi2fn.chi2(pred=p, target=tw,
                                  params_whitened=x_enc).cpu())  # compute dtype
       else:
@@ -834,8 +852,7 @@ def grid2d_residual_diagnostic(model,
                                val_set,
                                device,
                                bs=256):
-  """
-  Per-(z, k) residual statistics for a grid2d (matter-power) run.
+  """Per-(z, k) residual statistics for a grid2d (matter-power) run.
 
   Decodes every validation prediction back to LAW space — what the
   network learns; the geometry's decode un-standardizes but never
@@ -885,9 +902,9 @@ def grid2d_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
-  # an NPCE run's loss is param-aware (needs_params: encode / decode
-  # evaluate the frozen base from the whitened inputs) — the doctrine
-  # branch.
+  # a PCE-based run's loss is param-aware (needs_params: encode and
+  # decode evaluate the frozen polynomial base from the whitened
+  # inputs), so both calls need this batch's params.
   needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
@@ -908,9 +925,9 @@ def grid2d_residual_diagnostic(model,
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
       if needs_p:
-        # unit 70 (20M-02): pass THIS batch's params so the physical metric
-        # divides by the right amplitude factor, not the last training batch's
-        # stashed one (a public chi2 call must never read the private stash).
+        # pass THIS batch's params so the physical metric divides by the
+        # right amplitude factor, not the last training batch's stashed
+        # one (a public chi2 call must never read the private stash).
         chi2s.append(chi2fn.chi2(pred=p, target=tw,
                                  params_whitened=x_enc).cpu())  # compute dtype
       else:
