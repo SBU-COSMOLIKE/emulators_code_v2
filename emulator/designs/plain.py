@@ -94,8 +94,15 @@ class DesignSpec:
   """
 
   def __init_subclass__(cls, **kwargs):
-    # runs when a design class is defined; a missing head_block is a
-    # class-definition-time error, not a silent trunk-only default.
+    """Require every design class to declare head_block at definition.
+
+    Runs automatically when a subclass is defined, so a missing
+    head_block is a class-definition-time error, not a silent
+    trunk-only default.
+
+    Arguments:
+      **kwargs = forwarded unchanged to the next __init_subclass__.
+    """
     super().__init_subclass__(**kwargs)
     if "head_block" not in cls.__dict__:
       raise TypeError(
@@ -170,6 +177,16 @@ class ResMLP(DesignSpec, nn.Module):
                int_dim_res,
                n_blocks=3,
                block_opts=None):
+    """Validate the sizes and assemble the Linear/ResBlock/Affine stack.
+
+    Arguments:
+      input_dim   = whitened-parameter width.
+      output_dim  = data-vector width.
+      int_dim_res = internal (residual) width.
+      n_blocks    = number of residual blocks.
+      block_opts  = the ResBlock options mapping shared by every
+                    block, or None for the defaults.
+    """
     require_exact_int(input_dim, "ResMLP.input_dim", minimum=1)
     require_exact_int(output_dim, "ResMLP.output_dim", minimum=1)
     require_exact_int(int_dim_res, "ResMLP.int_dim_res", minimum=1)
@@ -211,6 +228,14 @@ class ResMLP(DesignSpec, nn.Module):
     self.model = nn.Sequential(*layers)
 
   def forward(self, x):
+    """Run the whole stack on one batch.
+
+    Arguments:
+      x = whitened parameters of shape (B, input_dim).
+
+    Returns:
+      the whitened prediction of shape (B, output_dim).
+    """
     return self.model(x)
 
 
@@ -410,8 +435,8 @@ class ResCNN(DesignSpec, nn.Module):
                    pure ResMLP; not 0, a 0 gate strands the CNN
                    with no gradient, so it never learns.
     head_act     = the CNN head's own activation factory (None ->
-                   share block_opts["act"], the trunk's family;
-                   byte-identical to before). build_specs builds it
+                   share block_opts["act"], the trunk's
+                   family). build_specs builds it
                    from model.cnn.activation (or the head: activation:
                    alias); set, it pins the head family only.
     block_opts   = ResBlock options (None -> {}); its "act" is the
@@ -433,6 +458,32 @@ class ResCNN(DesignSpec, nn.Module):
                separable=False, film=False, n_blocks=3,
                n_blocks_cnn=1, gate_init=0.1, head_act=None,
                block_opts=None):
+    """Validate every option, then build the trunk and the conv head.
+
+    The class docstring's Arguments block defines each option in
+    depth; one line each here:
+
+    Arguments:
+      input_dim      = whitened-parameter width.
+      output_dim     = data-vector length to emulate (n_keep).
+      int_dim_res    = trunk residual width.
+      geom           = output geometry carrying the padded per-bin
+                       layout (and the basis buffers, when any).
+      kernel_size    = odd conv kernel width.
+      rescale_kernel = True shrinks per-block kernels with depth at a
+                       fixed total receptive field.
+      groups         = channel mixing: 1 dense, 2 = the xi+/xi- split.
+      separable      = True factors each conv into a depthwise filter
+                       plus a pointwise channel mix.
+      film           = True re-injects the cosmology as per-channel
+                       modulation inside each block.
+      n_blocks       = trunk residual blocks.
+      n_blocks_cnn   = conv correction blocks.
+      gate_init      = starting value of the correction gate.
+      head_act       = the head's own activation factory; None shares
+                       the trunk's.
+      block_opts     = ResBlock options mapping, or None for {}.
+    """
     require_exact_int(input_dim, "ResCNN.input_dim", minimum=1)
     require_exact_int(output_dim, "ResCNN.output_dim", minimum=1)
     require_exact_int(int_dim_res, "ResCNN.int_dim_res", minimum=1)
@@ -672,16 +723,25 @@ class ResCNN(DesignSpec, nn.Module):
     self.gate.requires_grad_(head_on)
 
   def forward(self, x):
-    # trunk prediction in the full-whitened basis (the bulk map). In
-    # the "head" phase the trunk is frozen, so skip building its
-    # autograd graph: no trunk activations stored, no trunk backward.
+    """Predict with the trunk, then add the gated conv correction.
+
+    The class docstring draws the full shape flow. In the frozen
+    "head" phase the trunk runs without an autograd graph; in the
+    "trunk" phase the head is skipped entirely (frozen at its
+    identity init, its output is already known).
+
+    Arguments:
+      x = whitened parameters of shape (B, input_dim).
+
+    Returns:
+      the whitened prediction of shape (B, output_dim).
+    """
+    # trunk prediction in the full-whitened basis (the bulk map).
     if self._phase == "head":
       with torch.no_grad():
         y = self.mlp(x)               # (B, n_keep)
     else:
       y = self.mlp(x)                 # (B, n_keep)
-    # "trunk" phase: the head is frozen at its zero-init identity, so
-    # its output is known to be y — skip the compute entirely.
     if self._phase == "trunk":
       return y
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
@@ -854,8 +914,8 @@ class ResTRF(DesignSpec, nn.Module):
                    corr = 0 at epoch 1. See FiLMGenerator and
                    ai/notes/models-and-designs.md.
     head_act     = the TRF head's own activation factory (None ->
-                   share block_opts["act"], the trunk's family;
-                   byte-identical to before). build_specs builds it
+                   share block_opts["act"], the trunk's
+                   family). build_specs builds it
                    from model.trf.activation (or the head: activation:
                    alias); set, it pins the head family only.
     block_opts   = ResBlock options (None -> {}); its "act" is the
@@ -871,6 +931,33 @@ class ResTRF(DesignSpec, nn.Module):
                n_mlp_blocks=2, n_tokens=None, gate_init=0.1,
                shared_mlp=False, film=False, head_act=None,
                block_opts=None):
+    """Validate every option, then build the trunk and the TRF head.
+
+    The class docstring's Arguments block defines each option in
+    depth; one line each here:
+
+    Arguments:
+      input_dim    = whitened-parameter width.
+      output_dim   = data-vector length to emulate (n_keep).
+      int_dim_res  = trunk residual width.
+      geom         = output geometry carrying the padded per-bin
+                     layout (and the basis buffers, when any).
+      n_heads      = attention heads per transformer block.
+      n_blocks     = trunk residual blocks.
+      n_blocks_trf = transformer blocks in the head.
+      n_mlp_blocks = depth of each token's MLP stack.
+      n_tokens     = token count for re-segmenting a complete
+                     one-dimensional grid, or None for the physical
+                     bins.
+      gate_init    = starting value of the correction gate.
+      shared_mlp   = True shares one position-wise MLP across tokens
+                     instead of per-token unique weights.
+      film         = True re-injects the cosmology as per-token
+                     modulation.
+      head_act     = the head's own activation factory; None shares
+                     the trunk's.
+      block_opts   = ResBlock options mapping, or None for {}.
+    """
     require_exact_int(input_dim, "ResTRF.input_dim", minimum=1)
     require_exact_int(output_dim, "ResTRF.output_dim", minimum=1)
     require_exact_int(int_dim_res, "ResTRF.int_dim_res", minimum=1)
@@ -1088,16 +1175,25 @@ class ResTRF(DesignSpec, nn.Module):
     self.gate.requires_grad_(head_on)
 
   def forward(self, x):
-    # trunk prediction in the full-whitened basis (the bulk map). In
-    # the "head" phase the trunk is frozen, so skip building its
-    # autograd graph: no trunk activations stored, no trunk backward.
+    """Predict with the trunk, then add the gated TRF correction.
+
+    The class docstring draws the full shape flow. In the frozen
+    "head" phase the trunk runs without an autograd graph; in the
+    "trunk" phase the head is skipped entirely (frozen at its
+    identity init, its output is already known).
+
+    Arguments:
+      x = whitened parameters of shape (B, input_dim).
+
+    Returns:
+      the whitened prediction of shape (B, output_dim).
+    """
+    # trunk prediction in the full-whitened basis (the bulk map).
     if self._phase == "head":
       with torch.no_grad():
         y = self.mlp(x)               # (B, n_keep)
     else:
       y = self.mlp(x)                 # (B, n_keep)
-    # "trunk" phase: the head is frozen at its identity init, so its
-    # output is known to be y — skip the compute entirely.
     if self._phase == "trunk":
       return y
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
