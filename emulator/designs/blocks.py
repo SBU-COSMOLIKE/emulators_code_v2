@@ -186,8 +186,8 @@ def make_norm(name):
   """
   ResBlock norm-factory by name, for the model.norm knob.
 
-  Maps a short name to a norm factory norm(size) -> module, the contract
-  ResBlock's `norm` slot expects (invoked once per dense layer). The
+  Maps a short name to a norm factory norm(size) -> module, the call
+  shape ResBlock's `norm` slot expects (invoked once per dense layer). The
   parallel of make_activation: a driver or YAML picks the trunk's
   normalization by string. Only the trunk ResBlocks read it (the TRF
   block's internal LayerNorm and the CNN head have no norm slot).
