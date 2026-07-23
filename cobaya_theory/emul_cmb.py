@@ -69,7 +69,22 @@ class emul_cmb(Theory):
     extra_args = {}
 
     def initialize(self):
-        """Build the predictors and assemble requirements + the Cl layout."""
+        """Build the predictors and assemble requirements + the Cl layout.
+
+        Cobaya constructs one instance of this class from the sampling
+        YAML's theory block and calls initialize() once, before any
+        sampling; extra_args is that block's option mapping, handed
+        over by Cobaya as an attribute. This method validates the
+        options, picks the device, rebuilds one EmulatorPredictor per
+        configured path root, derives the required sampled inputs from
+        the artifacts' own stored names, and records each spectrum's
+        multipole layout for the Cl assembly.
+
+        Raises:
+          ValueError for an unknown option, a missing emulators list,
+          a non-CMB artifact, a duplicated spectrum, or artifacts that
+          disagree on a shared convention such as units.
+        """
         super().initialize()
         self._check_extra_args()
         self.device = self._pick_device(self.extra_args.get("device", "cpu"))
@@ -177,7 +192,13 @@ class emul_cmb(Theory):
             provider=provider)
 
     def _check_extra_args(self):
-        """Reject any extra_args key outside the v2 convention, loudly."""
+        """Reject any extra_args key outside the v2 convention, loudly.
+
+        Cobaya passes the theory block's options through without
+        checking them, so a typo'd key would otherwise be silently
+        ignored and its intended setting silently defaulted; the
+        closed list turns that into a named error.
+        """
         unknown = []
         for key in self.extra_args:
             if key not in _ALLOWED_EXTRA_ARGS:
