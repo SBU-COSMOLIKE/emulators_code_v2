@@ -42,6 +42,7 @@ training file. Readers changing the Python package can open the separate
   - [How does the saved record describe several training passes?](#faq-training-a5-pass-record)
 - **Appendix D — Code changes**
   - [Which file should a code reader open first?](#code-reader-start)
+  - [Where does each file's real work start?](#code-reader-main-functions)
   - [Open the full Python code reference](CODE_REFERENCE.md)
 
 ---
@@ -524,3 +525,69 @@ model-variant table, and per-file list of functions and classes.
 | change what a saved model contains | `results.py` |
 | change predictions made from a saved model | `inference.py` |
 | change figures or numerical checks | `plotting.py` or `diagnostics.py` |
+
+### Appendix D2. Where does each file's real work start? <a id="code-reader-main-functions"></a>
+
+Every file in this package has one or two functions or classes where
+its real work happens. Everything else in the file prepares inputs for
+those few names or checks their results, so a reader who knows the main
+names can treat the rest as helpers.
+
+To read the package for the first time, follow one training run through
+four files, opening the named function in each:
+
+1. `experiment.py` — `EmulatorExperiment.from_yaml` builds one
+   configured run from a YAML file, and `EmulatorExperiment.run` walks
+   it end to end: stage the rows, build the conversions, train.
+2. `training.py` — `run_emulator` assembles the model, optimizer,
+   scheduler, and loaders, then hands them to `training_loop_batched`,
+   the loop that updates weights once per epoch.
+3. `results.py` — `save_emulator` writes the two-file saved emulator,
+   and `rebuild_emulator` reconstructs the model from those files
+   alone.
+4. `inference.py` — `EmulatorPredictor.predict` answers one cosmology
+   from the saved files.
+
+The table below gives the same one-or-two main names for every other
+file. A class name means the class is the unit to read, starting at the
+named method or its constructor.
+
+| File | Main names | The job they anchor |
+|---|---|---|
+| `parameter_table.py` | `resolve_parameter_table` | decide which parameters a run reads, in which order |
+| `data_staging.py` | `stage_source`, `load_source` | open the generated tables, apply cuts, keep rows in RAM or on disk |
+| `batching.py` | `build_loaders` | build the `load(rows)` closures that feed batches to the device |
+| `cocoa.py` | `resolve_cocoa_config`, `cocoa_output` | resolve project, YAML, and output paths |
+| `validation.py` | `require_exact_int` and its four siblings | one family of shared type-refusal helpers; no single owner |
+| `fixed_facts.py` | `parse_sidecar`, `check_support` | read the scientific record; refuse points outside the trained region |
+| `model_recipe.py` | `validate_model_recipe`, `check_model_matches_recipe` | check saved model-building instructions before any class is imported |
+| `warmstart.py` | `load_source`, `build_warm_start` | open a saved source emulator and move its weights into a new run |
+| `activations.py` | `make_activation` | build the activation family a YAML names |
+| `designs/plain.py` | `ResMLP` | the baseline trunk model; `ResCNN` and `ResTRF` add heads to it |
+| `designs/blocks.py` | `ResBlock`, `TRFBlock` | the shared pieces the models are assembled from |
+| `designs/ia.py` | `TemplateMLP` | the factored intrinsic-alignment designs; its CNN and TRF variants mirror `plain.py` |
+| `designs/pce.py` | `PCEEmulator.from_training` | fit the frozen polynomial base; `forward` evaluates it |
+| `geometries/parameter.py` | `ParamGeometry.encode` | convert raw parameters to model inputs; `decode` inverts |
+| `geometries/output.py` | `DataVectorGeometry`, `build_shear_angle_map` | convert data vectors to model targets; attach the per-bin layout |
+| `geometries/scalar.py` | `ScalarGeometry` | the same conversion for named scalar outputs |
+| `geometries/cmb.py` | `CmbDiagonalGeometry` | the same conversion for CMB spectra, with the amplitude law |
+| `geometries/grid.py` | `GridGeometry` | the same conversion for background functions on a redshift grid |
+| `geometries/grid2d.py` | `Grid2DGeometry` | the same conversion for matter-power surfaces on (z, k) |
+| `losses/core.py` | `make_chi2`, `CosmolikeChi2` | build a run's loss; the covariance-weighted error |
+| `losses/scalar.py` | `make_scalar_chi2` | the scalar family's loss |
+| `losses/cmb.py` | `make_cmb_chi2` | the CMB family's loss and roughness penalty |
+| `losses/ia.py` | `TemplateFactoredChi2` | combine factored templates inside the loss |
+| `losses/pce.py` | `PCEResidualChi2` | score the network and the frozen polynomial base together |
+| `losses/transfer.py` | `TransferChi2` | score the correction and the frozen base together |
+| `background.py` | `distance_interpolators` | distances derived from H(z) |
+| `syren_base.py` | `base_pklin`, `base_boost` | the analytic matter-power base formulas |
+| `analytics.py` | `analytic_shape_ratio`, `rescale_xi` | the analytic rescaling applied outside the network |
+| `scheduling.py` | `run_gpu_pool`, `lpt_assign` | run independent trainings across several GPUs |
+| `family_drivers.py` | `read_sweep_block`, `resolved_sweep_record` | parse a sweep's settings and record what it ran |
+| `plotting.py` | `plot_diagnostics`, `plot_history` | draw the diagnostic and training-history figures |
+| `diagnostics.py` | `coverage_diagnostic`, `local_linear_floor` | compute the numerical checks those figures draw |
+
+The [Python code reference](CODE_REFERENCE.md) lists every public
+function and class per file. For a guided study order with exercises,
+the code guide (`documentation/emulator_code_guide.tex`) ends with a
+file-by-file route through the same files.
