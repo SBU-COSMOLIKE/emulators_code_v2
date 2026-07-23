@@ -112,8 +112,7 @@ from .parameter_table import resolve_parameter_table
 
 
 def stream_chunks(idx, chunk):
-  """
-  Yield the row indices in sorted blocks of `chunk` rows.
+  """Yield the row indices in sorted blocks of `chunk` rows.
 
   A generator (it `yield`s, so blocks are produced lazily). Each
   block is sorted so that indexing a memmap with it walks the
@@ -134,8 +133,7 @@ def stream_chunks(idx, chunk):
 
 
 def stream_stats(mm, idx, method=1, CHUNK=10000):
-  """
-  Per-column normalization stats over a chosen subset of rows.
+  """Per-column normalization stats over a chosen subset of rows.
 
   Context: a run uses only the N_train subset of the dump. `mm`
   is a row-indexable view of the data vectors (the on-disk dump,
@@ -143,8 +141,13 @@ def stream_stats(mm, idx, method=1, CHUNK=10000):
   `idx` the rows used. Stats accumulate over just those rows,
   streamed CHUNK at a time, so `mm` is never fully loaded.
   `method` picks the scheme:
-    1 = z-score  -> returns (mean, std)
-    2 = min-max  -> returns (min,  max - min)
+    1 = z-score  -> returns (mean, std): center each column on its
+        mean and scale by its standard deviation, so every column
+        has spread 1. The variance divides by n - 1 rather than n
+        (the sample-variance convention that corrects for using the
+        estimated mean instead of the true one).
+    2 = min-max  -> returns (min,  max - min): shift to the column
+        minimum and scale by the range.
   The caller then normalizes a row as (x - offset) / scale.
 
   Arguments:
@@ -195,12 +198,12 @@ def stream_stats(mm, idx, method=1, CHUNK=10000):
 
 
 def param_stats(arr, idx, method=1):
-  """
-  Per-column normalization stats for the cosmo params.
+  """Per-column normalization stats for the cosmo params.
 
   The caller normalizes as (x - offset) / scale. Sums run in
   float64 for accurate totals; the returned tensors are float32
-  (the model's dtype).
+  (the model's dtype). ddof=1 in the standard deviation is the same
+  divide-by-(n - 1) sample convention stream_stats uses.
 
   Arguments:
     arr    = the parameter array (or memmap), row per sample.
@@ -225,16 +228,17 @@ def param_stats(arr, idx, method=1):
 
 
 def stage_source(C, dv, idx, ram_frac=0.7):
-  """
-  Stage a source's used rows in RAM if they fit, else leave them
-  on disk.
+  """Stage a source's used rows in RAM if they fit, else leave them on disk.
 
   A run uses only the N_train subset of the dump, named by `idx`.
   That subset is far smaller than the dump and usually fits in
-  RAM even when the dump does not. If the combined bytes of BOTH
-  compact copies (the parameter table C[idx] and the target dv[idx],
-  each at its own dtype and width) are below ram_frac of available
-  RAM, materialize them and return local coordinates into that copy;
+  RAM even when the dump does not. Indexing with an array of row
+  numbers (numpy's "advanced indexing", C[rows]) always answers with
+  a fresh copy rather than a view, so staging materializes BOTH
+  compact copies — the parameter table C[idx] and the target dv[idx],
+  each at its own dtype and width. If their combined bytes are below
+  ram_frac of the RAM currently free (psutil reports it),
+  materialize them and return local coordinates into that copy;
   otherwise return the inputs unchanged so the loaders stream dv from
   the memmap by global index.
 
@@ -396,8 +400,7 @@ def phys_cut_idx(C, idx, names, omegabh2_hi,
                  omegamh2_lo=None, omegamh2_hi=None,
                  omegamh2ns_lo=None, omegamh2ns_hi=None,
                  param_file="<param dump>"):
-  """
-  Keep only rows inside the physical-density windows.
+  """Keep only rows inside the physical-density windows.
 
   Cuts on derived products a per-parameter scan misses (all strict,
   lo < quantity < hi):
@@ -413,7 +416,9 @@ def phys_cut_idx(C, idx, names, omegabh2_hi,
   along the sampling cloud's long axis; its window keeps the
   well-covered core around Planck's Gamma^2 ~ 0.045. omegamh2 (Planck
   ~ 0.143) and its n_s product omegamh2ns (~ 0.138) window the
-  hardness direction the forensics flagged. Every bound may be None
+  direction along which validation difficulty grows fastest (the
+  hard_direction_regression diagnostic measures it). Every bound may
+  be None
   (that side is not cut) and the whole set defaults off, so a config
   without the window keys selects exactly the rows it did before.
 
@@ -525,12 +530,12 @@ def phys_cut_idx(C, idx, names, omegabh2_hi,
 
 
 def read_param_names(covmat_path, comment="#"):
-  """
-  Parameter column names from a covmat header line.
+  """Parameter column names from a covmat header line.
 
-  Reads only the first line, strips the leading comment marker,
-  splits on whitespace, the column order the parameter arrays
-  (and ParamGeometry) use.
+  The covmat is the covariance-matrix text file whose first header
+  line lists the parameter columns. This reads only that line, strips
+  the leading comment marker, and splits on whitespace — the column
+  order the parameter arrays (and ParamGeometry) use.
 
   Arguments:
     covmat_path = path to the covmat file; its first line lists
@@ -545,10 +550,10 @@ def read_param_names(covmat_path, comment="#"):
 
 
 def _sidecar_candidates(params_path, suffix):
-  """
-  Return sidecar paths paired with one parameter dump, in lookup order.
+  """Return sidecar paths paired with one parameter dump, in lookup order.
 
-  A generator dump ``X.txt`` owns sidecar ``X<suffix>``. A getdist/cobaya
+  A sidecar is a small companion file that sits beside a data file and
+  describes it. A generator dump ``X.txt`` owns sidecar ``X<suffix>``. A getdist/cobaya
   chain ``X.1.txt`` first tries its exact stem and then the shared chain-root
   sidecar ``X<suffix>``. Only an all-decimal final stem component is a chain
   number: a legitimate dotted dataset such as ``lcdm.v2.txt`` keeps ``.v2``.
@@ -570,8 +575,7 @@ def _sidecar_candidates(params_path, suffix):
 
 
 def _find_sidecar(params_path, suffix):
-  """
-  Find the first existing sidecar paired with one parameter dump.
+  """Find the first existing sidecar paired with one parameter dump.
 
   Arguments:
     params_path = parameter dump path.
@@ -620,8 +624,7 @@ def _read_facts_sidecar_with_path(params_path):
 
 
 def read_facts_sidecar(params_path):
-  """
-  Read the generator's required scientific-record sidecar verbatim.
+  """Read the generator's required scientific-record sidecar verbatim.
 
   The generator publishes one small companion file beside the chain it dumps:
   <paramsf>.facts.yaml, the record of the cosmology the dataset was generated
@@ -772,8 +775,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 omegamh2ns_lo=None, omegamh2ns_hi=None,
                 facts_yaml=None,
                 failure_mask_path=None):
-  """
-  Load, physically cut, and stage one dv/param source.
+  """Load, physically cut, and stage one dv/param source.
 
   Memmaps the dv dump (never reading it whole), keeps the
   modeled param columns, applies the physical windows (the
@@ -803,6 +805,8 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   data-vector length also called n_keep in
                   geometries.output / designs/plain.
     gen         = torch.Generator seeding the cut+shuffle (required).
+                  A Generator is a seeded random-number source, so
+                  the same seed reproduces the same row selection.
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).
     with_means  = if True, also compute C_mean / dv_mean (train
@@ -992,8 +996,7 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
                        omegamh2_lo=None, omegamh2_hi=None,
                        omegamh2ns_lo=None, omegamh2ns_hi=None,
                        facts_yaml=None):
-  """
-  Load, optionally cut, and stage one scalar (derived-parameter) source.
+  """Load, optionally cut, and stage one scalar (derived-parameter) source.
 
   The scalar sibling of load_source: inputs and outputs are both named
   columns of the ONE parameter .txt (no dv .npy, no cosmolike). The
@@ -1013,7 +1016,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
                   targets Y, staged in the "dv" slot.
     n_keep      = absolute rows to stage (an int >= 1), the first n_keep
                   of the seeded shuffle (after the optional cut).
-    gen         = torch.Generator seeding the shuffle (required).
+    gen         = torch.Generator seeding the shuffle (required); a
+                  seeded random-number source, so the same seed
+                  reproduces the same row selection.
     ram_frac    = fraction of available RAM stage_source may fill.
     with_means  = if True, also compute C_mean (the ParamGeometry center)
                   and dv_mean (the output-column mean, kept for
