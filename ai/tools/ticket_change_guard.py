@@ -53,7 +53,27 @@ class GuardError(RuntimeError):
 
 @dataclass(frozen=True)
 class DiffEntry:
-    """Describe the old and new Git blobs for one changed path."""
+    """Describe the old and new Git blobs for one changed path.
+
+    A blob is Git's stored copy of one file's contents, named by a
+    40-hex object identifier.
+
+    Arguments:
+      old_mode   = six-digit file mode before the change; "000000"
+                   means the file did not exist.
+      new_mode   = file mode after the change; "000000" means the file
+                   was deleted.
+      old_object = blob identifier before the change; all zeros means
+                   no old contents.
+      new_object = blob identifier after the change; all zeros means
+                   no new contents.
+      status     = Git's change status letter, such as M for modified
+                   or R for renamed, possibly followed by a similarity
+                   score.
+      old_path   = path before the change, as raw bytes.
+      new_path   = path after the change; equals old_path except for
+                   renames and copies.
+    """
 
     old_mode: str
     new_mode: str
@@ -66,7 +86,12 @@ class DiffEntry:
 
 @dataclass(frozen=True)
 class CharacterCount:
-    """Hold the added and deleted character totals."""
+    """Hold the added and deleted character totals.
+
+    Arguments:
+      added   = minimum single-character insertions.
+      deleted = minimum single-character deletions.
+    """
 
     added: int
     deleted: int
@@ -79,7 +104,22 @@ class CharacterCount:
 
 @dataclass(frozen=True)
 class PreparedDelta:
-    """Describe one trimmed exact character comparison."""
+    """Describe one trimmed exact character comparison.
+
+    Characters equal at the start and at the end of both texts are
+    excluded before the expensive comparison; only the differing
+    middles are compared.
+
+    Arguments:
+      old_text  = complete old text.
+      new_text  = complete new text.
+      old_start = index where the old middle begins.
+      old_end   = index one past the old middle's last character.
+      new_start = index where the new middle begins.
+      new_end   = index one past the new middle's last character.
+      cells     = old middle length times new middle length — the size
+                  of the full comparison table, used to budget work.
+    """
 
     old_text: str
     new_text: str
@@ -91,7 +131,18 @@ class PreparedDelta:
 
 
 def nonnegative_integer(value):
-    """Parse one nonempty string of ASCII decimal digits."""
+    """Parse one nonempty string of ASCII decimal digits.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      The parsed nonnegative integer.
+
+    Raises:
+      argparse.ArgumentTypeError: for anything but plain ASCII digits,
+        so a sign, spaces, or Unicode digit forms cannot slip in.
+    """
     if not isinstance(value, str) or ASCII_DECIMAL_RE.fullmatch(value) is None:
         raise argparse.ArgumentTypeError(
             "value must be a nonnegative ASCII decimal integer")
@@ -103,7 +154,18 @@ def nonnegative_integer(value):
 
 
 def full_base_commit(value):
-    """Require the full 40-hex spelling of the ticket's base commit."""
+    """Require the full 40-hex spelling of the ticket's base commit.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      The commit identifier in lowercase.
+
+    Raises:
+      argparse.ArgumentTypeError: for an abbreviation or anything that
+        is not exactly forty hexadecimal digits.
+    """
     if FULL_COMMIT_RE.fullmatch(value) is None:
         raise argparse.ArgumentTypeError(
             "--base must be one full 40-hex commit")
@@ -111,7 +173,18 @@ def full_base_commit(value):
 
 
 def full_candidate_commit(value):
-    """Require the full 40-hex spelling of an audited candidate commit."""
+    """Require the full 40-hex spelling of an audited candidate commit.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      The commit identifier in lowercase.
+
+    Raises:
+      argparse.ArgumentTypeError: for an abbreviation or anything that
+        is not exactly forty hexadecimal digits.
+    """
     if FULL_COMMIT_RE.fullmatch(value) is None:
         raise argparse.ArgumentTypeError(
             "--candidate must be one full 40-hex commit")
@@ -119,7 +192,15 @@ def full_candidate_commit(value):
 
 
 def parse_args(argv=None):
-    """Parse the read-only guard command line."""
+    """Parse the read-only guard command line.
+
+    Arguments:
+      argv = argument list, or ``None`` for the process arguments.
+
+    Returns:
+      The parsed options. ``--architect-audit`` and ``--candidate``
+      must appear together or not at all.
+    """
     parser = argparse.ArgumentParser(
         description="check a committed ticket's changed-character limit")
     parser.add_argument(
@@ -148,7 +229,19 @@ def parse_args(argv=None):
 
 
 def run_git(repository, arguments):
-    """Run Git without a shell and return its raw output."""
+    """Run Git without a shell and return its raw output.
+
+    Arguments:
+      repository = folder passed to ``git -C``.
+      arguments  = Git subcommand and options.
+
+    Returns:
+      The completed-process object with raw output bytes; the exit
+      code is left for the caller to interpret.
+
+    Raises:
+      GuardError: when Git cannot start or exceeds the timeout.
+    """
     command = ["git", "-C", repository] + list(arguments)
     environment = os.environ.copy()
     # Read-only status normally refreshes and rewrites the index as an
@@ -169,7 +262,25 @@ def run_git(repository, arguments):
 
 
 def selected_maximum(explicit, environment=None):
-    """Bind an explicit limit to the dispatch environment, when present."""
+    """Bind an explicit limit to the dispatch environment, when present.
+
+    The daemon exports the ticket's limit in MAILBOX_MAX_CHARACTERS
+    when it dispatches work. A command-line ``--max`` must then agree
+    with it, so a hand-typed rerun cannot quietly measure against a
+    different limit than the dispatched one.
+
+    Arguments:
+      explicit    = the ``--max`` value, or ``None`` when omitted.
+      environment = mapping to read instead of the process
+                    environment; tests substitute one here.
+
+    Returns:
+      The limit to enforce; 0 means unlimited.
+
+    Raises:
+      GuardError: for a malformed environment value or a disagreement
+        between ``--max`` and the environment.
+    """
     values = os.environ if environment is None else environment
     inherited = values.get(MAX_CHARACTERS_ENVIRONMENT)
     inherited_value = None
@@ -195,7 +306,21 @@ def selected_maximum(explicit, environment=None):
 
 
 def require_authoritative_script(environment=None):
-    """Refuse an accidental worktree copy when dispatch names another tool."""
+    """Refuse an accidental worktree copy when dispatch names another tool.
+
+    The daemon exports the absolute path of the guard copy it trusts.
+    When this running file is not that copy — for example a stale
+    duplicate inside a worktree — the check refuses, because a
+    divergent copy could measure with different rules.
+
+    Arguments:
+      environment = mapping to read instead of the process
+                    environment; tests substitute one here.
+
+    Raises:
+      GuardError: for a relative path in the variable or a mismatch
+        with this file's resolved location.
+    """
     values = os.environ if environment is None else environment
     authoritative = values.get(AUTHORITATIVE_GUARD_ENVIRONMENT)
     if authoritative is None:
@@ -212,13 +337,33 @@ def require_authoritative_script(environment=None):
 
 
 def git_error(result):
-    """Return one readable Git diagnostic."""
+    """Return one readable Git diagnostic.
+
+    Arguments:
+      result = completed Git process.
+
+    Returns:
+      The stripped standard-error text, or the exit code when Git
+      printed nothing.
+    """
     message = result.stderr.decode("utf-8", errors="replace").strip()
     return message if message else "Git exited " + str(result.returncode)
 
 
 def repository_root(path):
-    """Resolve a directory inside one Git working tree to its root."""
+    """Resolve a directory inside one Git working tree to its root.
+
+    Arguments:
+      path = the ``--repo`` argument: the repository or any folder
+             inside it.
+
+    Returns:
+      Absolute path of the working-tree root.
+
+    Raises:
+      GuardError: when the path is not inside a Git working tree or
+        the returned root is unusable.
+    """
     candidate = os.path.abspath(path)
     result = run_git(
         repository=candidate, arguments=["rev-parse", "--show-toplevel"])
@@ -235,7 +380,20 @@ def repository_root(path):
 
 
 def resolve_commit(repository, revision, label):
-    """Resolve one revision to an exact commit object."""
+    """Resolve one revision to an exact commit object.
+
+    Arguments:
+      repository = working-tree root.
+      revision   = revision text such as ``HEAD`` or a full commit.
+      label      = name used in error messages, such as ``--base``.
+
+    Returns:
+      The full lowercase 40-hex commit identifier.
+
+    Raises:
+      GuardError: when the revision does not name a commit or Git
+        returns something unusable.
+    """
     result = run_git(
         repository=repository,
         arguments=["rev-parse", "--verify", revision + "^{commit}"])
@@ -252,7 +410,22 @@ def resolve_commit(repository, revision, label):
 
 
 def require_ancestor(repository, base, candidate, candidate_label="HEAD"):
-    """Require the selected base to be in the candidate's history."""
+    """Require the selected base to be in the candidate's history.
+
+    The ticket is measured as everything from the base to the
+    candidate. If the base is not an ancestor, that span would include
+    unrelated work and the measurement would be meaningless.
+
+    Arguments:
+      repository      = working-tree root.
+      base            = full base commit.
+      candidate       = full candidate commit.
+      candidate_label = name for the candidate in error messages.
+
+    Raises:
+      GuardError: when the base is not an ancestor or ancestry cannot
+        be checked.
+    """
     result = run_git(
         repository=repository,
         arguments=["merge-base", "--is-ancestor", base, candidate])
@@ -266,7 +439,18 @@ def require_ancestor(repository, base, candidate, candidate_label="HEAD"):
 
 
 def worktree_changes(repository):
-    """Return staged, unstaged, and nonignored untracked status bytes."""
+    """Return staged, unstaged, and nonignored untracked status bytes.
+
+    Arguments:
+      repository = working-tree root.
+
+    Returns:
+      Raw ``git status --porcelain`` output; empty bytes mean a clean
+      tree.
+
+    Raises:
+      GuardError: when the status command fails.
+    """
     result = run_git(
         repository=repository,
         arguments=["status", "--porcelain=v1", "-z",
@@ -278,7 +462,23 @@ def worktree_changes(repository):
 
 
 def hidden_index_flags(repository):
-    """Return tracked paths whose index flags can hide working-tree edits."""
+    """Return tracked paths whose index flags can hide working-tree edits.
+
+    Git lets a user mark a tracked file assume-unchanged or
+    skip-worktree; either mark makes ``git status`` omit edits to that
+    file, so a tree that looks clean could still carry uncommitted
+    work.
+
+    Arguments:
+      repository = working-tree root.
+
+    Returns:
+      List of ``(tag, path)`` pairs for every flagged file; empty when
+      no file carries such a mark.
+
+    Raises:
+      GuardError: when the flag listing fails or is malformed.
+    """
     result = run_git(
         repository=repository,
         arguments=["ls-files", "-v", "-z", "--"])
@@ -303,7 +503,15 @@ def hidden_index_flags(repository):
 
 
 def require_visible_index(repository):
-    """Refuse index flags that make a positive-limit cleanliness check lie."""
+    """Refuse index flags that make a positive-limit cleanliness check lie.
+
+    Arguments:
+      repository = working-tree root.
+
+    Raises:
+      GuardError: naming the first flagged file and its property when
+        any tracked file is assume-unchanged or skip-worktree.
+    """
     flags = hidden_index_flags(repository=repository)
     if not flags:
         return
@@ -320,7 +528,17 @@ def require_visible_index(repository):
 
 
 def require_clean_candidate(repository, expected_head):
-    """Require HEAD to stay fixed and all nonignored work to be committed."""
+    """Require HEAD to stay fixed and all nonignored work to be committed.
+
+    Arguments:
+      repository    = working-tree root.
+      expected_head = the commit HEAD resolved to when the check
+                      began.
+
+    Raises:
+      GuardError: when HEAD moved, an index flag hides edits, or the
+        working tree carries uncommitted changes.
+    """
     current_head = resolve_commit(
         repository=repository, revision="HEAD", label="HEAD")
     if current_head != expected_head:
@@ -333,7 +551,18 @@ def require_clean_candidate(repository, expected_head):
 
 
 def require_exact_named_commit(repository, revision, expected, label):
-    """Require a full commit name to keep resolving to the audited object."""
+    """Require a full commit name to keep resolving to the audited object.
+
+    Arguments:
+      repository = working-tree root.
+      revision   = the audited full commit name.
+      expected   = the commit it resolved to earlier.
+      label      = name used in the error message.
+
+    Raises:
+      GuardError: when the name now resolves elsewhere, which would
+        mean the audited object changed mid-check.
+    """
     current = resolve_commit(
         repository=repository, revision=revision, label=label)
     if current != expected:
@@ -341,12 +570,36 @@ def require_exact_named_commit(repository, revision, expected, label):
 
 
 def display_path(path):
-    """Render a Git path without allowing invalid bytes to hide an error."""
+    """Render a Git path without allowing invalid bytes to hide an error.
+
+    Arguments:
+      path = raw path bytes from Git.
+
+    Returns:
+      The path as text; bytes that are not valid UTF-8 appear as
+      backslash escapes instead of being dropped.
+    """
     return path.decode("utf-8", errors="backslashreplace")
 
 
 def binary_entry_keys(repository, base, candidate):
-    """Return changed path pairs that Git classifies as binary."""
+    """Return changed path pairs that Git classifies as binary.
+
+    ``git diff --numstat`` prints ``-`` in place of line counts for a
+    binary file; those entries are collected so the measurement can
+    refuse them by name.
+
+    Arguments:
+      repository = working-tree root.
+      base       = full base commit.
+      candidate  = full candidate commit.
+
+    Returns:
+      Set of ``(old_path, new_path)`` byte pairs Git considers binary.
+
+    Raises:
+      GuardError: when the diff fails or its records are malformed.
+    """
     result = run_git(
         repository=repository,
         arguments=["diff", "--numstat", "-z", "--find-renames=50%",
@@ -382,7 +635,20 @@ def binary_entry_keys(repository, base, candidate):
 
 
 def changed_entries(repository, base, candidate):
-    """Read the blob pairs in the complete base-to-candidate tree change."""
+    """Read the blob pairs in the complete base-to-candidate tree change.
+
+    Arguments:
+      repository = working-tree root.
+      base       = full base commit.
+      candidate  = full candidate commit.
+
+    Returns:
+      List of DiffEntry records, one per changed path, with renames
+      and copies detected at fifty percent similarity.
+
+    Raises:
+      GuardError: when the diff fails or a record is malformed.
+    """
     result = run_git(
         repository=repository,
         arguments=["diff-tree", "--no-commit-id", "--raw", "-z", "-r",
@@ -432,7 +698,20 @@ def changed_entries(repository, base, candidate):
 
 
 def blob_size(repository, object_id, path):
-    """Return one blob's byte size without reading its contents."""
+    """Return one blob's byte size without reading its contents.
+
+    Arguments:
+      repository = working-tree root.
+      object_id  = the blob's 40-hex identifier.
+      path       = path used in error messages.
+
+    Returns:
+      The size in bytes.
+
+    Raises:
+      GuardError: when the blob cannot be inspected or Git returns an
+        invalid size.
+    """
     result = run_git(
         repository=repository, arguments=["cat-file", "-s", object_id])
     if result.returncode != 0:
@@ -450,7 +729,21 @@ def blob_size(repository, object_id, path):
 
 
 def requested_blobs(entries):
-    """Return each unique blob needed for content-changing entries."""
+    """Return each unique blob needed for content-changing entries.
+
+    An entry whose old and new objects are identical — a pure rename —
+    changes no characters and requests nothing.
+
+    Arguments:
+      entries = DiffEntry records for the tree change.
+
+    Returns:
+      Mapping from blob identifier to one representative path.
+
+    Raises:
+      GuardError: for a changed Git submodule, whose contents cannot
+        be counted as text.
+    """
     requests = {}
     for entry in entries:
         if entry.old_object == entry.new_object:
@@ -471,7 +764,20 @@ def requested_blobs(entries):
 
 
 def preflight_blob_reads(repository, entries):
-    """Refuse oversized blob reads before any changed content is loaded."""
+    """Refuse oversized blob reads before any changed content is loaded.
+
+    Arguments:
+      repository = working-tree root.
+      entries    = DiffEntry records for the tree change.
+
+    Returns:
+      The requested-blob mapping, each blob now known to fit the
+      per-blob and aggregate byte limits.
+
+    Raises:
+      GuardError: when one blob or the running total exceeds its
+        limit.
+    """
     requests = requested_blobs(entries=entries)
     aggregate = 0
     for object_id, path in requests.items():
@@ -491,7 +797,24 @@ def preflight_blob_reads(repository, entries):
 
 
 def blob_text(repository, mode, object_id, path, cache):
-    """Read one preflighted changed blob as strict UTF-8 text."""
+    """Read one preflighted changed blob as strict UTF-8 text.
+
+    Arguments:
+      repository = working-tree root.
+      mode       = file mode; ``"000000"`` or an all-zero object means
+                   no contents, returned as the empty string.
+      object_id  = the blob's identifier.
+      path       = path used in error messages.
+      cache      = mapping that stores decoded text per blob, so a
+                   blob appearing on several paths is read once.
+
+    Returns:
+      The blob's text.
+
+    Raises:
+      GuardError: for a submodule, a blob that grew past the read
+        limit, a zero byte (binary content), or invalid UTF-8.
+    """
     if object_id == ZERO_OBJECT_ID or mode == "000000":
         return ""
     if mode == "160000":
@@ -523,7 +846,25 @@ def blob_text(repository, mode, object_id, path, cache):
 
 
 def prepare_character_delta(old_text, new_text):
-    """Trim equal ends and bound one exact longest-common-subsequence job."""
+    """Trim equal ends and bound one exact longest-common-subsequence job.
+
+    Characters shared at the start and at the end of both texts cannot
+    be part of any minimal edit, so only the differing middles enter
+    the expensive comparison. The middle sizes are bounded so one file
+    cannot demand unbounded memory.
+
+    Arguments:
+      old_text = complete old text.
+      new_text = complete new text.
+
+    Returns:
+      A PreparedDelta with the middle boundaries and the comparison
+      table size.
+
+    Raises:
+      GuardError: when the combined middles exceed the comparison size
+        limit.
+    """
     prefix = 0
     shared_length = min(len(old_text), len(new_text))
     while (prefix < shared_length
@@ -555,7 +896,21 @@ def prepare_character_delta(old_text, new_text):
 
 
 def exact_lcs_length(prepared):
-    """Return an exact longest-common-subsequence length in bounded memory."""
+    """Return an exact longest-common-subsequence length in bounded memory.
+
+    The longest common subsequence (LCS) is the longest sequence of
+    characters appearing in both texts in the same order, not
+    necessarily adjacent; the minimum edit counts follow from its
+    length. The classic table is computed one row at a time with the
+    shorter middle across the columns, so memory stays proportional to
+    the smaller text while the answer stays exact.
+
+    Arguments:
+      prepared = the trimmed comparison.
+
+    Returns:
+      The LCS length of the two middles.
+    """
     old_length = prepared.old_end - prepared.old_start
     new_length = prepared.new_end - prepared.new_start
     if old_length == 0 or new_length == 0:
@@ -597,7 +952,18 @@ def exact_lcs_length(prepared):
 
 
 def count_prepared_delta(prepared):
-    """Count the exact minimum character insertions and deletions."""
+    """Count the exact minimum character insertions and deletions.
+
+    Every character outside the longest common subsequence must be
+    inserted or deleted: additions are the new middle's length minus
+    the LCS length, deletions the old middle's length minus it.
+
+    Arguments:
+      prepared = the trimmed comparison.
+
+    Returns:
+      The CharacterCount for this file.
+    """
     old_length = prepared.old_end - prepared.old_start
     new_length = prepared.new_end - prepared.new_start
     common = exact_lcs_length(prepared=prepared)
@@ -606,7 +972,28 @@ def count_prepared_delta(prepared):
 
 
 def count_low_change_delta(prepared, maximum_work, limit_name):
-    """Count an exact low-change edit without building a full LCS table."""
+    """Count an exact low-change edit without building a full LCS table.
+
+    This is the frontier form of the exact difference algorithm: it
+    explores edits of growing total size along the diagonals of the
+    comparison table and stops at the first size that reaches the end
+    of both texts. For a small edit to a large file it finishes after
+    far fewer steps than the full table, at the price of growing with
+    the edit size instead.
+
+    Arguments:
+      prepared     = the trimmed comparison.
+      maximum_work = comparison steps this job may spend.
+      limit_name   = ``"per-file"`` or ``"aggregate"``, named in the
+                     error message.
+
+    Returns:
+      ``(count, work)``: the exact CharacterCount and the steps spent.
+
+    Raises:
+      GuardError: when the work budget is exhausted before the edit is
+        found.
+    """
     old = prepared.old_text[prepared.old_start:prepared.old_end]
     new = prepared.new_text[prepared.new_start:prepared.new_end]
     frontier = {1: 0}
@@ -650,7 +1037,26 @@ def count_low_change_delta(prepared, maximum_work, limit_name):
 
 
 def count_bounded_delta(prepared, maximum_work, limit_name):
-    """Use the cheaper exact method that fits the remaining work budget."""
+    """Use the cheaper exact method that fits the remaining work budget.
+
+    Both methods return exact counts; only their costs differ. The
+    full table costs old-middle times new-middle characters; the
+    frontier method costs roughly the text length times the edit size.
+    The table is used when it fits the budget, the frontier method
+    otherwise.
+
+    Arguments:
+      prepared     = the trimmed comparison.
+      maximum_work = comparison steps this file may spend.
+      limit_name   = ``"per-file"`` or ``"aggregate"``, named in
+                     errors.
+
+    Returns:
+      ``(count, work)``: the exact CharacterCount and the steps spent.
+
+    Raises:
+      GuardError: when neither method fits the budget.
+    """
     if prepared.cells <= maximum_work:
         return count_prepared_delta(prepared=prepared), prepared.cells
     return count_low_change_delta(
@@ -658,7 +1064,25 @@ def count_bounded_delta(prepared, maximum_work, limit_name):
 
 
 def character_delta(old_text, new_text):
-    """Count one exact, symmetric Unicode-character change."""
+    """Count one exact, symmetric Unicode-character change.
+
+    Symmetric means a replacement counts both sides: renaming a
+    variable counts the deleted old spelling and the inserted new
+    spelling. The count is exact — the minimum number of
+    single-character insertions and deletions — so two honest
+    measurements of the same texts always agree.
+
+    Arguments:
+      old_text = complete old text.
+      new_text = complete new text.
+
+    Returns:
+      The CharacterCount for this pair of texts.
+
+    Raises:
+      GuardError: when the texts exceed the comparison size or work
+        limits.
+    """
     prepared = prepare_character_delta(
         old_text=old_text, new_text=new_text)
     count, _ = count_bounded_delta(
@@ -668,7 +1092,20 @@ def character_delta(old_text, new_text):
 
 
 def measure_characters(repository, base, candidate):
-    """Measure the full committed text change between two trees."""
+    """Measure the full committed text change between two trees.
+
+    Arguments:
+      repository = working-tree root.
+      base       = full base commit.
+      candidate  = full candidate commit.
+
+    Returns:
+      The CharacterCount summed over every changed file.
+
+    Raises:
+      GuardError: for binary or oversized changes, submodules, invalid
+        UTF-8, or an exhausted comparison work budget.
+    """
     entries = changed_entries(
         repository=repository, base=base, candidate=candidate)
     # Object sizes are cheap to inspect.  Apply the memory limit before asking
@@ -727,7 +1164,13 @@ def measure_characters(repository, base, candidate):
 
 
 def print_identity(base, candidate, maximum):
-    """Print the exact commits and selected limit."""
+    """Print the exact commits and selected limit.
+
+    Arguments:
+      base      = full base commit.
+      candidate = full candidate commit.
+      maximum   = selected limit; zero prints as unlimited.
+    """
     print("base commit: " + base)
     print("candidate commit: " + candidate)
     if maximum == 0:
@@ -737,7 +1180,19 @@ def print_identity(base, candidate, maximum):
 
 
 def main(argv=None):
-    """Run the ticket change check."""
+    """Run the ticket change check.
+
+    The cleanliness or exact-commit requirement is checked again after
+    measuring, so a tree that changed mid-measurement is refused
+    rather than reported with a stale number.
+
+    Arguments:
+      argv = argument list, or ``None`` for the process arguments.
+
+    Returns:
+      The process exit code: 0 within the limit or unlimited, 1 over
+      the limit, 2 when the repository state cannot be checked safely.
+    """
     args = parse_args(argv=argv)
     try:
         require_authoritative_script()
