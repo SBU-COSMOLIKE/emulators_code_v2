@@ -466,7 +466,17 @@ def control_plane_redteam_key_matches(control, candidate_commit, decision):
 
 
 def _live_control_plane_fingerprint():
-    """Hash D0's live state and trusted refs around a shadow run."""
+    """Hash D0's live state and trusted refs around a shadow run.
+
+    Returns:
+      A SHA-256 hex digest over the ticket-cycle state, the candidate
+      state, and the trusted ref listing. Taking it before and after a
+      shadow check proves the check touched nothing live.
+
+    Raises:
+      daemon.TicketCycleStateError: when a state file or the ref
+        listing cannot be read safely.
+    """
     digest = daemon.hashlib.sha256()
     for name in (daemon.TICKET_CYCLE_STATE_NAME, daemon.CANDIDATE_STATE_NAME):
         path = daemon.os.path.join(daemon.MAILBOX, name)
@@ -531,6 +541,19 @@ def trusted_control_plane_check(commit, label):
     This is protocol isolation, not a hostile-process sandbox.  D1 receives
     no path to the live mailbox or Git common directory. D0 verifies that its
     own state and refs are byte-identical after the bounded checks.
+
+    Arguments:
+      commit = the full commit whose daemon copy is exercised.
+      label  = a short tag naming the check in its saved log file.
+
+    Returns:
+      ``(passed, log_path)``: whether every bounded check succeeded,
+      and the saved log recording each command and its output.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed commit, a failed
+        disposable checkout, or live state that changed while the
+        check ran.
     """
     if daemon.FULL_COMMIT_RE.fullmatch(commit) is None:
         raise daemon.TicketCycleStateError("control-plane check needs a full commit")
@@ -1760,7 +1783,14 @@ def require_no_ordinary_landing_transition(current_dispatch_path):
 
 
 def architect_notes_transition_pending():
-    """Return whether a durable note admin turn or P landing is unresolved."""
+    """Test whether a permanent-note transition is still unresolved.
+
+    Returns:
+      True when any mailbox state — root, ``inflight/``, or
+      ``failed/`` — still holds a notes-admin request or an
+      architect-notes-go landing request. While one exists, no newer
+      ticket may be admitted.
+    """
     for directory in (daemon.MAILBOX, daemon.os.path.join(daemon.MAILBOX, "inflight"),
                       daemon.os.path.join(daemon.MAILBOX, "failed")):
         for suffix, header in (
@@ -1779,7 +1809,13 @@ def architect_notes_transition_pending():
 
 
 def failed_architect_notes_transition_paths():
-    """Return exact failed admin/P files that no watcher may retry itself."""
+    """List the parked note-transition files only the user may requeue.
+
+    Returns:
+      The ``failed/`` paths of notes-admin requests and
+      architect-notes-go landing requests, in sequence order. A
+      watcher reports these; it never retries them itself.
+    """
     failed = daemon.os.path.join(daemon.MAILBOX, "failed")
     found = []
     for suffix, header in (
@@ -1798,7 +1834,13 @@ def failed_architect_notes_transition_paths():
 
 
 def architect_notes_failed_debt_error():
-    """Explain failed-only note debt as a finite user-action stop."""
+    """Explain failed-only note debt as a finite user-action stop.
+
+    Returns:
+      A printable stop message listing each parked note-transition
+      file and the user's exact recovery steps, or ``None`` when no
+      such debt exists.
+    """
     paths = daemon.failed_architect_notes_transition_paths()
     if not paths:
         return None
@@ -2324,7 +2366,16 @@ def finish_claimed_architect_notes_go(dispatch_path, base_commit,
         unavailable.
     """
     def result(consumed, outcome):
-        """Shape the return value, with the outcome token when asked."""
+        """Shape the return value, with the outcome token when asked.
+
+        Arguments:
+          consumed = whether the message was fully consumed.
+          outcome  = the daemon outcome token for this result.
+
+        Returns:
+          ``(consumed, notes_commit)``, extended by the outcome token
+          when the caller requested it.
+        """
         ordinary = (consumed, notes_commit)
         return ordinary + (outcome,) if return_outcome else ordinary
 
