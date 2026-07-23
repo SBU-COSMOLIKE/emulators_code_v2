@@ -100,6 +100,14 @@ def copy_d0_state(controller, repository):
   files = {}
 
   def copy(source, relative, maximum, label):
+    """Copy one D0 record into the handoff and log its bytes.
+
+    Arguments:
+      source   = the live record's path in D0.
+      relative = its repository-relative destination path.
+      maximum  = the copy's size bound in bytes.
+      label    = what is being copied, for error messages.
+    """
     files[relative] = _copy_regular(
         controller=controller, source=source,
         destination=os.path.join(repository, relative),
