@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Ask a long-running Implementer to pause for an Architect review.
 
-Claude Code calls this file after a tool batch and again when it tries to
-finish.  Once the monotonic deadline has passed, the first call tells the
-Implementer to write a short progress handoff.  A small state file makes that
-instruction one-shot even if Claude Code invokes another hook immediately.
+A hook is a small program that Claude Code (the agent runtime) launches
+at fixed moments in a session; this file is such a hook. Claude Code
+calls it after each batch of tool calls, when the session tries to
+finish, and just before compaction, the step that condenses a long
+conversation and loses working detail. Once the deadline has passed —
+measured on the monotonic clock, the timer that only moves forward and
+ignores wall-clock adjustments — the first call tells the Implementer
+to write a short progress handoff. A small state file makes that
+instruction one-shot: even if Claude Code invokes another hook
+immediately, only one call delivers it.
 """
 
 import fcntl
@@ -78,7 +84,23 @@ repository; the daemon will not invent a summary.
 
 
 def _checkpoint_payload(event):
-    """Return the JSON instruction for one supported hook event."""
+    """Return the JSON instruction for one supported hook event.
+
+    Claude Code reads one JSON object from a hook's standard output. An
+    object of the form ``{"decision": "block", "reason": ...}`` stops
+    the current action and shows the reason text to the model, so the
+    finish and compaction events use it to force a handoff. The
+    after-tools event cannot block anything; it attaches the checkpoint
+    instruction as additional context the model reads on its next step.
+
+    Arguments:
+      event = one of ``SUPPORTED_EVENTS``: ``"PostToolBatch"`` (after a
+              batch of tool calls), ``"Stop"`` (the session tries to
+              finish), or ``"PreCompact"`` (compaction is imminent).
+
+    Returns:
+      The JSON text, newline-terminated, ready to print.
+    """
     if event == "PreCompact":
         output = {"decision": "block",
                   "reason": CONTEXT_HANDOFF_INSTRUCTION}
@@ -95,7 +117,21 @@ def _checkpoint_payload(event):
 
 
 def _open_checkpoint_state(path):
-    """Open the one-shot state file used as a crash-released lock."""
+    """Open the one-shot state file used as a crash-released lock.
+
+    The file is opened read-write, created if missing, with owner-only
+    permission bits. The caller then locks it with ``flock``, an
+    advisory lock the operating system releases automatically when the
+    process exits, so a crashed hook can never leave the checkpoint
+    permanently locked.
+
+    Arguments:
+      path = filesystem path of the state file.
+
+    Returns:
+      An open file descriptor — the small integer the operating system
+      uses to name an open file. The caller must close it.
+    """
     flags = os.O_RDWR | os.O_CREAT
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
@@ -104,7 +140,34 @@ def _open_checkpoint_state(path):
 
 def checkpoint_result(*, event, now, deadline, state_path,
                       output_stream=None):
-    """Return ``(exit code, stdout, stderr)`` for one hook event."""
+    """Return ``(exit code, stdout, stderr)`` for one hook event.
+
+    Compaction always receives the context-handoff instruction. The
+    other two events do nothing before the deadline; after it, the
+    first call wins a race through the state file: it takes the
+    exclusive lock, reads the file, and only when the triggered marker
+    is absent prints the checkpoint instruction and writes the marker.
+    Every later call finds the marker and stays silent, which is what
+    makes the instruction one-shot. If the marker cannot be recorded
+    after the instruction text was staged, the partial marker is
+    cleared and the call reports exit code 2, so the hook fails loudly
+    instead of staying half-armed.
+
+    Arguments:
+      event         = one of ``SUPPORTED_EVENTS``; any other value
+                      produces exit code 2 with an error message.
+      now           = current monotonic-clock reading in seconds.
+      deadline      = monotonic-clock reading after which the
+                      checkpoint fires.
+      state_path    = path of the one-shot state file.
+      output_stream = stream that receives the JSON instruction, or
+                      ``None`` to return the text in the tuple instead.
+
+    Returns:
+      ``(exit_code, stdout_text, stderr_text)``. Exit code 0 with empty
+      text means there was nothing to do on this call; exit code 2
+      carries the failure description in the stderr slot.
+    """
     if event not in SUPPORTED_EVENTS:
         return 2, "", "unsupported checkpoint hook event: " + str(event) + "\n"
     if event == "PreCompact":
@@ -151,7 +214,20 @@ def checkpoint_result(*, event, now, deadline, state_path,
 
 
 def main():
-    """Read Claude's hook event and print the response Claude expects."""
+    """Read Claude Code's hook request and print the expected response.
+
+    The request arrives as one JSON object on standard input. A request
+    carrying an ``agent_id`` comes from a subagent — a helper session
+    the Implementer launched — not from the Implementer itself, so it
+    is ignored: helpers must keep working while the main session
+    pauses. The deadline and state-file path arrive through the two
+    environment variables named at the top of this file, which the
+    mailbox daemon sets when it launches the Implementer.
+
+    Returns:
+      The process exit code: 0 for delivered or nothing-to-do, 2 for a
+      malformed request or an undeliverable checkpoint.
+    """
     try:
         request = json.load(sys.stdin)
         if request.get("agent_id"):
