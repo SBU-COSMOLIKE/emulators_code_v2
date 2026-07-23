@@ -77,7 +77,21 @@ PART_EXPORTS = (
 
 
 def control_plane_ticket_state(cycle_id, candidate_commit=None):
-    """Return a copy of one protected ticket's durable state."""
+    """Return a copy of one protected ticket's durable state.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = when given, the saved candidate C must equal
+                         it exactly.
+
+    Returns:
+      A copy of the two-key control-plane record, or ``None`` when
+      the cycle is not an active protected ticket.
+
+    Raises:
+      daemon.TicketCycleStateError: when the named candidate is not
+        the saved C.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -96,7 +110,21 @@ def control_plane_ticket_state(cycle_id, candidate_commit=None):
 
 
 def require_validated_architect_go_receipt(cycle_id, candidate_commit):
-    """Require D0's saved proof that one Architect turn produced GO(C)."""
+    """Require D0's saved proof that one Architect turn produced GO(C).
+
+    The proof is a delivery receipt file D0 creates only after
+    validating a fresh Architect outcome; its name binds the request
+    and return by digest. Exactly one receipt must name this cycle
+    and candidate.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the candidate C the GO must name.
+
+    Raises:
+      daemon.TicketCycleStateError: when zero or several receipts
+        match.
+    """
     matches = []
     pattern = daemon.os.path.join(
         daemon.MAILBOX, daemon.IMPLEMENTER_DELIVERY_PREFIX + "*")
@@ -133,7 +161,22 @@ def require_validated_architect_go_receipt(cycle_id, candidate_commit):
 
 
 def record_control_plane_architect_go(cycle_id, candidate_commit):
-    """Persist the first key before publishing mandatory Red Team work."""
+    """Persist the first key before publishing mandatory Red Team work.
+
+    Recording the same C twice is harmless; a different C is refused,
+    so a protected decision can never silently change its candidate.
+    The D0-validated delivery receipt is checked under the state lock
+    before the key is saved, so later recovery no longer depends on
+    the short-lived receipt file.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the candidate C the Architect approved.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing or non-protected
+        cycle, a candidate mismatch, or a changed prior decision.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -166,7 +209,21 @@ def record_control_plane_architect_go(cycle_id, candidate_commit):
 
 def record_control_plane_redteam_decision(cycle_id, candidate_commit,
                                           decision):
-    """Persist the second exact key; it grants no landing by itself."""
+    """Persist the second exact key; it grants no landing by itself.
+
+    Recording the same decision twice is harmless; changing either
+    the decision or its candidate is refused.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the candidate C the Red Team reviewed.
+      decision         = one of the allowed control-plane results.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid decision, a
+        missing or non-protected cycle, a candidate mismatch, or a
+        changed prior decision.
+    """
     if decision not in daemon.CONTROL_PLANE_REVIEW_RESULTS:
         raise daemon.TicketCycleStateError("invalid protected Red Team decision")
     lock_file = daemon.acquire_ticket_cycle_lock()
@@ -196,7 +253,23 @@ def record_control_plane_redteam_decision(cycle_id, candidate_commit,
 
 def record_control_plane_integration_stale(
         cycle_id, candidate_commit, stale_landing, old_main, new_main):
-    """Preserve both approvals of candidate C while marking prepared L stale."""
+    """Preserve both approvals of candidate C while marking prepared L stale.
+
+    Main moved from M0 to M1 after L was prepared, so L can no longer
+    land; both exact-C keys stay valid, but the combined tree on M1
+    must pass a fresh shadow check before a replacement landing.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the approved candidate C.
+      stale_landing    = the prepared landing L that went stale.
+      old_main         = M0, the main L was prepared on.
+      new_main         = M1, the main that superseded it.
+
+    Raises:
+      daemon.TicketCycleStateError: when no active protected ticket
+        exists or the two approvals are not both present for C.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -230,7 +303,18 @@ def record_control_plane_integration_stale(
 
 def record_control_plane_integration_go(
         cycle_id, candidate_commit, new_main, evidence):
-    """Record a fresh Architect GO for the exact C-on-M1 interaction."""
+    """Record a fresh Architect GO for the exact C-on-M1 interaction.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the approved candidate C.
+      new_main         = M1, the main the ticket was revalidated on.
+      evidence         = the integration-revalidation evidence text.
+
+    Raises:
+      daemon.TicketCycleStateError: when the keys or the stale record
+        changed, or main advanced again before the GO was recorded.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -263,7 +347,24 @@ def record_control_plane_integration_go(
 
 
 def prepare_revalidated_control_plane_landing(cycle_id, candidate_commit):
-    """Retire only stale L after proving main still equals approved M1."""
+    """Retire only stale L after proving main still equals approved M1.
+
+    Crash-safe: when the private journal already holds a replacement
+    landing, its parent must be the approved M1 and the stale L is
+    left alone; when main moved yet again, the next stale event is
+    bound to the landing actually in the journal and raised as a
+    retryable landing error.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the approved candidate C.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when main no longer
+        equals the approved M1.
+      daemon.TicketCycleStateError: for a journal in an inconsistent
+        state.
+    """
     control = daemon.control_plane_ticket_state(
         cycle_id=cycle_id, candidate_commit=candidate_commit)
     if control is None or control["integration_status"] != "REVALIDATED":
@@ -310,7 +411,16 @@ def prepare_revalidated_control_plane_landing(cycle_id, candidate_commit):
 
 
 def protected_landing_ready(cycle_id, candidate_commit):
-    """Require both independently persisted decisions for exact C."""
+    """Require both independently persisted decisions for exact C.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C to land.
+
+    Returns:
+      True for an ordinary (non-protected) cycle, or when both keys
+      name exactly C; False otherwise.
+    """
     control = daemon.control_plane_ticket_state(
         cycle_id=cycle_id, candidate_commit=candidate_commit)
     if control is None:
@@ -320,7 +430,16 @@ def protected_landing_ready(cycle_id, candidate_commit):
 
 
 def control_plane_keys_ready(control, candidate_commit):
-    """Pure exact-C two-key decision used by D0 and focused tests."""
+    """Pure exact-C two-key decision used by D0 and focused tests.
+
+    Arguments:
+      control          = the two-key record mapping.
+      candidate_commit = the candidate C both keys must name.
+
+    Returns:
+      True only when the Architect key and the Red Team accept key
+      both name exactly C.
+    """
     return (isinstance(control, dict)
             and daemon.FULL_COMMIT_RE.fullmatch(candidate_commit) is not None
             and control.get("architect_candidate") == candidate_commit
@@ -329,7 +448,17 @@ def control_plane_keys_ready(control, candidate_commit):
 
 
 def control_plane_redteam_key_matches(control, candidate_commit, decision):
-    """Return whether D0 already saved this exact Sol decision."""
+    """Return whether D0 already saved this exact Sol decision.
+
+    Arguments:
+      control          = the two-key record mapping.
+      candidate_commit = the reviewed candidate C.
+      decision         = the decision to compare.
+
+    Returns:
+      True when the saved Red Team key equals this candidate and
+      decision exactly.
+    """
     return (isinstance(control, dict)
             and decision in daemon.CONTROL_PLANE_REVIEW_RESULTS
             and control.get("redteam_candidate") == candidate_commit
@@ -767,7 +896,19 @@ print('CONTROL_PLANE_HEALTHY', ROLE_CONTRACT['schema_version'])
 
 def record_control_plane_check(cycle_id, candidate_commit, kind, ok,
                                evidence):
-    """Persist one D0 shadow or post-landing health result."""
+    """Persist one D0 shadow or post-landing health result.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the saved candidate C the check names.
+      kind             = ``"shadow"`` or ``"health"``.
+      ok               = whether the check passed.
+      evidence         = path of the check's log file.
+
+    Raises:
+      daemon.TicketCycleStateError: for a mismatched cycle or
+        candidate, or an unknown check kind.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -797,7 +938,34 @@ def record_control_plane_check(cycle_id, candidate_commit, kind, ok,
 
 def execute_architect_go_locked(cycle_id, candidate_commit, mode,
                                 sealed_backlog=None):
-    """Land candidate C as its exact landing L and record it before any push."""
+    """Land candidate C as its exact landing L and record it before any push.
+
+    The sequence: a protected ticket must hold both keys and may need
+    its stale landing retired; L is prepared as one exact squash, or
+    an already-journaled L is verified against the durable record; a
+    revalidated protected landing must pass the shadow check; the
+    role baselines are preflighted; L lands in the clean user
+    checkout; and the durable record is written before anything is
+    pushed. An ordinary normal-mode landing then publishes the Red
+    Team closure request.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C to land.
+      mode             = the ticket mode, such as ``"normal"``.
+      sealed_backlog   = sealed backlog bytes to bind into L, or
+                        ``None``.
+
+    Returns:
+      ``(landing, completed_now)``: the landing commit L and whether
+      this call completed the cycle.
+
+    Raises:
+      daemon.TicketCycleStateError: for missing keys or a journal
+        disagreement.
+      daemon.RetryableArchitectLandingError: when the shadow check
+        failed for a revalidated integration.
+    """
     protected = daemon.control_plane_ticket_state(
         cycle_id=cycle_id, candidate_commit=candidate_commit) is not None
     if protected and not daemon.protected_landing_ready(
@@ -852,7 +1020,25 @@ def execute_architect_go_locked(cycle_id, candidate_commit, mode,
 
 def require_architect_landing_locked(cycle_id, landing_commit,
                                      ticket_state):
-    """Bind candidate C to its exact, distinct squash landing L on main."""
+    """Bind candidate C to its exact, distinct squash landing L on main.
+
+    L must differ from C, exist, be the current main, preserve the
+    cycle base through its single parent, and carry exactly the
+    candidate's squash tree plus the sealed backlog. Anything else is
+    refused.
+
+    Arguments:
+      cycle_id       = the ticket cycle.
+      landing_commit = the recorded landing L.
+      ticket_state   = the durable ticket-cycle state mapping.
+
+    Returns:
+      The bound candidate commit C, or ``None`` in pure function
+      tests with no live topology.
+
+    Raises:
+      daemon.TicketCycleStateError: for any broken binding.
+    """
     if daemon.ACTIVE_TOPOLOGY is None:
         # Pure function tests do not represent a live dispatch topology.
         return None
@@ -898,7 +1084,18 @@ def require_architect_landing_locked(cycle_id, landing_commit,
 
 def _require_retirement_landing_locked(cycle_id, landing_commit,
                                        ticket_state):
-    """Prove one durable landing L authorizes retiring this cycle's candidate C."""
+    """Prove one durable landing L authorizes retiring this cycle's candidate C.
+
+    Arguments:
+      cycle_id       = the ticket cycle.
+      landing_commit = the landing the retirement names.
+      ticket_state   = the durable ticket-cycle state mapping.
+
+    Raises:
+      daemon.TicketCycleStateError: when the cycle has not landed,
+        the recorded landing differs, the landing is missing, or
+        current main does not preserve it.
+    """
     active = ticket_state["active"].get(cycle_id)
     completed = ticket_state["completed"].get(cycle_id)
     recorded = completed
@@ -923,7 +1120,27 @@ def _require_retirement_landing_locked(cycle_id, landing_commit,
 
 def retire_cycle_candidate_locked(cycle_id, candidate_commit,
                                   landing_commit):
-    """Hand off exact clean candidate C to landing L, then delete only C's ownership."""
+    """Hand off exact clean candidate C to landing L, then delete only C's ownership.
+
+    The Implementer checkout moves from C to L only when it is clean;
+    dirty work on C, or a head that no durable cycle state can
+    explain, defers retirement instead of destroying possible work.
+    The candidate's private ref and state row are deleted only after
+    every check passes.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C being retired.
+      landing_commit   = the landing L that superseded it.
+
+    Returns:
+      True when retirement completed (or nothing was owned); False
+      when retirement must wait for live work.
+
+    Raises:
+      daemon.TicketCycleStateError: for an unowned ref, a foreign
+        candidate, or a failed C-to-L handoff.
+    """
     if daemon.ACTIVE_TOPOLOGY is None:
         return True
     ticket_state = daemon.read_ticket_cycle_state()
@@ -983,7 +1200,18 @@ def retire_cycle_candidate_locked(cycle_id, candidate_commit,
 
 
 def retire_superseded_failed_architect_go(cycle_id, candidate_commit, mode):
-    """Archive rejected GO after landing."""
+    """Archive rejected GO after landing.
+
+    A failed daemon GO message that names this now-landed cycle,
+    candidate, and mode is only stale evidence of an earlier refusal;
+    it is moved out of ``failed/`` so it cannot be mistaken for
+    pending work.
+
+    Arguments:
+      cycle_id         = the landed ticket cycle.
+      candidate_commit = the landed candidate C.
+      mode             = the ticket mode the GO must name.
+    """
     paths = daemon.glob.glob(
         daemon.os.path.join(daemon.MAILBOX, "failed", "*-to-daemon.md"))
     for path in sorted(paths, key=daemon.message_sequence):
@@ -999,7 +1227,19 @@ def retire_superseded_failed_architect_go(cycle_id, candidate_commit, mode):
 
 
 def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit, mode):
-    """Retire exact candidate C after durable GO state, preserving concurrent work."""
+    """Retire exact candidate C after durable GO state, preserving concurrent work.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C being retired.
+      landing_commit   = the landing L that superseded it.
+      mode             = the ticket mode, used to archive a
+                         superseded failed GO afterwards.
+
+    Returns:
+      True when retirement completed; False when it must wait for
+      live work.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         retired = daemon.retire_cycle_candidate_locked(
@@ -1013,7 +1253,17 @@ def retire_cycle_candidate(cycle_id, candidate_commit, landing_commit, mode):
 
 
 def _symbolic_worktree_branch(worktree, expected_branch, label):
-    """Require one persistent role checkout to stay on its saved branch."""
+    """Require one persistent role checkout to stay on its saved branch.
+
+    Arguments:
+      worktree        = the role checkout.
+      expected_branch = the full branch reference it must be on.
+      label           = role name for the error message.
+
+    Raises:
+      daemon.TicketCycleStateError: for a detached head or a
+        different branch.
+    """
     result = daemon._run_git(
         repository_root=worktree,
         arguments=["symbolic-ref", "-q", "HEAD"], check=False)
@@ -1027,7 +1277,19 @@ def _symbolic_worktree_branch(worktree, expected_branch, label):
 
 
 def _architect_only_sealed_backlog(worktree):
-    """Return a sealed backlog when it is the Architect's only change."""
+    """Return a sealed backlog when it is the Architect's only change.
+
+    Arguments:
+      worktree = the Architect checkout.
+
+    Returns:
+      The validated sealed backlog bytes when the backlog is the one
+      tracked change and nothing is untracked, otherwise ``None``.
+
+    Raises:
+      daemon.TicketCycleStateError: for a non-UTF-8 path or a seal
+        that fails validation.
+    """
     changed = daemon._run_git(
         repository_root=worktree,
         arguments=["diff", "--name-only", "-z", "HEAD", "--", "."])
@@ -1050,7 +1312,16 @@ def _architect_only_sealed_backlog(worktree):
 
 
 def _architect_backlog_matches_target(worktree, target):
-    """Return whether the sealed backlog is the only change and is in L."""
+    """Return whether the sealed backlog is the only change and is in L.
+
+    Arguments:
+      worktree = the Architect checkout.
+      target   = the landing L whose committed backlog is compared.
+
+    Returns:
+      True when the working backlog is the only change and its bytes
+      equal the backlog committed in L.
+    """
     working = daemon._architect_only_sealed_backlog(worktree=worktree)
     if working is None:
         return False
@@ -1058,7 +1329,24 @@ def _architect_backlog_matches_target(worktree, target):
 
 
 def _clear_landed_architect_backlog(worktree, target):
-    """Restore old bytes before a fast-forward that contains the same edit."""
+    """Restore old bytes before a fast-forward that contains the same edit.
+
+    The working backlog equals the one committed in L, so the local
+    copy is parked as the sync-recovery file and the committed bytes
+    are restored; the fast-forward then brings the same edit back. A
+    failure restores the parked copy before raising.
+
+    Arguments:
+      worktree = the Architect checkout.
+      target   = the landing L about to be fast-forwarded to.
+
+    Returns:
+      The recovery file path holding the parked backlog.
+
+    Raises:
+      daemon.TicketCycleStateError: for extra work beyond the
+        backlog, an existing recovery file, or a failed restore.
+    """
     if not daemon._architect_backlog_matches_target(
             worktree=worktree, target=target):
         raise daemon.TicketCycleStateError(
@@ -1082,7 +1370,29 @@ def _clear_landed_architect_backlog(worktree, target):
 
 
 def sync_clean_role_baseline(worktree, expected_branch, target, label):
-    """Fast-forward one clean role baseline to an exact landed commit."""
+    """Fast-forward one clean role baseline to an exact landed commit.
+
+    A fast-forward only moves the branch pointer along existing
+    history, so the checkout must already be an ancestor of the
+    landing. The one tolerated dirtiness is the Architect's sealed
+    backlog when it equals the landed copy; it is parked, restored by
+    the fast-forward, and its recovery file removed on success.
+
+    Arguments:
+      worktree        = the role checkout.
+      expected_branch = the branch it must stay on.
+      target          = the landed commit to advance to.
+      label           = role name for error messages.
+
+    Returns:
+      True when the checkout advanced; False when it was already at
+      the target.
+
+    Raises:
+      daemon.TicketCycleStateError: for dirty work, a non-ancestor
+        baseline, or a fast-forward that did not end clean at the
+        target.
+    """
     daemon._symbolic_worktree_branch(
         worktree=worktree, expected_branch=expected_branch, label=label)
     recovery = None
@@ -1117,7 +1427,28 @@ def sync_clean_role_baseline(worktree, expected_branch, target, label):
 
 
 def _role_baseline_plan_locked(target, retiring_candidate=None):
-    """Preflight all role baselines without changing a checkout."""
+    """Preflight all role baselines without changing a checkout.
+
+    Every check that the real sync would perform runs first, so the
+    landing is refused before anything moves rather than half-synced.
+    The Implementer checkout joins the plan only when durable cycle
+    state explains its head: the retiring candidate itself, a
+    preserved candidate, or work descending from an active base.
+
+    Arguments:
+      target             = the landed commit every baseline must
+                           reach.
+      retiring_candidate = the candidate C being retired, or
+                           ``None``.
+
+    Returns:
+      The list of ``(worktree, branch, label, needs_move)`` entries
+      the sync will process.
+
+    Raises:
+      daemon.TicketCycleStateError: for any state the sync would
+        refuse.
+    """
     candidate_state = daemon.read_candidate_state()
     ticket_state = daemon.read_ticket_cycle_state()
     plan = []
@@ -1185,7 +1516,21 @@ def _role_baseline_plan_locked(target, retiring_candidate=None):
 
 
 def preflight_role_baseline_sync(target, retiring_candidate=None):
-    """Prove every role can preserve or fast-forward before main changes."""
+    """Prove every role can preserve or fast-forward before main changes.
+
+    Arguments:
+      target             = the landed commit every baseline must
+                           reach.
+      retiring_candidate = the candidate C being retired, or
+                           ``None``.
+
+    Returns:
+      The preflight plan from the locked planner.
+
+    Raises:
+      daemon.TicketCycleStateError: for any state the sync would
+        refuse.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         return daemon._role_baseline_plan_locked(
@@ -1195,7 +1540,18 @@ def preflight_role_baseline_sync(target, retiring_candidate=None):
 
 
 def sync_all_clean_role_baselines(target):
-    """Advance clean idle role baselines under exact ticket-state authority."""
+    """Advance clean idle role baselines under exact ticket-state authority.
+
+    Arguments:
+      target = the landed commit every eligible baseline advances to.
+
+    Returns:
+      True when at least one checkout moved.
+
+    Raises:
+      daemon.TicketCycleStateError: for any state the plan or a sync
+        step refuses.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         plan = daemon._role_baseline_plan_locked(target=target)
@@ -1211,7 +1567,23 @@ def sync_all_clean_role_baselines(target):
 
 
 def _permanent_note_commit_paths(base_commit, notes_commit):
-    """Return exact modified paths while refusing structural Git changes."""
+    """Return exact modified paths while refusing structural Git changes.
+
+    Content edits are the only allowed change: a rename, mode change,
+    creation, or deletion anywhere refuses the commit, and every
+    modified path must be one of the protected policy paths.
+
+    Arguments:
+      base_commit  = B, the commit the notes commit builds on.
+      notes_commit = P, the permanent-note commit.
+
+    Returns:
+      The modified protected paths.
+
+    Raises:
+      daemon.TicketCycleStateError: for structural changes, non-UTF-8
+        paths, duplicates, or a path outside the protected set.
+    """
     summary = daemon._run_git(
         repository_root=daemon.AGENT_CWD["fable"],
         arguments=["diff", "--summary", base_commit, notes_commit,
@@ -1242,7 +1614,21 @@ def _permanent_note_commit_paths(base_commit, notes_commit):
 
 
 def require_architect_notes_commit_object(base_commit, notes_commit):
-    """Prove immutable B-to-P history and its exact note-only path set."""
+    """Prove immutable B-to-P history and its exact note-only path set.
+
+    B is the base commit and P the permanent-note commit built
+    directly on it. Both must exist, P must have exactly B as its
+    single parent, and the B-to-P difference must be content edits to
+    protected policy paths only.
+
+    Arguments:
+      base_commit  = B.
+      notes_commit = P.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing commit, a P not
+        directly on B, or a disallowed change.
+    """
     if (not daemon.git_commit_exists(commit=base_commit)
             or not daemon.git_commit_exists(commit=notes_commit)):
         raise daemon.TicketCycleStateError(
@@ -1256,7 +1642,25 @@ def require_architect_notes_commit_object(base_commit, notes_commit):
 
 def require_architect_notes_commit(base_commit, notes_commit,
                                    allow_landed_replay=False):
-    """Prove clean one-parent B-to-P authority for a note-only landing."""
+    """Prove clean one-parent B-to-P authority for a note-only landing.
+
+    The Architect checkout must sit clean at P on its saved branch;
+    the B-to-P history and path set must validate; the protected
+    tracked state must match; the proposed role contract must load
+    with its bindings intact; and current main must still be B, or P
+    itself when a landed replay is allowed.
+
+    Arguments:
+      base_commit         = B, the required main baseline.
+      notes_commit        = P, the note-only commit to land.
+      allow_landed_replay = True to also accept main already at P.
+
+    Returns:
+      The verified current main commit.
+
+    Raises:
+      daemon.TicketCycleStateError: for any broken authority.
+    """
     primary = daemon.AGENT_CWD["fable"]
     daemon._symbolic_worktree_branch(
         worktree=primary, expected_branch=daemon.AGENT_BRANCH["fable"],
@@ -1292,7 +1696,20 @@ def require_architect_notes_commit(base_commit, notes_commit,
 
 
 def _require_no_ordinary_landing_transition_locked(current_dispatch_path):
-    """Refuse P while ordinary durable work exists; caller holds state lock."""
+    """Refuse P while ordinary durable work exists; caller holds state lock.
+
+    Ordinary work is any active ticket or saved candidate, any
+    candidate or landing ref, or another pending ordinary Architect
+    GO. A permanent-note landing waits for all of it, so P can never
+    interleave with a ticket landing.
+
+    Arguments:
+      current_dispatch_path = the admin message being dispatched; its
+                              own file is exempt from the scan.
+
+    Raises:
+      daemon.TicketCycleStateError: naming the first blocking state.
+    """
     ticket_state = daemon.read_ticket_cycle_state()
     candidate_state = daemon.read_candidate_state()
     if ticket_state["active"] or candidate_state["cycles"]:
@@ -1326,7 +1743,14 @@ def _require_no_ordinary_landing_transition_locked(current_dispatch_path):
 
 
 def require_no_ordinary_landing_transition(current_dispatch_path):
-    """Refuse P while any ordinary ticket, candidate, landing ref, or GO remains."""
+    """Refuse P while any ordinary ticket, candidate, landing ref, or GO remains.
+
+    Arguments:
+      current_dispatch_path = the admin message being dispatched.
+
+    Raises:
+      daemon.TicketCycleStateError: naming the first blocking state.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         daemon._require_no_ordinary_landing_transition_locked(
@@ -1387,7 +1811,20 @@ def architect_notes_failed_debt_error():
 
 
 def message_belongs_to_active_cycle(path, active_cycles):
-    """Return whether one root agent message advances an admitted ticket."""
+    """Return whether one root agent message advances an admitted ticket.
+
+    Recognized advancing messages: an Architect or Implementer flow
+    message for an active cycle, an Architect REOPEN receipt, and a
+    Sol closure or control-plane review naming an active cycle.
+
+    Arguments:
+      path          = the pending mailbox message.
+      active_cycles = the admitted cycle identifiers.
+
+    Returns:
+      True only for a readable message that names an active cycle;
+      an unreadable message counts as not advancing.
+    """
     match = daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(path))
     if match is None:
         return False
@@ -1417,14 +1854,39 @@ def message_belongs_to_active_cycle(path, active_cycles):
 
 
 def requeue_retryable_daemon_message(dispatch_path):
-    """Return one valid inflight GO to root without calling it malformed."""
+    """Return one valid inflight GO to root without calling it malformed.
+
+    Arguments:
+      dispatch_path = the claimed inflight GO.
+
+    Returns:
+      True when the verified move back to the mailbox root
+      succeeded.
+    """
     _path, verified = daemon.verified_state_move(
         dispatch_path=dispatch_path, directory=daemon.MAILBOX)
     return verified
 
 
 def publish_backlog_close_request(cycle_id, candidate_commit, mode):
-    """Queue one exact Architect correction while preserving accepted C."""
+    """Queue one exact Architect correction while preserving accepted C.
+
+    Publication is exactly-once: an identical request already queued
+    anywhere is reused, and after sending, exactly one root copy must
+    exist.
+
+    Arguments:
+      cycle_id         = the ticket cycle awaiting bookkeeping.
+      candidate_commit = the preserved accepted candidate C.
+      mode             = the ticket mode.
+
+    Returns:
+      The path of the queued request.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the request could
+        not be published exactly once.
+    """
     payload = daemon.backlog_close_request_payload(
         cycle_id=cycle_id, candidate_commit=candidate_commit, mode=mode)
     for directory in (daemon.MAILBOX, daemon.os.path.join(daemon.MAILBOX, "inflight"),
@@ -1449,7 +1911,23 @@ def publish_backlog_close_request(cycle_id, candidate_commit, mode):
 
 def defer_protected_stale_integration(
         dispatch_path, cycle_id, candidate_commit, mode, problem):
-    """Save a moved-main event and queue its same-cycle Architect audit."""
+    """Save a moved-main event and queue its same-cycle Architect audit.
+
+    Arguments:
+      dispatch_path    = the stale GO being deferred.
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the approved candidate C.
+      mode             = the ticket mode.
+      problem          = the stale-integration diagnosis text.
+
+    Returns:
+      The path of the queued integration-audit request.
+
+    Raises:
+      daemon.TicketCycleStateError: when the diagnosis names a
+        different candidate or the GO cannot enter its durable
+        waiting state.
+    """
     details = daemon.stale_integration_details(problem=problem)
     if details is None or details["candidate"] != candidate_commit:
         raise daemon.TicketCycleStateError(
@@ -1473,7 +1951,19 @@ def defer_protected_stale_integration(
 
 
 def prepared_landing_reached_main(cycle_id):
-    """Return whether main contains this cycle's journaled landing."""
+    """Return whether main contains this cycle's journaled landing.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+
+    Returns:
+      True when the journaled landing is main or one of its
+      ancestors; False when no landing is journaled or main does not
+      contain it.
+
+    Raises:
+      daemon.TicketCycleStateError: when ancestry cannot be decided.
+    """
     landing = daemon.git_ref_commit(reference=daemon.cycle_landing_ref(cycle_id=cycle_id))
     if landing is None:
         return False
@@ -1494,7 +1984,31 @@ def prepared_landing_reached_main(cycle_id):
 
 def finish_claimed_architect_go(dispatch_path, cycle_id,
                                 candidate_commit, mode):
-    """Finish or replay one already-claimed, well-formed Architect GO."""
+    """Finish or replay one already-claimed, well-formed Architect GO.
+
+    The full landing pipeline for one GO: replay detection for a
+    crash between the durable record and the archive, the sealed
+    backlog and closed-ticket checks (an open ticket queues a
+    backlog-close correction instead of failing), the protected
+    two-key gate with its shadow and health outcomes, the landing
+    itself under the main-checkout lock, and the follow-up state.
+
+    Arguments:
+      dispatch_path    = the claimed GO message.
+      cycle_id         = its ticket cycle.
+      candidate_commit = the candidate C it names.
+      mode             = the ticket mode.
+
+    Returns:
+      ``(consumed, completed_cycles, landing)``: whether the message
+      was consumed (``None`` means it stays for a later pass), how
+      many cycles completed now, and the landing commit when one
+      landed.
+
+    Raises:
+      daemon.FatalArchitectLandingError: when the landing lock is
+        unavailable or the control plane is recovery-only.
+    """
     name = daemon.os.path.basename(dispatch_path)
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1791,8 +2305,26 @@ def finish_claimed_architect_go(dispatch_path, cycle_id,
 
 def finish_claimed_architect_notes_go(dispatch_path, base_commit,
                                       notes_commit, return_outcome=False):
-    """Fast-forward exact note-only P, sync clean roles, archive, and push."""
+    """Fast-forward exact note-only P, sync clean roles, archive, and push.
+
+    Arguments:
+      dispatch_path  = the claimed notes-GO message.
+      base_commit    = B, the required main baseline.
+      notes_commit   = P, the note-only commit to land.
+      return_outcome = True to append the daemon outcome token to the
+                       returned tuple.
+
+    Returns:
+      ``(consumed, notes_commit)``, plus the outcome token when
+      requested. A refusal parks the message; an ordinary-work block
+      defers it back to the root instead.
+
+    Raises:
+      daemon.FatalArchitectLandingError: when the landing lock is
+        unavailable.
+    """
     def result(consumed, outcome):
+        """Shape the return value, with the outcome token when asked."""
         ordinary = (consumed, notes_commit)
         return ordinary + (outcome,) if return_outcome else ordinary
 
