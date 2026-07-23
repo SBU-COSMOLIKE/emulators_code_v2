@@ -1422,9 +1422,9 @@ def plot_diagnostics(train_losses,
               D_A / D_L page through the real pipeline).
     grid2d -> two matter-power pages (the (z, k) |residual| surfaces,
               median + worst; per-k bands at three redshifts).
-  A run passes only its own family's dict, so a cosmic-shear run's
-  PDF is byte-identical to before the dispatch existed (both default
-  None).
+  A run passes only its own family's dict; the others stay at their
+  None defaults and add no pages, so a cosmic-shear run's PDF carries
+  no family pages at all.
 
   floor / hard_dir / val_set are optional so a run can drop a page
   it cannot produce (e.g. the local-linear floor is defined only for
