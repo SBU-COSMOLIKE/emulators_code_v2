@@ -40,7 +40,18 @@ PART_EXPORTS = (
 
 
 def default_implementer_context(provider):
-    """Return the provider-safe default for one Implementer shell."""
+    """Return the provider-safe default for one Implementer shell.
+
+    Arguments:
+      provider = ``"claude"`` or ``"ollama"``.
+
+    Returns:
+      That provider's default Implementer context budget in tokens —
+      the conversation size the runtime plans around.
+
+    Raises:
+      ValueError: for any other provider name.
+    """
     if provider == "claude":
         return daemon.DEFAULT_IMPLEMENTER_CONTEXT_BUDGET
     if provider == "ollama":
@@ -50,7 +61,30 @@ def default_implementer_context(provider):
 
 def implementer_runtime_record(
         *, provider, model, context_limit, compaction_limit):
-    """Return one validated runtime identity for the stable ``opus`` role."""
+    """Return one validated runtime identity for the stable ``opus`` role.
+
+    The mailbox route name ``opus`` identifies the Implementer no
+    matter which provider or model serves it. This record is what a
+    later start compares against the one saved for the active cycle,
+    so a restart cannot silently change the provider or model in the
+    middle of a ticket.
+
+    Arguments:
+      provider         = ``"claude"`` or ``"ollama"``.
+      model            = model name, validated before it is recorded.
+      context_limit    = verified model context in tokens; must be a
+                         positive integer, never a Boolean.
+      compaction_limit = Claude Code compaction threshold in tokens;
+                         must be positive and fit inside the context.
+
+    Returns:
+      A mapping with the role address, provider, model, context limit,
+      and compaction limit — the exact fields a later start compares.
+
+    Raises:
+      ValueError: for an unknown provider, an invalid model name, a
+        non-positive limit, or a compaction limit above the context.
+    """
     if provider not in daemon.IMPLEMENTER_PROVIDERS:
         raise ValueError("Implementer provider must be claude or ollama")
     model = daemon.validate_model_name(value=model)
@@ -72,7 +106,28 @@ def implementer_runtime_record(
 
 def verified_implementer_runtime(
         *, provider, model, compaction_limit, dry_run=False):
-    """Build the canonical runtime, verifying Ollama before a live watch."""
+    """Build the canonical runtime, verifying Ollama before a live watch.
+
+    A Claude Implementer needs no preflight — Claude Code manages its
+    own context — so its record simply equates the context and
+    compaction limits. An Ollama Implementer is really launched once,
+    through the provider health check, so the recorded context limit
+    is a verified value rather than a hope; a dry run skips that
+    launch and records the compaction limit as the context.
+
+    Arguments:
+      provider         = ``"claude"`` or ``"ollama"``.
+      model            = model name for the Implementer.
+      compaction_limit = Claude Code compaction threshold in tokens.
+      dry_run          = True to skip the live Ollama preflight.
+
+    Returns:
+      The validated runtime record from implementer_runtime_record.
+
+    Raises:
+      ValueError: for an unknown provider, or when the Ollama
+        preflight fails — in that case no ticket is started.
+    """
     if provider == "claude":
         return daemon.implementer_runtime_record(
             provider=provider, model=model, context_limit=compaction_limit,
@@ -100,7 +155,27 @@ def verified_implementer_runtime(
 def routine_review_command(
         command, *, agent, ticket_kind=None, candidate_audit=False,
         reopening=False, checkpoint=False, integration=False, effort=None):
-    """Return the exact command and label for one lower-cost review turn."""
+    """Return the exact command and label for one lower-cost review turn.
+
+    Arguments:
+      command         = the role's full launch command.
+      agent           = ``"fable"`` (the Architect) or ``"sol"`` (the
+                        Red Team); other roles never get a routine
+                        review.
+      ticket_kind     = declared ticket kind, read for a Red Team turn.
+      candidate_audit = True for an Architect candidate audit.
+      reopening       = True for an Architect reopening decision.
+      checkpoint      = True for an Architect checkpoint review.
+      integration     = True for an Architect integration
+                        revalidation.
+      effort          = effort level to select, or ``None`` for the
+                        configured routine-review effort.
+
+    Returns:
+      ``(command_list, kind)``: the command with its effort replaced
+      and the routine-review display name, or a copy of the unchanged
+      command and ``None`` when the turn keeps its full effort.
+    """
     kind = daemon._REVIEW_DISPATCH.review_kind(
         agent=agent, ticket_kind=ticket_kind,
         candidate_audit=candidate_audit, reopening=reopening,
@@ -113,7 +188,22 @@ def routine_review_command(
 
 
 def implementer_checkpoint_settings(python, hook_path):
-    """Return the Implementer's time and context checkpoint hooks."""
+    """Return the Implementer's time and context checkpoint hooks.
+
+    The returned mapping is Claude Code settings JSON: it registers
+    the checkpoint hook program for the three session moments it
+    understands — after a batch of tool calls, when the session tries
+    to finish, and before automatic compaction.
+
+    Arguments:
+      python    = Python interpreter that runs the hook.
+      hook_path = path of ai/tools/implementer_checkpoint_hook.py.
+
+    Returns:
+      The settings mapping to merge into the Implementer's launch
+      settings; each registration gives the hook five seconds to
+      answer.
+    """
     hook = {
         "type": "command",
         "command": python,
@@ -128,7 +218,19 @@ def implementer_checkpoint_settings(python, hook_path):
 
 
 def claude_compaction_limit(agent):
-    """Return the independent Claude Code limit for one Claude-backed role."""
+    """Return the independent Claude Code limit for one Claude-backed role.
+
+    Arguments:
+      agent = ``"fable"`` for the Architect or ``"opus"`` for the
+              Implementer; the two budgets are configured separately
+              so one role's long session cannot shrink the other's.
+
+    Returns:
+      The compaction threshold in tokens for that role.
+
+    Raises:
+      ValueError: for any other role name.
+    """
     if agent == "fable":
         return daemon.ARCHITECT_CONTEXT_BUDGET
     if agent == "opus":
@@ -137,7 +239,19 @@ def claude_compaction_limit(agent):
 
 
 def mailbox_lane_cwd(agent):
-    """Return a serialization identity for an AI route or local daemon lane."""
+    """Return a serialization identity for an AI route or local daemon lane.
+
+    A lane is the daemon's unit of one-at-a-time work: two jobs whose
+    lanes share this identity must not run at the same time. Each AI
+    route serializes on its role's working folder; the daemon's own
+    local work serializes on the mailbox folder.
+
+    Arguments:
+      agent = a role route name, or ``"daemon"`` for the local lane.
+
+    Returns:
+      The path that names the lane.
+    """
     if agent == "daemon":
         return daemon.MAILBOX
     return daemon.AGENT_CWD[agent]
@@ -265,7 +379,28 @@ def backlog_severity_counts():
 
 
 def eligible_fix_only_bug_anchors(minimum_severity=None):
-    """Return eligible Open bug anchors for this severity."""
+    """Return the Open bug anchors that fix-only maintenance may choose.
+
+    Fix-only maintenance repairs an existing open bug instead of
+    starting new work. A ticket qualifies when its index line is
+    classified BUG FIX at the requested severity or more severe. The
+    whole backlog must be clean first: any read problem or
+    unclassified open line refuses the query instead of returning a
+    partial list a caller might trust.
+
+    Arguments:
+      minimum_severity = least severe class to include (``"high"``,
+                         ``"medium"``, or ``"low"``), or ``None`` for
+                         the configured discovery severity.
+
+    Returns:
+      The anchors of every qualifying open bug ticket, in backlog
+      order.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid severity or an
+        unreadable or unclassified backlog.
+    """
     minimum = (daemon.DISCOVERY_SEVERITY if minimum_severity is None
                else minimum_severity)
     if minimum not in daemon.DISCOVERY_SEVERITIES:
@@ -290,7 +425,19 @@ def eligible_fix_only_bug_anchors(minimum_severity=None):
 
 
 def verified_backlog_lines():
-    """Read one stable, regular UTF-8 backlog or return a plain problem."""
+    """Read one stable, regular UTF-8 backlog or return a plain problem.
+
+    The read defends against a file swapped mid-read: the backlog must
+    be an ordinary file (not a symbolic link or other redirect), stay
+    within the size limit, and keep the same identity, size, and
+    timestamps before, during, and after the read. Otherwise the
+    reader reports a problem instead of returning half-updated lines.
+
+    Returns:
+      ``(lines, None)`` with the backlog split into lines, or
+      ``(None, problem)`` where problem is a printable sentence naming
+      what failed and, when the user can fix it, what to do.
+    """
     try:
         initial = daemon.os.lstat(daemon.BACKLOG_LEDGER)
     except FileNotFoundError:
@@ -352,9 +499,19 @@ def verified_backlog_lines():
 def backlog_reopening_status(ticket_anchor):
     """Return ``allowed`` or the Architect's permanent ``barred`` decision.
 
-    ``ticket_anchor`` is the part of a cycle identifier before ``@``. A
-    missing, duplicate, or malformed record returns ``None`` so callers do not
-    invent permission from incomplete backlog prose.
+    The ticket's section is bounded at the next detail anchor or at
+    the Closed-tickets heading — not at ordinary ``##`` headings — so
+    prose after an anchor-less heading still belongs to the preceding
+    ticket's section and can make its record ambiguous.
+
+    Arguments:
+      ticket_anchor = the ticket's anchor: the part of a cycle
+                      identifier before ``@``.
+
+    Returns:
+      ``"allowed"``, ``"barred by Architect NO-GO"``, or ``None`` for
+      a missing, duplicate, or malformed record — callers must not
+      invent permission from incomplete backlog prose.
     """
     if (not isinstance(ticket_anchor, str)
             or daemon.REDTEAM_REVIEW_TICKET_RE.fullmatch(ticket_anchor) is None):
@@ -380,6 +537,13 @@ def backlog_reopening_status(ticket_anchor):
 
 
 def discovery_admission_count():
-    """Return open Critical, High, and Medium tickets; Low does not count."""
+    """Return open Critical, High, and Medium tickets; Low does not count.
+
+    Low tickets are excluded so a backlog of deferred small work does
+    not by itself count as open demand.
+
+    Returns:
+      The summed count of open Critical, High, and Medium tickets.
+    """
     counts = daemon.backlog_severity_counts()
     return counts["critical"] + counts["high"] + counts["medium"]
