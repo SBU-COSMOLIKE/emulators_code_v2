@@ -1772,7 +1772,16 @@ family, and a "sqrt-rule batch anchor" phrase colliding with the
 weight-anchor sense -- all now defined in place (the anchor as a
 spring toward the starting weights, L2-SP expanded, the SHA-256
 digest and witness line explained, the bs_base refusal reworded in
-a proven single-string change).
+a proven single-string change). A user-ordered coverage review of
+`documentation/emulator_code_guide.tex` then found and fixed five
+stale or missing claims (the artifact section denied the pair token,
+the artifact tree omitted the scientific-record groups, three
+passages inverted the executed anchor/EMA order against the code and
+the guide's own listing, the prediction section lacked the
+training-region refusal, and L2-SP was unnamed), recompiled and
+committed with the PDF; `emulator/README.md` gained the ordered
+Appendix D2 reading guide naming each file's one or two main
+functions, every symbol grep-verified.
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
