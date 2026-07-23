@@ -488,8 +488,8 @@ class DataVectorGeometry:
     # head artifact rebuilds from the files alone — rebuild_emulator
     # must never need ROOTDIR data files (the dataset ini / n(z) the
     # attach reads). A trunk-only run never has the attributes, so its
-    # state() is byte-identical to before this key existed; an older
-    # head file lacks the keys and _rebuild_model refuses it loudly.
+    # state() simply omits the keys; a head artifact saved without
+    # them is refused loudly by _rebuild_model.
     if hasattr(self, "bin_sizes"):
       st["bin_sizes"] = torch.tensor(self.bin_sizes, dtype=torch.long)
     if hasattr(self, "pm_kept"):
@@ -704,7 +704,15 @@ class BlockDiagonalGeometry(DataVectorGeometry):
   _b_slices = None     # list: per-bin column slice into the dv
 
   def _build_block(self):
-    """Eigh each bin's within-bin covariance sub-block once."""
+    """Build the per-bin whitening bases, once, on first use.
+
+    Reconstructs the kept-block covariance from the parent's stored
+    eigendecomposition, then eigendecomposes each bin's within-bin
+    sub-block (numpy eigh, float64 on the CPU) and stores one
+    rotation, scale, and column slice per bin on the instance. Runs
+    lazily because bin_sizes is attached by build_shear_angle_map
+    after the constructor.
+    """
     # Guard: the per-bin split must already exist. bin_sizes is
     # set by build_shear_angle_map; fail loudly if it didn't run.
     assert hasattr(self, "bin_sizes"), (
