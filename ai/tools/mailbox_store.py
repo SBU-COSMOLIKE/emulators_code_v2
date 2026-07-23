@@ -215,7 +215,16 @@ def held_lock_probe(mailbox, lock_name):
 
 
 def held_lock_owner(mailbox, lock_name):
-    """Return valid owner text for an actively held exact-path lock."""
+    """Return valid owner text for an actively held exact-path lock.
+
+    Arguments:
+      mailbox   = the mailbox folder holding the lock.
+      lock_name = the lock's filename.
+
+    Returns:
+      The owner text, or ``None`` when the lock is not held or its
+      metadata is unusable.
+    """
     held, owner = daemon.held_lock_probe(mailbox=mailbox, lock_name=lock_name)
     if not held:
         return None
@@ -223,7 +232,16 @@ def held_lock_owner(mailbox, lock_name):
 
 
 def dispatch_lock_is_live_watch(mailbox):
-    """Return whether ``mailbox`` has an exact held ``watch pid N`` lock."""
+    """Return whether ``mailbox`` has an exact held ``watch pid N`` lock.
+
+    Arguments:
+      mailbox = the mailbox folder to probe.
+
+    Returns:
+      True only when the dispatch lock is actively held and its owner
+      text names a watch loop; a once loop or malformed owner reads
+      False.
+    """
     owner = daemon.held_lock_owner(mailbox=mailbox, lock_name=".dispatch.lock")
     if owner is None:
         return False
@@ -245,7 +263,15 @@ def fix_only_watch_is_active(mailbox=None):
 
 
 def skip_redteam_watch_is_active(mailbox=None):
-    """Return whether this mailbox has a live two-role watch marker."""
+    """Return whether this mailbox has a live two-role watch marker.
+
+    Arguments:
+      mailbox = the mailbox to probe, or ``None`` for this daemon's
+                own mailbox.
+
+    Returns:
+      True when the two-role mode lock is actively held.
+    """
     if mailbox is None:
         mailbox = daemon.MAILBOX
     held, _ = daemon.held_lock_probe(
@@ -254,7 +280,11 @@ def skip_redteam_watch_is_active(mailbox=None):
 
 
 def skip_redteam_policy_active():
-    """Return whether this process or its mailbox is in two-role mode."""
+    """Return whether this process or its mailbox is in two-role mode.
+
+    Either signal is binding: the environment setting inherited from
+    a two-role watch, or the live mode lock on the mailbox.
+    """
     return (daemon.skip_redteam_environment_active()
             or daemon.skip_redteam_watch_is_active())
 
@@ -314,7 +344,16 @@ def warn_if_mailbox_unwatched():
 
 
 def live_action_topology_is_current(agent, action):
-    """Refuse an action whose saved worktrees were removed by cleanup."""
+    """Refuse an action whose saved worktrees were removed by cleanup.
+
+    Arguments:
+      agent  = the role whose topology the action needs.
+      action = short action name for the refusal message.
+
+    Returns:
+      True when the saved topology still validates, or no topology is
+      active; False after printing the refusal.
+    """
     if daemon.ACTIVE_TOPOLOGY is None:
         return True
     try:
@@ -379,7 +418,18 @@ def release_dispatch_lock(lock_file):
 
 
 def acquire_fix_only_lock_while_sequence_locked():
-    """Create the mode marker after the caller serializes publishers."""
+    """Create the mode marker after the caller serializes publishers.
+
+    The lock file is created and locked only after proving the
+    mailbox path is unredirected, and the path is rechecked after
+    every step — locking, then publishing the owner — so a swapped
+    path can never leave a lock on an orphaned file while the public
+    name points elsewhere.
+
+    Returns:
+      The open locked mode file, or ``None`` after printing why
+      activation failed.
+    """
     if not daemon.mailbox_path_is_unredirected(mailbox=daemon.MAILBOX):
         print("cannot activate fix-only mode on a redirected mailbox path")
         return None
@@ -451,6 +501,10 @@ def acquire_fix_only_lock():
     sequence lock.  Therefore a concurrent sender either publishes wholly
     before activation or observes the held mode marker and refuses; it cannot
     publish after the watch has become fix-only.
+
+    Returns:
+      The open locked mode file, or ``None`` after printing the
+      failure.
     """
     daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)
     sequence_path = daemon.os.path.join(daemon.MAILBOX, ".sequence.lock")
@@ -474,7 +528,16 @@ def release_fix_only_lock(lock_file):
 
 
 def acquire_skip_redteam_lock_while_sequence_locked():
-    """Create the two-role mode marker after publishers are serialized."""
+    """Create the two-role mode marker after publishers are serialized.
+
+    Mirrors the fix-only activation: the mailbox path must be
+    unredirected, and it is rechecked after locking and again after
+    publishing the owner text.
+
+    Returns:
+      The open locked mode file, or ``None`` after printing why
+      activation failed.
+    """
     if not daemon.mailbox_path_is_unredirected(mailbox=daemon.MAILBOX):
         print("cannot disable the red-team route on a redirected mailbox "
               "path")
@@ -541,7 +604,12 @@ def acquire_skip_redteam_lock_while_sequence_locked():
 
 
 def acquire_skip_redteam_lock():
-    """Atomically disable Sol dispatch relative to daemon message sends."""
+    """Atomically disable Sol dispatch relative to daemon message sends.
+
+    Returns:
+      The open locked mode file, or ``None`` after printing the
+      failure.
+    """
     # Refuse a redirected mailbox before creating even its sequence-lock
     # file. The inner check stays binding because the path can still change
     # between this preflight and publication of the mode marker.
@@ -571,7 +639,20 @@ def release_skip_redteam_lock(lock_file):
 
 
 def main_checkout_turn_lock_path():
-    """Return the one ignored lock shared by every repository worktree."""
+    """Return the one ignored lock shared by every repository worktree.
+
+    The lock lives under ``.claude/worktrees`` in the main checkout —
+    a Git-ignored location every linked worktree can reach — so one
+    lock serializes all of them.
+
+    Returns:
+      The lock path; the folders on the way are created as plain
+      directories.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when a component is not a plain
+        directory.
+    """
     repository = daemon.os.path.abspath(daemon.REPO_ROOT)
     daemon._plain_directory(path=repository, label="repository root")
     claude_root = daemon.os.path.join(repository, ".claude")
@@ -583,7 +664,13 @@ def main_checkout_turn_lock_path():
 
 
 def acquire_main_checkout_turn_lock():
-    """Serialize Architect decisions that the parent daemon may land."""
+    """Serialize Architect decisions that the parent daemon may land.
+
+    Returns:
+      The open locked file, or ``None`` after printing why the main
+      checkout cannot be serialized. The wait is blocking: the caller
+      queues behind the current holder rather than failing.
+    """
     try:
         lock_path = daemon.main_checkout_turn_lock_path()
     except (OSError, daemon.PrimaryWorktreeError) as exc:
@@ -626,7 +713,28 @@ def release_main_checkout_turn_lock(lock_file):
 
 
 def validate_live_agent_dispatch_topology(agent):
-    """Re-prove one mutable agent's saved checkout before launch."""
+    """Re-prove one mutable agent's saved checkout before launch.
+
+    Topology is the saved map of who works where: the Architect's
+    primary worktree, the Implementer's worktree, the Sol worktree,
+    and the shared notes directory. Under the primary lock, every
+    saved state file is reloaded and revalidated, the live paths must
+    equal the saved ones, and Sol's command must still carry its
+    exact working-folder and notes options.
+
+    Arguments:
+      agent = ``"fable"``, ``"opus"``, or ``"sol"``.
+
+    Returns:
+      A proof mapping with the role path and its directory identity,
+      the notes path and identity, and the authoritative role files —
+      the facts a later recheck compares.
+
+    Raises:
+      ValueError: for an unknown agent.
+      daemon.PrimaryWorktreeError: when no topology is active or any
+        saved binding no longer holds.
+    """
     if agent not in {"fable", "opus", "sol"}:
         raise ValueError(
             "topology proof is defined only for Fable, Opus, and Sol")
@@ -716,7 +824,18 @@ def validate_live_agent_dispatch_topology(agent):
 
 
 def recheck_agent_dispatch_directories(proof, mutable_paths=()):
-    """Prove launch pathnames still name the pre-claim directories."""
+    """Prove launch pathnames still name the pre-claim directories.
+
+    Arguments:
+      proof         = the mapping from
+                      validate_live_agent_dispatch_topology.
+      mutable_paths = role files that may legitimately differ during
+                      this recheck.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a missing proof or a changed
+        directory or role file.
+    """
     if proof is None:
         raise daemon.PrimaryWorktreeError(
             "live dispatch is missing its topology proof")
@@ -731,7 +850,18 @@ def recheck_agent_dispatch_directories(proof, mutable_paths=()):
 
 
 def revalidate_agent_dispatch_topology(proof):
-    """Re-prove all Git and command bindings without accepting a new inode."""
+    """Re-prove all Git and command bindings without accepting a new inode.
+
+    Arguments:
+      proof = the pre-claim topology proof.
+
+    Returns:
+      The fresh proof, which must equal the old one exactly.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when anything moved between claim
+        and launch.
+    """
     daemon.recheck_agent_dispatch_directories(proof=proof)
     current = daemon.validate_live_agent_dispatch_topology(agent=proof["agent"])
     if current != proof:
@@ -742,7 +872,18 @@ def revalidate_agent_dispatch_topology(proof):
 
 
 def revalidate_protected_policy_admin_topology(proof):
-    """Allow only Architect-owned policy files to change in an admin turn."""
+    """Allow only Architect-owned policy files to change in an admin turn.
+
+    Arguments:
+      proof = the pre-claim topology proof.
+
+    Returns:
+      The fresh proof; the Architect role files and the role contract
+      are the only files allowed to differ.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for any other change.
+    """
     if not isinstance(proof, dict):
         return daemon.revalidate_agent_dispatch_topology(proof=proof)
     mutable = daemon.ARCHITECT_ROLE_PATHS + (daemon.ROLE_CONTRACT_RELATIVE_PATH,)
@@ -754,7 +895,21 @@ def revalidate_protected_policy_admin_topology(proof):
 
 
 def _architect_ordinary_tracked_state(worktree, base_commit, cached):
-    """Return exact non-note tracked state relative to one frozen base."""
+    """Return exact non-note tracked state relative to one frozen base.
+
+    Arguments:
+      worktree    = the Architect worktree to capture.
+      base_commit = the frozen base to diff against.
+      cached      = True for the staged (index) state, False for the
+                    working files.
+
+    Returns:
+      Raw diff bytes excluding the permanent notes and the backlog,
+      which have their own guards.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when Git cannot produce the state.
+    """
     arguments = [
         "diff", "--no-ext-diff", "--no-renames", "--binary",
         "--full-index", "--ignore-submodules=none"]
@@ -782,6 +937,15 @@ def _ordinary_untracked_worktree_state(worktree):
     Mailbox transport, relay logs, and temporary note evidence are ignored by
     Git and therefore do not appear in this proof. The tracked backlog has its
     own Architect seal. A newly created source, test, README, or tool appears.
+
+    Arguments:
+      worktree = the worktree to list.
+
+    Returns:
+      Raw NUL-separated path bytes.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when Git cannot list the paths.
     """
     try:
         result = daemon._run_git(
@@ -798,7 +962,20 @@ def _ordinary_untracked_worktree_state(worktree):
 
 
 def _git_path_bytes(worktree, object_name, relative_path, maximum_bytes):
-    """Read one bounded tracked blob from an exact commit or the index."""
+    """Read one bounded tracked blob from an exact commit or the index.
+
+    Arguments:
+      worktree      = the worktree whose repository is read.
+      object_name   = commit name, or the empty string for the index.
+      relative_path = the tracked path to read.
+      maximum_bytes = size bound for the protected file.
+
+    Returns:
+      The file bytes.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a missing or oversized file.
+    """
     result = daemon._run_git(
         repository_root=worktree,
         arguments=["show", object_name + ":" + relative_path],
@@ -813,7 +990,18 @@ def _git_path_bytes(worktree, object_name, relative_path, maximum_bytes):
 
 
 def _top_level_tracked_markdown(raw_paths, label):
-    """Decode one NUL path list and select top-level ai/notes Markdown."""
+    """Decode one NUL path list and select top-level ai/notes Markdown.
+
+    Arguments:
+      raw_paths = NUL-separated path bytes from Git.
+      label     = source name for error messages.
+
+    Returns:
+      The set of paths directly under ``ai/notes`` ending in ``.md``.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a non-UTF-8 path.
+    """
     selected = set()
     try:
         values = [raw.decode("utf-8", errors="strict")
@@ -830,7 +1018,20 @@ def _top_level_tracked_markdown(raw_paths, label):
 
 
 def _require_exact_permanent_note_set(primary_worktree, head):
-    """Require exactly eleven tracked top-level notes in HEAD and the index."""
+    """Require exactly eleven tracked top-level notes in HEAD and the index.
+
+    The backlog is discarded from both sets first: it is tracked in
+    the same folder but sealed by its own guard rather than counted
+    as a permanent note.
+
+    Arguments:
+      primary_worktree = the Architect worktree.
+      head             = the commit to compare against the index.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when either set differs from the
+        eleven permanent notes.
+    """
     expected = set(daemon.ARCHITECT_PERMANENT_NOTE_PATHS)
     head_result = daemon._run_git(
         repository_root=primary_worktree,
@@ -852,7 +1053,18 @@ def _require_exact_permanent_note_set(primary_worktree, head):
 
 
 def _validate_protected_tracked_state(primary_worktree):
-    """Require protected policy files and their guard to match primary HEAD."""
+    """Require protected policy files and their guard to match primary HEAD.
+
+    For every protected tracked path, the committed bytes, the staged
+    bytes, and the working file must be identical, and HEAD must not
+    move while the check runs.
+
+    Arguments:
+      primary_worktree = the Architect worktree.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for any mismatch or a moving HEAD.
+    """
     try:
         head = daemon.worktree_head(worktree=primary_worktree)
     except daemon.TicketCycleStateError as exc:
@@ -893,7 +1105,24 @@ def _validate_protected_tracked_state(primary_worktree):
 
 
 def _validate_sealed_backlog(primary_worktree):
-    """Return the backlog bytes after matching the Architect-sealed SHA."""
+    """Return the backlog bytes after matching the Architect-sealed SHA.
+
+    The backlog and its guard state must both exist or both be
+    absent. The guard is JSON naming the backlog path and its SHA-256
+    digest (version 2 also records the previous digest); the backlog
+    bytes must hash to the sealed digest exactly.
+
+    Arguments:
+      primary_worktree = the worktree holding ai/notes.
+
+    Returns:
+      The verified backlog bytes, or empty bytes when both files are
+      absent.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a lone file, a malformed
+        guard, or a digest mismatch.
+    """
     notes = daemon.os.path.join(primary_worktree, "ai", "notes")
     backlog_path = daemon.os.path.join(notes, "backlog.md")
     state_path = daemon.os.path.join(notes, daemon.BACKLOG_GUARD_STATE_NAME)
@@ -956,7 +1185,23 @@ def _validate_sealed_backlog(primary_worktree):
 
 
 def require_closed_backlog_ticket(ticket_anchor, sealed_backlog):
-    """Prove one ticket is Closed before landing."""
+    """Prove one ticket is Closed before landing.
+
+    The ticket must sit below the Closed-tickets heading, must not
+    appear in the Open index, and its section must carry the four
+    standard headings in order with exactly one CLOSED status line
+    and a "What is missing" section saying only "Nothing for this
+    ticket."
+
+    Arguments:
+      ticket_anchor  = the ticket's anchor name.
+      sealed_backlog = verified backlog bytes from the seal check.
+
+    Raises:
+      daemon.BacklogTicketOpenError: when the ticket is still open.
+      daemon.TicketCycleStateError: for undecodable bytes or a
+        malformed ticket section.
+    """
     try:
         lines = sealed_backlog.decode("utf-8", errors="strict").splitlines()
     except (AttributeError, UnicodeDecodeError) as exc:
@@ -992,7 +1237,22 @@ def require_closed_backlog_ticket(ticket_anchor, sealed_backlog):
 
 
 def _bridge_local_sealed_backlog(primary_worktree):
-    """Adopt legacy local state or initialize the tracked backlog seal."""
+    """Adopt legacy local state or initialize the tracked backlog seal.
+
+    Startup bridge for three situations: a sync-recovery file left by
+    an interrupted run is restored or discarded against the saved
+    digest; a tracked backlog without a guard gains a fresh seal when
+    it matches HEAD; and files beside the main checkout are copied in
+    when the primary has none. Every path ends by revalidating the
+    seal.
+
+    Arguments:
+      primary_worktree = the Architect worktree receiving the seal.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for conflicting copies or a seal
+        that cannot be validated.
+    """
     names = ("backlog.md", daemon.BACKLOG_GUARD_STATE_NAME)
     source_notes = daemon.os.path.join(daemon.REPO_ROOT, "ai", "notes")
     target_notes = daemon.os.path.join(primary_worktree, "ai", "notes")
@@ -1091,7 +1351,19 @@ def _bridge_local_sealed_backlog(primary_worktree):
 
 
 def _validate_current_protected_primary_state(primary_worktree):
-    """Accept current Architect authority, including a concurrent seal/commit."""
+    """Accept current Architect authority, including a concurrent seal/commit.
+
+    The protected-state check can race a legitimate Architect turn
+    that is committing notes or resealing the backlog, so a failure
+    is retried a few times before it becomes an error.
+
+    Arguments:
+      primary_worktree = the Architect worktree.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the state never settles into
+        an accepted form.
+    """
     last_error = None
     for attempt in range(daemon.PROTECTED_STATE_RECHECK_ATTEMPTS):
         try:
@@ -1109,7 +1381,12 @@ def _validate_current_protected_primary_state(primary_worktree):
 
 
 def _capture_shared_protected_state():
-    """Return a proof that can revalidate shared protected notes by authority."""
+    """Return a proof that can revalidate shared protected notes by authority.
+
+    Returns:
+      Mapping with the primary worktree path and its directory
+      identity, taken after the protected state validated.
+    """
     primary = daemon.AGENT_CWD["fable"]
     identity = daemon._plain_directory(
         path=primary, label="saved Architect primary worktree")
@@ -1119,7 +1396,15 @@ def _capture_shared_protected_state():
 
 
 def _recheck_shared_protected_state(proof):
-    """Allow only an Architect-sealed backlog or committed permanent notes."""
+    """Allow only an Architect-sealed backlog or committed permanent notes.
+
+    Arguments:
+      proof = the mapping from _capture_shared_protected_state.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a malformed proof, a moved
+        primary directory, or an unaccepted protected state.
+    """
     if (not isinstance(proof, dict)
             or set(proof) != {"identity", "primary"}):
         raise daemon.PrimaryWorktreeError(
@@ -1132,7 +1417,26 @@ def _recheck_shared_protected_state(proof):
 
 
 def capture_persistent_role_state(agent):
-    """Freeze tracked-state authority for persistent non-Implementer roles."""
+    """Freeze tracked-state authority for persistent non-Implementer roles.
+
+    What is frozen depends on the role. Sol must start clean, so its
+    HEAD is recorded and any tracked change refuses dispatch. The
+    Implementer's own worktree is not frozen — implementing is its
+    job — but the shared protected notes are. The Architect's
+    ordinary tracked, staged, and untracked state is captured exactly
+    so an audit turn can prove it changed nothing outside its
+    authority.
+
+    Arguments:
+      agent = the role; anything but the three roles returns None.
+
+    Returns:
+      The role's proof mapping, or ``None``.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the state cannot be captured
+        or Sol starts dirty.
+    """
     if agent not in {"fable", "opus", "sol"}:
         return None
     worktree = daemon.AGENT_CWD[agent]
@@ -1168,7 +1472,14 @@ def capture_persistent_role_state(agent):
 
 
 def implementer_checkpoint_delivered(state_path):
-    """Return true only after the hook records its complete instruction."""
+    """Return true only after the hook records its complete instruction.
+
+    Arguments:
+      state_path = the checkpoint state file, or empty for none.
+
+    Returns:
+      True only when the file holds the exact triggered marker.
+    """
     if not state_path:
         return False
     marker = daemon.stable_regular_bytes(
@@ -1178,7 +1489,18 @@ def implementer_checkpoint_delivered(state_path):
 
 
 def recheck_persistent_role_state(proof):
-    """Refuse tracked edits outside the authority of Fable or Sol."""
+    """Refuse tracked edits outside the authority of Fable or Sol.
+
+    Arguments:
+      proof = the mapping from capture_persistent_role_state, or
+              ``None`` to check nothing.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when Sol's worktree changed at
+        all, or the Architect's ordinary tracked, staged, or
+        untracked state differs from the captured proof. Changes are
+        preserved on disk for inspection, never reverted.
+    """
     if proof is None:
         return
     agent = proof["agent"]
