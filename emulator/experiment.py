@@ -1670,7 +1670,8 @@ def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
   A standalone pure function (no torch), so it is unit-testable in isolation.
   Like pce:, transfer: is a sibling of data / train_args (one base per study).
   Resolves the space to the form's recommended default when omitted, and
-  materializes it (persist-resolved-values), returning (resolved, notice):
+  materializes it -- writes the chosen value out explicitly, so a later
+  reader never depends on a code default -- returning (resolved, notice):
   the resolved block plus a one-line off-recommendation notice or None.
 
   Arguments:
@@ -2642,7 +2643,13 @@ class EmulatorExperiment:
                          rescale=kwargs.get("rescale", "none"))
 
       def cmb_checks_before_transfer_load():
-        """Finish CPU-only CMB checks before opening a transfer base."""
+        """Finish CPU-only CMB checks before opening a transfer base.
+
+        _load_diag_transfer runs this hook first, so every cheap
+        refusal -- the model name, the active-model check, the pce
+        block, the required scientific record -- lands before any
+        artifact file is opened or weights are read.
+        """
         transfer_name = str(ta["model"].get("name", "resmlp")).lower()
         if (transfer_name, None) not in models:
           raise ValueError(
@@ -2776,7 +2783,13 @@ class EmulatorExperiment:
                            rescale=kwargs.get("rescale", "none"))
 
       def grid_checks_before_transfer_load():
-        """Finish CPU-only grid checks before opening a transfer base."""
+        """Finish CPU-only grid checks before opening a transfer base.
+
+        _load_diag_transfer runs this hook first, so every cheap
+        refusal -- the model name, the active-model check, the pce
+        block, the required scientific record -- lands before any
+        artifact file is opened or weights are read.
+        """
         transfer_name = str(ta["model"].get("name", "resmlp")).lower()
         if (transfer_name, None) not in models:
           raise ValueError(
@@ -2917,7 +2930,13 @@ class EmulatorExperiment:
                                rescale=kwargs.get("rescale", "none"))
 
       def grid2d_checks_before_transfer_load():
-        """Finish CPU-only grid2d checks before opening a transfer base."""
+        """Finish CPU-only grid2d checks before opening a transfer base.
+
+        _load_diag_transfer runs this hook first, so every cheap
+        refusal -- the model name, the active-model check, the pce
+        block, the required scientific record -- lands before any
+        artifact file is opened or weights are read.
+        """
         transfer_name = str(ta["model"].get("name", "resmlp")).lower()
         if (transfer_name, None) not in models:
           raise ValueError(
