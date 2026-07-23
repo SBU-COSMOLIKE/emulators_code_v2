@@ -190,7 +190,16 @@ def _read_regular_file(path, label, maximum_bytes):
         current = os.lstat(path)
 
         def snapshot(info):
-            """Return the identity fields compared across the read."""
+            """Reduce one stat result to the fields the read compares.
+
+            Arguments:
+              info = an os.stat or os.lstat result for the file.
+
+            Returns:
+              The (device, inode, size, mtime, ctime) tuple; any
+              change in these between the four moments proves the
+              file moved or changed during the read.
+            """
             return (info.st_dev, info.st_ino, info.st_size,
                     info.st_mtime_ns, info.st_ctime_ns)
 
@@ -291,6 +300,14 @@ def authoritative_backlog_path():
     Tests may replace this zero-argument resolver with a scratch resolver.
     Production callers never derive the ledger from the directive's execution
     checkout, because that ignored file may differ between worktrees.
+
+    Returns:
+      The absolute path of the authoritative backlog file inside the
+      saved primary worktree.
+
+    Raises:
+      BacklogLedgerError: when the repository layout or the saved
+        primary record does not support a safe resolution.
     """
     common = _git_common_directory(REPO_ROOT)
     if os.path.basename(common) != ".git" or not os.path.isdir(common):
@@ -500,6 +517,15 @@ def widespread_review_refusal(counts=None):
     The structured Architect field is the only switch for widespread review.
     A malformed open backlog line cannot prove that the Critical, High, and
     Medium groups are empty, so it fails closed before router side effects.
+
+    Arguments:
+      counts = a backlog severity-count mapping, or ``None`` to count
+               the authoritative backlog now.
+
+    Returns:
+      A printable refusal naming the malformed or still-open tickets,
+      or ``None`` when every Critical, High, and Medium group is
+      provably empty.
     """
     if counts is None:
         counts = backlog_severity_counts()
@@ -536,7 +562,15 @@ def copy_to_clipboard(text):
 
 
 def read_clipboard():
-    """Return the current clipboard text (pbpaste on macOS, pyperclip else)."""
+    """Read the system clipboard so a returned block can be validated.
+
+    Returns:
+      The clipboard's current text: from ``pbpaste`` on macOS, else
+      from the pyperclip package.
+
+    Raises:
+      RuntimeError: when ``pbpaste`` exits nonzero.
+    """
     if sys.platform == "darwin":
         proc = subprocess.run(["pbpaste"],
                               capture_output=True)
@@ -642,7 +676,17 @@ def _read_recovery_file(path, label, maximum_bytes):
 
 
 def active_route_record():
-    """Return the validated active manual route, or None when idle."""
+    """Read the saved record of a manual route still in progress.
+
+    Returns:
+      The validated record tuple — its version tag, sequence stamp,
+      and route fields — or ``None`` when no route record exists and
+      the router is idle.
+
+    Raises:
+      BacklogLedgerError: for an unreadable, non-UTF-8, or malformed
+        record file.
+    """
     record_path = os.path.join(
         RUN_RESERVATIONS_DIR, ROUTE_RECORD_NAME)
     if not os.path.lexists(record_path):
@@ -1062,6 +1106,13 @@ def archive(seq, name, text):
       seq  = the run sequence stamp (shared by all files of this run).
       name = short role tag for the filename ("implementer", "sol", ...).
       text = the returned block or command-output text.
+
+    Returns:
+      The saved file's path relative to the repository root.
+
+    Raises:
+      BacklogLedgerError: when the payload exceeds the safe-recovery
+        size bound.
     """
     os.makedirs(RELAY_DIR, exist_ok=True)
     path = os.path.join(RELAY_DIR, seq + "-" + name + ".md")
@@ -1258,9 +1309,22 @@ def verify_execution_checkout(checkout, recovered_candidate=None,
     naming another checkout must therefore use that checkout's copy of this
     script, never test an implementation accidentally against main.
 
-    ``resume_active_route`` accepts one clean descendant commit after an
-    existing route stopped before copying its first return. The return value
-    is that candidate commit, or ``None`` while the checkout remains at base.
+    Arguments:
+      checkout            = the directive's Execution checkout mapping
+                            with its Worktree, Branch, and Base fields.
+      recovered_candidate = a candidate commit recovered from a saved
+                            route record, or ``None``.
+      resume_active_route = True to accept one clean descendant commit
+                            left by a route that stopped before copying
+                            its first return.
+
+    Returns:
+      The accepted candidate commit in lowercase, or ``None`` while
+      the checkout still sits at the directive's base.
+
+    Raises:
+      DirectiveError: when this process, the Git worktree registry,
+        the branch, or the base commit does not match the directive.
     """
     worktree = checkout["Worktree"]
     if os.path.realpath(worktree) != os.path.realpath(REPO_ROOT):
@@ -1269,7 +1333,18 @@ def verify_execution_checkout(checkout, recovered_candidate=None,
             "the router from " + worktree)
 
     def git_value(arguments, label):
-        """Return one verified Git value for the execution checkout."""
+        """Read one Git fact from the execution checkout.
+
+        Arguments:
+          arguments = the git arguments after the command name.
+          label     = what is being verified, for the error message.
+
+        Returns:
+          The command's stripped standard output.
+
+        Raises:
+          DirectiveError: when the command exits nonzero.
+        """
         proc = subprocess.run(
             ["git"] + arguments,
             cwd=REPO_ROOT,
@@ -1289,7 +1364,15 @@ def verify_execution_checkout(checkout, recovered_candidate=None,
         ["rev-parse", "--git-common-dir"], "common Git directory")
 
     def absolute_git_path(path):
-        """Resolve a Git-reported path against the repository root."""
+        """Resolve a Git-reported path against the repository root.
+
+        Arguments:
+          path = a path as Git printed it, absolute or relative.
+
+        Returns:
+          The real absolute path, with any symlinks resolved, so two
+          Git answers can be compared as identities.
+        """
         if not os.path.isabs(path):
             path = os.path.join(REPO_ROOT, path)
         return os.path.realpath(path)
@@ -1350,6 +1433,12 @@ def _git(args_list):
 
     Arguments:
       args_list = the git arguments, e.g. ["log", "--oneline", "-1", "main"].
+
+    Returns:
+      The command's standard output as text.
+
+    Raises:
+      StatusError: when the command cannot start or exits nonzero.
     """
     try:
         proc = subprocess.run(["git"] + args_list,
@@ -1515,6 +1604,10 @@ def main():
     workflow: it copies each generated block, waits for the returned block,
     runs the named check commands, and saves the records under
     ``ai/notes/relay/``. Exactly one action is accepted per invocation.
+
+    Returns:
+      The process exit status: 0 for a completed action, 1 for any
+      refusal or failure, each explained on standard output first.
     """
     parser = argparse.ArgumentParser(
         description="copy approved Architect instructions between manual "
