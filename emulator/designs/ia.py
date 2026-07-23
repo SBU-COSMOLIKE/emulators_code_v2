@@ -1012,7 +1012,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
   def set_train_phase(self, phase):
     """Switch the two-phase training mode (run_emulator calls this).
 
-    Identical contract to TemplateResCNN.set_train_phase: "joint"
+    Identical rules to TemplateResCNN.set_train_phase: "joint"
     trains everything; "trunk" freezes and bypasses the head (pure
     TemplateMLP cost; numerically a no-op thanks to the zero-init
     identity); "head" freezes the trunk and runs it under no_grad,
