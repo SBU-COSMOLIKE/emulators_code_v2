@@ -224,7 +224,18 @@ def consume_daemon_message(path, dry_run=False, return_outcome=False):
 
 
 def release_unstarted_ticket_reservation(cycle_id, expected_mode=None):
-    """Remove only a new implementation reservation that was never claimed."""
+    """Remove only a new implementation reservation that was never claimed.
+
+    Arguments:
+      cycle_id      = the ticket cycle whose reservation may be
+                      released.
+      expected_mode = required saved mode, or ``None`` to accept any.
+
+    Returns:
+      True only when an implementation-phase reservation with no
+      candidate commit on the primary route was found and removed;
+      anything already claimed is left alone.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     released = False
     try:
@@ -244,7 +255,16 @@ def release_unstarted_ticket_reservation(cycle_id, expected_mode=None):
 
 
 def ticket_cycle_has_live_message(cycle_id):
-    """Return whether a root or inflight message still owns this cycle."""
+    """Return whether a root or inflight message still owns this cycle.
+
+    Arguments:
+      cycle_id = the ticket cycle identifier.
+
+    Returns:
+      True when any pending or inflight agent message carries the
+      cycle header — or cannot be read, which counts as live so an
+      unreadable owner is never released.
+    """
     header = daemon.MAILBOX_CYCLE_HEADER + cycle_id
     for directory in (daemon.MAILBOX, daemon.os.path.join(daemon.MAILBOX, "inflight")):
         for path in daemon.glob.glob(daemon.os.path.join(directory, "*-to-*.md")):
@@ -290,7 +310,24 @@ def recover_failed_implementer_preflight():
 
 def revalidate_unmeasurable_budget_handoff(
         path, cycle_id, candidate, maximum):
-    """Promote a saved return when the trusted size guard can now count it."""
+    """Promote a saved return when the trusted size guard can now count it.
+
+    An Implementer checkpoint that reported an unmeasurable
+    character-change result is rerun through the size guard in audit
+    mode. When the guard now measures the candidate within the limit,
+    the saved file is rewritten in place as a review-request return
+    carrying the authoritative count, so finished work is not redone.
+
+    Arguments:
+      path      = the saved Implementer return.
+      cycle_id  = its ticket cycle.
+      candidate = the candidate commit to measure.
+      maximum   = the ticket's character limit.
+
+    Returns:
+      True when the guard measured within the limit and the return
+      was promoted; False leaves the file untouched.
+    """
     message = daemon.read_cycle_message(path=path)
     _cycle, _mode, body, problem = daemon._ticket_flow_envelope(message=message)
     result_line = "- **Character-change result:**"
@@ -438,7 +475,17 @@ def recover_failed_implementer_returns():
 
 
 def live_implementer_owns_architect_admission(token):
-    """Return whether a valid queued Implementer handoff owns ``token``."""
+    """Return whether a valid queued Implementer handoff owns ``token``.
+
+    Arguments:
+      token = the public request's admission token.
+
+    Returns:
+      True when any Implementer message in the root, inflight,
+      prelaunch, or done states carries the token — or cannot be
+      read, which counts as owned so a slot is never freed under an
+      unreadable owner.
+    """
     request_name, digest = daemon.split_architect_admission_token(token=token)
     for directory in (daemon.MAILBOX, daemon.os.path.join(daemon.MAILBOX, "inflight"),
                       daemon.os.path.join(daemon.MAILBOX, "prelaunch"), daemon.DONE):
@@ -456,7 +503,24 @@ def live_implementer_owns_architect_admission(token):
 
 
 def retire_failed_public_architect_admission(path):
-    """Release one exact failed public request without retrying its turn."""
+    """Release one exact failed public request without retrying its turn.
+
+    The release is conservative: the file must live in ``failed/``
+    with no sibling in any other state, its saved sequence and digest
+    must match the charged record exactly, and no live Implementer
+    handoff may own its admission token. Only then is the finite
+    ticket slot freed; the failed turn itself is never retried.
+
+    Arguments:
+      path = the failed public Architect request.
+
+    Returns:
+      True when the slot was freed.
+
+    Raises:
+      daemon.TicketCycleStateError: when locking fails or the failed
+        request changed identity under its record.
+    """
     name = daemon.os.path.basename(path)
     match = daemon.PENDING_MESSAGE_RE.fullmatch(name)
     if (match is None or match.group(1) != "fable"
@@ -826,6 +890,7 @@ def recover_interrupted_mailbox_moves():
             ]
 
             def inode(path):
+                """Return the state's inode; refuse a non-regular file."""
                 value = daemon.regular_inode(path=path)
                 if value is None and daemon.os.path.lexists(path):
                     raise daemon.TicketCycleStateError(
@@ -889,7 +954,17 @@ def blocked_redteam_directory():
 
 
 def recover_blocked_redteam_messages(skip_redteam=False):
-    """Keep old tool-edit requests parked for external maintenance."""
+    """Keep old tool-edit requests parked for external maintenance.
+
+    The reminder prints on a full-role watch; the two-role watch that
+    parks a request prints its own louder message at that moment.
+
+    Arguments:
+      skip_redteam = True when the Sol route is disabled.
+
+    Returns:
+      0; the parked requests are reported, never moved.
+    """
     directory = daemon.blocked_redteam_directory()
     parked = daemon.glob.glob(daemon.os.path.join(directory, "*-to-opus.md"))
     if parked and not skip_redteam:
@@ -899,7 +974,17 @@ def recover_blocked_redteam_messages(skip_redteam=False):
 
 
 def block_protected_ticket_without_redteam(path):
-    """Durably block one validated protected handoff before reservation."""
+    """Durably block one validated protected handoff before reservation.
+
+    Arguments:
+      path = the pending Implementer message.
+
+    Returns:
+      True when the message declared the protected-control-plane
+      ticket class and was moved into the durable blocked queue with
+      the loud restart-without-skip-redteam message; False for every
+      other message or a failed move.
+    """
     match = daemon.PENDING_MESSAGE_RE.fullmatch(daemon.os.path.basename(path))
     if match is None or match.group(1) != "opus":
         return False
@@ -923,7 +1008,26 @@ def block_protected_ticket_without_redteam(path):
 
 
 def recover_before_dispatch(fix_only=False, skip_redteam=False):
-    """Recover restart-safe mailbox state before a live dispatch pass."""
+    """Recover restart-safe mailbox state before a live dispatch pass.
+
+    The recoveries run in a fixed order: interrupted moves, failed
+    Architect outcomes, open-ticket GOs, maintenance admissions (in
+    fix-only watches), Implementer returns, deliveries, and
+    pre-launch reservations, prelaunch messages, public admissions,
+    and the blocked Red Team queue, ending with ticket-cycle
+    reconciliation.
+
+    Arguments:
+      fix_only     = True in a fix-only watch.
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      The reconciled ticket-cycle report from the final step.
+
+    Raises:
+      daemon.TicketCycleStateError: when a protected cycle recorded a
+        failed health check; that cycle is recovery-only.
+    """
     failed_health = daemon.control_plane_health_failure()
     if failed_health is not None:
         cycle_id, evidence = failed_health
@@ -947,7 +1051,20 @@ def recover_before_dispatch(fix_only=False, skip_redteam=False):
 
 
 def implementer_reservation_preflight_problem(path, message):
-    """Return a permanent pre-launch problem before a slot is reserved."""
+    """Return a permanent pre-launch problem before a slot is reserved.
+
+    Only defects a retry cannot fix belong here: a NUL byte, an
+    invalid timeout, an unverifiable timeout history, a
+    placeholder-only body, or a malformed flow envelope.
+
+    Arguments:
+      path    = the pending Implementer message.
+      message = its decoded text.
+
+    Returns:
+      A printable problem sentence, or ``None`` when the message may
+      reserve its slot.
+    """
     if "\x00" in message:
         return "the message contains a NUL byte"
     if not daemon.valid_duration(value=daemon.DISPATCH_TIMEOUT_MINUTES,
@@ -1047,7 +1164,16 @@ def reserve_architect_ticket_before_claim(path, skip_redteam=False):
 
 
 def release_architect_ticket_admission(token):
-    """Atomically retire one exact public request that created no ticket."""
+    """Atomically retire one exact public request that created no ticket.
+
+    Arguments:
+      token = the admission token quoted by the no-ticket receipt.
+
+    Raises:
+      daemon.TicketCycleStateError: when the charged record is absent
+        or its digest disagrees — the slot is then left charged
+        rather than freed under a mismatched identity.
+    """
     request_name, digest = daemon.split_architect_admission_token(token=token)
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
@@ -1429,7 +1555,13 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     outcome_lock = daemon.threading.Lock()
 
     def drain_and_record(cwd, paths, dry_run, fix_only, skip_redteam):
-        """Run one cwd lane and retain failure even if its worker raises."""
+        """Run one cwd lane and retain failure even if its worker raises.
+
+        Token-exhaustion and authority-violation errors are collected
+        for the caller under the outcome lock; any other exception
+        marks the lane not consumed. The lane's outcome is always
+        recorded.
+        """
         try:
             consumed = daemon.drain_lane(
                 paths=paths, dry_run=dry_run, fix_only=fix_only,
@@ -1615,7 +1747,15 @@ def landing_debt_snapshot():
 
 
 def report_landing_debt(snapshot=None):
-    """Print saved candidate size without treating role branches as debt."""
+    """Print saved candidate size without treating role branches as debt.
+
+    Arguments:
+      snapshot = a landing-debt snapshot, or ``None`` to take one.
+
+    Returns:
+      The snapshot that was reported. Above the line limit, a hint
+      reminds the Architect to squash-land the audited units.
+    """
     if snapshot is None:
         snapshot = daemon.landing_debt_snapshot()
     if not snapshot["available"]:
