@@ -167,7 +167,9 @@ is never loaded whole.
 #- Outputs:
 #
 #      stdout            per-epoch progress (unless train_args.silent: true) plus
-#                        a final "best epoch N: frac>0.2 ... median ..." line.
+#                        a final selected-model line ("best epoch N: ..." when a
+#                        trained epoch won, or the incoming-weights statement
+#                        when no epoch improved on them).
 #      <--save>_<family>-<product>-<digest>.emul   the trained weights (torch
 #                        state_dict, cpu), under --root/chains.
 #      <--save>_<family>-<product>-<digest>.h5     the run record (whitening
@@ -365,14 +367,22 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
   (model, train_losses, medians,
    means, fracs) = exp.run()
 
-  # run_emulator already restored the best-frac>0.2 epoch; report which one.
-  # fracs[i][0] is frac>0.2 at epoch i+1, median the tiebreaker (loop's rule).
-  def epoch_rank(i):
-    return (fracs[i][0].item(), medians[i])
-  best = min(range(len(fracs)), key=epoch_rank)
-  log(f"best epoch {best + 1}: "
-      f"frac>0.2 {fracs[best][0].item():.4f}  "
-      f"median {medians[best]:.4f}")
+  # run_emulator restored the selected model and recorded its identity in
+  # the resolved recipe; report from that record instead of scanning the
+  # histories (the epoch-0 baseline evaluation never enters them, so a
+  # history scan names a trained epoch even when the incoming weights won).
+  selection = exp.resolved_train["selection"]
+  goal_index = selection["selection_threshold_index"]
+  goal_cut = selection["thresholds"][goal_index]
+  if selection["candidate"] == "baseline":
+    log(f"selected model: the {selection['pass_role']} pass's incoming "
+        f"weights (no trained epoch improved on them): "
+        f"frac>{goal_cut:g} {selection['frac'][goal_index]:.4f}  "
+        f"median {selection['median']:.4f}")
+  else:
+    log(f"best epoch {selection['epoch']}: "
+        f"frac>{goal_cut:g} {selection['frac'][goal_index]:.4f}  "
+        f"median {selection['median']:.4f}")
 
   # Persist the trained emulator first, before any diagnostics can fail.
   # cocoa_output (cocoa.py) joins the chains/ folder to the name root; the
@@ -392,9 +402,11 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
            "rescale":     exp.rescale,
            "n_train":     int(exp.train_set["idx"].shape[0]),
            "n_val":       int(exp.val_set["idx"].shape[0]),
-           "best_epoch":  best + 1,
-           "best_frac02": fracs[best][0].item(),
-           "best_median": float(medians[best]),
+           # from the run's selection record: 0 = the final pass's incoming
+           # weights won (no trained epoch improved on them).
+           "best_epoch":  int(selection["epoch"]),
+           "best_frac02": float(selection["frac"][goal_index]),
+           "best_median": float(selection["median"]),
            "device":      str(exp.device),
            "train_dv":    os.path.basename(cfg["data"]["train_dv"]),
            "val_dv":      os.path.basename(cfg["data"]["val_dv"])}

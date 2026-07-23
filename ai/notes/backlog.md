@@ -176,7 +176,6 @@ No open HIGH tickets.
 Medium work begins only after the permitted High work above.
 
 - OPEN **MEDIUM** **BUG FIX** — [Write the GetDist posterior column with the correct meaning](#open-getdist-column)
-- OPEN **MEDIUM** **BUG FIX** — [Record which saved weights the training run chose](#open-training-selection-record)
 - OPEN **MEDIUM** **BUG FIX** — [Publish structured study and diagnostic results](#open-study-diagnostics)
 - OPEN **MEDIUM** **BUG FIX** — [Run real hardware checks for training behavior](#open-training-hardware)
 - OPEN **MEDIUM** **BUG FIX** — [Run saved PyTorch compilation settings on CUDA](#open-compile-modes)
@@ -1139,26 +1138,37 @@ another candidate, even though both parts look internally reasonable.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Snapshot selection exists, but its complete identity and statistics
-do not leave the training loop as one validated object.
+**CLOSED.** `training_loop_batched` returns a selection record beside the
+histories (candidate baseline or trained epoch, pass-local epoch, raw or
+EMA weights, and the winner's fractions, median, and mean), `run_emulator`
+stores each pass's record in the resolved recipe and publishes one
+run-level `resolved_train["selection"]` (pass identity,
+concatenated-history epoch, threshold vector and selection index), and
+`validate_thresholds` performs the one-time shape / finiteness / boolean /
+strict-order check. The two train drivers, the shared tune objective, and
+the saved h5 attributes read the record; no consumer reconstructs a winner
+from the histories, so a baseline win is now reported as exactly that.
+This implements the design the permanent `training-stack.md` "Selection
+record" section already specifies.
 
 **Severity: MEDIUM.** Current evidence shows that the saved report can name
 the wrong candidate or statistics, but it does not show that the selected
-weight bytes or the emulator's served prediction are wrong. Upgrade only if a
-focused witness proves that the defect changes which weights are saved or
-served.
+weight bytes or the emulator's served prediction are wrong.
 
 ### What is already fixed
 
-Training tracks baselines, trained epochs, raw and moving-average weights, and
-several diagnostic histories.
+Everything the ticket demanded: the record leaves the training loop as one
+validated object, the resolved recipe persists it, and every consumer reads
+it. Witnesses: `ai/tests/test_training_selection_record.py`
+(baseline-selected, trained-selected, malformed-threshold, YAML round trip)
+plus the run-level mapping assertions in
+`ai/tests/test_training_pass_recipe.py`; the full suite passes with the
+change (813 tests OK).
 
 ### What is missing
 
-Return and persist one selection record containing baseline-or-epoch identity,
-phase, threshold vector and chosen index, fractions, mean, median, and raw or
-EMA weight identity. Validate threshold shape, order, uniqueness, and
-finiteness once.
+Nothing. The selection record is returned, validated once, persisted, and
+consumed everywhere the histories were previously rescanned.
 
 <details><summary>Technical record for development tools</summary>
 The published model and reported evidence can disagree. Owners:

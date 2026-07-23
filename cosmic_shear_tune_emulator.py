@@ -281,19 +281,20 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
               train_args leaves).
 
     Returns:
-      the best epoch's frac>0.2 (minimized); the median is stashed as
-      a trial user attribute for the tiebreak/report.
+      the selected model's frac over the goal threshold (minimized); its
+      median is stashed as a trial user attribute for the tiebreak/report.
     """
     # suggest_train_args (training.py): draw each searched leaf's value
     # from the trial and fold it into a concrete train_args mapping.
     ta = suggest_train_args(trial=trial, train_args=raw_ta)
-    (_m, _tl, medians,
-     _mn, fracs) = exp.train(train_args=ta, silent=True)
-    def epoch_rank(i):
-      return (fracs[i][0].item(), medians[i])
-    best = min(range(len(fracs)), key=epoch_rank)
-    trial.set_user_attr("median", float(medians[best]))
-    return fracs[best][0].item()
+    exp.train(train_args=ta, silent=True)
+    # the trained run's selection record: the statistics of exactly the
+    # model run_emulator restored (a history scan would miss the case
+    # where the incoming weights won).
+    selection = exp.resolved_train["selection"]
+    goal_index = selection["selection_threshold_index"]
+    trial.set_user_attr("median", float(selection["median"]))
+    return float(selection["frac"][goal_index])
 
   def log_trial(study_, trial):
     """
@@ -455,8 +456,9 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
                 suggestion).
 
       Returns:
-        the best epoch's frac>0.2 (minimized); the median is stashed
-        as a trial user attribute for the tiebreak/report.
+        the selected model's frac over the goal threshold (minimized);
+        its median is stashed as a trial user attribute for the
+        tiebreak/report.
       """
       # suggest_train_args (training.py): fold this trial's suggestions
       # into a concrete train_args mapping. exp.train then builds the
@@ -464,14 +466,14 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
       # ResCNN geom) on the fixed data + geometry; silent=True keeps
       # each trial quiet even when the study isn't.
       ta = suggest_train_args(trial=trial, train_args=raw_ta)
-      (_m, _tl, medians,
-       _mn, fracs) = exp.train(train_args=ta, silent=True)
-      # the run restored its best-frac>0.2 epoch (median tiebreaker); minimize
-      def epoch_rank(i):
-        return (fracs[i][0].item(), medians[i])
-      best = min(range(len(fracs)), key=epoch_rank)
-      trial.set_user_attr("median", float(medians[best]))
-      return fracs[best][0].item()
+      exp.train(train_args=ta, silent=True)
+      # the trained run's selection record: the statistics of exactly the
+      # model run_emulator restored (a history scan would miss the case
+      # where the incoming weights won).
+      selection = exp.resolved_train["selection"]
+      goal_index = selection["selection_threshold_index"]
+      trial.set_user_attr("median", float(selection["median"]))
+      return float(selection["frac"][goal_index])
 
     def log_trial(study_, trial):
       """

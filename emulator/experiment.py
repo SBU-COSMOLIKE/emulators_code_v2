@@ -5417,8 +5417,12 @@ class EmulatorExperiment:
                    regardless of self.quiet.
 
     Returns:
-      (model, train_losses, medians, means, fracs), run_emulator's
-      return, the model at its best frac>0.2 epoch.
+      (model, train_losses, medians, means, fracs): the model restored
+      to its selected candidate plus the per-epoch histories. The
+      consumed training recipe, including the selection record that
+      identifies which candidate the returned model is (see
+      run_emulator), stays on self.resolved_train for the drivers and
+      save_emulator.
     """
     train_args = self.train_args if train_args is None else train_args
     # resolve_phase_args (above): a shared YAML may carry the two-phase

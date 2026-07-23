@@ -543,7 +543,7 @@ def check_train_step():
   raised, msg, _, result = _drive_train("none")
   ok = (not raised) and result is not None
   if ok:
-    train_losses, medians, means, fracs = result
+    train_losses, medians, means, fracs, _ = result
     ok = (len(train_losses) == 1 and np.isfinite(train_losses[0])
           and np.isfinite(medians[0]) and np.isfinite(means[0]))
   report("train step: a finite control run completes with finite histories",

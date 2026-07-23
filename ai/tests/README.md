@@ -428,6 +428,7 @@ python -m unittest -v ai.tests.test_mps_dark_energy_real_cobaya
 | `test_finetune_post_step_and_provenance.py` | Does fine-tuning update one weight in the required order and save which earlier emulator supplied the starting weights? |
 | `test_padded_head_identity.py` | Do CNN and Transformer heads keep storage-only rectangle cells from changing physical outputs, even after biases, activations, FiLM shifts, attention, or several head blocks? |
 | `test_training_pass_recipe.py` | Does the record prepared for saving describe every training pass that actually ran, including phase-specific settings and the exact section of the loss history produced by that pass? |
+| `test_training_selection_record.py` | Does the training loop report exactly which candidate weights it published — the untouched starting weights or a named trained epoch — with that candidate's own statistics, and refuse a malformed threshold vector? |
 | `test_trf_token_width.py` | Does a Transformer refuse a one-number token that cannot respond to its input while continuing to accept supported two-number tokens? |
 | `test_warmstart_perturbed_finite.py` | Does a warm start report the exact input or output that first becomes `NaN` or infinite? |
 

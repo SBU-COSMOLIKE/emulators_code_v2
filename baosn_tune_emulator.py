@@ -8,7 +8,7 @@ carries over — serial on one GPU / Apple MPS, or a multi-GPU study
 resumes only when its scientific manifest matches exactly. The YAML is the training
 driver's, with a data.grid block marking the family and
 [default, min, max, kind] search ranges on any train_args leaf; the
-study minimizes the best epoch's frac(delta-chi2 > 0.2).
+study minimizes each trial's selected-model frac(delta-chi2 > 0.2).
 
 Example:
   python .../baosn_tune_emulator.py \\

@@ -11,6 +11,7 @@ from unittest import mock
 
 import numpy as np
 import torch
+import yaml
 
 from emulator import training
 
@@ -66,12 +67,26 @@ def _loaders():
 
 
 def _loop_result(**kwargs):
-  """Return one finite history row for each requested epoch."""
+  """Return one finite history row for each requested epoch.
+
+  The fifth element mirrors the real loop's selection record: this
+  stand-in pretends the pass's last epoch won, so run_emulator's
+  published record must map it to a concatenated-history position.
+  """
   count = int(kwargs["nepochs"])
+  selection = {
+    "candidate": "trained_epoch",
+    "epoch": count,
+    "weights": "raw",
+    "frac": [0.1, 0.2],
+    "median": 2.0,
+    "mean": 3.0,
+  }
   return ([1.0] * count,
           [2.0] * count,
           [3.0] * count,
-          [torch.tensor([0.1, 0.2])] * count)
+          [torch.tensor([0.1, 0.2])] * count,
+          selection)
 
 
 def _common_specs():
@@ -202,6 +217,28 @@ class TrainingPassRecipeTests(unittest.TestCase):
         "shape": "const", "start": -1.0, "end": -1.0,
         "hold_epochs": 0, "anneal_epochs": 1, "kappa": 1.0})
 
+    # each pass carries its own selection record (pass-local epochs), and
+    # the published run-level record maps the final pass's local epoch 3
+    # onto concatenated-history epoch 5 with the pass identity attached.
+    self.assertEqual(trunk["selection"]["epoch"], 2)
+    self.assertEqual(head["selection"]["epoch"], 3)
+    published = recipe["selection"]
+    self.assertEqual(published["candidate"], "trained_epoch")
+    self.assertEqual(published["epoch"], 5)
+    self.assertEqual(published["epoch_in_pass"], 3)
+    self.assertEqual(published["pass_role"], "head")
+    self.assertEqual(published["model_phase"], "joint")
+    self.assertEqual(published["weights"], "raw")
+    self.assertEqual(published["thresholds"], recipe["thresholds"])
+    self.assertEqual(published["selection_threshold_index"], 0)
+    self.assertEqual(published["frac"], [0.1, 0.2])
+    self.assertEqual(published["median"], 2.0)
+    self.assertEqual(published["mean"], 3.0)
+    # the record must survive the artifact's YAML serialization unchanged
+    # (plain native values only, no tensors).
+    round_trip = yaml.safe_load(yaml.safe_dump(published))
+    self.assertEqual(round_trip, published)
+
   def test_transfer_refine_is_a_third_kind_of_materialized_pass(self):
     result = self._run(
       loss={"mode": "sqrt"},
@@ -225,6 +262,13 @@ class TrainingPassRecipeTests(unittest.TestCase):
       refine["anchor"],
       {"kind": "transfer_base_l2sp", "lambda": 0.4, "masked": False,
        "base_lr_scale": 0.1, "base_learning_rate": 0.0004})
+    # the refine pass is the last executed pass, so the published record
+    # names it and maps its local epoch 1 onto concatenated epoch 3.
+    published = recipe["selection"]
+    self.assertEqual(published["pass_role"], "transfer_refine")
+    self.assertEqual(published["model_phase"], "joint")
+    self.assertEqual(published["epoch"], 3)
+    self.assertEqual(published["epoch_in_pass"], 1)
 
   def test_fractional_warmup_is_refused_before_model_construction(self):
     specs = _common_specs()

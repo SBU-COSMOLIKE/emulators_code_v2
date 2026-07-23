@@ -1896,6 +1896,74 @@ def derive_ema_beta(horizon_epochs, steps_per_epoch):
   return 1.0 - 1.0 / denom
 
 
+def validate_thresholds(thresholds):
+  """
+  Validate the delta-chi2 threshold vector once, for every later consumer.
+
+  thresholds[0] is the emulator goal and the best-model selection metric
+  (the loop minimizes the fraction of validation points with delta-chi2
+  above it); the rest are diagnostic bands up the cascade. Selection, the
+  per-epoch report, and the saved selection record all trust this vector,
+  so it is checked in one place: a flat sequence of finite nonnegative
+  numbers in strictly increasing order. Strict increase also rules out
+  duplicates and makes index 0 the tightest cutoff.
+
+  Arguments:
+    thresholds = the train_args.thresholds value: a sequence or 1-D
+                 tensor of cutoffs, or None for the default
+                 [0.2, 1, 10, 100].
+
+  Returns:
+    the validated vector as a 1-D tensor: the default tensor when
+    thresholds was None, the input object unchanged when it already is a
+    tensor (its dtype and device stay exactly as passed), otherwise a
+    new tensor built from the sequence's values.
+
+  Raises:
+    ValueError on an empty vector, an entry that is not one finite
+    nonnegative number (booleans are refused), or an entry that does not
+    exceed the previous one.
+  """
+  if thresholds is None:
+    # delta-chi2 cutoffs for the reported val fractions (fraction
+    # of val points with chi2 above each).
+    return torch.tensor([0.2, 1.0, 10.0, 100.0])
+  if not hasattr(thresholds, "__len__") or len(thresholds) < 1:
+    raise ValueError("train_args.thresholds must contain at least one value")
+  previous = None
+  values = []
+  for index, threshold in enumerate(thresholds):
+    if torch.is_tensor(threshold):
+      if threshold.numel() != 1:
+        raise ValueError(
+          "train_args.thresholds[" + str(index) + "] must be one number")
+      threshold = threshold.item()
+    # a boolean is not a cutoff: True/False would silently read as 1/0.
+    if isinstance(threshold, bool):
+      raise ValueError(
+        "train_args.thresholds[" + str(index)
+        + "] must be a number, not a boolean")
+    if not _is_finite_real(threshold) or float(threshold) < 0.0:
+      raise ValueError(
+        "train_args.thresholds[" + str(index)
+        + "] must be a finite nonnegative real")
+    value = float(threshold)
+    if previous is not None and value <= previous:
+      raise ValueError(
+        "train_args.thresholds must be strictly increasing (each cutoff "
+        "above the previous one, no duplicates); thresholds[" + str(index)
+        + "] = " + str(value) + " does not exceed thresholds["
+        + str(index - 1) + "] = " + str(previous))
+    previous = value
+    values.append(value)
+  if torch.is_tensor(thresholds):
+    return thresholds
+  # a plain sequence normalizes to a tensor once, here, so every later
+  # consumer (the loop's tensor comparisons and .tolist() report) can rely
+  # on tensor semantics.
+  return torch.tensor(values)
+
+
 # --- the finite training/evaluation contract ---
 # A NaN or Inf score must NEVER rank, select, or report as a valid
 # result. A non-finite per-sample chi2 compares False to every threshold,
@@ -2384,6 +2452,16 @@ def training_loop_batched(nepochs,
   Returns:
     train_losses, medians, means, fracs = per-epoch lists
       (fracs holds one fraction tensor per epoch).
+    selection = the restored candidate's identity and statistics as one
+      plain-data mapping: "candidate" ("baseline" = the incoming weights,
+      "trained_epoch" = a trained snapshot), "epoch" (0 for the baseline,
+      else the 1-based position in the history lists above), "weights"
+      ("raw" or "ema", whether the restored tensors are the raw snapshot
+      or its Polyak average), "frac" (the candidate's per-threshold
+      fraction list), "median", and "mean". The record describes exactly
+      the model this function hands back, so no caller has to
+      reconstruct the winner from the histories (the baseline evaluation
+      never enters them).
   """
   # loaders: active source coordinates -> ready-to-train parameter inputs
   # and targets on the device. The regime hides where the source lives.
@@ -2639,6 +2717,10 @@ def training_loop_batched(nepochs,
                                       fwd_chi2=fwd_chi2)
   best_frac   = b_frac[0].item()
   best_median = b_median
+  best_mean   = b_mean
+  # the winner's full per-threshold fraction vector, for the selection
+  # record (best_frac holds only the selection entry, frac[0]).
+  best_frac_vec = b_frac.detach().clone()
   best_epoch  = 0
   # snapshot the incoming weights (clone: state_dict returns live
   # references that training would overwrite).
@@ -2895,6 +2977,8 @@ def training_loop_batched(nepochs,
         (f0 == best_frac and median < best_median)):
       best_frac   = f0
       best_median = median
+      best_mean   = mean
+      best_frac_vec = frac.detach().clone()
       best_epoch  = epoch
       # snapshot the weights. state_dict() returns references to
       # the live parameters, which keep changing as training
@@ -3012,7 +3096,21 @@ def training_loop_batched(nepochs,
             f"incl. compile)")
     else:
       print(f"training done: 1 epoch in {total:.1f}s")
-  return train_losses, medians, means, fracs
+
+  # the restored candidate's identity and statistics, as plain data (native
+  # floats / ints / strings only, so the record can ride the saved YAML
+  # recipe). epoch 0 = the incoming weights: their evaluation seeds the
+  # search but never enters the history lists, so this record is the only
+  # complete statement of which candidate the caller received.
+  selection = {
+    "candidate": ("baseline" if best_epoch == 0 else "trained_epoch"),
+    "epoch": int(best_epoch),
+    "weights": ("ema" if best_is_ema else "raw"),
+    "frac": best_frac_vec.tolist(),
+    "median": float(best_median),
+    "mean": float(best_mean),
+  }
+  return train_losses, medians, means, fracs, selection
 
 
 def run_emulator(train_set,
@@ -3247,6 +3345,18 @@ def run_emulator(train_set,
     medians      = per-epoch val median chi2 (list).
     means        = per-epoch val mean chi2 (list).
     fracs        = per-epoch list of frac-over-threshold tensors.
+    resolved_train = the consumed training recipe, defaults materialized,
+                   for the saved artifact. Its "passes" list carries one
+                   record per executed pass (each with that pass's own
+                   "selection"), and its "selection" mapping identifies
+                   the published candidate: the returned model is the
+                   last pass's restored best, so the mapping states that
+                   pass's winner ("candidate" baseline / trained_epoch,
+                   "epoch" 0 for the pass's incoming weights else the
+                   1-based position in the concatenated histories,
+                   "weights" raw / ema, the threshold vector with the
+                   selection index, and the winner's frac / median /
+                   mean).
   """
   # Discrete run counts must remain discrete in both execution and the saved
   # recipe.  Refuse bools and fractional values instead of accepting them in
@@ -3342,24 +3452,11 @@ def run_emulator(train_set,
                   "mode": "min",
                   "patience": 15,
                   "factor": 0.75}
-  if thresholds is None:
-    # delta-chi2 cutoffs for the reported val fractions (fraction
-    # of val points with chi2 above each). The first, 0.2, is the
-    # emulator goal and the best-model selection metric (frac >
-    # thresholds[0]); the rest are diagnostic bands up the cascade.
-    thresholds = torch.tensor([0.2, 1.0, 10.0, 100.0])
-  if not hasattr(thresholds, "__len__") or len(thresholds) < 1:
-    raise ValueError("train_args.thresholds must contain at least one value")
-  for index, threshold in enumerate(thresholds):
-    if torch.is_tensor(threshold):
-      if threshold.numel() != 1:
-        raise ValueError(
-          "train_args.thresholds[" + str(index) + "] must be one number")
-      threshold = threshold.item()
-    if not _is_finite_real(threshold) or float(threshold) < 0.0:
-      raise ValueError(
-        "train_args.thresholds[" + str(index)
-        + "] must be a finite nonnegative real")
+  # the delta-chi2 cutoff vector (None -> the default [0.2, 1, 10, 100]).
+  # validate_thresholds is the one shape / finiteness / strict-order check;
+  # selection, the per-epoch report, and the saved selection record all
+  # read the vector unvalidated after this point.
+  thresholds = validate_thresholds(thresholds)
   if trim_opts is None:
     # hold a 5% trim, then cosine-anneal it to 0 over the run:
     # drop the worst points while they are junk, re-admit once the
@@ -3689,7 +3786,7 @@ def run_emulator(train_set,
                    optimizer_value, scheduler, loss_value, trim, focus,
                    clip_value,
                    rewind_value, ema_value, step_compile_mode,
-                   anchor_value):
+                   anchor_value, selection_value):
     """Materialize the complete record of one training pass.
 
     Called at the one point where a pass's EFFECTIVE settings all exist
@@ -3706,6 +3803,10 @@ def run_emulator(train_set,
       step_compile_mode, anchor_value
                          = the pass's effective settings, as validated
                            by the loop that is about to run them.
+      selection_value    = the pass's selection record from
+                           training_loop_batched: which candidate the
+                           pass restored (its "epoch" is pass-local,
+                           0 = the pass's incoming weights).
 
     Returns:
       the pass-record mapping, plain data ready for the resolved
@@ -3731,6 +3832,7 @@ def run_emulator(train_set,
       "steps_per_epoch": int(_steps_per_epoch_record()),
       "step_compile_mode": step_compile_mode,
       "anchor": copy.deepcopy(anchor_value),
+      "selection": copy.deepcopy(selection_value),
     }
 
   for n_pass, phase in plan:
@@ -3903,8 +4005,10 @@ def run_emulator(train_set,
                                 masks=anchor.get("masks"))
 
     history_start = len(train_losses)
-    (tl, md, mn,
-     fr) = training_loop_batched(nepochs=n_pass,
+    # sr = this pass's selection record (the candidate the pass restored;
+    # see training_loop_batched), beside the tl/md/mn/fr history lists.
+    (tl, md, mn, fr,
+     sr) = training_loop_batched(nepochs=n_pass,
                                  optimizer=opt,
                                  scheduler=sched,
                                  model=model,
@@ -3952,7 +4056,8 @@ def run_emulator(train_set,
       rewind_value=rewind_pass,
       ema_value=ema_pass,
       step_compile_mode=getattr(model, "emul_compile_mode", None),
-      anchor_value=_anchor_record(anchor, "finetune_l2sp")))
+      anchor_value=_anchor_record(anchor, "finetune_l2sp"),
+      selection_value=sr))
     if phase2_trunk is not None:
       digest_after, parameter_count_after = _parameter_digest(phase2_trunk)
       if parameter_count_after != phase2_parameter_count:
@@ -4015,8 +4120,8 @@ def run_emulator(train_set,
                             reference_state=pretrained,
                             lam=refine["anchor"])
     history_start = len(train_losses)
-    (tl, md, mn,
-     fr) = training_loop_batched(nepochs=refine["epochs"],
+    (tl, md, mn, fr,
+     sr) = training_loop_batched(nepochs=refine["epochs"],
                                  optimizer=opt_r,
                                  scheduler=sched_r,
                                  model=composite,
@@ -4069,7 +4174,8 @@ def run_emulator(train_set,
       # forward-and-loss wrapper runs eagerly even when the correction module
       # inside it was compiled.
       step_compile_mode=None,
-      anchor_value=refine_anchor))
+      anchor_value=refine_anchor,
+      selection_value=sr))
     train_losses += tl
     medians      += md
     means        += mn
@@ -4127,6 +4233,36 @@ def run_emulator(train_set,
     },
     "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),
     "device": str(device),
+  }
+
+  # The published-candidate record. The model returned below is exactly the
+  # last pass's restored best (every pass restores its own best before it
+  # ends), so the run-level record restates that pass's selection with the
+  # facts a reader needs to place it: the pass identity, the position in
+  # the concatenated histories, and the threshold vector the selection
+  # minimized over. "epoch" 0 means the pass's incoming weights won (for a
+  # single-pass run the untouched initialization or warm start; for a later
+  # pass, the state the previous pass restored); an epoch n >= 1 is the
+  # 1-based position in the returned history lists. The loop selects on
+  # frac[0] with the median as tie-break, so the recorded index is 0.
+  last_pass = resolved_passes[-1]
+  last_selection = last_pass["selection"]
+  if last_selection["epoch"] == 0:
+    history_epoch = 0
+  else:
+    history_epoch = last_pass["history_start"] + last_selection["epoch"]
+  resolved_train["selection"] = {
+    "candidate": last_selection["candidate"],
+    "epoch": int(history_epoch),
+    "epoch_in_pass": int(last_selection["epoch"]),
+    "pass_role": last_pass["role"],
+    "model_phase": last_pass["model_phase"],
+    "weights": last_selection["weights"],
+    "thresholds": [float(t) for t in thresholds],
+    "selection_threshold_index": 0,
+    "frac": list(last_selection["frac"]),
+    "median": last_selection["median"],
+    "mean": last_selection["mean"],
   }
 
   return (model, train_losses, medians, means, fracs, resolved_train)

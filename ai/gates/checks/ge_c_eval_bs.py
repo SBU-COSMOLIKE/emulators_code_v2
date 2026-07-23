@@ -469,7 +469,7 @@ def run_history(parameters, targets, partition):
     "train": dict(source),
     "val": dict(source),
   }
-  _, medians, means, fractions = training_loop_batched(
+  _, medians, means, fractions, _ = training_loop_batched(
     nepochs=1,
     optimizer=optimizer,
     scheduler=scheduler,
