@@ -401,21 +401,32 @@ def make_optimizer(model, opt_opts, lr, device):
 
 
 class Anchor:
-  """A decoupled L2-SP anchor: a post-step pull toward a reference W_0.
+  """A spring tying the training weights to a reference copy W_0.
 
-  The shared anchor facility for both the finetune warm start (anchor to the
-  transferred weights) and the transfer refine stage (anchor the unfrozen base
-  to its pretrained weights). After each optimizer.step, under no_grad, it
-  applies in place
+  An anchor keeps a fine-tuned run from wandering too far from the
+  good weights it started at. After each optimizer.step, under
+  no_grad, every anchored weight is nudged back toward its reference
+  value, in place:
 
       W <- W - lr * lambda * mask * (W - W_0)
 
-  where lr is read from the parameter's own optimizer group (so a
-  discriminative per-group learning rate carries through). This is the
-  AdamW-decoupling argument applied to the anchor: kept OUT of the loss, it is
-  not rescaled by Adam's adaptive second moments (a loss-term
-  lambda*||W - W_0||^2 would be), so lambda means the same thing across
-  parameters. It mirrors the EMA post-step in-place update already in
+  the restoring pull of a spring between the current weights W and the
+  frozen copy W_0: the further the run drifts, the harder the pull
+  back, with lambda setting the spring's stiffness. The literature
+  calls this penalty L2-SP -- an L2 (squared-distance) penalty toward
+  the Starting Point W_0, where ordinary weight decay is the same
+  penalty toward zero. This one class anchors both the finetune warm
+  start (to the transferred weights) and the transfer refine stage
+  (the unfrozen base to its pretrained weights).
+
+  lr is read from the parameter's own optimizer group (so a
+  discriminative per-group learning rate carries through). The pull is
+  applied after the step instead of as a loss term for the same reason
+  AdamW moves weight decay out of the loss: a loss-term
+  lambda*||W - W_0||^2 would be rescaled by Adam's adaptive second
+  moments, making lambda a different strength for every parameter;
+  applied post-step, lambda means the same thing everywhere. It
+  mirrors the EMA post-step in-place update already in
   training_loop_batched (the same cheap _foreach-style pass).
 
   mask (per parameter, optional) zeroes the pull on columns that must stay
@@ -776,23 +787,25 @@ def _training_trunk(model):
 
 
 def _parameter_digest(module):
-  """Fingerprint one module's parameters, for the phase-boundary witness.
+  """Summarize one module's parameters as a hash, to prove they did not move.
 
   A two-phase run promises that the trunk does not move while the head
-  trains; the promise is proved by hashing the trunk's parameters at the
-  boundary and again at the end.  Names, dtypes, shapes, and exact tensor
-  bytes enter the digest in sorted parameter-name order, so two
-  differently shaped parameter sets with the same flat bytes cannot share
-  a witness.  The raw bytes are read on the CPU only at a phase boundary,
-  never once per epoch.
+  trains. The proof: feed every trunk parameter's exact bytes through
+  SHA-256 -- a hash function whose short fixed-length output (the
+  digest) changes when any input byte changes -- once at the phase
+  boundary and once at the end; equal digests mean untouched weights.
+  Names, dtypes, shapes, and exact tensor bytes enter the hash in
+  sorted parameter-name order, so two differently shaped parameter sets
+  with the same flat bytes cannot produce one digest.  The raw bytes
+  are read on the CPU only at a phase boundary, never once per epoch.
 
   Arguments:
-    module = the trunk module to fingerprint.
+    module = the trunk module to summarize.
 
   Returns:
     ``(hex_digest, scalar_count)``.  ``hex_digest`` has 64 lowercase
-    hexadecimal characters and ``scalar_count`` is the number of parameter
-    values covered.
+    hexadecimal characters (the SHA-256 output) and ``scalar_count`` is
+    the number of parameter values covered.
 
   Raises:
     ValueError for an empty parameter set or a NaN/Inf parameter.  Publishing
@@ -834,8 +847,11 @@ def _parameter_digest(module):
 def _phase2_digest_line(phase, before, after, parameter_count):
   """Format the machine-readable trunk-witness line for one phase.
 
-  The board's two-phase gate parses this exact line to prove the trunk
-  did or did not move, so its layout is an interface, not styling.
+  The witness is the printed proof: one line carrying the before/after
+  digest pair, which a reader or test checks to confirm the frozen
+  trunk never moved. The board's two-phase gate parses this exact line
+  to prove the trunk did or did not move, so its layout is an
+  interface, not styling.
 
   Arguments:
     phase           = the phase label the line reports.
@@ -951,7 +967,7 @@ def validate_phase_block(block, which):
     no-op). ValueError on a bare lr_base or a flat loss_mode / berhu (each
     a migration error printing the paste-ready nested block), an unknown
     key (the eight-key whitelist), a bs_base inside the phase lr (the
-    sqrt-rule batch anchor is run-global), or a cls inside the phase
+    sqrt rule's reference batch size is run-global), or a cls inside the phase
     scheduler (the scheduler class is the run's; a phase overrides only its
     kwargs).
   """
@@ -1003,8 +1019,9 @@ def validate_phase_block(block, which):
         f"warmup_epochs}}, got {type(lr).__name__}")
     if "bs_base" in lr:
       raise ValueError(
-        f"train_args.{which}.lr must not set bs_base: the sqrt-rule batch "
-        f"anchor is run-global (set it once in the top-level lr: block)")
+        f"train_args.{which}.lr must not set bs_base: the sqrt rule's "
+        f"reference batch size is run-global (set it once in the "
+        f"top-level lr: block)")
     lr_unknown = set(lr) - {"lr_base", "warmup_epochs"}
     if lr_unknown:
       raise ValueError(
@@ -2938,11 +2955,11 @@ def training_loop_batched(nepochs,
                        + " batch@" + str(s) + " grad_norm="
                        + repr(float(grad_norm))])
         optimizer.step()
-        # decoupled L2-SP anchor (finetune.anchor / transfer.refine): a
-        # post-step pull toward the reference weights, W <- W - lr*lambda*
-        # mask*(W - W_0), read the per-group lr; None = no anchor, byte-
-        # identical. Apply it before the average so the saved average sees
-        # the same anchored weights as the live model.
+        # the anchor (finetune.anchor / transfer.refine): the post-step
+        # spring pull toward the reference weights, W <- W - lr*lambda*
+        # mask*(W - W_0), reading the per-group lr; None = no anchor and
+        # the block is skipped. Apply it before the average so the saved
+        # average sees the same anchored weights as the live model.
         if anchor is not None:
           anchor.apply(optimizer)
         # weight-average update (once ema is live): theta_bar <-
