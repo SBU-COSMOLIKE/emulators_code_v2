@@ -1706,15 +1706,17 @@ assumed domain and Python knowledge (a sidecar, the bool-int subclass
 trap, struct round trips, Simpson's rule, sigmoid, broadcasting) without
 defining it; completed so far in `emulator/`: `parameter_table.py`,
 `validation.py`, `cocoa.py`, `background.py`, `family_drivers.py`,
-`analytics.py`, `syren_base.py`, `scheduling.py`, `model_recipe.py`, and
-`activations.py`. Remaining in `emulator/`: `batching.py`,
-`diagnostics.py`, `data_staging.py`, `inference.py`, `warmstart.py`,
-`fixed_facts.py`, `plotting.py`, `results.py`, `training.py`,
-`experiment.py`, and the designs/geometries/losses subpackages; then the
-remaining `ai/tools/` files, `ai/tests/`, and the repository-wide
-chronology rewrite. The required depth follows the recorded reader
-standard: no unstated Python mechanic or term of art, with Arguments,
-Returns, and Raises blocks in the aligned name = description form.
+`analytics.py`, `syren_base.py`, `scheduling.py`, `model_recipe.py`,
+`activations.py`, `batching.py`, `diagnostics.py`, and
+`data_staging.py`. Two files were audited and found already at the
+required depth with nothing to change: `inference.py` and
+`warmstart.py`. Remaining in `emulator/`: `fixed_facts.py`,
+`plotting.py`, `results.py`, `training.py`, `experiment.py`, and the
+designs/geometries/losses subpackages; then the remaining `ai/tools/`
+files, `ai/tests/`, and the repository-wide chronology rewrite. The
+required depth follows the recorded reader standard: no unstated Python
+mechanic or term of art, with Arguments, Returns, and Raises blocks in
+the aligned name = description form.
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
