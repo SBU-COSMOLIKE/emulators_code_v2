@@ -1,10 +1,14 @@
 """Copy D0 state and test whether a proposed D1 can inherit it.
 
 D0 is the watcher program currently in charge; D1 is a proposed
-replacement watcher. The trusted controller imports this module from its
-own checkout.  The module copies live records into a temporary Git
-checkout and supplies a D0-owned Python probe.  Candidate tests never
-decide whether the takeover succeeds.
+replacement watcher built by a control-plane ticket. Before D1 may take
+over, the trusted controller — the running D0, which imports this
+module from its own checkout — copies D0's live records into a
+disposable temporary Git checkout and runs a D0-owned Python probe
+there. The probe checks that D1 reads back exactly the state D0 saved,
+or performs one explicitly declared migration and nothing more.
+Candidate tests never decide whether the takeover succeeds; only this
+D0-owned check does.
 """
 
 import glob
@@ -15,7 +19,32 @@ import os
 
 def _copy_regular(controller, source, destination, repository, maximum,
                   label):
-  """Copy one bounded regular file without following a D1 redirect."""
+  """Copy one bounded regular file without following a D1 redirect.
+
+  The copy is refused when the destination escapes the disposable
+  checkout or is not an ordinary file: a hostile D1 could otherwise
+  plant a symbolic link so that writing "its" saved state would
+  overwrite a real file elsewhere. The read side is bounded by the
+  controller's size limit for the record.
+
+  Arguments:
+    controller  = the trusted daemon module performing the takeover.
+    source      = path of the live D0 record to copy.
+    destination = path inside the disposable checkout that receives
+                  the copy.
+    repository  = root of the disposable checkout; the destination
+                  must stay inside it after resolving links.
+    maximum     = size bound in bytes for the record.
+    label       = short name for the record, used in error messages.
+
+  Returns:
+    The SHA-256 hexadecimal digest of the copied bytes, or ``None``
+    when the source file does not exist.
+
+  Raises:
+    controller.TicketCycleStateError: for an oversized or unreadable
+      source, or a redirected destination.
+  """
   try:
     raw = controller.stable_regular_bytes(
         path=source, maximum_bytes=maximum, label=label, missing_ok=True)
@@ -44,13 +73,29 @@ def _copy_regular(controller, source, destination, repository, maximum,
 def copy_d0_state(controller, repository):
   """Copy inheritable D0 records and return their trusted interpretation.
 
+  The copied records are the ticket-cycle state, the candidate state,
+  the backlog with its guard and sync-recovery files, each role's
+  saved worktree identity, and any pending relay recovery files. The
+  function also reads the commit of every candidate Git ref and of
+  ``main``. The returned description is what the takeover probe later
+  treats as the expected picture: D1 must read back exactly these
+  meanings from the copied bytes.
+
   Arguments:
     controller = the already imported, currently trusted daemon module.
     repository = the disposable D1 checkout that receives exact copies.
 
   Returns:
-    A JSON-safe description of D0's schemas, workflow meaning, file digests,
-    saved worktree identities, and private Git refs.
+    A JSON-safe mapping with the record schemas (a schema is the named
+    field layout of a saved record), the preserved-invariants list, the
+    declared migration path, D0's interpreted ticket and candidate
+    state, the per-role worktree identities, the SHA-256 digest of
+    every copied file, and the Git ref commits.
+
+  Raises:
+    controller.TicketCycleStateError: for an unreadable or oversized
+      record, an unsafe relay filename, a redirected destination, or
+      an unexpected Git ref or commit.
   """
   files = {}
 
