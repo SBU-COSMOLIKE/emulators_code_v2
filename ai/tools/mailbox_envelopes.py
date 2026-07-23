@@ -108,12 +108,29 @@ PART_EXPORTS = (
 
 
 def common_preamble_for_dispatch(checkpoint_audit):
-    """Omit ordinary landing instructions during a checkpoint review."""
+    """Omit ordinary landing instructions during a checkpoint review.
+
+    Arguments:
+      checkpoint_audit = True when this turn reviews a checkpoint.
+
+    Returns:
+      The checkpoint preamble or the ordinary one.
+    """
     return daemon.CHECKPOINT_PREAMBLE if checkpoint_audit else daemon.PREAMBLE
 
 
 def agent_preamble(agent, message=None):
-    """Return role-specific standing text that precedes the common wrapper."""
+    """Return role-specific standing text that precedes the common wrapper.
+
+    Arguments:
+      agent   = the dispatched role.
+      message = the message being dispatched, or ``None``; Architect
+                turns inspect it to pick the reopening, checkpoint, or
+                context-handoff variant of the preamble.
+
+    Returns:
+      The role's standing preamble text.
+    """
     if agent == "fable":
         checkpoint_notice = ""
         checkpoint_audit = False
@@ -230,14 +247,30 @@ def pending_messages():
 
 
 def ticket_cycle_mode_is_enabled(mode, skip_redteam=False):
-    """Return whether this watch topology owns ``mode`` work."""
+    """Return whether this watch topology owns ``mode`` work.
+
+    Arguments:
+      mode         = the ticket's saved mode.
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      True when the mode matches this watch's topology: a three-role
+      watch owns normal tickets, a two-role watch owns two-role ones.
+    """
     if skip_redteam:
         return mode == "two-role"
     return mode == "normal"
 
 
 def canonical_ticket_cycle_topology(skip_redteam=False):
-    """Return the single durable identity of this watch's role layout."""
+    """Return the single durable identity of this watch's role layout.
+
+    Arguments:
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      ``"two-role"`` or ``"normal"``.
+    """
     if skip_redteam:
         return "two-role"
     return "normal"
@@ -369,7 +402,23 @@ def user_message_inode_snapshot():
 
 def matching_new_architect_go(cycle_id, candidate_commit, mode,
                                before_inodes):
-    """Prove any GO created by this Architect turn names its exact candidate C."""
+    """Prove any GO created by this Architect turn names its exact candidate C.
+
+    Only messages created since the pre-turn snapshot count. Every
+    fresh GO must read cleanly and name this exact cycle, candidate,
+    and mode; at most one may exist.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C the GO must name.
+      mode             = the ticket mode.
+      before_inodes    = the pre-turn message-inode snapshot.
+
+    Returns:
+      ``(path, offending, problem)``: the single fresh GO (or
+      ``None``), the paths a failure must handle, and a printable
+      problem (``None`` on success).
+    """
     fresh = []
     problems = []
     problem_paths = []
@@ -413,7 +462,25 @@ def matching_new_architect_go(cycle_id, candidate_commit, mode,
 
 def architect_handoff_problem(message, cycle_id, mode, checkpoint=False,
                               budget=False):
-    """Return why one same-cycle Architect repair is not authorized."""
+    """Return why one same-cycle Architect repair is not authorized.
+
+    An ordinary repair must keep the cycle and mode and carry exactly
+    one Directive row. A checkpoint decision instead carries exactly
+    one GO or NO-GO row; a budget checkpoint additionally needs the
+    revised-plan heading, a NO-GO decision, and one revised Directive
+    row.
+
+    Arguments:
+      message    = the handoff text.
+      cycle_id   = the required cycle.
+      mode       = the required mode.
+      checkpoint = True for a checkpoint decision.
+      budget     = True for a budget checkpoint.
+
+    Returns:
+      A printable problem, or ``None`` when the handoff is
+      authorized.
+    """
     returned_cycle, returned_mode, body, problem = (
         daemon._ticket_flow_envelope(message=message))
     if problem is not None:
@@ -447,7 +514,16 @@ def architect_handoff_problem(message, cycle_id, mode, checkpoint=False,
 
 
 def checkpoint_architect_handoff_problem(message, cycle_id, mode):
-    """Compatibility name for the stricter checkpoint form."""
+    """Compatibility name for the stricter checkpoint form.
+
+    Arguments:
+      message  = the handoff text.
+      cycle_id = the required cycle.
+      mode     = the required mode.
+
+    Returns:
+      The checkpoint-form problem, or ``None``.
+    """
     return daemon.architect_handoff_problem(
         message=message, cycle_id=cycle_id, mode=mode, checkpoint=True)
 
@@ -455,7 +531,20 @@ def checkpoint_architect_handoff_problem(message, cycle_id, mode):
 def matching_new_architect_handoff(cycle_id, mode, before_inodes,
                                    checkpoint=False, required=True,
                                    budget=False):
-    """Find one fresh same-cycle repair handoff from the Architect."""
+    """Find one fresh same-cycle repair handoff from the Architect.
+
+    Arguments:
+      cycle_id      = the ticket cycle.
+      mode          = the ticket mode.
+      before_inodes = the pre-turn message-inode snapshot.
+      checkpoint    = True for a checkpoint decision.
+      required      = True when exactly one handoff must exist.
+      budget        = True for a budget checkpoint.
+
+    Returns:
+      ``(path, offending, problem)`` as in the other matchers; a
+      handoff outside the mailbox root is invalid.
+    """
     fresh = []
     invalid = []
     problems = []
@@ -489,7 +578,17 @@ def matching_new_architect_handoff(cycle_id, mode, before_inodes,
 
 def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes,
                                     budget=False):
-    """Compatibility name for a required checkpoint decision."""
+    """Compatibility name for a required checkpoint decision.
+
+    Arguments:
+      cycle_id      = the ticket cycle.
+      mode          = the ticket mode.
+      before_inodes = the pre-turn snapshot.
+      budget        = True for a budget checkpoint.
+
+    Returns:
+      The required-checkpoint matcher's triple.
+    """
     return daemon.matching_new_architect_handoff(
         cycle_id=cycle_id, mode=mode, before_inodes=before_inodes,
         checkpoint=True, required=True, budget=budget)
@@ -497,7 +596,16 @@ def matching_new_checkpoint_handoff(cycle_id, mode, before_inodes,
 
 def matching_new_architect_notes_go(base_commit, notes_commit,
                                      before_inodes):
-    """Prove exactly one fresh note-only GO binds this Architect turn's B and P."""
+    """Prove exactly one fresh note-only GO binds this Architect turn's B and P.
+
+    Arguments:
+      base_commit   = B the GO must name.
+      notes_commit  = P the GO must name.
+      before_inodes = the pre-turn message-inode snapshot.
+
+    Returns:
+      ``(path, offending, problem)`` as in the other matchers.
+    """
     fresh = []
     invalid = []
     problems = []
@@ -563,7 +671,16 @@ def _authoritative_handoff_contract_module():
 
 
 def directive_before_later_history(text):
-    """Keep one directive and its first evidence block for restart recovery."""
+    """Keep one directive and its first evidence block for restart recovery.
+
+    Arguments:
+      text = the source note's text.
+
+    Returns:
+      The text cut at the first heading after the evidence block, so
+      a note that grew later history can still be validated as the
+      directive it was when the ticket started.
+    """
     evidence = "## Implementation evidence / resume state"
     lines = text.splitlines()
     found_evidence = False
@@ -578,7 +695,21 @@ def directive_before_later_history(text):
 
 def prove_blocked_implementer_checkpoint(cycle_id, handoff_sha256,
                                          contract):
-    """Bind a capability retry to one actual prior blocked return."""
+    """Bind a capability retry to one actual prior blocked return.
+
+    Arguments:
+      cycle_id       = the current ticket cycle.
+      handoff_sha256 = digest the prior blocked handoff body must
+                       hash to.
+      contract       = the authoritative handoff-contract module.
+
+    Returns:
+      The prior blocked return's capability evidence mapping.
+
+    Raises:
+      daemon.TicketCycleStateError: when exactly one digest-bound
+        blocked handoff does not exist in this cycle.
+    """
     matches = []
     for path in daemon.glob.glob(
             daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
@@ -614,7 +745,30 @@ def prove_blocked_implementer_checkpoint(cycle_id, handoff_sha256,
 
 
 def prepare_implementer_evidence_contract(message, use_saved_limit=False):
-    """Freeze the Architect's parsed subagent plan before Opus launches."""
+    """Freeze the Architect's parsed subagent plan before Opus launches.
+
+    The handoff's one cited source note is revalidated through the
+    authoritative contract, so the evidence the Implementer must
+    later return is fixed before its turn starts. A
+    capability-unavailable plan must additionally bind to one actual
+    digest-matched blocked handoff from this same cycle, field for
+    field.
+
+    Arguments:
+      message         = the Architect handoff text.
+      use_saved_limit = True during recovery, when the note's own
+                        saved budget is trusted and later note
+                        history may be cut before validation.
+
+    Returns:
+      Mapping with the contract module, the parsed plan, the note
+      path, the allowed paths, the character limit, and the ticket
+      class.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing or redirected note,
+        an invalid directive, or an unbound capability exception.
+    """
     matches = daemon.ARCHITECT_DIRECTIVE_LINE_RE.findall(message)
     if len(matches) != 1:
         raise daemon.TicketCycleStateError(
@@ -694,7 +848,20 @@ def prepare_implementer_evidence_contract(message, use_saved_limit=False):
 
 def matching_new_implementer_handoff(cycle_id, mode, candidate_commit,
                                      before_inodes, evidence_contract):
-    """Prove one same-cycle Opus return and its exact subagent evidence."""
+    """Prove one same-cycle Opus return and its exact subagent evidence.
+
+    Arguments:
+      cycle_id          = the ticket cycle.
+      mode              = the ticket mode.
+      candidate_commit  = the candidate C the return must name.
+      before_inodes     = the pre-turn message-inode snapshot.
+      evidence_contract = the frozen plan from
+                          prepare_implementer_evidence_contract.
+
+    Returns:
+      ``(path, offending, problem)`` as in the other matchers, with
+      the validated evidence attached when the single return passed.
+    """
     matches = []
     malformed = []
     malformed_paths = []
@@ -804,7 +971,18 @@ def matching_new_redteam_receipt(cycle_id, accepted_commit, before_inodes):
 
 def matching_new_control_plane_receipt(cycle_id, candidate,
                                        before_inodes):
-    """Prove one new exact Red Team key addressed to D0."""
+    """Prove one new exact Red Team key addressed to D0.
+
+    Arguments:
+      cycle_id      = the protected ticket cycle.
+      candidate     = the reviewed candidate C.
+      before_inodes = the pre-turn message-inode snapshot.
+
+    Returns:
+      ``(path, offending, problem)`` as in the other matchers, for
+      the single fresh control-plane decision naming this exact
+      cycle and candidate.
+    """
     matches = []
     malformed = []
     for path in daemon.new_route_paths(
@@ -852,7 +1030,15 @@ def sol_ticket_kind(message):
 
 
 def sol_ticket_body_after_kind(message):
-    """Return the bytes after a valid Sol classification line."""
+    """Return the bytes after a valid Sol classification line.
+
+    Arguments:
+      message = the decoded Sol message.
+
+    Returns:
+      The remainder after the ticket-kind line, or the whole message
+      when no valid classification line starts it.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.SOL_TICKET_HEADER)
         + r"(?:" + "|".join(map(daemon.re.escape, daemon.SOL_DISPATCH_TICKET_KINDS))
@@ -920,24 +1106,53 @@ def _sol_discovery_envelope(message):
 
 
 def sol_discovery_severity_problem(message):
-    """Return an exact discovery-envelope error, or ``None``."""
+    """Return an exact discovery-envelope error, or ``None``.
+
+    Arguments:
+      message = the decoded Sol discovery message.
+
+    Returns:
+      The printable problem, or ``None`` for a valid envelope.
+    """
     return daemon._sol_discovery_envelope(message=message)[3]
 
 
 def sol_discovery_severity(message):
-    """Return a valid discovery ticket's saved severity, or ``None``."""
+    """Return a valid discovery ticket's saved severity, or ``None``.
+
+    Arguments:
+      message = the decoded Sol discovery message.
+
+    Returns:
+      The saved severity, or ``None`` for a malformed envelope.
+    """
     severity, _, _, problem = daemon._sol_discovery_envelope(message=message)
     return severity if problem is None else None
 
 
 def sol_discovery_scope(message):
-    """Return a valid discovery ticket's saved scope, or ``None``."""
+    """Return a valid discovery ticket's saved scope, or ``None``.
+
+    Arguments:
+      message = the decoded Sol discovery message.
+
+    Returns:
+      The saved scope, or ``None`` for a malformed envelope.
+    """
     _, scope, _, problem = daemon._sol_discovery_envelope(message=message)
     return scope if problem is None else None
 
 
 def public_architect_sol_downstream_problem(message):
-    """Validate one non-cycle Architect request addressed to Red Team."""
+    """Validate one non-cycle Architect request addressed to Red Team.
+
+    Arguments:
+      message = the decoded outbound message.
+
+    Returns:
+      A printable problem — the request must be an exact discovery
+      with a real body and no NUL byte — or ``None`` when valid.
+    """
     if daemon.sol_ticket_kind(message=message) != "discovery":
         return ("public Architect control output to Sol must be an exact "
                 "discovery request")
@@ -980,7 +1195,17 @@ def _body_architect_admission(body):
 
 
 def public_architect_sol_outcome_problem(message, expected_token):
-    """Validate one exact, digest-bound public Architect-to-Sol outcome."""
+    """Validate one exact, digest-bound public Architect-to-Sol outcome.
+
+    Arguments:
+      message        = the decoded outbound message.
+      expected_token = the admission token the body's first line must
+                       carry.
+
+    Returns:
+      A printable problem, or ``None`` when the outcome is a valid
+      discovery bound to the expected admission.
+    """
     problem = daemon.public_architect_sol_downstream_problem(message=message)
     if problem is not None:
         return problem
@@ -1001,7 +1226,16 @@ def public_architect_sol_outcome_problem(message, expected_token):
 
 
 def _public_architect_no_ticket_receipt(message):
-    """Parse one explicit no-ticket result from a public Architect turn."""
+    """Parse one explicit no-ticket result from a public Architect turn.
+
+    Arguments:
+      message = the decoded receipt.
+
+    Returns:
+      ``(token, None)`` with the receipt's admission token, or
+      ``(None, problem)`` for missing or duplicated headers, a NUL
+      byte, a placeholder-only body, or an invalid token.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_RETURN_HEADER)
         + daemon.re.escape(daemon.PUBLIC_ARCHITECT_NO_TICKET_RETURN) + r"\r?\n"
@@ -1036,7 +1270,16 @@ def _public_architect_no_ticket_receipt(message):
 
 
 def public_architect_no_ticket_problem(message, expected_token):
-    """Return why a public no-ticket receipt is invalid, or ``None``."""
+    """Return why a public no-ticket receipt is invalid, or ``None``.
+
+    Arguments:
+      message        = the decoded receipt.
+      expected_token = the admission token it must carry.
+
+    Returns:
+      A printable problem, or ``None`` for a valid receipt bound to
+      the expected admission.
+    """
     returned_token, problem = daemon._public_architect_no_ticket_receipt(
         message=message)
     if problem is not None:
@@ -1047,7 +1290,16 @@ def public_architect_no_ticket_problem(message, expected_token):
 
 
 def _ticket_flow_envelope(message):
-    """Parse one Architect/Implementer exchange inside a ticket cycle."""
+    """Parse one Architect/Implementer exchange inside a ticket cycle.
+
+    Arguments:
+      message = the decoded mailbox message.
+
+    Returns:
+      ``(cycle_id, mode, body, problem)``. On success the body is the
+      text after the three flow headers; on failure the original
+      message is returned as the body with a printable problem.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_FLOW_HEADER) + r"ticket\r?\n"
         + daemon.re.escape(daemon.MAILBOX_CYCLE_HEADER)
@@ -1069,7 +1321,15 @@ def _ticket_flow_envelope(message):
 
 
 def is_implementer_checkpoint_request(body):
-    """Return whether a handoff asks the Architect for a pause decision."""
+    """Return whether a handoff asks the Architect for a pause decision.
+
+    Arguments:
+      body = the ticket-flow body.
+
+    Returns:
+      True when the first line is the timed, budget, or context
+      checkpoint heading.
+    """
     if not isinstance(body, str):
         return False
     lines = body.splitlines()
@@ -1080,19 +1340,41 @@ def is_implementer_checkpoint_request(body):
 
 
 def is_implementer_budget_checkpoint(body):
-    """Return whether a clean candidate exceeded the binding size limit."""
+    """Return whether a clean candidate exceeded the binding size limit.
+
+    Arguments:
+      body = the ticket-flow body.
+
+    Returns:
+      True when the first line is the budget-checkpoint heading.
+    """
     return (isinstance(body, str) and body.splitlines()[:1]
             == [daemon.IMPLEMENTER_BUDGET_CHECKPOINT_HEADING])
 
 
 def is_architect_budget_repair(body):
-    """Return whether the Architect replaced an over-limit plan."""
+    """Return whether the Architect replaced an over-limit plan.
+
+    Arguments:
+      body = the ticket-flow body.
+
+    Returns:
+      True when the first line is the budget-repair heading.
+    """
     return (isinstance(body, str) and body.splitlines()[:1]
             == [daemon.ARCHITECT_BUDGET_REPAIR_HEADING])
 
 
 def is_implementer_time_checkpoint(body):
-    """Return whether a timed checkpoint begins with its fixed state."""
+    """Return whether a timed checkpoint begins with its fixed state.
+
+    Arguments:
+      body = the ticket-flow body.
+
+    Returns:
+      True when the checkpoint's first nonempty field is the exact
+      minutes-reached state line the hook dictates.
+    """
     if not daemon.is_implementer_checkpoint_request(body):
         return False
     first_field = next(
@@ -1101,13 +1383,32 @@ def is_implementer_time_checkpoint(body):
 
 
 def is_implementer_context_handoff(body):
-    """Return whether the body begins with the context-handoff heading."""
+    """Return whether the body begins with the context-handoff heading.
+
+    Arguments:
+      body = the ticket-flow body.
+
+    Returns:
+      True when the first line is the context-handoff heading.
+    """
     return (isinstance(body, str)
             and body.splitlines()[:1] == [daemon.CONTEXT_HANDOFF_HEADING])
 
 
 def _context_handoff_field(lines, name):
-    """Read one exact field from a context handoff."""
+    """Read one exact field from a context handoff.
+
+    Arguments:
+      lines = the handoff's lines.
+      name  = the bold field name to read.
+
+    Returns:
+      The field's value with backtick quoting removed.
+
+    Raises:
+      daemon.TicketCycleStateError: when the field is absent, empty,
+        or repeated.
+    """
     prefix = "- **" + name + ":** "
     values = [line[len(prefix):].strip("`") for line in lines
               if line.startswith(prefix)]
@@ -1118,7 +1419,19 @@ def _context_handoff_field(lines, name):
 
 
 def parse_context_handoff(body):
-    """Read the required facts and ordered lists from one small handoff."""
+    """Read the required facts and ordered lists from one small handoff.
+
+    Arguments:
+      body = the ticket-flow body carrying the context handoff.
+
+    Returns:
+      Mapping with the exact bold fields and the ordered bullet
+      sections a replacement Implementer needs.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing heading, a bad or
+        repeated field, or an oversized record.
+    """
     if not isinstance(body, str) or len(body.encode("utf-8")) > 32 * 1024:
         raise daemon.TicketCycleStateError("CONTEXT HANDOFF is missing or too large")
     lines = body.splitlines()
@@ -1156,7 +1469,22 @@ def parse_context_handoff(body):
 
 def context_handoff_problem(message, expected_cycle=None,
                             expected_mode=None):
-    """Validate one context record against the current Implementer tree."""
+    """Validate one context record against the current Implementer tree.
+
+    The record must name its exact cycle, the cycle's base commit,
+    and the current Implementer HEAD; its uncommitted-changes section
+    must agree with the real tree; and a claimed candidate must be a
+    clean commit that moved off the base.
+
+    Arguments:
+      message        = the decoded handoff message.
+      expected_cycle = the required cycle, or ``None``.
+      expected_mode  = the required mode, or ``None``.
+
+    Returns:
+      A printable problem, or ``None`` when the record matches
+      reality.
+    """
     cycle_id, mode, body, problem = daemon._ticket_flow_envelope(message=message)
     if problem is not None:
         return problem
@@ -1190,7 +1518,16 @@ def context_handoff_problem(message, expected_cycle=None,
 
 
 def matching_new_context_handoff(cycle_id, mode, before_inodes):
-    """Find one fresh exact context record written by the Implementer."""
+    """Find one fresh exact context record written by the Implementer.
+
+    Arguments:
+      cycle_id      = the ticket cycle.
+      mode          = the ticket mode.
+      before_inodes = the pre-turn message-inode snapshot.
+
+    Returns:
+      ``(path, offending, problem)`` as in the other matchers.
+    """
     matches = []
     invalid = []
     problems = []
@@ -1225,7 +1562,20 @@ def matching_new_context_handoff(cycle_id, mode, before_inodes):
 
 
 def latest_context_handoff_path(cycle_id, mode):
-    """Return the newest valid same-cycle record for a replacement turn."""
+    """Return the newest valid same-cycle record for a replacement turn.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      mode     = the ticket mode.
+
+    Returns:
+      The newest matching record's path, or ``None`` when the cycle
+      has none.
+
+    Raises:
+      daemon.TicketCycleStateError: when the newest record no longer
+        matches the live worktree.
+    """
     matches = []
     for path in daemon.glob.glob(
             daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
@@ -1256,7 +1606,14 @@ def latest_context_handoff_path(cycle_id, mode):
 
 
 def replacement_context_notice(path):
-    """Tell a fresh Implementer where to read the prior exact record."""
+    """Tell a fresh Implementer where to read the prior exact record.
+
+    Arguments:
+      path = the saved context record's path.
+
+    Returns:
+      The notice text prepended to the replacement's dispatch.
+    """
     return (
         "REPLACEMENT IMPLEMENTER CONTEXT\n"
         "Read the exact prior Implementer record at:\n" + path + "\n"
@@ -1266,7 +1623,15 @@ def replacement_context_notice(path):
 
 
 def checkpoint_handoff_problem(message):
-    """Validate the timed or context checkpoint sent to the Architect."""
+    """Validate the timed or context checkpoint sent to the Architect.
+
+    Arguments:
+      message = the decoded checkpoint message.
+
+    Returns:
+      A printable problem, or ``None`` when the checkpoint carries
+      its required heading, fields, and sections.
+    """
     _, _, body, problem = daemon._ticket_flow_envelope(message=message)
     if problem is not None or not daemon.is_implementer_checkpoint_request(body):
         return ("the 90-minute hook or context hook fired without its "
@@ -1327,7 +1692,13 @@ def _ticket_architect_admission(message):
 def _redteam_closure_envelope(message):
     """Parse one post-commit Red Team request.
 
-    Returns ``(cycle_id, commit, body, problem)``.
+    Arguments:
+      message = the decoded Sol message.
+
+    Returns:
+      ``(cycle_id, commit, body, problem)``. A message of another
+      kind returns its remainder with no problem; a malformed closure
+      returns the remainder with a printable problem.
     """
     remainder = daemon.sol_ticket_body_after_kind(message=message)
     if daemon.sol_ticket_kind(message=message) != "closure":
@@ -1353,7 +1724,17 @@ def _redteam_closure_envelope(message):
 
 
 def _redteam_control_plane_envelope(message):
-    """Parse one mandatory pre-landing review of exact candidate C."""
+    """Parse one mandatory pre-landing review of exact candidate C.
+
+    Arguments:
+      message = the decoded Sol message.
+
+    Returns:
+      ``(cycle_id, candidate, body, problem)``. A message of another
+      kind returns its remainder with no problem; a malformed
+      control-plane review returns the remainder with a printable
+      problem.
+    """
     remainder = daemon.sol_ticket_body_after_kind(message=message)
     if daemon.sol_ticket_kind(message=message) != "control-plane":
         return None, None, remainder, None
@@ -1377,7 +1758,15 @@ def _redteam_control_plane_envelope(message):
 
 
 def _control_plane_review_receipt(message):
-    """Parse one exact pre-landing Red Team decision addressed to D0."""
+    """Parse one exact pre-landing Red Team decision addressed to D0.
+
+    Arguments:
+      message = the decoded return.
+
+    Returns:
+      ``(cycle_id, candidate, result, body, problem)``; a malformed
+      or duplicate-header return carries a printable problem.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_RETURN_HEADER)
         + r"redteam-control-plane\r?\n"
@@ -1403,18 +1792,39 @@ def _control_plane_review_receipt(message):
 
 
 def redteam_closure_problem(message):
-    """Return a closure-envelope problem, or ``None``."""
+    """Return a closure-envelope problem, or ``None``.
+
+    Arguments:
+      message = the decoded Sol closure message.
+
+    Returns:
+      The printable problem, or ``None`` for a valid envelope.
+    """
     return daemon._redteam_closure_envelope(message=message)[3]
 
 
 def redteam_closure_ticket(message):
-    """Return the one reviewed ticket-cycle identifier, when valid."""
+    """Return the one reviewed ticket-cycle identifier, when valid.
+
+    Arguments:
+      message = the decoded Sol closure message.
+
+    Returns:
+      The cycle identifier, or ``None`` for a malformed envelope.
+    """
     ticket, _, _, problem = daemon._redteam_closure_envelope(message=message)
     return ticket if problem is None else None
 
 
 def redteam_closure_commit(message):
-    """Return the one full daemon-recorded landing L, when valid."""
+    """Return the one full daemon-recorded landing L, when valid.
+
+    Arguments:
+      message = the decoded Sol closure message.
+
+    Returns:
+      The landing commit, or ``None`` for a malformed envelope.
+    """
     _, commit, _, problem = daemon._redteam_closure_envelope(message=message)
     return commit if problem is None else None
 
@@ -1452,7 +1862,16 @@ def _redteam_review_receipt(message):
 
 
 def _architect_go_request(message):
-    """Parse one decision-only GO request bound to the audited candidate."""
+    """Parse one decision-only GO request bound to the audited candidate.
+
+    Arguments:
+      message = the decoded daemon request.
+
+    Returns:
+      ``(cycle_id, candidate, mode, problem)``. The request is header
+      lines only; any free-form remainder is a problem, so a GO can
+      never smuggle extra work.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_RETURN_HEADER)
         + r"architect-go\r?\n"
@@ -1478,7 +1897,19 @@ def _architect_go_request(message):
 
 
 def architect_go_request_payload(cycle_id, candidate_commit, mode):
-    """Build the decision-only daemon request written after Architect GO."""
+    """Build the decision-only daemon request written after Architect GO.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the accepted candidate C.
+      mode             = the ticket mode.
+
+    Returns:
+      The exact header-only payload text.
+
+    Raises:
+      ValueError: for an invalid cycle, candidate, or mode.
+    """
     if not isinstance(cycle_id, str) or daemon.CYCLE_ID_RE.fullmatch(cycle_id) is None:
         raise ValueError("invalid ticket cycle: " + repr(cycle_id))
     if (not isinstance(candidate_commit, str)
@@ -1495,7 +1926,22 @@ def architect_go_request_payload(cycle_id, candidate_commit, mode):
 
 
 def backlog_close_request_payload(cycle_id, candidate_commit, mode):
-    """Ask the Architect to close the backlog and repeat its exact GO."""
+    """Ask the Architect to close the backlog and repeat its exact GO.
+
+    Arguments:
+      cycle_id         = the ticket cycle awaiting bookkeeping.
+      candidate_commit = the already-accepted candidate C.
+      mode             = the ticket mode.
+
+    Returns:
+      The recovery request text; its body says explicitly that the
+      audit is done and only backlog closing plus one fresh GO
+      remain.
+
+    Raises:
+      ValueError: for invalid identifiers, checked through the GO
+        payload builder.
+    """
     daemon.architect_go_request_payload(cycle_id, candidate_commit, mode)
     return (
         daemon.MAILBOX_FLOW_HEADER + "ticket\n"
@@ -1510,7 +1956,15 @@ def backlog_close_request_payload(cycle_id, candidate_commit, mode):
 
 
 def _architect_notes_go_request(message):
-    """Parse one body-free permanent-note commit request bound to B and P."""
+    """Parse one body-free permanent-note commit request bound to B and P.
+
+    Arguments:
+      message = the decoded daemon request.
+
+    Returns:
+      ``(base_commit, notes_commit, problem)``; B and P must differ
+      and no body may follow the headers.
+    """
     match = daemon.re.fullmatch(
         daemon.re.escape(daemon.MAILBOX_RETURN_HEADER) + r"architect-notes-go\r?\n"
         + daemon.re.escape(daemon.MAILBOX_BASE_HEADER) + r"([0-9a-f]{40})\r?\n"
@@ -1529,7 +1983,18 @@ def _architect_notes_go_request(message):
 
 
 def architect_notes_go_request_payload(base_commit, notes_commit):
-    """Build the exact parent-daemon request for one permanent-note commit."""
+    """Build the exact parent-daemon request for one permanent-note commit.
+
+    Arguments:
+      base_commit  = B, the main baseline.
+      notes_commit = P, the note-only commit to land.
+
+    Returns:
+      The exact header-only payload text.
+
+    Raises:
+      ValueError: for invalid or equal commits.
+    """
     if (not isinstance(base_commit, str)
             or daemon.FULL_COMMIT_RE.fullmatch(base_commit) is None
             or not isinstance(notes_commit, str)
@@ -1543,7 +2008,16 @@ def architect_notes_go_request_payload(base_commit, notes_commit):
 
 
 def _architect_notes_admin_envelope(message):
-    """Return the plain-language body of one dedicated note-update turn."""
+    """Return the plain-language body of one dedicated note-update turn.
+
+    Arguments:
+      message = the decoded admin request.
+
+    Returns:
+      ``(body, problem)``: the update summary after the admin header,
+      or a printable problem for a wrong header, empty body, or
+      duplicate header line.
+    """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_ADMIN_HEADER)
         + r"permanent-notes\r?\n\r?\n", message)
@@ -1559,7 +2033,18 @@ def _architect_notes_admin_envelope(message):
 
 
 def architect_notes_admin_payload(text):
-    """Build the exact Architect self-route for a durable note update."""
+    """Build the exact Architect self-route for a durable note update.
+
+    Arguments:
+      text = the plain-language update summary.
+
+    Returns:
+      The newline-terminated admin payload.
+
+    Raises:
+      ValueError: for an empty summary or one that repeats the admin
+        header.
+    """
     if not isinstance(text, str) or not text.strip():
         raise ValueError("permanent-notes admin summary must be nonempty")
     if daemon.re.search(
@@ -1572,13 +2057,32 @@ def architect_notes_admin_payload(text):
 
 
 def is_architect_notes_admin_message(message):
-    """Return whether ``message`` is one valid dedicated note-update turn."""
+    """Return whether ``message`` is one valid dedicated note-update turn.
+
+    Arguments:
+      message = the decoded message.
+
+    Returns:
+      True for a well-formed permanent-notes admin request.
+    """
     _body, problem = daemon._architect_notes_admin_envelope(message=message)
     return problem is None
 
 
 def architect_notes_admin_journal_path(request_name, relay_dir=None):
-    """Return the durable post-child journal for one exact admin request."""
+    """Return the durable post-child journal for one exact admin request.
+
+    Arguments:
+      request_name = the admin request's mailbox filename.
+      relay_dir    = the relay folder, or ``None`` for the default.
+
+    Returns:
+      The JSON journal path.
+
+    Raises:
+      daemon.TicketCycleStateError: for a name that is not a pending
+        message.
+    """
     if daemon.PENDING_MESSAGE_RE.fullmatch(request_name) is None:
         raise daemon.TicketCycleStateError("invalid admin request journal name")
     directory = daemon.RELAY_DIR if relay_dir is None else relay_dir
@@ -1590,7 +2094,22 @@ def write_architect_notes_admin_journal(request_name, request_message,
                                         base_commit, phase,
                                         notes_commit=None,
                                         receipt_sha256=None):
-    """Atomically bind one admin request to its validated recovery phase."""
+    """Atomically bind one admin request to its validated recovery phase.
+
+    Arguments:
+      request_name    = the admin request's mailbox filename.
+      request_message = its exact bytes, bound by digest.
+      base_commit     = B, the main baseline the turn started from.
+      phase           = ``"started"``, ``"validated-noop"``, or
+                        ``"validated-commit"``.
+      notes_commit    = P, required in the validated-commit phase.
+      receipt_sha256  = the GO receipt's digest, required in the
+                        validated-commit phase.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid phase, authority,
+        or commit binding.
+    """
     if phase not in {"started", "validated-noop", "validated-commit"}:
         raise daemon.TicketCycleStateError("invalid note-admin journal phase")
     if (daemon.FULL_COMMIT_RE.fullmatch(str(base_commit)) is None
@@ -1644,7 +2163,22 @@ def write_architect_notes_admin_journal(request_name, request_message,
 
 def read_architect_notes_admin_journal(request_name, request_message,
                                        relay_dir=None):
-    """Read one exact journal and rebind it to the inflight request bytes."""
+    """Read one exact journal and rebind it to the inflight request bytes.
+
+    Arguments:
+      request_name    = the admin request's mailbox filename.
+      request_message = the inflight request bytes the journal must
+                        still bind by digest.
+      relay_dir       = the relay folder, or ``None`` for the
+                        default.
+
+    Returns:
+      The journal mapping, or ``None`` when no journal exists.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed journal or one
+        bound to different request bytes.
+    """
     path = daemon.architect_notes_admin_journal_path(
         request_name=request_name, relay_dir=relay_dir)
     try:
@@ -1689,7 +2223,12 @@ def read_architect_notes_admin_journal(request_name, request_message,
 
 
 def remove_architect_notes_admin_journal(request_name):
-    """Remove only the journal for a successfully archived admin request."""
+    """Remove only the journal for a successfully archived admin request.
+
+    Arguments:
+      request_name = the admin request's mailbox filename; a missing
+                     journal is not an error.
+    """
     path = daemon.architect_notes_admin_journal_path(request_name=request_name)
     try:
         daemon.os.remove(path)
@@ -1699,7 +2238,19 @@ def remove_architect_notes_admin_journal(request_name):
 
 
 def _architect_notes_admin_request_path(request_name):
-    """Find the one durable admin request bound to a recovery journal."""
+    """Find the one durable admin request bound to a recovery journal.
+
+    Arguments:
+      request_name = the admin request's mailbox filename.
+
+    Returns:
+      The single path holding the request across the root, inflight,
+      failed, and done states.
+
+    Raises:
+      daemon.TicketCycleStateError: when zero or several states hold
+        the name, which would make recovery ambiguous.
+    """
     matches = []
     for directory in (daemon.MAILBOX, daemon.os.path.join(daemon.MAILBOX, "inflight"),
                       daemon.os.path.join(daemon.MAILBOX, "failed"), daemon.DONE):
@@ -1715,7 +2266,21 @@ def _architect_notes_admin_request_path(request_name):
 
 def _validated_commit_admin_journals(base_commit, notes_commit,
                                      receipt_sha256):
-    """Return exact validated-commit journals bound to one B/P receipt."""
+    """Return exact validated-commit journals bound to one B/P receipt.
+
+    Arguments:
+      base_commit    = B the journal must record.
+      notes_commit   = P the journal must record.
+      receipt_sha256 = the GO receipt digest it must record.
+
+    Returns:
+      List of ``(request_name, request_path, journal_path)`` for
+      every matching validated-commit journal.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed journal name, an
+        ambiguous saved request, or an unreadable request.
+    """
     prefix = ".pending-notes-admin-"
     suffix = ".json"
     matches = []
@@ -1752,7 +2317,20 @@ def _validated_commit_admin_journals(base_commit, notes_commit,
 
 def retire_validated_commit_admin_journal(base_commit, notes_commit,
                                           receipt_sha256):
-    """Remove one journal only after its exact P receipt is consumed."""
+    """Remove one journal only after its exact P receipt is consumed.
+
+    Arguments:
+      base_commit    = B the journal must record.
+      notes_commit   = P the journal must record.
+      receipt_sha256 = the consumed GO receipt's digest.
+
+    Returns:
+      True when one journal was retired; False when none matched.
+
+    Raises:
+      daemon.TicketCycleStateError: for several matching journals or
+        a request not yet archived in done.
+    """
     matches = daemon._validated_commit_admin_journals(
         base_commit=base_commit, notes_commit=notes_commit,
         receipt_sha256=receipt_sha256)
