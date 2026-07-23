@@ -1182,8 +1182,12 @@ only for leaves written in this form.  All scalar leaves stay fixed and
 ordinary non-search drivers use the default.
 
 The objective function returns the declared validation statistic from one
-complete trial.  Trial status is part of the result: a failed trial carries
-failure status without a finite score or completion record.
+complete trial.  The statistic is read from the trial's published selection
+record — the goal-threshold fraction of exactly the model the run restored,
+with the record's median stashed for the tie-break report — so the score is
+correct even when no trained epoch improved on the incoming weights.  Trial
+status is part of the result: a failed trial carries failure status without
+a finite score or completion record.
 
 \paragraph{Safe use of a parallel study.}
 The parent process can report the best historical trial without proving that a
@@ -3236,18 +3240,26 @@ $\psi'_p(0)=1$ for the mathematical function at every allowed exponent.
 Changing $p$ reshapes the tail while preserving the analytic
 local first-order behavior at zero.
 
-That analytic statement and the derivative produced by the current PyTorch
-expression differ at the single point $x=0$.  The implementation
-multiplies by \code{torch.sign(x)} and evaluates \code{abs(x)}.  PyTorch uses
-zero subgradients for these primitives at exactly zero, so autograd currently
-reports a zero derivative there.  Forward values still satisfy
-$\psi_1(x)=x$, but a zero-initialized correction can encounter the backward
-exception before any feature moves away from zero.  A forward-curve plot cannot
-show this autograd behavior.  Before using a power activation in a
-zero-initialized correction head, evaluate the derivative of the executed
-tensor expression at zero and require a finite nonzero result.  The current
-expression fails that check, so this activation should be kept out of that
-specific head configuration.
+A naive tensor expression for this transform would not reproduce that
+statement.  Writing it as \code{sign(x)} times a function of \code{abs(x)}
+looks equivalent, but PyTorch assigns zero subgradients to \code{sign} and
+\code{abs} at exactly zero, so automatic differentiation of that form
+reports a zero derivative at precisely the input a zero-initialized
+correction head produces everywhere.  Forward values cannot reveal the
+defect, because $\psi_1(x)=x$ holds either way; only the derivative of the
+executed expression can.  The implementation therefore factors the
+transform as $x$ times an even magnitude ratio,
+$\left[(1+|x|)^p-1\right]/(p\,|x|)$: the direct quotient away from the
+origin, and its quadratic Taylor series below $|x|=10^{-3}$, whose
+truncation error at the boundary is smaller than \code{float32}
+resolution.  Each \code{torch.where} branch receives a safe substituted
+input, so no unselected position can poison a gradient with NaN.
+Automatic differentiation of this form returns exactly one at the origin
+for every allowed exponent, so a zero-initialized correction head receives
+its first learning signal.  When adding any new activation intended for
+that head position, evaluate the derivative of the executed tensor
+expression at zero and require a finite nonzero result before accepting
+it.
 
 The exponent is trained through a bounded parameter.  The stored
 parameter \(\rho\) is mapped through a sigmoid:
@@ -3699,13 +3711,18 @@ exempt from weight decay.  Module role supplies ownership more reliably than ten
 activation parameter is still a curve-control value and a custom weight
 owner may not match a generic rank heuristic.
 
-\paragraph{Safe use of the current optimizer factory.}
-On CUDA, the optimizer factory overwrites an explicit \code{fused: false} with
-\code{fused=True} and forwards that keyword without checking the selected
-class's constructor.  It can also construct an optimizer whose \code{step()}
-requires a closure, while the training loop always calls \code{step()} with no
-argument.  Use the shipped AdamW configuration and leave its fused setting to
-the current device policy.  A different optimizer class needs a separate
+\paragraph{Protocol refusals in the optimizer and scheduler factories.}
+On CUDA, the factory selects the fused kernel implementation only when the
+chosen class's constructor accepts a \code{fused} argument; a specification
+that explicitly sets \code{fused} for a class without that argument is
+refused, naming the class and the repair.  LBFGS is refused at
+construction, because its \code{step()} requires a loss closure while the
+training loop always calls \code{step()} with no argument.  The scheduler
+factory refuses the per-batch schedulers \code{OneCycleLR} and
+\code{CyclicLR}, because the loop advances its scheduler once per epoch and
+a per-batch schedule stepped at that cadence would be silently stretched.
+Each refusal names the observed choice and a working alternative.  A novel
+optimizer class outside the shipped configurations still deserves a
 one-step protocol check before staging a full data set.
 
 \subsection{Plateau scheduling and rewind}
@@ -4184,12 +4201,15 @@ after the anchor.  Runs without an anchor avoid this order dependence.  For an
 anchored run, compare the live, anchored and EMA predictions before accepting
 the saved state.
 
-The Apple MPS branch selects float16 autocast without a gradient scaler.  Small
-early gradients from zero-start correction heads and soft gates can underflow
-to exact zero while the loss remains finite.  Disable automatic mixed
-precision for MPS training until the executed path supplies a scaler or an
-explicit refusal.  CUDA bfloat16 behavior does not establish the safety of the
-MPS float16 branch.
+On Apple MPS, autocast means float16 and no gradient-scaling policy exists,
+so small early gradients from zero-start correction heads and soft gates
+could underflow to exact zero while the loss stayed finite.  The
+mixed-precision policy resolver therefore refuses \code{use\_amp} on an MPS
+device before any staging or training work starts, naming the device, the
+missing scaler and the corrective action.  CUDA bfloat16 remains available
+unscaled, because its wider exponent range does not need the float16
+scaler; that safety argument is specific to bfloat16 and never transfers to
+the refused MPS float16 branch.
 
 \subsection{Epoch metrics and model selection}
 
@@ -4203,6 +4223,28 @@ as the tie-breaker.  The saved best record must contain the exact weights that
 produced the recorded metrics.  If an exponential moving average is used,
 evaluation, selection, restoration and persistence must all refer to that
 same averaged state.
+
+The threshold vector is validated once, before any model or loader work: it
+must be a nonempty flat sequence of finite nonnegative numbers in strictly
+increasing order.  Strict increase rules out duplicates and makes index
+zero the tightest cutoff, the selection goal.  Every later consumer of the
+vector trusts this single check.
+
+The training loop returns its decision as an explicit selection record
+beside the history lists.  The record names the restored candidate — the
+incoming weights, or a trained epoch — together with the raw-or-averaged
+weight identity and that candidate's own fractions, median and mean.  This
+matters because the incoming weights are a real winner: their seeding
+evaluation guarantees a pass never ends worse than it started, yet that
+evaluation never enters the per-epoch history lists.  A consumer that
+re-derived the winner by scanning histories would therefore name a trained
+epoch, and attach that epoch's statistics, even when the model on disk
+holds the untouched incoming weights.  The run-level record adds the pass
+identity, the position of the winning epoch in the concatenated histories
+(zero when the final pass's incoming weights won), and the threshold vector
+with its selection index, and it persists inside the artifact's resolved
+configuration.  Drivers, tuning objectives and the saved run attributes all
+read this record; none re-derives a winner from the histories.
 
 \section{Two-phase trunk and correction-head training}
 \label{sec:two-phase}
@@ -4292,12 +4334,15 @@ must therefore be finite and must remain nonzero after conversion to the
 model's 32-bit format.  Both \code{gate\_init: 0} and a number such as
 \code{1e-50}, which rounds to zero in that format, are refused.
 
-The currently accepted head activations are \code{H}, \code{multigate} and
-\code{tanh}.  \code{relu}, \code{power} and \code{gated\_power} are refused
-at this zero-initialized head position because their implemented derivative
-at zero does not satisfy the required check.  ReLU is still valid in the MLP
-trunk.  A frozen two-phase run may use a ReLU trunk and explicitly pin the
-head to one of the accepted families.
+The accepted head activations are \code{H}, \code{multigate}, \code{tanh},
+\code{power} and \code{gated\_power}: each transmits a nonzero derivative
+at exactly zero input, the power families through the origin-exact
+factored transform behind Eq.~\eqref{eq:poweractivation}.
+\code{relu} is refused at this zero-initialized head position because its
+derivative at zero is zero, which would leave the head frozen at its
+identity start.  ReLU is still valid in the MLP trunk.  A frozen two-phase
+run may use a ReLU trunk and explicitly pin the head to one of the
+accepted families.
 
 \subsection{Frozen parameters remain present}
 
@@ -5203,7 +5248,16 @@ adds the \(H_0\) dependency needed for the radius conversion; a saved emulator
 or a Syren formula may independently use \(H_0\) as one of its own inputs.
 
 The request boundary validates the full \(k\) and \(z\) sequences.  It requires
-a complete requested grid and rejects unsupported holes.  Every calculate
+a complete requested grid and rejects unsupported holes.  \code{must\_provide}
+checks every grid and interpolator requirement while setup can still stop:
+only the total-matter density pair is accepted; the nonlinear choice must
+be a boolean; requested redshifts must lie inside the stored grid, because
+redshift is never extrapolated; and a requested maximum wavenumber must be
+servable — inside the stored grid for the raw grid product, beyond it for
+the interpolator only when the power-law extrapolation tails are enabled.
+Each refusal names the observed request, the stored bound and the
+corrective action, so an unservable likelihood fails during component
+assembly instead of inside a running chain.  Every calculate
 call checks the external provider verdict
 before reading payload getters, so a rejected point cannot inherit a previous
 surface.
@@ -5812,8 +5866,10 @@ $i$.  It carries cosmology $\btheta_i$ and target $\bd_i$.
   \item Backward differentiation computes parameter gradients.  The finite
         checks, optional clipping, optimizer, anchor and moving average act in
         their defined order.
-  \item Validation scores every held-out row and selects a best epoch whose
-        weights and metrics refer to the same state.
+  \item Validation scores every held-out row and selects the best candidate
+        — a trained epoch or the incoming weights — whose weights and
+        metrics refer to the same state, published as a selection record in
+        the resolved recipe.
   \item Saving writes model tensors plus the resolved recipe and geometries.
   \item Rebuilding reconstructs the eager model, loads weights strictly and
         restores physical metadata from the artifact.
