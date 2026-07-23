@@ -1,23 +1,40 @@
-"""Run-output I/O: learning-curve tables and trained-emulator files.
+"""Save a finished training run to disk, and rebuild it later from disk alone.
 
-save_learning_curves writes a whitespace-delimited table (row per N_train,
-column per curve, "#"-comment header carrying the config) that np.loadtxt
-reads back, the format the sweep and bake-off drivers save, so several
-runs can be overlaid later. save_emulator saves a trained run as two
-files: <root>.emul, the model weights (a torch state_dict, cpu tensors,
-stored beside one fresh random pair token that the .h5 also carries, so
-the two files can prove they were saved together),
-and <root>.h5, everything inference or a paper trail needs (both
-whitening geometries, the training histories, the full config, and the
-scientific record the dataset was born under, copied unchanged from the
-generator's sidecar).
+A trained emulator outlives the process that trained it: a likelihood
+run, a plotting script, or a warm-started retraining may reopen it
+months later, on a different machine, after the code's defaults have
+drifted. This module owns that round trip. The saved form is called an
+artifact: a pair of files under one name holding everything needed to
+rebuild the trained model exactly, so nothing about the run has to be
+remembered, re-derived, or guessed.
 
-read_artifact_schema is the one reader of a saved file's schema version and
-of that record. Every path that opens a saved emulator goes through it: the
+save_emulator writes the pair. <root>.emul holds the model weights (a
+torch state_dict of cpu tensors) beside one fresh random pair token;
+<root>.h5 holds everything else -- both whitening geometries, the
+training histories, the full config, and the scientific record the
+dataset was born under, copied unchanged from the generator's sidecar
+-- and carries the same token, so the two files can prove they were
+saved together. The .h5 is an HDF5 file: HDF5 is a portable binary
+container that stores named arrays ("datasets") inside nested folders
+("groups"), with small named values ("attributes") attached to either;
+h5py is its Python interface. rebuild_emulator reads the pair back into
+a ready model, under one rule: every fact comes from the file, and a
+missing fact is a loud error, never a fallback to a code default.
+
+save_learning_curves and save_sweep_table write the small text tables
+the sweep and bake-off drivers save (one row per point, "#"-comment
+header carrying the config), in a form np.loadtxt reads back, so
+several runs can be overlaid on one figure later.
+
+read_artifact_schema is the one reader of a saved file's schema version
+-- the integer stamped in the file that names its exact layout, which
+groups and keys exist and what they mean -- and of the scientific
+record. Every path that opens a saved emulator goes through it: the
 rebuild path here, and the warm-start loader that fine-tunes one
-(emulator/warmstart.py). One reader is the whole point. Two readers of one
-schema is how a file gets refused on one path and quietly accepted on the
-other, and the accepted copy is the one that answers a likelihood.
+(emulator/warmstart.py). One reader is the whole point. Two readers of
+one schema is how a file gets refused on one path and quietly accepted
+on the other, and the accepted copy is the one that answers a
+likelihood.
 
 PS: ``state_dict`` is PyTorch's name-to-tensor mapping for every registered
 parameter, including frozen parameters, and every persistent registered
@@ -26,7 +43,9 @@ the center, rotation, and scaling transform applied by the geometries. The
 scientific record is the pair of blocks defined in emulator/fixed_facts.py:
 the cosmology held fixed while the dataset was generated, and the parameter
 region it was sampled over. A sidecar is a small companion file written next
-to a data file and sharing its name stem.
+to a data file and sharing its name stem. Values called provenance are a
+paper trail: stored so a person can reconstruct how a run was made, never
+read back by the code.
 """
 
 import contextlib
@@ -267,7 +286,17 @@ def _validate_saved_recipe_geometry_widths(
       + " has no inert width contract")
 
   def dataset_shape(name):
-    """Read one output-geometry dataset's shape (see saved_shape)."""
+    """Read one output-geometry dataset's shape as plain ints.
+
+    A closure over saved_shape with the group and label fixed, so the
+    output-side checks below stay one short line each.
+
+    Arguments:
+      name = the dataset name inside the output-geometry group.
+
+    Returns:
+      the dataset's shape tuple.
+    """
     return saved_shape(output_group, name, "output geometry")
 
   def require_vector(name, width):
@@ -537,6 +566,12 @@ def save_learning_curves(path, sizes, curves, meta=None):
   """
   Write learning curve(s) as a whitespace-delimited text table.
 
+  A learning curve is the validation score as a function of the
+  training-set size N_train: it shows whether more data would still
+  help. The score is f(delta-chi2 > threshold), the fraction of
+  validation points whose emulated data vector misses the exact one
+  by more than the chi2 threshold -- smaller is better.
+
   A single config writes a one-entry `curves`; a bake-off writes all its
   curves to one file. Header lines are "#" comments np.loadtxt skips.
   Layout:
@@ -584,11 +619,13 @@ def save_sweep_table(path, param, values, fracs, meta=None):
   """
   Write a one-hyperparameter sweep as a whitespace-delimited table.
 
-  The generic twin of save_learning_curves for an arbitrary swept
-  knob. Numeric values become the first data column; categorical
-  values (strings, or booleans, a film on/off sweep) become an
-  integer index column with the label map on a "# values:" comment
-  line, so the body stays np.loadtxt-loadable either way. Layouts:
+  The generic twin of save_learning_curves for a hyperparameter
+  sweep: the same emulator trained once per candidate value of one
+  training setting, every run scored the same way. Numeric values
+  become the first data column; categorical values (strings, or a
+  True/False switch) become an integer index column with the label
+  map on a "# values:" comment line, so the body stays
+  np.loadtxt-loadable either way. Layouts:
 
       # sweep: f(delta-chi2 > threshold) vs lr.lr_base
       # model=rescnn  threshold=0.2  n_train=250000
@@ -643,8 +680,10 @@ def save_sweep_table(path, param, values, fracs, meta=None):
 def executed_composition(pce, transfer_base):
   """Derive the composition declaration from what one run actually built.
 
-  A saved emulator is one of three compositions: "plain" (the network
-  alone), "npce" (a frozen polynomial-chaos base plus a refiner network),
+  The composition names how the served prediction is assembled from
+  parts. A saved emulator is one of three compositions: "plain" (the
+  network alone), "npce" (a frozen polynomial-chaos base plus a refiner
+  network; NPCE = Neural PCE, see emulator/designs/pce.py),
   or "transfer" (a frozen source emulator plus a correction network,
   "refined" when a drifted copy of the base weights rides along). The
   writer declares the mode from the LIVE objects the trainer is about to
@@ -1115,6 +1154,12 @@ def save_emulator(path_root,
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
+  One finished run becomes one artifact under one name: the weights
+  travel in the torch-native .emul, every other fact travels in the
+  open HDF5 .h5, and the pair can then be reopened months later, on
+  another machine, after code defaults have drifted -- from the files
+  alone. Everything below serves that one goal.
+
   The .emul holds only the model weights. Before ``torch.save``,
   ``save_emulator`` detaches every state_dict tensor and moves it to
   the CPU. Loading therefore does not require the accelerator used
@@ -1130,12 +1175,14 @@ def save_emulator(path_root,
                      sqrt_ev; a factored run nests pg_keep + amp_idx),
                      plus a "cls" attr = the geometry's class, so
                      rebuild dispatches to the right from_state with
-                     no covmat reread.
+                     no covariance-matrix (covmat) reread.
     dv_geometry/     the output-geometry state, keys exactly
                      DataVectorGeometry.state() (total_size,
                      dest_idx, evecs, sqrt_ev, Cinv, center, dtype),
                      plus a "cls" attr, so from_state rebuilds the
-                     exact geometry class with no cosmolike. A Grid2D state
+                     exact geometry class with no cosmolike run
+                     (cosmolike is the C likelihood code that computed
+                     the training data). A Grid2D state
                      carries its low-k constant mask inside the geometry
                      state itself (const_mask).
     pce/             (NPCE runs only) the frozen PCEEmulator base's
@@ -1294,8 +1341,10 @@ def save_emulator(path_root,
                      writer-owned composition declarations.
     pce            = fitted PCEEmulator base for an NPCE run, else None.
     pce_form       = NPCE recombination form, required with pce, else None.
-    resolved_train = materialized training recipe consumed by the run.
-    resolved_model = materialized model-construction recipe.
+    resolved_train = the training settings the run actually consumed,
+                     with every default filled in (materialized).
+    resolved_model = the model-construction settings, defaults filled
+                     in the same way.
     transfer_base  = embedded transfer payload mapping, else None.
     facts_yaml     = the required producer sidecar's text, the generator's own
                      <paramsf>.facts.yaml, carried here verbatim by the
@@ -2200,20 +2249,23 @@ def read_artifact_schema(f, where):
 def rebuild_emulator(path_root, device, compile_model=True):
   """
   Reconstruct a saved emulator from <path_root>.h5 + .emul, using only the
-  file. The in-package inference entry point and the proof of the
-  reconstruction guarantee: every knob comes from the resolved recipe in the
-  h5, so a run rebuilds bit-exactly even if code defaults later drift. A
-  missing recipe key is a loud error, never a fallback to a code default.
+  file.
+
+  This is the in-package inference entry point, and it is written as
+  the working proof of the save's central promise: a run rebuilds
+  bit-exactly even if code defaults later drift, because every setting
+  comes from the resolved recipe in the h5. A missing recipe key is a
+  loud error, never a fallback to a code default.
   read_artifact_schema (above) reads the file's schema version and its
   scientific record before anything else is read; a file saved under a version
   this code does not know is refused there, because it cannot say which
   cosmology it was trained under or which parameter region it may be asked
   about.
 
-  For the full write-to-read crosswalk (every value save_emulator writes
-  paired with the line here that reads it, and the entries written only as
-  provenance that this function does not consume), see the "Reversible map"
-  table in save_emulator's docstring.
+  For the full write-to-read pairing (every value save_emulator writes
+  beside the place here that reads it, and the entries written only as
+  provenance -- a paper trail this function does not consume), see the
+  "Reversible map" table in save_emulator's docstring.
 
   Arguments:
     path_root     = the output path without extension (as passed to
@@ -2225,11 +2277,11 @@ def rebuild_emulator(path_root, device, compile_model=True):
                     rarely pays off).
 
   Returns:
-    (model, param_geometry, geometry, info): the inference-ready quad; the
-    model in eval() with the best-epoch weights loaded (strict). info is a
-    plain dict of the physics-branch metadata the predictor needs to build
-    the decoder, read straight from the file so nothing is re-declared
-    downstream:
+    (model, param_geometry, geometry, info): the four objects inference
+    needs; the model in eval() with the best-epoch weights loaded
+    (strict). info is a plain dict of the per-family facts the predictor
+    needs to build the decoder, read straight from the file so nothing
+    is re-declared downstream:
       "fixed_facts"  = the cosmology the run was trained under, exactly as the
                        generator published it: what was held fixed and at what
                        value, the neutrino convention, the dark-energy law;
