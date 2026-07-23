@@ -1747,9 +1747,27 @@ A later user spot check caught undefined jargon surviving in the
 completed emulator arm: `family_drivers.py` used "sweep",
 "N-train sweep", and "sweep point" without defining them, and its
 docstrings now define that vocabulary in plain words (one commit,
-same stripped-AST and full-suite proofs).
+same stripped-AST and full-suite proofs). The user then judged
+`results.py` "quite dry" and ordered a pass over every emulator
+file; the strict census found 50 more weak docstrings across nine
+files (undocumented `__init__` / `forward` methods of the design
+classes, factory and walker closures), all fixed, and a
+whole-package re-read removed the remaining review-history
+narration ("unit N" ticket citations, "byte-identical to before",
+removed-variant pointers at git history) and defined the surviving
+terms of art in place (artifact, HDF5, schema, provenance,
+composition, materialize, the finite contract, the norm/act call
+shapes). Two refusal strings that told the user about an "inert
+width contract" / "the contract the dataset was generated under"
+were reworded in two string-only commits; the "finite contract"
+and "chi2 domain contract" error texts are asserted verbatim by
+tests and the finite-contract gate and keep their names, now
+defined in prose where they are raised. The emulator package is
+census-zero over all forty files, every commit stripped-AST-proven
+(or diff-limited to the named strings) with the 813-test suite
+green.
 Remaining under this ticket: `ai/tests/` and the repository-wide
-chronology rewrite. The
+chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
 Python mechanic or term of art, with Arguments, Returns, and Raises
 blocks in the aligned name = description form.
