@@ -1765,7 +1765,14 @@ tests and the finite-contract gate and keep their names, now
 defined in prose where they are raised. The emulator package is
 census-zero over all forty files, every commit stripped-AST-proven
 (or diff-limited to the named strings) with the 813-test suite
-green.
+green. A further user reading of `training.py` flagged three more
+undefined terms of art -- the Anchor class ("decoupled L2-SP
+anchor"), the phase-boundary "fingerprint"/"digest"/"witness"
+family, and a "sqrt-rule batch anchor" phrase colliding with the
+weight-anchor sense -- all now defined in place (the anchor as a
+spring toward the starting weights, L2-SP expanded, the SHA-256
+digest and witness line explained, the bs_base refusal reworded in
+a proven single-string change).
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
