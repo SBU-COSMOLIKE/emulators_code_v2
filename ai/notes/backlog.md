@@ -1695,9 +1695,16 @@ such as a scientific release or citation, and record why it must remain.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** Deferred until every ticket that was already Open when this request
-was admitted is Closed. The writing contracts are being corrected first; no
-repository-wide prose scan or rewrite has begun.
+**OPEN.** The `ai/tools/` function-docstring portion is underway at the
+user's explicit order, one file per commit, with each commit proving the
+change is docstring-only by comparing the two versions' abstract syntax
+trees with docstrings stripped and by a full green test-suite run. Completed
+so far: `role_contract.py`, `backlog_guard.py`, and
+`permanent_note_guard.py`. The remaining `ai/tools/` files, `ai/tests/`, and
+the repository-wide chronology rewrite stay open under this ticket. The
+required depth follows the recorded reader standard: no unstated Python
+mechanic, with Arguments, Returns, and Raises blocks in the aligned
+name = description form.
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
