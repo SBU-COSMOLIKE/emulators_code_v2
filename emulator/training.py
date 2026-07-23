@@ -100,7 +100,12 @@ def make_logger(quiet=False):
           prints unless quiet.
   """
   def log(*args, **kwargs):
-    """Forward to print unless the maker was built quiet."""
+    """Forward to print unless the maker was built quiet.
+
+    Arguments:
+      *args    = positional values forwarded to print unchanged.
+      **kwargs = keyword options forwarded to print unchanged.
+    """
     if not quiet:
       print(*args, **kwargs)
   return log
@@ -517,8 +522,18 @@ class TransferComposite(nn.Module):
     self.base        = base
 
   def forward(self, x):
-    # the wrapper trains the correction; the base is consulted by the
-    # live loss object, not by this forward.
+    """Evaluate the correction network alone.
+
+    The base submodule is consulted by the live loss object
+    (TransferChi2), never by this forward; holding it here only gives
+    the optimizer and gradient clip one module to walk.
+
+    Arguments:
+      x = the whitened parameter batch.
+
+    Returns:
+      the correction network's output for x.
+    """
     return self.correction(x)
 
 
@@ -1197,7 +1212,15 @@ def default_train_args(train_args):
     the same mapping with every range collapsed to its default.
   """
   def leaf(path, v):
-    """Collapse a range leaf to its default; pass a fixed leaf through."""
+    """Collapse a range leaf to its default; pass a fixed leaf through.
+
+    Arguments:
+      path = the leaf's dotted path (unused here; the walker's shape).
+      v    = the leaf value, a range list or a plain scalar.
+
+    Returns:
+      the range's default when v is a range, else v unchanged.
+    """
     rng = _as_search_range(v)
     return _range_default(rng) if rng else v
   return _walk_train_args(train_args, "", leaf)
@@ -1221,7 +1244,15 @@ def suggest_train_args(trial, train_args):
     train_args with every range replaced by this trial's sample.
   """
   def leaf(path, v):
-    """Replace a range leaf with this trial's suggestion."""
+    """Replace a range leaf with this trial's suggestion.
+
+    Arguments:
+      path = the leaf's dotted path, the name Optuna registers.
+      v    = the leaf value, a range list or a plain scalar.
+
+    Returns:
+      the trial's sampled value when v is a range, else v unchanged.
+    """
     rng = _as_search_range(v)
     return _suggest_range(trial, path, rng) if rng else v
   return _walk_train_args(train_args, "", leaf)
@@ -1244,7 +1275,15 @@ def search_defaults(train_args):
   out = {}
 
   def leaf(path, v):
-    """Record a range leaf's default under its dotted path."""
+    """Record a range leaf's default under its dotted path.
+
+    Arguments:
+      path = the leaf's dotted path, the out-dict key.
+      v    = the leaf value, a range list or a plain scalar.
+
+    Returns:
+      v unchanged: the walk is read-only, only out grows.
+    """
     rng = _as_search_range(v)
     if rng:
       out[path] = _range_default(rng)
@@ -1282,7 +1321,15 @@ def audit_devices(model, lossfn, device):
     a list of "owner: actual_device" strings; empty when clean.
   """
   def mismatch(t):
-    """Is this tensor on a different device (type or pinned index)?"""
+    """Report whether one tensor sits on the wrong device.
+
+    Arguments:
+      t = the tensor to check against the target device.
+
+    Returns:
+      True on a different device type (cpu vs cuda), or a different
+      index when both sides pin one; False when the tensor is fine.
+    """
     if t.device.type != device.type:
       return True
     if device.index is not None and t.device.index is not None:
@@ -1965,6 +2012,8 @@ def validate_thresholds(thresholds):
 
 
 # --- the finite training/evaluation contract ---
+# (a "contract" here is one rule every scoring site must obey, stated
+# once and enforced with one shared error shape)
 # A NaN or Inf score must NEVER rank, select, or report as a valid
 # result. A non-finite per-sample chi2 compares False to every threshold,
 # so it counts as BELOW threshold — a diverged model would report a
@@ -1996,15 +2045,18 @@ def _report_nonfinite(side, quantity, n_bad, n_total, positions):
 
 
 def _global_grad_norm(params):
-  """The L2 norm of all parameter gradients, READ-ONLY (None grads
-  skipped, the frozen trunk in a head phase).
+  """Compute the L2 norm of all parameter gradients, READ-ONLY.
 
-  The finite contract's gradient check when clipping is off: clip is 0
-  so clip_grad_norm_ is not called, but the step must still be refused on
-  a NaN/Inf gradient. This computes the same global norm clip_grad_norm_
-  would, WITHOUT scaling the gradients, so a clipping-off run stays
-  byte-identical to the pre-contract path (only the finite check is
-  added).
+  Parameters without a gradient are skipped (the frozen trunk in a
+  head phase carries none).
+
+  This is the finite contract's gradient check for a run with clipping
+  off: clip is 0 so clip_grad_norm_ is not called, but the step must
+  still be refused on a NaN/Inf gradient. The same global norm
+  clip_grad_norm_ would form is computed WITHOUT scaling the gradients,
+  so the check reads the weights' fate but never alters it -- a
+  clipping-off run takes byte-identical steps with or without the
+  check.
 
   Arguments:
     params = the model parameters (an iterator; each may carry .grad).
@@ -2022,17 +2074,17 @@ def _global_grad_norm(params):
 
 
 def ordinary_median(values):
-  """The ordinary 50th-percentile median (unit 60).
+  """Compute the ordinary 50th-percentile median.
 
   The center value for odd N, the arithmetic MEAN of the two center values
   for even N. It is the standard estimator every prose, plot, history, and gate
   surface already names "median". torch.median returns the LOWER of the two
-  central ordered values for even N (a lower-median), which biases the
+  central ordered values for even N (a lower-median), which would bias the
   plateau-scheduler feed, the equal-fraction best-epoch tie-break, and the
   persisted / plotted history low; torch.quantile(., 0.5) is the ordinary
   median on both parities and is byte-identical to torch.median for odd N.
-  Computed in float64 so an extreme-scale even-N midpoint cannot overflow
-  (the reduction unit 14(f) hardens); the values already live on the CPU.
+  Computed in float64 so an extreme-scale even-N midpoint cannot overflow;
+  the values already live on the CPU.
 
   This is the ONE shared median reduction: eval_val, the scheduler feed, the
   tie-break, the saved histories, and the five gate reference sites all use
@@ -2054,16 +2106,17 @@ def ordinary_median(values):
 
 
 def _validate_published_reductions(mean, median, frac):
-  """Refuse a non-finite PUBLISHED reduction (unit 14(f),, clause 4).
+  """Refuse a non-finite PUBLISHED reduction.
 
   eval_val's row guard validates the per-sample chi2, but the reductions it
   publishes (the mean, the median, the threshold fractions) are appended to
   histories, plotted, persisted, and stepped into the plateau scheduler. A
   reduction that is non-finite (a mean that overflowed, a NaN that slipped in)
   must be a REFUSED evaluation, not a sentinel or a big number that silently
-  ranks or reschedules. The mean is the vulnerable reduction (float32 overflow
-  before the float64 fix); the median (order statistic) and the fractions
-  (bounded by 1) cannot overflow, but the one-line check covers all three.
+  ranks or reschedules. The mean is the vulnerable reduction (a float32 sum
+  of extreme rows can overflow where float64 cannot); the median (an order
+  statistic) and the fractions (bounded by 1) cannot overflow, but the
+  one-line check covers all three.
 
   Arguments:
     mean   = the published mean (a Python float).
@@ -2228,14 +2281,14 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   # (no .double() before this), so the band matches the accumulated roundoff.
   c = screen_chi2(c, loss=lossfn, label="validation",
                   positions=np.concatenate(order_rows))
-  # published reductions in float64 (unit 14(f)): a float32 mean of
-  # rows near the float32 max overflows to Inf AFTER the row guard passed
-  # (the sum exceeds float32 range in any order), so the mean is formed in
-  # float64. The median is the ordinary 50th-percentile estimator (unit 60,
-  #). torch.median's lower-middle sample for even n_val biased the
-  # plateau-scheduler feed, the equal-fraction tie-break, and the persisted
-  # history; ordinary_median (float64, torch.quantile 0.5) fixes all four at
-  # once because they all consume this returned median.
+  # published reductions in float64: a float32 mean of rows near the
+  # float32 max overflows to Inf AFTER the row guard passed (the sum
+  # exceeds float32 range in any order), so the mean is formed in
+  # float64. The median is the ordinary 50th-percentile estimator:
+  # torch.median's lower-middle sample for even n_val would bias the
+  # plateau-scheduler feed, the equal-fraction tie-break, and the
+  # persisted history, so all four consume ordinary_median (float64,
+  # torch.quantile 0.5) instead.
   mean   = c.to(torch.float64).mean().item()
   median = ordinary_median(c)
 
@@ -2244,9 +2297,9 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   # chi2 above threshold j?". mean(0) over samples -> the fraction
   # past each threshold. ([:, None] is the numpy/torch unsqueeze.)
   frac = (c[:, None] > thresholds[None, :]).float().mean(0)
-  # clause 4 (unit 14(f)): every PUBLISHED reduction must be finite before it
-  # is returned, appended to histories, plotted, and stepped into the
-  # scheduler. An infinite mean is a REFUSED evaluation, never a sentinel.
+  # every PUBLISHED reduction must be finite before it is returned,
+  # appended to histories, plotted, and stepped into the scheduler. An
+  # infinite mean is a REFUSED evaluation, never a sentinel.
   _validate_published_reductions(mean=mean, median=median, frac=frac)
   return median, mean, frac
 
