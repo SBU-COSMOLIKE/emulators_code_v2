@@ -1,21 +1,32 @@
-"""Shared sweep-block helpers for the hyperparameter-sweep drivers.
+"""Shared helpers for the sweep drivers, which compare training settings.
 
-A hyperparameter is a training choice fixed before learning starts —
-the learning rate, the batch size, the number of epochs — as opposed
-to the weights training itself adjusts.  A hyperparameter sweep trains
-one model per candidate value of ONE such choice at a fixed number of
-training rows, holding everything else constant, so the values can be
-compared on one score.
+A sweep is a controlled comparison.  The same emulator is trained
+several times, once per candidate value of a single setting, with
+everything else held fixed, and every training is scored the same way,
+so comparing the scores shows which value of that setting works best —
+the way a lab sweeps a dial through a range of positions and records
+the reading at each stop.  One training at one candidate value is
+called a sweep point.  Two kinds of sweep share these helpers:
 
-The choice is named in the YAML ``sweep:`` block by a dotted path into
-the ``train_args`` mapping plus a list of values to try; in a dotted
-path such as ``lr.lr_base``, each dot descends one nesting level, and
-the final key is called the leaf.  That block is parsed and applied
-through exactly one definition, in this module, used by
-cosmic_shear_sweep_hyperparam_emulator.py and, through it, by every
-per-family wrapper.  The per-family drivers themselves are thin
-wrappers over the cosmic-shear drivers' main(prog, family) surface —
-the same code path, so the multi-GPU worker pool, --gpu-pack, and the
+- A hyperparameter sweep varies a training choice that is fixed before
+  learning starts — the learning rate, the batch size, the number of
+  epochs — at a fixed number of training rows.  Such pre-fixed choices
+  are the hyperparameters; the weights training itself adjusts are
+  not.
+- An N-train sweep varies the number of training rows itself, at one
+  fixed configuration, so the scores trace how accuracy improves as
+  the training set grows.
+
+For a hyperparameter sweep, the varied choice is named in the YAML
+``sweep:`` block by a dotted path into the ``train_args`` mapping plus
+a list of values to try; in a dotted path such as ``lr.lr_base``, each
+dot descends one nesting level, and the final key is called the leaf.
+That block is parsed and applied through exactly one definition, in
+this module.  Both sweep kinds run from the cosmic-shear drivers
+(cosmic_shear_sweep_hyperparam_emulator.py and
+cosmic_shear_sweep_ntrain_emulator.py); the per-family drivers are
+thin wrappers over those drivers' main(prog, family) surface — the
+same code path, so the multi-GPU worker pool, --gpu-pack, and the
 Optuna journal study (Optuna is the hyperparameter-search library the
 tune drivers use; its journal file lets several processes share one
 search) carry over to every family (see any <family>_<verb>_emulator.py
@@ -57,16 +68,19 @@ def resolved_sweep_record(exp,
                           pool=None,
                           n_train=None,
                           activation_values=None):
-  """Build the immutable resolved identity shared by one sweep run.
+  """Record the settings every training of one sweep holds fixed.
 
-  The record answers "which exact configuration did this sweep run?"
-  for every saved table and figure.  It is built AFTER the experiment
-  has applied its command-line-over-YAML precedence, so the values here
-  are the ones that will actually execute, not the ones any one file
-  requested.  The record is a tuple of (key, value) pairs rather than a
-  dict: a tuple cannot be edited after creation, and it survives
-  pickling — pickle is Python's object serializer, and worker processes
-  receive their arguments through it — without any dict-ordering doubt.
+  A sweep trains the same emulator once per candidate value of a
+  single setting (see the module docstring).  This record collects the
+  facts that stay constant across all of those trainings, so every
+  saved table and figure can answer "which exact configuration did
+  this sweep run?".  It is built AFTER the experiment has applied its
+  command-line-over-YAML precedence, so the values here are the ones
+  that will actually execute, not the ones any one file requested.
+  The record is a tuple of (key, value) pairs rather than a dict: a
+  tuple cannot be edited after creation, and it survives pickling —
+  pickle is Python's object serializer, and worker processes receive
+  their arguments through it — without any dict-ordering doubt.
 
   Two of the recorded facts deserve definition.  The activation is the
   nonlinear function between network layers, and n_gates counts the
@@ -77,19 +91,24 @@ def resolved_sweep_record(exp,
   no separate pin exists.
 
   Arguments:
-    exp               = the resolved EmulatorExperiment.
+    exp               = the EmulatorExperiment, with every default and
+                        command-line override already applied.
     family            = the output-family identity.
     threshold         = the delta-chi2 cutoff the sweep scores against
                         (chi2 is the covariance-weighted squared
                         difference between the emulated and the exact
                         data vector).
     n_gpus            = the resolved number of worker GPUs.
-    pool              = the available training-pool size for an N-train
-                        sweep, or None for an ordinary sweep.
-    n_train           = the fixed training-row count for an ordinary sweep,
-                        or None for an N-train sweep.
-    activation_values = the ordered activation-family values when that is
-                        the swept axis, or None for a fixed activation.
+    pool              = for an N-train sweep — the kind that varies the
+                        number of training rows — the total row count
+                        those training sets are drawn from; None for a
+                        hyperparameter sweep.
+    n_train           = for a hyperparameter sweep, the training-row
+                        count every sweep point shares; None for an
+                        N-train sweep.
+    activation_values = the ordered activation-family values when the
+                        activation itself is the swept setting, or None
+                        for a fixed activation.
 
   Returns:
     a tuple of (key, value) pairs. ``dict(record)`` is ready for table I/O.
@@ -136,12 +155,13 @@ def resolved_sweep_record(exp,
 
 
 def sweep_record_value(record, key):
-  """Read one named value from an immutable sweep record.
+  """Look up one named field in a record resolved_sweep_record built.
 
   The record is a tuple of (key, value) pairs, not a dict, so this
-  helper does the lookup by walking the pairs; a missing field is an
-  error rather than a silent None, because every field a consumer asks
-  for is part of the record's contract.
+  helper does the lookup by walking the pairs.  A missing field is an
+  error rather than a silent None: the record carries a known, fixed
+  set of fields, so asking for anything else is a programming mistake
+  worth stopping on.
 
   Arguments:
     record = tuple returned by resolved_sweep_record.
@@ -162,11 +182,11 @@ def sweep_record_value(record, key):
 def sweep_design_label(record):
   """Format the resolved model and activation facts for a figure legend.
 
-  The label states the facts a reader needs to reproduce the plotted
-  sweep: the model class, the analytic-R rescaling mode, the activation
-  and its gate count, the swept value list when the activation itself
-  is the swept axis, and the head's separately pinned activation when
-  one exists.
+  The label states the facts every training of the plotted sweep
+  shared: the model class, the analytic-R rescaling mode, the
+  activation and its gate count, the swept value list when the
+  activation itself is the swept setting, and the head's separately
+  pinned activation when one exists.
 
   Arguments:
     record = tuple returned by resolved_sweep_record.
@@ -199,15 +219,16 @@ def sweep_design_label(record):
 
 
 def set_by_path(train_args, path, value):
-  """A deep copy of train_args with one dotted-path leaf replaced.
+  """Build a deep copy of train_args with one dotted-path leaf replaced.
 
   ``copy.deepcopy`` duplicates the whole nested mapping, new inner
   dicts included, so editing the copy can never change the original —
-  each sweep point trains from its own configuration and the shared
-  baseline stays pristine.  The walk then splits the dotted path
-  ("lr.lr_base" -> ["lr", "lr_base"]), descends one mapping per
-  segment, creating intermediate mappings that do not exist yet (so
-  ``head.lr.lr_base`` sweeps even when the YAML has no head: block; a
+  each sweep point (one candidate value's training) runs from its own
+  configuration and the shared baseline stays pristine.  The walk then
+  splits the dotted path ("lr.lr_base" -> ["lr", "lr_base"]), descends
+  one mapping per segment, creating intermediate mappings that do not
+  exist yet (so ``head.lr.lr_base`` sweeps even when the YAML has no
+  head: block; a
   head. / trunk_epochs / trunk. sweep on a single-phase model is
   rejected up front by validate_sweep_paths, since resolve_phase_args
   would demote it away), and sets the final key.
@@ -236,7 +257,9 @@ def set_by_path(train_args, path, value):
 def read_sweep_block(cfg):
   """Validate and unpack the YAML `sweep` block.
 
-  Three refusals guard the sweep before any training starts.  A
+  The block names the one setting a hyperparameter sweep varies and
+  the list of values to try (the module docstring defines the sweep
+  itself).  Three refusals guard the sweep before any training starts.  A
   missing block is refused with a paste-ready example.  The two keys
   that select the model class (model.name, model.ia) are refused
   because changing the class mid-sweep would compare architectures,
