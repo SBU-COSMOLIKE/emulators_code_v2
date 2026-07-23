@@ -98,7 +98,12 @@ class CharacterCount:
 
     @property
     def total(self):
-        """Return additions plus deletions."""
+        """Combine both directions into the charged size.
+
+        Returns:
+          The added plus deleted character counts — the single number
+          compared against a ticket's limit.
+        """
         return self.added + self.deleted
 
 
