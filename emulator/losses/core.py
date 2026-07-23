@@ -224,13 +224,14 @@ def _safe_sqrt(c):
   and the chain rule 0 * infinity is NaN. One identity-start head, one
   pinned grid2d column, or one zero correction deliberately produces c == 0,
   and that single NaN gradient then poisons the whole batch's step. The
-  finite contract's guards DETECT that NaN; this stops the objective from
-  PRODUCING it.
+  finite contract's guards -- training's rule that no NaN/Inf may ever
+  rank, select, or report -- DETECT that NaN; this stops the objective
+  from PRODUCING it.
 
   Forward is bit-identical to torch.sqrt(c) for every c >= 0 (including
   sqrt(0) = 0), so the loss VALUE is unchanged and the C1 knot matching of
   the berhu family is preserved. Unlike sqrt(c + eps), which shifts the
-  value everywhere and is NOT contract-equivalent. Only the GRADIENT
+  value everywhere and is not an acceptable substitute. Only the GRADIENT
   changes: 0 at c == 0 instead of NaN. c is already validated
   non-negative-or-NaN by _chi2_domain (the top of _reduce), so a NaN
   propagates (c - c is NaN) and torch.sqrt never sees a negative input. No
@@ -530,7 +531,7 @@ class CosmolikeChi2:
     Returns:
       a scalar loss tensor.
     """
-    # producer contract: reject a corrupted (materially
+    # producer rule: reject a corrupted (materially
     # negative or non-finite) chi2 BEFORE the transform, folding it to NaN so
     # the finite contract's per-step guard refuses the run; a within-band
     # roundoff negative is normalized to an exact-fit 0. The SAME predicate
