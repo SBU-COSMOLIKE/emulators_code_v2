@@ -1704,19 +1704,22 @@ docstrings stripped and by a full green test-suite run. Completed so far in
 emulator package, where docstrings carried the required structure but
 assumed domain and Python knowledge (a sidecar, the bool-int subclass
 trap, struct round trips, Simpson's rule, sigmoid, broadcasting) without
-defining it; completed so far in `emulator/`: `parameter_table.py`,
-`validation.py`, `cocoa.py`, `background.py`, `family_drivers.py`,
-`analytics.py`, `syren_base.py`, `scheduling.py`, `model_recipe.py`,
-`activations.py`, `batching.py`, `diagnostics.py`, and
-`data_staging.py`. Two files were audited and found already at the
-required depth with nothing to change: `inference.py` and
-`warmstart.py`. Remaining in `emulator/`: `fixed_facts.py`,
-`plotting.py`, `results.py`, `training.py`, `experiment.py`, and the
-designs/geometries/losses subpackages; then the remaining `ai/tools/`
-files, `ai/tests/`, and the repository-wide chronology rewrite. The
-required depth follows the recorded reader standard: no unstated Python
-mechanic or term of art, with Arguments, Returns, and Raises blocks in
-the aligned name = description form.
+defining it. The emulator-package arm is COMPLETE: fourteen files were
+rewritten (`parameter_table.py`, `validation.py`, `cocoa.py`,
+`background.py`, `family_drivers.py`, `analytics.py`, `syren_base.py`,
+`scheduling.py`, `model_recipe.py`, `activations.py`, `batching.py`,
+`diagnostics.py`, `data_staging.py`, `plotting.py`), and the remainder
+was audited function by function and found already at the required
+depth with nothing to change (`inference.py`, `warmstart.py`,
+`fixed_facts.py`, `results.py`, `training.py`, `experiment.py`, and
+the designs/geometries/losses subpackages, whose nn.Module classes
+teach through class docstrings with forward-Arguments blocks).
+Remaining under this ticket: the remaining `ai/tools/` files,
+`ai/tests/`, `compute_data_vectors/`, `cobaya_theory/`, and the
+repository-wide chronology rewrite. The required depth follows the
+recorded reader standard: no unstated Python mechanic or term of art,
+with Arguments, Returns, and Raises blocks in the aligned
+name = description form.
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
