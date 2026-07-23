@@ -281,7 +281,7 @@ class CmbDiagonalGeometry:
     subclass correct.
 
     This is the artifact READ boundary, so it enforces the amplitude-law
-    contract: a persisted retired law is refused with its retrain
+    rules: a persisted retired law is refused with its retrain
     instruction, and an "as_exp2tau_ref" artifact missing either persisted
     reference is refused (the never-trust-defaults proof — the loss reads
     the reference with no code fallback, so a file lacking it must not
