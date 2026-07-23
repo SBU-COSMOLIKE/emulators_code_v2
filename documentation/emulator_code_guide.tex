@@ -4195,11 +4195,9 @@ frozen geometry statistics remain data outside the trainable
 \paragraph{Limits of the current update chain.}
 The loop checks the scalar loss and gradient norm.  A complete live proof of
 post-optimizer parameter and moment finiteness is still owed on the
-workstation.  The anchor path also updates EMA before it applies the decoupled
-anchor, so the averaged state can differ from the state served immediately
-after the anchor.  Runs without an anchor avoid this order dependence.  For an
-anchored run, compare the live, anchored and EMA predictions before accepting
-the saved state.
+workstation.  The anchor is applied before the EMA update, exactly as the
+listing above shows, so the averaged state tracks the same anchored weights
+the live model serves.
 
 On Apple MPS, autocast means float16 and no gradient-scaling policy exists,
 so small early gradients from zero-start correction heads and soft gates
@@ -4420,10 +4418,12 @@ $w_j^{\rm opt}=2.3$, $\eta=0.01$, $\lambda=4$ and $m_j=1$, then
 \end{equation*}
 With $m_j=0$, the anchor leaves the optimizer result at 2.3.  Adam's first-
 and second-moment buffers retain the optimizer step's own values because the
-anchor follows AdamW.  The current loop updates EMA before applying the anchor,
-so the averaged state does not include that same step's pull toward the source.
-The mask is created by canonical parameter names.  Reporting distinguishes
-matched, masked, frozen and unexpected keys.
+anchor follows AdamW.  The literature calls this penalty L2-SP: an L2
+(squared-distance) pull toward the Starting Point, where ordinary weight
+decay is the same pull toward zero.  The loop applies the anchor before the
+EMA update, so the averaged state includes the same step's pull toward the
+source.  The mask is created by canonical parameter names.  Reporting
+distinguishes matched, masked, frozen and unexpected keys.
 
 \paragraph{Fine-tune anchor availability.}
 The public validator refuses \code{finetune.anchor} before training begins.
@@ -4487,10 +4487,8 @@ source artifact for every refinement point.  A forward-versus-reverse order
 comparison is independent only when both directions rebuild that source before
 each point.
 
-The current update order is optimizer, EMA, then base anchor.  The averaged
-state can therefore include a pre-anchor value that is never served as the
-live post-step base.  Compare the live anchored prediction with the EMA
-prediction before accepting an anchored refinement artifact.  The artifact
+The update order is optimizer, base anchor, then EMA, so the averaged state
+tracks the same anchored base the live model serves.  The artifact
 records original base tensors and refined tensors.  Treat its reported drift
 as provisional unless it was computed over the named trainable parameter set,
 without buffers or padding indices.
@@ -5387,11 +5385,12 @@ names mapped to CPU tensors.  \\
 configuration, histories, physical metadata and optional NPCE/transfer base.  \\
 \bottomrule
 \end{tabular}
-\caption{The two files that currently form one saved emulator.  The
+\caption{The two files that form one saved emulator.  The
 \code{.emul} file owns learned PyTorch tensors.  The HDF5 \code{.h5} file owns
 the constructor recipe and scientific coordinate facts needed to interpret
-them.  They are written sequentially and are not yet digest-bound as one
-transaction.}
+them.  Both are first written under temporary names and renamed into place
+only when complete, and both carry one shared random pair token, so a pair
+mixed from two different saves is refused when reopened.}
 \label{tab:artifact-files}
 \end{table*}
 
@@ -5412,14 +5411,20 @@ HDF5 group, which is a directory-like container.  A leaf such as
 file itself.
 \begin{verbatim}
 root.emul
-  tensor_name -> CPU tensor
+  pair_token -> shared random string
+  state_dict
+    tensor_name -> CPU tensor
 root.h5
   @schema_version
+  @pair_token
+  @composition_mode
+  @transfer_refined
+  @rescale
   @git_commit
   model_recipe
     YAML constructor description
-  config_resolved_yaml
-    values consumed by the run
+  config_yaml, config_resolved_yaml
+    requested and consumed values
   param_geometry/
     @cls
     names, center, evecs, sqrt_ev
@@ -5427,6 +5432,13 @@ root.h5
     @cls
     center, coordinates
     covariance factors
+  fixed_facts/, input_domain/
+    the scientific record: the
+    cosmology held fixed and the
+    sampled parameter intervals
+  facts_sidecar_yaml
+    the generator's own record
+    text, stored verbatim
   history/
     train_losses, val_medians
     val_means, val_fracs
@@ -5435,6 +5447,12 @@ Here, \code{tensor\_name} stands for each registered parameter or buffer name,
 and \code{@cls} names the Python class whose \code{from\_state} constructor
 interprets that group.  The slash syntax above is explanatory.  HDF5 stores
 these names as groups and datasets inside one file.
+The \code{fixed\_facts/} and \code{input\_domain/} groups are the artifact's
+memory of the science it was born under: the cosmology held fixed while the
+dataset was generated, and the interval each sampled parameter was drawn
+from.  The generator's own record text is stored verbatim beside them, and
+the reader checks the parsed groups against that text in both directions, so
+an edited block or a swapped text is refused rather than believed.
 The recursive writer walks a nested Python dictionary.  A nested dictionary
 becomes a group, a numerical array becomes a dataset and selected scalar
 facts become attributes.  The recursive reader performs the inverse walk and
@@ -5466,15 +5484,18 @@ does not infer an optional component from shape.  Its named group and required
 facts must be present.}
 \end{table*}
 
-\paragraph{Safe handling of the current two-file artifact.}
-The two files are written independently.  The HDF5 record carries no digest of
-the weight file and publication has no two-file transaction.  Replacing one
-file, mixing roots or interrupting an overwrite can create a pair that exists
-but was never published together.  Keep both members under one immutable root,
-copy or move them as a pair and never overwrite one member of a trusted pair.
-After transport, rebuild the artifact and compare a known prediction with its
-source.  Strict tensor loading checks names and shapes but cannot prove pair
-identity.
+\paragraph{Safe handling of the two-file artifact.}
+Saving writes both members under temporary names and renames them into place
+only when both are complete, so an ordinary failure mid-save leaves no
+partial file under the public names, and a save refuses any root whose
+\code{.emul} or \code{.h5} already exists.  Every save also draws one fresh
+random pair token and stores it in both members; reopening compares the two
+copies, so a \code{.emul} placed beside another run's \code{.h5} is refused
+instead of pairing weights with the wrong scientific record.  Still keep both
+members under one root and copy or move them as a pair.  After transport,
+rebuild the artifact and compare a known prediction with its source: the pair
+token proves the files were saved together, not that the bytes survived the
+copy.
 
 \subsection{Moving tensors into storage}
 
@@ -5568,6 +5589,15 @@ Evaluation mode disables training-only behavior.  \code{torch.no\_grad()}
 avoids constructing a backward graph and reduces memory and latency.  The
 artifact's parameter names, axes, units and laws determine the result.  The
 caller does not redeclare them.
+
+Between step 1 and step 2, every prediction call checks the named point
+against the sampled intervals stored in the artifact's \code{input\_domain}
+group, before any tensor is built or the model runs.  A point outside any
+interval is refused, and the refusal names the parameter, its trained
+interval and the requested value.  The refusal exists because a network does
+not fail outside its training region; it extrapolates and returns a
+confident number that is wrong.  The same stored record feeds the pairing
+and fixed-value checks a chain runs at startup.
 
 \paragraph{Safe handling of returned arrays.}
 For a CPU background prediction, the returned NumPy \code{z} array can share
