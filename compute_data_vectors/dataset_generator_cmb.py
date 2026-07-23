@@ -163,7 +163,23 @@ class dataset(GeneratorCore):
     return files
 
   def _dv_load_chk(self):
-    """Load all four per-spectrum stores (RAM-aware, one shared policy)."""
+    """Load all four per-spectrum stores (RAM-aware, one shared policy).
+
+    This family holds one 2-D store per spectrum (tt / te / ee / pp)
+    instead of the core's single array. The multipole axis sidecar is
+    compared against the YAML's lrange before anything loads, so a
+    checkpoint written for one multipole range is never continued on
+    another. The load-whole-or-memmap decision is then made ONCE over
+    the combined bytes and applied to every store, because mixing a
+    loaded store with a memmapped one would make row writes differ in
+    speed and durability mid-run. The memmap modes and the fit rule
+    are the core's (see GeneratorCore._dv_load_chk, which explains
+    both).
+
+    Raises:
+      ValueError when the axis disagrees with the YAML, a store is not
+      2-D, or a store's rows or columns disagree with the checkpoint.
+    """
     # a checkpoint written for one lrange must never be continued on
     # another: the columns would silently mean different multipoles.
     self._load_axis_checkpoint(path=f"{self.dvsf}_ell.npy",
@@ -207,7 +223,14 @@ class dataset(GeneratorCore):
           f"a {expected_width}-multipole range; the chk and the YAML disagree")
 
   def _dv_save(self):
-    """Flush all four stores to disk (tmp file + atomic replace each)."""
+    """Flush all four stores to disk (tmp file + atomic replace each).
+
+    Per store, the same two save paths as the core (see
+    GeneratorCore._dv_save): a memmapped store checkpoints in place
+    with flush(), and an in-RAM store writes a temporary sibling and
+    swaps it in with os.replace, which the operating system performs
+    atomically, so a crash mid-save leaves the previous complete file.
+    """
     for spec in SPECTRA:
       if self.dvs_is_memmap == True:
         self.datavectors[spec].flush()  # checkpoint dv in-place
