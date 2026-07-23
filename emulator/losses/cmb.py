@@ -371,7 +371,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   needs_params = True
   # stash so the inherited loss reduction (which calls self.chi2 without
   # params) is reused unchanged; the plain chi2 ignores it, but the field
-  # keeps the RescaledChi2 shape and documents the contract.
+  # keeps this loss and RescaledChi2 exposing the same attributes.
   _params = None
 
   def configure_law(self, param_geometry, as_name, tau_name, as_ref, tau_ref):
