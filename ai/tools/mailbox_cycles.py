@@ -78,7 +78,14 @@ PART_EXPORTS = (
 
 
 def fsync_directory(directory):
-    """Make a completed same-directory namespace transition durable."""
+    """Make a completed same-directory namespace transition durable.
+
+    Renaming or linking a file updates its directory entry; syncing
+    the directory itself is what makes that entry survive a crash.
+
+    Arguments:
+      directory = the directory whose entries were changed.
+    """
     flags = daemon.os.O_RDONLY
     if hasattr(daemon.os, "O_DIRECTORY"):
         flags |= daemon.os.O_DIRECTORY
@@ -132,14 +139,42 @@ def acquire_mailbox_sequence_lock():
 
 
 def release_mailbox_sequence_lock(lock_file):
-    """Release a landing-debt sequence lock."""
+    """Release a landing-debt sequence lock.
+
+    Arguments:
+      lock_file = the open locked file from the acquire call.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
 
 def stable_regular_bytes(path, maximum_bytes, label, missing_ok=False,
                          complete=True):
-    """Read one bounded, nonblocking, unchanged file or leading prefix."""
+    """Read one bounded, nonblocking, unchanged file or leading prefix.
+
+    The file's identity, size, and modification time are compared
+    before, during, and after the read, so a swapped or edited file
+    raises instead of returning mixed bytes. With ``complete`` the
+    whole file must fit the bound; without it, only the leading
+    prefix up to the bound is read.
+
+    Arguments:
+      path          = the file to read.
+      maximum_bytes = the size bound.
+      label         = name used in error messages.
+      missing_ok    = return ``None`` for a missing file instead of
+                      raising.
+      complete      = True to require the whole file within the
+                      bound.
+
+    Returns:
+      The file bytes (or leading prefix), or ``None`` when the file
+      is missing and ``missing_ok`` is set.
+
+    Raises:
+      ValueError: for a non-regular, oversized, or mid-read-changed
+        file.
+    """
     try:
         before = daemon.os.lstat(path)
     except FileNotFoundError:
@@ -198,7 +233,18 @@ def stable_regular_bytes(path, maximum_bytes, label, missing_ok=False,
 
 
 def unique_json_object(pairs):
-    """Build one JSON object while refusing every duplicate key."""
+    """Build one JSON object while refusing every duplicate key.
+
+    Arguments:
+      pairs = decoded key-value pairs in document order.
+
+    Returns:
+      The mapping.
+
+    Raises:
+      ValueError: for a duplicate key, which ordinary JSON parsing
+        would silently collapse.
+    """
     result = {}
     for key, value in pairs:
         if key in result:
@@ -266,7 +312,27 @@ def empty_control_plane_state():
 
 def validate_control_plane_relationships(
         control, phase=None, completed_candidate=None):
-    """Refuse protected state whose decisions and evidence disagree."""
+    """Refuse protected state whose decisions and evidence disagree.
+
+    The invariants, in order: the Red Team candidate and decision
+    appear together and accept the same C the Architect approved;
+    shadow, integration, and health results each appear only with
+    their evidence and only after exact-C acceptance; a stale
+    integration carries no later evidence; and a completed history
+    must show accepted C, PASSED shadow, HEALTHY health, and no
+    remaining stale integration.
+
+    Arguments:
+      control             = the two-key control-plane mapping.
+      phase               = the cycle phase to cross-check, or
+                            ``None``.
+      completed_candidate = the completed candidate C to require, or
+                            ``None``.
+
+    Raises:
+      daemon.TicketCycleStateError: naming the first violated
+        invariant.
+    """
     architect = control["architect_candidate"]
     redteam = control["redteam_candidate"]
     result = control["redteam_result"]
@@ -350,7 +416,16 @@ def validate_control_plane_relationships(
 
 
 def control_plane_health_failure(state=None):
-    """Return the first durable failed promotion, if one exists."""
+    """Return the first durable failed promotion, if one exists.
+
+    Arguments:
+      state = a ticket-cycle state mapping, or ``None`` to read the
+              durable one.
+
+    Returns:
+      ``(cycle_id, evidence)`` for the first protected cycle whose
+      health check failed, or ``None`` when none did.
+    """
     current = daemon.read_ticket_cycle_state() if state is None else state
     for cycle_id in sorted(current["active"]):
         record = current["active"][cycle_id]
@@ -364,7 +439,18 @@ def control_plane_health_failure(state=None):
 
 
 def validate_ticket_cycle_state(payload):
-    """Return current ticket-cycle state; refuse every retired schema."""
+    """Return current ticket-cycle state; refuse every retired schema.
+
+    Arguments:
+      payload = the decoded state mapping.
+
+    Returns:
+      The normalized state.
+
+    Raises:
+      daemon.TicketCycleStateError: for a wrong schema or any field
+        that fails validation.
+    """
     schema = payload.get("schema") if isinstance(payload, dict) else None
     if schema != daemon.TICKET_CYCLE_STATE_SCHEMA:
         raise daemon.TicketCycleStateError(
@@ -690,7 +776,20 @@ def read_ticket_cycle_state():
 
 def active_implementer_runtime_problem(
         *, provider, model, compaction_limit, context_limit=None):
-    """Refuse a restart that would silently change an active ticket."""
+    """Refuse a restart that would silently change an active ticket.
+
+    Arguments:
+      provider         = the restarting Implementer provider.
+      model            = its model.
+      compaction_limit = its compaction threshold in tokens.
+      context_limit    = its verified context, or ``None`` to skip
+                        that comparison.
+
+    Returns:
+      A printable refusal naming the bound runtime of the first
+      disagreeing active ticket, or ``None`` when the restart
+      matches.
+    """
     for cycle_id, record in daemon.read_ticket_cycle_state()["active"].items():
         saved = record.get("implementer_runtime")
         if record["phase"] != "implementation" or saved is None:
@@ -710,7 +809,20 @@ def active_implementer_runtime_problem(
 
 
 def write_ticket_cycle_state(state):
-    """Publish strict cycle state with an atomic replacement and fsync."""
+    """Publish strict cycle state with an atomic replacement and fsync.
+
+    The state is validated first, encoded canonically, bounded,
+    written to a temporary file, synced, renamed over the real path,
+    and the directory synced — so a crash leaves either the old
+    complete state or the new one.
+
+    Arguments:
+      state = the state mapping to publish.
+
+    Raises:
+      daemon.TicketCycleStateError: for invalid state or an encoding
+        over the size limit.
+    """
     normalized = daemon.validate_ticket_cycle_state(payload=state)
     daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)
     payload = (daemon.json.dumps(normalized, sort_keys=True, separators=(",", ":"))
@@ -746,7 +858,11 @@ def acquire_ticket_cycle_lock():
 
 
 def release_ticket_cycle_lock(lock_file):
-    """Release one ticket-cycle state lock."""
+    """Release one ticket-cycle state lock.
+
+    Arguments:
+      lock_file = the open locked file from the acquire call.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
@@ -779,7 +895,23 @@ def record_pending_ticket_cycle_return(state):
 
 
 def prepare_finite_watch_progress(limit, topology):
-    """Start or resume the durable progress record for ``--cycle N``."""
+    """Start or resume the durable progress record for ``--cycle N``.
+
+    A fresh or completed record starts at zero; an interrupted one is
+    resumed only when it belongs to the same topology and its
+    completed count plus pending returns still fits the new limit.
+
+    Arguments:
+      limit    = the positive ``--cycle`` budget.
+      topology = the commit topology bound to this finite watch.
+
+    Returns:
+      The completed-cycle count to restore into the controller.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid limit or topology,
+        a foreign interrupted record, or progress past the limit.
+    """
     if (isinstance(limit, bool) or not isinstance(limit, int)
             or limit <= 0 or limit > daemon.MAX_CYCLE_COUNT):
         raise daemon.TicketCycleStateError("finite watch limit is invalid")
@@ -810,7 +942,17 @@ def prepare_finite_watch_progress(limit, topology):
 
 
 def clear_finite_watch_progress(topology):
-    """Abandon an interrupted finite limit when this run is not finite."""
+    """Abandon an interrupted finite limit when this run is not finite.
+
+    Arguments:
+      topology = this run's commit topology; an active interrupted
+                 record from a different topology is refused rather
+                 than silently discarded.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid topology or a
+        foreign active record.
+    """
     if topology not in daemon.ARCHITECT_COMMIT_MODES:
         raise daemon.TicketCycleStateError("watch topology is invalid")
     if not daemon.os.path.exists(daemon.ticket_cycle_state_path()):
@@ -832,7 +974,21 @@ def clear_finite_watch_progress(topology):
 
 
 def finish_finite_watch_progress(limit, completed, topology):
-    """Mark a proved finite run complete before its success is reported."""
+    """Mark a proved finite run complete before its success is reported.
+
+    Every fact must line up: the active record's limit, count, and
+    topology, a completed count equal to the limit, no pending
+    returns, and no admission still charged for this topology.
+
+    Arguments:
+      limit     = the finite budget that was reached.
+      completed = the completed-cycle count, which must equal it.
+      topology  = this run's commit topology.
+
+    Raises:
+      daemon.TicketCycleStateError: when the durable progress does
+        not prove a clean exit.
+    """
     if topology not in daemon.ARCHITECT_COMMIT_MODES:
         raise daemon.TicketCycleStateError("finite watch topology is invalid")
     lock_file = daemon.acquire_ticket_cycle_lock()
@@ -909,17 +1065,43 @@ def deliver_pending_ticket_cycle_returns():
 
 
 def cycle_ticket_anchor(cycle_id):
-    """Return the backlog anchor carried by one validated cycle id."""
+    """Return the backlog anchor carried by one validated cycle id.
+
+    A cycle identifier is ``anchor@commit``: the ticket's backlog
+    anchor joined to its full starting commit.
+
+    Arguments:
+      cycle_id = the validated cycle identifier.
+
+    Returns:
+      The anchor before the ``@``.
+    """
     return cycle_id.split("@", 1)[0]
 
 
 def cycle_starting_commit(cycle_id):
-    """Return the full starting commit carried by one validated cycle id."""
+    """Return the full starting commit carried by one validated cycle id.
+
+    Arguments:
+      cycle_id = the validated ``anchor@commit`` identifier.
+
+    Returns:
+      The full commit after the ``@``.
+    """
     return cycle_id.split("@", 1)[1]
 
 
 def require_open_backlog_ticket(ticket_anchor):
-    """Prove one cycle begins from exactly one indexed Open ticket."""
+    """Prove one cycle begins from exactly one indexed Open ticket.
+
+    Arguments:
+      ticket_anchor = the ticket's backlog anchor.
+
+    Raises:
+      daemon.TicketCycleStateError: when the backlog cannot be read,
+        or the anchor does not appear exactly once in the Open index
+        and exactly once as a detail marker.
+    """
     lines, problem = daemon.verified_backlog_lines()
     if problem is not None:
         raise daemon.TicketCycleStateError(problem)
@@ -937,7 +1119,16 @@ def require_open_backlog_ticket(ticket_anchor):
 
 
 def active_cycle_records_for_topology(state, skip_redteam=False):
-    """Return active records this watch can advance."""
+    """Return active records this watch can advance.
+
+    Arguments:
+      state        = the ticket-cycle state mapping.
+      skip_redteam = True in a two-role watch, which cannot advance
+                     modes that need the Sol route.
+
+    Returns:
+      The active records whose mode this watch's topology enables.
+    """
     return [
         record for record in state["active"].values()
         if daemon.ticket_cycle_mode_is_enabled(
@@ -945,7 +1136,15 @@ def active_cycle_records_for_topology(state, skip_redteam=False):
 
 
 def architect_admissions_for_topology(state, skip_redteam=False):
-    """Return public Architect requests already charged to this watch."""
+    """Return public Architect requests already charged to this watch.
+
+    Arguments:
+      state        = the ticket-cycle state mapping.
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      The admission records whose mode this watch's topology enables.
+    """
     return [
         record for record in state["architect_admissions"].values()
         if daemon.ticket_cycle_mode_is_enabled(
@@ -953,7 +1152,21 @@ def architect_admissions_for_topology(state, skip_redteam=False):
 
 
 def finite_cycle_capacity_used(state, skip_redteam=False):
-    """Return every completed, admitted, or active charged ticket."""
+    """Return every completed, admitted, or active charged ticket.
+
+    Arguments:
+      state        = the ticket-cycle state mapping.
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      The finite watch's used capacity — completed cycles plus
+      pending returns plus active records plus charged admissions —
+      or ``None`` when this watch is unbounded.
+
+    Raises:
+      daemon.TicketCycleStateError: when the live controller and the
+        durable progress disagree on the topology or record.
+    """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     if controller is None or controller.ticket_cycle_limit_value() is None:
         return None
@@ -1215,7 +1428,23 @@ def register_ticket_cycle_message(
 
 
 def complete_ticket_cycle(cycle_id, accepted_commit):
-    """Move one correlated Red Team return from active to completed state."""
+    """Move one correlated Red Team return from active to completed state.
+
+    Completion is exactly-once: a cycle already completed at this
+    commit returns False (a harmless replay), while a completion at a
+    different commit is refused.
+
+    Arguments:
+      cycle_id        = the ticket cycle the return names.
+      accepted_commit = the landing the Red Team reviewed.
+
+    Returns:
+      True when this call completed the cycle; False for a replay.
+
+    Raises:
+      daemon.TicketCycleStateError: when no awaiting cycle matches
+        the return.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1242,7 +1471,22 @@ def complete_ticket_cycle(cycle_id, accepted_commit):
 
 def complete_reopen_ticket_cycle(cycle_id, reviewed_landing,
                                  decision_landing):
-    """Complete a reopened review only after its backlog decision lands."""
+    """Complete a reopened review only after its backlog decision lands.
+
+    Arguments:
+      cycle_id         = the reopening review cycle.
+      reviewed_landing = the landing the Red Team reviewed.
+      decision_landing = the landing that carries the Architect's
+                         sealed backlog decision.
+
+    Returns:
+      True when this call completed the cycle; False for a replay at
+      the same decision landing.
+
+    Raises:
+      daemon.TicketCycleStateError: for a completion at another
+        landing or a mismatched awaiting cycle.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1268,7 +1512,25 @@ def complete_reopen_ticket_cycle(cycle_id, reviewed_landing,
 
 
 def complete_protected_ticket_cycle(cycle_id, candidate_commit, landing):
-    """Complete one two-key ticket after D0 records healthy L."""
+    """Complete one two-key ticket after D0 records healthy L.
+
+    The saved control-plane record must show both keys on exactly C,
+    a PASSED shadow, and a HEALTHY health check; the full record is
+    then preserved in the control-plane history.
+
+    Arguments:
+      cycle_id         = the protected ticket cycle.
+      candidate_commit = the accepted candidate C.
+      landing          = the healthy landing L.
+
+    Returns:
+      True when this call completed the cycle; False for a replay at
+      the same landing.
+
+    Raises:
+      daemon.TicketCycleStateError: for a completion at another
+        landing or missing keys or evidence.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1395,7 +1657,18 @@ def active_ticket_cycle_count(skip_redteam=False, exclude_admission=None):
 
 
 def read_cycle_message(path):
-    """Read one bounded mailbox message for cycle-state reconciliation."""
+    """Read one bounded mailbox message for cycle-state reconciliation.
+
+    Arguments:
+      path = the mailbox message file.
+
+    Returns:
+      The decoded message text.
+
+    Raises:
+      ValueError: for an unsafe or oversized read.
+      daemon.TicketCycleStateError: for bytes that are not UTF-8.
+    """
     raw = daemon.stable_regular_bytes(
         path=path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
         label="cycle message " + daemon.os.path.basename(path))
@@ -1407,7 +1680,20 @@ def read_cycle_message(path):
 
 
 def any_matching_redteam_receipt(cycle_id, accepted_commit):
-    """Return whether exactly one persisted receipt matches the review."""
+    """Return whether exactly one persisted receipt matches the review.
+
+    Arguments:
+      cycle_id        = the ticket cycle the receipt must name.
+      accepted_commit = the reviewed landing it must name.
+
+    Returns:
+      True when exactly one matching receipt exists anywhere in the
+      store; False when none does.
+
+    Raises:
+      daemon.TicketCycleStateError: when several receipts match,
+        which would make the completion ambiguous.
+    """
     matches = []
     for path in daemon.glob.glob(
             daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
@@ -1431,12 +1717,31 @@ def any_matching_redteam_receipt(cycle_id, accepted_commit):
 
 
 def redteam_review_completes_cycle(result):
-    """Only NO CHANGE ends a cycle without an Architect decision."""
+    """Only NO CHANGE ends a cycle without an Architect decision.
+
+    Arguments:
+      result = the Red Team review result.
+
+    Returns:
+      True for ``NO CHANGE``; a ``REOPEN`` needs the Architect's
+      reopening decision first.
+    """
     return result == "NO CHANGE"
 
 
 def current_reopen_ticket(cycle_id):
-    """Read one mechanically checked ticket before Architect reasoning."""
+    """Read one mechanically checked ticket before Architect reasoning.
+
+    Arguments:
+      cycle_id = the reopening review cycle.
+
+    Returns:
+      The checked ReopenTicket from the sealed backlog.
+
+    Raises:
+      daemon.TicketCycleStateError: for a broken seal or an ambiguous
+        ticket record.
+    """
     try:
         sealed = daemon._validate_sealed_backlog(
             primary_worktree=daemon.AGENT_CWD["fable"])
@@ -1449,7 +1754,20 @@ def current_reopen_ticket(cycle_id):
 
 
 def architect_reopen_decision(cycle_id, before):
-    """Verify the exact backlog transition and return GO or NO-GO."""
+    """Verify the exact backlog transition and return GO or NO-GO.
+
+    Arguments:
+      cycle_id = the reopening review cycle.
+      before   = the checked ticket state before the Architect's
+                 edit.
+
+    Returns:
+      ``"GO"`` or ``"NO-GO"`` from the strict transition check.
+
+    Raises:
+      daemon.TicketCycleStateError: for a broken seal or an illegal
+        transition.
+    """
     sealed = daemon._validate_sealed_backlog(
         primary_worktree=daemon.AGENT_CWD["fable"])
     try:
@@ -1465,7 +1783,30 @@ def architect_reopen_decision(cycle_id, before):
 
 def land_architect_reopen_decision(dispatch_path, cycle_id,
                                    reviewed_landing, decision):
-    """Land, record, and push one sealed GO/NO-GO backlog decision."""
+    """Land, record, and push one sealed GO/NO-GO backlog decision.
+
+    Under the main-checkout lock: the decision landing is prepared
+    from the sealed backlog, the role baselines are preflighted, the
+    landing enters the clean user checkout, the cycle completes, push
+    debt is recorded, the input archives, and the baselines sync.
+    The push itself happens after the lock is released; a failed push
+    stays recorded as follow-up debt rather than failing the
+    decision.
+
+    Arguments:
+      dispatch_path    = the claimed decision message.
+      cycle_id         = the reopening review cycle.
+      reviewed_landing = the landing the Red Team reviewed.
+      decision         = ``"GO"`` or ``"NO-GO"``.
+
+    Returns:
+      ``(landing, completed)``: the decision landing and whether this
+      call completed the cycle.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the landing lock is
+        unavailable or the input could not be archived.
+    """
     backlog = daemon._validate_sealed_backlog(
         primary_worktree=daemon.AGENT_CWD["fable"])
     main_lock = daemon.acquire_main_checkout_turn_lock()
@@ -1511,7 +1852,20 @@ def land_architect_reopen_decision(dispatch_path, cycle_id,
 
 def _matching_journaled_notes_go(base_commit, notes_commit,
                                   receipt_sha256):
-    """Return one exact B/P receipt whose bytes match an admin journal."""
+    """Return one exact B/P receipt whose bytes match an admin journal.
+
+    Arguments:
+      base_commit    = B recorded in the journal.
+      notes_commit   = P recorded in the journal.
+      receipt_sha256 = digest the receipt's exact bytes must hash to.
+
+    Returns:
+      The single matching receipt path.
+
+    Raises:
+      daemon.TicketCycleStateError: when zero or several receipts
+        match.
+    """
     matches = []
     for directory in (daemon.MAILBOX,
                       daemon.os.path.join(daemon.MAILBOX, "inflight"),
@@ -1539,7 +1893,18 @@ def _matching_journaled_notes_go(base_commit, notes_commit,
 
 
 def _require_safe_noop_admin_recovery(base_commit):
-    """Allow a proved no-change admin result after clean later landings."""
+    """Allow a proved no-change admin result after clean later landings.
+
+    Arguments:
+      base_commit = B, the admin turn's recorded base; it must be in
+                    current main's history while the Architect primary
+                    sits clean at current main with an accepted
+                    protected state.
+
+    Raises:
+      daemon.TicketCycleStateError: for any state that does not prove
+        the no-change result safe to retire.
+    """
     primary = daemon.AGENT_CWD["fable"]
     primary_head = daemon.worktree_head(worktree=primary)
     current_main = daemon._exact_git_object(
@@ -1956,7 +2321,22 @@ def reconcile_ticket_cycle_state():
 
 
 def publish_message_locked(agent, payload, attempts=20):
-    """Atomically publish one message while the caller holds sequence lock."""
+    """Atomically publish one message while the caller holds sequence lock.
+
+    The payload is written complete and synced to a hidden temporary
+    file, then hard-linked to the next numbered name; a name that
+    already exists advances the sequence and tries again, so a
+    manually created file is never replaced and no reader can see
+    partial bytes.
+
+    Arguments:
+      agent    = the recipient route name.
+      payload  = the complete message text.
+      attempts = numbered names to try before giving up.
+
+    Returns:
+      The published path, or ``None`` when every attempt collided.
+    """
     for _ in range(attempts):
         path = daemon.os.path.join(
             daemon.MAILBOX, daemon.next_seq() + "-to-" + agent + ".md")
@@ -2172,7 +2552,22 @@ def recover_failed_maintenance_admission():
 
 
 def send_architect_notes_admin(text, dry_run=False):
-    """Publish one narrow Architect-only permanent-note self-route."""
+    """Publish one narrow Architect-only permanent-note self-route.
+
+    The request may come only from the running Architect itself: the
+    role contract must grant policy administration, the process
+    environment must carry the architect role bound to the saved
+    primary worktree and shared notes, and only one admin transition
+    may be pending at a time.
+
+    Arguments:
+      text    = the admin request text.
+      dry_run = True to print the would-be path without writing.
+
+    Returns:
+      True when the request was queued (or previewed); False after
+      printing the refusal.
+    """
     try:
         contract = daemon.validate_role_contract_bindings()
     except (OSError, RuntimeError, ValueError) as exc:
