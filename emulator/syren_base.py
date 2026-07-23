@@ -1,15 +1,23 @@
 """One home for the syren analytic P(k) base.
 
-The MPS emulators CORRECT an approximate formula: the network target is
-log(P / P_base), where P_base comes from the syren (symbolic_pofk)
-formulas, copied into this repository (vendored) under syren/. This module is the base's ONLY
-definition — the dump generator (which writes the base beside the raw
-dump), the emul_mps adapter (which multiplies it back at inference),
-and the gates all call these two functions, so the formula the emulator
-corrects can never fork between them.
+P(k, z) is the matter power spectrum: the variance of matter density
+fluctuations per wavenumber k at redshift z, the quantity the
+matter-power (MPS) family emulates.  The MPS emulators CORRECT an
+approximate formula rather than predict from scratch: the network
+target is log(P / P_base), where P_base comes from the syren
+(symbolic_pofk) formulas — closed-form fits to P(k) found by symbolic
+regression — copied into this repository (vendored) under syren/.
+This module is the base's ONLY definition — the dump generator (which
+writes the base beside the raw dump), the emul_mps adapter (which
+multiplies it back at inference), and the gates all call these two
+functions, so the formula the emulator corrects can never fork between
+them.
 
 The math is the legacy emulmps_w0wa.py verbatim (the porting
-discipline; the calls' unit conventions are load-bearing):
+discipline; the calls' unit conventions are load-bearing).  h is the
+Hubble constant in units of 100 km/s/Mpc, and syren works in "per h"
+units — wavenumbers in h/Mpc, powers in (Mpc/h)^3 — while this library
+works in plain Mpc units, so each call converts on the way in and out:
 
     base_pklin:  k [1/Mpc] -> k/h [h/Mpc] for syren; plin_emulated at
                  z = 0 in (Mpc/h)^3; rescaled to each z by the
@@ -20,9 +28,13 @@ discipline; the calls' unit conventions are load-bearing):
                  run_halofit_vec with return_boost=True and the LINEAR
                  P handed back in (Mpc/h)^3 (Plin_in = P_lin * h^3).
 
-PS: As_1e9 = the primordial amplitude in units of 1e-9 (A_s = 2.1e-9
--> As_1e9 = 2.1), the convention the syren formulas take; the boost =
-P_nonlinear / P_linear, the ratio the second MPS artifact emulates.
+(legend: D = the linear growth factor, how fluctuations scale with
+redshift in linear theory, and R = syren's correction to it; sigma8 =
+the fluctuation amplitude in spheres of 8 Mpc/h; the boost =
+P_nonlinear / P_linear, the ratio the second MPS artifact emulates,
+with halofit the standard fitting form for it; As_1e9 = the primordial
+amplitude in units of 1e-9 (A_s = 2.1e-9 -> As_1e9 = 2.1), the
+convention the syren formulas take.)
 """
 
 import numbers
@@ -38,6 +50,11 @@ from syren.linear import (plin_emulated, get_approximate_D,
 from syren.syrenhalofit import run_halofit_vec
 
 
+# np.finfo(np.float32).eps is float32 machine epsilon: the spacing
+# between 1.0 and the next representable float32 value. Dark-energy
+# coordinates travel through float32 artifacts, so two spellings of one
+# value may land a few such steps apart; four steps is the storage
+# allowance, and anything beyond it is a genuine disagreement.
 DARK_ENERGY_COORDINATE_ATOL = float(4.0 * np.finfo(np.float32).eps)
 _DARK_ENERGY_LAWS = (
   "w0wa-cpl",
@@ -49,8 +66,13 @@ _DARK_ENERGY_LAWS = (
 def _dark_energy_scalar(params, name, where):
   """Read one finite real dark-energy coordinate from a parameter mapping.
 
-  A Boolean is refused by type (True == 1 in Python), an array is refused
-  rather than silently reduced, and NaN / infinity are refused by value.
+  The type test uses ``numbers.Real``, the umbrella type that plain
+  Python ints and floats and the numpy scalar types all register
+  under, so either spelling of a number is accepted.  A Boolean is
+  refused by type first, because ``bool`` registers under ``Real`` too
+  and ``True`` would otherwise pass as the number 1.  An array is not
+  a ``Real`` and is refused rather than silently reduced to one of its
+  elements, and NaN / infinity are refused by value.
 
   Arguments:
     params = the parameter mapping the coordinate is read from.
@@ -85,10 +107,13 @@ def _dark_energy_scalar(params, name, where):
 def _dark_energy_close(left, right):
   """Compare two dark-energy coordinates under the storage tolerance.
 
-  A coordinate that traveled through a float32 artifact differs from its
-  float64 twin by rounding; the one absolute tolerance
-  DARK_ENERGY_COORDINATE_ATOL absorbs exactly that, so a genuine
-  disagreement still refuses.
+  A coordinate that traveled through a float32 artifact differs from
+  its float64 twin by rounding; the one absolute tolerance
+  DARK_ENERGY_COORDINATE_ATOL (defined with its reason above) absorbs
+  exactly that, so a genuine disagreement still refuses.  Passing
+  ``rtol=0.0`` to ``np.isclose`` switches off its default relative
+  term, making the comparison purely absolute: the allowance must not
+  grow with the coordinate's magnitude.
 
   Arguments:
     left, right = the two coordinate values to compare.
@@ -103,6 +128,15 @@ def _dark_energy_close(left, right):
 def resolve_dark_energy_coordinates(
     params, *, dark_energy_law=None, where="dark-energy coordinates"):
   """Resolve the canonical ``(w0, wa)`` pair used by the Syren base.
+
+  Dark energy is described by its equation of state w, the ratio of
+  its pressure to its energy density; w = -1 is a cosmological
+  constant.  The CPL (Chevallier-Polarski-Linder) form lets it evolve:
+  w(a) = w0 + wa * (1 - a), with w0 the present-day value and wa the
+  evolution slope.  Samplers spell these coordinates differently —
+  ``w`` and ``w0`` are aliases for the present-day value, and some
+  runs sample the sum ``w0pwa`` = w0 + wa instead of wa — so this
+  resolver accepts every spelling and returns the one canonical pair.
 
   Two complete coordinate forms are accepted without an additional law:
   ``(w or w0, wa)`` and ``(w or w0, w0pwa)``.  In the second form,
@@ -317,6 +351,14 @@ def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
                mnu=0.06):
   """The syren linear P(k, z) base, in Mpc^3 (legacy math verbatim).
 
+  syren evaluates the z = 0 linear spectrum in its own (Mpc/h)^3
+  units.  This wrapper converts the wavenumbers to syren's h/Mpc,
+  rescales the z = 0 spectrum to each requested redshift with the
+  approximate growth factor evaluated at the reference wavenumber
+  k_ref = 1e-4 — the growth formulas take the scale factor
+  a = 1/(1+z) as their time argument — and divides by h^3 so the
+  result comes back in plain Mpc^3.
+
   Arguments:
     k_mpc  = (nk,) wavenumbers in 1/Mpc.
     z      = (nz,) redshifts (the growth rescaling's targets).
@@ -357,6 +399,15 @@ def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
 def base_boost(k_mpc, z, pk_lin_mpc, As_1e9, ns, H0, Ob, Om,
                w0=-1.0, wa=0.0, mnu=0.06):
   """The syren-halofit nonlinear boost base B(k, z) (legacy verbatim).
+
+  The boost is P_nonlinear / P_linear: the dimensionless factor that
+  turns the linear spectrum into the nonlinear one once gravitational
+  collapse couples the scales.  halofit is the standard fitting form
+  for that factor, and syren-halofit its symbolic refit.  The wrapper
+  first converts the primordial amplitude to sigma8 (the fluctuation
+  amplitude in spheres of 8 Mpc/h, the variable halofit is
+  parameterized by), then hands the linear spectrum back to syren in
+  its (Mpc/h)^3 units (Plin_in = P_lin * h^3), the legacy convention.
 
   Arguments:
     k_mpc      = (nk,) wavenumbers in 1/Mpc.
