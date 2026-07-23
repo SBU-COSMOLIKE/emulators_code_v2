@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Create and safely read portable backlog handoff archives.
 
-The archive is an email attachment, not a Git artifact.  It contains the
-local execution ledger and local supporting evidence while anchoring protected
-repository knowledge to an exact Git commit. Incoming archives are treated as
-hostile: inspection validates the complete XZ stream, tar structure,
-manifest, paths, sizes, and hashes before returning any content.
+The archive is an email attachment, not a Git artifact. It is a tar
+file — a container that stores several files back to back — compressed
+with XZ, holding the local execution ledger and local supporting
+evidence while anchoring protected repository knowledge to an exact
+Git commit instead of embedding it. The manifest is the archive's own
+table of contents: a JSON member naming every file with its role,
+size, and SHA-256 digest. Incoming archives are treated as hostile:
+inspection validates the complete XZ stream, tar structure, manifest,
+paths, sizes, and hashes before returning any content.
 """
 
 import argparse
@@ -71,7 +75,19 @@ class BundleError(Exception):
 
 
 def _git(repo, *args, check=True):
-    """Run one Git command in ``repo``; refuse a failure when ``check``."""
+    """Run one Git command in ``repo``; refuse a failure when ``check``.
+
+    Arguments:
+      repo  = repository folder for ``git -C``.
+      args  = Git subcommand and options.
+      check = True to raise on a nonzero exit.
+
+    Returns:
+      The completed-process object with text output.
+
+    Raises:
+      BundleError: when ``check`` is set and Git fails.
+    """
     result = subprocess.run(
         ["git", "-C", str(repo)] + list(args),
         stdout=subprocess.PIPE,
@@ -85,7 +101,16 @@ def _git(repo, *args, check=True):
 
 
 def repository_root():
-    """Return the repository containing this installed tool."""
+    """Return the repository containing this installed tool.
+
+    Returns:
+      The resolved repository root, which must be exactly two folders
+      above this file; a copy of the tool run from somewhere else is
+      refused rather than trusted.
+
+    Raises:
+      BundleError: when the tool path and Git root disagree.
+    """
     candidate = Path(__file__).resolve().parents[2]
     root = _git(candidate, "rev-parse", "--show-toplevel").stdout.strip()
     root_path = Path(root).resolve()
@@ -95,7 +120,23 @@ def repository_root():
 
 
 def canonical_repository_id(remote):
-    """Reduce an origin URL to a credential-free host/path identity."""
+    """Reduce an origin URL to a credential-free host/path identity.
+
+    Both the SSH form (``git@host:path``) and ordinary URLs are
+    accepted; user names, the ``.git`` suffix, and case differences
+    on GitHub are dropped so the same repository yields the same
+    identity everywhere.
+
+    Arguments:
+      remote = the origin URL text.
+
+    Returns:
+      ``host/path`` in a portable character set.
+
+    Raises:
+      BundleError: for a non-network URL or an identity that cannot
+        be made portable.
+    """
     remote = remote.strip()
     scp = re.match(r"^[^/@:]+@([^:]+):(.+)$", remote)
     if scp:
@@ -120,7 +161,15 @@ def canonical_repository_id(remote):
 
 
 def repository_identity(repo):
-    """Return the credential-free origin identity and its display name."""
+    """Return the credential-free origin identity and its display name.
+
+    Arguments:
+      repo = the repository folder.
+
+    Returns:
+      Mapping with ``id`` (host/path) and ``name`` (the last path
+      piece); neither depends on the recipient's clone directory.
+    """
     remote = _git(repo, "remote", "get-url", "origin").stdout.strip()
     identity = canonical_repository_id(remote)
     return {
@@ -136,7 +185,25 @@ def _is_int(value):
 
 
 def validate_repo_path(value):
-    """Validate one portable, repository-relative POSIX path."""
+    """Validate one portable, repository-relative POSIX path.
+
+    Portable means the path must behave identically on every
+    filesystem a recipient may use: NFC-normalized Unicode (one
+    canonical byte form per visible name), no control or
+    Windows-special characters, bounded length and depth, no empty,
+    ``.``, or ``..`` parts, no trailing dot or space, no reserved
+    Windows device name, and each component short enough for the
+    USTAR tar format.
+
+    Arguments:
+      value = the candidate path text.
+
+    Returns:
+      The validated path unchanged.
+
+    Raises:
+      BundleError: naming the first violated rule.
+    """
     if not isinstance(value, str) or not value:
         raise BundleError("manifest path must be a nonempty string")
     try:
@@ -170,7 +237,23 @@ def validate_repo_path(value):
 
 
 def _repo_relative(repo, path_text):
-    """Resolve one validated path inside ``repo``, refusing symlinks."""
+    """Resolve one validated path inside ``repo``, refusing symlinks.
+
+    Every component on the way is inspected without following links,
+    so a symbolic link anywhere in the path — not just at the end —
+    is refused before anything is read through it.
+
+    Arguments:
+      repo      = repository root.
+      path_text = the repository-relative path.
+
+    Returns:
+      The absolute path object.
+
+    Raises:
+      BundleError: for a symlink component or a path escaping the
+        repository.
+    """
     validate_repo_path(path_text)
     candidate = repo.joinpath(*path_text.split("/"))
     current = repo
@@ -192,7 +275,24 @@ def _repo_relative(repo, path_text):
 
 
 def stable_read(repo, path_text):
-    """Read one regular file without following its final symlink."""
+    """Read one regular file without following its final symlink.
+
+    The file's identity — device, inode, size, modification time —
+    is compared at four moments: before opening, at open, after
+    reading, and after closing. A file swapped or edited mid-read is
+    refused instead of half-captured.
+
+    Arguments:
+      repo      = repository root.
+      path_text = the repository-relative path.
+
+    Returns:
+      The file bytes, at most the per-file limit.
+
+    Raises:
+      BundleError: for a non-regular file, an oversized file, or any
+        identity change during the read.
+    """
     path = _repo_relative(repo, path_text)
     try:
         initial = path.lstat()
@@ -257,7 +357,19 @@ def stable_read(repo, path_text):
 
 
 def _commit_file_digest(repo, commit, path_text):
-    """Return the Git object name of one protected file at the base."""
+    """Return the Git object name of one protected file at the base.
+
+    Arguments:
+      repo      = repository root.
+      commit    = the bundle's base commit.
+      path_text = the protected file path.
+
+    Returns:
+      The object name recorded for that path at that commit.
+
+    Raises:
+      BundleError: when the base does not contain the file.
+    """
     result = _git(repo, "rev-parse", commit + ":" + path_text, check=False)
     if result.returncode != 0:
         raise BundleError(
@@ -266,7 +378,19 @@ def _commit_file_digest(repo, commit, path_text):
 
 
 def require_clean_permanent_notes(repo, base_commit):
-    """Refuse to pack while a protected note differs from the base."""
+    """Refuse to pack while a protected note differs from the base.
+
+    The bundle anchors protected knowledge to its base commit rather
+    than embedding it, so packing with locally edited permanent notes
+    would advertise knowledge the archive does not carry.
+
+    Arguments:
+      repo        = repository root.
+      base_commit = the commit the bundle records as its base.
+
+    Raises:
+      BundleError: listing every differing protected file.
+    """
     dirty = []
     for path_text in sorted(PROTECTED_KNOWLEDGE):
         path = _repo_relative(repo, path_text)
@@ -284,7 +408,15 @@ def require_clean_permanent_notes(repo, base_commit):
 
 
 def _top_level_local_notes(repo):
-    """List the non-permanent Markdown notes directly under ai/notes."""
+    """List the non-permanent Markdown notes directly under ai/notes.
+
+    Arguments:
+      repo = repository root.
+
+    Returns:
+      Sorted repository-relative paths; permanent notes are excluded
+      because they travel as a Git anchor, not as payload.
+    """
     notes_root = repo / "ai" / "notes"
     result = []
     for path in sorted(notes_root.glob("*.md")):
@@ -295,7 +427,19 @@ def _top_level_local_notes(repo):
 
 
 def _support_files(repo):
-    """List every regular file under the support root, refusing symlinks."""
+    """List every regular file under the support root, refusing symlinks.
+
+    Arguments:
+      repo = repository root.
+
+    Returns:
+      Sorted repository-relative paths under the backlog-support
+      folder; empty when the folder does not exist.
+
+    Raises:
+      BundleError: when the root or any directory inside it is a
+        symlink.
+    """
     root = repo / SUPPORT_ROOT
     if not root.exists():
         return []
@@ -317,7 +461,25 @@ def _support_files(repo):
 
 
 def selected_files(repo, explicit):
-    """Return a sorted mapping of repository path to bundle role."""
+    """Return a sorted mapping of repository path to bundle role.
+
+    The backlog always travels; local notes and support files are
+    added automatically; explicitly included files come last and may
+    not name protected knowledge. Paths that differ only by letter
+    case are refused because they collide on case-insensitive
+    filesystems.
+
+    Arguments:
+      repo     = repository root.
+      explicit = extra paths from the command line.
+
+    Returns:
+      Mapping from path to one of ``backlog``, ``local-note``,
+      ``support``, or ``explicit``.
+
+    Raises:
+      BundleError: for a protected path or a case collision.
+    """
     roles = {BACKLOG_PATH: "backlog"}
     for path_text in _top_level_local_notes(repo):
         roles.setdefault(path_text, "local-note")
@@ -341,7 +503,17 @@ def selected_files(repo, explicit):
 
 
 def open_backlog_lines(data):
-    """Return every backlog line that begins with ``- OPEN``."""
+    """Return every backlog line that begins with ``- OPEN``.
+
+    Arguments:
+      data = raw backlog bytes.
+
+    Returns:
+      The open index lines in file order.
+
+    Raises:
+      BundleError: when the backlog is not valid UTF-8.
+    """
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -350,13 +522,40 @@ def open_backlog_lines(data):
 
 
 def canonical_json(value):
-    """Encode one value as deterministic ASCII JSON ending in a newline."""
+    """Encode one value as deterministic ASCII JSON ending in a newline.
+
+    Deterministic means the same value always produces identical
+    bytes — keys sorted, no optional whitespace, non-ASCII escaped —
+    so digests and equality checks on the encoding are meaningful.
+
+    Arguments:
+      value = the JSON-compatible value.
+
+    Returns:
+      The encoded bytes.
+    """
     return (json.dumps(value, sort_keys=True, separators=(",", ":"),
                        ensure_ascii=True) + "\n").encode("ascii")
 
 
 def build_bundle(repo, explicit):
-    """Collect the selected files into a validated manifest and payload."""
+    """Collect the selected files into a validated manifest and payload.
+
+    Arguments:
+      repo     = repository root.
+      explicit = extra include paths.
+
+    Returns:
+      ``(manifest, manifest_bytes, payload)``: the manifest mapping,
+      its canonical encoding, and the mapping from path to file
+      bytes. Every member header is rendered once here, so a name
+      that cannot be represented in USTAR fails before anything is
+      written.
+
+    Raises:
+      BundleError: for dirty protected notes, oversized content, or
+        an unrepresentable name.
+    """
     base_commit = _git(
         repo, "rev-parse", "HEAD^{commit}").stdout.strip()
     require_clean_permanent_notes(repo, base_commit)
@@ -399,7 +598,18 @@ def build_bundle(repo, explicit):
 
 
 def _tar_info(name, size):
-    """Return the one normalized tar member record every writer uses."""
+    """Return the one normalized tar member record every writer uses.
+
+    All ownership, permission, and time fields are fixed constants,
+    so the same content always produces byte-identical archives.
+
+    Arguments:
+      name = the member name.
+      size = the member size in bytes.
+
+    Returns:
+      The TarInfo record.
+    """
     info = tarfile.TarInfo(name)
     info.size = size
     info.mode = 0o644
@@ -413,7 +623,22 @@ def _tar_info(name, size):
 
 
 def canonical_tar_header(name, size):
-    """Return the one accepted USTAR header for a member."""
+    """Return the one accepted USTAR header for a member.
+
+    USTAR is the oldest, most portable tar header format; rendering
+    the header here both proves the name fits it and gives the
+    validator the exact bytes an honest writer would produce.
+
+    Arguments:
+      name = the member name.
+      size = the member size in bytes.
+
+    Returns:
+      The 512-byte header block.
+
+    Raises:
+      BundleError: when the name cannot be represented.
+    """
     try:
         return _tar_info(name, size).tobuf(
             format=tarfile.USTAR_FORMAT, encoding="utf-8", errors="strict")
@@ -423,7 +648,26 @@ def canonical_tar_header(name, size):
 
 
 def write_archive(output, manifest_bytes, payload):
-    """Write a deterministic archive and install it without overwriting."""
+    """Write a deterministic archive and install it without overwriting.
+
+    The archive is written to a temporary file, hashed, and then
+    hard-linked to its final name; the link fails if the name exists,
+    so an existing archive is never replaced. An existing file is
+    accepted only when it validates as a bundle with the same digest,
+    which makes rerunning the same pack harmless.
+
+    Arguments:
+      output         = the destination path.
+      manifest_bytes = canonical manifest encoding.
+      payload        = mapping from path to file bytes.
+
+    Returns:
+      The archive's SHA-256 hexadecimal digest.
+
+    Raises:
+      BundleError: for an oversized archive or a conflicting existing
+        file.
+    """
     output = output.expanduser().absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -521,7 +765,25 @@ def sha256_file(path):
 
 
 def decompress_xz(archive_path, tar_path):
-    """Decompress exactly one bounded XZ stream to a scratch tar file."""
+    """Decompress exactly one bounded XZ stream to a scratch tar file.
+
+    XZ is the compression layer around the tar. The decompressor gets
+    a memory ceiling, the expanded size is bounded as it grows, and
+    concatenated or trailing data after the one stream is refused.
+    The archive's identity is compared before, during, and after,
+    like every other hostile read in this tool.
+
+    Arguments:
+      archive_path = the incoming archive.
+      tar_path     = scratch file that receives the expanded tar.
+
+    Returns:
+      The SHA-256 digest of the compressed archive bytes.
+
+    Raises:
+      BundleError: for a missing, irregular, oversized, truncated,
+        invalid, or mid-read-changed archive.
+    """
     try:
         archive_stat = archive_path.lstat()
     except FileNotFoundError:
@@ -593,7 +855,19 @@ def decompress_xz(archive_path, tar_path):
 
 
 def _parse_octal(field, label):
-    """Parse one octal USTAR header field, refusing base-256 values."""
+    """Parse one octal USTAR header field, refusing base-256 values.
+
+    Arguments:
+      field = the raw header field bytes.
+      label = field name for error messages.
+
+    Returns:
+      The nonnegative integer value; an empty field is zero.
+
+    Raises:
+      BundleError: for the base-256 extension marker or a non-octal
+        digit.
+    """
     if field and field[0] & 0x80:
         raise BundleError("base-256 tar " + label + " is forbidden")
     raw = field.rstrip(b"\0 ").lstrip(b" ")
@@ -605,7 +879,24 @@ def _parse_octal(field, label):
 
 
 def scan_raw_tar(tar_path):
-    """Reject tar extensions and nonregular types before TarFile parsing."""
+    """Reject tar extensions and nonregular types before TarFile parsing.
+
+    The scan walks the raw 512-byte blocks itself: every header must
+    be byte-identical to the one canonical header this tool would
+    write, every member must be a plain file, padding and the two
+    zero end blocks must be exact, and nothing may follow them. Only
+    after this scan is Python's tarfile module allowed to parse the
+    same bytes.
+
+    Arguments:
+      tar_path = the expanded tar file.
+
+    Returns:
+      The member names in order.
+
+    Raises:
+      BundleError: naming the first noncanonical byte range.
+    """
     names = []
     with tar_path.open("rb") as stream:
         while True:
@@ -661,7 +952,18 @@ def scan_raw_tar(tar_path):
 
 
 def _object_no_duplicates(pairs):
-    """Build one JSON object while refusing any repeated key."""
+    """Build one JSON object while refusing any repeated key.
+
+    Arguments:
+      pairs = the decoded key-value pairs in document order.
+
+    Returns:
+      The mapping.
+
+    Raises:
+      BundleError: for a duplicate key, which ordinary JSON parsing
+        would silently collapse.
+    """
     value = {}
     for key, item in pairs:
         if key in value:
@@ -671,13 +973,37 @@ def _object_no_duplicates(pairs):
 
 
 def _exact_keys(value, keys, label):
-    """Require one mapping to contain exactly the named keys."""
+    """Require one mapping to contain exactly the named keys.
+
+    Arguments:
+      value = the candidate mapping.
+      keys  = the required key set.
+      label = name for the error message.
+
+    Raises:
+      BundleError: for a missing or extra key.
+    """
     if not isinstance(value, dict) or set(value) != set(keys):
         raise BundleError(label + " has an unexpected schema")
 
 
 def validate_manifest(manifest):
-    """Validate the complete manifest schema before any content is used."""
+    """Validate the complete manifest schema before any content is used.
+
+    Every field is checked for type, format, and consistency: the
+    format name and version, the commit and tree identifiers, the
+    portable repository identity, the open-item lines, and every file
+    record's path, role, size, and digest. Exactly one backlog entry
+    must exist, paths must be sorted and free of case collisions, no
+    protected note may be embedded, and the summed sizes must fit the
+    payload limit.
+
+    Arguments:
+      manifest = the decoded manifest mapping.
+
+    Raises:
+      BundleError: naming the first violated rule.
+    """
     _exact_keys(manifest, [
         "backlog_path", "base_commit", "base_tree", "files", "format",
         "open_items", "repository", "version",
@@ -749,7 +1075,26 @@ def validate_manifest(manifest):
 
 
 def validate_archive(archive_path):
-    """Fully validate an archive and return manifest, payload, and id."""
+    """Fully validate an archive and return manifest, payload, and id.
+
+    The order is: bounded XZ decompression, raw tar scan, tarfile
+    parse (which must agree with the raw scan), manifest decode with
+    duplicate-key refusal, schema validation, canonical re-encoding
+    (the stored bytes must equal the re-encoding exactly), exact
+    member-list match, and per-file size and digest checks. Only then
+    is any content returned.
+
+    Arguments:
+      archive_path = the incoming archive.
+
+    Returns:
+      ``(manifest, payload, bundle_id, archive_digest)``. The bundle
+      id is the SHA-256 of the canonical manifest; the archive digest
+      is the SHA-256 of the compressed bytes.
+
+    Raises:
+      BundleError: at the first inconsistency.
+    """
     archive_path = Path(archive_path).expanduser().absolute()
     with tempfile.TemporaryDirectory(prefix="backlog-bundle-read-") as temporary:
         tar_path = Path(temporary) / "bundle.tar"
@@ -808,7 +1153,16 @@ def validate_archive(archive_path):
 
 
 def _terminal_line(value):
-    """Escape control characters so untrusted text cannot steer a terminal."""
+    """Escape control characters so untrusted text cannot steer a terminal.
+
+    Arguments:
+      value = one line of untrusted text.
+
+    Returns:
+      The line with every nonprintable character rendered as a
+      hexadecimal escape, so terminal control sequences print as
+      visible text instead of taking effect.
+    """
     return "".join(
         char if char.isprintable() and char not in "\r\n" else
         "\\x" + format(ord(char), "02x")
@@ -817,7 +1171,15 @@ def _terminal_line(value):
 
 
 def print_inspection(manifest, bundle_id, archive_digest, show_backlog, payload):
-    """Print the validated summary a recipient reviews before unpacking."""
+    """Print the validated summary a recipient reviews before unpacking.
+
+    Arguments:
+      manifest       = the validated manifest.
+      bundle_id      = SHA-256 of the canonical manifest.
+      archive_digest = SHA-256 of the compressed archive.
+      show_backlog   = True to also print the sanitized backlog.
+      payload        = mapping from path to bytes.
+    """
     print("Bundle id:", bundle_id)
     print("Archive SHA-256:", archive_digest)
     print("Repository:", json.dumps(manifest["repository"]["id"]))
@@ -843,6 +1205,15 @@ def verify_import_repository(repo, manifest):
     Returns True when the archive's base commit is an ancestor of the
     current ``HEAD``, and False when the base is present but unrelated;
     the caller only warns in the second case.
+
+    Arguments:
+      repo     = this checkout's root.
+      manifest = the validated manifest.
+
+    Raises:
+      BundleError: for a different repository identity, a missing
+        base commit, or a base whose tree disagrees with the
+        manifest.
     """
     # A recipient is free to clone into a differently named directory.  The
     # credential-free remote identity and exact Git objects are authoritative;
@@ -863,7 +1234,21 @@ def verify_import_repository(repo, manifest):
 
 
 def _import_destination(repo, requested, bundle_id):
-    """Resolve the one fresh directory allowed under ai/backlog-imports."""
+    """Resolve the one fresh directory allowed under ai/backlog-imports.
+
+    Arguments:
+      repo      = repository root.
+      requested = the ``--output`` value, or ``None`` for a name
+                  derived from the bundle id.
+
+    Returns:
+      The absolute destination, always exactly one folder directly
+      under the import root.
+
+    Raises:
+      BundleError: for a destination outside the import root or
+        deeper than one level.
+    """
     import_root = Path(os.path.abspath(str(repo / DEFAULT_IMPORT_ROOT)))
     if requested is None:
         destination = import_root / bundle_id[:16]
@@ -894,7 +1279,23 @@ def _directory_open_flags():
 
 
 def _open_directory_at(parent_fd, name):
-    """Open one child directory by descriptor, refusing links and files."""
+    """Open one child directory by descriptor, refusing links and files.
+
+    Opening relative to a parent descriptor (``dir_fd``) means the
+    path cannot be redirected between check and use: each step names
+    exactly one child of an already-verified directory.
+
+    Arguments:
+      parent_fd = descriptor of the verified parent directory.
+      name      = the child name.
+
+    Returns:
+      The child's descriptor; the caller must close it.
+
+    Raises:
+      BundleError: when the child cannot be opened or is not a
+        directory.
+    """
     try:
         descriptor = os.open(name, _directory_open_flags(), dir_fd=parent_fd)
     except OSError as error:
@@ -908,7 +1309,18 @@ def _open_directory_at(parent_fd, name):
 
 
 def _open_import_root(repo):
-    """Open ai/backlog-imports through no-follow directory descriptors."""
+    """Open ai/backlog-imports through no-follow directory descriptors.
+
+    Arguments:
+      repo = repository root.
+
+    Returns:
+      The import root's descriptor, creating the folder if missing;
+      the caller must close it.
+
+    Raises:
+      BundleError: when any step cannot be opened safely.
+    """
     try:
         current = os.open(str(repo), _directory_open_flags())
     except OSError as error:
@@ -933,7 +1345,20 @@ def _open_import_root(repo):
 
 
 def _write_file_at(parent_fd, name, data):
-    """Create one mode-0600 regular file without following a name."""
+    """Create one mode-0600 regular file without following a name.
+
+    Creation is exclusive: an existing file, link, or anything else
+    with the same name makes the call fail instead of overwriting.
+
+    Arguments:
+      parent_fd = descriptor of the destination directory.
+      name      = the file name.
+      data      = the bytes to write.
+
+    Raises:
+      BundleError: for a creation failure, a short write, or a
+        changed identity after writing.
+    """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -969,7 +1394,21 @@ def _open_or_create_directory_at(parent_fd, name):
 
 
 def _read_file_at(root_fd, parts, expected_size, allow_short=False):
-    """Read one import file by descriptor path; None on any disagreement."""
+    """Read one import file by descriptor path; None on any disagreement.
+
+    Arguments:
+      root_fd       = descriptor of the import directory.
+      parts         = the relative path split into components.
+      expected_size = required size; with ``allow_short`` the file
+                      may be smaller (a resumable prefix) but never
+                      larger.
+      allow_short   = accept a shorter file.
+
+    Returns:
+      The file bytes, or ``None`` for any wrong type, wrong size,
+      identity change, or error — the caller treats None as "do not
+      trust this file".
+    """
     current = os.dup(root_fd)
     descriptor = None
     try:
@@ -1010,7 +1449,21 @@ def _read_file_at(root_fd, parts, expected_size, allow_short=False):
 
 
 def _complete_prefix_at(root_fd, parts, wanted):
-    """Finish one verified prefix without deleting its pathname."""
+    """Finish one verified prefix without deleting its pathname.
+
+    The existing bytes are re-read under the open descriptor and must
+    equal the expected prefix exactly before the remainder is
+    appended; the file's identity must hold throughout.
+
+    Arguments:
+      root_fd = descriptor of the import directory.
+      parts   = the relative path split into components.
+      wanted  = the complete expected bytes.
+
+    Raises:
+      BundleError: when the partial file changed, mismatched, or
+        cannot be finished.
+    """
     current = os.dup(root_fd)
     descriptor = None
     try:
@@ -1068,6 +1521,13 @@ def _collect_import_tree(root_fd):
     Returns None when the walk meets anything unexpected: a non-regular
     entry, an unreadable directory, or more entries than one bundle may
     contain. The callers treat None as "do not touch this directory".
+
+    Arguments:
+      root_fd = descriptor of the import directory.
+
+    Returns:
+      ``(files, directories)`` as sets of relative paths, or
+      ``None``.
     """
     files = set()
     directories = set()
@@ -1113,7 +1573,17 @@ def _collect_import_tree(root_fd):
 
 
 def _expected_import_files(manifest, payload, bundle_id):
-    """Return the files in one finished import."""
+    """Return the files in one finished import.
+
+    Arguments:
+      manifest  = the validated manifest.
+      payload   = mapping from path to bytes.
+      bundle_id = the bundle identity written into the marker.
+
+    Returns:
+      Mapping from relative import path to expected bytes: the
+      completion marker, the manifest copy, and every payload file.
+    """
     expected = {
         ".COMPLETE": (bundle_id + "\n").encode("ascii"),
         "manifest.json": canonical_json(manifest),
@@ -1124,7 +1594,18 @@ def _expected_import_files(manifest, payload, bundle_id):
 
 
 def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
-    """Return true only for a complete, byte-identical prior import."""
+    """Return true only for a complete, byte-identical prior import.
+
+    Arguments:
+      destination_fd = descriptor of the locked import directory.
+      manifest       = the validated manifest.
+      payload        = mapping from path to bytes.
+      bundle_id      = the bundle identity.
+
+    Returns:
+      True only when the tree holds exactly the expected files and
+      directories with exactly the expected bytes.
+    """
     expected = _expected_import_files(manifest, payload, bundle_id)
     expected_directories = set()
     for relative in expected:
@@ -1148,7 +1629,26 @@ def _existing_import_is_exact(destination_fd, manifest, payload, bundle_id):
 
 
 def _resumable_import_files(destination_fd, manifest, payload, bundle_id):
-    """Verify an interrupted import and finish any exact file prefixes."""
+    """Verify an interrupted import and finish any exact file prefixes.
+
+    An interrupted run is resumable only when its ownership marker
+    names this bundle, everything present is a subset of the expected
+    tree, and every file is either complete or a byte-exact prefix.
+    Prefixes are completed in a fixed order — the ownership marker
+    first, ordinary files next, the completion marker last — so a
+    second interruption still leaves a resumable state.
+
+    Arguments:
+      destination_fd = descriptor of the locked import directory.
+      manifest       = the validated manifest.
+      payload        = mapping from path to bytes.
+      bundle_id      = the bundle identity.
+
+    Returns:
+      The set of files already present (now completed), the empty set
+      for a bare directory, or ``None`` when the directory must not
+      be reused.
+    """
     expected = _expected_import_files(manifest, payload, bundle_id)
     expected[".INCOMPLETE"] = (bundle_id + "\n").encode("ascii")
     expected_directories = set()
@@ -1200,6 +1700,14 @@ def unpack_archive(repo, archive_path, requested_output):
     resumes only when the marker names this exact bundle and every file
     already present is a byte-exact prefix of the expected content. Live
     notes are never modified.
+
+    Arguments:
+      repo             = this checkout's root.
+      archive_path     = the incoming archive.
+      requested_output = the ``--output`` folder, or ``None``.
+
+    Raises:
+      BundleError: at the first unsafe or inconsistent condition.
     """
     manifest, payload, bundle_id, archive_digest = validate_archive(archive_path)
     base_is_ancestor = verify_import_repository(repo, manifest)
@@ -1282,7 +1790,18 @@ def unpack_archive(repo, archive_path, requested_output):
 
 
 def command_pack(args):
-    """Run ``pack``: build, preview, and write one ignored archive file."""
+    """Run ``pack``: build, preview, and write one ignored archive file.
+
+    A repository-contained destination must be Git-ignored, so an
+    archive can never become a tracked file by accident.
+
+    Arguments:
+      args = parsed command-line options.
+
+    Raises:
+      BundleError: for a non-ignored destination or any packing
+        failure.
+    """
     repo = repository_root()
     manifest, manifest_bytes, payload = build_bundle(repo, args.include)
     bundle_id = hashlib.sha256(manifest_bytes).hexdigest()
@@ -1321,7 +1840,11 @@ def command_pack(args):
 
 
 def command_inspect(args):
-    """Run ``inspect``: fully validate one archive and print its summary."""
+    """Run ``inspect``: fully validate one archive and print its summary.
+
+    Arguments:
+      args = parsed command-line options.
+    """
     manifest, payload, bundle_id, archive_digest = validate_archive(args.archive)
     print_inspection(manifest, bundle_id, archive_digest,
                      args.show_backlog, payload)
