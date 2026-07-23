@@ -1,9 +1,17 @@
 """Scalar learnable activation functions for the ResBlock `act` slot.
 
-Each class is an nn.Module for one elementwise activation with learnable
-per-feature shape parameters; a ResBlock takes an `act` factory (a
-callable act(dim) -> module) and builds one per layer. activation_fcn is
-the paper's H(x) = (gamma + (1-gamma) sigmoid(beta x)) x, a learnable
+An activation is the nonlinear function applied between a network's
+layers; without one, stacked linear layers would collapse to a single
+linear map.  Each class here is an nn.Module — PyTorch's base class for
+anything that carries learnable parameters — computing one elementwise
+activation with learnable per-feature shape parameters; a ResBlock
+takes an `act` factory (a callable act(dim) -> module) and builds one
+per layer.
+
+The families build on two ingredients: sigmoid, the S-shaped curve
+sigmoid(t) = 1 / (1 + e^-t) rising smoothly from 0 to 1, and Swish, the
+function x * sigmoid(x).  activation_fcn is the paper's
+H(x) = (gamma + (1-gamma) sigmoid(beta x)) x, a learnable
 identity<->Swish interpolation; GatedActivation (K gates),
 PowerGatedActivation (a bounded power tail), and GatedPowerActivation
 (both) generalize it. make_activation maps a short name ("H", "power",
@@ -77,11 +85,15 @@ def signed_power_transform(x, p):
 
   ratio is an even, smooth function of the input with the analytic
   limit one at u = 0, so psi_p is linear with slope exactly one at the
-  origin for every p -- including under automatic differentiation. A
-  sign(x) * f(|x|) form has the same forward values but a zero
-  derivative at exactly x = 0, because sign and abs both differentiate
-  to zero there; a zero-initialized correction layer then receives no
-  gradient and cannot begin learning. That form must not return.
+  origin for every p -- including under automatic differentiation.
+  That qualifier matters: torch computes gradients by chaining the
+  derivative of each operation as written, not of the ideal function,
+  so two algebraically equal forms can differ in their derivative at a
+  single point. A sign(x) * f(|x|) form has the same forward values
+  but a zero derivative at exactly x = 0, because sign and abs both
+  differentiate to zero there; a zero-initialized correction layer
+  then receives no gradient and cannot begin learning. That form must
+  not return.
 
   Both branches below are finite everywhere they are evaluated, so the
   torch.where selection cannot mix a NaN from an unselected position
@@ -118,8 +130,7 @@ def signed_power_transform(x, p):
 
 
 def activation_factory_name(factory):
-  """
-  Map an activation factory back to its registry name ("H", "relu", ...).
+  """Map an activation factory back to its registry name ("H", "relu", ...).
 
   The inverse of make_activation: given the callable a ResBlock holds in its
   `act` slot, recover the short name a driver or YAML would use to request
@@ -127,9 +138,12 @@ def activation_factory_name(factory):
 
     - a class or module passed DIRECTLY (activation_fcn, GatedActivation,
       nn.ReLU, ...) is matched by identity against the known families;
-    - a closure built by make_activation carries the requested name on
-      itself as the `_emulator_activation_name` attribute, so the closure
-      answers for any registered name, including future ones.
+    - a closure built by make_activation — a closure is a function
+      defined inside another function that remembers its maker's local
+      variables, here the requested name and gate count — carries the
+      requested name on itself as the `_emulator_activation_name`
+      attribute, so the closure answers for any registered name,
+      including future ones.
 
   The identity checks come first because a direct class never passed
   through make_activation and so never received the attribute.
@@ -160,8 +174,7 @@ def activation_factory_name(factory):
 
 
 def activation_factory_recipe(factory):
-  """
-  Describe one activation factory as plain recipe data for a saved emulator.
+  """Describe one activation factory as plain recipe data for a saved emulator.
 
   A saved .h5 must record how to rebuild its activation without executing
   code from the file, so the factory is reduced to two inert values: the
@@ -206,8 +219,7 @@ def activation_factory_recipe(factory):
 
 
 def require_live_head_activation(factory, source):
-  """
-  Refuse a head activation whose derivative is zero at the origin.
+  """Refuse a head activation whose derivative is zero at the origin.
 
   A correction head initializes its last linear layer to zero, so at the
   first training step every head input is exactly x = 0. An activation
@@ -242,17 +254,16 @@ def require_live_head_activation(factory, source):
 
 
 class activation_fcn(nn.Module):
-    """
-    The paper's learnable activation H(x): a per-element interpolation
-    between the identity and a Swish-like gate.
+    """The paper's learnable H(x): identity<->Swish interpolation per element.
 
       H(x) = (gamma + (1 - gamma) * sigmoid(beta * x)) * x
 
+    sigmoid(t) = 1 / (1 + e^-t) rises smoothly from 0 to 1, so the gate
+    gamma + (1 - gamma) sigmoid(beta x) runs from gamma (x -> -inf) to 1
+    (x -> +inf), making H asymptotically linear at both tails (slope
+    gamma left, 1 right), non-saturating, hence better than tanh here.
     Each feature has its own learnable gamma and beta (length-`dim`
-    vectors). The gate gamma + (1 - gamma) sigmoid(beta x) runs from gamma
-    (x -> -inf) to 1 (x -> +inf), making H asymptotically linear at both
-    tails (slope gamma left, 1 right), non-saturating, hence better than
-    tanh here. gamma = beta = 0 at init, so H starts as 0.5 * x
+    vectors). gamma = beta = 0 at init, so H starts as 0.5 * x
     (sigmoid(0) = 0.5); training then shapes each feature's curve. The
     Gated/Power/GatedPower variants generalize this same gate.
 
@@ -274,8 +285,7 @@ class activation_fcn(nn.Module):
 
 
 class GatedActivation(nn.Module):
-  """
-  Generalized H(x): x times a learnable gate of K sigmoids.
+  """Generalized H(x): x times a learnable gate of K sigmoids.
 
     gate(x) = a0 + sum_k w_k * sigmoid(beta_k * (x - mu_k))
     out     = gate(x) * x
@@ -329,9 +339,9 @@ class GatedActivation(nn.Module):
 
 
 class PowerGatedActivation(nn.Module):
-  """
-  H(x) with a learnable, bounded power tail. Same leaky/Swish gate
-  as the paper's H, but the multiplied x becomes a signed power
+  """H(x) with a learnable, bounded power tail.
+
+  Same leaky/Swish gate as the paper's H, but the multiplied x becomes a signed power
   transform psi_p: linear near 0, ~|x|^p in the tail, with p
   learnable per element and confined to [p_min, p_max] (default
   [0.5, 1.5], between sqrt(x) and x^1.5). p = 1 recovers H.
@@ -383,11 +393,10 @@ class PowerGatedActivation(nn.Module):
 
 
 class GatedPowerActivation(nn.Module):
-  """
-  The full activation: a K-component multi-gate (bulk slope
-  schedule) times a bounded power-tail transform. Merges
-  GatedActivation (K gates) and PowerGatedActivation (tail
-  exponent), the two orthogonal generalizations of H(x).
+  """The full activation: a K-gate bulk schedule times a bounded power tail.
+
+  Merges GatedActivation (K gates) and PowerGatedActivation (tail
+  exponent), the two independent generalizations of H(x).
 
     gate(x) = a0 + sum_k w_k * sigmoid(beta_k * (x - mu_k))
     psi_p(x) = x * ((1 + |x|)^p - 1) / (p |x|)   (limit 1 at x=0)
@@ -460,8 +469,7 @@ class GatedPowerActivation(nn.Module):
 
 
 def make_activation(name, n_gates=3):
-  """
-  Activation factory by name, for a ResBlock's `act` slot.
+  """Activation factory by name, for a ResBlock's `act` slot.
 
   Maps a short name to a factory callable act(dim) -> module, the
   contract ResBlock's `act` expects (it calls act(size) once per
