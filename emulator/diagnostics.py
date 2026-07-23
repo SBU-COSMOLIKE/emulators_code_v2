@@ -348,8 +348,8 @@ def local_linear_floor(model,
   # shared score-domain boundary BEFORE any interpretation, and in its
   # COMPUTE dtype, not a.double() upcast: a geometry that strict
   # loading accepted but whose Cinv is not positive-definite can make this
-  # floor negative, which the old dchi2_floor > 0.2 test read as a PERFECT
-  # 0. screen_chi2 refuses it (or normalizes a within-band roundoff negative
+  # floor negative, which a bare dchi2_floor > 0.2 test would read as a
+  # PERFECT 0. screen_chi2 refuses it (or normalizes a within-band roundoff negative
   # to exact 0); only the accepted score is then cast to float64 to report.
   c_floor = chi2fn.chi2(pred=Tlin, target=Tva)
   c_floor = screen_chi2(c_floor, loss=chi2fn, label="local-linear floor")
