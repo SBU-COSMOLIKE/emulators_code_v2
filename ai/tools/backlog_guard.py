@@ -4,7 +4,16 @@
 Git preserves completed backlog updates. During an active ticket, the
 Architect may need to edit the backlog before the ticket lands. This tool
 keeps one small ignored state file beside it and records the exact bytes the
-Architect accepted for that landing.
+Architect accepted for that landing, as a SHA-256 fingerprint: a
+64-hexadecimal-character value computed from the file's exact bytes, where
+changing even one character produces an unrelated value.
+
+Three commands manage the state. ``check`` compares the backlog with the
+accepted fingerprint and changes nothing. ``initialize`` records the first
+fingerprint. ``seal`` accepts one deliberate Architect edit, and it demands
+the fingerprint that ``check`` printed before the edit, so every accepted
+state names its predecessor and the only path to a new seal is
+check, then edit, then seal, in that order.
 
 This is an accidental-change guard, not an authorization system.  A malicious
 program that can rewrite both local files can defeat it.  Its purpose is to
@@ -40,11 +49,30 @@ MAILBOX_ROLE_ENVIRONMENT = "MAILBOX_ROLE"
 
 
 class GuardError(RuntimeError):
-    """The backlog or its saved fingerprint cannot be trusted."""
+    """The backlog or its saved fingerprint cannot be trusted.
+
+    Any raise means the guard could not prove the accepted state, so
+    the caller must stop and inspect instead of continuing to edit or
+    approve work against unverified backlog bytes.
+    """
 
 
 def repository_root(repo_argument=None):
-    """Return the checkout named by the caller or containing this tool."""
+    """Return the checkout named by the caller or containing this tool.
+
+    Arguments:
+      repo_argument = the ``--repo`` value, or None. None selects the
+                      repository containing this file, found by walking
+                      two directory levels up from ``ai/tools/``. A
+                      given path is expanded (``~`` becomes the home
+                      folder) and resolved to an absolute location.
+
+    Returns:
+      The repository folder as an absolute ``Path``.
+
+    Raises:
+      GuardError when the named folder does not exist.
+    """
     if repo_argument is None:
         repo = Path(__file__).resolve().parents[2]
     else:
@@ -55,7 +83,24 @@ def repository_root(repo_argument=None):
 
 
 def _stat_signature(metadata):
-    """Return filesystem facts that change when one file is replaced."""
+    """Return filesystem facts that change when one file is replaced.
+
+    ``os.stat`` reports a file's metadata. Seven facts together
+    identify one unchanged file: the device and inode numbers name the
+    exact file object on disk (a replacement file gets a new inode
+    even under the same path name), the mode records the file kind and
+    permissions, the link count says how many directory names point at
+    the object, and the size plus the nanosecond modification and
+    change stamps expose an edit in place. Comparing two signatures
+    taken at different moments therefore answers: is this still the
+    same, untouched file?
+
+    Arguments:
+      metadata = one ``os.stat_result`` from ``lstat`` or ``fstat``.
+
+    Returns:
+      A tuple of the seven facts, ready for equality comparison.
+    """
     return (
         metadata.st_dev,
         metadata.st_ino,
@@ -68,7 +113,25 @@ def _stat_signature(metadata):
 
 
 def _require_plain_directory(path, label):
-    """Refuse a missing directory or one redirected through a link."""
+    """Refuse a missing directory or one redirected through a link.
+
+    ``lstat`` reports what the path itself is without following a
+    symbolic link, a small file that redirects to another path. A
+    symbolic link where a directory is expected would let the guard
+    read a backlog somewhere else entirely, so only a real directory
+    passes.
+
+    Arguments:
+      path  = the directory to inspect.
+      label = the short name used in the error, such as ``ai/notes``.
+
+    Returns:
+      None; a passing check does nothing.
+
+    Raises:
+      GuardError when the path is missing, unreadable, a link, or not
+      a directory.
+    """
     try:
         metadata = path.lstat()
     except OSError as error:
@@ -78,7 +141,22 @@ def _require_plain_directory(path, label):
 
 
 def guard_paths(repo):
-    """Return validated paths for the backlog, state, and write lock."""
+    """Return validated paths for the backlog, state, and write lock.
+
+    The three files live together in ``ai/notes/``: the tracked
+    ``backlog.md``, the ignored fingerprint state, and the ignored
+    persistent lock. Both parent directories are first proved to be
+    real directories, not symbolic-link redirects.
+
+    Arguments:
+      repo = the repository folder from ``repository_root``.
+
+    Returns:
+      The tuple ``(backlog_path, state_path, lock_path)``.
+
+    Raises:
+      GuardError from ``_require_plain_directory``.
+    """
     ai_directory = repo / "ai"
     notes_directory = ai_directory / "notes"
     _require_plain_directory(ai_directory, "ai")
@@ -91,7 +169,36 @@ def guard_paths(repo):
 
 
 def _read_regular_bytes(path, label, maximum_bytes):
-    """Read one stable regular file without following a final symlink."""
+    """Read one stable regular file without following a final symlink.
+
+    The guard's verdicts are only as good as its reads, so this reader
+    refuses every ambiguous situation instead of tolerating it:
+
+    - the path must be an ordinary file, not a symbolic link, checked
+      with ``lstat`` (which does not follow links) and opened with the
+      ``O_NOFOLLOW`` flag so the open itself also refuses a link;
+    - the file must have exactly one filesystem name (link count 1),
+      because a second hard link would let another path edit the same
+      bytes the guard just approved;
+    - the size must stay within ``maximum_bytes``, checked from
+      metadata before opening and again on the bytes actually read
+      (the loop reads one byte past the limit to detect growth);
+    - the seven-fact ``_stat_signature`` must be identical before the
+      open, after the open, after the read, and on a final fresh
+      ``lstat``, so a file swapped or edited mid-read is refused
+      rather than half-read.
+
+    Arguments:
+      path          = the file to read.
+      label         = the short name used in every error message.
+      maximum_bytes = the largest accepted file size in bytes.
+
+    Returns:
+      The file's exact bytes.
+
+    Raises:
+      GuardError naming the label and the first failed guarantee.
+    """
     try:
         before = path.lstat()
     except OSError as error:
@@ -143,12 +250,37 @@ def _read_regular_bytes(path, label, maximum_bytes):
 
 
 def _sha256(data):
-    """Calculate the canonical lowercase SHA-256 spelling."""
+    """Calculate the canonical lowercase SHA-256 spelling.
+
+    Arguments:
+      data = the exact bytes to fingerprint.
+
+    Returns:
+      The 64-character lowercase hexadecimal fingerprint. Lowercase is
+      the one accepted spelling everywhere in this tool, so string
+      comparison of two fingerprints is exact.
+    """
     return hashlib.sha256(data).hexdigest()
 
 
 def _state_document(digest, previous_digest=None):
-    """Build the only accepted state representation."""
+    """Build the only accepted state representation.
+
+    Two versions exist. Version 1 records an initialization: the
+    backlog's path and its accepted fingerprint. Version 2 records a
+    seal and adds ``previous_sha256``, the fingerprint the Architect
+    checked before editing, which is what chains each accepted state
+    to its predecessor and lets a crashed seal be recognized as a
+    harmless retry (see ``seal``).
+
+    Arguments:
+      digest          = the accepted backlog fingerprint.
+      previous_digest = the predecessor fingerprint for a seal, or
+                        None for an initialization.
+
+    Returns:
+      The state mapping with exactly the fields of its version.
+    """
     document = {
         "backlog": BACKLOG_RELATIVE_PATH.as_posix(),
         "sha256": digest,
@@ -161,13 +293,44 @@ def _state_document(digest, previous_digest=None):
 
 
 def _canonical_state_bytes(document):
-    """Encode state deterministically so incidental state edits are visible."""
+    """Encode state deterministically so incidental state edits are visible.
+
+    ``json.dumps`` with sorted keys and two-space indentation, plus one
+    trailing newline, gives every state document exactly one byte
+    representation. The parser later requires the stored bytes to
+    equal this encoding, so even an edit that preserves JSON meaning,
+    such as reordering keys or changing whitespace, changes the bytes
+    and is refused.
+
+    Arguments:
+      document = the state mapping from ``_state_document``.
+
+    Returns:
+      The canonical UTF-8 bytes.
+    """
     return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode(
         "utf-8")
 
 
 def _reject_duplicate_json_pairs(pairs):
-    """Build the state object while refusing any repeated JSON field."""
+    """Build the state object while refusing any repeated JSON field.
+
+    Used as the ``object_pairs_hook`` of ``json.loads``, which
+    otherwise keeps only the last spelling of a repeated key. A state
+    file that spelled ``sha256`` twice could show one value to a human
+    and a different value to the program; refusing the repeat keeps
+    one reading.
+
+    Arguments:
+      pairs = the ``(key, value)`` tuples of one JSON object, in file
+              order, supplied by ``json.loads``.
+
+    Returns:
+      A plain ``dict`` in which each field appeared exactly once.
+
+    Raises:
+      GuardError naming the repeated field.
+    """
     document = {}
     for key, value in pairs:
         if key in document:
@@ -177,7 +340,26 @@ def _reject_duplicate_json_pairs(pairs):
 
 
 def _parse_state(data):
-    """Parse and validate the complete saved state file."""
+    """Parse and validate the complete saved state file.
+
+    Acceptance requires, in order: strict UTF-8 JSON with no repeated
+    field; one JSON object; exactly the fields of its version (the
+    sealed version 2 adds ``previous_sha256``, and nothing else may
+    appear); a version that is exactly the integer 1 or 2; the
+    backlog path this tool protects; well-formed lowercase SHA-256
+    values; and, last, bytes equal to the canonical encoding of the
+    parsed document, so a state file has exactly one accepted
+    spelling.
+
+    Arguments:
+      data = the exact bytes of the state file.
+
+    Returns:
+      The validated state mapping.
+
+    Raises:
+      GuardError on the first violated rule.
+    """
     try:
         text = data.decode("utf-8", errors="strict")
         document = json.loads(
@@ -214,14 +396,45 @@ def _parse_state(data):
 
 
 def _read_state(state_path):
-    """Read and validate the saved state; return its bytes and document."""
+    """Read and validate the saved state; return its bytes and document.
+
+    Arguments:
+      state_path = the state file beside the backlog.
+
+    Returns:
+      The tuple ``(bytes, document)``: callers that must detect a
+      mid-operation state change compare the raw bytes of two reads,
+      not only the parsed values.
+
+    Raises:
+      GuardError from the stable read or from ``_parse_state``.
+    """
     data = _read_regular_bytes(
         state_path, "backlog guard state", MAX_STATE_BYTES)
     return data, _parse_state(data)
 
 
 def _require_architect(acknowledged):
-    """Allow writes only from the mailbox Architect or explicit manual use."""
+    """Allow writes only from the mailbox Architect or explicit manual use.
+
+    The mailbox daemon launches every role session with the
+    environment variable ``MAILBOX_ROLE`` naming that session's role,
+    so inside a role process the identity is not a matter of opinion.
+    When the variable names a role, only ``architect`` may write; an
+    Implementer or Red Team process is refused by name. When the
+    variable is absent, the command is a person at a terminal, and the
+    explicit ``--architect-ack`` flag is that person's acknowledgment
+    of the Architect-only rule.
+
+    Arguments:
+      acknowledged = True when ``--architect-ack`` was given.
+
+    Returns:
+      None; a permitted write continues.
+
+    Raises:
+      GuardError naming the refused role, or asking for the flag.
+    """
     role = os.environ.get(MAILBOX_ROLE_ENVIRONMENT, "").strip()
     if role:
         if role.casefold() != "architect":
@@ -235,13 +448,33 @@ def _require_architect(acknowledged):
 
 
 class _WriteLock:
-    """Hold one crash-released lock on the persistent lock file."""
+    """Hold one crash-released lock on the persistent lock file.
+
+    Two guard commands writing state at the same time could interleave
+    their read-check-write sequences and publish a state neither of
+    them verified. The lock serializes writers through ``flock``, an
+    advisory kernel lock on an open file: advisory means only programs
+    that ask for the lock are affected, and kernel-owned means the
+    lock disappears automatically when the holding process exits or
+    crashes, so a died writer can never leave the guard permanently
+    locked. The lock is requested exclusively and without waiting
+    (``LOCK_EX | LOCK_NB``), so a second writer fails immediately with
+    an explanation instead of queueing invisibly. The holder's process
+    number is written into the file purely as a human diagnostic.
+
+    Entering also re-proves the lock file itself: it must be one
+    ordinary file with one name, and the open descriptor must still
+    name the same device and inode as the path, so a link or a swap
+    cannot redirect the serialization elsewhere.
+    """
 
     def __init__(self, path):
+        """Remember the lock path; nothing is opened until ``with``."""
         self.path = path
         self.descriptor = None
 
     def __enter__(self):
+        """Acquire the exclusive lock or raise; returns this holder."""
         flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_CLOEXEC"):
             flags |= os.O_CLOEXEC
@@ -291,6 +524,7 @@ class _WriteLock:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Release the lock and close the descriptor; never swallows."""
         if self.descriptor is not None:
             try:
                 fcntl.flock(self.descriptor, fcntl.LOCK_UN)
@@ -301,7 +535,30 @@ class _WriteLock:
 
 
 def _atomic_write_state(state_path, document):
-    """Save canonical state beside the backlog and leave no partial file."""
+    """Save canonical state beside the backlog and leave no partial file.
+
+    The write follows the standard crash-safe sequence. The bytes go
+    to a uniquely named temporary file first, created with ``O_EXCL``
+    so an existing name is never reused, and ``fsync`` forces them to
+    disk. ``os.replace`` then swaps the temporary name onto the real
+    name in one atomic step: every observer sees either the complete
+    old state or the complete new state, never a half-written file. A
+    final ``fsync`` on the directory makes the name change itself
+    durable, because renaming edits the directory, not the file. The
+    ``finally`` clause removes the temporary file on any failure, so a
+    crashed write leaves evidence, not debris that a later run might
+    mistake for state.
+
+    Arguments:
+      state_path = the real state-file path.
+      document   = the state mapping from ``_state_document``.
+
+    Returns:
+      None.
+
+    Raises:
+      GuardError wrapping the first failed file operation.
+    """
     data = _canonical_state_bytes(document)
     temporary = state_path.with_name(
         ".backlog-guard.json.tmp-" + str(os.getpid()) + "-" + uuid.uuid4().hex)
@@ -337,7 +594,27 @@ def _atomic_write_state(state_path, document):
 
 
 def check(repo):
-    """Return the accepted digest after comparing exact current bytes."""
+    """Return the accepted digest after comparing exact current bytes.
+
+    Read-only, and safe for any role to run. The backlog and the state
+    file are each read twice, and both reads must return identical
+    bytes: without the second look, a file being edited during the
+    check could produce a verdict about a state that never existed on
+    disk. Only then is the backlog's fingerprint compared with the
+    accepted one, and the mismatch error names both values so the
+    reader can see immediately which side moved.
+
+    Arguments:
+      repo = the repository folder from ``repository_root``.
+
+    Returns:
+      The accepted SHA-256, for the Architect to copy into a later
+      ``seal --previous-sha256``.
+
+    Raises:
+      GuardError on unreadable or unstable files, a malformed state,
+      or a fingerprint mismatch.
+    """
     backlog_path, state_path, _ = guard_paths(repo)
     backlog = _read_regular_bytes(
         backlog_path, "ai/notes/backlog.md", MAX_BACKLOG_BYTES)
@@ -359,7 +636,27 @@ def check(repo):
 
 
 def initialize(repo, acknowledged=False):
-    """Create first state for an existing backlog."""
+    """Create first state for an existing backlog.
+
+    Architect-only (see ``_require_architect``). Under the write lock,
+    a still-missing state file is created from the backlog's current
+    fingerprint and immediately re-verified through ``check``. When a
+    state file already exists, the command does not overwrite it:
+    a previous ``initialize`` may have published the complete state
+    and died before reporting success, so the retry simply runs
+    ``check`` and accepts only that exact already-published result.
+    Repeating the command is therefore always safe.
+
+    Arguments:
+      repo         = the repository folder from ``repository_root``.
+      acknowledged = True when ``--architect-ack`` was given.
+
+    Returns:
+      The accepted SHA-256.
+
+    Raises:
+      GuardError when authority, the files, or the verification fail.
+    """
     _require_architect(acknowledged)
     backlog_path, state_path, lock_path = guard_paths(repo)
     with _WriteLock(lock_path):
@@ -387,7 +684,39 @@ def initialize(repo, acknowledged=False):
 
 
 def seal(repo, previous_digest, acknowledged=False):
-    """Replace accepted state after proving which state was checked first."""
+    """Replace accepted state after proving which state was checked first.
+
+    Architect-only. The caller must present the fingerprint that
+    ``check`` printed before the edit, and it must equal the currently
+    saved one; a stale or guessed value is refused with instructions
+    to run ``check`` first. This is what makes the seal a chain: the
+    new state records the presented value as ``previous_sha256``, so
+    every accepted state names its predecessor, and skipping the check
+    step is structurally impossible.
+
+    One deliberate exception keeps a crash harmless. If an earlier
+    ``seal`` wrote the new state and died before reporting success,
+    the retry presents a value that no longer matches the saved
+    ``sha256`` but does match the saved ``previous_sha256``. When the
+    backlog also still verifies against that saved state, the retry is
+    recognized as a no-op and returns the already-accepted value; any
+    later edit still fails the check. Before the atomic replacement,
+    both files are read a second time and must be byte-identical to
+    the first read, so nothing changed while the command was deciding.
+
+    Arguments:
+      repo            = the repository folder from ``repository_root``.
+      previous_digest = the accepted SHA-256 printed by ``check``
+                        before the backlog edit.
+      acknowledged    = True when ``--architect-ack`` was given.
+
+    Returns:
+      The newly accepted SHA-256 of the edited backlog.
+
+    Raises:
+      GuardError when authority, the chain proof, file stability, or
+      the final verification fail.
+    """
     _require_architect(acknowledged)
     if SHA256_RE.fullmatch(previous_digest or "") is None:
         raise GuardError("--previous-sha256 must be 64 lowercase hex characters")
@@ -434,7 +763,15 @@ def seal(repo, previous_digest, acknowledged=False):
 
 
 def build_parser():
-    """Build the ``check`` / ``initialize`` / ``seal`` command parser."""
+    """Build the ``check`` / ``initialize`` / ``seal`` command parser.
+
+    Returns:
+      The ``argparse`` parser with the global ``--repo`` option and
+      the three subcommands; ``initialize`` and ``seal`` carry the
+      ``--architect-ack`` acknowledgment, and ``seal`` requires
+      ``--previous-sha256``. Kept separate from ``main`` so tests can
+      inspect the command surface without running a command.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Detect accidental changes to the Architect-owned backlog."))
