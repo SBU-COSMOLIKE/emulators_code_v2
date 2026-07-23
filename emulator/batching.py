@@ -3,15 +3,16 @@
 This module decides where each source's data lives and hands the
 training loop two loader functions (rows -> whitened param inputs,
 rows -> encoded targets) that hide that choice; each is a closure, a
-small function that remembers the arrays it was built around. compute_batch_byte_terms names every
-per-batch buffer, compute_batch_size_bytes sums those terms, and
-compute_model_size_bytes and batches_per_load plan resident and chunk memory.
-_build_loaders_one picks one of three regimes against a VRAM budget
-(VRAM = the GPU's own memory): pre-encode the target set on the GPU,
-stream from RAM, or stream from a disk memmap; it reports the bytes it
-made resident. build_loaders runs it
-per source (train, then val against the reduced budget) and returns the
-data dict the loop consumes.
+small function that remembers the arrays it was built around.
+compute_batch_byte_terms names every per-batch buffer,
+compute_batch_size_bytes sums those terms, and
+compute_model_size_bytes and batches_per_load plan resident and chunk
+memory. _build_loaders_one picks one of three regimes against a VRAM
+budget (VRAM = the GPU's own memory): pre-encode the target set on the
+GPU, stream from RAM, or stream from a disk memmap; it reports the
+bytes it made resident. build_loaders runs it per source (train, then
+val against the reduced budget) and returns the data dict the loop
+consumes.
 
 The regime ladder, per source:
 
@@ -36,11 +37,13 @@ The regime ladder, per source:
     (legend: n_used = distinct rows this source loads; Ncosmo =
      parameter count; enc_dvs = bytes of the encoded target set;
      resident = model + Cinv + encoded params, bytes pinned on
-     the GPU for the whole run; tgt_dim = target width, out_dim
-     unless the loss stages a wider one via target_dim; budget =
-     the VRAM bytes this source may plan against; 0.8 = the planning
-     headroom factor (plan against 0.8 * budget, leaving ~20% for
-     allocator slack and fragmentation), as in batches_per_load.)
+     the GPU for the whole run, where Cinv is the inverse of the
+     data covariance matrix — the chi2's weight matrix; tgt_dim =
+     target width, out_dim unless the loss stages a wider one via
+     target_dim; budget = the VRAM bytes this source may plan
+     against; 0.8 = the planning headroom factor (plan against
+     0.8 * budget, leaving ~20% for allocator slack and
+     fragmentation), as in batches_per_load.)
 
 PS: a loader is a closure ``load(rows) -> tensor``. Its row numbers address
 the active source array. For a compact RAM copy they are local coordinates
@@ -72,19 +75,23 @@ def compute_batch_byte_terms(
     dv_len=3000,
     target_dim=None,
     target_dtype=None):
-  """
-  Name every GPU-memory term owned by one training batch.
+  """Name every GPU-memory term owned by one training batch.
 
-  Measures the autograd-saved activations of a real forward pass
-  (a spy pair of saved-tensor hooks, see the body) and adds the
-  batch input/output buffers and the chi2's per-batch float64
-  scratch. The target is a separate term because packed-target
-  losses can stage more values than the model predicts. Only shapes
-  matter, so the probe runs on zeros.
+  autograd is PyTorch's automatic-differentiation engine: during the
+  forward pass it saves the intermediate tensors (the "activations")
+  it will need to compute gradients in the backward pass, and those
+  saved tensors are usually the batch's largest memory term.  This
+  probe measures them on a real forward pass (a spy pair of
+  saved-tensor hooks, see the body) and adds the batch input/output
+  buffers and the chi2's per-batch float64 scratch. The target is a
+  separate term because packed-target losses can stage more values
+  than the model predicts. Only shapes matter, so the probe runs on
+  zeros.
 
   Arguments:
     model       = the network; probed with one dummy forward.
-    bs          = minibatch size the estimate is for.
+    bs          = minibatch size (rows per gradient step) the
+                  estimate is for.
     sample_dims = shape of one model input, no batch axis (the
                   cosmo param vector: (Ncosmo,)).
     dv_len      = full dv length the chi2 un-squeezes to (~3000
@@ -193,8 +200,7 @@ def compute_batch_size_bytes(
     dv_len=3000,
     target_dim=None,
     target_dtype=None):
-  """
-  Return the total GPU bytes owned by one training batch.
+  """Return the total GPU bytes owned by one training batch.
 
   Keeping this integer-returning wrapper preserves the original public
   call for ordinary targets. The named-term function
@@ -225,12 +231,14 @@ def compute_batch_size_bytes(
 
 
 def compute_model_size_bytes(model):
-  """
-  Bytes the model keeps resident for the whole run.
+  """Bytes the model keeps resident for the whole run.
 
-  Counts weights, gradients, and the optimizer's per-parameter
-  state, budgeted at the worst typical case. opt_state = state
-  tensors the optimizer keeps per param (each param-sized):
+  Counts weights, gradients, and the optimizer's per-parameter state,
+  budgeted at the worst typical case. The optimizer is the update
+  rule (SGD, Adam, ...) that turns gradients into weight changes;
+  most rules keep extra running quantities per parameter, each the
+  size of the parameter tensor itself. opt_state = how many such
+  state tensors the rule keeps:
 
       SGD (plain)                    0
       SGD+momentum, Adagrad,         1
@@ -263,12 +271,13 @@ def batches_per_load(
     dv_len=3000,
     target_dim=None,
     target_dtype=None):
-  """
-  Batches per streamed chunk that fit the VRAM budget.
+  """Batches per streamed chunk that fit the VRAM budget.
 
   Resident memory keeps the established model-plus-precision-matrix
-  definition. The streamed chunk gets what is left of 0.8 * budget,
-  divided by one batch's cost.
+  definition: the precision matrix is Cinv, the inverse of the data
+  covariance, held in float64 as the chi2's weight. The streamed
+  chunk gets what is left of 0.8 * budget, divided by one batch's
+  cost.
 
   Arguments:
     model        = the network (sizes the resident + probe cost).
@@ -328,16 +337,17 @@ def _build_loaders_one(device, C, dv, idx,
                        param_geometry, chi2fn,
                        model, bs, budget,
                        dv_len=3000, CHUNK=1000):
-  """
-  Build the two data loaders for one source, a train or val
-  file, and decide where that source's data lives. Both take
-  row coordinates into the active C/dv arrays; a `slots` helper
-  maps those to local positions in the compact resident subset
-  (see below), so the rest of the pipeline is identical wherever
-  the data ended up (see Returns for the four outputs). The
-  params are always encoded once and kept on the GPU (tiny,
-  n_used x Ncosmo), so only the data vectors (the large array)
-  change placement, by a memory ladder against `budget`:
+  """Build the two data loaders for one source and place its data.
+
+  One source is a train or val file. Both returned loaders take row
+  coordinates into the active C/dv arrays; a `slots` helper maps
+  those to local positions in the compact resident subset (see
+  below), so the rest of the pipeline is identical wherever the data
+  ended up (see Returns for the four outputs). The params are always
+  encoded once and kept on the GPU (tiny, n_used x Ncosmo), so only
+  the data vectors (the large array) change placement, by a memory
+  ladder against `budget`:
+
     Regime 1 (resident gather): the encoded set fits, so
       pre-encode it once; a batch is pure on-device indexing.
     Regime 2 (RAM stream): does not fit but the dvs are an in-RAM
@@ -345,18 +355,21 @@ def _build_loaders_one(device, C, dv, idx,
       fly (pinned memory on CUDA).
     Regime 3 (disk stream): the dvs exceed RAM (a np.memmap), so
       the same per-chunk path reads from disk.
-  Resident memory = model + the chi2's Cinv + the encoded
-  params; the dvs get what is left (0.8 * budget - resident), and
-  `fits` decides regime 1 versus streaming. The orchestrator
-  subtracts the returned `used` before sizing the next source,
-  so two sequential builds share one GPU without overrunning it.
-  Works for the plain CosmolikeChi2 (encode takes the dv alone)
-  and the param-aware losses (RescaledChi2 / ResidualBase /
+
+  Resident memory = model + the chi2's Cinv (the inverse data
+  covariance, the chi2's weight matrix) + the encoded params; the
+  dvs get what is left (0.8 * budget - resident), and `fits` decides
+  regime 1 versus streaming. The orchestrator subtracts the returned
+  `used` before sizing the next source, so two sequential builds
+  share one GPU without overrunning it.
+
+  Works for the plain CosmolikeChi2 (encode takes the dv alone) and
+  the param-aware losses (RescaledChi2 / ResidualBase /
   PCEResidualChi2 / PCERatioChi2), whose encode also takes this
-  block's whitened params (the resident C_used rows) to build R
-  or the PCE base; the `rescaled` flag branches encode. A loss
-  may also stage a wider target via a target_dim attribute (see
-  tgt_dim below).
+  block's whitened params (the resident C_used rows) to build R or
+  the PCE base; the `rescaled` flag branches encode. A loss may also
+  stage a wider target via a target_dim attribute (see tgt_dim
+  below).
 
   Arguments:
     device     = target device for the staged tensors.
@@ -571,14 +584,15 @@ def _build_loaders_one(device, C, dv, idx,
 def build_loaders(device, train_set, val_set, param_geometry, 
                   chi2fn, model, bs, budget,
                   dv_len=3000, CHUNK=1000):
-  """
-  Build the train and val loaders, return the data dict the
-  training loop and eval_val consume. Train and validation are passed as
-  separate source dictionaries and receive separate loader closures through
-  _build_loaders_one. Separate file names do not prove that the files contain
-  different cosmologies; this function does not test physical-row
-  disjointness. The same training-built param_geometry and chi2fn transform
-  both sources.
+  """Build the train and val loaders and return the training data dict.
+
+  Train and validation are passed as separate source dictionaries and
+  receive separate loader closures through _build_loaders_one; the
+  returned dict is what the training loop and eval_val consume.
+  Separate file names do not prove that the files contain different
+  cosmologies; this function does not test physical-row disjointness.
+  The same training-built param_geometry and chi2fn transform both
+  sources.
 
   Arguments:
     device     = target device.
