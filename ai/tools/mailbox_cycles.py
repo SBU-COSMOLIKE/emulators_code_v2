@@ -97,7 +97,19 @@ def fsync_directory(directory):
 
 
 def acquire_mailbox_sequence_lock():
-    """Acquire the publication lock without following or blocking on devices."""
+    """Take the lock that serializes writing new mailbox messages.
+
+    The lock file lives inside the mailbox and is opened defensively:
+    symlinks are refused, the opened descriptor must still be the file
+    at the lock path after the lock is held, and the mailbox directory
+    itself must not have been swapped underneath. Any of those
+    surprises releases the attempt instead of trusting it.
+
+    Returns:
+      The open, exclusively locked file object, or ``None`` after
+      printing why publication is blocked. The caller must pass the
+      object to release_mailbox_sequence_lock when done.
+    """
     lock_path = daemon.os.path.join(daemon.MAILBOX, ".sequence.lock")
     try:
         parent = daemon.os.lstat(daemon.MAILBOX)
@@ -274,12 +286,23 @@ def report_role_token_exhaustion(error):
 
 
 def ticket_cycle_state_path():
-    """Return the ignored daemon-owned ticket-cycle state path."""
+    """Name the file holding the daemon's durable ticket-cycle state.
+
+    Returns:
+      The path of the Git-ignored JSON state file inside the mailbox
+      directory.
+    """
     return daemon.os.path.join(daemon.MAILBOX, daemon.TICKET_CYCLE_STATE_NAME)
 
 
 def empty_ticket_cycle_state():
-    """Return a new strict ticket-cycle state value."""
+    """Build the starting value for a mailbox with no saved state yet.
+
+    Returns:
+      A fresh state dictionary: schema tag, generation counter, zero
+      pending cycle returns, no finite-watch record, and empty
+      admission, active, completed, and control-plane-history tables.
+    """
     return {
         "schema": daemon.TICKET_CYCLE_STATE_SCHEMA,
         "generation": 0,
@@ -293,7 +316,14 @@ def empty_ticket_cycle_state():
 
 
 def empty_control_plane_state():
-    """Return the durable two-key state for one protected candidate."""
+    """Build the empty two-key record for one protected candidate.
+
+    Returns:
+      A record whose every field is ``None``: the Architect's GO(C)
+      key, the Red Team's decision key, and the shadow, integration,
+      stale-landing, and health check results that fill in as the
+      protected landing advances.
+    """
     return {
         "architect_candidate": None,
         "redteam_result": None,
@@ -753,7 +783,21 @@ def validate_ticket_cycle_state(payload):
 
 
 def read_ticket_cycle_state():
-    """Read the bounded daemon state; a clean missing file starts empty."""
+    """Read and validate the durable ticket-cycle state from disk.
+
+    A missing file is the one clean absence: it means no daemon has
+    recorded anything yet, so the empty starting state is returned.
+    Everything else must parse as strict JSON with unique keys and pass
+    full schema validation before any caller may act on it.
+
+    Returns:
+      The validated state dictionary, in the shape built by
+      empty_ticket_cycle_state.
+
+    Raises:
+      daemon.TicketCycleStateError: for an unreadable, oversized,
+        non-JSON, duplicate-key, or schema-invalid state file.
+    """
     try:
         raw = daemon.stable_regular_bytes(
             path=daemon.ticket_cycle_state_path(),
@@ -845,7 +889,19 @@ def write_ticket_cycle_state(state):
 
 
 def acquire_ticket_cycle_lock():
-    """Serialize state changes made by independent working-directory lanes."""
+    """Take the lock that serializes every ticket-cycle state change.
+
+    Lane workers run in parallel threads, so every read-modify-write of
+    the durable state file must happen under this one exclusive lock.
+
+    Returns:
+      The open, exclusively locked file object; pass it to
+      release_ticket_cycle_lock when the state change is durable.
+
+    Raises:
+      daemon.TicketCycleStateError: when the lock file cannot be
+        opened or locked.
+    """
     daemon.os.makedirs(daemon.MAILBOX, exist_ok=True)
     path = daemon.os.path.join(daemon.MAILBOX, daemon.TICKET_CYCLE_LOCK_NAME)
     try:
@@ -875,6 +931,16 @@ def record_pending_ticket_cycle_return(state):
     in the same atomic state replacement as completion. If the process dies
     before its in-memory controller is updated, the next watch can replay
     exactly this durable count.
+
+    Arguments:
+      state = the in-memory state dictionary being prepared for its
+              atomic write; its pending-return counter is incremented
+              in place, and the caller writes the state afterwards.
+
+    Raises:
+      daemon.TicketCycleStateError: when the saved finite-watch record
+        disagrees with the live controller, or the pending counter is
+        already at its bound.
     """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     if controller is None:
@@ -1018,6 +1084,14 @@ def deliver_pending_ticket_cycle_returns():
     The controller is updated before the acknowledgement is written. A crash
     in that narrow gap replays the return into the replacement process; it
     can never lose the return from both durable and in-memory state.
+
+    Returns:
+      The number of pending returns delivered into the live cycle
+      controller; 0 when no watch is active or no state file exists.
+
+    Raises:
+      daemon.TicketCycleStateError: when the saved finite-watch
+        progress disagrees with the live controller.
     """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     if controller is None:
@@ -1193,11 +1267,39 @@ def register_ticket_cycle_message(
         path_scope=None, ticket_class="ordinary"):
     """Register a ticket exchange or post-commit review before dispatch.
 
-    Returns ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
-    ``(cycle_id, None)`` for an Architect/Implementer exchange, and
-    ``(None, None)`` for cycle-free policy review or unrelated work. A new
-    ticket reserves one positive ``--cycle`` slot before its mailbox file is
-    claimed.
+    A new ticket reserves one positive ``--cycle`` slot before its
+    mailbox file is claimed, so a crash between claim and launch cannot
+    admit more tickets than the finite watch allows.
+
+    Arguments:
+      agent          = the recipient role: "fable", "opus", or "sol".
+      message        = the decoded message being dispatched.
+      skip_redteam   = True when this watch runs without the Red Team
+                       route.
+      return_reservation = True to also report whether this call
+                       created a new active-cycle record.
+      architect_admission = the public-request admission token a first
+                       Implementer handoff converts, or ``None``.
+      implementer_request_name = the handoff's mailbox filename, used
+                       to bind the reservation to its exact file.
+      path_scope     = the frozen list of paths the ticket may touch,
+                       or ``None`` for no freeze.
+      ticket_class   = "ordinary", or "protected-control-plane" for
+                       daemon-tool work needing the two-key landing.
+
+    Returns:
+      ``(cycle_id, accepted_commit)`` for a normal Red Team closure,
+      ``(cycle_id, None)`` for an Architect/Implementer exchange, and
+      ``(None, None)`` for cycle-free policy review or unrelated work.
+      With ``return_reservation`` True, the same pairs extended by a
+      third value: True only when a new active record was created.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed envelope, a
+        completed or conflicting cycle, a topology mismatch, or an
+        invalid admission binding.
+      daemon.TicketCycleLimitDeferred: for a valid new ticket beyond
+        the finite watch's remaining capacity.
     """
     cycle_id = None
     accepted_commit = None
@@ -1573,8 +1675,22 @@ def complete_protected_ticket_cycle(cycle_id, candidate_commit, landing):
 def record_architect_commit(cycle_id, accepted_commit, mode):
     """Record the daemon squash landing accepted by one Architect GO.
 
-    Returns ``1`` when a two-role ticket completes at this landing record. A
-    normal ticket returns ``0`` and waits for its correlated Red Team pass.
+    Arguments:
+      cycle_id        = the ticket cycle the GO decided.
+      accepted_commit = L, the daemon-recorded local landing commit.
+      mode            = the ticket's saved topology, "normal" or
+                        "two-role".
+
+    Returns:
+      1 when a two-role ticket completes at this landing record; 0 for
+      a normal ticket, which stays active awaiting its correlated Red
+      Team pass, and 0 for an exact landing already recorded.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid record, a cycle
+        completed at a different landing, a missing or wrong-phase
+        active record, a changed mode, or a landing that is not a new
+        descendant of the cycle base.
     """
     if (not isinstance(cycle_id, str)
             or daemon.CYCLE_ID_RE.fullmatch(cycle_id) is None
@@ -1639,6 +1755,17 @@ def active_ticket_cycle_count(skip_redteam=False, exclude_admission=None):
 
     Each topology counts only tickets it can advance. Valid work saved for a
     different topology remains active and untouched for a later watch.
+
+    Arguments:
+      skip_redteam      = True when this watch runs without the Red
+                          Team route.
+      exclude_admission = a request basename whose own charged
+                          admission must not count against it, or
+                          ``None``.
+
+    Returns:
+      The number of active cycles plus charged public admissions this
+      watch topology can advance.
     """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
@@ -1926,7 +2053,23 @@ def _require_safe_noop_admin_recovery(base_commit):
 
 
 def reconcile_architect_notes_admin_journals():
-    """Validate every admin journal and retire only proved done no-ops."""
+    """Validate every permanent-note admin journal left on disk.
+
+    Each journal binds one Architect notes-admin request to its saved
+    recovery phase. Startup walks them all: a pre-child journal for an
+    archived request is an error, a validated no-op whose request
+    already archived is retired, and a validated-commit journal must
+    still match its GO receipt, its exact P commit, and a healthy
+    primary checkout before startup may proceed.
+
+    Returns:
+      The number of proved-done no-op journals retired.
+
+    Raises:
+      daemon.TicketCycleStateError: for a malformed journal name, an
+        unverifiable saved request, an invalid request state, or a
+        commit journal whose bindings no longer hold.
+    """
     prefix = ".pending-notes-admin-"
     suffix = ".json"
     pattern = daemon.os.path.join(daemon.RELAY_DIR, prefix + "*" + suffix)
@@ -1999,7 +2142,23 @@ def reconcile_architect_notes_admin_journals():
 
 
 def reconcile_inflight_architect_notes_admin():
-    """Archive only post-child admin results proved by their durable journal."""
+    """Archive inflight notes-admin results their journals prove finished.
+
+    An admin request stuck in ``inflight/`` is resolved only by its
+    durable journal, never by inference from P or GO files. A journal
+    still in its pre-child phase stops recovery loudly, because the
+    child may be alive. A validated no-op or validated commit is
+    re-proved against its bindings, archived, and — for the no-op —
+    has its journal removed.
+
+    Returns:
+      The number of validated admin results archived.
+
+    Raises:
+      daemon.TicketCycleStateError: for an unverifiable or malformed
+        inflight admin, a missing journal, a pre-child journal, or a
+        failed archive move.
+    """
     recovered = 0
     paths = sorted(daemon.glob.glob(daemon.os.path.join(
         daemon.MAILBOX, "inflight", "*-to-fable.md")), key=daemon.message_sequence)
@@ -2068,8 +2227,13 @@ def reconcile_inflight_architect_notes_admin():
 def reconcile_ticket_cycle_state():
     """Recover cycle state from durable pending and completed messages.
 
-    Returns the number of cycles newly completed during recovery. Historical
-    messages already represented in state are idempotent and return zero.
+    Historical messages already represented in state are idempotent and
+    contribute nothing; only work the saved state has not yet absorbed
+    changes anything.
+
+    Returns:
+      The number of cycles newly completed during recovery; zero when
+      every durable message was already represented.
     """
     # Validate even when the mailbox has no messages. Corrupt daemon state is
     # never permission to claim a drain or positive cycle complete.
@@ -2407,7 +2571,17 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
         return False
 
     def refusal_now():
-        """Return a current Sol-send refusal without changing disk."""
+        """Check every send precondition without changing disk.
+
+        Non-Sol recipients only need the severity and scope flags to
+        be absent. A Sol send must additionally clear the active
+        two-role policy, the ticket-kind rules, and the backlog
+        admission counts.
+
+        Returns:
+          A printable refusal reason, or ``None`` when the send may
+          proceed.
+        """
         if agent != "sol":
             if severity is not None:
                 return "--severity is valid only with --send sol discovery"
@@ -2501,7 +2675,23 @@ def send(agent, text, dry_run, ticket_kind=None, severity=None, scope=None):
 
 
 def recover_failed_maintenance_admission():
-    """Requeue one failed fix-only request on restart."""
+    """Requeue one parked fix-only request whose slot is still charged.
+
+    A fix-only maintenance request parked in ``failed/`` while its
+    admission stayed charged is safe to retry: its saved digest is
+    re-proved, any duplicate fix-only requests waiting in the root are
+    parked so only one runs, and the exact original file returns to the
+    mailbox root.
+
+    Returns:
+      The requeued mailbox-root path, or ``None`` when no charged
+      fix-only request is parked.
+
+    Raises:
+      daemon.TicketCycleStateError: when locks cannot be taken, a
+        parked request changed identity, several maintenance requests
+        are parked at once, or a move fails.
+    """
     sequence_lock = daemon.acquire_mailbox_sequence_lock()
     if sequence_lock is None:
         raise daemon.TicketCycleStateError("cannot lock recovery")
