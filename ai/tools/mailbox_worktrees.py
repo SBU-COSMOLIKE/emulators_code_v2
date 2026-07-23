@@ -158,7 +158,16 @@ def repo_root_of(worktree):
 
 
 def candidate_forbidden_files_from_contract(contract):
-    """Return paths that no Implementer candidate may change."""
+    """Return paths that no Implementer candidate may change.
+
+    Arguments:
+      contract = the validated role contract.
+
+    Returns:
+      Frozen set combining the contract's candidate-forbidden files,
+      permanent notes, protected reference files, role files, and the
+      contract itself.
+    """
     protected = contract["protected_paths"]
     return frozenset(
         protected["candidate_forbidden_files"]
@@ -169,7 +178,15 @@ def candidate_forbidden_files_from_contract(contract):
 
 
 def control_plane_files_from_contract(contract):
-    """Return the historical tool set needed to refuse old saved work."""
+    """Return the historical tool set needed to refuse old saved work.
+
+    Arguments:
+      contract = the validated role contract.
+
+    Returns:
+      Frozen set of the guard files and trusted tools; saved work
+      touching them is refused unless its class unlocked them.
+    """
     protected = contract["protected_paths"]
     return frozenset(
         list(protected["guard_files"].values())
@@ -183,7 +200,25 @@ def _local_role_contract_tool():
 
 
 def validate_role_contract_bindings(contract=None):
-    """Validate one policy snapshot and its non-configurable safety floor."""
+    """Validate one policy snapshot and its non-configurable safety floor.
+
+    With no argument, the contract on disk is reloaded and must equal
+    the one this process started with; a supplied contract is
+    validated on its own. Either way the worktree policy, cleanup
+    branch prefixes, and mailbox-protection prefixes must match the
+    running configuration exactly.
+
+    Arguments:
+      contract = a contract mapping to validate, or ``None`` to
+                 recheck the on-disk file against startup policy.
+
+    Returns:
+      The validated contract.
+
+    Raises:
+      RoleContractError: for a changed, invalid, or mismatched
+        contract.
+    """
     tool = daemon._local_role_contract_tool()
     if contract is None:
         contract = tool.load_role_contract(
@@ -254,12 +289,24 @@ def role_contract_exit_status():
 
 
 def _raise_walk_error(error):
-    """Make ``os.walk`` traversal failures explicit instead of suppressing."""
+    """Make ``os.walk`` traversal failures explicit instead of suppressing.
+
+    Arguments:
+      error = the traversal error to re-raise.
+    """
     raise error
 
 
 def primary_state_paths(repository_root):
-    """Return every deterministic path used by primary-worktree bootstrap."""
+    """Return every deterministic path used by primary-worktree bootstrap.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+
+    Returns:
+      Mapping with the managed root, the saved state and lock files,
+      and the default worktree path and branch for the Architect.
+    """
     repository = daemon.os.path.abspath(repository_root)
     managed_root = daemon.os.path.join(repository, ".claude", "worktrees")
     return {
@@ -272,7 +319,15 @@ def primary_state_paths(repository_root):
 
 
 def sol_state_paths(repository_root):
-    """Return every deterministic path used by Sol-worktree bootstrap."""
+    """Return every deterministic path used by Sol-worktree bootstrap.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+
+    Returns:
+      Mapping with the managed root, the saved state file, and the
+      default worktree path and branch for the Red Team.
+    """
     repository = daemon.os.path.abspath(repository_root)
     managed_root = daemon.os.path.join(repository, ".claude", "worktrees")
     return {
@@ -284,7 +339,15 @@ def sol_state_paths(repository_root):
 
 
 def implementer_state_paths(repository_root):
-    """Return deterministic paths used by Implementer bootstrap."""
+    """Return deterministic paths used by Implementer bootstrap.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+
+    Returns:
+      Mapping with the managed root, the saved state file, and the
+      default worktree path and branch for the Implementer.
+    """
     repository = daemon.os.path.abspath(repository_root)
     managed_root = daemon.os.path.join(repository, ".claude", "worktrees")
     return {
@@ -297,7 +360,21 @@ def implementer_state_paths(repository_root):
 
 
 def _plain_directory(path, label, create=False):
-    """Prove that ``path`` is one ordinary directory, optionally creating it."""
+    """Prove that ``path`` is one ordinary directory, optionally creating it.
+
+    Arguments:
+      path   = the directory to prove.
+      label  = name used in error messages.
+      create = True to create a missing directory with owner-only
+               permissions.
+
+    Returns:
+      The directory's ``(device, inode)`` identity.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a missing, uncreatable, or
+        non-directory path, or a symbolic link.
+    """
     if not daemon.os.path.lexists(path):
         if not create:
             raise daemon.PrimaryWorktreeError(label + " does not exist: " + path)
@@ -323,7 +400,17 @@ def _plain_directory(path, label, create=False):
 
 
 def _require_directory_identity(path, identity, label):
-    """Prove a locked directory pathname still names its original inode."""
+    """Prove a locked directory pathname still names its original inode.
+
+    Arguments:
+      path     = the directory to revalidate.
+      identity = the ``(device, inode)`` it must still have.
+      label    = name used in error messages.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the path changed type or
+        identity.
+    """
     try:
         info = daemon.os.lstat(path)
     except OSError as exc:
@@ -337,7 +424,21 @@ def _require_directory_identity(path, identity, label):
 
 
 def _managed_primary_root(repository_root, create=False):
-    """Return the non-symlinked repo-local worktree container."""
+    """Return the non-symlinked repo-local worktree container.
+
+    Arguments:
+      repository_root = the repository's main checkout; it must not
+                        be reached through a symbolic link.
+      create          = True to create the managed folder if missing.
+
+    Returns:
+      The ``.claude/worktrees`` path after every level proves to be a
+      plain directory.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a symlinked root or an unsafe
+        component.
+    """
     repository = daemon.os.path.abspath(repository_root)
     if daemon.os.path.realpath(repository) != repository:
         raise daemon.PrimaryWorktreeError(
@@ -353,7 +454,21 @@ def _managed_primary_root(repository_root, create=False):
 
 
 def _run_git(repository_root, arguments, check=True, input_bytes=None):
-    """Run one argv-only Git command and return its completed process."""
+    """Run one argv-only Git command and return its completed process.
+
+    Arguments:
+      repository_root = folder passed to ``git -C``.
+      arguments       = Git subcommand and options.
+      check           = True to raise on a nonzero exit.
+      input_bytes     = bytes fed to standard input, or ``None``.
+
+    Returns:
+      The completed-process object with raw output bytes.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when Git cannot start, or fails
+        while ``check`` is set.
+    """
     command = ["git", "-C", daemon.os.path.abspath(repository_root)] + list(arguments)
     try:
         result = daemon.subprocess.run(command, stdout=daemon.subprocess.PIPE,
@@ -373,7 +488,20 @@ def _run_git(repository_root, arguments, check=True, input_bytes=None):
 
 
 def git_common_directory(checkout):
-    """Return the canonical Git common directory owning ``checkout``."""
+    """Return the canonical Git common directory owning ``checkout``.
+
+    Linked worktrees share one common Git directory; comparing it
+    identifies which repository a checkout belongs to.
+
+    Arguments:
+      checkout = the checkout folder.
+
+    Returns:
+      The resolved common directory path.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an empty or non-UTF-8 answer.
+    """
     result = daemon._run_git(repository_root=checkout,
                       arguments=["rev-parse", "--git-common-dir"])
     try:
@@ -389,7 +517,22 @@ def git_common_directory(checkout):
 
 
 def registered_worktrees(repository_root):
-    """Parse ``git worktree list --porcelain -z`` without path ambiguity."""
+    """Parse ``git worktree list --porcelain -z`` without path ambiguity.
+
+    The NUL-separated form is parsed strictly: every record starts
+    with its path, HEAD and branch may appear once each, and any
+    other field becomes a flag.
+
+    Arguments:
+      repository_root = the repository to list.
+
+    Returns:
+      List of records with ``path``, ``flags``, and optional ``HEAD``
+      and ``branch``.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a malformed or empty registry.
+    """
     result = daemon._run_git(
         repository_root=repository_root,
         arguments=["worktree", "list", "--porcelain", "-z"])
@@ -432,7 +575,18 @@ def registered_worktrees(repository_root):
 
 
 def _duplicate_key_refusal(pairs):
-    """JSON object hook which rejects duplicate state keys."""
+    """JSON object hook which rejects duplicate state keys.
+
+    Arguments:
+      pairs = decoded key-value pairs in document order.
+
+    Returns:
+      The mapping.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a duplicate key, which
+        ordinary JSON parsing would silently collapse.
+    """
     result = {}
     for key, value in pairs:
         if key in result:
@@ -443,7 +597,18 @@ def _duplicate_key_refusal(pairs):
 
 
 def load_primary_state(path):
-    """Read one bounded, regular, exact-schema primary-worktree record."""
+    """Read one bounded, regular, exact-schema primary-worktree record.
+
+    Arguments:
+      path = the saved state file.
+
+    Returns:
+      The decoded state mapping after every schema rule passes.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unsafe read, invalid JSON,
+        or a record that fails the schema.
+    """
     try:
         initial = daemon.os.lstat(path)
     except OSError as exc:
@@ -543,12 +708,31 @@ def load_primary_state(path):
 
 
 def _path_key(path):
-    """Return a stable lexical comparison key for a registered worktree."""
+    """Return a stable lexical comparison key for a registered worktree.
+
+    Arguments:
+      path = the path to normalize.
+
+    Returns:
+      The absolute, case-normalized path used for comparisons.
+    """
     return daemon.os.path.normcase(daemon.os.path.abspath(path))
 
 
 def _record_at_path(records, path):
-    """Return the unique registry record at ``path``, or ``None``."""
+    """Return the unique registry record at ``path``, or ``None``.
+
+    Arguments:
+      records = the parsed worktree registry.
+      path    = the path to look up.
+
+    Returns:
+      The single matching record, or ``None``.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the registry reports the
+        path more than once.
+    """
     matches = [record for record in records
                if daemon._path_key(record["path"]) == daemon._path_key(path)]
     if len(matches) > 1:
@@ -558,7 +742,19 @@ def _record_at_path(records, path):
 
 
 def _managed_child_path(path, managed_root):
-    """Prove ``path`` is one direct, non-symlinked managed child."""
+    """Prove ``path`` is one direct, non-symlinked managed child.
+
+    Arguments:
+      path         = the candidate worktree path.
+      managed_root = the managed container it must sit directly in.
+
+    Returns:
+      The validated absolute path.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a nested, redirected, or
+        non-directory path.
+    """
     candidate = daemon.os.path.abspath(path)
     if daemon.os.path.dirname(candidate) != daemon.os.path.abspath(managed_root):
         raise daemon.PrimaryWorktreeError(
@@ -581,7 +777,17 @@ def _managed_child_path(path, managed_root):
 
 
 def _validate_primary_record(record, branch, repository_root):
-    """Prove a registry record, checkout, branch, and daemon all agree."""
+    """Prove a registry record, checkout, branch, and daemon all agree.
+
+    Arguments:
+      record          = the worktree registry record.
+      branch          = the branch reference the checkout must be on.
+      repository_root = the repository's main checkout.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a prunable, detached,
+        wrong-branch, or foreign record.
+    """
     managed_root = daemon._managed_primary_root(repository_root=repository_root)
     if "prunable" in record["flags"]:
         raise daemon.PrimaryWorktreeError(
@@ -635,7 +841,16 @@ def _validate_primary_record(record, branch, repository_root):
 
 
 def _atomic_write_primary_state(state, path):
-    """Publish primary authority by fsync + same-directory atomic replace."""
+    """Publish primary authority by fsync + same-directory atomic replace.
+
+    Arguments:
+      state = the JSON-compatible state mapping.
+      path  = the destination state file.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the managed directory is
+        unsafe.
+    """
     directory = daemon.os.path.dirname(path)
     daemon._plain_directory(path=directory, label="managed worktree directory")
     payload = (daemon.json.dumps(state, sort_keys=True, indent=2) + "\n").encode(
@@ -670,7 +885,28 @@ def _atomic_write_primary_state(state, path):
 
 def validate_primary_state(state, repository_root, allow_move=False,
                            state_path=None):
-    """Validate persisted authority; accept only a Git-authorized move."""
+    """Validate persisted authority; accept only a Git-authorized move.
+
+    The saved record must name this repository and a registered
+    managed child on the saved branch. When Git's registry shows the
+    worktree at a new managed path, the move is adopted only with
+    ``allow_move``; anything else is refused.
+
+    Arguments:
+      state           = the loaded primary state.
+      repository_root = the repository's main checkout.
+      allow_move      = True to adopt a Git-recorded relocation and
+                        rewrite the saved state.
+      state_path      = the state file to rewrite on adoption, or
+                        ``None`` for the default.
+
+    Returns:
+      The validated (possibly updated) state mapping.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for any disagreement between the
+        saved record, the registry, and the checkout.
+    """
     repository = daemon.git_common_directory(checkout=repository_root)
     if state["repository"] != repository:
         raise daemon.PrimaryWorktreeError(
@@ -711,7 +947,16 @@ def validate_primary_state(state, repository_root, allow_move=False,
 
 
 def _transport_evidence_at_notes(notes, reason_prefix=""):
-    """Inspect one current or pre-migration notes root without writing it."""
+    """Inspect one current or pre-migration notes root without writing it.
+
+    Arguments:
+      notes         = the notes folder to inspect.
+      reason_prefix = text prepended to each reported reason.
+
+    Returns:
+      List of printable reasons naming the coordination evidence
+      found (numbered messages, relay files); empty when none.
+    """
     reasons = []
     mailbox = daemon.os.path.join(notes, "mailbox")
     relay = daemon.os.path.join(notes, "relay")
@@ -831,7 +1076,15 @@ def _transport_evidence_at_notes(notes, reason_prefix=""):
 
 
 def coordination_transport_evidence(worktree):
-    """Return current and pre-``ai/`` coordination evidence in a worktree."""
+    """Return current and pre-``ai/`` coordination evidence in a worktree.
+
+    Arguments:
+      worktree = the checkout to inspect.
+
+    Returns:
+      Combined reasons from the current ``ai/notes`` root and the
+      legacy pre-``ai`` ``notes`` root.
+    """
     reasons = daemon._transport_evidence_at_notes(
         notes=daemon.os.path.join(worktree, "ai", "notes"))
     reasons.extend(daemon._transport_evidence_at_notes(
@@ -841,7 +1094,16 @@ def coordination_transport_evidence(worktree):
 
 
 def _primary_state_for_record(record, repository_root):
-    """Build the exact persisted record for one already-validated checkout."""
+    """Build the exact persisted record for one already-validated checkout.
+
+    Arguments:
+      record          = the validated worktree registry record.
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The state mapping with schema, repository identity, name, path,
+      branch, and topology marker.
+    """
     return {
         "schema": daemon.PRIMARY_STATE_SCHEMA,
         "repository": daemon.git_common_directory(checkout=repository_root),
@@ -929,7 +1191,19 @@ def _archived_transport_manifest(worktree):
 
 
 def _safe_main_archive_bridge(evidence, repository_root, default_path):
-    """Return whether all evidence is one resumable archived-main bridge."""
+    """Return whether all evidence is one resumable archived-main bridge.
+
+    Arguments:
+      evidence        = ``(path, reasons)`` pairs found in candidate
+                        checkouts.
+      repository_root = the repository's main checkout.
+      default_path    = the default primary worktree path.
+
+    Returns:
+      True only when every reason is the archived mailbox or relay
+      history of the main checkout or the default primary — the one
+      state a bootstrap may adopt automatically.
+    """
     allowed_paths = {daemon._path_key(repository_root), daemon._path_key(default_path)}
     allowed_reasons = {
         "numbered mailbox history exists",
@@ -967,7 +1241,18 @@ def _safe_main_archive_bridge(evidence, repository_root, default_path):
 
 
 def _open_legacy_transport_lock(path, nonblocking):
-    """Open one regular legacy mailbox lock and take exclusive ownership."""
+    """Open one regular legacy mailbox lock and take exclusive ownership.
+
+    Arguments:
+      path        = the lock file.
+      nonblocking = True to fail instead of waiting for the holder.
+
+    Returns:
+      The open locked descriptor; the caller must release it.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unopenable or held lock.
+    """
     flags = daemon.os.O_RDWR | daemon.os.O_CREAT
     if hasattr(daemon.os, "O_NOFOLLOW"):
         flags |= daemon.os.O_NOFOLLOW
@@ -1007,13 +1292,30 @@ def _open_legacy_transport_lock(path, nonblocking):
 
 
 def _release_legacy_transport_lock(lock_file):
-    """Release one legacy bridge lock."""
+    """Release one legacy bridge lock.
+
+    Arguments:
+      lock_file = the open locked file from the open call.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
 
 def _ensure_plain_relative_directory(root, relative):
-    """Create a relative directory tree without accepting any redirect."""
+    """Create a relative directory tree without accepting any redirect.
+
+    Arguments:
+      root     = the proven bridge root.
+      relative = the relative folder chain to create component by
+                 component, each proven a plain directory.
+
+    Returns:
+      The final directory path.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a redirected or non-directory
+        component.
+    """
     daemon._plain_directory(path=root, label="archive bridge root")
     current = root
     if not relative or relative == ".":
@@ -1029,7 +1331,19 @@ def _ensure_plain_relative_directory(root, relative):
 
 
 def _regular_files_equal(first, second):
-    """Compare two regular non-symlink files without following replacements."""
+    """Compare two regular non-symlink files without following replacements.
+
+    Arguments:
+      first  = one file path.
+      second = the other file path.
+
+    Returns:
+      True when both are regular files with identical bytes.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unreadable or non-regular
+        file.
+    """
     descriptors = []
     flags = daemon.os.O_RDONLY | daemon.os.O_NONBLOCK
     if hasattr(daemon.os, "O_NOFOLLOW"):
@@ -1073,7 +1387,20 @@ def _regular_files_equal(first, second):
 
 
 def _copy_regular_archive_file(source, destination, expected_size):
-    """Idempotently publish one exact archive copy without overwriting."""
+    """Idempotently publish one exact archive copy without overwriting.
+
+    Rerunning the copy is harmless: an existing byte-identical
+    destination is accepted, while any other existing file refuses.
+
+    Arguments:
+      source        = the archive file to copy.
+      destination   = the destination path; never overwritten.
+      expected_size = the source's expected size, bounded.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an oversized source, a
+        conflicting destination, or a failed copy.
+    """
     parent = daemon.os.path.dirname(destination)
     if (expected_size < 0
             or expected_size > daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES):
@@ -1166,7 +1493,12 @@ def _copy_regular_archive_file(source, destination, expected_size):
 
 
 def _remove_archive_copy_temporaries(worktree):
-    """Remove regular copy residues left by an interrupted archive bridge."""
+    """Remove regular copy residues left by an interrupted archive bridge.
+
+    Arguments:
+      worktree = the checkout whose done and relay folders are swept
+                 for leftover temporary copy files.
+    """
     roots = (
         daemon.os.path.join(worktree, "ai", "notes", "mailbox", "done"),
         daemon.os.path.join(worktree, "ai", "notes", "relay"),
@@ -1195,7 +1527,23 @@ def _remove_archive_copy_temporaries(worktree):
 
 def _publish_primary_record(record, repository_root, bridge_main=False,
                             fence_empty_main=False):
-    """Publish one selected record behind the applicable legacy locks."""
+    """Publish one selected record behind the applicable legacy locks.
+
+    Arguments:
+      record           = the validated registry record to publish.
+      repository_root  = the repository's main checkout.
+      bridge_main      = True when the main checkout's archived
+                        transport must be bridged in first.
+      fence_empty_main = True when the main checkout's empty mailbox
+                        must be fenced against concurrent legacy use.
+
+    Returns:
+      The published state mapping.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a failed bridge, fence, or
+        publication.
+    """
     state = daemon._primary_state_for_record(
         record=record, repository_root=repository_root)
     state_file = daemon.primary_state_paths(repository_root)["state"]
@@ -1308,7 +1656,20 @@ def _publish_primary_record(record, repository_root, bridge_main=False,
 
 
 def _publish_adopted_primary_record(record, repository_root):
-    """Publish an existing coordinator only while its mailbox is idle."""
+    """Publish an existing coordinator only while its mailbox is idle.
+
+    Arguments:
+      record          = the registry record of the checkout being
+                        adopted.
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The published state mapping.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the adopted mailbox is live
+        or the directories are unsafe.
+    """
     mailbox = daemon.os.path.join(
         record["path"], "ai", "notes", "mailbox")
     daemon._plain_directory(
@@ -1346,13 +1707,31 @@ def _publish_adopted_primary_record(record, repository_root):
 
 
 def _format_evidence(candidates):
-    """Format legacy coordination stores for one actionable refusal."""
+    """Format legacy coordination stores for one actionable refusal.
+
+    Arguments:
+      candidates = ``(path, reasons)`` pairs.
+
+    Returns:
+      One sorted, printable summary line.
+    """
     return "; ".join(sorted(path + " (" + ", ".join(reasons) + ")"
                             for path, reasons in candidates))
 
 
 def _branch_exists(repository_root, branch):
-    """Return whether an exact local branch ref already exists."""
+    """Return whether an exact local branch ref already exists.
+
+    Arguments:
+      repository_root = the repository to inspect.
+      branch          = the full branch reference.
+
+    Returns:
+      True when the reference exists.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the inspection itself fails.
+    """
     result = daemon._run_git(repository_root=repository_root,
                       arguments=["show-ref", "--verify", "--quiet", branch],
                       check=False)
@@ -1362,7 +1741,24 @@ def _branch_exists(repository_root, branch):
 
 
 def provision_or_adopt_primary(repository_root, current_worktree):
-    """Select one primary checkout under the already-held bootstrap lock."""
+    """Select one primary checkout under the already-held bootstrap lock.
+
+    First run only: the default managed worktree is created or an
+    existing coordinator is adopted, with legacy transport evidence
+    either bridged (the archived-main case) or refused with an
+    actionable listing.
+
+    Arguments:
+      repository_root  = the repository's main checkout.
+      current_worktree = the checkout this process runs from.
+
+    Returns:
+      The published primary state mapping.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for ambiguous legacy evidence or a
+        failed provision.
+    """
     paths = daemon.primary_state_paths(repository_root=repository_root)
     daemon._managed_primary_root(repository_root=repository_root, create=True)
     records = daemon.registered_worktrees(repository_root=repository_root)
@@ -1482,7 +1878,19 @@ def provision_or_adopt_primary(repository_root, current_worktree):
 
 
 def _upgrade_primary_topology_state(state, repository_root):
-    """Accept topology-aware state; never guess that every old process stopped."""
+    """Accept topology-aware state; never guess that every old process stopped.
+
+    Arguments:
+      state           = the loaded primary state.
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The state unchanged when it already carries the current schema.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unknown schema, or a known
+        older schema whose upgrade needs a deliberate operator step.
+    """
     if state["schema"] == daemon.PRIMARY_STATE_SCHEMA:
         return state
     if state["schema"] not in {
@@ -1506,7 +1914,16 @@ def _upgrade_primary_topology_state(state, repository_root):
 
 
 def _require_primary_daemon_topology_support(primary_path):
-    """Refuse re-exec into a stale primary daemon that would ignore Sol."""
+    """Refuse re-exec into a stale primary daemon that would ignore Sol.
+
+    Arguments:
+      primary_path = the primary worktree whose daemon copy is
+                     inspected for the current topology markers.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the copy predates the
+        three-role topology.
+    """
     daemon_path = daemon.os.path.join(primary_path, "ai", "tools", "mailbox_daemon.py")
     try:
         initial = daemon.os.lstat(daemon_path)
@@ -1573,7 +1990,19 @@ def _require_primary_daemon_topology_support(primary_path):
 
 
 def _bootstrap_ticket_state(primary_path):
-    """Read the primary mailbox's current ticket state with strict schema."""
+    """Read the primary mailbox's current ticket state with strict schema.
+
+    Arguments:
+      primary_path = the primary worktree.
+
+    Returns:
+      The validated state mapping, or an empty state when no file
+      exists yet.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unreadable or invalid
+        state file.
+    """
     path = daemon.os.path.join(primary_path, "ai", "notes", "mailbox",
                         daemon.TICKET_CYCLE_STATE_NAME)
     if not daemon.os.path.isfile(path):
@@ -1597,7 +2026,19 @@ def _bootstrap_ticket_state(primary_path):
 
 
 def _bootstrap_candidate_state(primary_path):
-    """Read the primary mailbox's candidate ownership without globals."""
+    """Read the primary mailbox's candidate ownership without globals.
+
+    Arguments:
+      primary_path = the primary worktree.
+
+    Returns:
+      The validated candidate-state mapping, or an empty one when no
+      file exists yet.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unreadable or invalid
+        state file.
+    """
     path = daemon.os.path.join(primary_path, "ai", "notes", "mailbox",
                         daemon.CANDIDATE_STATE_NAME)
     try:
@@ -1644,7 +2085,18 @@ def _bootstrap_candidate_state(primary_path):
 
 def _bootstrap_root_ticket_authority(message, target, ticket_state,
                                      candidate_state):
-    """Prove a still-root ordinary GO is the exact journaled C-to-L work."""
+    """Prove a still-root ordinary GO is the exact journaled C-to-L work.
+
+    Arguments:
+      message         = the pending GO message.
+      target          = the baseline commit sync would move to.
+      ticket_state    = the primary's bootstrap ticket state.
+      candidate_state = the primary's bootstrap candidate state.
+
+    Returns:
+      True only when the GO names an active cycle whose saved
+      candidate and journaled landing explain the target exactly.
+    """
     cycle_id, candidate_commit, mode, problem = daemon._architect_go_request(
         message=message)
     if problem is not None:
@@ -1696,7 +2148,17 @@ def _bootstrap_root_ticket_authority(message, target, ticket_state,
 
 def _bootstrap_primary_ahead_notes_authority(primary_path, base_commit,
                                              notes_commit):
-    """Prove clean primary P may wait ahead of main B for exact GO replay."""
+    """Prove clean primary P may wait ahead of main B for exact GO replay.
+
+    Arguments:
+      primary_path = the primary worktree sitting at P.
+      base_commit  = B, the main baseline.
+      notes_commit = P, the note-only commit ahead of it.
+
+    Returns:
+      True only when exactly one saved notes-GO receipt binds this
+      B and P, so a startup sync must not discard the waiting P.
+    """
     mailbox = daemon.os.path.join(primary_path, "ai", "notes", "mailbox")
     receipt_matches = []
     for directory in (mailbox, daemon.os.path.join(mailbox, "inflight")):
@@ -1817,7 +2279,19 @@ def clean_user_main_matches(target):
 
 
 def _merge_primary_backlog(base, main, architect):
-    """Combine independent main and Architect edits to the tracked backlog."""
+    """Combine independent main and Architect edits to the tracked backlog.
+
+    A scratch three-way file merge runs in a temporary folder: the
+    common base against main's copy and the Architect's copy.
+
+    Arguments:
+      base      = the common ancestor's backlog bytes.
+      main      = main's backlog bytes.
+      architect = the Architect's backlog bytes.
+
+    Returns:
+      The merged bytes, or ``None`` when the merge conflicts.
+    """
     with daemon.tempfile.TemporaryDirectory(prefix="mailbox-backlog-merge-") as tmp:
         paths = []
         for name, content in (("main", main), ("base", base),
@@ -1845,7 +2319,15 @@ def _merge_primary_backlog(base, main, architect):
 
 
 def _saved_backlog_digest(primary_path):
-    """Read the accepted digest from the small local guard record."""
+    """Read the accepted digest from the small local guard record.
+
+    Arguments:
+      primary_path = the primary worktree.
+
+    Returns:
+      The guard's accepted SHA-256, or ``None`` when no valid guard
+      exists.
+    """
     raw = daemon.stable_regular_bytes(
         path=daemon.os.path.join(primary_path, "ai", "notes",
                           daemon.BACKLOG_GUARD_STATE_NAME),
@@ -1863,7 +2345,14 @@ def _saved_backlog_digest(primary_path):
 
 
 def _reseal_recovered_backlog(primary_path, previous_digest, backlog):
-    """Bind the guard to backlog bytes combined by the trusted daemon."""
+    """Bind the guard to backlog bytes combined by the trusted daemon.
+
+    Arguments:
+      primary_path    = the primary worktree.
+      previous_digest = the last accepted digest, recorded as the
+                        seal's predecessor.
+      backlog         = the recovered backlog bytes to seal.
+    """
     daemon._atomic_write_primary_state(
         state={"backlog": daemon.BACKLOG_RELATIVE_PATH,
                "previous_sha256": previous_digest,
@@ -1873,7 +2362,22 @@ def _reseal_recovered_backlog(primary_path, previous_digest, backlog):
 
 
 def _prepare_primary_backlog_overlay(primary_path, primary_head, target):
-    """Preserve and, when needed, merge one sealed Architect backlog."""
+    """Preserve and, when needed, merge one sealed Architect backlog.
+
+    Arguments:
+      primary_path = the primary worktree.
+      primary_head = its current HEAD.
+      target       = the baseline commit the sync will move to.
+
+    Returns:
+      The overlay bytes to restore after the sync — the sealed
+      backlog, merged with the target's copy when both sides edited
+      it — or ``None`` when nothing needs preserving.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the merge conflicts and the
+        user must reconcile.
+    """
     if not daemon._clean_worktree_status(worktree=primary_path):
         return None
     try:
@@ -2130,7 +2634,19 @@ def bootstrap_sync_primary_from_main_authority(primary_path, primary_branch):
 
 
 def validated_primary_notes(primary_path):
-    """Return the canonical non-redirected shared notes directory."""
+    """Return the canonical non-redirected shared notes directory.
+
+    Arguments:
+      primary_path = the primary worktree.
+
+    Returns:
+      The resolved ``ai/notes`` path after every level proves to be a
+      plain directory.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a redirected or missing
+        component.
+    """
     primary = daemon.os.path.realpath(primary_path)
     daemon._plain_directory(path=primary_path, label="saved primary worktree")
     ai_root = daemon.os.path.join(primary_path, "ai")
@@ -2147,7 +2663,19 @@ def validated_primary_notes(primary_path):
 
 
 def validate_authoritative_role_files(primary_path):
-    """Return stable proofs for every primary role and ticket tool."""
+    """Return stable proofs for every primary role and ticket tool.
+
+    Arguments:
+      primary_path = the primary worktree.
+
+    Returns:
+      Mapping with directory identities and per-file identity proofs
+      for the role files and trusted tools a dispatch relies on.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a redirected directory or an
+        unreadable authoritative file.
+    """
     primary = daemon.os.path.abspath(primary_path)
     primary_real = daemon.os.path.realpath(primary)
     directory_paths = (
@@ -2210,7 +2738,19 @@ def validate_authoritative_role_files(primary_path):
 
 
 def recheck_authoritative_role_files(proof, mutable_paths=()):
-    """Require authoritative files to stay fixed outside an admin turn."""
+    """Require authoritative files to stay fixed outside an admin turn.
+
+    Arguments:
+      proof         = the mapping from
+                      validate_authoritative_role_files.
+      mutable_paths = the only files allowed to differ, such as the
+                      Architect role files during policy
+                      administration.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a malformed proof or a changed
+        directory or file outside the mutable set.
+    """
     if (not isinstance(proof, dict)
             or set(proof) != {"directories", "files"}):
         raise daemon.PrimaryWorktreeError(
@@ -2238,7 +2778,16 @@ def recheck_authoritative_role_files(proof, mutable_paths=()):
 
 
 def _sol_state_for_record(record, repository_root):
-    """Build the exact persisted Sol record for one validated checkout."""
+    """Build the exact persisted Sol record for one validated checkout.
+
+    Arguments:
+      record          = the validated registry record.
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The Sol state mapping with schema, repository identity, name,
+      path, and branch.
+    """
     return {
         "schema": daemon.SOL_STATE_SCHEMA,
         "repository": daemon.git_common_directory(checkout=repository_root),
@@ -2250,7 +2799,22 @@ def _sol_state_for_record(record, repository_root):
 
 def validate_sol_state(state, repository_root, primary_state,
                        allow_move=False):
-    """Validate the saved Sol identity and prove role checkouts are distinct."""
+    """Validate the saved Sol identity and prove role checkouts are distinct.
+
+    Arguments:
+      state           = the loaded Sol state.
+      repository_root = the repository's main checkout.
+      primary_state   = the validated primary state; the two
+                        checkouts must differ.
+      allow_move      = True to adopt a Git-recorded relocation.
+
+    Returns:
+      The validated (possibly updated) Sol state.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a schema, branch, registry, or
+        distinctness violation.
+    """
     if state["schema"] != daemon.SOL_STATE_SCHEMA:
         raise daemon.PrimaryWorktreeError("unsupported Sol-worktree state schema")
     if state["branch"] != daemon.SOL_BRANCH:
@@ -2278,7 +2842,20 @@ def validate_sol_state(state, repository_root, primary_state,
 
 
 def provision_or_reuse_sol(repository_root, primary_state):
-    """Create or validate the one persisted Sol worktree under bootstrap lock."""
+    """Create or validate the one persisted Sol worktree under bootstrap lock.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+      primary_state   = the validated primary state.
+
+    Returns:
+      The validated Sol state, creating the default worktree and
+      branch on first run.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a failed provision or
+        validation.
+    """
     paths = daemon.sol_state_paths(repository_root=repository_root)
     daemon._managed_primary_root(repository_root=repository_root, create=True)
     if daemon.os.path.lexists(paths["state"]):
@@ -2359,7 +2936,16 @@ def provision_or_reuse_sol(repository_root, primary_state):
 
 
 def _implementer_state_for_record(record, repository_root):
-    """Build the exact persisted Implementer record."""
+    """Build the exact persisted Implementer record.
+
+    Arguments:
+      record          = the validated registry record.
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The Implementer state mapping with schema, repository
+      identity, name, path, and branch.
+    """
     return {
         "schema": daemon.IMPLEMENTER_STATE_SCHEMA,
         "repository": daemon.git_common_directory(checkout=repository_root),
@@ -2371,7 +2957,22 @@ def _implementer_state_for_record(record, repository_root):
 
 def validate_implementer_state(state, repository_root, primary_state,
                                allow_move=False):
-    """Validate the fixed Implementer branch and its distinct checkout."""
+    """Validate the fixed Implementer branch and its distinct checkout.
+
+    Arguments:
+      state           = the loaded Implementer state.
+      repository_root = the repository's main checkout.
+      primary_state   = the validated primary state; the two
+                        checkouts must differ.
+      allow_move      = True to adopt a Git-recorded relocation.
+
+    Returns:
+      The validated (possibly updated) Implementer state.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a schema, branch, registry, or
+        distinctness violation.
+    """
     if state["schema"] != daemon.IMPLEMENTER_STATE_SCHEMA:
         raise daemon.PrimaryWorktreeError(
             "unsupported Implementer-worktree state schema")
@@ -2401,7 +3002,17 @@ def validate_implementer_state(state, repository_root, primary_state,
 
 
 def _tracked_worktree_changes(worktree):
-    """Return staged, unstaged, or nonignored untracked worktree changes."""
+    """Return staged, unstaged, or nonignored untracked worktree changes.
+
+    Arguments:
+      worktree = the checkout to inspect.
+
+    Returns:
+      Raw ``git status --porcelain`` bytes; empty means clean.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the status command fails.
+    """
     environment = daemon.os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = daemon.subprocess.run(
@@ -2416,7 +3027,18 @@ def _tracked_worktree_changes(worktree):
 
 
 def _optional_ref_commit(repository_root, reference):
-    """Return one full ref commit, or ``None`` when the ref is absent."""
+    """Return one full ref commit, or ``None`` when the ref is absent.
+
+    Arguments:
+      repository_root = the repository to inspect.
+      reference       = the reference name.
+
+    Returns:
+      The full commit, or ``None`` for a missing reference.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unusable answer.
+    """
     result = daemon._run_git(
         repository_root=repository_root,
         arguments=["rev-parse", "--verify", "--quiet",
@@ -2433,7 +3055,17 @@ def _optional_ref_commit(repository_root, reference):
 
 
 def implementer_authority_snapshot(repository_root=None):
-    """Snapshot Git state that an Implementer turn has no authority to move."""
+    """Snapshot Git state that an Implementer turn has no authority to move.
+
+    Arguments:
+      repository_root = the repository to snapshot, or ``None`` for
+                        the main checkout.
+
+    Returns:
+      Mapping from protected item (the checked-out branch, main, and
+      the role branches) to its current value, compared after the
+      turn.
+    """
     repository_root = daemon.REPO_ROOT if repository_root is None else repository_root
     symbolic = daemon._run_git(
         repository_root=repository_root,
@@ -2454,13 +3086,36 @@ def implementer_authority_snapshot(repository_root=None):
 
 
 def implementer_authority_changes(before, repository_root=None):
-    """Name protected Git state that moved during one Implementer turn."""
+    """Name protected Git state that moved during one Implementer turn.
+
+    Arguments:
+      before          = the pre-turn snapshot.
+      repository_root = the repository, or ``None`` for the main
+                        checkout.
+
+    Returns:
+      The names whose values changed; empty means the turn stayed
+      inside its authority.
+    """
     after = daemon.implementer_authority_snapshot(repository_root=repository_root)
     return [name for name in before if before[name] != after[name]]
 
 
 def provision_or_reuse_implementer(repository_root, primary_state):
-    """Create or validate the one fixed Implementer checkout."""
+    """Create or validate the one fixed Implementer checkout.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+      primary_state   = the validated primary state.
+
+    Returns:
+      The validated Implementer state, creating the default worktree
+      and branch on first run.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for a failed provision or
+        validation.
+    """
     paths = daemon.implementer_state_paths(repository_root=repository_root)
     daemon._managed_primary_root(repository_root=repository_root, create=True)
     if daemon.os.path.lexists(paths["state"]):
@@ -2552,7 +3207,17 @@ def provision_or_reuse_implementer(repository_root, primary_state):
 
 def validate_distinct_agent_states(primary_state, implementer_state,
                                    sol_state):
-    """Prove the three role checkouts and branches are pairwise distinct."""
+    """Prove the three role checkouts and branches are pairwise distinct.
+
+    Arguments:
+      primary_state     = the validated Architect state.
+      implementer_state = the validated Implementer state.
+      sol_state         = the validated Sol state.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when any two roles share a path
+        or branch.
+    """
     paths = {
         daemon.os.path.realpath(primary_state["path"]),
         daemon.os.path.realpath(implementer_state["path"]),
@@ -2569,7 +3234,18 @@ def validate_distinct_agent_states(primary_state, implementer_state,
 
 
 def _open_primary_lock(repository_root):
-    """Open and exclusively lock the repo-shared bootstrap inode."""
+    """Open and exclusively lock the repo-shared bootstrap inode.
+
+    Arguments:
+      repository_root = the repository's main checkout.
+
+    Returns:
+      The open locked file; the caller must release it.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when the lock cannot be opened or
+        held safely.
+    """
     paths = daemon.primary_state_paths(repository_root=repository_root)
     daemon._managed_primary_root(repository_root=repository_root, create=True)
     flags = daemon.os.O_RDWR | daemon.os.O_CREAT
@@ -2603,19 +3279,42 @@ def _open_primary_lock(repository_root):
 
 
 def _release_primary_lock(lock_file):
-    """Release the kernel-owned primary bootstrap lock."""
+    """Release the kernel-owned primary bootstrap lock.
+
+    Arguments:
+      lock_file = the open locked file from the open call.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
 
 def _is_ai_branch(branch):
-    """Return whether a local branch belongs to an AI-only namespace."""
+    """Return whether a local branch belongs to an AI-only namespace.
+
+    Arguments:
+      branch = the full branch reference.
+
+    Returns:
+      True for a branch under one of the AI cleanup prefixes.
+    """
     return (type(branch) is str
             and branch.startswith(daemon.AI_BRANCH_PREFIXES))
 
 
 def _lock_cleanup_transport(records):
-    """Hold every existing mailbox lock until destructive cleanup ends."""
+    """Hold every existing mailbox lock until destructive cleanup ends.
+
+    Arguments:
+      records = the worktree registry records whose mailbox locks
+                must be held so no watcher can act mid-cleanup.
+
+    Returns:
+      The held locks; the caller releases them after cleanup.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when a live lock cannot be taken,
+        which means a watcher is still running.
+    """
     locks = []
     try:
         for record in sorted(records, key=lambda item: item["path"]):
@@ -2639,7 +3338,23 @@ def _lock_cleanup_transport(records):
 
 
 def clean_all_ai_worktrees(repository_root, current_worktree):
-    """Discard local AI worktrees and branches after an explicit request."""
+    """Discard local AI worktrees and branches after an explicit request.
+
+    This is the destructive ``--clean-all`` action: every managed AI
+    worktree and every branch in the AI namespaces is removed, dirty
+    files and unmerged commits included. It must run from the user's
+    main repository folder and takes every mailbox lock first so no
+    watcher can act mid-cleanup.
+
+    Arguments:
+      repository_root  = the repository's main checkout.
+      current_worktree = the folder this command runs from; it must
+                         be the main checkout itself.
+
+    Raises:
+      daemon.PrimaryWorktreeError: when run elsewhere or when a live
+        watcher still holds a mailbox lock.
+    """
     repository = daemon.os.path.abspath(repository_root)
     if daemon.os.path.realpath(current_worktree) != daemon.os.path.realpath(repository):
         raise daemon.PrimaryWorktreeError(
