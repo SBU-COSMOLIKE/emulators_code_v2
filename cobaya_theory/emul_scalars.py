@@ -66,7 +66,20 @@ class emul_scalars(Theory):
     extra_args = {}
 
     def initialize(self):
-        """Build the predictors and assemble the requirements + provides."""
+        """Build the predictors and assemble the requirements + provides.
+
+        Cobaya constructs one instance of this class from the sampling
+        YAML's theory block and calls initialize() once, before any
+        sampling; extra_args is that block's option mapping, handed
+        over by Cobaya as an attribute. This method validates the
+        options, picks the device, rebuilds one EmulatorPredictor per
+        configured path root, and derives the required inputs and
+        provided outputs from the artifacts' own stored names.
+
+        Raises:
+          ValueError for an unknown option, an empty emulators list, a
+          non-scalar artifact, or two artifacts providing one output.
+        """
         super().initialize()
         self._check_extra_args()
         self.device = self._pick_device(self.extra_args.get("device", "cpu"))
@@ -187,7 +200,13 @@ class emul_scalars(Theory):
             provider=provider)
 
     def _check_extra_args(self):
-        """Reject any extra_args key outside the v2 convention, loudly."""
+        """Reject any extra_args key outside the v2 convention, loudly.
+
+        Cobaya passes the theory block's options through without
+        checking them, so a typo'd key would otherwise be silently
+        ignored and its intended setting silently defaulted; the
+        closed list turns that into a named error.
+        """
         unknown = []
         for key in self.extra_args:
             if key not in _ALLOWED_EXTRA_ARGS:
