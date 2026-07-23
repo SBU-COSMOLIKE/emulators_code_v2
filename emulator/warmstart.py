@@ -126,8 +126,21 @@ class FinetuneSource:
     """Bind the validated source pieces built by ``load_source``.
 
     Each argument becomes the attribute of the same name; the class
-    docstring's Attributes block documents what every one is and how the
-    later fine-tuning / transfer steps consume it.
+    docstring's Attributes block documents how the later fine-tuning /
+    transfer steps consume each one.
+
+    Arguments:
+      root         = resolved absolute source path root.
+      model        = the rebuilt source network (eager, in eval()).
+      model_cls    = the source network's class.
+      pgeom        = the source input ParamGeometry.
+      geom         = the source output DataVectorGeometry.
+      recipe       = the model_recipe dict from the source .h5.
+      compile_mode = the torch.compile mode the source recipe stored.
+      data_dir     = the source run's cosmolike_data_dir.
+      dataset      = the source run's cosmolike_dataset.
+      ia           = the source intrinsic-alignment design ("nla" /
+                     "tatt"), or None for a plain source.
     """
     self.root         = root
     self.model        = model
