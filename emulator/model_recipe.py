@@ -2,7 +2,9 @@
 
 A saved emulator carries a "model recipe": a plain mapping that names the
 network class, its input and output sizes, and every constructor option
-needed to rebuild it.  The recipe is data, not executable Python.  This
+needed to rebuild it.  The constructor options travel under the key
+"kwargs", Python's shorthand for keyword arguments — the named options a
+constructor accepts.  The recipe is data, not executable Python.  This
 module therefore contains only plain lists of accepted values and value
 checks.  It does not import Torch, the model designs, the geometry classes,
 or the helpers that build activations and normalizations from their saved
@@ -26,12 +28,25 @@ MODEL_RECIPE_TOP_LEVEL_KEYS = (
   "kwargs",
 )
 
+# torch.compile rewrites a model's Python into fused GPU kernels for
+# speed; the mode names its optimization profile, and None means the
+# model runs eagerly (its Python executed directly, uncompiled).
 COMPILE_MODES = ("reduce-overhead", "default", None)
+# the registered activation-family names (the nonlinear functions
+# between network layers) and the per-block normalization choices a
+# recipe may name.
 ACTIVATION_NAMES = (
   "H", "power", "multigate", "gated_power", "relu", "tanh")
 NORMALIZATION_NAMES = ("affine", "per_feature", "none")
 
 
+# One entry per rebuildable class. "name" is the public architecture
+# name (resmlp / rescnn / restrf: residual multilayer perceptron,
+# convolutional, and transformer designs); "ia" lists the intrinsic-
+# alignment designs the class supports (None = not an IA model; see
+# record_model_recipe for what IA is); "needs_geom" says whether the
+# constructor consumes the output geometry; "kwargs" is the closed
+# list of constructor fields the recipe must carry.
 _MODEL_SPECS = {
   "emulator.designs.plain.ResMLP": {
     "name": "resmlp", "ia": (None,), "needs_geom": False,
@@ -339,6 +354,11 @@ def record_model_recipe(
     name         = the public architecture name ("resmlp" / "rescnn" /
                    "restrf").
     ia           = the factored-IA design name ("nla" / "tatt") or None.
+                   IA is intrinsic alignment: galaxy shapes correlate
+                   with their local environment, not only with lensing,
+                   and the factored designs emulate that contribution
+                   as separate templates; "nla" and "tatt" are the two
+                   supported alignment models.
     input_dim    = number of model inputs: the width of one parameter
                    vector after the input geometry encodes it.
     output_dim   = number of model outputs: the width of one data vector
