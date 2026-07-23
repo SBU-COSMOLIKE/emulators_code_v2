@@ -1728,14 +1728,15 @@ complete (`candidate_admission.py`, `review_dispatch.py`,
 `control_plane_handoff.py`, `provider_health.py`,
 `mailbox_providers.py`, `ticket_change_guard.py`, `mailbox_watch.py`,
 `mailbox_tickets.py`, `mailbox_store.py`, `backlog_bundle.py`),
-joining the three swept earlier. Five of the large daemon-part files
-are also complete (`mailbox_daemon.py`, `mailbox_dispatch.py`,
+joining the three swept earlier. The `ai/tools/` arm is COMPLETE:
+all twenty-five files now meet the bar, closing with the ten large
+part files (`mailbox_daemon.py`, `mailbox_dispatch.py`,
 `mailbox_recovery.py`, `handoff_router.py`,
-`mailbox_control_plane.py`), for twenty of twenty-five.
-Remaining under this ticket: the five largest part files
-(`mailbox_cycles.py`, `handoff_contract.py`, `mailbox_landing.py`,
-`mailbox_envelopes.py`, `mailbox_worktrees.py`), `ai/tests/`, and
-the repository-wide chronology rewrite. The
+`mailbox_control_plane.py`, `mailbox_cycles.py`,
+`handoff_contract.py`, `mailbox_envelopes.py`,
+`mailbox_landing.py`, `mailbox_worktrees.py`).
+Remaining under this ticket: `ai/tests/` and the repository-wide
+chronology rewrite. The
 required depth follows the recorded reader standard: no unstated
 Python mechanic or term of art, with Arguments, Returns, and Raises
 blocks in the aligned name = description form.
