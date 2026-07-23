@@ -191,7 +191,6 @@ Medium work begins only after the permitted High work above.
 ### Low
 
 - OPEN **LOW** **BUG FIX** — [Make tracked explanations describe one coherent current library](#open-python-prose-review)
-- OPEN **LOW** **NEW FUNCTIONALITY** — [Write a LaTeX guide to the AI ticket system](#open-ai-ticket-latex-guide)
 
 <a id="open-mps-test-import-isolation"></a>
 ## Isolate the matter-power adapter test without replacing imported modules
@@ -2391,13 +2390,40 @@ scientific calculations.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** No LaTeX source or PDF for the ticket system has been started.
+**CLOSED.** The manuscript exists as `documentation/cocoa_flow_guide.tex`
+with its tracked compiled `documentation/cocoa_flow_guide.pdf` (23 two-column
+pages). The file is named after the system's own name, CoCoA-Flow, and its
+existing frontispiece artwork, rather than the provisional
+`ai_ticket_system_guide` name in this ticket. The user explicitly advanced
+this ticket ahead of the remaining Open items, which the ordering rule below
+permits, and directed the document at teaching a reader how to read the
+`ai/tools/` code with the same discipline as the emulator manuscript. The
+delivered structure follows that direction: a notation section for the commit
+labels C, L, M0/M1, B/P, and D0/D1 with the recurring vocabulary; an
+end-to-end ordinary-ticket walkthrough; one section per module family (the
+daemon split and its single namespace, the role contract and its compiled
+safety floor, the three standalone guards plus candidate admission, message
+envelopes, the store's atomic claims and locks, the watch rendezvous and
+cycle barriers, the durable cycle record, dispatch and the provider surround,
+the handoff-contract grammar, the manual relay, worktree provisioning and the
+backlog carry-forward, candidate-to-landing, recovery, the protected
+boundary with the two-key ritual and the D0/D1 rehearsal, ticket and
+reopening rules, and bundles); verbatim code excerpts and exact refusal
+messages throughout; and a staged file-by-file study route with three shorter
+role-specific routes. The beginner-operator tutorial sketched below stays
+owned by `ai/README.md` and `ai/tools/README.md`, which the manuscript names
+as its reading stage 0 and does not duplicate; the sketch's separate worked
+figures are replaced by the walkthrough, tables, and code excerpts in the
+emulator guide's visual style. Built with `latexmk -pdf
+-output-directory=documentation documentation/cocoa_flow_guide.tex` from the
+repository top (the frontispiece path is repository-root-relative); the
+final log has zero undefined references and zero overfull lines, and every
+rendered page was inspected. `documentation/README.md` records the catalog
+row and the build-and-inspect command.
 
-**Priority: LOWEST.** This is the final item in the backlog. It starts only
-after every other ticket is Closed, including
-[the complete Python prose review](#open-python-prose-review). Future tickets
-are inserted ahead of this one unless the user explicitly changes this
-ordering.
+**Priority: LOWEST.** This was the final item in the backlog, held behind
+every other ticket unless the user explicitly changed the ordering; the user
+did so when ordering the manuscript.
 
 ### What is already fixed
 
@@ -2408,56 +2434,12 @@ figures, captions, appendices, PDF publication, and rendered-page review.
 
 ### What is missing
 
-Create `documentation/ai_ticket_system_guide.tex` and the tracked compiled
-`documentation/ai_ticket_system_guide.pdf`. Begin with a short path that a
-physics undergraduate can follow: the user writes one request, the Architect
-turns it into a complete plan, the Implementer and its bounded helpers make
-and test the change, the Architect decides GO or NO-GO, the watcher records
-the landing, and the optional Red Team advises afterward. Put implementation
-details and recovery rules in clearly named appendices so a new user does not
-need to read the whole paper before running one ticket.
-
-Explain every necessary term at first use with a concrete example. Cover the
-cost reason for separating thinking from token-heavy implementation; model
-selection by command-line option; the user-to-Architect boundary; source
-notes; the tracked backlog; severity and feature ordering; one ticket per cycle;
-finite `--cycle` limits; optional Red Team review; reopen counts and Architect
-NO-GO; bounded Implementer subagents; character-change limits; tests versus
-gates; mailbox files; saved worktrees; and safe stopping. Explain B, C, L, and
-P in words before using those letters in diagrams or recovery appendices.
-
-Use diagrams and worked examples rather than dense prose. At minimum, include
-one complete ordinary ticket, one two-role ticket without Red Team, one
-finite-cycle example, and one rejected or reopened ticket. Figures must have
-readable labels, captions that define every symbol, and layouts that remain
-clear when printed or viewed on a narrow screen. Any generated figure source
-also belongs under `documentation/`, with vector outputs under
-`documentation/figures/`.
-
-Derive command examples and role behavior from the final code and current
-role contracts after all earlier tickets close. Build the PDF from a clean
-checkout, record the exact build command, render every page to images, and
-inspect for clipped equations, overlapping labels, unreadable tables, broken
-references, and stale terminology. Verify that the tracked PDF corresponds to
-the accepted `.tex` and figure sources.
-
-<details><summary>Technical record for development tools</summary>
-
-Primary factual sources: `ai/README.md`, `ai/tools/README.md`,
-`.claude/FABLE_ROLE.md`, `.claude/OPUS_ROLE.md`, `.codex/REDTEAM_ROLE.md`,
-`ai/tools/mailbox_daemon.py`, `ai/tools/handoff_contract.py`, and the eleven
-permanent notes. The tracked backlog supplies examples and priority rules but is
-not a tracked manuscript dependency and must not be quoted as permanent
-history.
-
-The manuscript must satisfy `ai/notes/readme-go-no-go.md`. Internal transport
-names may appear in an appendix only after the human action is explained.
-Terms such as lane, dispatch, ledger, drain, identity, schema, rendezvous,
-candidate, landing, and worktree may not be used as unexplained shortcuts.
-The document describes the stable system after the backlog closes; it is not
-a diary of old bugs or development sessions.
-
-</details>
+Nothing. The tracked manuscript and PDF exist, the closure paragraph above
+records where the delivered form deviates from the original sketch and why,
+and `documentation/README.md` carries the catalog row and the exact
+build-and-inspect command. Whether an additional beginner-operator tutorial
+with worked figures is wanted is a separate future request, not an unmet part
+of this ticket.
 
 # Parked edge cases
 

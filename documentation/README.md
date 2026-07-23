@@ -5,14 +5,21 @@ maintaining the library but are too detailed for the main READMEs. Start with
 the document whose question matches the topic. A PDF is ready to read; its
 LaTeX source is the editable version.
 
-## Complete library guide
+## Complete library guides
 
 | Question | Read | Source |
 | --- | --- | --- |
 | How does a cosmological sample move through the complete emulator library? | [CoCoA SONIC emulator guide](emulator_code_guide.pdf) | [LaTeX](emulator_code_guide.tex) |
+| How do I read the AI ticket-system code under `ai/tools/` — the mailbox, roles, guards, and landing machinery? | [CoCoA-Flow guide](cocoa_flow_guide.pdf) | [LaTeX](cocoa_flow_guide.tex) |
 
 The emulator guide is a full-library manual. It follows generated data through
-training, saved artifacts, scientific checks, and inference.
+training, saved artifacts, scientific checks, and inference. The CoCoA-Flow
+guide is the matching manual for the workflow machinery: it follows one
+requested change from the user's request file to the accepted commit on
+`main`, one `ai/tools/` module at a time, and closes with a staged reading
+route through the code. Operating instructions stay in
+[`ai/README.md`](../ai/README.md) and [`ai/tools/README.md`](../ai/tools/README.md);
+the guide teaches the implementation behind them.
 
 ## Focused guides
 
@@ -65,3 +72,20 @@ Expected result: both commands exit with code `0` and
 `documentation/candidate_to_landing.pdf` contains five readable pages. Render
 and inspect every page before committing a changed PDF; a successful LaTeX
 exit alone cannot detect clipped or overlapping content.
+
+## Build and inspect the CoCoA-Flow guide
+
+From the repository's top folder, run:
+
+```bash
+latexmk -pdf -interaction=nonstopmode -halt-on-error \
+  -output-directory=documentation \
+  documentation/cocoa_flow_guide.tex
+```
+
+Expected result: the command exits with code `0` and
+`documentation/cocoa_flow_guide.pdf` contains 23 readable pages. Run it from
+the top folder: the frontispiece path inside the source is relative to the
+repository root, so a build started inside `documentation/` stops with a
+missing-file error. The same rendered-page inspection rule as above applies
+before committing a changed PDF.
