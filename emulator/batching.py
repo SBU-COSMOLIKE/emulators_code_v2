@@ -137,6 +137,12 @@ def compute_batch_byte_terms(
 
     Backward never runs here, but saved_tensors_hooks requires the
     pack/unpack pair to round-trip, so the stored value is handed back.
+
+    Arguments:
+      stored = whatever pack returned for this saved tensor.
+
+    Returns:
+      stored, unchanged.
     """
     return stored
 
