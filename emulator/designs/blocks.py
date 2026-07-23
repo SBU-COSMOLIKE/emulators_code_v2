@@ -23,8 +23,7 @@ block's receptive field. FiLMGenerator predicts the conv heads'
 optional per-channel, cosmology-dependent modulation (the film
 flag). BinLinear and TRFBlock are the ResTRF
 head's pieces: per-token unique linears and a transformer block
-whose tokens are the tomographic bins. Grouped / per-bin conv twins
-were tried and removed (see git history).
+whose tokens are the tomographic bins.
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (defined in the geometry modules, geometries.parameter /
@@ -69,14 +68,24 @@ class Affine(nn.Module):
       from their size-1 shape).
     """
     def __init__(self):
+        """Create the scalar gain (init 1) and bias (init 0).
+
+        Both are nn.Parameter of shape (1,), so the module starts as
+        the identity and trains both scalars.
+        """
         super(Affine, self).__init__()
-        # one learnable scale (gain, init 1) and shift (bias, init
-        # 0), each a scalar broadcast over all of the input.
         self.gain = nn.Parameter(torch.ones(1))
         self.bias = nn.Parameter(torch.zeros(1))
     def forward(self, x):
-        # elementwise: every entry scaled by gain, shifted by bias
-        # (both broadcast from their size-1 shape).
+        """Scale and shift every element of x.
+
+        Arguments:
+          x = input tensor of any shape.
+
+        Returns:
+          x * gain + bias, the same shape as x (gain and bias
+          broadcast from their size-1 shape).
+        """
         return x * self.gain + self.bias
 
 
@@ -114,15 +123,27 @@ class FeatureAffine(nn.Module):
       over the batch rows from their (size,) shape).
     """
     def __init__(self, size):
+        """Create one gain (init 1) and bias (init 0) per feature.
+
+        Both are nn.Parameter of shape (size,), so the module starts
+        as the identity and every feature trains its own pair.
+
+        Arguments:
+          size = feature width: one gain / bias pair per column.
+        """
         super(FeatureAffine, self).__init__()
-        # one learnable scale (gain, init 1) and shift (bias, init 0)
-        # per feature (per column of the (B, size) tensor), broadcast
-        # over the batch rows.
         self.gain = nn.Parameter(torch.ones(size))
         self.bias = nn.Parameter(torch.zeros(size))
     def forward(self, x):
-        # per-feature: column i scaled by gain[i], shifted by bias[i]
-        # (both broadcast over the batch rows from their (size,) shape).
+        """Scale and shift each column by its own pair.
+
+        Arguments:
+          x = input tensor of shape (B, size); B = batch rows.
+
+        Returns:
+          x * gain + bias, the same shape as x: column i scaled by
+          gain[i] and shifted by bias[i], broadcast over the rows.
+        """
         return x * self.gain + self.bias
 
 
@@ -130,10 +151,11 @@ def affine_norm(size):
   """
   Norm factory for "affine": one fresh Affine() per dense layer.
 
-  The factory contract is norm(size) -> module, invoked once per dense
-  layer so every layer owns an independent gain / bias pair. Affine holds
-  one scalar pair for the whole tensor, so the size argument is accepted
-  (to honor the contract) and ignored. make_norm("affine") and ResBlock's
+  Every norm factory is called the same way, norm(size) -> module, once
+  per dense layer, so every layer owns an independent gain / bias pair.
+  Affine holds one scalar pair for the whole tensor, so the size argument
+  is accepted (keeping the call shape uniform across factories) and
+  ignored. make_norm("affine") and ResBlock's
   default norm slot both point here.
 
   Arguments:
@@ -309,6 +331,16 @@ class ResBlock(nn.Module):
                n_layers = 2,
                norm = affine_norm,
                act = activation_fcn):
+    """Validate the sizes and build the n_layers dense sublayers.
+
+    Arguments:
+      size     = feature width, shared by input and output.
+      n_layers = number of dense layers between the two skip points.
+      norm     = normalization factory, invoked as norm(size) once
+                 per layer.
+      act      = activation factory, invoked as act(size) once per
+                 layer.
+    """
     require_exact_int(size, "ResBlock.size", minimum=1)
     require_exact_int(n_layers, "ResBlock.n_layers", minimum=1)
     super().__init__()
@@ -333,6 +365,15 @@ class ResBlock(nn.Module):
     self.acts   = nn.ModuleList(acts)
 
   def forward(self, x):
+    """Run the dense stack with the input added back near the end.
+
+    Arguments:
+      x = input tensor of shape (B, size); B = batch rows.
+
+    Returns:
+      a tensor of shape (B, size): the last dense layer's output plus
+      the identity skip, then that layer's norm and activation.
+    """
     xskip = self.skip(x)
     out = x
     n = len(self.layers)
@@ -503,6 +544,12 @@ class FiLMGenerator(nn.Module):
     shift for the batch (C = n_channels).
   """
   def __init__(self, n_cond, n_channels):
+    """Build the one linear that emits both halves, identity at init.
+
+    Arguments:
+      n_cond     = conditioning-vector width.
+      n_channels = number of channels C to modulate.
+    """
     super().__init__()
     self.n_channels = n_channels
     # one linear producing both halves at once: columns [:C] are
@@ -517,7 +564,15 @@ class FiLMGenerator(nn.Module):
     nn.init.zeros_(self.linear.bias[n_channels:])
 
   def forward(self, z):
-    # z: (B, n_cond) -> (B, 2C), split into the two halves.
+    """Predict the per-channel modulation for one batch.
+
+    Arguments:
+      z = conditioning tensor of shape (B, n_cond); B = batch rows.
+
+    Returns:
+      (gamma, beta), each of shape (B, C): the scale and shift halves
+      (columns [:C] and [C:]) of the one linear's output.
+    """
     out = self.linear(z)
     gamma = out[:, :self.n_channels]    # (B, C)
     beta  = out[:, self.n_channels:]    # (B, C)
@@ -562,6 +617,13 @@ class BinLinear(nn.Module):
                n_tokens,
                in_features,
                out_features):
+    """Stack G independently initialized linears into batched tensors.
+
+    Arguments:
+      n_tokens     = number of independent tokens G.
+      in_features  = input width per token.
+      out_features = output width per token.
+    """
     require_exact_int(n_tokens, "BinLinear.n_tokens", minimum=1)
     require_exact_int(in_features, "BinLinear.in_features", minimum=1)
     require_exact_int(out_features, "BinLinear.out_features", minimum=1)
@@ -582,7 +644,16 @@ class BinLinear(nn.Module):
     self.bias   = nn.Parameter(torch.stack(biases))    # (G, out)
 
   def forward(self, x):
-    # x: (B, G, in). einsum("bgi,gio->bgo", x, weight): g appears in
+    """Apply token g's own weights to token g's slice, all in one go.
+
+    Arguments:
+      x = input tensor of shape (B, G, in_features); B = batch rows.
+
+    Returns:
+      a tensor of shape (B, G, out_features): every token's private
+      matmul plus its own bias, run as one batched einsum.
+    """
+    # einsum("bgi,gio->bgo", x, weight): g appears in
     # both operands and the output, so it is a batch axis (token g
     # uses weight[g] only, all G in one batched matmul); i appears in
     # both inputs but not the output, so einsum sums over it (the
@@ -940,6 +1011,21 @@ class TRFBlock(nn.Module):
                act=activation_fcn,
                shared_mlp=False,
                output_length=None):
+    """Validate the token layout and build both residual branches.
+
+    Arguments:
+      dim           = token width (the padded bin length); must be
+                      divisible by n_heads.
+      n_tokens      = number of tokens G.
+      n_heads       = attention heads.
+      n_mlp_blocks  = depth of each token's MLP stack.
+      act           = activation factory act(dim) -> module.
+      shared_mlp    = False for per-token unique MLPs (BinLinear);
+                      True for one MLP shared position-wise.
+      output_length = number of real output values the tokens
+                      represent; None means the token rectangle is
+                      exact (n_tokens * dim, no padding).
+    """
     require_exact_int(dim, "TRFBlock.dim", minimum=1)
     require_exact_int(n_tokens, "TRFBlock.n_tokens", minimum=1)
     require_exact_int(n_heads, "TRFBlock.n_heads", minimum=1)
@@ -997,7 +1083,18 @@ class TRFBlock(nn.Module):
     nn.init.zeros_(self.mlp_lins[-1].bias)
 
   def forward(self, x, valid_mask=None):
-    # x: (B, G, dim), i.e. G tokens of width dim.
+    """Run the attention and MLP branches over one token batch.
+
+    Arguments:
+      x          = input tensor of shape (B, G, dim): B batch rows of
+                   G tokens, each dim wide.
+      valid_mask = the Boolean feature mask of a ragged physical
+                   layout, or None for a rectangle with no padding.
+
+    Returns:
+      a tensor of shape (B, G, dim); equal to x at init, because both
+      residual branches start zero-initialized.
+    """
     # A ragged physical layout passes a Boolean feature mask. Invalid
     # coordinates are removed before normalization, all attention
     # projections, every MLP operation, and both residual returns. A
