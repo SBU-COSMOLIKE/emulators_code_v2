@@ -92,6 +92,7 @@ class _RendezvousPermit:
     """
 
     def __init__(self):
+        """Start a permit with none of its three milestones reached."""
         self.launched = False
         self.reaped = False
         self.released = False
@@ -157,7 +158,12 @@ class SafeKillRendezvous:
 
     @staticmethod
     def _next_deadline():
-        """Return the monotonic time of the next scheduled safe window."""
+        """Schedule the next clock-based safe window.
+
+        Returns:
+          The monotonic-clock time, in seconds, at which the next
+          scheduled safe window becomes due.
+        """
         return (daemon.time.monotonic()
                 + float(daemon.RENDEZVOUS_MINUTE_INTERVAL) * 60.0)
 
@@ -168,7 +174,15 @@ class SafeKillRendezvous:
             self._draining = True
 
     def _stop_for_source_change_locked(self):
-        """Flag a stop when any watched daemon source file changed on disk."""
+        """Flag a stop when any watched daemon source file changed on disk.
+
+        The saved modification stamps of the daemon source and its
+        companion part files are compared with the live filesystem; a
+        difference, or an unreadable file, marks the source changed
+        and starts draining so a stale process stops taking work.
+        The caller must already hold the rendezvous lock, which is
+        what the ``_locked`` suffix records.
+        """
         if self._source_path is None:
             return
         watched = ((self._source_path, self._source_stamp),)
@@ -240,7 +254,13 @@ class SafeKillRendezvous:
             return permit
 
     def source_changed(self):
-        """Return whether an admission observed a stale daemon source."""
+        """Report whether an admission observed a stale daemon source.
+
+        Returns:
+          True when any admission attempt saw a watched source file
+          change on disk; the watch must then restart before taking
+          more work.
+        """
         with self._lock:
             return self._source_changed
 
@@ -299,14 +319,25 @@ class SafeKillRendezvous:
             self._lock.notify_all()
 
     def window_ready(self):
-        """Return True only for a due drain with no child or preparation."""
+        """Test whether the safe window may open right now.
+
+        Returns:
+          True only when draining is due and no admitted attempt or
+          launched child remains; the caller may then run the safe
+          countdown without lying about safety.
+        """
         with self._lock:
             self._arm_if_due_locked()
             return (self._draining and self._active_attempts == 0
                     and self._in_flight == 0)
 
     def all_idle(self):
-        """Return whether no admitted attempt or launched child remains."""
+        """Test whether the watch has no work in any stage.
+
+        Returns:
+          True when no admitted attempt and no launched child remains,
+          whether or not a drain is due.
+        """
         with self._lock:
             return self._active_attempts == 0 and self._in_flight == 0
 
@@ -324,24 +355,45 @@ class SafeKillRendezvous:
             self._lock.notify_all()
 
     def completed_ticket_cycles(self):
-        """Return the completed ticket-cycle count for this watch."""
+        """Read the watch's completed-ticket counter.
+
+        Returns:
+          The number of ticket cycles this watch has completed so
+          far, including any restored durable progress.
+        """
         with self._lock:
             return self._ticket_cycles_completed
 
     def ticket_cycle_limit_reached(self):
-        """Return whether a positive cycle limit has already been met."""
+        """Test whether the finite watch has finished its budget.
+
+        Returns:
+          True when a positive ``--cycle`` limit exists and the
+          completed count has reached it; always False for an
+          unbounded watch.
+        """
         with self._lock:
             return (self._ticket_cycle_limit is not None
                     and self._ticket_cycles_completed
                     >= self._ticket_cycle_limit)
 
     def ticket_cycle_limit_value(self):
-        """Return the positive ticket limit, or ``None`` when unbounded."""
+        """Read the watch's ticket budget.
+
+        Returns:
+          The positive ``--cycle`` limit, or ``None`` when this watch
+          is unbounded.
+        """
         with self._lock:
             return self._ticket_cycle_limit
 
     def ticket_cycle_topology_value(self):
-        """Return the topology bound to this finite watch, if any."""
+        """Read the commit topology bound to this finite watch.
+
+        Returns:
+          The "normal" or "two-role" topology recorded when the
+          finite watch started, or ``None`` for an unbounded watch.
+        """
         with self._lock:
             return self._ticket_cycle_topology
 
@@ -420,7 +472,16 @@ def _ticket_cycle_completed():
 
 
 def waiting_messages_text(count):
-    """Return a grammatically exact waiting-message count."""
+    """Phrase a waiting-message count for terminal output.
+
+    Arguments:
+      count = the number of waiting messages.
+
+    Returns:
+      "no messages waiting", "1 message waiting", or
+      "<count> messages waiting", so status lines never print a
+      grammatically wrong noun.
+    """
     if count == 0:
         return "no messages waiting"
     noun = "message" if count == 1 else "messages"
