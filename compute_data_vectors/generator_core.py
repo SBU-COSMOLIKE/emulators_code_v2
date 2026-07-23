@@ -4,9 +4,13 @@ Shared machinery for the dataset-generator drivers.
 Every training-set generator in this package does the same job: draw
 cosmological parameter samples, farm one expensive Boltzmann/cosmolike
 call per sample over MPI, and write the results as the dv/params dumps
-the training stack stages. This module holds that shared machinery ONCE;
-each physics family ships a thin driver file beside it that subclasses
-GeneratorCore and fills in only what differs.
+the training stack stages. MPI is the Message Passing Interface: the
+standard for running one program as many communicating processes, which
+is how a cluster spreads the per-sample physics calls over its cores
+(mpirun launches the copies; each copy is a "rank"). This module holds
+that shared machinery ONCE; each physics family ships a thin driver
+file beside it that subclasses GeneratorCore and fills in only what
+differs.
 
     dataset_generator_lensing.py      cosmolike data vectors (cs/ggl/gc)
     dataset_generator_cmb.py          CMB spectra (tt/te/ee/pp)
@@ -17,8 +21,10 @@ GeneratorCore and fills in only what differs.
                               |
                    generator_core.py (this file)
                    - CLI parser (identical flags for every driver)
-                   - parameter sampling (emcee Gaussian / uniform),
-                     seeded by the required --seed flag
+                   - parameter sampling (uniform draws, or the emcee
+                     package — an ensemble MCMC sampler whose parallel
+                     chains are called walkers — on a tempered
+                     Gaussian), seeded by the required --seed flag
                    - chain + .paramnames + .ranges + .covmat writers
                    - the .facts.yaml scientific record beside the chain
                    - checkpoint save/load/append
@@ -1002,7 +1008,23 @@ class GeneratorCore:
     return [f"{self.dvsf}.npy"]
 
   def _dv_load_chk(self):
-    """Load the data-vector store from its checkpoint files (RAM-aware)."""
+    """Load the data-vector store from its checkpoint files (RAM-aware).
+
+    The store is first opened as a read-only memmap purely to learn its
+    size without loading it; the RAM decision then picks the working
+    form. When the store plus the samples and failure flags fit in
+    three quarters of the free RAM, the file is loaded whole for fast
+    row writes. Otherwise it is reopened as a read-write memmap
+    (mmap_mode "r+": slices are read from the file on demand and row
+    writes go back to it), which is slower but never holds the whole
+    array in memory; the printed warning says so up front. The probe
+    array is deleted explicitly so its file handle closes before the
+    real open.
+
+    Raises:
+      ValueError when the store is not 2-D or its row count disagrees
+      with the checkpointed samples.
+    """
     arr = np.load(f"{self.dvsf}.npy",
                   mmap_mode = "r",
                   allow_pickle = False)
@@ -1029,7 +1051,15 @@ class GeneratorCore:
       raise ValueError(f"Incompatible samples/datavector chk files")
 
   def _dv_save(self):
-    """Flush the data-vector store to disk (tmp file + atomic replace)."""
+    """Flush the data-vector store to disk (tmp file + atomic replace).
+
+    A memmapped store writes through to its own file, so a checkpoint
+    is just flush(), which forces the pending pages to disk. An in-RAM
+    store is written to a temporary sibling first and then swapped into
+    place with os.replace, which the operating system performs
+    atomically: a crash mid-save leaves the previous complete file, not
+    a half-written one.
+    """
     if self.dvs_is_memmap == True:
       self.datavectors.flush()  # checkpoint dv in-place
     else:
