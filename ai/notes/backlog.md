@@ -1728,9 +1728,17 @@ complete (`candidate_admission.py`, `review_dispatch.py`,
 `control_plane_handoff.py`, `provider_health.py`,
 `mailbox_providers.py`, `ticket_change_guard.py`, `mailbox_watch.py`,
 `mailbox_tickets.py`, `mailbox_store.py`, `backlog_bundle.py`),
-joining the three swept earlier. The `ai/tools/` arm is COMPLETE:
-all twenty-five files now meet the bar, closing with the ten large
-part files (`mailbox_daemon.py`, `mailbox_dispatch.py`,
+joining the three swept earlier. The `ai/tools/` arm is COMPLETE
+at the strict mechanical bar: after a user spot check found
+surviving one-line docstrings and missing Arguments blocks (for
+example `consume_daemon_message` and the `recover_failed_*` family
+in `mailbox_recovery.py`), a stricter census — every parametered
+callable must carry an Arguments block, every value-returning
+callable a Returns block, and no non-trivial body may keep a
+one-line docstring — found 153 further weak docstrings across 17
+files, and a 17-commit remediation drove that census to zero
+findings over all twenty-five files, including the ten large part
+files (`mailbox_daemon.py`, `mailbox_dispatch.py`,
 `mailbox_recovery.py`, `handoff_router.py`,
 `mailbox_control_plane.py`, `mailbox_cycles.py`,
 `handoff_contract.py`, `mailbox_envelopes.py`,
