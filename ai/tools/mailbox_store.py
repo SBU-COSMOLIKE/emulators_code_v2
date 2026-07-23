@@ -126,6 +126,14 @@ def mailbox_path_is_unredirected(mailbox):
     symlink used as an earlier ``notes`` or ``mailbox`` component.  Compare
     real paths relative to the repository's own real path so symlinks *above*
     the checkout remain harmless while redirects *inside* it are rejected.
+
+    Arguments:
+      mailbox = the mailbox directory path to test.
+
+    Returns:
+      True when every path component inside the repository is a real
+      directory rather than a symlink redirect; False otherwise, and
+      False for any path-resolution error.
     """
     repository = daemon.os.path.abspath(daemon.REPO_ROOT)
     candidate = daemon.os.path.abspath(mailbox)
@@ -147,6 +155,10 @@ def held_lock_probe(mailbox, lock_name):
     create it because both ``--send --dry-run`` and a refused discovery promise
     zero filesystem mutation.  A shared nonblocking probe coexists with other
     diagnostics but is refused by the exclusive lock held by the real owner.
+
+    Arguments:
+      mailbox   = the mailbox directory holding the lock.
+      lock_name = the lock's filename inside that directory.
 
     Returns:
       ``(held, owner)``. ``held`` is true only when the exact regular inode is
@@ -254,6 +266,13 @@ def fix_only_watch_is_active(mailbox=None):
     Owner text is diagnostic, not authority: once the exact-path regular lock
     is held, malformed or concurrently damaged metadata must fail closed as
     fix-only.  Unlocked stale files still read inactive.
+
+    Arguments:
+      mailbox = the mailbox to probe, or ``None`` for this daemon's
+                own mailbox.
+
+    Returns:
+      True when the fix-only mode lock is actively held.
     """
     if mailbox is None:
         mailbox = daemon.MAILBOX
@@ -284,6 +303,10 @@ def skip_redteam_policy_active():
 
     Either signal is binding: the environment setting inherited from
     a two-role watch, or the live mode lock on the mailbox.
+
+    Returns:
+      True when either signal is present; a Red Team send must then
+      be refused.
     """
     return (daemon.skip_redteam_environment_active()
             or daemon.skip_redteam_watch_is_active())
@@ -296,6 +319,9 @@ def mailbox_candidates():
     discovery uses scandir instead of ``glob('*')`` so a legal hidden
     worktree name is not silently missed.  Paths are absolute, de-duplicated,
     and sorted to keep warning output deterministic.
+
+    Returns:
+      The sorted list of candidate mailbox directory paths.
     """
     candidates = {
         daemon.os.path.abspath(daemon.MAILBOX),
@@ -445,7 +471,16 @@ def acquire_fix_only_lock_while_sequence_locked():
     lock_file = daemon.os.fdopen(descriptor, "r+", encoding="utf-8")
 
     def path_still_names_opened_inode(opened):
-        """Return whether the public mode path still names this descriptor."""
+        """Return whether the public mode path still names this descriptor.
+
+        Arguments:
+          opened = the fstat result of the descriptor this process
+                   opened.
+
+        Returns:
+          True when the mode-lock path still points at that exact
+          regular file; False when it vanished or was replaced.
+        """
         try:
             current = daemon.os.lstat(lock_path)
         except OSError:
@@ -522,7 +557,12 @@ def acquire_fix_only_lock():
 
 
 def release_fix_only_lock(lock_file):
-    """Release a lock returned by ``acquire_fix_only_lock``."""
+    """Release a lock returned by ``acquire_fix_only_lock``.
+
+    Arguments:
+      lock_file = the open locked mode file from the acquire call; it
+                  is unlocked and closed.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
@@ -554,7 +594,16 @@ def acquire_skip_redteam_lock_while_sequence_locked():
     lock_file = daemon.os.fdopen(descriptor, "r+", encoding="utf-8")
 
     def path_still_names_opened_inode(opened):
-        """Return whether the public mode path still names this descriptor."""
+        """Return whether the public mode path still names this descriptor.
+
+        Arguments:
+          opened = the fstat result of the descriptor this process
+                   opened.
+
+        Returns:
+          True when the mode-lock path still points at that exact
+          regular file; False when it vanished or was replaced.
+        """
         try:
             current = daemon.os.lstat(lock_path)
         except OSError:
@@ -633,7 +682,12 @@ def acquire_skip_redteam_lock():
 
 
 def release_skip_redteam_lock(lock_file):
-    """Release a lock returned by ``acquire_skip_redteam_lock``."""
+    """Release a lock returned by ``acquire_skip_redteam_lock``.
+
+    Arguments:
+      lock_file = the open locked mode file from the acquire call; it
+                  is unlocked and closed.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
@@ -707,7 +761,12 @@ def acquire_main_checkout_turn_lock():
 
 
 def release_main_checkout_turn_lock(lock_file):
-    """Release an Architect main-checkout turn lock."""
+    """Release an Architect main-checkout turn lock.
+
+    Arguments:
+      lock_file = the open locked file from the acquire call; it is
+                  unlocked and closed.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
@@ -1540,15 +1599,39 @@ def recheck_persistent_role_state(proof):
 
 
 def validate_live_sol_dispatch_topology():
-    """Compatibility wrapper for focused Sol topology witnesses."""
+    """Run the general topology proof for the Red Team checkout.
+
+    Returns:
+      The proof mapping from validate_live_agent_dispatch_topology
+      for ``agent="sol"``; kept as a named entry point so focused
+      witnesses can exercise the Sol case alone.
+    """
     return daemon.validate_live_agent_dispatch_topology(agent="sol")
 
 
 def recheck_sol_dispatch_directories(proof):
-    """Compatibility wrapper for focused Sol directory witnesses."""
+    """Run the general directory recheck for a Red Team proof.
+
+    Arguments:
+      proof = the mapping from validate_live_sol_dispatch_topology.
+
+    Returns:
+      The delegate's result; kept as a named entry point so focused
+      witnesses can exercise the Sol case alone.
+    """
     return daemon.recheck_agent_dispatch_directories(proof=proof)
 
 
 def revalidate_sol_dispatch_topology(proof):
-    """Compatibility wrapper for focused Sol topology witnesses."""
+    """Run the general topology revalidation for a Red Team proof.
+
+    Arguments:
+      proof = the pre-claim proof from
+              validate_live_sol_dispatch_topology.
+
+    Returns:
+      The fresh proof, which must equal the old one exactly; kept as
+      a named entry point so focused witnesses can exercise the Sol
+      case alone.
+    """
     return daemon.revalidate_agent_dispatch_topology(proof=proof)
