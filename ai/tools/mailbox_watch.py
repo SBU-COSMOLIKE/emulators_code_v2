@@ -50,24 +50,46 @@ PART_EXPORTS = (
 
 
 def report_in_flight_status(count):
-    """Print the truthful unsafe status for one or more live children."""
+    """Print the truthful unsafe status for one or more live children.
+
+    Arguments:
+      count = number of role turns currently running.
+    """
     noun = "turn" if count == 1 else "turns"
     print(str(count) + " " + noun
           + " in flight; not safe to stop.", flush=True)
 
 
 def report_admitted_status():
-    """Expire any earlier safe line before an attempt can claim its file."""
+    """Expire any earlier safe line before an attempt can claim its file.
+
+    A safe-to-stop line stays visible on the terminal until something
+    prints over it. Printing this line first means the user can never
+    be reading "safe" while a dispatch attempt is already claiming a
+    message.
+    """
     print("dispatch preparation admitted; not safe to stop.", flush=True)
 
 
 def report_safe_interval_closed():
-    """Invalidate a completed safe interval before admissions can reopen."""
+    """Invalidate a completed safe interval before admissions can reopen.
+
+    Printed when the countdown ends, so the last visible line no
+    longer promises safety once dispatch may resume.
+    """
     print("safe interval ended; not safe to stop.", flush=True)
 
 
 class _RendezvousPermit:
-    """One watch-global release from before claim through state publication."""
+    """One watch-global release from before claim through state publication.
+
+    A permit follows one dispatch attempt through its milestones:
+    ``launched`` records that the child process started, ``reaped``
+    that the child was waited on and its exit collected, ``released``
+    that the attempt finished its post-child bookkeeping. The
+    rendezvous uses these flags to refuse a double transition and to
+    detect a lost child.
+    """
 
     def __init__(self):
         self.launched = False
@@ -78,15 +100,39 @@ class _RendezvousPermit:
 class SafeKillRendezvous:
     """Close watch admissions periodically and prove every lane is idle.
 
-    ``active_attempts`` deliberately covers more than live children.  A turn
-    that passed the admission gate but has not reached Popen can already have
-    claimed its mailbox file, so an advertised safe window must wait for that
-    whole attempt as well as for every launched child.
+    A rendezvous is a meeting point. Each lane — the thread that runs
+    one role's turns — periodically stops admitting new work so the
+    watcher can prove that nothing runs and print an honest
+    safe-to-Ctrl-C countdown. Draining means admissions are closed
+    while already-running work finishes. Methods ending in ``_locked``
+    must be called with the internal lock already held.
+
+    ``active_attempts`` deliberately covers more than live children. A
+    turn that passed the admission gate but has not reached Popen (the
+    child-process launch) can already have claimed its mailbox file,
+    so an advertised safe window must wait for that whole attempt as
+    well as for every launched child.
     """
 
     def __init__(self, source_path=None, source_stamp=None,
                  ticket_cycle_limit=None, ticket_cycle_topology=None,
                  companion_sources=None):
+        """Create the controller for one watch.
+
+        Arguments:
+          source_path           = daemon source file watched for
+                                  on-disk edits, or ``None``.
+          source_stamp          = its modification time at startup.
+          ticket_cycle_limit    = positive ticket budget for a finite
+                                  watch, or ``None`` for unbounded.
+          ticket_cycle_topology = commit topology bound to a finite
+                                  watch; required with a limit.
+          companion_sources     = (path, stamp) pairs for the daemon's
+                                  part files, watched the same way.
+
+        Raises:
+          ValueError: for a finite limit without a valid topology.
+        """
         if (ticket_cycle_limit is not None
                 and ticket_cycle_topology not in daemon.ARCHITECT_COMMIT_MODES):
             raise ValueError(
@@ -139,7 +185,24 @@ class SafeKillRendezvous:
             self._draining = True
 
     def begin_attempt(self, ignore_ticket_limit=False):
-        """Return a permit, optionally for cycle-free administration."""
+        """Return a permit, optionally for cycle-free administration.
+
+        The call blocks while cadence capacity is exhausted, and
+        returns ``None`` when the watch is draining, a watched source
+        file changed on disk, or a finite ticket budget is spent —
+        each a reason to stop admitting work. On success the not-safe
+        status is printed before the permit is returned, so the user
+        can never be reading a stale safe line during dispatch.
+
+        Arguments:
+          ignore_ticket_limit = True for administrative work that may
+                                proceed even after the finite ticket
+                                budget is spent.
+
+        Returns:
+          A permit to pass through the later transitions, or ``None``
+          when nothing may be admitted.
+        """
         while True:
             with self._lock:
                 self._stop_for_source_change_locked()
@@ -182,7 +245,11 @@ class SafeKillRendezvous:
             return self._source_changed
 
     def turn_started(self, permit):
-        """Record a successful Popen and print the exact unsafe status."""
+        """Record a successful Popen and print the exact unsafe status.
+
+        Arguments:
+          permit = the attempt's permit; launching twice is an error.
+        """
         with self._lock:
             if permit.launched:
                 raise RuntimeError("rendezvous permit launched twice")
@@ -192,7 +259,12 @@ class SafeKillRendezvous:
             daemon.report_in_flight_status(count=count)
 
     def turn_finished(self, permit):
-        """Count one reaped child regardless of its exit or archive result."""
+        """Count one reaped child regardless of its exit or archive result.
+
+        Arguments:
+          permit = the attempt's permit; it must have launched and not
+                   already been reaped.
+        """
         with self._lock:
             if not permit.launched or permit.reaped:
                 raise RuntimeError("invalid rendezvous child completion")
@@ -206,7 +278,14 @@ class SafeKillRendezvous:
             self._lock.notify_all()
 
     def finish_attempt(self, permit):
-        """Release post-child state work and freeze on an unreaped child."""
+        """Release post-child state work and freeze on an unreaped child.
+
+        Arguments:
+          permit = the attempt's permit; releasing twice is an error.
+                   A permit whose child launched but was never reaped
+                   freezes admissions permanently, because the watcher
+                   no longer knows what is running.
+        """
         with self._lock:
             if permit.released:
                 raise RuntimeError("rendezvous permit released twice")
@@ -267,7 +346,17 @@ class SafeKillRendezvous:
             return self._ticket_cycle_topology
 
     def restore_completed_ticket_cycles(self, count):
-        """Restore durable progress for an interrupted finite watch."""
+        """Restore durable progress for an interrupted finite watch.
+
+        Arguments:
+          count = ticket cycles already completed before the
+                  interruption; restoration may happen only once,
+                  before any new completion is counted.
+
+        Raises:
+          ValueError: for a negative or non-integer count, a second
+            restoration, or progress above the cycle limit.
+        """
         if (isinstance(count, bool) or not isinstance(count, int)
                 or count < 0):
             raise ValueError("restored ticket-cycle count must be nonnegative")
@@ -280,7 +369,16 @@ class SafeKillRendezvous:
             self._ticket_cycles_completed = count
 
     def reset_after_safe_opportunity(self):
-        """Start a fresh cadence epoch after a proven all-idle interval."""
+        """Start a fresh cadence epoch after a proven all-idle interval.
+
+        The completed-turn count and the clock deadline restart, so
+        the next safe window is earned by new work rather than left
+        over from the old epoch.
+
+        Raises:
+          RuntimeError: when called while anything is admitted or
+            running.
+        """
         with self._lock:
             if self._active_attempts != 0 or self._in_flight != 0:
                 raise RuntimeError("cannot reset a non-idle rendezvous")
@@ -291,7 +389,11 @@ class SafeKillRendezvous:
 
 
 def _rendezvous_turn_started():
-    """Bind a successful Popen to this worker's active watch permit."""
+    """Bind a successful Popen to this worker's active watch permit.
+
+    The permit lives in thread-local storage — each lane thread sees
+    its own value — so a lane reports only its own child.
+    """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     permit = getattr(daemon._RENDEZVOUS_LOCAL, "permit", None)
     if controller is not None and permit is not None:
@@ -299,7 +401,11 @@ def _rendezvous_turn_started():
 
 
 def _rendezvous_turn_finished():
-    """Bind a reaped child to this worker's active watch permit."""
+    """Bind a reaped child to this worker's active watch permit.
+
+    The permit lives in thread-local storage, so a lane counts only
+    the child it launched.
+    """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     permit = getattr(daemon._RENDEZVOUS_LOCAL, "permit", None)
     if controller is not None and permit is not None:
@@ -322,7 +428,17 @@ def waiting_messages_text(count):
 
 
 def run_safe_kill_countdown(controller):
-    """Print 20 safe seconds when no role is starting or running."""
+    """Print 20 safe seconds when no role is starting or running.
+
+    Arguments:
+      controller = the watch's SafeKillRendezvous; its window must be
+                   ready (draining with nothing admitted or running)
+                   before this is called.
+
+    Raises:
+      RuntimeError: when a role is still active, because printing a
+        safe countdown then would be a lie.
+    """
     if not controller.window_ready():
         raise RuntimeError(
             "safe Ctrl-C countdown requested while a role is still active")
@@ -343,6 +459,15 @@ def report_ordinary_safe_poll(controller, reset_cadence=True):
     This ordinary mailbox check never completes a ticket cycle. Only a
     correlated Red Team return for one daemon-recorded local landing L does
     that in the default three-role mode.
+
+    Arguments:
+      controller    = the watch's SafeKillRendezvous.
+      reset_cadence = True to also start a fresh cadence epoch after
+                      reporting the idle poll.
+
+    Returns:
+      True when the safe line was printed (everything idle), False
+      when something was admitted or running.
     """
     if not controller.all_idle():
         return False
@@ -356,7 +481,18 @@ def report_ordinary_safe_poll(controller, reset_cadence=True):
 
 
 def positive_int(value):
-    """Parse an argparse integer that must be strictly positive."""
+    """Parse an argparse integer that must be strictly positive.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      The parsed integer, at most the dispatch-timeout ceiling.
+
+    Raises:
+      daemon.argparse.ArgumentTypeError: for a non-integer, zero, a
+        negative, or a value above the ceiling.
+    """
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
@@ -370,7 +506,22 @@ def positive_int(value):
 
 
 def nonnegative_cycle_count(value):
-    """Parse an argparse cycle count, including zero's drain-all meaning."""
+    """Parse an argparse cycle count, including zero's drain-all meaning.
+
+    Zero means drain everything: the watch then exits only when no
+    enabled message waits and no backlog line begins ``- OPEN``. A
+    positive count admits at most that many tickets.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      The parsed count.
+
+    Raises:
+      daemon.argparse.ArgumentTypeError: for a non-integer, a
+        negative, or a value above the cycle-count ceiling.
+    """
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
@@ -384,7 +535,20 @@ def nonnegative_cycle_count(value):
 
 
 def nonnegative_max_characters(value):
-    """Parse a ticket character limit, where zero means unlimited."""
+    """Parse a ticket character limit, where zero means unlimited.
+
+    Arguments:
+      value = the command-line text; only the ASCII digits 0 through 9
+              are accepted, so signs, spaces, and Unicode digit forms
+              are refused.
+
+    Returns:
+      The parsed limit; zero disables the size check.
+
+    Raises:
+      daemon.argparse.ArgumentTypeError: for anything but plain
+        digits.
+    """
     if not isinstance(value, str) or daemon.re.fullmatch(r"[0-9]+", value) is None:
         raise daemon.argparse.ArgumentTypeError(
             "max characters must use only decimal digits 0 through 9")
@@ -392,7 +556,18 @@ def nonnegative_max_characters(value):
 
 
 def strict_cycle_ledger_count():
-    """Read the cycle-zero ledger fail-closed from one verified regular file."""
+    """Read the cycle-zero ledger fail-closed from one verified regular file.
+
+    Fail-closed means any doubt — an unreadable file, a redirect, a
+    size over the limit, an identity or timestamp changing mid-read —
+    returns a problem instead of a count, so cycle zero can never
+    exit on a half-read backlog.
+
+    Returns:
+      ``(count, None)`` with the number of lines beginning
+      ``- OPEN``, or ``(None, problem)`` naming what could not be
+      verified.
+    """
     try:
         before = daemon.os.lstat(daemon.BACKLOG_LEDGER)
     except OSError as exc:
@@ -465,6 +640,18 @@ def acquire_cycle_completion_barrier(backlog_outcome,
     that lock from the final queue/ledger scan until the watch lock is released
     gives zero mode a real cutoff: a racing send either lands before the scan
     and prevents exit, or lands after the watcher is no longer advertised.
+
+    Arguments:
+      backlog_outcome = False when the backlog already showed open
+                        work, so the barrier is refused without
+                        locking anything.
+      skip_redteam    = True when Red Team routes are disabled, so
+                        their queues are not consulted.
+
+    Returns:
+      ``(lock_file, None)`` holding the send barrier when everything
+      is verified done; ``(None, error)`` when verification failed;
+      ``(None, None)`` when work simply remains.
     """
     failed_debt = daemon.architect_notes_failed_debt_error()
     if failed_debt is not None:
@@ -511,14 +698,30 @@ def acquire_cycle_completion_barrier(backlog_outcome,
 
 
 def release_cycle_completion_barrier(lock_file):
-    """Release the final cycle-zero send barrier after watch-lock release."""
+    """Release the final cycle-zero send barrier after watch-lock release.
+
+    Arguments:
+      lock_file = the held barrier returned by the acquire call.
+    """
     daemon.fcntl.flock(lock_file.fileno(), daemon.fcntl.LOCK_UN)
     lock_file.close()
 
 
 def acquire_positive_cycle_exit_barrier(backlog_outcome,
                                         skip_redteam=False):
-    """Fence sends and refuse finite exit while note administration waits."""
+    """Fence sends and refuse finite exit while note administration waits.
+
+    Arguments:
+      backlog_outcome = False when open work is already known, so no
+                        barrier is needed.
+      skip_redteam    = True when Red Team routes are disabled.
+
+    Returns:
+      ``(lock_file, None)`` holding the barrier when no ticket cycle
+      is active and no note administration waits; ``(None, error)``
+      when the state cannot be verified; ``(None, None)`` when exit
+      must wait.
+    """
     failed_debt = daemon.architect_notes_failed_debt_error()
     if failed_debt is not None:
         return None, failed_debt
@@ -548,7 +751,14 @@ def acquire_positive_cycle_exit_barrier(backlog_outcome,
 
 def report_cycle_limit_exit(completed_cycles, cycle_limit,
                             skip_redteam=False):
-    """Report a positive cycle limit after every active role job ends."""
+    """Report a positive cycle limit after every active role job ends.
+
+    Arguments:
+      completed_cycles = ticket cycles finished this watch.
+      cycle_limit      = the finite budget that was reached.
+      skip_redteam     = True to also list the deferred Red Team
+                        messages left untouched.
+    """
     waiting = len(daemon.pending_messages())
     ledger = daemon.backlog_ledger_count()
     cycle_noun = "cycle" if completed_cycles == 1 else "cycles"
@@ -564,7 +774,13 @@ def report_cycle_limit_exit(completed_cycles, cycle_limit,
 
 
 def report_cycle_work_complete(completed_cycles, skip_redteam=False):
-    """Report cycle zero after its waiting-work checks all pass."""
+    """Report cycle zero after its waiting-work checks all pass.
+
+    Arguments:
+      completed_cycles = ticket cycles finished this watch.
+      skip_redteam     = True when Red Team work was disabled; the
+                        message then names what remains untouched.
+    """
     noun = "cycle" if completed_cycles == 1 else "cycles"
     if skip_redteam:
         print("implementation drain complete after "
@@ -581,7 +797,11 @@ def report_cycle_work_complete(completed_cycles, skip_redteam=False):
 
 
 def report_cycle_completion_unverified(error):
-    """Explain why zero mode stayed live instead of claiming completion."""
+    """Explain why zero mode stayed live instead of claiming completion.
+
+    Arguments:
+      error = the verification problem to print.
+    """
     print("cycle zero cannot verify completion: " + error
           + "; watcher remains active.", flush=True)
 
@@ -589,9 +809,18 @@ def report_cycle_completion_unverified(error):
 def truthy_fix_only(value):
     """Parse the deliberately forgiving truthy value for ``--fix-only``.
 
-    The user explicitly allowed capitalization mistakes and surrounding
-    whitespace.  Other supplied values are errors rather than silently
-    disabling a safety mode because of a typo.
+    Capitalization and surrounding whitespace are accepted because
+    the option is typed by hand. Every other value is an error rather
+    than a silent disable: a typo must never turn off a safety mode.
+
+    Arguments:
+      value = the command-line text.
+
+    Returns:
+      True for ``1``, ``true``, or ``yes`` in any capitalization.
+
+    Raises:
+      daemon.argparse.ArgumentTypeError: for every other value.
     """
     normalized = str(value).strip().lower()
     if normalized in {"1", "true", "yes"}:
@@ -601,7 +830,19 @@ def truthy_fix_only(value):
 
 
 def validate_model_name(value):
-    """Accept one provider model name without shell ambiguity."""
+    """Accept one provider model name without shell ambiguity.
+
+    Arguments:
+      value = the requested model name.
+
+    Returns:
+      The name unchanged when it is one nonempty token with no
+      whitespace or zero byte, so it can travel through command lines
+      and settings files without quoting surprises.
+
+    Raises:
+      daemon.argparse.ArgumentTypeError: for anything else.
+    """
     if (not isinstance(value, str) or not value or "\x00" in value
             or any(character.isspace() for character in value)):
         raise daemon.argparse.ArgumentTypeError(
