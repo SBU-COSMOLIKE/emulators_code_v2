@@ -224,6 +224,10 @@ def next_seq():
     Scans EVERY directory under the mailbox (root, done/, failed/, any
     hand-made quarantine like hold/): a number parked anywhere is still
     claimed, and handing it out twice makes two messages look like one.
+
+    Returns:
+      One more than the highest sequence number found anywhere under
+      the mailbox, as a four-digit zero-padded string such as "0042".
     """
     highest = 0
     pattern = daemon.os.path.join(daemon.MAILBOX, "**", "*.md")
@@ -236,7 +240,16 @@ def next_seq():
 
 
 def pending_messages():
-    """Return the sorted list of unprocessed message paths."""
+    """List the waiting messages in the order they must be handled.
+
+    Only files directly in the mailbox root whose names match the
+    pending pattern count; anything in ``inflight/``, ``done/``, or
+    ``failed/`` already belongs to another state.
+
+    Returns:
+      The pending message paths sorted by sequence number, so callers
+      process requests in the order they were written.
+    """
     found = []
     for path in daemon.glob.glob(daemon.os.path.join(daemon.MAILBOX, "*.md")):
         name = daemon.os.path.basename(path)
@@ -282,6 +295,17 @@ def message_is_enabled_for_topology(path, skip_redteam=False):
     Messages for a disabled role remain byte-for-byte in the mailbox root.
     Malformed messages stay enabled so the ordinary dispatcher can explain
     and quarantine them instead of silently treating corruption as a role.
+
+    Arguments:
+      path         = the root message file to classify.
+      skip_redteam = True when this watch runs without the Red Team
+                     route.
+
+    Returns:
+      True when this watch owns the message: its recipient role is
+      enabled and, for ticket messages, its saved mode matches the
+      watch topology. False leaves the file untouched for a later
+      watch.
     """
     match = daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(path))
     if match is None:
@@ -317,6 +341,14 @@ def enabled_pending_messages(skip_redteam=False):
     The ordinary three-role topology returns every dispatchable message.
     A two-role watch excludes only exact ``to-sol`` roots; those files stay
     in place for a later Sol-enabled watch.
+
+    Arguments:
+      skip_redteam = True when this watch runs without the Red Team
+                     route.
+
+    Returns:
+      The pending message paths this watch may consume, in sequence
+      order.
     """
     return [
         path for path in daemon.pending_messages()
@@ -325,7 +357,12 @@ def enabled_pending_messages(skip_redteam=False):
 
 
 def deferred_sol_messages():
-    """Return exact pending Sol roots held by a two-role watch."""
+    """Name the pending Red Team messages a two-role watch leaves alone.
+
+    Returns:
+      The root ``*-to-sol.md`` paths still waiting; a watch without
+      the Red Team route reports these instead of consuming them.
+    """
     return [path for path in daemon.pending_messages()
             if daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(path)).group(1)
             == "sol"]
@@ -376,27 +413,53 @@ def new_route_paths(pattern, before_inodes):
 
 
 def fable_message_inode_snapshot():
-    """Return regular inodes for every existing Architect-addressed message."""
+    """Snapshot the Architect route before a turn creates new messages.
+
+    Returns:
+      The inode set for every existing ``*-to-fable.md`` file, taken
+      before a turn runs so the matching_new_* provers can recognize
+      which files the turn itself created.
+    """
     return daemon.route_inode_snapshot(pattern="*-to-fable.md")
 
 
 def daemon_message_inode_snapshot():
-    """Return regular inodes for every existing daemon-addressed message."""
+    """Snapshot the daemon route before a turn creates new messages.
+
+    Returns:
+      The inode set for every existing ``*-to-daemon.md`` file, the
+      pre-turn baseline the matching_new_* provers compare against.
+    """
     return daemon.route_inode_snapshot(pattern="*-to-daemon.md")
 
 
 def opus_message_inode_snapshot():
-    """Return regular inodes for every existing Implementer message."""
+    """Snapshot the Implementer route before a turn creates new messages.
+
+    Returns:
+      The inode set for every existing ``*-to-opus.md`` file, the
+      pre-turn baseline the matching_new_* provers compare against.
+    """
     return daemon.route_inode_snapshot(pattern="*-to-opus.md")
 
 
 def sol_message_inode_snapshot():
-    """Return regular inodes for every existing Red Team message."""
+    """Snapshot the Red Team route before a turn creates new messages.
+
+    Returns:
+      The inode set for every existing ``*-to-sol.md`` file, the
+      pre-turn baseline the matching_new_* provers compare against.
+    """
     return daemon.route_inode_snapshot(pattern="*-to-sol.md")
 
 
 def user_message_inode_snapshot():
-    """Return regular inodes for every existing human-addressed message."""
+    """Snapshot the user route before a turn creates new messages.
+
+    Returns:
+      The inode set for every existing ``*-to-user.md`` file, the
+      pre-turn baseline the matching_new_* provers compare against.
+    """
     return daemon.route_inode_snapshot(pattern="*-to-user.md")
 
 
@@ -645,7 +708,22 @@ def matching_new_architect_notes_go(base_commit, notes_commit,
 
 
 def _authoritative_handoff_contract_module():
-    """Load the already-proved primary contract without importing a copy."""
+    """Load the proved directive contract from the Architect checkout.
+
+    The directive validator must be the exact handoff_contract.py in the
+    Architect primary checkout — the copy the role contract already
+    verified — not whichever same-named module Python's import path
+    happens to find first. The file is loaded directly from that path
+    under a private module name, leaving ordinary imports untouched.
+
+    Returns:
+      The loaded module, after checking it exposes every validator and
+      evidence-extraction name the daemon calls.
+
+    Raises:
+      daemon.TicketCycleStateError: when the file cannot be loaded or
+        lacks part of that expected interface.
+    """
     path = daemon.os.path.join(
         daemon.AGENT_CWD["fable"], "ai", "tools", "handoff_contract.py")
     try:
@@ -937,6 +1015,17 @@ def matching_new_redteam_receipt(cycle_id, accepted_commit, before_inodes):
     The scan spans mailbox states so a future refactor that consumes the
     Architect lane concurrently cannot turn a real return into a false
     missing-receipt failure.
+
+    Arguments:
+      cycle_id        = the ticket cycle the receipt must name.
+      accepted_commit = the landing commit the receipt must name.
+      before_inodes   = the pre-turn message-inode snapshot; only
+                        files created after it count as new.
+
+    Returns:
+      ``(path, result, problem)``: the single fresh matching receipt
+      and its NO CHANGE or REOPEN result, or ``(None, None, problem)``
+      when a new return is malformed or the match is not exactly one.
     """
     matches = []
     malformed = []
@@ -1018,6 +1107,14 @@ def sol_ticket_kind(message):
     Free-form prose is deliberately never classified.  LF and CRLF are both
     accepted as physical line endings, but whitespace, aliases, and a header
     appearing later in the body do not count.
+
+    Arguments:
+      message = the decoded Sol message.
+
+    Returns:
+      The declared ticket kind — one of the dispatchable Sol kinds
+      such as "closure", "control-plane", or "discovery" — or ``None``
+      when the first line carries no valid classification header.
     """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.SOL_TICKET_HEADER)
@@ -1051,6 +1148,9 @@ def sol_ticket_body_after_kind(message):
 
 def _sol_discovery_envelope(message):
     """Parse the exact persisted discovery envelope without reading prose.
+
+    Arguments:
+      message = the decoded Sol message.
 
     Returns:
       ``(severity, scope, body, problem)``. A valid discovery has all three
@@ -1175,6 +1275,15 @@ def _body_architect_admission(body):
     occupied the finite-watch slot.  Looking for a token later in prose would
     allow an unrelated output to consume that slot, so the binding line is
     required first and duplicates are refused.
+
+    Arguments:
+      body = the message body after its envelope headers.
+
+    Returns:
+      ``(token, problem)``: the ``request@digest`` admission token when
+      the first body line carries exactly one well-formed
+      MAILBOX-ADMISSION header, else ``(None, problem)`` naming the
+      missing, malformed, or duplicated line.
     """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_ADMISSION_HEADER)
@@ -1670,6 +1779,16 @@ def _ticket_architect_admission(message):
     first Implementer handoff created by a public Architect turn carries the
     exact request basename and SHA-256 so a crash or reordering cannot pair
     the handoff with another public request.
+
+    Arguments:
+      message = the decoded Implementer-bound ticket message.
+
+    Returns:
+      ``(request_name, digest, problem)``: the admission's request
+      basename and SHA-256 when the body opens with exactly one
+      well-formed MAILBOX-ADMISSION line; ``(None, None, None)`` for an
+      ordinary handoff carrying no admission; ``(None, None, problem)``
+      for a malformed envelope or admission line.
     """
     _cycle_id, _mode, body, problem = daemon._ticket_flow_envelope(message=message)
     if problem is not None:
@@ -1835,6 +1954,16 @@ def _redteam_review_receipt(message):
     The result vocabulary belongs to the advisory role: ``NO CHANGE`` means
     the accepted fix still stands, and ``REOPEN`` supplies evidence for later
     Architect assessment. Architect ``GO``/``NO-GO`` are deliberately absent.
+
+    Arguments:
+      message = the decoded Architect-bound return.
+
+    Returns:
+      ``(cycle_id, commit, result, body, problem)``: the reviewed
+      ticket cycle, the landing commit, the NO CHANGE or REOPEN
+      result, and the free-form evidence body. A malformed or
+      duplicate-header return gives ``(None, None, None, message,
+      problem)``.
     """
     match = daemon.re.match(
         r"\A" + daemon.re.escape(daemon.MAILBOX_RETURN_HEADER)
@@ -2105,6 +2234,9 @@ def write_architect_notes_admin_journal(request_name, request_message,
       notes_commit    = P, required in the validated-commit phase.
       receipt_sha256  = the GO receipt's digest, required in the
                         validated-commit phase.
+
+    Returns:
+      The journal file's path after its atomic replacement landed.
 
     Raises:
       daemon.TicketCycleStateError: for an invalid phase, authority,
