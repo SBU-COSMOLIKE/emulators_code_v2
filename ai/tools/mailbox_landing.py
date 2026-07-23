@@ -92,7 +92,15 @@ PART_EXPORTS = (
 
 
 def git_commit_exists(commit):
-    """Return whether the primary coordination repository owns this commit."""
+    """Return whether the primary coordination repository owns this commit.
+
+    Arguments:
+      commit = a full 40-hex commit identifier.
+
+    Returns:
+      True only for a well-formed identifier naming a real commit;
+      malformed input reads False rather than raising.
+    """
     if not isinstance(commit, str) or daemon.FULL_COMMIT_RE.fullmatch(commit) is None:
         return False
     process = daemon.subprocess.run(
@@ -103,7 +111,17 @@ def git_commit_exists(commit):
 
 
 def git_commit_descends_from(starting_commit, accepted_commit):
-    """Return whether daemon-recorded landing L descends from the base."""
+    """Return whether daemon-recorded landing L descends from the base.
+
+    Arguments:
+      starting_commit = the base commit.
+      accepted_commit = the commit that must strictly descend from
+                        it.
+
+    Returns:
+      True only when both commits exist, differ, and the base is an
+      ancestor of the accepted commit.
+    """
     if (not daemon.git_commit_exists(commit=starting_commit)
             or not daemon.git_commit_exists(commit=accepted_commit)
             or starting_commit == accepted_commit):
@@ -117,7 +135,21 @@ def git_commit_descends_from(starting_commit, accepted_commit):
 
 
 def cycle_candidate_ref(cycle_id):
-    """Return one path-safe, deterministic private ref for a ticket."""
+    """Return one path-safe, deterministic private ref for a ticket.
+
+    The cycle identifier is hashed so the reference name stays valid
+    whatever characters the anchor contains, and the same cycle
+    always maps to the same reference.
+
+    Arguments:
+      cycle_id = the validated cycle identifier.
+
+    Returns:
+      The candidate reference name under the private ref root.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid cycle identifier.
+    """
     if not isinstance(cycle_id, str) or daemon.CYCLE_ID_RE.fullmatch(cycle_id) is None:
         raise daemon.TicketCycleStateError("invalid cycle id for candidate ref")
     digest = daemon.hashlib.sha256(cycle_id.encode("utf-8")).hexdigest()
@@ -176,7 +208,19 @@ def read_candidate_state():
 
 
 def write_candidate_state(state):
-    """Publish candidate state by same-directory atomic replacement."""
+    """Publish candidate state by same-directory atomic replacement.
+
+    Every cycle row must already satisfy the strict reader's rules —
+    the deterministic reference name and a full candidate commit —
+    before anything is written.
+
+    Arguments:
+      state = the candidate-state mapping to publish.
+
+    Raises:
+      daemon.TicketCycleStateError: for malformed state or an
+        encoding over the size limit.
+    """
     if (not isinstance(state, dict)
             or set(state) != {"schema", "cycles"}
             or state.get("schema") != daemon.CANDIDATE_STATE_SCHEMA):
@@ -217,7 +261,18 @@ def write_candidate_state(state):
 
 
 def git_ref_commit(reference):
-    """Return one private ref's full commit, or None when it is absent."""
+    """Return one private ref's full commit, or None when it is absent.
+
+    Arguments:
+      reference = the private reference name.
+
+    Returns:
+      The full commit, or ``None`` when the reference does not exist.
+
+    Raises:
+      daemon.TicketCycleStateError: when the reference cannot be
+        inspected or resolves to something invalid.
+    """
     result = daemon._run_git(
         repository_root=daemon.AGENT_CWD["fable"],
         arguments=["rev-parse", "--verify", "--quiet",
@@ -240,7 +295,29 @@ def git_ref_commit(reference):
 
 def candidate_record_locked(cycle_id, ticket_state, candidate_state,
                             recover=True):
-    """Return and verify one candidate, adopting an interrupted ref write."""
+    """Return and verify one candidate, adopting an interrupted ref write.
+
+    A ref that exists without a matching state row is adopted only
+    when recovery is allowed, the cycle is actively implementing, and
+    the ref descends from the last known commit — the crash-between-
+    ref-and-state case. Any other disagreement between the state row,
+    the Git ref, and the active cycle is refused.
+
+    Arguments:
+      cycle_id        = the ticket cycle.
+      ticket_state    = the durable ticket-cycle state mapping.
+      candidate_state = the durable candidate-state mapping.
+      recover         = False to refuse adoption instead.
+
+    Returns:
+      The verified candidate record, or ``None`` when the cycle has
+      none.
+
+    Raises:
+      daemon.TicketCycleStateError: for an unowned ref, a state-ref
+        disagreement, or a candidate outside an active
+        implementation.
+    """
     active = ticket_state["active"].get(cycle_id)
     record = candidate_state["cycles"].get(cycle_id)
     reference = daemon.cycle_candidate_ref(cycle_id=cycle_id)
@@ -274,7 +351,19 @@ def candidate_record_locked(cycle_id, ticket_state, candidate_state,
 
 
 def _clean_worktree_status(worktree):
-    """Return exact porcelain bytes without permitting index refresh."""
+    """Return exact porcelain bytes without permitting index refresh.
+
+    Arguments:
+      worktree = the checkout to inspect.
+
+    Returns:
+      Raw ``git status --porcelain`` bytes; empty means clean, and
+      the optional-locks setting keeps the read from rewriting the
+      index it inspects.
+
+    Raises:
+      daemon.TicketCycleStateError: when the status command fails.
+    """
     environment = daemon.os.environ.copy()
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = daemon.subprocess.run(
@@ -289,7 +378,18 @@ def _clean_worktree_status(worktree):
 
 
 def worktree_head(worktree):
-    """Return the exact full commit checked out in one worktree."""
+    """Return the exact full commit checked out in one worktree.
+
+    Arguments:
+      worktree = the checkout to inspect.
+
+    Returns:
+      The full HEAD commit.
+
+    Raises:
+      daemon.TicketCycleStateError: for a HEAD that is not one full
+        ASCII commit.
+    """
     result = daemon._run_git(
         repository_root=worktree,
         arguments=["rev-parse", "--verify", "HEAD^{commit}"])
@@ -304,7 +404,24 @@ def worktree_head(worktree):
 
 def prepare_implementer_cycle_checkout(
         cycle_id, preserve_current=False, restart_from_base=False):
-    """Select the cycle tip, or preserve a validated context checkpoint."""
+    """Select the cycle tip, or preserve a validated context checkpoint.
+
+    The Implementer checkout is moved to the cycle's current tip —
+    the saved candidate, or the cycle base for a fresh or restarted
+    ticket — unless a validated context checkpoint asks the current
+    state to be preserved for a replacement turn.
+
+    Arguments:
+      cycle_id          = the ticket cycle.
+      preserve_current  = True to keep the present checkout for a
+                          replacement Implementer.
+      restart_from_base = True to discard the candidate and restart
+                          at the cycle base.
+
+    Raises:
+      daemon.TicketCycleStateError: when the checkout cannot be
+        placed in the requested state.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         ticket_state = daemon.read_ticket_cycle_state()
@@ -360,7 +477,15 @@ def prepare_implementer_cycle_checkout(
 
 
 def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
-    """Explain why this trusted watcher cannot run one ticket class."""
+    """Explain why this trusted watcher cannot run one ticket class.
+
+    Arguments:
+      ticket_class = the declared ticket class.
+      skip_redteam = True in a two-role watch.
+
+    Returns:
+      A printable refusal, or ``None`` when the class may run.
+    """
     if ticket_class not in daemon.TICKET_CLASSES:
         return "invalid ticket class"
     if ticket_class == "protected-control-plane":
@@ -371,7 +496,21 @@ def ticket_class_configuration_problem(ticket_class, skip_redteam=False):
 
 
 def candidate_changed_paths(base_commit, candidate_commit, repository=None):
-    """Return every repository path changed from ticket base B to candidate C."""
+    """Return every repository path changed from ticket base B to candidate C.
+
+    Arguments:
+      base_commit      = B, the cycle base.
+      candidate_commit = C, the candidate.
+      repository       = the repository to diff in, or ``None`` for
+                         the Implementer worktree.
+
+    Returns:
+      The set of changed repository-relative paths, with renames
+      reported as their two sides.
+
+    Raises:
+      daemon.TicketCycleStateError: for a non-UTF-8 path.
+    """
     if repository is None:
         repository = daemon.AGENT_CWD["opus"]
     changed = daemon._run_git(
@@ -389,7 +528,16 @@ def candidate_changed_paths(base_commit, candidate_commit, repository=None):
 
 def classify_candidate_scope(changed_paths, path_scope,
                              ticket_class="ordinary"):
-    """Classify candidate C against global protection and its ticket file list."""
+    """Classify candidate C against global protection and its ticket file list.
+
+    Arguments:
+      changed_paths = the candidate's changed paths.
+      path_scope    = the ticket's planned file list.
+      ticket_class  = the declared ticket class.
+
+    Returns:
+      The admission checker's ``(verdict, paths)`` pair.
+    """
     protected = daemon.candidate_forbidden_paths(
         changed_paths, ticket_class=ticket_class)
     return daemon._CANDIDATE_ADMISSION.classify(
@@ -397,7 +545,17 @@ def classify_candidate_scope(changed_paths, path_scope,
 
 
 def candidate_scope_for_cycle(cycle_id, candidate_commit):
-    """Recompute the exact ticket-scope result shown to the Architect."""
+    """Recompute the exact ticket-scope result shown to the Architect.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C to classify.
+
+    Returns:
+      ``{"result": verdict, "paths": sorted paths}`` for a cycle
+      with a frozen scope, or ``None`` for a cycle that predates
+      scope freezing and keeps the Architect-only audit.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         record = daemon.read_ticket_cycle_state()["active"].get(cycle_id)
@@ -421,7 +579,26 @@ def candidate_scope_for_cycle(cycle_id, candidate_commit):
 
 def record_implementer_candidate(
         cycle_id, starting_head, replace_prior=False):
-    """Atomically preserve a successful clean Opus commit for its cycle."""
+    """Atomically preserve a successful clean Opus commit for its cycle.
+
+    The worktree must be clean and its HEAD a new descendant of the
+    saved base; the candidate is then recorded in both the private
+    ref and the candidate state under the state lock.
+
+    Arguments:
+      cycle_id      = the ticket cycle.
+      starting_head = the HEAD the turn started from.
+      replace_prior = True when a replacement turn may overwrite the
+                      cycle's previously saved candidate.
+
+    Returns:
+      The recorded candidate commit, or ``None`` when the turn ended
+      where it started.
+
+    Raises:
+      daemon.TicketCycleStateError: for a dirty worktree, a
+        non-descendant result, or a refused replacement.
+    """
     worktree = daemon.AGENT_CWD["opus"]
     if daemon._clean_worktree_status(worktree=worktree):
         raise daemon.TicketCycleStateError(
@@ -499,7 +676,14 @@ def record_implementer_candidate(
 
 
 def candidate_commit_for_cycle(cycle_id):
-    """Return the verified immutable candidate for one active cycle."""
+    """Return the verified immutable candidate for one active cycle.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+
+    Returns:
+      The candidate commit C, or ``None`` when the cycle has none.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         ticket_state = daemon.read_ticket_cycle_state()
@@ -513,7 +697,21 @@ def candidate_commit_for_cycle(cycle_id):
 
 
 def record_architect_repair_scope(cycle_id, handoff_message):
-    """Replace the file list after one authenticated Architect repair."""
+    """Replace the file list after one authenticated Architect repair.
+
+    The repair handoff's cited directive is revalidated first; its
+    allowed paths become the cycle's new frozen scope, but only for
+    an active implementation with a preserved candidate and an
+    unchanged ticket class.
+
+    Arguments:
+      cycle_id        = the ticket cycle.
+      handoff_message = the Architect repair handoff.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing candidate, an
+        inactive cycle, or a changed ticket class.
+    """
     evidence = daemon.prepare_implementer_evidence_contract(
         message=handoff_message)
     proposed = sorted(evidence["allowed_paths"])
@@ -538,7 +736,20 @@ def record_architect_repair_scope(cycle_id, handoff_message):
 
 
 def write_implementer_delivery_receipt(request_path, return_path):
-    """Hard-link a validated role return before its request is archived."""
+    """Hard-link a validated role return before its request is archived.
+
+    The receipt's filename binds the request and return by name and
+    SHA-256 digest, so recovery can later prove which validated
+    return answered which exact request even after both moved.
+
+    Arguments:
+      request_path = the dispatched request file.
+      return_path  = the validated return file.
+
+    Raises:
+      daemon.TicketCycleStateError: for an invalid name or an
+        unrecognized request-to-return route.
+    """
     request = daemon.stable_regular_bytes(
         path=request_path, maximum_bytes=daemon.MAX_PRIMARY_ARCHIVE_FILE_BYTES,
         label="Implementer request")
@@ -747,7 +958,18 @@ def recover_implementer_deliveries():
 
 
 def audit_snapshot_path(cycle_id, agent):
-    """Return a deterministic managed path for one exact audit checkout."""
+    """Return a deterministic managed path for one exact audit checkout.
+
+    Arguments:
+      cycle_id = the ticket cycle, hashed into the folder name.
+      agent    = ``"fable"`` or ``"sol"``, the auditing role.
+
+    Returns:
+      The snapshot path under the managed worktree root.
+
+    Raises:
+      ValueError: for any other agent.
+    """
     if agent not in {"fable", "sol"}:
         raise ValueError("audit snapshot agent must be fable or sol")
     digest = daemon.hashlib.sha256(cycle_id.encode("utf-8")).hexdigest()[:24]
@@ -757,7 +979,20 @@ def audit_snapshot_path(cycle_id, agent):
 
 
 def _validate_audit_record(record, path, commit):
-    """Prove one registered detached audit worktree names one commit."""
+    """Prove one registered detached audit worktree names one commit.
+
+    Arguments:
+      record = the worktree registry record, or ``None``.
+      path   = the snapshot path.
+      commit = the exact commit the checkout must name.
+
+    Returns:
+      The validated managed path.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unregistered, branched,
+        prunable, foreign, or wrong-commit worktree.
+    """
     expected = daemon._managed_child_path(
         path=path,
         managed_root=daemon._managed_primary_root(repository_root=daemon.REPO_ROOT))
@@ -776,7 +1011,25 @@ def _validate_audit_record(record, path, commit):
 
 
 def create_audit_snapshot(cycle_id, commit, agent):
-    """Create or recover a detached exact-commit checkout for one audit."""
+    """Create or recover a detached exact-commit checkout for one audit.
+
+    A detached checkout has no branch, so an audit can read the exact
+    candidate without any branch bookkeeping. An existing registered
+    snapshot is revalidated and reused; an unregistered leftover at
+    the path is refused.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      commit   = the exact commit to check out.
+      agent    = the auditing role.
+
+    Returns:
+      The validated snapshot path.
+
+    Raises:
+      daemon.TicketCycleStateError: for a commit that does not exist.
+      daemon.PrimaryWorktreeError: for an unusable path or record.
+    """
     if (not isinstance(commit, str)
             or daemon.FULL_COMMIT_RE.fullmatch(commit) is None
             or not daemon.git_commit_exists(commit=commit)):
@@ -804,7 +1057,20 @@ def create_audit_snapshot(cycle_id, commit, agent):
 
 
 def remove_audit_snapshot(cycle_id, commit, agent):
-    """Remove only the unchanged disposable snapshot created for this turn."""
+    """Remove only the unchanged disposable snapshot created for this turn.
+
+    A snapshot with tracked changes is preserved for inspection
+    rather than deleted; only a clean, validated snapshot is removed.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      commit   = the exact commit the snapshot must still name.
+      agent    = the auditing role.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unregistered leftover path
+        or a snapshot that fails validation.
+    """
     path = daemon.audit_snapshot_path(cycle_id=cycle_id, agent=agent)
     lock_file = daemon._open_primary_lock(repository_root=daemon.REPO_ROOT)
     try:
@@ -839,7 +1105,21 @@ def remove_audit_snapshot(cycle_id, commit, agent):
 
 
 def discard_interrupted_audit_snapshot(cycle_id, commit, agent):
-    """Remove one exact interrupted audit checkout, including its edits."""
+    """Remove one exact interrupted audit checkout, including its edits.
+
+    Unlike ordinary removal, an interrupted audit's edits are
+    disposable copies of a preserved candidate, so a forced removal
+    loses nothing durable.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      commit   = the exact commit the snapshot must still name.
+      agent    = the auditing role.
+
+    Raises:
+      daemon.PrimaryWorktreeError: for an unregistered leftover path
+        or a removal that left the path behind.
+    """
     path = daemon.audit_snapshot_path(cycle_id=cycle_id, agent=agent)
     lock_file = daemon._open_primary_lock(repository_root=daemon.REPO_ROOT)
     try:
@@ -861,7 +1141,19 @@ def discard_interrupted_audit_snapshot(cycle_id, commit, agent):
 
 
 def _exact_git_object(arguments, label):
-    """Return one full Git object name from a bounded read-only command."""
+    """Return one full Git object name from a bounded read-only command.
+
+    Arguments:
+      arguments = the read-only Git command.
+      label     = what is being inspected, for error messages.
+
+    Returns:
+      The full 40-hex object name.
+
+    Raises:
+      daemon.TicketCycleStateError: for a failed command or a value
+        that is not one exact object name.
+    """
     try:
         result = daemon._run_git(
             repository_root=daemon.AGENT_CWD["fable"],
@@ -887,7 +1179,18 @@ def _exact_git_object(arguments, label):
 
 
 def _single_commit_parent(commit):
-    """Return the sole parent of a squash landing commit."""
+    """Return the sole parent of a squash landing commit.
+
+    Arguments:
+      commit = the landing commit.
+
+    Returns:
+      The single parent commit.
+
+    Raises:
+      daemon.TicketCycleStateError: for a root or merge commit — a
+        squash landing must have exactly one parent.
+    """
     try:
         result = daemon._run_git(
             repository_root=daemon.AGENT_CWD["fable"],
@@ -912,7 +1215,17 @@ def _single_commit_parent(commit):
 
 
 def _require_ancestor_or_same(ancestor, descendant, label):
-    """Require ``descendant`` to preserve ``ancestor`` in its lineage."""
+    """Require ``descendant`` to preserve ``ancestor`` in its lineage.
+
+    Arguments:
+      ancestor   = the commit that must be preserved.
+      descendant = the commit whose history is checked.
+      label      = the error message on failure.
+
+    Raises:
+      daemon.TicketCycleStateError: with the label when the lineage
+        is broken.
+    """
     if daemon._commit_is_ancestor(ancestor=ancestor, descendant=descendant,
                            label=label):
         return
@@ -920,7 +1233,20 @@ def _require_ancestor_or_same(ancestor, descendant, label):
 
 
 def _commit_is_ancestor(ancestor, descendant, label):
-    """Return whether one exact commit remains in another's history."""
+    """Return whether one exact commit remains in another's history.
+
+    Arguments:
+      ancestor   = the possibly ancestral commit; equality counts.
+      descendant = the commit whose history is searched.
+      label      = what is being inspected, for error messages.
+
+    Returns:
+      True for an ancestor or the same commit; False when the query
+      ran and answered no.
+
+    Raises:
+      daemon.TicketCycleStateError: when the query cannot run.
+    """
     if ancestor == descendant:
         return True
     try:
@@ -938,7 +1264,15 @@ def _commit_is_ancestor(ancestor, descendant, label):
 
 
 def stale_integration_details(problem):
-    """Return exact C, L, M0, and M1 from D0's own stale diagnosis."""
+    """Return exact C, L, M0, and M1 from D0's own stale diagnosis.
+
+    Arguments:
+      problem = the stale-integration error text D0 produced.
+
+    Returns:
+      Mapping with the candidate, stale landing, old main, and new
+      main, or ``None`` when the text is not D0's diagnosis.
+    """
     match = daemon.STALE_INTEGRATION_RE.search(str(problem))
     if match is None:
         return None
@@ -950,7 +1284,21 @@ def stale_integration_details(problem):
 
 def _prepared_landing_main_problem(candidate_commit, landing_commit,
                                    parent_commit, current_main):
-    """Explain why prepared L cannot replace the current main commit."""
+    """Explain why prepared L cannot replace the current main commit.
+
+    Arguments:
+      candidate_commit = the candidate C, or ``None``.
+      landing_commit   = the prepared landing L.
+      parent_commit    = M0, the main L was prepared on.
+      current_main     = the main observed now.
+
+    Returns:
+      ``None`` when main still accepts L; the already-landed
+      recovery message when main contains L plus newer commits; the
+      stale-integration diagnosis when main advanced from M0; or the
+      user-reconciliation message when main no longer descends from
+      M0 at all.
+    """
     if current_main in {parent_commit, landing_commit}:
         return None
     if daemon._commit_is_ancestor(
@@ -977,7 +1325,23 @@ def _prepared_landing_main_problem(candidate_commit, landing_commit,
 
 
 def _exact_squash_tree(parent_commit, candidate_commit):
-    """Return the tree made by cleanly squashing candidate onto parent."""
+    """Return the tree made by cleanly squashing candidate onto parent.
+
+    A tree is Git's snapshot of a whole directory; squashing merges
+    the candidate's changes onto the parent as one combined snapshot
+    without any intermediate commits.
+
+    Arguments:
+      parent_commit    = the landing parent.
+      candidate_commit = the candidate C.
+
+    Returns:
+      The combined tree's object name.
+
+    Raises:
+      daemon.TicketCycleStateError: when the squash does not merge
+        cleanly or Git returns something unusable.
+    """
     try:
         result = daemon._run_git(
             repository_root=daemon.AGENT_CWD["fable"],
@@ -1003,7 +1367,22 @@ def _exact_squash_tree(parent_commit, candidate_commit):
 
 
 def _tree_with_backlog(tree, backlog):
-    """Return ``tree`` with the Architect-sealed backlog bytes."""
+    """Return ``tree`` with the Architect-sealed backlog bytes.
+
+    A scratch Git index in a temporary folder loads the tree, writes
+    the backlog bytes as a blob at the backlog path, and writes the
+    combined tree back — the live index is never touched.
+
+    Arguments:
+      tree    = the base tree's object name.
+      backlog = the sealed backlog bytes to place in it.
+
+    Returns:
+      The combined tree's object name.
+
+    Raises:
+      daemon.TicketCycleStateError: when any Git step fails.
+    """
     with daemon.tempfile.TemporaryDirectory(prefix="mailbox-backlog-index-") as tmp:
         environment = daemon.os.environ.copy()
         for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
@@ -1011,6 +1390,7 @@ def _tree_with_backlog(tree, backlog):
         environment["GIT_INDEX_FILE"] = daemon.os.path.join(tmp, "index")
 
         def git(arguments, input_bytes=None):
+            """Run one Git step against the scratch index."""
             result = daemon.subprocess.run(
                 ["git", "-C", daemon.AGENT_CWD["fable"]] + arguments,
                 env=environment, input=input_bytes, stdout=daemon.subprocess.PIPE,
@@ -1032,7 +1412,18 @@ def _tree_with_backlog(tree, backlog):
 
 
 def _landing_backlog(landing_commit):
-    """Read the exact backlog that one prepared landing preserves."""
+    """Read the exact backlog that one prepared landing preserves.
+
+    Arguments:
+      landing_commit = the prepared landing L.
+
+    Returns:
+      The backlog bytes committed in L.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing or oversized
+        committed backlog.
+    """
     result = daemon._run_git(
         repository_root=daemon.AGENT_CWD["fable"],
         arguments=["show", landing_commit + ":" + daemon.BACKLOG_RELATIVE_PATH],
@@ -1044,19 +1435,42 @@ def _landing_backlog(landing_commit):
 
 
 def cycle_landing_ref(cycle_id):
-    """Return the private crash-journal ref for one prepared landing."""
+    """Return the private crash-journal ref for one prepared landing.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+
+    Returns:
+      The landing reference beside the cycle's candidate reference.
+    """
     return daemon.cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
         + "/landing"
 
 
 def reopen_decision_ref(cycle_id):
-    """Return the crash-journal ref for one backlog-only reopening decision."""
+    """Return the crash-journal ref for one backlog-only reopening decision.
+
+    Arguments:
+      cycle_id = the reopening review cycle.
+
+    Returns:
+      The decision reference beside the cycle's candidate reference.
+    """
     return daemon.cycle_candidate_ref(cycle_id=cycle_id).rsplit("/", 1)[0] \
         + "/reopen-decision"
 
 
 def _reopen_decision_message(cycle_id, reviewed_landing, decision):
-    """Name the reviewed landing and the Architect's final advice decision."""
+    """Name the reviewed landing and the Architect's final advice decision.
+
+    Arguments:
+      cycle_id         = the reopening review cycle.
+      reviewed_landing = the landing the Red Team reviewed.
+      decision         = ``"GO"`` or ``"NO-GO"``.
+
+    Returns:
+      The decision landing's commit message.
+    """
     return (
         "Record Architect " + decision + " on Red Team reopening\n\n"
         + "Mailbox-Cycle: " + cycle_id + "\n"
@@ -1065,7 +1479,29 @@ def _reopen_decision_message(cycle_id, reviewed_landing, decision):
 
 def prepare_reopen_decision_landing(cycle_id, reviewed_landing, decision,
                                     backlog):
-    """Create or reuse a backlog-only landing for one Red Team decision."""
+    """Create or reuse a backlog-only landing for one Red Team decision.
+
+    An already-journaled decision landing is reused only when its
+    backlog bytes and main relationship still hold; otherwise a fresh
+    backlog-only commit is prepared on current main and journaled.
+
+    Arguments:
+      cycle_id         = the reopening review cycle.
+      reviewed_landing = the landing the Red Team reviewed; current
+                         main must preserve it.
+      decision         = ``"GO"`` or ``"NO-GO"``.
+      backlog          = the sealed backlog bytes carrying the
+                         decision.
+
+    Returns:
+      ``(landing, parent)``: the decision landing and its parent.
+
+    Raises:
+      daemon.TicketCycleStateError: for changed backlog bytes or a
+        broken lineage.
+      daemon.RetryableArchitectLandingError: when main moved under a
+        journaled decision.
+    """
     reference = daemon.reopen_decision_ref(cycle_id=cycle_id)
     prepared = daemon.git_ref_commit(reference=reference)
     current_main = daemon._exact_git_object(
@@ -1160,7 +1596,16 @@ def _candidate_commit_message(candidate_commit):
 
 
 def _landing_commit_message(cycle_id, candidate_commit):
-    """Copy candidate C's approved message and add exact recovery facts for L."""
+    """Copy candidate C's approved message and add exact recovery facts for L.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C whose message is copied.
+
+    Returns:
+      The landing commit message: the approved message followed by
+      the cycle and candidate recovery trailer.
+    """
     candidate_message = daemon._candidate_commit_message(candidate_commit)
     if candidate_message.endswith("\n\n"):
         separator = ""
@@ -1176,7 +1621,22 @@ def _landing_commit_message(cycle_id, candidate_commit):
 
 def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
                              expected_backlog=None):
-    """Return landing L's parent after proving the journaled C -> L squash."""
+    """Return landing L's parent after proving the journaled C -> L squash.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the candidate C.
+      landing_commit   = the journaled landing L.
+      expected_backlog = sealed backlog bytes L must carry, or
+                         ``None`` to accept L's own.
+
+    Returns:
+      L's single parent commit.
+
+    Raises:
+      daemon.TicketCycleStateError: when L's tree is not exactly the
+        candidate squash plus the backlog on that parent.
+    """
     parent_commit = daemon._single_commit_parent(commit=landing_commit)
     backlog = daemon._landing_backlog(landing_commit=landing_commit)
     if expected_backlog is not None and backlog != expected_backlog:
@@ -1216,7 +1676,30 @@ def _verify_prepared_landing(cycle_id, candidate_commit, landing_commit,
 
 def prepare_exact_squash_landing(cycle_id, candidate_commit, mode,
                                  sealed_backlog=None):
-    """Create or reuse exact landing L without touching any checkout or branch."""
+    """Create or reuse exact landing L without touching any checkout or branch.
+
+    L is built as pure Git objects — the candidate's squash tree plus
+    the sealed backlog, committed on the current main with the
+    approved message — and journaled in the cycle's private landing
+    reference. No branch or checkout moves here; landing happens
+    later in the clean user checkout.
+
+    Arguments:
+      cycle_id         = the ticket cycle.
+      candidate_commit = the accepted candidate C.
+      mode             = the ticket mode.
+      sealed_backlog   = sealed backlog bytes to bind into L, or
+                        ``None``.
+
+    Returns:
+      ``(landing, parent, reference)``: L, its parent, and the
+      journal reference.
+
+    Raises:
+      daemon.TicketCycleStateError: for a candidate that touches
+        protected tool paths, fails to squash, or cannot be
+        journaled.
+    """
     tool_changes = sorted(
         path for path in daemon.candidate_changed_paths(
             base_commit=daemon.cycle_starting_commit(cycle_id),
@@ -1333,7 +1816,23 @@ def _user_checkout_status():
 
 def land_prepared_commit_in_clean_user_checkout(
         landing, parent, candidate_commit=None):
-    """Fast-forward a clean attached main checkout; never reset or force."""
+    """Fast-forward a clean attached main checkout; never reset or force.
+
+    The user's checkout must be attached to local main and completely
+    clean; anything else preserves the prepared landing and raises a
+    retryable error instead of touching the user's files.
+
+    Arguments:
+      landing          = the prepared landing L.
+      parent           = L's parent M0.
+      candidate_commit = the candidate C, for stale diagnosis.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: for a dirty checkout or
+        a main that moved; the landing stays preserved.
+      daemon.TicketCycleStateError: for a detached checkout or a
+        fast-forward that did not verify.
+    """
     symbolic = daemon._run_git(
         repository_root=daemon.REPO_ROOT,
         arguments=["symbolic-ref", "-q", "HEAD"], check=False)
@@ -1375,12 +1874,25 @@ def land_prepared_commit_in_clean_user_checkout(
 
 
 def _push_debt_path(landing):
-    """Return the push-debt record path for one landing commit."""
+    """Return the push-debt record path for one landing commit.
+
+    Arguments:
+      landing = the landing commit L.
+
+    Returns:
+      The per-landing debt file path under the relay folder.
+    """
     return daemon.os.path.join(daemon.RELAY_DIR, "pending-main-push-" + landing + ".txt")
 
 
 def write_push_debt(landing, detail):
-    """Durably record that exact local L still needs remote verification."""
+    """Durably record that exact local L still needs remote verification.
+
+    Arguments:
+      landing = the locally verified landing L.
+      detail  = the last push attempt's result text; the record names
+                the exact push command still owed.
+    """
     daemon.os.makedirs(daemon.RELAY_DIR, exist_ok=True)
     debt = daemon._push_debt_path(landing=landing)
     payload = (
@@ -1474,7 +1986,16 @@ def push_exact_landing_or_record_debt(landing):
 
 
 def retire_cycle_landing_ref(cycle_id, landing):
-    """Retire only the exact crash-journal ref after receipt archival."""
+    """Retire only the exact crash-journal ref after receipt archival.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      landing  = the landing L the journal must still name.
+
+    Raises:
+      daemon.TicketCycleStateError: when the journal names a
+        different commit.
+    """
     reference = daemon.cycle_landing_ref(cycle_id=cycle_id)
     current = daemon.git_ref_commit(reference=reference)
     if current is None:
@@ -1488,7 +2009,21 @@ def retire_cycle_landing_ref(cycle_id, landing):
 
 
 def recorded_landing_for_architect_go(cycle_id, mode):
-    """Return durable landing L after a prior partial consume, or ``None``."""
+    """Return durable landing L after a prior partial consume, or ``None``.
+
+    Arguments:
+      cycle_id = the ticket cycle.
+      mode     = the ticket mode the durable record must keep.
+
+    Returns:
+      The recorded landing from the completed or post-implementation
+      active record, or ``None`` when the cycle is still
+      implementing and L must be prepared fresh.
+
+    Raises:
+      daemon.TicketCycleStateError: for a missing cycle, a changed
+        mode, or an unsupported phase.
+    """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
         state = daemon.read_ticket_cycle_state()
@@ -1515,7 +2050,15 @@ def recorded_landing_for_architect_go(cycle_id, mode):
 
 
 def redteam_closure_request_payload(cycle_id, landing):
-    """Build the daemon-owned advisory review request for exact L."""
+    """Build the daemon-owned advisory review request for exact L.
+
+    Arguments:
+      cycle_id = the completed ticket cycle.
+      landing  = the landed commit L to review.
+
+    Returns:
+      The closure-request payload text.
+    """
     return daemon.sol_ticket_payload(
         ticket_kind="closure", review_cycle=cycle_id,
         review_commit=landing,
@@ -1528,7 +2071,15 @@ def redteam_closure_request_payload(cycle_id, landing):
 
 
 def control_plane_review_request_payload(cycle_id, candidate):
-    """Build D0's mandatory pre-landing Red Team request for exact C."""
+    """Build D0's mandatory pre-landing Red Team request for exact C.
+
+    Arguments:
+      cycle_id  = the protected ticket cycle.
+      candidate = the immutable candidate C to review.
+
+    Returns:
+      The control-plane review request payload text.
+    """
     return daemon.sol_ticket_payload(
         ticket_kind="control-plane", review_cycle=cycle_id,
         review_commit=candidate,
@@ -1543,7 +2094,19 @@ def control_plane_review_request_payload(cycle_id, candidate):
 
 
 def matching_control_plane_review_request(cycle_id, candidate):
-    """Return the sole saved mandatory review request, when present."""
+    """Return the sole saved mandatory review request, when present.
+
+    Arguments:
+      cycle_id  = the protected ticket cycle.
+      candidate = the candidate C the request must name.
+
+    Returns:
+      The single saved request's path, or ``None`` when none exists.
+
+    Raises:
+      daemon.TicketCycleStateError: for a conflicting request or
+        several exact matches.
+    """
     matches = []
     conflicts = []
     for path in daemon.glob.glob(daemon.os.path.join(daemon.MAILBOX, "**", "*-to-sol.md"),
@@ -1569,7 +2132,20 @@ def matching_control_plane_review_request(cycle_id, candidate):
 
 
 def publish_control_plane_review_request(cycle_id, candidate):
-    """Publish once after D0 has durably recorded Architect GO(C)."""
+    """Publish once after D0 has durably recorded Architect GO(C).
+
+    Arguments:
+      cycle_id  = the protected ticket cycle.
+      candidate = the approved candidate C to review.
+
+    Returns:
+      The request's path, reusing an existing one; the existence
+      check repeats under the sequence lock before publishing.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the sequence lock
+        or publication is unavailable.
+    """
     existing = daemon.matching_control_plane_review_request(
         cycle_id=cycle_id, candidate=candidate)
     if existing is not None:
@@ -1595,7 +2171,20 @@ def publish_control_plane_review_request(cycle_id, candidate):
 
 
 def publish_control_plane_repair_request(cycle_id, candidate, mode):
-    """Return a rejected protected candidate C to the Architect exactly once."""
+    """Return a rejected protected candidate C to the Architect exactly once.
+
+    Arguments:
+      cycle_id  = the protected ticket cycle.
+      candidate = the rejected candidate C, named in the marker.
+      mode      = the ticket mode.
+
+    Returns:
+      The repair request's path, reusing an existing one.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the sequence lock
+        or publication is unavailable.
+    """
     marker = "CONTROL-PLANE-REPAIR: " + candidate
     for path in daemon.glob.glob(
             daemon.os.path.join(daemon.MAILBOX, "**", "*-to-fable.md"),
@@ -1633,7 +2222,24 @@ def publish_control_plane_repair_request(cycle_id, candidate, mode):
 
 def control_plane_integration_request_payload(
         cycle_id, candidate, stale_landing, old_main, new_main, mode):
-    """Build the same-cycle Architect check for one moved main branch."""
+    """Build the same-cycle Architect check for one moved main branch.
+
+    Arguments:
+      cycle_id      = the protected ticket cycle.
+      candidate     = the approved candidate C.
+      stale_landing = the prepared landing L that went stale.
+      old_main      = M0, the main L was prepared on.
+      new_main      = M1, the main that superseded it.
+      mode          = the ticket mode.
+
+    Returns:
+      The integration-audit request text, binding every identity and
+      instructing the Architect to audit only the M0-to-M1
+      interaction with C.
+
+    Raises:
+      ValueError: for an invalid commit, cycle, or mode.
+    """
     for label, value in (("candidate", candidate),
                          ("stale landing", stale_landing),
                          ("old main", old_main), ("new main", new_main)):
@@ -1663,7 +2269,19 @@ def control_plane_integration_request_payload(
 
 
 def control_plane_integration_request(message):
-    """Parse the daemon-owned M0-to-M1 revalidation request."""
+    """Parse the daemon-owned M0-to-M1 revalidation request.
+
+    Arguments:
+      message = the decoded mailbox message.
+
+    Returns:
+      Mapping with the cycle, mode, candidate, stale landing, and
+      both mains, or ``None`` for a message of another kind.
+
+    Raises:
+      daemon.TicketCycleStateError: for a revalidation request with
+        malformed or unbound identities.
+    """
     cycle_id, mode, body, problem = daemon._ticket_flow_envelope(message=message)
     if problem is not None or not body.startswith(
             "CONTROL-PLANE-INTEGRATION: REVALIDATE\n"):
@@ -1691,7 +2309,22 @@ def control_plane_integration_request(message):
 
 def matching_control_plane_integration_request(
         cycle_id, candidate, stale_landing, old_main, new_main):
-    """Return one already-published request for the same stale event."""
+    """Return one already-published request for the same stale event.
+
+    Arguments:
+      cycle_id      = the protected ticket cycle.
+      candidate     = the approved candidate C.
+      stale_landing = the stale landing L.
+      old_main      = M0.
+      new_main      = M1.
+
+    Returns:
+      The single matching request's path, or ``None``.
+
+    Raises:
+      daemon.TicketCycleStateError: for several matches or a request
+        naming a different stale event for this cycle.
+    """
     expected = (cycle_id, candidate, stale_landing, old_main, new_main)
     matches = []
     for path in daemon.glob.glob(
@@ -1717,7 +2350,24 @@ def matching_control_plane_integration_request(
 
 def publish_control_plane_integration_request(
         cycle_id, candidate, stale_landing, old_main, new_main, mode):
-    """Publish exactly one autonomous Architect integration audit."""
+    """Publish exactly one autonomous Architect integration audit.
+
+    Arguments:
+      cycle_id      = the protected ticket cycle.
+      candidate     = the approved candidate C.
+      stale_landing = the stale landing L.
+      old_main      = M0.
+      new_main      = M1.
+      mode          = the ticket mode.
+
+    Returns:
+      The request's path, reusing an existing one for the same stale
+      event.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the sequence lock
+        or publication is unavailable.
+    """
     arguments = dict(
         cycle_id=cycle_id, candidate=candidate,
         stale_landing=stale_landing, old_main=old_main, new_main=new_main)
@@ -1744,7 +2394,19 @@ def publish_control_plane_integration_request(
 
 
 def matching_redteam_closure_request(cycle_id, landing):
-    """Return the sole saved Sol closure request, if one already exists."""
+    """Return the sole saved Sol closure request, if one already exists.
+
+    Arguments:
+      cycle_id = the completed ticket cycle.
+      landing  = the landing L the request must name.
+
+    Returns:
+      The single saved request's path, or ``None`` when none exists.
+
+    Raises:
+      daemon.TicketCycleStateError: for a conflicting request naming
+        another landing, or several exact matches.
+    """
     matches = []
     conflicts = []
     for path in daemon.glob.glob(daemon.os.path.join(daemon.MAILBOX, "**", "*-to-sol.md"),
@@ -1774,7 +2436,22 @@ def matching_redteam_closure_request(cycle_id, landing):
 
 
 def publish_redteam_closure_request(cycle_id, landing):
-    """Publish or recover the one normal-mode Sol review of exact L."""
+    """Publish or recover the one normal-mode Sol review of exact L.
+
+    Publication is exactly-once: an existing request is reused, and
+    the check repeats under the sequence lock before publishing.
+
+    Arguments:
+      cycle_id = the completed ticket cycle.
+      landing  = the landed commit L to review.
+
+    Returns:
+      The request's path.
+
+    Raises:
+      daemon.RetryableArchitectLandingError: when the sequence lock
+        or publication is unavailable.
+    """
     existing = daemon.matching_redteam_closure_request(
         cycle_id=cycle_id, landing=landing)
     if existing is not None:
