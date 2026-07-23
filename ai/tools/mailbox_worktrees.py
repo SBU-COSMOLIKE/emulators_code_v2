@@ -195,7 +195,13 @@ def control_plane_files_from_contract(contract):
 
 
 def _local_role_contract_tool():
-    """Load the contract reader beside this daemon, never from another tree."""
+    """Name the contract reader loaded beside this daemon at startup.
+
+    Returns:
+      The role-contract tool module the daemon adopted from its own
+      directory; validation always uses this copy, never a same-named
+      module from another checkout.
+    """
     return daemon._ROLE_CONTRACT_TOOL
 
 
@@ -255,7 +261,13 @@ def validate_role_contract_bindings(contract=None):
 
 
 def role_contract_snapshot_problem():
-    """Describe a contract edit made after this process loaded its policy."""
+    """Describe a contract edit made after this process loaded its policy.
+
+    Returns:
+      A printable problem — the on-disk contract is invalid, or it no
+      longer equals the one this process started with — or ``None``
+      when the policy snapshot still holds.
+    """
     try:
         current = daemon._local_role_contract_tool().load_role_contract(
             daemon.os.path.join(daemon.WORKTREE, daemon.ROLE_CONTRACT_RELATIVE_PATH))
@@ -268,7 +280,13 @@ def role_contract_snapshot_problem():
 
 
 def report_role_contract_restart():
-    """Print the current policy stop and return its process exit status."""
+    """Print the current policy stop and choose its exit status.
+
+    Returns:
+      1 when the on-disk contract is invalid (a real failure), 0 when
+      the contract merely changed and a clean restart is the whole
+      remedy.
+    """
     problem = daemon.role_contract_snapshot_problem()
     if problem is None:
         problem = ("role contract changed during this mailbox pass; restart "
@@ -278,7 +296,14 @@ def report_role_contract_restart():
 
 
 def role_contract_exit_status():
-    """Return a watch exit code unless an exact policy landing may finish."""
+    """Decide whether a policy change must end this watch now.
+
+    Returns:
+      ``None`` when the policy snapshot still holds, or when the
+      pending permanent-note landing that proposed the new contract
+      may still finish under the old process; otherwise the printed
+      restart's exit status.
+    """
     problem = daemon.role_contract_snapshot_problem()
     if problem is None:
         return None
@@ -784,6 +809,9 @@ def _validate_primary_record(record, branch, repository_root):
       branch          = the branch reference the checkout must be on.
       repository_root = the repository's main checkout.
 
+    Returns:
+      The record's verified checkout path inside the managed root.
+
     Raises:
       daemon.PrimaryWorktreeError: for a prunable, detached,
         wrong-branch, or foreign record.
@@ -1121,6 +1149,16 @@ def _archived_transport_manifest(worktree):
     plus relay logs in main. Those immutable archives can be bridged into a
     new primary without guessing queue state. Pending, inflight, failed,
     redirected, irregular, or unrecognized mailbox content is never bridged.
+
+    Arguments:
+      worktree = the checkout whose old transport is inspected.
+
+    Returns:
+      A sorted list of copyable archived files, each recorded with
+      its source path, destination-relative path, size, and identity
+      fields, when everything found is provably archive-only;
+      ``None`` the moment anything live, redirected, or unrecognized
+      appears.
     """
     notes = daemon.os.path.join(worktree, "ai", "notes")
     mailbox = daemon.os.path.join(notes, "mailbox")
