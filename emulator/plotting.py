@@ -9,7 +9,11 @@ plane colored by chi2 and by training sparsity; a CMB / scalar /
 background run appends its family's pages — per-multipole residual
 bands and short-period wiggle content for CMB, per-output residual
 pages for scalars, per-redshift bands plus the derived-distance page
-for the background), and
+for the background). A triangle plot is the grid showing every
+parameter pair as a scatter panel with each parameter's own 1-D
+distribution on the diagonal; PCA is principal component analysis,
+the rotation of the parameter axes onto the directions that carry
+the most variance.
 plot_learning_curves overlays f(delta-chi2 > thr) vs N_train curves
 (the sweep / bake-off output). source_param_samples, dv_to_xi, and
 plot_xi handle the parameter-coverage triangle and the xi
@@ -217,13 +221,13 @@ def plot_history(train_losses,
                  fracs,
                  thresholds,
                  savepath=None):
-  """
-  Plot a run_emulator training history (the two history panels).
+  """Plot a run_emulator training history (the two history panels).
 
   Left: train loss, val median, val mean vs epoch (log y). Right:
   fraction of val points over each delta-chi2 threshold vs epoch.
+  The first four arguments are the histories run_emulator returns.
 
-  Arguments (the four run_emulator histories, plus the thresholds):
+  Arguments:
     train_losses = per-epoch training loss (list of floats); the
                    sqrt-trimmed objective, on a different scale than
                    the raw-chi2 val metrics.
@@ -740,6 +744,8 @@ def _shade_omh2_marginal(g, plot_names, cuts):
   """
   Band out the omega_m h^2 window on its 1-D diagonal marginal.
 
+  The marginal is the 1-D distribution of that parameter alone, all
+  others summed over — the diagonal panel of the triangle plot.
   omegamh2 is a derived triangle axis, so its cut is a plain interval
   on the omh2 marginal: axvspan the excluded low / high ends in the
   same grey, drawing nothing when the window is off, the omh2 axis is
@@ -773,7 +779,9 @@ def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
   """
   getdist triangle of a source's lcdm parameters, colored by chi2.
 
-  Each off-diagonal panel is a scatter of the source's cosmologies
+  A triangle plot shows every parameter pair as one scatter panel,
+  with each parameter's own 1-D distribution on the diagonal; getdist
+  draws it. Each off-diagonal panel is a scatter of the source's cosmologies
   (one point per used row, in the same sorted-idx order
   eval_source_chi2 scores), colored by log10 delta-chi2; the
   diagonal shows the 1D densities. It answers where in lcdm space
@@ -911,7 +919,10 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
   """
   First two ln-parameter principal components, colored per row.
 
-  Each ln parameter is centered and scaled to unit variance, and the
+  Principal component analysis (PCA) rotates a cloud of points onto
+  new axes ordered by how much of the cloud's variance each carries;
+  the first two components span the plane the cloud spreads widest
+  in. Each ln parameter is centered and scaled to unit variance, and the
   PCA eigendecomposes their sample correlation matrix. The
   standardization is essential: the raw ln variances differ wildly
   (the As prior spans a factor of ten, ns a few percent), so a
