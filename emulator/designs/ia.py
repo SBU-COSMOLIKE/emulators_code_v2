@@ -235,8 +235,8 @@ class TemplateResCNN(DesignSpec, nn.Module):
   theta over everything at once, so the correction is theta-local,
   cross-bin, and cross-template in one map. No channel expansion:
   the head's tensors never grow beyond the (padded) templates'
-  size, so the bandwidth wall the old expand-to-C-filters head hit
-  cannot occur by construction. Each block is one conv + one
+  size, so the memory-bandwidth wall an expand-to-C-filters head
+  would hit cannot occur by construction. Each block is one conv + one
   activation. The head hyperparameters are kernel_size (+ the
   rescale_kernel flag), n_blocks_cnn, groups, separable, film, and
   gate_init. The
@@ -398,8 +398,8 @@ class TemplateResCNN(DesignSpec, nn.Module):
                      not 0, a 0 gate strands the CNN with no
                      gradient, so it never learns.
       head_act     = the CNN head's own activation factory (None ->
-                     share block_opts["act"], the trunk's family;
-                     byte-identical to before). build_specs builds it
+                     share block_opts["act"], the trunk's
+                     family). build_specs builds it
                      from model.cnn.activation (or the head:
                      activation: alias); set, it pins the head only.
       block_opts   = ResBlock options (None -> {}); its "act" is the
@@ -862,8 +862,8 @@ class TemplateResTRF(DesignSpec, nn.Module):
                      Identity init keeps corr = 0 at epoch 1. See
                      FiLMGenerator and ai/notes/models-and-designs.md.
       head_act     = the TRF head's own activation factory (None ->
-                     share block_opts["act"], the trunk's family;
-                     byte-identical to before). build_specs builds it
+                     share block_opts["act"], the trunk's
+                     family). build_specs builds it
                      from model.trf.activation (or the head:
                      activation: alias); set, it pins the head only.
       block_opts   = ResBlock options (None -> {}); its "act" is the
