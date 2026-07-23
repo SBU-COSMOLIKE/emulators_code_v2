@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Check whether the AI services selected for a watch can answer.
 
-This module knows how to make one small connection request to Claude,
-Ollama, and Codex.  It does not read the mailbox, change a worktree, or make
-workflow decisions.  ``mailbox_daemon.py`` supplies the selected programs and
+A provider is one of the AI services the workflow can launch: Claude
+(the Architect and the default Implementer), Ollama (a local server
+that runs open-weight models), and Codex (the Red Team, called Sol).
+This module knows how to make one small connection request to each: it
+asks the model to echo an exact marker line and accepts nothing else.
+It does not read the mailbox, change a worktree, or make workflow
+decisions. ``mailbox_daemon.py`` supplies the selected programs and
 models and uses the Boolean result.
 """
 
@@ -20,7 +24,16 @@ CONTEXT_LINE = re.compile(
 
 
 def _prompt(marker):
-    """Ask one provider for an exact reply without assigning work."""
+    """Ask one provider for an exact reply without assigning work.
+
+    Arguments:
+      marker = the exact line the model must echo. Each marker embeds a
+               nonce — a single-use random string — so a canned or
+               cached reply cannot pass the test.
+
+    Returns:
+      The full prompt text.
+    """
     return ("This is a connection test. Do not use tools, read files, or "
             "explain. Reply with exactly this one line:\n" + marker)
 
@@ -28,10 +41,23 @@ def _prompt(marker):
 def _answered(command, marker, directory, timeout, run, response_path=None):
     """Return whether one provider produced the requested exact reply.
 
-    ``command`` is the complete provider command. ``run`` starts it inside
-    the disposable ``directory`` and must finish within ``timeout``.
-    Claude and Ollama answer on standard output. Codex instead writes the
-    final model message to ``response_path``.
+    Claude and Ollama answer on standard output; Codex instead writes
+    the final model message to ``response_path``. Any failure — a
+    nonzero exit code, a timeout, unreadable output — counts as no.
+
+    Arguments:
+      command       = the complete provider command.
+      marker        = the exact expected reply line.
+      directory     = disposable working folder the command runs in.
+      timeout       = seconds the command may take.
+      run           = the subprocess-style function that starts the
+                      command; tests substitute a fake here so no AI
+                      credits are spent.
+      response_path = file that carries the reply for Codex, or
+                      ``None`` to read standard output.
+
+    Returns:
+      True only when the stripped reply equals the marker.
     """
     try:
         result = run(
@@ -50,7 +76,18 @@ def _answered(command, marker, directory, timeout, run, response_path=None):
 
 
 def _run_result(command, directory, timeout, run):
-    """Run one local provider inspection command without raising."""
+    """Run one local provider inspection command without raising.
+
+    Arguments:
+      command   = the inspection command.
+      directory = working folder for the command.
+      timeout   = seconds the command may take.
+      run       = the subprocess-style function that starts it.
+
+    Returns:
+      The completed-process object, or ``None`` when the command could
+      not start or timed out.
+    """
     try:
         return run(
             command, cwd=directory, stdout=subprocess.PIPE,
@@ -61,7 +98,28 @@ def _run_result(command, directory, timeout, run):
 
 def _ollama_context(
         *, model, directory, timeout, run, ollama_executable):
-    """Return ``(context, problem)`` from one local Ollama inspection."""
+    """Return ``(context, problem)`` from one local Ollama inspection.
+
+    The context is the model's context length: the maximum number of
+    tokens (the text pieces a model reads and writes) it can hold in
+    one conversation. It is read from the output of
+    ``ollama show <model> --verbose``. When the inspection fails, the
+    problem token classifies the failure so the caller can print the
+    matching repair hint.
+
+    Arguments:
+      model             = the Ollama model name to inspect.
+      directory         = disposable working folder.
+      timeout           = seconds the inspection may take.
+      run               = the subprocess-style function that starts it.
+      ollama_executable = name or path of the ``ollama`` command.
+
+    Returns:
+      ``(context_length, None)`` on success, or ``(None, problem)``
+      where problem is one of ``"executable-missing"``,
+      ``"service-unavailable"``, ``"model-unavailable"``,
+      ``"context-unverified"``, or ``"temporary-provider"``.
+    """
     if shutil.which(ollama_executable) is None:
         return None, "executable-missing"
     result = _run_result(
@@ -93,7 +151,20 @@ def _ollama_context(
 
 
 def _temporary_git_repository(directory, timeout, run):
-    """Create the disposable Git checkout required by Claude Code."""
+    """Create the disposable Git checkout required by Claude Code.
+
+    Claude Code expects to run inside a Git repository, so the
+    connection test initializes an empty one in the disposable folder
+    rather than running anywhere near the user's checkout.
+
+    Arguments:
+      directory = the disposable folder to initialize.
+      timeout   = seconds the ``git init`` may take.
+      run       = the subprocess-style function that starts it.
+
+    Returns:
+      True when the folder is now a Git repository.
+    """
     result = _run_result(
         ["git", "init", "--quiet", directory], directory, timeout, run)
     return result is not None and result.returncode == 0
@@ -104,9 +175,34 @@ def check_ollama_implementer(
         ollama_executable, timeout, run, output=print):
     """Exercise the real Ollama-backed Implementer launch and return context.
 
-    Returns ``(verified_context, None)`` on success or ``(None, reason)`` on
-    failure.  The disposable repository proves the integration without
-    allowing the connection test to inspect or edit the user's checkout.
+    The check walks the same path a real watch would use: create a
+    disposable Git checkout, verify the model's context length against
+    the required minimum and against the compaction threshold (Claude
+    Code condenses the conversation when it nears this token count, so
+    the threshold must fit inside the model's context), then launch
+    Claude Code through ``ollama launch claude`` and require the
+    echoed marker. The disposable repository proves the integration
+    without allowing the connection test to inspect or edit the user's
+    checkout.
+
+    Arguments:
+      model             = the Ollama model that would implement.
+      compaction_limit  = Claude Code's compaction threshold in tokens.
+      minimum_context   = smallest acceptable model context in tokens.
+      preamble          = text placed before the connection prompt, the
+                          same way a real launch would prepend it.
+      nonce             = single-use random string inside the marker.
+      ollama_executable = name or path of the ``ollama`` command.
+      timeout           = seconds each step may take.
+      run               = the subprocess-style function that starts
+                          commands; tests substitute a fake.
+      output            = function that receives progress lines.
+
+    Returns:
+      ``(verified_context, None)`` on success or ``(None, reason)`` on
+      failure. The reason extends the inspection problems with
+      ``"temporary-git"``, ``"context-too-small"``,
+      ``"compaction-too-high"``, and ``"integration-launch"``.
     """
     with tempfile.TemporaryDirectory(
             prefix="cocoa-flow-ollama-preflight-") as directory:
@@ -165,15 +261,47 @@ def check_connectivity(
         implementer_preamble, output=print):
     """Check the distinct AI services selected for one mailbox watch.
 
-    Returns ``True`` only when every selected service returns its private
-    marker.  All program names and model choices come from the daemon, which
-    keeps this helper independent of repository policy.
+    All program names and model choices come from the daemon, which
+    keeps this helper independent of repository policy. A failed check
+    prints one repair hint per failed service: the login command to
+    run, the model to pull, or the setting to change.
 
-    The ``architect_model`` and Implementer pair name the requested services.
-    ``include_sol`` adds the Red Team check. ``dry_run`` prints the selection
-    without starting a provider. The daemon supplies the executables, Sol
-    model, timeout, private ``nonce``, subprocess function, and output
-    function so tests can exercise the same code without using AI credits.
+    Arguments:
+      architect_model              = Claude model for the Architect.
+      implementer_provider         = ``"claude"`` or ``"ollama"``.
+      implementer_model            = model the Implementer would use.
+      include_sol                  = True to also check the Red Team
+                                     service.
+      dry_run                      = print what would be checked and
+                                     return True without starting any
+                                     provider.
+      nonce                        = single-use random string embedded
+                                     in every marker.
+      claude_executable            = the Claude Code command.
+      ollama_executable            = the ``ollama`` command.
+      codex_executable             = the Codex command that runs Sol.
+      sol_model                    = model for the Red Team check.
+      timeout                      = seconds each provider may take.
+      run                          = subprocess-style function that
+                                     starts commands; tests substitute
+                                     a fake so no AI credits are spent.
+      implementer_compaction_limit = Claude Code compaction threshold
+                                     in tokens, checked against an
+                                     Ollama model's context length.
+      ollama_minimum_context       = smallest acceptable Ollama model
+                                     context in tokens.
+      implementer_preamble         = text prepended to the Ollama
+                                     integration prompt.
+      output                       = function that receives progress
+                                     lines.
+
+    Returns:
+      True only when every selected service echoed its private marker
+      (a dry run always returns True); False otherwise.
+
+    Raises:
+      ValueError: when the Implementer provider is neither
+        ``"claude"`` nor ``"ollama"``.
     """
     if implementer_provider not in {"claude", "ollama"}:
         raise ValueError("Implementer provider must be claude or ollama")
