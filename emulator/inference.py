@@ -614,8 +614,9 @@ class EmulatorPredictor:
 
     Inside the region it was trained over, the emulator interpolates. Outside
     it, the emulator extrapolates: it returns a number of the right shape, with
-    the right sign, and no warning of any kind. The region is the contract the
-    dataset was generated under, and this is the refusal that enforces it.
+    the right sign, and no warning of any kind. The region is the promise the
+    dataset was generated under -- only points inside it were ever shown to
+    the network -- and this is the refusal that enforces it.
 
     Why this is not the other two questions. It compares ONE point against ONE
     artifact's sampled region, and it reads only the coordinates the generator
