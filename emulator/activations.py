@@ -271,12 +271,24 @@ class activation_fcn(nn.Module):
       dim = feature width (one independent gamma / beta per feature).
     """
     def __init__(self, dim):
+        """Create the per-feature gamma and beta, both zero at init.
+
+        Arguments:
+          dim = feature width (one gamma / beta pair per feature).
+        """
         super(activation_fcn, self).__init__()
         self.dim   = dim
         self.gamma = nn.Parameter(torch.zeros((dim)))
         self.beta  = nn.Parameter(torch.zeros((dim)))
     def forward(self,x):
-        # H(x) = (gamma + (1 - gamma) sigmoid(beta x)) * x, elementwise.
+        """Apply H(x) = (gamma + (1 - gamma) sigmoid(beta x)) * x.
+
+        Arguments:
+          x = input tensor of shape (..., dim).
+
+        Returns:
+          the gated tensor, elementwise, same shape as x.
+        """
         exp = torch.mul(self.beta,x)            # beta * x
         inv = torch.special.expit(exp)          # sigmoid(beta x)
         fac_2 = 1-self.gamma                     # (1 - gamma) weight
@@ -306,6 +318,12 @@ class GatedActivation(nn.Module):
     n_gates = number of sigmoid components K (default 1).
   """
   def __init__(self, dim, n_gates=1):
+    """Create the gate parameters at the H-reproducing init.
+
+    Arguments:
+      dim     = feature width (per-element parameter vectors).
+      n_gates = number of sigmoid components K.
+    """
     super().__init__()
     K = n_gates
     # a0 = negative-tail slope (gate value as x -> -inf).
@@ -328,6 +346,14 @@ class GatedActivation(nn.Module):
     self.mu   = nn.Parameter(mu0)
 
   def forward(self, x):
+    """Apply gate(x) * x with all K gates evaluated at once.
+
+    Arguments:
+      x = input tensor of shape (..., dim).
+
+    Returns:
+      the gated tensor, same shape as x.
+    """
     # unsqueeze(-2) adds a size-1 axis before the last:
     # (..., dim) -> (..., 1, dim), which broadcasts against the K
     # gate parameters (shape (K, dim)) -> (..., K, dim), matching
@@ -372,6 +398,13 @@ class PowerGatedActivation(nn.Module):
     nonfinite, or inverted bound pair.
   """
   def __init__(self, dim, p_min=0.5, p_max=1.5):
+    """Create gamma / beta / rho and validate the exponent bounds.
+
+    Arguments:
+      dim   = feature width (per-element parameter vectors).
+      p_min = smallest tail exponent (finite and positive).
+      p_max = largest tail exponent (finite, greater than p_min).
+    """
     super().__init__()
     self.gamma = nn.Parameter(torch.zeros(dim))
     self.beta  = nn.Parameter(torch.zeros(dim))
@@ -381,12 +414,20 @@ class PowerGatedActivation(nn.Module):
     self.p_min, self.p_max = require_power_bounds(p_min, p_max)
 
   def forward(self, x):
+    """Apply the H-style gate times the signed power tail.
+
+    Arguments:
+      x = input tensor of shape (..., dim).
+
+    Returns:
+      gate(x) * psi_p(x), same shape as x.
+    """
     # bounded learnable exponent in (p_min, p_max), per element.
     p = self.p_min + (self.p_max - self.p_min) * torch.sigmoid(
       self.rho)
     # signed power tail with derivative exactly 1 at the origin.
     psi = signed_power_transform(x, p)
-    # leaky/Swish gate (your H), applied to the power transform.
+    # the same leaky/Swish gate as H, applied to the power transform.
     g = self.gamma + (1.0 - self.gamma) * torch.sigmoid(
       self.beta * x)
     return g * psi
@@ -431,6 +472,14 @@ class GatedPowerActivation(nn.Module):
     nonfinite, or inverted bound pair.
   """
   def __init__(self, dim, n_gates=1, p_min=0.5, p_max=1.5):
+    """Create the K-gate and tail parameters at the H-recovering init.
+
+    Arguments:
+      dim     = feature width (per-element parameter vectors).
+      n_gates = number of bulk sigmoid gates K.
+      p_min   = smallest tail exponent (finite and positive).
+      p_max   = largest tail exponent (finite, greater than p_min).
+    """
     super().__init__()
     K = n_gates
     # --- multi-gate (bulk slope schedule) ---
@@ -453,6 +502,14 @@ class GatedPowerActivation(nn.Module):
     self.p_min, self.p_max = require_power_bounds(p_min, p_max)
 
   def forward(self, x):
+    """Apply the K-gate bulk schedule times the signed power tail.
+
+    Arguments:
+      x = input tensor of shape (..., dim).
+
+    Returns:
+      gate(x) * psi_p(x), same shape as x.
+    """
     # bulk gate: a0 + sum_k w_k sigmoid(beta_k (x - mu_k)).
     # unsqueeze(-2) adds a size-1 axis before the last
     # ((..., dim) -> (..., 1, dim)), broadcasting x against the
@@ -472,8 +529,8 @@ def make_activation(name, n_gates=3):
   """Activation factory by name, for a ResBlock's `act` slot.
 
   Maps a short name to a factory callable act(dim) -> module, the
-  contract ResBlock's `act` expects (it calls act(size) once per
-  layer), letting a driver or YAML pick the activation by string
+  call shape ResBlock's `act` slot expects (it calls act(size) once
+  per layer), letting a driver or YAML pick the activation by string
   rather than importing a class. The gated families use
   K = n_gates gates.
 
@@ -499,34 +556,78 @@ def make_activation(name, n_gates=3):
   require_exact_int(n_gates, "activation.n_gates", minimum=1)
   if name == "H":
     def h_factory(dim):
-      """Build one activation_fcn at feature width dim."""
+      """Build one activation_fcn at feature width dim.
+
+      Arguments:
+        dim = the layer's feature width.
+
+      Returns:
+        a fresh activation_fcn module.
+      """
       return activation_fcn(dim)
     factory = h_factory
   if name == "power":
     def power_factory(dim):
-      """Build one PowerGatedActivation at feature width dim."""
+      """Build one PowerGatedActivation at feature width dim.
+
+      Arguments:
+        dim = the layer's feature width.
+
+      Returns:
+        a fresh PowerGatedActivation module.
+      """
       return PowerGatedActivation(dim)
     factory = power_factory
   if name == "multigate":
     def multigate_factory(dim):
-      """Build one GatedActivation at feature width dim."""
+      """Build one GatedActivation with K = n_gates gates.
+
+      Arguments:
+        dim = the layer's feature width.
+
+      Returns:
+        a fresh GatedActivation module.
+      """
       return GatedActivation(dim, n_gates=n_gates)
     factory = multigate_factory
   if name == "gated_power":
     def gated_power_factory(dim):
-      """Build one GatedPowerActivation at feature width dim."""
+      """Build one GatedPowerActivation with K = n_gates gates.
+
+      Arguments:
+        dim = the layer's feature width.
+
+      Returns:
+        a fresh GatedPowerActivation module.
+      """
       return GatedPowerActivation(dim, n_gates=n_gates)
     factory = gated_power_factory
   # parameter-free families: the factory ignores dim (ReLU / Tanh take
-  # no shape argument), still honoring the act(dim) -> module contract.
+  # no shape argument), keeping the shared act(dim) -> module call shape.
   if name == "relu":
     def relu_factory(dim):
-      """Build one nn.ReLU; dim is accepted (the contract) and unused."""
+      """Build one nn.ReLU.
+
+      Arguments:
+        dim = accepted so every factory shares the act(dim) call
+              shape; ReLU takes no shape, so it is unused.
+
+      Returns:
+        a fresh nn.ReLU module.
+      """
       return nn.ReLU()
     factory = relu_factory
   if name == "tanh":
     def tanh_factory(dim):
-      """Build one nn.Tanh; dim is accepted (the contract) and unused."""
+      """Build one nn.Tanh.
+
+      Arguments:
+        dim = accepted so every factory shares the act(dim) call
+              shape; Tanh takes no shape, so it is unused.
+
+      Returns:
+        a fresh nn.Tanh module.
+      """
       return nn.Tanh()
     factory = tanh_factory
   if name not in ACTIVATION_NAMES:
