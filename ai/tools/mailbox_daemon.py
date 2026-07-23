@@ -123,7 +123,20 @@ WORKTREE = os.path.dirname(AI_ROOT)
 
 
 def _load_local_role_contract_tool():
-    """Load the protected reader beside this exact daemon file."""
+    """Load the protected reader beside this exact daemon file.
+
+    When the packaged ``ai.tools.role_contract`` module is the very
+    file beside this daemon, it is reused; otherwise the sibling file
+    is loaded directly. A daemon copied into a worktree therefore
+    always reads the contract that shipped beside it, never a
+    different installation's copy.
+
+    Returns:
+      The role-contract reader module.
+
+    Raises:
+      RuntimeError: when the sibling file cannot be loaded.
+    """
     path = os.path.join(SCRIPT_DIR, "role_contract.py")
     try:
         from ai.tools import role_contract as packaged_tool
@@ -147,7 +160,24 @@ ROLE_CONTRACT = _ROLE_CONTRACT_TOOL.ROLE_CONTRACT
 
 
 def _load_local_tool(filename, module_name, error, register=False):
-    """Load one protected helper beside this exact daemon file."""
+    """Load one protected helper beside this exact daemon file.
+
+    Arguments:
+      filename    = the helper's file name in this daemon's
+                    directory.
+      module_name = private module name for the loaded copy.
+      error       = message raised when the file cannot be loaded.
+      register    = True to also enter the module into Python's
+                    loaded-module registry, which dataclass machinery
+                    needs to resolve a record's defining module by
+                    name.
+
+    Returns:
+      The loaded helper module.
+
+    Raises:
+      RuntimeError: with the given message on a load failure.
+    """
     path = os.path.join(SCRIPT_DIR, filename)
     spec = importlib.util.spec_from_file_location(
         module_name, path)
@@ -535,7 +565,14 @@ class PrimaryWorktreeError(RuntimeError):
 
 def configure_agent_worktrees(primary_path, implementer_path, sol_path,
                               primary_branch=PRIMARY_BRANCH):
-    """Bind every role to its already-validated dispatch checkout."""
+    """Bind every role to its already-validated dispatch checkout.
+
+    Arguments:
+      primary_path     = the Architect's coordination worktree.
+      implementer_path = the Implementer's worktree.
+      sol_path         = the Red Team's worktree.
+      primary_branch   = branch name recorded for the Architect.
+    """
     AGENT_CWD["fable"] = os.path.abspath(primary_path)
     AGENT_CWD["opus"] = os.path.abspath(implementer_path)
     AGENT_CWD["sol"] = os.path.abspath(sol_path)
@@ -548,6 +585,25 @@ def ensure_primary_execution(live_action, dry_run):
     This is deliberately a CLI-boundary operation.  Importing this module for
     focused function tests remains pure; the real ``__main__`` call invokes it
     after every CLI semantic check and before any mailbox path is touched.
+
+    A dry run only previews: it reports what a live action would
+    create or refuse and binds the role paths read-only. A live
+    action takes the primary lock, provisions or adopts the three
+    role worktrees, validates that they are distinct, bridges the
+    sealed backlog, records the active topology, and aligns idle role
+    worktrees with current main when everything already sits on it.
+
+    Arguments:
+      live_action = True when this invocation will dispatch or write.
+      dry_run     = True for the read-only preview.
+
+    Returns:
+      The validated primary state mapping, or ``None`` when nothing
+      is initialized (preview) or the action needs no topology.
+
+    Raises:
+      PrimaryWorktreeError: when a saved worktree is absent, unsafe,
+        or ambiguous.
     """
     global ACTIVE_TOPOLOGY
 
@@ -824,7 +880,26 @@ def check_provider_connectivity(
         implementer_provider=DEFAULT_IMPLEMENTER_PROVIDER,
         implementer_model=DEFAULT_IMPLEMENTER_MODEL,
         implementer_compaction_limit=DEFAULT_IMPLEMENTER_CONTEXT_BUDGET):
-    """Check every distinct provider selected for this watch."""
+    """Check every distinct provider selected for this watch.
+
+    A thin binding over the provider health module: the daemon
+    supplies its executables, models, timeout, a fresh nonce, and the
+    Implementer preamble, so policy stays here while the connection
+    mechanics remain testable in isolation.
+
+    Arguments:
+      architect_model              = Claude model for the Architect.
+      include_sol                  = True to also check the Red Team.
+      dry_run                      = preview without contacting any
+                                     provider.
+      implementer_provider         = ``"claude"`` or ``"ollama"``.
+      implementer_model            = the Implementer's model.
+      implementer_compaction_limit = Claude Code compaction threshold
+                                     in tokens.
+
+    Returns:
+      True only when every selected service answered its marker.
+    """
     return _PROVIDER_HEALTH.check_connectivity(
         architect_model=architect_model,
         implementer_provider=implementer_provider,
@@ -1155,7 +1230,22 @@ OLLAMA_TOKEN_EXHAUSTION_MARKERS = (
 
 def candidate_forbidden_paths(changed_paths, ticket_class="ordinary",
                               contract=ROLE_CONTRACT):
-    """Return paths forbidden for this validated ticket class."""
+    """Return paths forbidden for this validated ticket class.
+
+    Arguments:
+      changed_paths = the candidate's changed repository paths.
+      ticket_class  = the declared ticket class; must be one of the
+                      known classes.
+      contract      = the role contract supplying the protected path
+                      sets.
+
+    Returns:
+      The set of paths the class may not touch, from the
+      candidate-admission checker.
+
+    Raises:
+      TicketCycleStateError: for an unknown ticket class.
+    """
     if ticket_class not in TICKET_CLASSES:
         raise TicketCycleStateError("invalid ticket class")
     forbidden_files = candidate_forbidden_files_from_contract(contract)
@@ -1213,7 +1303,12 @@ class ImplementerAuthorityViolationError(RuntimeError):
 
 
 class RoleTokenExhaustionError(RuntimeError):
-    """One role exhausted its account."""
+    """One role exhausted its account.
+
+    The saved fields let recovery requeue the exact request: the
+    agent, its display role name, the request path being dispatched,
+    the role's worktree, and any further errors met while unwinding.
+    """
 
     ROLE_NAMES = {"fable": "Architect", "opus": "Implementer", "sol": "Sol"}
 
