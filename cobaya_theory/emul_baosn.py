@@ -129,7 +129,23 @@ class emul_baosn(Theory):
     extra_args = {}
 
     def initialize(self):
-        """Build the two predictors and assemble the window layout."""
+        """Build the two predictors and assemble the window layout.
+
+        Cobaya constructs one instance of this class from the sampling
+        YAML's theory block and calls initialize() once, before any
+        sampling; extra_args is that block's option mapping, handed
+        over by Cobaya as an attribute. This method validates the
+        options, picks the device, rebuilds the two grid predictors
+        (the H(z) supernova window and the D_M recombination window),
+        derives the required sampled inputs from the artifacts' own
+        stored names, and records each window's redshift range.
+
+        Raises:
+          ValueError for an unknown option, an emulators list that is
+          not exactly two roots, an artifact of the wrong family,
+          units, or curvature, or a pair that is not exactly one
+          'Hubble' plus one 'D_M'.
+        """
         super().initialize()
         self._check_extra_args()
         self.device = self._pick_device(self.extra_args.get("device", "cpu"))
@@ -261,7 +277,13 @@ class emul_baosn(Theory):
                 "emul_baosn is flat-only; omk must be fixed to zero")
 
     def _check_extra_args(self):
-        """Reject any extra_args key outside the v2 convention, loudly."""
+        """Reject any extra_args key outside the v2 convention, loudly.
+
+        Cobaya passes the theory block's options through without
+        checking them, so a typo'd key would otherwise be silently
+        ignored and its intended setting silently defaulted; the
+        closed list turns that into a named error.
+        """
         unknown = []
         for key in self.extra_args:
             if key not in _ALLOWED_EXTRA_ARGS:
