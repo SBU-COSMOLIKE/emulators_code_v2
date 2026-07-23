@@ -240,9 +240,19 @@ def _pce_deg_tuples(m, pq, q):
     a generator of degree tuples, each of length m with every entry >= 1.
   """
   def rec(prefix, used):
-    # prefix = the degrees chosen so far; used = their sum of a_i^q.
-    # At full length the tuple is emitted; otherwise every degree d
-    # that still fits the budget extends the branch.
+    """Extend one branch of the degree-tuple recursion.
+
+    At full length the tuple is emitted; otherwise every degree d
+    that still fits the budget extends the branch, and a branch is
+    abandoned the moment its running cost passes the budget.
+
+    Arguments:
+      prefix = the degrees chosen so far (a growing list).
+      used   = the running sum of a_i^q for those degrees.
+
+    Returns:
+      a generator of completed degree tuples under this branch.
+    """
     if len(prefix) == m:
       yield tuple(prefix)
       return
@@ -919,8 +929,15 @@ class PCEEmulator(nn.Module):
       a PCEEmulator on `device`.
     """
     def t(v, dtype):
-      # one tensor per stored buffer, on the requested device, in the
-      # dtype the forward pass expects.
+      """Convert one stored buffer to a tensor on the target device.
+
+      Arguments:
+        v     = the stored value (a numpy array or tensor).
+        dtype = the dtype the forward pass expects for this buffer.
+
+      Returns:
+        torch.as_tensor(v) in that dtype, on ``device``.
+      """
       return torch.as_tensor(v, dtype=dtype, device=device)
     return cls(lo=t(state["lo"], torch.float32),
                hi=t(state["hi"], torch.float32),
