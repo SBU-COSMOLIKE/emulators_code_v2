@@ -165,7 +165,23 @@ class dataset(GeneratorCore):
     return files
 
   def _dv_load_chk(self):
-    """Load both per-quantity stores (RAM-aware, one shared policy)."""
+    """Load both per-quantity stores (RAM-aware, one shared policy).
+
+    This family holds one 2-D store per quantity — H(z) on the SN grid
+    and D_M(z) on the recombination grid — instead of the core's single
+    array. Each axis sidecar is compared against the YAML's grid before
+    anything loads, so a checkpoint written for one pair of redshift
+    grids is never continued on another. The load-whole-or-memmap
+    decision is then made ONCE over the combined bytes and applied to
+    every store, because mixing a loaded store with a memmapped one
+    would make row writes differ in speed and durability mid-run. The
+    memmap modes and the fit rule are the core's (see
+    GeneratorCore._dv_load_chk, which explains both).
+
+    Raises:
+      ValueError when an axis disagrees with the YAML, a store is not
+      2-D, or a store's rows or columns disagree with the checkpoint.
+    """
     # a checkpoint written for one pair of redshift grids must never be
     # continued on another: the columns would silently change meaning.
     for q in QUANTITIES:
@@ -209,7 +225,14 @@ class dataset(GeneratorCore):
           f"grid; the chk and the YAML disagree")
 
   def _dv_save(self):
-    """Flush both stores to disk (tmp file + atomic replace each)."""
+    """Flush both stores to disk (tmp file + atomic replace each).
+
+    Per store, the same two save paths as the core (see
+    GeneratorCore._dv_save): a memmapped store checkpoints in place
+    with flush(), and an in-RAM store writes a temporary sibling and
+    swaps it in with os.replace, which the operating system performs
+    atomically, so a crash mid-save leaves the previous complete file.
+    """
     for q in QUANTITIES:
       if self.dvs_is_memmap == True:
         self.datavectors[q].flush()  # checkpoint dv in-place
