@@ -1015,7 +1015,16 @@ def _unresolved_choice(body, ignore_locator_spans=False):
     # the locator sections whose rows are validated separately. Fenced
     # examples were already masked by ``_binding_markdown_text``.
     def inline_code(match):
-        """Unwrap one code span, masking only locator spans."""
+        """Unwrap one code span, masking only locator spans.
+
+        Arguments:
+          match = the regular-expression match holding one backtick
+                  span's content.
+
+        Returns:
+          The span's content, or the empty string when locator spans
+          are being ignored and the span holds a ``::`` locator.
+        """
         content = match.group(1)
         if ignore_locator_spans and "::" in content:
             return ""
@@ -1308,6 +1317,19 @@ def _require_character_change_budget(body, expected_max):
     Only the three canonical visible rows are accepted; supplemental budget
     reasoning belongs in the readability-plan row rather than in free-form
     fields that a lower-capability Implementer would have to interpret.
+
+    Arguments:
+      body         = the directive section's text.
+      expected_max = the run-time limit the rows must repeat, or
+                     ``None`` to accept the stored value as is.
+
+    Returns:
+      A mapping with the parsed budget fields, including the limit
+      and the readability plan.
+
+    Raises:
+      DirectiveError: for a malformed limit, missing or reordered
+        rows, or a stored limit disagreeing with ``expected_max``.
     """
     if (expected_max is not None
             and (isinstance(expected_max, bool)
@@ -1369,6 +1391,17 @@ def _require_architect_role_plan(body):
     The manual router may verify command-line confirmations against this
     section, but it must never let those confirmations replace the plan in
     the source note.
+
+    Arguments:
+      body = the 'Role plan' section's text.
+
+    Returns:
+      A mapping with the parsed ``roles``, ``discovery_severity``,
+      ``review_scope``, and ``ticket_class`` values.
+
+    Raises:
+      DirectiveError: for missing or reordered rows, an unsupported
+        value, or a protected ticket class this route cannot carry.
     """
     structural = _binding_markdown_text(text=body)
     rows = [line for line in structural.split("\n") if line.strip()]
@@ -1638,6 +1671,18 @@ def _require_parallel_subagent_plan(body):
     The Architect either provides bounded helper work or explains why a
     separate helper would only duplicate this ticket.  The Implementer cannot
     choose or rewrite that decision.
+
+    Arguments:
+      body = the 'Parallel work plan' section's text.
+
+    Returns:
+      A mapping whose ``mode`` names the decision: a capability
+      exception with its recorded failure, a not-required plan with
+      its reason, or a required plan listing each subagent's name,
+      task, ownership, and acceptance.
+
+    Raises:
+      DirectiveError: for a missing, malformed, or vague plan.
     """
     structural = _binding_markdown_text(text=body)
     lines = [line.strip() for line in structural.split("\n") if line.strip()]
@@ -1928,6 +1973,21 @@ def validate_implementer_subagent_evidence(parallel_work_plan, text):
 
     ``blocked`` is also accepted as an Acceptance value so a truthful
     checkpoint can return without pretending that a subagent passed.
+
+    Arguments:
+      parallel_work_plan = the parsed Architect plan dictionary.
+      text               = the Implementer's subagent-evidence text.
+
+    Returns:
+      For a capability-exception plan, the matching recorded failure.
+      For every other plan, a mapping with ``mode`` "subagents", the
+      per-name ``returns`` records, and ``completion_ready`` = True
+      only when every planned return passed.
+
+    Raises:
+      DirectiveError: for evidence missing a planned name, naming an
+        unplanned one, out of order, malformed, or disagreeing with a
+        recorded capability failure.
     """
     if not isinstance(parallel_work_plan, dict):
         raise DirectiveError(
@@ -2107,6 +2167,18 @@ def extract_blocked_implementer_capability_evidence(handoff_text):
     well-formed Subagent returns, at least one blocked return, and then the
     three canonical capability-failure rows as the final rows of its bounded
     Subagent-work fragment.
+
+    Arguments:
+      handoff_text = the prior blocked IMPLEMENTER_HANDOFF's text.
+
+    Returns:
+      A mapping with the per-name ``returns`` records and the three
+      recorded failure fields: ``capability_checked``,
+      ``attempted_operation``, and ``raw_failure``.
+
+    Raises:
+      DirectiveError: for duplicate or malformed returns, no blocked
+        return, or missing capability-failure rows.
     """
     evidence = extract_implementer_subagent_evidence(
         handoff_text=handoff_text)
@@ -2405,6 +2477,17 @@ def _parse_ticket_change_guard(command, authoritative_tool=None):
     Shell variables and compound shell expressions are deliberately refused.
     The packet must preserve the exact worktree, starting commit, and limit so
     a lower-capability Implementer can copy the command without inference.
+
+    Arguments:
+      command            = one command line from the directive.
+      authoritative_tool = the only guard path accepted, or ``None``
+                           to accept the repository's canonical
+                           spellings.
+
+    Returns:
+      A mapping with the parsed ``tool``, ``repo``, ``base``, ``max``,
+      and its literal spelling, or ``None`` when the line is not a
+      literal guard invocation in the accepted form.
     """
     try:
         tokens = shlex.split(command, posix=True)
@@ -2547,7 +2630,16 @@ def _require_ticket_change_guard(
     conditions = CHECKBOX_RE.findall(checklist)
 
     def is_positive_condition(condition):
-        """Accept only a within-limit condition with no negation."""
+        """Accept only a within-limit condition with no negation.
+
+        Arguments:
+          condition = one Acceptance-checklist checkbox text.
+
+        Returns:
+          True when the condition names the guard, contains a
+          "within limit" claim, and carries no negating word that
+          could invert its meaning.
+        """
         return (
             TICKET_CHANGE_GUARD in condition
             and re.search(r"\bwithin[ -]limit\b", condition,
