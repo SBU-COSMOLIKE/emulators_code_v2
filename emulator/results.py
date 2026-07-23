@@ -283,7 +283,8 @@ def _validate_saved_recipe_geometry_widths(
   else:
     raise ValueError(
       where + " parameter geometry class " + repr(parameter_class)
-      + " has no inert width contract")
+      + " is not a class with known saved-width rules, so its shapes "
+      "cannot be checked before the class is imported")
 
   def dataset_shape(name):
     """Read one output-geometry dataset's shape as plain ints.
@@ -376,7 +377,8 @@ def _validate_saved_recipe_geometry_widths(
   else:
     raise ValueError(
       where + " output geometry class " + repr(class_path)
-      + " has no inert width contract")
+      + " is not a class with known saved-width rules, so its shapes "
+      "cannot be checked before the class is imported")
 
 
 def _load_tensor_state_dict(checkpoint, *, device, where, expected_token):
