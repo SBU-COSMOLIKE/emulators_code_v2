@@ -2499,8 +2499,8 @@ def training_loop_batched(nepochs,
                  present anneal sub-block {hold_epochs, anneal_epochs,
                  shape} enables the sqrt -> berhu blend: a 0-dim s_t tensor
                  filled in place per epoch from anneal_value (start 0,
-                 end 1) and passed as berhu_s; absent -> no blend (the
-                 branch is byte-identical to before this feature).
+                 end 1) and passed as berhu_s; absent -> no blend (no
+                 s_t tensor exists and the mode runs unblended).
 
   Returns:
     train_losses, medians, means, fracs = per-epoch lists
@@ -2540,8 +2540,8 @@ def training_loop_batched(nepochs,
           f"amp={use_amp}, loss mode = {mode}")
 
   # ema (weight averaging) state, all gated on an ema block being set:
-  # when ema is None every ema branch below is skipped and the loop is
-  # byte-identical to before the feature. validate_ema already ran in
+  # when ema is None every ema branch below is skipped and the loop
+  # runs with no averaging at all. validate_ema already ran in
   # run_emulator, so a non-None block is well-formed here.
   ema_on         = ema is not None
   theta_bar      = None    # the running average; allocated at the live point
@@ -2812,10 +2812,10 @@ def training_loop_batched(nepochs,
         ema_schedule = anneal_value(epoch=epoch, opts=ema_s_opts)
     # warmup before this epoch trains: epoch e (of W) runs at
     # base*e/W, so epoch 1 uses base/W, protecting exactly the
-    # steps warmup exists for. (It used to be applied after the
-    # epoch: epoch 1 of every pass then trained at the full base lr
-    # while printing the ramped value it had just set for epoch 2,
-    # at a two-phase handoff that full-strength first epoch could
+    # steps warmup exists for. (Applied after the epoch instead,
+    # epoch 1 of every pass would train at the full base lr while
+    # printing the ramped value it had just set for epoch 2, and at
+    # a two-phase handoff that full-strength first epoch could
     # wreck the identity start.)
     if epoch <= warmup_epochs:
       scale = epoch / warmup_epochs
@@ -2925,8 +2925,8 @@ def training_loop_batched(nepochs,
           grad_norm = nn.utils.clip_grad_norm_(model.parameters(),
                                                max_norm=clip)
         else:
-          # clipping off: still compute the norm (read-only, byte-
-          # identical to the old no-clip path) so the finite contract can
+          # clipping off: still compute the norm (read-only, the
+          # gradients are never scaled) so the finite contract can
           # refuse a NaN/Inf gradient before optimizer.step mutates the
           # weights — clipping disabled is not the same as unchecked.
           grad_norm = _global_grad_norm(model.parameters())
@@ -3460,7 +3460,7 @@ def run_emulator(train_set,
   ema = validate_ema(ema)
 
   # validate the optional loss block once, up front (None or no mode key ->
-  # {mode: sqrt}, byte-identical to the old default): the mode whitelist and
+  # {mode: sqrt}): the mode whitelist and
   # the berhu sub-block's local mode check, before any setup work. Each pass
   # re-resolves it below (a phase loss: full-replaces the top-level one).
   loss_top = validate_loss(loss, "train_args")
@@ -3527,10 +3527,11 @@ def run_emulator(train_set,
     focus_opts = {"shape": "const",
                   "start": -1.0}
 
-  # Epoch counts are discrete.  A fractional warmup used to execute with its
+  # Epoch counts are discrete.  A fractional warmup would execute with its
   # fractional denominator and then be truncated in the artifact recipe,
-  # making the saved plan describe different learning rates.  Reject it
-  # before model construction or loader work can begin.
+  # making the saved plan describe different learning rates from the
+  # executed ones.  Reject it before model construction or loader work
+  # can begin.
   _native_nonnegative_epochs(
     lr_opts["warmup_epochs"], "train_args.lr.warmup_epochs")
   if not _is_finite_real(lr_opts["lr_base"]) \
