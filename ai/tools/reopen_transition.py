@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Check one Red Team reopening without making the decision.
 
-The mailbox daemon reads and seals files.  This module only interprets the
-already verified backlog lines.  It gives the Architect a short statement of
-the current ticket state and checks the exact state left after GO or NO-GO.
-It never edits the backlog and never decides whether the Red Team is right.
+A reopening is the Red Team's formal request to reopen a closed ticket
+because it believes the accepted fix still leaves the ticket's bug. The
+backlog is ``ai/notes/backlog.md``, the ticket dashboard. The mailbox
+daemon reads and seals files; this module only interprets the already
+verified backlog lines. It gives the Architect a short statement of the
+current ticket state and checks the exact state left after GO (the
+ticket reopens) or NO-GO (it stays closed and further requests are
+barred). It never edits the backlog and never decides whether the Red
+Team is right.
 """
 
 from dataclasses import dataclass
@@ -33,12 +38,17 @@ class ReopenTicket:
     """The small set of ticket facts needed for a reopening decision.
 
     Arguments:
-      anchor: Stable backlog link carried by the ticket cycle.
-      title: Human ticket title following the anchor.
-      severity: Current Critical, High, Medium, or Low classification.
-      count: Number of earlier formal Red Team reopening requests.
-      state: ``OPEN`` or ``CLOSED``.
-      reopening: ``allowed`` or the permanent Architect NO-GO bar.
+      anchor    = the ticket's stable link name: the backlog marks each
+                  ticket with an HTML ``<a id="...">`` marker so links
+                  and cycles can name it without depending on wording.
+      title     = human ticket title from the ``## `` heading after the
+                  anchor.
+      severity  = current CRITICAL, HIGH, MEDIUM, or LOW classification.
+      count     = number of formal Red Team reopening requests decided
+                  so far.
+      state     = ``"OPEN"`` or ``"CLOSED"``.
+      reopening = ``"allowed"``, or ``"barred by Architect NO-GO"`` when
+                  an earlier NO-GO permanently barred another request.
     """
 
     anchor: str
@@ -50,7 +60,22 @@ class ReopenTicket:
 
 
 def _one_match(lines, pattern, label):
-    """Return one regular-expression match or reject ambiguous prose."""
+    """Return one regular-expression match or reject ambiguous prose.
+
+    Arguments:
+      lines   = the ticket's section lines.
+      pattern = compiled regular expression; a line must match it in
+                full to count.
+      label   = short human name of the required line, used in the
+                error message.
+
+    Returns:
+      The single match object.
+
+    Raises:
+      ReopenTransitionError: when zero or several lines match, because
+        a decision must never rest on an ambiguous ticket record.
+    """
     matches = [match for line in lines
                if (match := pattern.fullmatch(line)) is not None]
     if len(matches) != 1:
@@ -62,9 +87,29 @@ def _one_match(lines, pattern, label):
 def inspect_backlog(lines, anchor):
     """Return the exact reopening facts for one backlog ticket.
 
-    ``lines`` must come from the daemon's stable backlog reader.  The parser
-    stops at the next ticket heading or anchor, so another ticket cannot lend
-    this ticket a severity, counter, or reopening state.
+    The ticket's section runs from its ``<a id="...">`` anchor marker
+    to the next ``## `` heading or anchor, so another ticket cannot
+    lend this ticket a severity, counter, or reopening state. The
+    section must contain exactly one severity line, one reopen-count
+    line, one reopening-permission line, and one status line. Whether
+    the ticket is open is decided by position — a section above the
+    ``# Closed tickets`` heading is open — and cross-checked against
+    the ``- OPEN`` index lines at the top of the backlog: an open
+    ticket must appear there exactly once with the same severity, a
+    closed one not at all.
+
+    Arguments:
+      lines  = backlog lines from the daemon's stable backlog reader.
+      anchor = the ticket's anchor name (lowercase words joined by
+               hyphens).
+
+    Returns:
+      A ReopenTicket carrying the checked facts.
+
+    Raises:
+      ReopenTransitionError: when the anchor is malformed, missing, or
+        duplicated, or any required line is absent, doubled, or
+        inconsistent with the index.
     """
     if not isinstance(anchor, str) or re.fullmatch(
             r"[a-z0-9]+(?:-[a-z0-9]+)*", anchor) is None:
@@ -117,12 +162,49 @@ def inspect_backlog(lines, anchor):
 
 
 def expected_go_severity(ticket):
-    """Apply the existing sixth-reopening Low rule to an accepted report."""
+    """Return the severity the ticket carries after this decision.
+
+    A ticket that has already consumed five formal reopening decisions
+    drops to LOW on every later one, so an endlessly re-litigated
+    ticket cannot keep claiming high priority. Before that point the
+    ticket keeps its current severity. Both outcomes of the decision —
+    reopen or stay closed — leave this same severity.
+
+    Arguments:
+      ticket = the checked ReopenTicket before the decision.
+
+    Returns:
+      ``"LOW"`` when this decision is the sixth or later, otherwise
+      the ticket's current severity.
+    """
     return "LOW" if ticket.count + 1 > 5 else ticket.severity
 
 
 def architect_brief(ticket, cycle, landing):
-    """Render the compact mechanical facts shown before Architect reasoning."""
+    """Render the compact mechanical facts shown before Architect reasoning.
+
+    The brief opens with the checked ticket facts, then states what the
+    Architect may legally do. A ticket that is closed with reopening
+    allowed is awaiting the decision, so the brief lists both outcomes
+    with the exact count and severity each must leave. The two other
+    legal states are recovery states: the backlog already records the
+    decision (open again after GO, or closed and barred after NO-GO),
+    so the brief says only not to repeat the edit.
+
+    Arguments:
+      ticket  = the checked ReopenTicket.
+      cycle   = the mailbox cycle name shown in the brief.
+      landing = identifier of the accepted landing the Red Team
+                reviewed; a landing is a commit the daemon recorded as
+                an accepted delivery.
+
+    Returns:
+      The brief as one printable string.
+
+    Raises:
+      ReopenTransitionError: when the ticket state matches no legal
+        reopening situation, such as open but barred.
+    """
     heading = (
         "ARCHITECT REOPENING CHECK\n\n"
         "Ticket: " + ticket.title + "\n"
@@ -156,7 +238,27 @@ def architect_brief(ticket, cycle, landing):
 
 
 def redteam_brief(ticket, cycle, landing):
-    """Render the checked backlog facts needed for one closure review."""
+    """Render the checked backlog facts needed for one closure review.
+
+    A closure review is the Red Team's look at a closed ticket's
+    accepted landing: it may report NO CHANGE or ask to reopen. The
+    brief states which of those outcomes are available — only NO
+    CHANGE when an earlier Architect NO-GO permanently barred
+    reopening — and reminds the reviewer that the backlog is not
+    theirs to edit.
+
+    Arguments:
+      ticket  = the checked ReopenTicket; must be CLOSED.
+      cycle   = the mailbox cycle name shown in the brief.
+      landing = identifier of the accepted landing under review.
+
+    Returns:
+      The brief as one printable string.
+
+    Raises:
+      ReopenTransitionError: when the ticket is not closed or its
+        reopening field holds an unknown value.
+    """
     if ticket.state != "CLOSED":
         raise ReopenTransitionError(
             "Red Team closure review requires a Closed ticket")
@@ -184,7 +286,30 @@ def redteam_brief(ticket, cycle, landing):
 
 
 def validate_after(before, after):
-    """Return GO or NO-GO only when the Architect left an exact legal state."""
+    """Return GO or NO-GO only when the Architect left an exact legal state.
+
+    The comparison is deliberately strict. The ticket identity (anchor
+    and title) must not change. If the before state already records a
+    decision — a recovery state — the after state must equal it
+    exactly. A ticket that was awaiting a decision must gain exactly
+    one reopen count and land in exactly one of the two legal end
+    states: open with reopening allowed (GO) or closed with reopening
+    barred (NO-GO), both at the post-decision severity. Anything else
+    is refused rather than guessed at.
+
+    Arguments:
+      before = ReopenTicket checked before the Architect's edit.
+      after  = ReopenTicket checked after the Architect's edit.
+
+    Returns:
+      ``"GO"`` when the ticket reopened, ``"NO-GO"`` when it stayed
+      closed and barred.
+
+    Raises:
+      ReopenTransitionError: for a changed identity, a re-edited
+        recovery state, a wrong count, or an end state that matches
+        neither decision.
+    """
     if not isinstance(before, ReopenTicket) or not isinstance(
             after, ReopenTicket):
         raise ReopenTransitionError(
