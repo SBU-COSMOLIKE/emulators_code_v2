@@ -69,18 +69,34 @@ class DeferredInterrupts:
     """
 
     def __init__(self):
+        """Start with no recorded Ctrl-C and no installed handler."""
         self._pending = False
         self._previous = None
         self._installed = False
 
     def _record(self, signum, frame):
-        """Remember one Ctrl-C and tell the user it is deferred, not lost."""
+        """Remember one Ctrl-C and tell the user it is deferred, not lost.
+
+        Arguments:
+          signum = the delivered signal number (unused; the signal
+                   module requires this handler signature).
+          frame  = the interrupted stack frame (unused, same reason).
+        """
         del signum, frame
         self._pending = True
         print("interrupt received: finishing the current mailbox "
               "transition first.", flush=True)
 
     def __enter__(self):
+        """Redirect Ctrl-C to the recorder while the block runs.
+
+        The handler is installed only from the main thread, because
+        Python delivers Ctrl-C only there. When no handler can be
+        installed the manager degrades to doing nothing.
+
+        Returns:
+          This manager, as the ``with`` statement expects.
+        """
         in_main_thread = (daemon.threading.current_thread()
                           is daemon.threading.main_thread())
         if in_main_thread:
@@ -93,6 +109,18 @@ class DeferredInterrupts:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Restore the previous handler and deliver one deferred Ctrl-C.
+
+        Arguments:
+          exc_type  = the in-flight exception class, or ``None``.
+          exc_value = its instance, or ``None``.
+          traceback = its traceback object, or ``None``.
+
+        Returns:
+          False, so an exception raised inside the block propagates.
+          A deferred Ctrl-C is raised here only when the block ended
+          without an exception of its own.
+        """
         if self._installed:
             daemon.signal.signal(daemon.signal.SIGINT, self._previous)
             if self._pending and exc_type is None:
@@ -101,13 +129,44 @@ class DeferredInterrupts:
 
 
 def consume_daemon_message(path, dry_run=False, return_outcome=False):
-    """Validate and consume one candidate-bound Architect GO locally.
+    """Validate and consume one message addressed to the daemon itself.
 
     The daemon recipient is not an AI lane. It exists so cycle completion is
     based on a saved Architect decision instead of inference from prose or a
-    changing backlog count.
+    changing backlog count. Three message kinds arrive here: an ordinary
+    Architect GO naming one exact candidate commit, an Architect GO for a
+    permanent-note commit, and a protected Red Team receipt supplying the
+    second key for a control-plane candidate.
+
+    Arguments:
+      path           = the pending ``*-to-daemon.md`` file in the mailbox
+                       root.
+      dry_run        = True to print what the message would do without
+                       claiming, landing, or archiving anything.
+      return_outcome = True to return the daemon outcome constant instead
+                       of a boolean.
+
+    Returns:
+      With ``return_outcome`` False, True only when the message was fully
+      consumed. With it True, one of the daemon outcome constants:
+      ``DAEMON_MESSAGE_CONSUMED`` (done and archived),
+      ``DAEMON_MESSAGE_HARD_STOP`` (the message could not be claimed, or
+      was refused and parked in ``failed/``),
+      ``DAEMON_CONTROL_PLANE_WAITING`` (the GO stays in ``inflight/``
+      until the Red Team's second key arrives), or
+      ``DAEMON_NOTE_DEFERRED`` (a permanent-note landing must wait for
+      an idle boundary).
     """
     def result(outcome):
+        """Convert one outcome constant to the caller's requested form.
+
+        Arguments:
+          outcome = one of the daemon outcome constants.
+
+        Returns:
+          The constant itself when ``return_outcome`` is set, else the
+          boolean "was this message fully consumed".
+        """
         return outcome if return_outcome \
             else outcome == daemon.DAEMON_MESSAGE_CONSUMED
 
@@ -280,7 +339,20 @@ def ticket_cycle_has_live_message(cycle_id):
 
 
 def recover_failed_implementer_preflight():
-    """Release a proved pre-launch reservation left by an older daemon."""
+    """Release ticket reservations whose Implementer never launched.
+
+    A daemon can die between reserving a finite-watch ticket slot and
+    starting the Implementer process. The parked request then sits in
+    ``failed/`` while its reservation still holds a slot. For each such
+    request this pass proves the launch never happened — the cycle has no
+    live message, no saved candidate, and the Implementer checkout still
+    sits clean on the ticket's starting commit — and only then releases
+    the unclaimed reservation.
+
+    Returns:
+      The number of reservations released. Requests failing any proof
+      are left exactly as found.
+    """
     recovered = 0
     pattern = daemon.os.path.join(daemon.MAILBOX, "failed", "*-to-opus.md")
     for path in sorted(daemon.glob.glob(pattern), key=daemon.message_sequence):
@@ -392,7 +464,24 @@ def revalidate_unmeasurable_budget_handoff(
 
 
 def recover_failed_implementer_returns():
-    """Revalidate a completed return without rerunning the Implementer."""
+    """Accept finished Implementer work whose delivery was interrupted.
+
+    A killed run can leave a completed unit split across folders: the
+    Architect's request in ``failed/`` or ``inflight/``, the Implementer's
+    finished return in ``failed/``, and a real candidate commit sitting in
+    the Implementer checkout. Rerunning the role would pay for the work
+    twice. This pass proves the pieces still belong together — the ticket
+    is still in its implementation phase, the request validates, exactly
+    one saved return names the checkout's exact commit, and the evidence
+    contract accepts it — then restores the request to ``inflight/``, the
+    return to the mailbox root, and writes the delivery receipt.
+
+    A return parked as unmeasurable is first rerun through the trusted
+    size guard, so a now-measurable count can promote it in place.
+
+    Returns:
+      The number of returns restored for ordinary Architect review.
+    """
     recovered = 0
     requests = [
         path for directory in (daemon.os.path.join(daemon.MAILBOX, "failed"),
@@ -577,7 +666,18 @@ def retire_failed_public_architect_admission(path):
 
 
 def recover_failed_public_architect_admissions():
-    """Retire exact failed public requests left charged by an older run."""
+    """Release finite-cycle slots still charged to failed public requests.
+
+    A public ticket-selecting request is charged against the finite-watch
+    cycle limit the moment it is admitted. When its Architect turn then
+    fails, the request is parked in ``failed/`` but the charge can outlive
+    the run. Each parked request whose saved identity still matches, and
+    whose admission token no live Implementer handoff claims, has its
+    charge dropped so a later watch regains the slot.
+
+    Returns:
+      The number of charges released.
+    """
     recovered = 0
     pattern = daemon.os.path.join(daemon.MAILBOX, "failed", "*-to-fable.md")
     for path in sorted(daemon.glob.glob(pattern), key=daemon.message_sequence):
@@ -587,7 +687,24 @@ def recover_failed_public_architect_admissions():
 
 
 def recover_failed_architect_outcome():
-    """Restore paid work parked with newer user mail."""
+    """Recover a finished fix-only Architect plan without a rerun.
+
+    A fix-only maintenance request can complete its paid Architect turn —
+    the resulting Implementer plan exists — and still be parked in
+    ``failed/`` because a newer user request arrived mid-turn and made
+    the turn look unresolved. This pass finds the one plan bound to the
+    parked request's admission token, preserves it in ``prelaunch/``,
+    requeues the newer user requests parked beside it, registers the
+    plan's ticket cycle, and archives the completed request.
+
+    Returns:
+      The number of plans recovered.
+
+    Raises:
+      daemon.TicketCycleStateError: when the recovery lock cannot be
+        taken, a parked request changed identity, several outcomes claim
+        one token, or a required move failed — nothing is guessed.
+    """
     lock_file = daemon.acquire_mailbox_sequence_lock()
     if lock_file is None:
         raise daemon.TicketCycleStateError("cannot lock outcome recovery")
@@ -657,7 +774,22 @@ def recover_failed_architect_outcome():
 
 
 def recover_failed_open_ticket_go():
-    """Retry an exact GO parked by the retired Open-ticket behavior."""
+    """Requeue a parked Architect GO whose audited candidate still stands.
+
+    A GO can sit in ``failed/`` even though the decision it records is
+    still valid: the named ticket is active in its implementation phase,
+    the mode matches, and the saved candidate ref still names the audited
+    commit. Such a GO is moved back to ``inflight/`` so the landing can
+    finish without repeating the Architect's candidate audit. A GO whose
+    ticket state no longer matches stays parked.
+
+    Returns:
+      The number of GO messages requeued.
+
+    Raises:
+      daemon.TicketCycleStateError: when a matching GO could not be
+        moved back to ``inflight/``.
+    """
     active = daemon.read_ticket_cycle_state()["active"]
     recovered = 0
     paths = daemon.glob.glob(
@@ -686,7 +818,21 @@ def recover_failed_open_ticket_go():
 
 
 def recover_prelaunch_messages():
-    """Requeue requests durably retained before any agent process started."""
+    """Return every ``prelaunch/`` message to the mailbox root.
+
+    ``prelaunch/`` retains a message durably after validation but before
+    its agent process starts, so a crash in that window loses nothing. At
+    daemon startup no agent can be running yet, so everything found there
+    is simply requeued in sequence order.
+
+    Returns:
+      The number of messages requeued.
+
+    Raises:
+      daemon.TicketCycleStateError: when the recovery lock cannot be
+        taken or a move fails; the remaining files stay in
+        ``prelaunch/``.
+    """
     sequence_lock = daemon.acquire_mailbox_sequence_lock()
     if sequence_lock is None:
         raise daemon.TicketCycleStateError("cannot lock pre-launch recovery")
@@ -709,7 +855,24 @@ def recover_prelaunch_messages():
 
 
 def restart_implementer_from_architect_handoff():
-    """Discard interrupted implementation work and requeue its exact plan."""
+    """Reset the Implementer checkout and requeue its exact Architect plan.
+
+    Used when an Implementer turn was killed mid-work and nothing worth
+    keeping exists yet. The pass demands exactly one active Architect
+    handoff across the mailbox folders, refuses when a candidate commit
+    or a returned handoff already exists (finished work must go to the
+    Architect instead), hard-resets the Implementer checkout to the
+    ticket's starting commit, and returns the handoff to the mailbox
+    root for a fresh launch.
+
+    Returns:
+      The mailbox-root path of the preserved Architect handoff.
+
+    Raises:
+      daemon.TicketCycleStateError: when zero or several handoffs match,
+        finished work already exists, the base commit is missing, the
+        checkout cannot be cleaned, or the handoff cannot be requeued.
+    """
     daemon.recover_interrupted_mailbox_moves()
     sequence_lock = daemon.acquire_mailbox_sequence_lock()
     if sequence_lock is None:
@@ -786,7 +949,23 @@ def restart_implementer_from_architect_handoff():
 
 
 def restart_redteam_from_architect_handoff():
-    """Discard interrupted Red Team work and requeue its exact request."""
+    """Reset the Red Team checkout and requeue its exact review request.
+
+    The Red Team counterpart of the Implementer restart. The pass demands
+    exactly one active closure or control-plane handoff, refuses when the
+    review result already exists (a saved receipt or a recorded protected
+    decision must reach the Architect instead), discards any interrupted
+    audit snapshot, hard-resets the Red Team checkout to the current
+    ``main`` commit, and returns the handoff to the mailbox root.
+
+    Returns:
+      The mailbox-root path of the preserved handoff.
+
+    Raises:
+      daemon.TicketCycleStateError: when zero or several handoffs match,
+        the review already returned, the handoff fails validation, the
+        checkout cannot be cleaned, or the requeue move fails.
+    """
     daemon.recover_interrupted_mailbox_moves()
     sequence_lock = daemon.acquire_mailbox_sequence_lock()
     if sequence_lock is None:
@@ -867,7 +1046,26 @@ def restart_redteam_from_architect_handoff():
 
 
 def recover_interrupted_mailbox_moves():
-    """Collapse exact hardlink debris left by an interrupted state move."""
+    """Finish or roll back state moves interrupted between hardlink steps.
+
+    A durable state move creates a hardlink at the destination before
+    unlinking the source, so a crash can leave the same file bytes
+    reachable under two names plus a ``.state-guard`` link. For each
+    message name with any leftover in ``inflight/``, this pass compares
+    the inodes — the filesystem's identity numbers for the underlying
+    files — across every possible location and applies the one safe
+    repair: finish a move whose destination already exists, undo a claim
+    whose root copy survived, or drop a guard link matching its source.
+    Any inode disagreement stops the pass instead of guessing.
+
+    Returns:
+      The number of interrupted moves repaired.
+
+    Raises:
+      daemon.TicketCycleStateError: when the lock cannot be taken, a
+        non-regular file sits where a state file should be, or the
+        surviving copies disagree about which move was in flight.
+    """
     sequence_lock = daemon.acquire_mailbox_sequence_lock()
     if sequence_lock is None:
         raise daemon.TicketCycleStateError("cannot lock mailbox-move recovery")
@@ -890,7 +1088,19 @@ def recover_interrupted_mailbox_moves():
             ]
 
             def inode(path):
-                """Return the state's inode; refuse a non-regular file."""
+                """Read one location's inode for the identity comparison.
+
+                Arguments:
+                  path = one possible location of the moved message.
+
+                Returns:
+                  The inode number, or ``None`` when nothing exists at
+                  ``path``.
+
+                Raises:
+                  daemon.TicketCycleStateError: when something exists
+                    there but is not a regular file, such as a symlink.
+                """
                 value = daemon.regular_inode(path=path)
                 if value is None and daemon.os.path.lexists(path):
                     raise daemon.TicketCycleStateError(
@@ -949,7 +1159,12 @@ def recover_interrupted_mailbox_moves():
 
 
 def blocked_redteam_directory():
-    """Return the durable queue for protected work that needs Red Team."""
+    """Name the durable queue for protected work that needs the Red Team.
+
+    Returns:
+      The absolute path of the mailbox subdirectory where a two-role
+      watch parks protected tool-edit requests it must not run.
+    """
     return daemon.os.path.join(daemon.MAILBOX, daemon.BLOCKED_REDTEAM_DIRECTORY)
 
 
@@ -1084,10 +1299,29 @@ def implementer_reservation_preflight_problem(path, message):
 def reserve_architect_ticket_before_claim(path, skip_redteam=False):
     """Durably charge one ticket-selecting request before Architect launch.
 
-    The exact request basename and SHA-256 stay charged until the same turn's
-    first Implementer handoff carries their admission token.  This closes the
-    interval in which a finite watch used to launch two public requests before
-    either one had reached the Implementer lane.
+    The exact request basename and SHA-256 stay charged until the same
+    turn's first Implementer handoff carries their admission token. This
+    closes the interval in which a finite watch could otherwise launch
+    two public requests before either had reached the Implementer lane.
+
+    Arguments:
+      path         = the pending Architect request in the mailbox root.
+      skip_redteam = True when this watch runs without the Red Team
+                     route; the charge records the matching topology.
+
+    Returns:
+      A ``(deferred_reason, token)`` pair. ``(None, None)`` means the
+      message is not a chargeable public request and ordinary dispatch
+      should continue. ``(None, token)`` means the slot is charged (or
+      was already charged with the same identity) and the token must
+      appear in the turn's Implementer handoff. ``(reason, None)`` means
+      admission must wait — an earlier handoff must reserve first, a
+      permanent-note transition is pending, or the finite watch has no
+      slot left — and the message stays untouched in the root.
+
+    Raises:
+      daemon.TicketCycleStateError: when a saved charge for this name
+        no longer matches the file's sequence and digest.
     """
     controller = daemon._ACTIVE_WATCH_RENDEZVOUS
     if controller is None:
@@ -1192,9 +1426,27 @@ def reserve_implementer_ticket_before_claim(path, skip_redteam=False):
     """Reserve one finite-watch ticket slot while its root file is untouched.
 
     Malformed or otherwise invalid messages are left for the ordinary
-    dispatch validator, which can park them with a concrete explanation. Only
-    the positive-cycle capacity refusal is returned here because it is a
-    valid ticket for a later watch, not a failed message.
+    dispatch validator, which can park them with a concrete explanation.
+    Only the capacity refusal is returned here, because a ticket over the
+    finite-cycle limit is valid work for a later watch, not a failed
+    message.
+
+    Arguments:
+      path         = the pending Implementer handoff in the mailbox root.
+      skip_redteam = True when this watch runs without the Red Team
+                     route.
+
+    Returns:
+      A ``(deferred_reason, new_cycle_id)`` pair. ``(None, None)`` means
+      no new reservation was created here — the message is not a valid
+      new-ticket handoff, or its ticket was already reserved — and
+      ordinary dispatch decides what happens next. ``(reason, None)``
+      defers a valid ticket that exceeds the finite-cycle capacity.
+      ``(None, cycle_id)`` reports a reservation this call created for a
+      plain handoff, so the caller can release it if no agent process
+      ever launches; a handoff converting a charged public admission
+      returns ``(None, None)`` because the admission record already owns
+      its slot.
     """
     match = daemon.PENDING_MESSAGE_RE.match(daemon.os.path.basename(path))
     if match is None or match.group(1) != "opus":
@@ -1253,6 +1505,14 @@ def drain_lane(paths, dry_run, fix_only=False, skip_redteam=False):
       dry_run  = True to print the would-be commands without running them.
       fix_only = True to launch only declared Sol closures.
       skip_redteam = True to exclude the Sol route from this watch.
+
+    Returns:
+      True when the lane ended without a failure: every message was
+      consumed, deferred by a reservation, or intentionally left queued
+      by the finite-cycle limit or a due rendezvous. False when a
+      dispatch failed, a maintenance request needed a ``--fix-only``
+      watcher, or a token or interrupt stop ended the lane early; an
+      unresolved head message then blocks the rest of its lane.
     """
     all_consumed = True
     for path in paths:
@@ -1561,6 +1821,14 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
         for the caller under the outcome lock; any other exception
         marks the lane not consumed. The lane's outcome is always
         recorded.
+
+        Arguments:
+          cwd          = the lane's working directory, the key under
+                         which the outcome is recorded.
+          paths        = the lane's message files, in sequence order.
+          dry_run      = passed through to drain_lane.
+          fix_only     = passed through to drain_lane.
+          skip_redteam = passed through to drain_lane.
         """
         try:
             consumed = daemon.drain_lane(
@@ -1639,7 +1907,13 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
 
 
 def report_deferred_sol_messages():
-    """Print the exact number of root Sol messages held by this watch."""
+    """Print how many root Red Team messages this watch leaves queued.
+
+    A watch launched without the Red Team route must not touch
+    ``*-to-sol.md`` files. This report gives the user the exact count,
+    so the silence is visibly a choice and not a loss; nothing prints
+    when no such message is waiting.
+    """
     deferred = len(daemon.deferred_sol_messages())
     if deferred == 0:
         return
@@ -1693,6 +1967,15 @@ def landing_debt_snapshot():
     with main mistakes completed landings and protected-note edits for code
     awaiting review. Candidate refs plus active ticket state are the daemon's
     durable authority for work that can still need an Architect decision.
+
+    Returns:
+      A dictionary with four keys. ``available`` = False when any state
+      read or Git command failed; nothing is guessed. ``stat`` = a
+      one-line summary such as "1 active candidate, 42 changed lines",
+      empty when no active candidate is waiting. ``changed_lines`` =
+      summed insertions and deletions across every active candidate's
+      diff against its ticket base. ``returncode`` = 0 on success, else
+      the failing command's exit status.
     """
     lock_file = daemon.acquire_ticket_cycle_lock()
     try:
