@@ -52,6 +52,7 @@ from .results import rebuild_emulator
 from .training import make_model, _report_nonfinite
 from .activations import make_activation
 from .designs.blocks import make_norm
+from .validation import whitening_scale_from_eigenvalues
 
 
 # Keys recognized by the train_args.finetune parser. "from" is the required
@@ -413,10 +414,10 @@ def load_source(
       "source carries an NPCE base; V1 warm start / transfer does not compose "
       "with PCE")
 
-  # These values came from the same HDF5 handle whose identifier and digest
-  # were checked against the checkpoint. The authoritative composition mode,
-  # not transfer_base presence, marks a transfer output, which this version
-  # cannot chain.
+  # These values came from the same HDF5 handle whose pair token was matched
+  # against its .emul sidecar (the deliberately simple mix detector, not a
+  # content digest). The authoritative composition mode, not transfer_base
+  # presence, marks a transfer output, which this version cannot chain.
   recipe = info["model_recipe"]
   src_resc = info["rescale"]
   resolved = info["config_resolved"]
@@ -611,13 +612,19 @@ def _extend_param_geometry(src_pgeom, names_n, cov, train_mean, device):
     center_e[x_rows[k]] = cmean[x_rows[k]]
   if n_x > 0:
     # Sigma_xx = the extras-only block of the new covmat; eigh gives the
-    # extras' own whitening (W columns orthonormal, lam_x > 0).
+    # extras' own whitening (W columns orthonormal, lam_x > 0). Route the
+    # eigenvalues through the shared positive-definite guard so a degenerate
+    # extra parameter (a pinned or duplicated new column) is refused here,
+    # naming the cause, instead of a nan scale surfacing later as a
+    # non-finite warm-start input.
     sigma_xx = cov[np.ix_(x_rows, x_rows)]                 # (n_x, n_x)
     lam_x, W = np.linalg.eigh(sigma_xx)
+    sqrt_x = whitening_scale_from_eigenvalues(
+      lam_x, "the new run's extra-parameter covariance block")
     for k in range(n_x):
       for kk in range(n_x):
         E[x_rows[k], n_s + kk] = W[k, kk]
-    sqrt_ev_e = np.concatenate([s, np.sqrt(lam_x)])
+    sqrt_ev_e = np.concatenate([s, sqrt_x])
   else:
     # no extras: E is the source rotation with rows keyed by name, and the
     # scales are the source's. Same-order names make this byte-identical to
@@ -1117,22 +1124,42 @@ def anchor_masks(init_state, padded_keys, n_extra, device):
 def _zero_final_linear(model):
   """Zero the last nn.Linear of a correction net (weight and bias).
 
-  The transfer correction nets (ResMLP, TemplateMLP) end in an output Linear
-  followed by an identity-initialized Affine (gain 1, bias 0). Zeroing the
-  Linear makes the whole net output exactly zero at init, while the Affine
-  passes gradients straight through, so the net still trains away from the
-  zero start (its gain sees a nonzero input after the first step). Epoch 0 is
+  The transfer correction nets are the trunk-only designs (ResMLP,
+  TemplateMLP): they end in an output Linear followed by an
+  identity-initialized Affine (gain 1, bias 0). Zeroing the Linear makes
+  the whole net output exactly zero at init, while the Affine passes
+  gradients straight through, so the net still trains away from the zero
+  start (its gain sees a nonzero input after the first step). Epoch 0 is
   then exactly the frozen base. Every other tensor is untouched.
 
+  A structured-head design (a conv or transformer correction) is refused:
+  its head registers its OWN Linear layers after the trunk's output
+  Linear, so "the last registered Linear" would be a head or FiLM layer,
+  not the output stage. Zeroing that would leave the trunk output nonzero,
+  epoch 0 would not equal the frozen base, and the parity gate would then
+  fail with a message blaming the surgery. Refuse it here, by name.
+
   Arguments:
-    model = the correction network (eager module).
+    model = the correction network (eager module), a trunk-only design.
 
   Returns:
     the zeroed nn.Linear (for the gate to inspect).
 
   Raises:
-    ValueError if the model has no nn.Linear.
+    ValueError if the model is a structured-head design, or has no
+    nn.Linear.
   """
+  head_block = getattr(type(model), "head_block", None)
+  if head_block is not None:
+    raise ValueError(
+      "a transfer correction net must be a trunk-only design (a plain "
+      "ResMLP or a factored TemplateMLP); got a "
+      + type(model).__name__ + " with a '" + str(head_block) + "' "
+      "correction head. The zero-init surgery makes only a trunk-only net "
+      "output exactly zero at epoch 0 (so it starts as the frozen base); a "
+      "conv or transformer head registers its own layers after the trunk, "
+      "so the surgery cannot zero the true output stage. Set the correction "
+      "model.name to resmlp (or the factored equivalent).")
   last = None
   for m in model.modules():
     if isinstance(m, torch.nn.Linear):
