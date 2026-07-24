@@ -30,9 +30,9 @@ correlation, a fraction, a set of percentile bands, a residual table. The
 verdict is a pass/fail decision layered on top of an estimator: a boolean
 in the returned dict, a fixed threshold, and a meaning attached to
 crossing it. Most diagnostics here return estimators only and leave the
-judgement to the reader (or the plotting page); just two compute a verdict
-in this file. The table names both for each function; a dash in the verdict
-column means the function returns numbers only, no in-code pass/fail.
+judgement to the reader (or the plotting page); just one computes a verdict
+in this file (coverage_diagnostic). The table names both for each function;
+"no boolean" in the verdict column means the function returns numbers only.
 
   function                    estimator (the number)         verdict (the decision)
   --------------------------  -----------------------------  ----------------------
@@ -51,8 +51,6 @@ column means the function returns numbers only, no in-code pass/fail.
                               exceed the fixed 0.2 cut,        f_model measures a gap to
                               plus f_hard in the densest      this local reference. It
                               decile.                          does not identify a cause.
-                                                             chi2fn is not a plain
-                                                             CosmolikeChi2.
   hard_direction_regression   univariate per-feature         no boolean; a large joint
                               correlations, joint OLS         r2 says the difficulty is
                               coefficients, joint r2, and     one clean log-linear
@@ -83,8 +81,8 @@ column means the function returns numbers only, no in-code pass/fail.
 
 (legend: dchi2 = per-point delta-chi2, the fit-difficulty score; whitened =
 see the note just below; the 0.2 cut is the pass line on dchi2 that
-coverage_diagnostic and local_linear_floor both use; a dash in the verdict
-column = numbers only, no in-code pass/fail.)
+coverage_diagnostic and local_linear_floor both use; "no boolean" in the
+verdict column = numbers only, no in-code pass/fail.)
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance under the covariance used to define the transform. This gives
@@ -336,6 +334,22 @@ def local_linear_floor(model,
     Tva = chi2fn.encode(tdv_va)
 
   # k nearest training neighbours of each val point (param space).
+  # cKDTree.query pads missing neighbours with index == n_train when it is
+  # asked for more neighbours than there are training points, and Xtr[nbr]
+  # would then index out of bounds. Refuse k_nn > n_train (and the
+  # docstring's k_nn > n_param + 1, so the local linear fit is determined)
+  # by name instead of crashing or fitting an underdetermined system.
+  n_train = int(Xtr.shape[0])
+  n_param = int(Xtr.shape[1])
+  if k_nn > n_train:
+    raise ValueError(
+      "local_linear_floor: k_nn (" + str(k_nn) + ") exceeds the training "
+      "point count (" + str(n_train) + "); ask for at most that many "
+      "neighbours.")
+  if k_nn <= n_param + 1:
+    raise ValueError(
+      "local_linear_floor: k_nn (" + str(k_nn) + ") must exceed n_param + 1 "
+      "(" + str(n_param + 1) + ") so the local linear fit is determined.")
   tree = cKDTree(Xtr.cpu().numpy())
   knn_d, nbr = tree.query(Xva.cpu().numpy(), k=k_nn)
   knn_dist = knn_d.mean(1)                        # coverage scalar

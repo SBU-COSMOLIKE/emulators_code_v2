@@ -1090,8 +1090,8 @@ def _cmb_pages(cmb):
   left; readable for tt/ee/pp, spiky where te crosses zero) and in
   cosmic-variance error-bar units (top right; always well-defined — for
   te read this one), plus the worst-cosmology overlay: predicted vs
-  true C_ell (bottom left) and its per-multipole residual/sigma (bottom
-  right).
+  true C_ell (bottom left) and its per-multipole physical residual
+  (predicted minus true C_ell, bottom right).
 
   Page B: the roughness companion — the median absolute short-period
   remainder of the whitened residual vs multipole (the wiggle spectrum
@@ -1146,12 +1146,14 @@ def _cmb_pages(cmb):
   a.set_ylabel(rf"$C_\ell$ ({cmb['units']})")
   a.set_title(f"worst val cosmology (chi2 = {w['dchi2']:.1f})")
   a.legend(fontsize=8)
-  # bottom right: that cosmology's per-multipole residual/sigma.
+  # bottom right: that cosmology's per-multipole PHYSICAL residual
+  # (predicted minus true C_ell, in the spectrum's own units).
   a = ax[1, 1]
-  sigma_resid = np.asarray(w["pred"] - w["truth"], dtype="float64")
-  # reconstruct sigma from the band statistics is lossy; the residual
-  # in physical units with the median band overlaid keeps it honest.
-  a.plot(ell, sigma_resid, color=_CB[0], lw=0.8)
+  phys_resid = np.asarray(w["pred"] - w["truth"], dtype="float64")
+  # reconstructing a per-multipole sigma from the band statistics would
+  # be lossy, so this panel plots the physical residual against a zero
+  # line rather than a sigma-unit residual.
+  a.plot(ell, phys_resid, color=_CB[0], lw=0.8)
   a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
   a.set_xlabel(r"$\ell$")
   a.set_ylabel(rf"$\hat C_\ell - C_\ell$ ({cmb['units']})")
@@ -1457,9 +1459,10 @@ def plot_diagnostics(train_losses,
     val_set  = the validation source dict ("C" / "idx"), or None;
                its rows must be the ones coverage's dchi2 scored.
     names    = parameter column names in the dump's order, or None.
-    cuts     = optional physical-cut values ("omegabh2_hi" /
-               "omegam2h2_lo" / "omegam2h2_hi") to shade gray on the
-               triangle page (empty cut regions then read as removed,
+    cuts     = optional validated param_cuts mapping (the eight window
+               keys omegabh2_lo / _hi, omegam2h2_lo / _hi, omegamh2_lo /
+               _hi, omegamh2ns_lo / _hi; each optional) to shade gray on
+               the triangle page (empty cut regions then read as removed,
                not as failures).
     savepath = if given, write a (multipage) PDF there and close;
                if None, show each page interactively.

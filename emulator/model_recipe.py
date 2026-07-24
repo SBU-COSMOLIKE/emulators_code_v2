@@ -8,8 +8,11 @@ constructor accepts.  The recipe is data, not executable Python.  This
 module therefore contains only plain lists of accepted values and value
 checks.  It does not import Torch, the model designs, the geometry classes,
 or the helpers that build activations and normalizations from their saved
-names.  A reader can validate the entire recipe before a saved module path
-is allowed to reach ``importlib``, Python's import machinery.
+names.  A reader can check the recipe's structure -- its class, its closed
+key set, and the block-option value types -- before a saved module path is
+allowed to reach ``importlib``, Python's import machinery.  The remaining
+per-field value checks live in each constructor, which runs after the
+import; this module guards the shape, not every number.
 
 The class list and saved keyword lists are closed: a recipe that names a
 class or keyword outside them is refused.  Adding a constructor argument
@@ -291,7 +294,9 @@ def validate_model_recipe(recipe, where="model_recipe"):
     where  = the label used in every refusal (default "model_recipe").
 
   Returns:
-    the recipe unchanged, once every field passes.
+    the recipe unchanged, once its structure passes (the closed class and
+    key set, and the block-option value types); each constructor runs the
+    remaining per-field value checks after the import.
 
   Raises:
     TypeError / ValueError naming the exact recipe path that failed: an
