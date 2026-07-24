@@ -1792,7 +1792,10 @@ and the documentation catalog listing it. The twenty-one family drivers then mov
 root into the new driver/ folder (path shims in the six direct
 emulator importers, three-era golden-worktree resolution in the
 board, every gate manifest, witness, test, and guide updated;
-813 tests, both witnesses, and the board registry all green).
+813 tests, both witnesses, and the board registry all green). The project-instructions file then moved to .claude/CLAUDE.md
+(a supported load location), with the role-contract test, the
+forbidden-file comment, and the daemon launch message following
+the path; suite green again.
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
