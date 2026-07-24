@@ -161,7 +161,7 @@ from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
-  validate_loss, _loss_migration_message)
+  _loss_migration_message)
 from .validation import (
   _is_finite_real, require_exact_bool, require_exact_int,
   require_nonzero_float32, require_positive_int_list)
@@ -1001,16 +1001,21 @@ def validate_scalar(cfg, train_args, rescale="none"):
     raise ValueError(
       f"data.outputs has duplicate names {sorted(dups)!r}; each emulated "
       "output must be listed once")
-  # exclusivity: a scalar run carries no data vector and no cosmolike.
+  # exclusivity: a scalar run carries no data vector and no cosmolike, and
+  # the scalar staging path applies no failure mask (load_scalar_source has
+  # no mask parameter), so a failure_mask key would be silently ignored --
+  # train on the failed rows the mask was meant to drop. Refuse it instead.
   forbidden = []
-  for k in ("train_dv", "val_dv", "cosmolike_data_dir", "cosmolike_dataset"):
+  for k in ("train_dv", "val_dv", "cosmolike_data_dir", "cosmolike_dataset",
+            "train_failure_mask", "val_failure_mask"):
     if k in data:
       forbidden.append(k)
   if forbidden:
     raise ValueError(
-      f"a scalar run (data.outputs present) must not carry data-vector or "
-      f"cosmolike keys, but has {sorted(forbidden)!r}; the scalar path reads "
-      "only the parameter .txt (inputs) and its named output columns")
+      f"a scalar run (data.outputs present) must not carry data-vector, "
+      f"cosmolike, or failure-mask keys, but has {sorted(forbidden)!r}; the "
+      "scalar path reads only the parameter .txt (inputs) and its named "
+      "output columns, and applies no failure mask")
   # scalar needs the parameter files + the input covmat.
   for k in ("train_params", "val_params", "train_covmat"):
     if k not in data:
@@ -2418,10 +2423,23 @@ class EmulatorExperiment:
       an EmulatorExperiment with the resolved data / train_args / model.
     """
     models = MODELS if models is None else models
+    # an empty YAML file parses to None, and a data:/train_args: header with
+    # no children parses to None too; guard both here so the block checks
+    # below refuse them by name instead of dying in an opaque
+    # "argument of type 'NoneType' is not iterable".
+    if not isinstance(cfg, dict):
+      raise TypeError(
+        "config must be a mapping with data and train_args blocks; it read "
+        "as " + type(cfg).__name__ + " (an empty YAML file parses to None).")
     for block in ("data", "train_args"):
       if block not in cfg:
         raise KeyError(
           f"config is missing the required block: {block!r}")
+      if not isinstance(cfg[block], dict):
+        raise TypeError(
+          "config block " + repr(block) + " must be a mapping of settings; "
+          "it read as " + type(cfg[block]).__name__ + " (a header with no "
+          "children parses to None).")
     # a scalar (derived-parameter) run is signalled by data.outputs; on it
     # param_cuts is optional (a scalar chain is already the target
     # distribution, and the omega-windows reference params a scalar input set
@@ -2453,10 +2471,53 @@ class EmulatorExperiment:
       raise KeyError(
         f"unknown data-block key(s): {sorted(unknown)}; allowed: "
         f"{sorted(DATA_KEYS)}")
+    # split_seed seeds the deterministic train/val cut+shuffle every family
+    # runs, and staging reads it with no default. Require it here so a
+    # missing one is refused at config time, not with a bare KeyError deep in
+    # staging. ram_frac is optional but, when present, must be a fraction in
+    # (0, 1] (the share of free RAM a staged array may occupy).
+    data_block = cfg["data"]
+    if "split_seed" not in data_block:
+      raise KeyError(
+        "data is missing the required 'split_seed' (the integer seed for the "
+        "deterministic train/val cut and shuffle); add e.g. split_seed: 42")
+    seed_val = data_block["split_seed"]
+    if isinstance(seed_val, bool) or not isinstance(seed_val, int):
+      raise TypeError(
+        "data.split_seed must be a plain integer (not a Boolean, string, or "
+        "fraction); got " + repr(seed_val))
+    if "ram_frac" in data_block:
+      rf = data_block["ram_frac"]
+      if (isinstance(rf, bool) or not isinstance(rf, (int, float))
+          or not (0.0 < float(rf) <= 1.0)):
+        raise ValueError(
+          "data.ram_frac must be a fraction in (0, 1] (the share of free RAM "
+          "a staged array may occupy); got " + repr(rf))
     # default_train_args (training.py): walk train_args, collapsing every
     # [default, min, max, kind] search range to its default (first) value,
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
+
+    # the cosmolike cosmic-shear family is the fall-through (no data.outputs /
+    # cmb / grid / grid2d). Unlike the four explicit families it has no
+    # validate_* sub-validator, so name its required data keys here: without
+    # this, a missing parameter/covmat key surfaces as a bare KeyError deep in
+    # the shared facts helper, and a missing cosmolike dataset key -- first
+    # read in build_geometry -- only after minutes of staging. Fine-tune runs
+    # are validated separately (warmstart.validate_finetune_config), so skip.
+    is_cosmolike = not (is_scalar or is_cmb or is_grid or is_grid2d)
+    if is_cosmolike and ta.get("finetune") is None:
+      missing = []
+      for k in ("train_params", "val_params", "train_covmat",
+                "cosmolike_data_dir", "cosmolike_dataset"):
+        if k not in data_block:
+          missing.append(k)
+      if missing:
+        raise KeyError(
+          "a cosmolike cosmic-shear run needs data key(s) " + repr(missing)
+          + " (the train/val parameter .txt files, the input covmat, and the "
+          "cosmolike dataset folder + .dataset ini). Add them, or select "
+          "another family with data.outputs / cmb / grid / grid2d.")
 
     # A fine-tune inherits its saved model recipe and therefore does not carry
     # a fresh model block.  Every other run must name model values with their
@@ -3239,9 +3300,10 @@ class EmulatorExperiment:
     # architecture, suffixed by the IA design when one is layered
     # (resmlp_nla, rescnn_nla). Saved filenames use the separate completed-run
     # identity built after staging. exp.ia drives the factored-design
-    # lookups (IA_DESIGNS); exp.arch gates head-block filtering in
-    # build_specs (which reads model_cls.head_block, the class's own
-    # head-knowledge; None on direct construction translates every block).
+    # lookups (IA_DESIGNS); build_specs filters head blocks on
+    # model_cls.head_block (the class's own head-knowledge), not on
+    # exp.arch, so a trunk-only class translates only its mlp block and a
+    # head class translates its own head block.
     # stash the validated pce config (None = NPCE off); build_geometry,
     # print_design, and the save wiring all guard on exp.pce_opts.
     exp.pce_opts = pce_opts
@@ -5256,8 +5318,10 @@ class EmulatorExperiment:
       if key in MODEL_BLOCK_KEYS:
         # skip the inactive head's block entirely (its contents are
         # not even validated, a stale key in a block that cannot
-        # affect this run should not stop it). With arch unknown
-        # (direct construction) every present block is translated.
+        # affect this run should not stop it). The active head comes
+        # from model_cls.head_block (`head`): a trunk-only class
+        # (head None) translates only its mlp block, a head class its
+        # mlp plus its own head block.
         if key != "mlp" and key != head:
           continue
         table = MODEL_BLOCK_KEYS[key]
