@@ -234,8 +234,18 @@ def coverage_diagnostic(model,
   rho, _ = spearmanr(knn_dist, y)
   bad = dchi2 > 0.2
   q10, q90 = np.quantile(knn_dist, [0.1, 0.9])
-  median_good = float(np.median(knn_dist[~bad]))
-  median_bad  = float(np.median(knn_dist[bad]))
+  # np.median of an EMPTY slice returns NaN after a RuntimeWarning (house
+  # rule: no incidental terminal noise). On the goal state every point is
+  # good (the "bad" slice is empty); a fully-failing run empties the "good"
+  # one. Publish NaN for the absent side without triggering the warning.
+  if int((~bad).sum()) > 0:
+    median_good = float(np.median(knn_dist[~bad]))
+  else:
+    median_good = float("nan")
+  if int(bad.sum()) > 0:
+    median_bad = float(np.median(knn_dist[bad]))
+  else:
+    median_bad = float("nan")
   frac_dense  = float(np.mean(dchi2[knn_dist <= q10] > 0.2))
   frac_sparse = float(np.mean(dchi2[knn_dist >= q90] > 0.2))
   cov = (median_bad > median_good) and (rho > 0.1)

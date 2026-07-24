@@ -429,17 +429,20 @@ def _build_loaders_one(device, C, dv, idx,
     (),
     dtype=target_dtype).element_size()
 
-  # used_rows = the distinct rows this source loads. np.unique
-  # drops duplicates (idx may name a row twice) and returns them
-  # sorted, so each row is staged once and in active storage order: what
-  # slots() assumes, and what makes a memmap read sequential.
-  # n_used counts them.
+  # used_rows = the rows this source loads, sorted. idx is already a unique
+  # set (stage_source refuses a duplicate upstream), so np.unique here is not
+  # deduplicating; it SORTS into active storage order, which slots() assumes
+  # and which makes a memmap read sequential. n_used counts them.
   used_rows = np.unique(idx)
   n_used    = len(used_rows)
 
-  assert dv.shape[1] == chi2fn.total_size, (
-    f"dv width {dv.shape[1]} != "
-    f"total_size {chi2fn.total_size}")
+  # loud (not assert: an assert is stripped under python -O, and a mismatched
+  # dv width would then flow silently into encode).
+  if dv.shape[1] != chi2fn.total_size:
+    raise ValueError(
+      "dv width " + str(dv.shape[1]) + " != loss total_size "
+      + str(chi2fn.total_size) + " (the staged data vectors and the "
+      "geometry disagree on the full vector length)")
 
   # encode the params once, resident on the GPU. For the
   # rescaled geometry these whitened params also let encode build

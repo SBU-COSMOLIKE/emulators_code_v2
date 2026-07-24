@@ -19,9 +19,9 @@ The skip is added after that Linear, and the final normalization and
 activation run after the addition. Rectangular input/output projections
 belong outside the residual block. rescale_kernel_size shrinks
 the conv heads' kernel as their depth grows, preserving a single
-block's receptive field. FiLMGenerator predicts the conv heads'
-optional per-channel, cosmology-dependent modulation (the film
-flag). BinLinear and TRFBlock are the ResTRF
+block's receptive field. FiLMGenerator predicts the optional
+per-channel, cosmology-dependent modulation (the film flag) for both
+the conv heads and the transformer heads. BinLinear and TRFBlock are the ResTRF
 head's pieces: per-token unique linears and a transformer block
 whose tokens are the tomographic bins.
 
@@ -715,9 +715,12 @@ def resolve_padded_head_layout(*, geom, output_dim, where):
     where      = model name used in refusal messages.
 
   Returns:
-    ``(bin_sizes, pad_idx, valid_mask)``. ``pad_idx`` is one-dimensional.
-    ``valid_mask`` has shape ``(1, number of bins, physical width)`` so it
-    broadcasts over a model batch.
+    ``(row_sizes, pad_idx, valid_mask)``. ``row_sizes`` is the per-row kept
+    count of EVERY rectangle row, including a fully-masked row (count 0) --
+    not ``geom.bin_sizes``, which lists only the nonempty rows; the masked
+    row must stay counted so the xi+/xi- channel boundary does not shift.
+    ``pad_idx`` is one-dimensional. ``valid_mask`` has shape ``(1, number of
+    bins, physical width)`` so it broadcasts over a model batch.
   """
   if not hasattr(geom, "bin_sizes"):
     raise ValueError(

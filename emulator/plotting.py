@@ -198,18 +198,25 @@ def _coverage_panels(ax_scatter, ax_hist, knn_dist, dchi2, k_nn):
   nbins = int(np.ceil((hi - lo) / max(width, 1e-12)))
   nbins = min(max(nbins, 20), 150)   # readable floor / ceiling
   bins = np.linspace(lo, hi, nbins + 1)
-  ax_hist.hist(knn_dist[~bad],
-               bins=bins,
-               density=True,
-               alpha=0.6,
-               color=_CB[0],
-               label="good (dchi2<0.2)")
-  ax_hist.hist(knn_dist[bad],
-               bins=bins,
-               density=True,
-               alpha=0.6,
-               color=_CB[1],
-               label="bad (dchi2>0.2)")
+  # density=True on an EMPTY subset divides by zero: a NumPy RuntimeWarning
+  # plus NaN bars. On the goal state every point is good (the "bad" subset is
+  # empty), and a fully-failing smoke run empties the "good" one, so draw each
+  # population only when it has points -- the legend then honestly shows only
+  # the populations that exist.
+  if int((~bad).sum()) > 0:
+    ax_hist.hist(knn_dist[~bad],
+                 bins=bins,
+                 density=True,
+                 alpha=0.6,
+                 color=_CB[0],
+                 label="good (dchi2<0.2)")
+  if int(bad.sum()) > 0:
+    ax_hist.hist(knn_dist[bad],
+                 bins=bins,
+                 density=True,
+                 alpha=0.6,
+                 color=_CB[1],
+                 label="bad (dchi2>0.2)")
   ax_hist.set_xlabel(f"mean dist to {k_nn} nearest train pts")
   ax_hist.set_ylabel("density")
   ax_hist.legend(frameon=False)
@@ -277,6 +284,11 @@ def plot_learning_curves(curves,
   markers = ["o", "D", "^", "s", "v", "P"]
   fig, ax = plt.subplots(figsize=(6.8, 5.6))
 
+  # a fraction of exactly 0 (no val point over the threshold, the goal at
+  # large N) is a legitimate, informative point; a log y-axis would silently
+  # drop it. Track whether every plotted fraction is strictly positive and
+  # pick the y-scale accordingly, the same decision plot_sweep_curve makes.
+  all_positive = True
   for k, (label, curve) in enumerate(curves.items()):
     # accept {N: frac} or a (sizes, fracs) pair.
     if isinstance(curve, dict):
@@ -291,6 +303,9 @@ def plot_learning_curves(curves,
       fracs = np.asarray(curve[1], dtype="float64")
       order = np.argsort(sizes)            # plot left-to-right in N
       sizes, fracs = sizes[order], fracs[order]
+    finite = fracs[np.isfinite(fracs)]
+    if finite.size > 0 and not bool((finite > 0.0).all()):
+      all_positive = False
     # x = N_train, y = fraction over the threshold.
     ax.plot(sizes,
             fracs,
@@ -301,7 +316,10 @@ def plot_learning_curves(curves,
             label=label)
 
   ax.set_xscale("log")
-  ax.set_yscale("log")
+  # log y only when no plotted fraction is zero; otherwise a zero-capable
+  # linear scale keeps the goal-reaching points visible.
+  if all_positive:
+    ax.set_yscale("log")
   ax.set_xlabel(r"$N_{\rm train}$")
   ax.set_ylabel(rf"$f(\Delta\chi^2 > {threshold:g})$")
   if target is not None:
@@ -547,7 +565,7 @@ _CUT_ROLES = (
   ("ob",   ("omegab", "omega_b")),
   ("om",   ("omegam", "omega_m")),
   ("omh2", ("omegamh2",)),
-  ("ns",   ("ns",)),
+  ("ns",   ("ns", "n_s")),
 )
 
 # same semi-transparent grey for every window; separate fills alpha-stack,

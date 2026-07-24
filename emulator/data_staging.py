@@ -190,6 +190,10 @@ def stream_stats(mm, idx, method=1, CHUNK=10000):
       mn = np.minimum(mn, x.min(axis=0))   # tighten the min
       mx = np.maximum(mx, x.max(axis=0))   # tighten the max
     offset, scale = mn, mx - mn
+  else:
+    raise ValueError(
+      "stream_stats: method must be 1 (z-score) or 2 (min-max); got "
+      + repr(method))
 
   # hand back float32 torch tensors (the model's dtype).
   off = torch.from_numpy(offset.astype("float32"))
@@ -222,6 +226,10 @@ def param_stats(arr, idx, method=1):
   elif method == 2:
     offset = a.min(axis=0)
     scale  = a.max(axis=0) - offset
+  else:
+    raise ValueError(
+      "param_stats: method must be 1 (z-score) or 2 (min-max); got "
+      + repr(method))
   off = torch.from_numpy(offset.astype("float32"))
   scl = torch.from_numpy(scale.astype("float32"))
   return off, scl

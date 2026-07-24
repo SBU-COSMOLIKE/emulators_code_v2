@@ -820,7 +820,6 @@ class PCEEmulator(nn.Module):
     joint_rejections = []
     while cols:
       C = np.stack(cols, axis=1)
-      K = len(kept)
       with torch.no_grad():
         joint_prediction = (
           torch.from_numpy(Psi.astype(np.float32))

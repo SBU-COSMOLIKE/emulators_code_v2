@@ -622,6 +622,16 @@ class TemplateResCNN(DesignSpec, nn.Module):
     # Frozen basis-change buffers, exactly ResCNN's: x @ W_fd maps
     # full-whitened -> theta order (/sigma), x @ W_df maps back
     # (W_df = W_fd^{-1}). sigma = per-element sqrt(diag cov).
+    # the factored basis change needs a full-whitening eigenbasis; a
+    # diagonal-family geometry has none, so refuse it by name instead of
+    # dying on a bare AttributeError (the plain sibling guards the same way).
+    if not (hasattr(geom, "evecs") and hasattr(geom, "sqrt_ev")):
+      raise ValueError(
+        type(self).__name__ + " needs a full-whitening geometry with an "
+        "eigenbasis (evecs / sqrt_ev), e.g. a cosmic-shear "
+        "DataVectorGeometry; got a " + type(geom).__name__ + ", which has "
+        "none. The factored intrinsic-alignment designs are built only on "
+        "the cosmic-shear family.")
     evecs   = geom.evecs.detach()
     sqrt_ev = geom.sqrt_ev.detach()
     sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
@@ -996,6 +1006,16 @@ class TemplateResTRF(DesignSpec, nn.Module):
 
     # Frozen basis-change buffers, exactly ResCNN's: x @ W_fd maps
     # full-whitened -> theta order (/sigma), x @ W_df maps back.
+    # the factored basis change needs a full-whitening eigenbasis; a
+    # diagonal-family geometry has none, so refuse it by name instead of
+    # dying on a bare AttributeError (the plain sibling guards the same way).
+    if not (hasattr(geom, "evecs") and hasattr(geom, "sqrt_ev")):
+      raise ValueError(
+        type(self).__name__ + " needs a full-whitening geometry with an "
+        "eigenbasis (evecs / sqrt_ev), e.g. a cosmic-shear "
+        "DataVectorGeometry; got a " + type(geom).__name__ + ", which has "
+        "none. The factored intrinsic-alignment designs are built only on "
+        "the cosmic-shear family.")
     evecs   = geom.evecs.detach()
     sqrt_ev = geom.sqrt_ev.detach()
     sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
