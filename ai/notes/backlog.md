@@ -1784,7 +1784,10 @@ Appendix D2 reading guide naming each file's one or two main
 functions, every symbol grep-verified; the guide also gained a
 worked build-a-YAML subsection (the shipped scalar file walked
 block by block, the family-selection-by-presence rule, and the
-sweep block, every snippet copied from a shipped runnable file).
+sweep block, every snippet copied from a shipped runnable file);
+the guide's gate-board appendix now lives in its own source file
+(emulator_gate_board_appendix.tex, input by the main guide), with
+the compiled document proven page- and byte-identical.
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
