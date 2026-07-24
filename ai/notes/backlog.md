@@ -6059,7 +6059,38 @@ everything verified but NOT yet fixed, so the next session resumes here.
 
 ### Status
 
-OPEN. Wave 1 landed (commit ef2a85c, suite 813 OK). Wave 2 not started;
-every line above is reviewer-verified, and the fix-wave items were
-re-verified by the Architect where marked. The full reviewer reports
-live in the session transcript, not in this repo.
+OPEN (narrowed to report-only + deferred simplifications). Wave 1 landed
+as ef2a85c; wave 2's fix candidates all landed across nine commits
+(ffb9aec geometry guards; 6b126f1 MPS float64 rebuild; 7adf66f warmstart
+structured-head refusal + extras eigh; 5d17e31 inference/fixed_facts/
+results/model_recipe refusals; a0406f0 experiment config-validation gaps;
+e48c20c anneal-const + training contracts; 2bd6624 background/syren/
+family_drivers rigor; 8d24dd7 plotting/diagnostics/designs edges; 2beb0f9
+local-linear guard + doc contradictions). Full suite 813 OK after each.
+
+One fix-wave item was investigated and NOT applied: a run_emulator guard
+refusing anchor + trunk_epochs > 0 was drafted, then reverted because
+test_training_pass_recipe exercises that combination deliberately (the
+finding's "latent trap" premise was wrong for freeze_trunk=False); the
+build_anchor docstring was corrected instead.
+
+What remains OPEN under this ticket is only the report-only /
+design-sensitive set (do not fix without a directive), which is
+unchanged from the "Report-only" section above:
+- losses/cmb.py _factor host syncs inside the compiled loss (workstation
+  perf verification owed);
+- experiment.py NPCE fit RAM/device materialization vs memmap staging;
+- the structural duplication set (from_config activation/finetune blocks,
+  plain.py/ia.py stanzas, the twice-implemented n_tokens segmentation,
+  diagnostics' four forward loops, activations' gate machinery,
+  make_optimizer's inlined _decay_weight_ids, batching regimes 2/3);
+- pure LOW simplifications deliberately deferred as churn: the unused
+  min-max stats mode + discarded std in data_staging, blocks.py's two
+  belt-and-suspenders unreachable checks, cocoa.py's twice-computed
+  chains path, parameter_table's subsumed overlap check;
+- plot_xi's port-caveat items (post-figure return-0 leaks, the
+  index-colored/value-labeled colorbar): the training-stack note and the
+  byte-faithful-port docstring disagree on the intended contract, so the
+  authority question must be settled before touching it.
+
+The full reviewer reports live in the session transcript, not in this repo.
