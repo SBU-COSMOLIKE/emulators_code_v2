@@ -241,7 +241,10 @@ def resolve_dark_energy_coordinates(
   if wa is None:
     if w0pwa is not None:
       wa = w0pwa - w0
-    elif dark_energy_law != "constant-w":
+    else:
+      # reaching here means the constant-w branch above did not run (it
+      # always sets wa = 0.0), so the law is not "constant-w" and wa
+      # genuinely cannot be resolved from w0 alone.
       raise ValueError(
         where + ": cannot resolve wa from 'w'/'w0' alone. Provide 'wa' or "
         "'w0pwa', or explicitly declare dark_energy_law='constant-w'")
@@ -308,13 +311,18 @@ def syren_params_from(params, *, dark_energy_law=None):
     params, dark_energy_law=dark_energy_law,
     where="syren_params_from dark-energy coordinates")
 
+  # read every non-dark-energy input through the same strict scalar reader
+  # the dark-energy coordinates use, so a Boolean, an array, a numeric
+  # string, or a NaN is refused by type/value instead of silently coerced
+  # (bare float(True) would make As_1e9 = 1e9, a plausible-looking base).
+  where = "syren_params_from"
   missing = []
   as_1e9 = None
   has_as_1e9 = "As_1e9" in params
   has_as = "As" in params
   if has_as_1e9 and has_as:
-    as_1e9_direct = float(params["As_1e9"])
-    as_1e9_from_as = float(params["As"]) * 1e9
+    as_1e9_direct = _dark_energy_scalar(params, "As_1e9", where)
+    as_1e9_from_as = _dark_energy_scalar(params, "As", where) * 1e9
     difference = abs(as_1e9_direct - as_1e9_from_as)
     allowed = SYREN_AMPLITUDE_ATOL + SYREN_AMPLITUDE_RTOL * abs(as_1e9_from_as)
     if difference > allowed:
@@ -329,9 +337,9 @@ def syren_params_from(params, *, dark_energy_law=None):
         "one amplitude name or make As_1e9 equal 1e9 * As")
     as_1e9 = as_1e9_direct
   elif has_as_1e9:
-    as_1e9 = float(params["As_1e9"])
+    as_1e9 = _dark_energy_scalar(params, "As_1e9", where)
   elif has_as:
-    as_1e9 = float(params["As"]) * 1e9
+    as_1e9 = _dark_energy_scalar(params, "As", where) * 1e9
   else:
     missing.append("As_1e9 (or As)")
   for name in ("ns", "H0", "omegab", "omegam"):
@@ -343,8 +351,12 @@ def syren_params_from(params, *, dark_energy_law=None):
       + repr(missing) + " among the resolved inputs; the run's params "
       "block must provide them by these names (materialize omegab / "
       "omegam as inputs if the YAML samples densities another way)")
-  return (as_1e9, float(params["ns"]), float(params["H0"]),
-          float(params["omegab"]), float(params["omegam"]), w0, wa)
+  return (as_1e9,
+          _dark_energy_scalar(params, "ns", where),
+          _dark_energy_scalar(params, "H0", where),
+          _dark_energy_scalar(params, "omegab", where),
+          _dark_energy_scalar(params, "omegam", where),
+          w0, wa)
 
 
 def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,

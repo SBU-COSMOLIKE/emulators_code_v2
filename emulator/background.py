@@ -150,7 +150,8 @@ def comoving_distance_grid(z_grid, h_grid):
   if not grid_is_valid:
     raise ValueError(
       "the Hubble redshift grid must be finite, strictly increasing, "
-      "one-dimensional, and start exactly at z = 0")
+      "one-dimensional, start exactly at z = 0, and have at least 4 "
+      "points (the cubic interpolation needs them)")
   if h_grid.shape != z_grid.shape or not np.isfinite(h_grid).all() \
       or not (h_grid > 0.0).all():
     raise ValueError(

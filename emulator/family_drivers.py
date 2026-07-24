@@ -326,6 +326,13 @@ def read_sweep_block(cfg):
       f"cannot sweep {param}: it changes the model class: run "
       "one sweep per architecture (or the activation bake-off "
       "driver) and overlay the saved tables")
+  if param == "model":
+    raise ValueError(
+      "cannot sweep the whole 'model' block: its mapping values could "
+      "silently include model.name / model.ia, which build_specs does "
+      "not re-read (the model class is resolved once from the base "
+      "config), so every sweep point would train the same class. Sweep a "
+      "specific model leaf (e.g. model.int_dim_res), one per point.")
   act_mode = param in ACTIVATION_PATHS
   if not act_mode and param.split(".")[0] not in SWEEPABLE_TOP_KEYS:
     raise ValueError(
