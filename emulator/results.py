@@ -2346,7 +2346,17 @@ def rebuild_emulator(path_root, device, compile_model=True):
         state[k] = [s.decode() if isinstance(s, bytes) else str(s)
                     for s in vals]
       else:
-        state[k] = torch.as_tensor(np.asarray(item[()])).to(device)
+        tensor = torch.as_tensor(np.asarray(item[()]))
+        # Apple Silicon's MPS backend cannot hold float64 at all, and
+        # some saved datasets (the z / k coordinate grids, the CMB
+        # fiducial-reference scalars) are float64. Moving one to MPS
+        # would raise; narrow it to float32 first (a coordinate axis
+        # needs no more), so a `device: mps` rebuild works instead of
+        # crashing. cpu / cuda keep the saved float64 exactly.
+        if (tensor.dtype == torch.float64
+            and torch.device(device).type == "mps"):
+          tensor = tensor.to(torch.float32)
+        state[k] = tensor.to(device)
     for k, v in g.attrs.items():
       if isinstance(v, str) and v.startswith("torch."):
         state[k] = getattr(torch, v.split(".", 1)[1])

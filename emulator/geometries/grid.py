@@ -149,7 +149,15 @@ class GridGeometry:
         "a finite numeric offset.")
 
     offset_value = float(offset)
-    z_tensor = torch.as_tensor(z, dtype=torch.float64, device=device)
+    # the redshift grid is a coordinate axis, kept in float64 for its
+    # precision -- except on Apple Silicon's MPS backend, which cannot
+    # hold float64 at all (a float64 tensor there raises). Fall back to
+    # float32 on MPS, where a redshift axis loses nothing that matters;
+    # cpu / cuda keep float64.
+    coord_dtype = (torch.float32
+                   if torch.device(device).type == "mps"
+                   else torch.float64)
+    z_tensor = torch.as_tensor(z, dtype=coord_dtype, device=device)
     grid_is_valid = (
       z_tensor.ndim == 1
       and z_tensor.numel() >= 2

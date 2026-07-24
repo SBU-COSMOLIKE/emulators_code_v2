@@ -157,8 +157,16 @@ class Grid2DGeometry:
     self.quantity = str(quantity)
     self.units    = str(units)
     self.law      = str(law)
-    self.z = torch.as_tensor(z, dtype=torch.float64, device=device)
-    self.k = torch.as_tensor(k, dtype=torch.float64, device=device)
+    # the (z, k) axes are coordinate grids, kept in float64 for their
+    # precision -- except on Apple Silicon's MPS backend, which cannot
+    # hold float64 at all (a float64 tensor there raises). Fall back to
+    # float32 on MPS, where a coordinate axis loses nothing that matters;
+    # cpu / cuda keep float64.
+    coord_dtype = (torch.float32
+                   if torch.device(device).type == "mps"
+                   else torch.float64)
+    self.z = torch.as_tensor(z, dtype=coord_dtype, device=device)
+    self.k = torch.as_tensor(k, dtype=coord_dtype, device=device)
     self.center = torch.as_tensor(center,
                                   dtype=torch.float32,
                                   device=device)
