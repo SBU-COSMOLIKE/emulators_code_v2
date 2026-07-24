@@ -10,8 +10,7 @@ plain loss (trimming, a focal hardness weight — one that up-weights the
 worst-fit samples — and the sqrt / pseudo-Huber
 / berhu / berhu_capped transform ladder). RescaledChi2 and ResidualBaseChi2
 are the two analytic-R variants (R divides the net output, versus R moves
-only the baseline). ElementWeightedChi2 up-weights the worst-fit dv
-elements. anneal_value is the per-epoch schedule shared by four knobs
+only the baseline). anneal_value is the per-epoch schedule shared by four knobs
 (trim, focus, the berhu sqrt-blend, and the EMA horizon); make_chi2 builds
 the right loss from a geometry and a rescale mode.
 
@@ -41,8 +40,11 @@ def anneal_value(epoch, opts):
     "cosine", smooth ease, zero slope at both ends, avoiding
                 the abrupt loss jumps a discrete schedule causes
                 (those can mislead a reactive ReduceLROnPlateau).
-    "step"  , the linear ramp floored to a 0.01 grid, the
-                literal 5% -> 4% -> 3% drop.
+    "step"  , the linear ramp snapped to a 0.01 grid: a falling
+                ramp floors, the literal 5% -> 4% -> 3% drop; a
+                rising ramp (the berhu blend, the EMA horizon,
+                focus) takes the matching upward 0.01 steps. The
+                value never passes end from either side.
 
   Arguments:
     epoch = current epoch (1-based, as in the loop).
@@ -76,9 +78,18 @@ def anneal_value(epoch, opts):
   # linear value (also the base for the stepped grid).
   val = start + (end - start) * t
   if shape == "step":
-    # floor to a 0.01 grid (5% -> 4% -> ...); `end` is the floor
-    # it never drops below.
-    val = max(end, np.floor(val * 100.0) / 100.0)
+    if end >= start:
+      # rising ramp: ceil to the 0.01 grid so the value climbs in
+      # discrete steps; `end` is the ceiling it never rises above.
+      # (A floor here would sit below `end` forever and the old
+      # max(end, ...) clamp — built for the falling case — jumped
+      # a rising ramp straight to `end` on the first post-hold
+      # epoch, silently skipping the whole ramp.)
+      val = min(end, np.ceil(val * 100.0) / 100.0)
+    else:
+      # falling ramp: floor to a 0.01 grid (5% -> 4% -> ...);
+      # `end` is the floor it never drops below.
+      val = max(end, np.floor(val * 100.0) / 100.0)
   return float(val)
 
 
@@ -550,8 +561,16 @@ class CosmolikeChi2:
     # keep-count k = round((1-trim)*B), floored at 1 so a tiny
     # batch never keeps zero samples. Computed in float64 so a
     # tensor trim rounds exactly as Python's round() did in the
-    # old topk path (both round half to even).
-    trim_t = torch.as_tensor(trim, dtype=torch.float64,
+    # old topk path (both round half to even). MPS stores no
+    # float64 at all (creating one raises TypeError), so there the
+    # same rounding runs in float32: never a crash, at worst one
+    # knife-edge sample of difference on the one device that
+    # cannot represent the float64 product anyway.
+    if c.device.type == "mps":
+      trim_dtype = torch.float32
+    else:
+      trim_dtype = torch.float64
+    trim_t = torch.as_tensor(trim, dtype=trim_dtype,
                              device=c.device)
     k = torch.clamp(torch.round((1.0 - trim_t) * B), min=1.0)
     # prefix mask: position i is kept iff i < k. arange is int64,
@@ -831,6 +850,11 @@ class RescaledChi2(CosmolikeChi2):
       pred            = (B, out_dim) network output.
       target          = (B, out_dim) whitened target.
       params_whitened = whitened inputs, stashed on self for chi2.
+                        The stash is PRIVATE to this reduction: it
+                        is cleared the moment loss returns, so a
+                        public caller (a diagnostic, a gate) that
+                        omits params gets the loud refusal, never
+                        the last batch's stale R.
       *args, **kwargs = mode / trim / focus reduction controls,
                         forwarded positionally (never keyword pred /
                         target before the *args forwarder).
@@ -839,7 +863,10 @@ class RescaledChi2(CosmolikeChi2):
       a scalar loss tensor.
     """
     self._params = params_whitened
-    return super().loss(pred, target, *args, **kwargs)
+    try:
+      return super().loss(pred, target, *args, **kwargs)
+    finally:
+      self._params = None
 
 
 class ResidualBaseChi2(RescaledChi2):
@@ -921,103 +948,6 @@ class ResidualBaseChi2(RescaledChi2):
       (B,) per-sample chi2.
     """
     return CosmolikeChi2.chi2(self, pred=pred, target=target, full=full)
-
-
-class ElementWeightedChi2(CosmolikeChi2):
-  """
-  CosmolikeChi2 with a per-element focal weight in the training
-  loss (no rescaling, isolates the per-element weight from the
-  analytic R, to test one thing at a time).
-
-  Each dv element's residual is scaled by a detached factor >= 1
-  before the chi2 sums over elements, so the network spends
-  accuracy on the elements it currently fits worst in error-bar
-  units, the tight-covariance, most-constraining block. Mirrors
-  the per-sample focal but over elements:
-    hardness e_i = batch-mean marginal chi2 of element i,
-    scale_i      = sqrt(1 + beta * (e/(e+kappa))**gamma).
-  Easy elements keep scale 1 (never zeroed, they sit near
-  budget too). The inherited chi2 is unchanged, so eval reports
-  the true (unweighted) chi2; only the training loss is shaped.
-  """
-
-  _elem_kappa  = 0.01
-  _elem_gamma  = 1.0
-  _elem_beta   = 4.0
-  _sigma_cache = None
-
-  def set_elem_weight(self, kappa=0.01, gamma=1.0, beta=4.0):
-    """
-    Set the per-element focal knobs (call once before training).
-
-    Arguments:
-      kappa = marginal-chi2 scale where an element counts as
-              hard; e/(e+kappa) crosses 0.5 at e = kappa. e is
-              in (residual/sigma)**2 units, so kappa ~ 0.01 is
-              an element off by ~0.1 sigma.
-      gamma = hardness sharpness (the focal exponent).
-      beta  = boost strength; the hardest elements get a chi2
-              weight up to 1 + beta.
-
-    Returns:
-      self, so the call chains after construction.
-    """
-    self._elem_kappa = kappa
-    self._elem_gamma = gamma
-    self._elem_beta  = beta
-    return self
-
-  def _elem_sigma(self):
-    """Per-element marginal error bar sqrt(diag(cov)), cached.
-
-    cov = U diag(ev) U^T, so diag_i = sum_k (U_ik sqrt(ev_k))^2;
-    computed once from the geometry's eigenbasis and cached on self.
-
-    Returns:
-      (out_dim,) per-element sigma.
-    """
-    if self._sigma_cache is None:
-      self._sigma_cache = torch.sqrt(
-        ((self.geom.evecs * self.geom.sqrt_ev) ** 2).sum(1))
-    return self._sigma_cache
-
-  def loss(self, pred, target, mode="sqrt", trim=0.05,
-           focus=0.0, focus_scale=1.0):
-    """
-    Training loss with a per-element focal weight on the chi2.
-
-    Same shape as CosmolikeChi2.loss (trim, mode transform,
-    per-sample focal), but the per-sample chi2 is built from a
-    per-element-weighted residual (hard elements scaled up). Eval
-    calls the inherited self.chi2, so the reported metric is the
-    true unweighted chi2.
-
-    Arguments:
-      pred, target = whitened outputs / targets (B, out_dim).
-      mode   = "chi2" / "sqrt" / "sqrt_dchi2".
-      trim   = fraction of worst samples dropped; 0 off.
-      focus  = per-sample focal exponent (<=0 -> plain mean).
-      focus_scale = per-sample focal turn-on scale.
-    Returns:
-      a scalar loss tensor.
-    """
-    # per-element focal (see class doc): scale each element's
-    # residual by a detached factor >= 1 from its batch-mean
-    # marginal chi2. No rescaling, residual = unwhiten(pred-target).
-    r = self.geom.unwhiten(pred - target)       # (B, n_keep)
-    z = r / self._elem_sigma()                  # marginal resid
-    e = (z * z).mean(0).detach()                # element hardness
-    hard  = e / (e + self._elem_kappa)          # in [0,1)
-    scale = torch.sqrt(
-      1.0 + self._elem_beta * hard ** self._elem_gamma)
-    rs = r * scale
-    # masked Mahalanobis (as in the base chi2) on the element-
-    # weighted residual rs; contracts to per-sample chi2 (b,).
-    c = torch.einsum("bi,ij,bj->b", rs, self.geom.Cinv_sq, rs)
-    # the reduction (trim / mode transform / focal mean) is the
-    # base class's, in its static-shape form, see _reduce.
-    return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
-                        focus_scale=focus_scale)
 
 
 def make_chi2(geom, rescale="none", param_geometry=None,

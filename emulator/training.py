@@ -2543,9 +2543,27 @@ def training_loop_batched(nepochs,
   device  = next(model.parameters()).device
   ntrain  = len(tidx)              # training rows per epoch
   load    = data["train"]["load"]  # rows per streamed chunk
+  # the val source carries its OWN chunk plan: build_loaders sized it
+  # against the VRAM left after the training source, so every eval
+  # below streams at val_load, never the (possibly far larger) train
+  # plan.
+  val_load = data["val"]["load"]
   # chunks per epoch = ceil(ntrain / load); + load - 1 rounds the
   # integer division up.
   nchunks = (ntrain + load - 1) // load
+
+  # every epoch drops the ragged tail of each chunk (whole batches
+  # only, see the n_full line in the epoch loop), so a training set
+  # smaller than one batch would take ZERO optimizer steps and the
+  # epoch-mean division would fail. Refuse the configuration by name
+  # instead of dying in an unexplained ZeroDivisionError.
+  if ntrain < bs:
+    raise ValueError(
+      "train_args.bs (" + str(bs) + ") exceeds the training-set size ("
+      + str(ntrain) + " rows): every chunk would be smaller than one "
+      "batch, the ragged-tail drop would leave zero optimizer steps "
+      "per epoch, and no training would happen. Lower bs to at most "
+      "the training-row count (or raise data.n_train).")
 
   if scaler_policy != "unscaled":
     raise ValueError(
@@ -2773,7 +2791,7 @@ def training_loop_batched(nepochs,
   # every epoch, so the compiled fwd_chi2 twin keeps one static shape.
   eval_bs = derive_eval_bs(n_val=len(data["val"]["idx"]),
                            target=_EVAL_BS_TARGET,
-                           load=load)
+                           load=val_load)
   # stash the derived eval batch so the schema-3 resolved_train record includes
   # the real value, not a re-derivation (data is run_emulator's loaders dict).
   data["eval_bs"] = eval_bs
@@ -2781,7 +2799,7 @@ def training_loop_batched(nepochs,
   b_median, b_mean, b_frac = eval_val(model=model,
                                       lossfn=lossfn,
                                       data=data["val"],
-                                      load=load,
+                                      load=val_load,
                                       bs=eval_bs,
                                       thresholds=thresholds,
                                       fwd_chi2=fwd_chi2)
@@ -2990,7 +3008,7 @@ def training_loop_batched(nepochs,
     raw_median, raw_mean, raw_frac = eval_val(model=model,
                                               lossfn=lossfn,
                                               data=data["val"],
-                                              load=load,
+                                              load=val_load,
                                               bs=eval_bs,
                                               thresholds=thresholds,
                                               fwd_chi2=fwd_chi2)
@@ -3005,7 +3023,7 @@ def training_loop_batched(nepochs,
       median, mean, frac = eval_val(model=model,
                                     lossfn=lossfn,
                                     data=data["val"],
-                                    load=load,
+                                    load=val_load,
                                     bs=eval_bs,
                                     thresholds=thresholds,
                                     fwd_chi2=fwd_chi2)

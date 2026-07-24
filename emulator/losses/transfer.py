@@ -309,7 +309,13 @@ class TransferChi2(CosmolikeChi2):
       (B, target_dim): [base ; truth]; base is (T*n_keep) flattened templates
       or n_keep dv, truth is n_keep.
     """
-    base_w = self._base(params_whitened)
+    # staging always freezes the base, even in live (refine) mode: the
+    # packed target is a constant, and the live chi2 re-runs the base
+    # itself for its gradient. Without this guard a live encode would
+    # attach an autograd graph to every staged chunk, and the second
+    # batch of that chunk would backward through an already-freed graph.
+    with torch.no_grad():
+      base_w = self._base(params_whitened)
     base_repr, truth = self._to_space(base_w=base_w, dv=dv)
     if self.factored:
       base_flat = base_repr.reshape(base_repr.shape[0], -1)
@@ -389,6 +395,12 @@ class TransferChi2(CosmolikeChi2):
     """
     if params_whitened is None:
       params_whitened = self._params
+    if params_whitened is None and (self.live or self.factored):
+      raise RuntimeError(
+        "TransferChi2.chi2 needs the run's encoding here (live mode "
+        "re-runs the base on it; a factored base combines with its "
+        "amplitude columns): pass params_whitened, or call via "
+        "loss(), which stashes it")
     if self.live:
       # refine stage: re-evaluate the (unfrozen, drifting) base with grad; the
       # truth half of the packed target is still valid (only the base changes),
@@ -515,7 +527,10 @@ class TransferChi2(CosmolikeChi2):
     """Scalar training loss from the composed-prediction chi2.
 
     Stashes params so the inherited reduction (which calls self.chi2 without
-    params) can recover the amplitudes for a factored base.
+    params) can recover the amplitudes for a factored base. The stash is
+    PRIVATE to this reduction: it is cleared the moment loss returns, so a
+    public caller (a diagnostic, a gate) that omits params gets the loud
+    refusal, never the last batch's stale encoding.
 
     Arguments:
       pred            = (B, n_keep) plain / (B, T, n_keep) factored correction.
@@ -529,7 +544,10 @@ class TransferChi2(CosmolikeChi2):
       a scalar loss tensor.
     """
     self._params = params_whitened
-    return CosmolikeChi2.loss(self, pred, target, *args, **kwargs)
+    try:
+      return CosmolikeChi2.loss(self, pred, target, *args, **kwargs)
+    finally:
+      self._params = None
 
 
 class TransferDiagChi2(CmbDiagonalChi2):
@@ -689,7 +707,11 @@ class TransferDiagChi2(CmbDiagonalChi2):
     Returns:
       (B, 2 n_out) packed target; the base never re-runs in the loop.
     """
-    base_w = self._base(params_whitened)
+    # staging always freezes the base, even in live (refine) mode (see
+    # TransferChi2.encode: the live chi2 re-runs the base itself, and a
+    # staged chunk must never carry an autograd graph).
+    with torch.no_grad():
+      base_w = self._base(params_whitened)
     return torch.cat([base_w, self.geom.encode(dv)], dim=1)
 
   def _unpack(self, target):
@@ -721,6 +743,11 @@ class TransferDiagChi2(CmbDiagonalChi2):
     """
     if params_whitened is None:
       params_whitened = self._params
+    if params_whitened is None and self.live:
+      raise RuntimeError(
+        "TransferDiagChi2.chi2 needs the run's encoding in live mode "
+        "(the unfrozen base re-runs on it): pass params_whitened, or "
+        "call via loss(), which stashes it")
     if self.live:
       base_w  = self._base(params_whitened)
       n_out   = self.geom.dest_idx.numel()
@@ -786,7 +813,10 @@ class TransferDiagChi2(CmbDiagonalChi2):
 
     Stashes params so the inherited reduction (which calls self.chi2
     without params) can slice the base input when live; the frozen
-    path unpacks the packed base and never needs them.
+    path unpacks the packed base and never needs them. The stash is
+    PRIVATE to this reduction: it is cleared the moment loss returns,
+    so a public caller (a diagnostic, a gate) that omits params gets
+    the loud refusal, never the last batch's stale encoding.
 
     Arguments:
       pred            = (B, n_out) the correction net output.
@@ -800,4 +830,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
       a scalar loss tensor.
     """
     self._params = params_whitened
-    return CmbDiagonalChi2.loss(self, pred, target, *args, **kwargs)
+    try:
+      return CmbDiagonalChi2.loss(self, pred, target, *args, **kwargs)
+    finally:
+      self._params = None

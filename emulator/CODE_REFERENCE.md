@@ -250,8 +250,8 @@ amplitudes appended raw), `needs_bins` (wants the shear-angle map).
 Each loss holds a geometry and routes through `losses/core.py`'s
 shared `_reduce`.
 
-- `losses/core.py` — `anneal_value`; `CosmolikeChi2` (the plain chi2 + the `chi2`/`sqrt`/`sqrt_dchi2`/`berhu`/`berhu_capped` transform ladder); `RescaledChi2` / `ResidualBaseChi2` (analytic-R); `ElementWeightedChi2`; `make_chi2`.
-- `losses/ia.py` — `nla_coeffs`, `tatt_coeffs`; `NLAAmpFactoredChi2`, `TemplateFactoredChi2`.
+- `losses/core.py` — `anneal_value`; `CosmolikeChi2` (the plain chi2 + the `chi2`/`sqrt`/`sqrt_dchi2`/`berhu`/`berhu_capped` transform ladder); `RescaledChi2` / `ResidualBaseChi2` (analytic-R); `make_chi2`.
+- `losses/ia.py` — `nla_coeffs`, `tatt_coeffs`; `TemplateFactoredChi2`.
 - `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2` (the cosmolike forms); `PCEResidualDiagChi2` (the family-wide residual form over the elementwise-whitened geometries — cmb law-none / grid / grid2d / scalar; roughness composes).
 - `losses/scalar.py` — `ScalarChi2` + `make_scalar_chi2` (the standardized-residual chi2; also wraps `GridGeometry` and `Grid2DGeometry` — their laws live in the geometry).
 - `losses/cmb.py` — `AMPLITUDE_LAWS`; `CmbDiagonalChi2` (plain per-multipole chi-square); `CmbFactoredChi2` (the imposed `C_ell e^{2tau}/A_s` target); `ResidualRoughness` and `configure_roughness` (the optional short-period residual penalty); `make_cmb_chi2`.

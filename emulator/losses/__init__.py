@@ -9,7 +9,7 @@ scales. The modules are:
 
   core.py   the plain losses and the shared schedule (make_chi2,
             CosmolikeChi2, RescaledChi2, ResidualBaseChi2,
-            ElementWeightedChi2, the sqrt / pseudo-Huber / berhu ladder,
+            the sqrt / pseudo-Huber / berhu ladder,
             anneal_value) for masked covariance data vectors.
   ia.py     the factored intrinsic-alignment loss (TemplateFactoredChi2)
             and the amplitude-polynomial coefficients (nla_coeffs,

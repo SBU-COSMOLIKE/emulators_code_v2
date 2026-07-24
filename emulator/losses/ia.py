@@ -81,122 +81,6 @@ def tatt_coeffs(amps):
   ], dim=1)                                   # (B, 10)
 
 
-class NLAAmpFactoredChi2(CosmolikeChi2):
-  """
-  Factored NLA loss. The model outputs three whitened templates
-  [GG, GI, II]; this loss reads each sample's IA amplitude A1_1
-  (the appended last column of the encoded params) and combines
-  them in closed form, xi = GG + A1_1*GI + A1_1^2*II, then scores
-  the standard chi2 on the combined xi. The A1_1 dependence is
-  imposed, not learned, and A1_1 never enters the network, so it
-  generalizes perfectly, free at inference, prior-width-
-  independent.
-
-  The combination is linear, so it commutes with the whitening
-  (combining whitened templates == whitening the combined xi), and
-  the center is absorbed into the GG template automatically (the
-  net learns whatever matches geom.encode(xi)). A1_1 is physical
-  (A1_1 = 0 is the no-IA limit). Trained on the existing
-  (cosmo, A1_2, A1_1) -> xi samples, A1_1 is read per sample, not
-  extracted.
-
-  needs_params = True (the loss needs A1_1).
-  """
-  needs_params = True
-  _params = None
-
-  def encode(self, dv, params_whitened):
-    """Raw dv -> whitened xi target the combination must match.
-
-    Arguments:
-      dv              = (B, total_size) raw full data vectors, the
-                        xi observed at each sample's own A1_1.
-      params_whitened = (B, n_param) encoded params; not used to
-                        build the target (the standard whitened
-                        xi), accepted only to match the param-aware
-                        encode signature.
-
-    Returns:
-      (B, n_keep): the whitened xi target.
-    """
-    return self.geom.encode(dv)
-
-  def _combine(self, pred, params_whitened):
-    """Apply the exact NLA amplitude polynomial to the templates.
-
-    Arguments:
-      pred            = (B, 3, n_keep) whitened templates
-                        [GG, GI, II].
-      params_whitened = (B, n_param) encoded params, last column
-                        the physical A1_1.
-
-    Returns:
-      (B, n_keep): whitened xi = GG + A1_1*GI + A1_1^2*II per
-      sample.
-    """
-    a1 = params_whitened[:, -1:]                # (B, 1) physical
-    GG, GI, II = pred[:, 0], pred[:, 1], pred[:, 2]
-    return GG + a1 * GI + (a1 * a1) * II         # (B, n_keep)
-
-  def decode(self, pred, params_whitened):
-    """Templates -> physical xi (for the per-element diagnostics).
-
-    Arguments:
-      pred            = (B, 3, n_keep) whitened templates.
-      params_whitened = (B, n_param) encoded params (A1_1 last
-                        column).
-
-    Returns:
-      (B, n_keep): the physical squeezed xi (combine the
-      templates, un-whiten, add the center back).
-    """
-    return self.geom.decode(
-      self._combine(pred=pred, params_whitened=params_whitened))
-
-  def chi2(self, pred, target, params_whitened=None,
-           full=False):
-    """Per-sample chi2 of the combined xi against the target.
-
-    Arguments:
-      pred            = (B, 3, n_keep) whitened templates.
-      target          = (B, n_keep) whitened xi (from encode).
-      params_whitened = (B, n_param) encoded params (A1_1 last
-                        column), or None to use the loss() stash.
-      full            = if True, the full-Cinv reference path;
-                        else the fast masked-block path.
-
-    Returns:
-      (B,): per-sample chi2, combined xi vs target.
-    """
-    if params_whitened is None:
-      params_whitened = self._params
-    w = self._combine(pred=pred, params_whitened=params_whitened)
-    return CosmolikeChi2.chi2(self, pred=w, target=target, full=full)
-
-  def loss(self, pred, target, params_whitened,
-           *args, **kwargs):
-    """Scalar training loss from the combined-xi chi2.
-
-    Stashes params so the inherited reduction (which calls
-    self.chi2 without params) can recover A1_1.
-
-    Arguments:
-      pred            = (B, 3, n_keep) whitened templates.
-      target          = (B, n_keep) whitened xi.
-      params_whitened = (B, n_param) encoded params (A1_1 last
-                        column).
-      *args, **kwargs = reduction knobs forwarded verbatim to the
-                        base loss (mode, trim, focus, focus_scale,
-                        berhu_knot, berhu_cap, berhu_s).
-
-    Returns:
-      the scalar training loss.
-    """
-    self._params = params_whitened
-    return CosmolikeChi2.loss(self, pred, target,
-                              *args, **kwargs)
-
-
 class TemplateFactoredChi2(CosmolikeChi2):
   """
   Factored IA loss. The model outputs n_templates whitened
@@ -325,6 +209,12 @@ class TemplateFactoredChi2(CosmolikeChi2):
     """
     if params_whitened is None:
       params_whitened = self._params
+    if params_whitened is None:
+      raise RuntimeError(
+        "TemplateFactoredChi2.chi2 needs the encoded params (the "
+        "amplitudes ride in their last columns, and the combine "
+        "cannot run without them): pass params_whitened, or call "
+        "via loss(), which stashes them")
     w = self._combine(pred=pred, params_whitened=params_whitened)
     return CosmolikeChi2.chi2(self, pred=w, target=target, full=full)
 
@@ -333,7 +223,11 @@ class TemplateFactoredChi2(CosmolikeChi2):
     """Scalar training loss from the combined-xi chi2.
 
     Stashes params so the inherited reduction (which calls
-    self.chi2 without params) can recover the amplitudes.
+    self.chi2 without params) can recover the amplitudes. The
+    stash is PRIVATE to this reduction: it is cleared the moment
+    loss returns, so a public caller (a diagnostic, a gate) that
+    omits params gets the loud refusal, never the last batch's
+    stale amplitudes.
 
     Arguments:
       pred            = (B, n_templates, n_keep) whitened
@@ -349,5 +243,8 @@ class TemplateFactoredChi2(CosmolikeChi2):
       the scalar training loss.
     """
     self._params = params_whitened
-    return CosmolikeChi2.loss(self, pred, target,
-                              *args, **kwargs)
+    try:
+      return CosmolikeChi2.loss(self, pred, target,
+                                *args, **kwargs)
+    finally:
+      self._params = None

@@ -112,7 +112,24 @@ def resolved_sweep_record(exp,
 
   Returns:
     a tuple of (key, value) pairs. ``dict(record)`` is ready for table I/O.
+
+  Raises:
+    ValueError for a fine-tune configuration (no train_args.model
+    block): the sweep drivers do not support sweeping a fine-tune run.
   """
+  # a fine-tune run has NO train_args.model block by contract
+  # (validate_finetune_config requires it deleted: the architecture
+  # lives in the source artifact), so the model-block reads below
+  # would crash on one. No sweep of a fine-tune run has ever been
+  # possible — this record is built before any training starts — so
+  # the honest behavior is a named refusal here, the one choke point
+  # both sweep drivers pass through.
+  if "model" not in exp.train_args:
+    raise ValueError(
+      "this configuration has no train_args.model block, so it is a "
+      "fine-tune run (the architecture lives in the source artifact). "
+      "Sweeping a fine-tune run is not supported: sweep the source "
+      "training instead, then fine-tune the winning artifact once.")
   activation_block = exp.train_args["model"].get("activation")
   activation_n_gates = 3
   if isinstance(activation_block, dict):
@@ -260,7 +277,9 @@ def read_sweep_block(cfg):
   The block names the one setting a hyperparameter sweep varies and
   the list of values to try (the module docstring defines the sweep
   itself).  Three refusals guard the sweep before any training starts.  A
-  missing block is refused with a paste-ready example.  The two keys
+  missing block is refused with a paste-ready example (an empty
+  `sweep:` line — every child commented out parses to nothing —
+  counts as missing).  The two keys
   that select the model class (model.name, model.ia) are refused
   because changing the class mid-sweep would compare architectures,
   not values of one choice; that comparison is a separate sweep per
@@ -280,11 +299,14 @@ def read_sweep_block(cfg):
     train_args (see the module docstring).
 
   Raises:
-    KeyError when the sweep block is absent; ValueError for a missing
-    parameter or value list, a model-class key, or a first segment
-    outside SWEEPABLE_TOP_KEYS.
+    KeyError when the sweep block is absent or empty; ValueError for a
+    missing parameter or value list, a model-class key, or a first
+    segment outside SWEEPABLE_TOP_KEYS.
   """
-  if "sweep" not in cfg:
+  # cfg.get, not `in`: a bare `sweep:` line with every child commented
+  # out parses to None, and None.get below would be an unexplained
+  # AttributeError instead of this teaching refusal.
+  if cfg.get("sweep") is None:
     raise KeyError(
       "the YAML needs a `sweep` block:\n"
       "  sweep:\n"
