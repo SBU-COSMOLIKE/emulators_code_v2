@@ -187,6 +187,7 @@ Medium work begins only after the permitted High work above.
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Record which physics formulas produced each dataset and trained emulator](#open-physics-implementation-identity)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Refuse polynomial-emulator requests outside the fitted parameter range](#open-pce-domain-enforcement)
 - OPEN **MEDIUM** **NEW FUNCTIONALITY** — [Add advertised CMB unit and multipole conversions](#open-cmb-serving-conversions)
+- OPEN **MEDIUM** **BUG FIX** — [Close the remaining verified emulator audit findings](#open-emulator-audit-wave2)
 
 ### Low
 
@@ -5929,3 +5930,136 @@ is in `.claude/FABLE_ROLE.md` and `ai/notes/conventions-and-workflow.md`.
 candidate preservation, corrected GO, and restart cleanup.
 
 </details>
+
+<a id="open-emulator-audit-wave2"></a>
+## Close the remaining verified emulator audit findings
+
+### High-level summary
+
+A user-ordered file-by-file audit covered all 40 emulator/ files (ten
+parallel reviewers, 2026-07-23; every finding below was reviewer-reported
+and the fix-wave items were Architect-re-verified against the code). Wave 1
+landed as commit ef2a85c: the MPS float64 loss crash, the transfer-refine
+staging autograd graph, the fine-tune-sweep KeyError, the bs-vs-rows
+ZeroDivisionError, the train-plan-on-val evals, the rising "step" anneal
+collapse, the stale params stashes, and the deletion of the dead
+ElementWeightedChi2 / NLAAmpFactoredChi2 classes. This ticket holds
+everything verified but NOT yet fixed, so the next session resumes here.
+
+### Wave-2 fix candidates (bounded, verified or strongly corroborated)
+
+- geometries/parameter.py:135 and geometries/output.py:435: eigh output
+  used unvalidated (zero / float-noise-negative eigenvalue -> silent
+  inf/nan whitening); the BlockDiagonalGeometry clip at output.py:762 is
+  the in-repo precedent. geometries/cmb.py: sigma never checked positive
+  or finite on either real construction path. geometries/scalar.py:138: a
+  NaN target column silently bypasses the un-standardizable guard.
+  geometries/grid2d.py: no finiteness check on center/scale (its 1D
+  sibling grid.py:302 has one). geometries/output.py:941:
+  build_shear_angle_map keys bins on grid-quantized float z peaks; two
+  bins peaking on one grid row silently merge — key on (pm, i, j).
+- MPS float64 on the rebuild path: grid.py:152, grid2d.py:160,
+  cmb.py:359, results.py:2349 move saved float64 tensors to the run
+  device; the documented `device: mps` option in cobaya_theory
+  emul_baosn.py therefore crashes at rebuild.
+- experiment.py: the cosmolike fall-through family never validates its
+  required data keys (bare KeyError, sometimes after minutes of staging);
+  data.split_seed is whitelisted but never required (bare KeyError at
+  stage time) and ram_frac is never type/range-checked; a scalar YAML
+  with train/val_failure_mask keys silently trains on failed rows;
+  an empty YAML file dies as TypeError; unused import validate_loss
+  (line 164); stale arch-gating comments at 3241 and 5257.
+- warmstart.py: _zero_final_linear zeroes the last REGISTERED Linear, so
+  restrf and film-enabled rescnn correction nets zero a head/FiLM layer
+  instead of the output stage and every such transfer run fails the
+  parity gate with a misattributed message; the finetune anchor key is
+  simultaneously whitelisted, refused (NotImplementedError), and
+  dead-value-checked in one function; stale comment at 416 claims a
+  digest check (the pairing is the pair token, deliberately not a
+  digest); extras-block eigh at 614 unguarded.
+- results.py: save_emulator docstring calls attrs optional while the
+  code requires it with a "rescale" key (plus the dead attrs-guards at
+  1720/1733/1745); _rebuild_model labels the transfer base's errors as
+  the main model's (thread a where label).
+- inference.py: unguarded IA_DESIGNS[ia] at 852 (the guard exists twenty
+  lines later on the sibling branch); a (names, scalar) pair on a
+  one-parameter emulator dies as bare TypeError at 990; the composition
+  refusals at 144-159 name no artifact though the class contract at
+  393-396 promises it.
+- fixed_facts.py: validate() checks support KEYS only — a box record
+  with unparseable bounds (producible via synthetic_sidecar) passes
+  validate and kills predictor construction with a context-free float()
+  crash; an inverted interval (low > high) is never refused;
+  _same_fact's bool defense does not reach nested dict values.
+- model_recipe.py: set_runtime_compile_mode never checks the mode
+  against COMPILE_MODES despite its docstring; validate_model_recipe's
+  "entire recipe" wording oversells key-structure-only checking.
+- plotting.py: plot_learning_curves' unconditional log y silently drops
+  an exact-zero fraction (the sibling plot_sweep_curve guards this, and
+  the training-stack note claims they share the decision); empty
+  good/bad histogram subsets produce NaN bars plus a RuntimeWarning on
+  the goal state; _cmb_pages' docstring/comment/variable disagree with
+  the bottom-right panel (physical residual, not residual/sigma, no
+  band); _CUT_ROLES omits the "n_s" alias _LCDM_ALIASES accepts;
+  plot_diagnostics' cuts docstring names 3 of the 8 consumed keys;
+  plot_xi carries three post-figure `return 0` leaks and an
+  index-colored/value-labeled colorbar mismatch (the training-stack
+  note and the byte-faithful-port docstring contradict each other —
+  decide which is authoritative before touching).
+- diagnostics.py: coverage_diagnostic publishes NaN medians (with a
+  RuntimeWarning) on a fully-passing or fully-failing run; the k_nn
+  preconditions its docstring states are unenforced; the module-header
+  verdict table contradicts the file (one verdict function, no dashes).
+- batching.py + data_staging.py: stream/param stats compute a std no
+  caller reads and carry a method=2 branch with zero callers; an
+  unsupported method value dies as UnboundLocalError; the dv-width
+  contract at batching.py:440 is an assert (stripped under -O); stale
+  duplicate-rows comment at 436; regimes 2 and 3 are the same closure
+  twice with an undocumented CUDA pin asymmetry.
+- designs/: blocks.py:717 Returns block mislabels row_sizes as
+  bin_sizes (load-bearing distinction: the masked row must be counted);
+  blocks.py:813-821 two provably-unreachable checks; blocks.py:22 module
+  head scopes FiLM to the conv heads (both transformer heads use it
+  too); pce.py:823 dead K assignment; ia.py template heads read
+  geom.evecs unguarded (bare AttributeError on a diagonal-family geom).
+- training.py: build_anchor's frozen-parameter contract is false (no
+  optimizer factory filters requires_grad; anchor + trunk_epochs > 0 is
+  accepted by run_emulator and would anchor the frozen trunk — fenced
+  only by upstream single-phase validators); the "const" shape inside
+  the ema/berhu anneal blocks makes the feature silently inert;
+  training_loop_batched's docstring promises None-defaults for
+  trim/focus_opts the loop does not implement; make_optimizer inlines
+  _decay_weight_ids verbatim.
+- small modules: background.py's grid refusal omits the >= 4-points
+  condition it enforces; syren_base.py converts five of seven inputs
+  with bare float() while the dark-energy pair gets typed refusals
+  (True -> As_1e9 = 1e9 silently); dead constant-w elif at 244;
+  family_drivers `parameter: model` whole-block sweep slips the
+  model-class refusal; parameter_table's overlap check is subsumed;
+  cocoa.py recomputes the chains path inline twice.
+
+### Report-only (design-sensitive; do not fix without a directive)
+
+- losses/cmb.py _factor: ~5 host syncs / graph breaks inside the
+  compiled hot loss (values correct; performance; workstation-verify).
+- experiment.py NPCE fit materializes the full staged selection in RAM
+  and on device, defeating memmap staging (OOM on the configurations
+  staging protects).
+- Structural duplication: from_config's six-fold activation block and
+  four near-clone finetune branches (~250 lines); plain.py/ia.py
+  six-way trunk/head stanzas; the n_tokens re-segmentation implemented
+  twice (plain.py:1031 vs results.py:1063); diagnostics' four
+  copy-pasted forward loops; activations' gate machinery in three
+  classes.
+- Parked/deliberate (do not delete): the finetune anchor machinery
+  (open-finetune-anchor is the ticket); LogParamGeometry (unbuildable
+  but rebuild-whitelisted); TARGET_LAWS payload tuples unread;
+  scaler_policy single-value plumbing; the double init_probes at
+  output.py:388/396 (workstation-owed A/B, board item).
+
+### Status
+
+OPEN. Wave 1 landed (commit ef2a85c, suite 813 OK). Wave 2 not started;
+every line above is reviewer-verified, and the fix-wave items were
+re-verified by the Architect where marked. The full reviewer reports
+live in the session transcript, not in this repo.
