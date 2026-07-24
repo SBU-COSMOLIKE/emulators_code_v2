@@ -30,7 +30,6 @@ Use the folder guide that owns the next task:
 | Use saved emulators inside Cobaya | [`cobaya_theory/README.md`](cobaya_theory/README.md) |
 | Understand or change the emulator package | [`emulator/README.md`](emulator/README.md) |
 | Understand the matter-power starting formulas | [`syren/README.md`](syren/README.md) |
-| Use the optional AI development workflow | [`ai/README.md`](ai/README.md) |
 
 ## Table of contents
 
@@ -69,8 +68,6 @@ Use the folder guide that owns the next task:
   - [What do the activation functions do?](#21-appendix-activation-functions)
   - [Which setting wins when controls collide?](#22-appendix-precedence-when-settings-collide)
   - [How do I script a saved emulator without Cobaya?](#23-appendix-scripting-a-saved-emulator-without-cobaya)
-- [Appendices about AI-assisted development](#appendix-e-ai)
-  - [How does this repository use AI sessions?](#24-ai-usage)
 
 ---
 
@@ -1107,22 +1104,3 @@ It includes a runnable CPU example, the return form for every physical family,
 background-distance helpers, profile calculations, and the current saved-file
 version rule.
 
----
-
-# Appendices about AI-assisted development <a id="appendix-e-ai"></a>
-
-## FAQ E1. How does this repository use AI sessions? <a id="24-ai-usage"></a>
-
-Ordinary installation, training, and inference do not require the AI
-development tools.
-
-The optional workflow separates planning and review from implementation so a
-capable, less expensive model can perform the token-heavy coding work from
-detailed instructions. The user communicates with the Architect, which owns
-the final GO or NO-GO decision. A Red Team review can be enabled when an
-independent check is useful.
-
-Start with [`ai/README.md`](ai/README.md) for the reason behind the roles and
-one first ticket. Use [`ai/tools/README.md`](ai/tools/README.md) for commands
-and [`ai/gates/README.md`](ai/gates/README.md) for the checks that decide
-whether a change is ready.
