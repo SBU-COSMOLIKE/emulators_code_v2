@@ -95,7 +95,7 @@ _CONFIG_FILE = _GATES_DIR / "board_config.json"
 # files, not a directory. (The per-gate code digest still hashes only the
 # gate body + the check scripts it names; folding this shared surface into a
 # reviewed per-gate manifest is the open queue-1 manifest item.)
-_EXECUTABLE_DIRS = ("emulator", "ai/gates", "compute_data_vectors",
+_EXECUTABLE_DIRS = ("emulator", "driver", "ai/gates", "compute_data_vectors",
                     "cobaya_theory", "syren")
 
 # The one path the clean-tree watch excludes: board_config.json is inside the
@@ -108,25 +108,27 @@ _EXECUTABLE_DIRS = ("emulator", "ai/gates", "compute_data_vectors",
 _WATCH_EXCLUDE = "ai/gates/board_config.json"
 
 # The training driver every run-shaped gate invokes.
-_DRIVER = "cosmic_shear_train_emulator.py"
+_DRIVER = "driver/cosmic_shear_train_emulator.py"
 
-# Pre-rename driver filenames (verb-first), for the pinned golden legs:
-# a golden worktree built at a commit BEFORE the family-first rename
-# carries these names, so run_driver resolves by existence instead of
-# assuming today's name (the run-10 ema-off-identity catch: the pinned
-# pre-EMA build had no cosmic_shear_train_emulator.py and the golden
-# leg failed on a missing file, not on the byte identity it exists to
-# check).
+# Earlier driver locations and names, for the pinned golden legs: a
+# golden worktree is pinned at an old commit, so its checkout may keep
+# the drivers at the repository root (before the driver/ folder) or
+# under the older verb-first filenames (before the family-first
+# rename). run_driver therefore resolves by existence instead of
+# assuming today's path (the run-10 ema-off-identity catch: a pinned
+# build without today's driver path must fail on the byte identity it
+# exists to check, never on a missing filename). Keys are today's
+# driver/ paths; values are the verb-first root filenames.
 _LEGACY_DRIVERS = {
-  "cosmic_shear_train_emulator.py":
+  "driver/cosmic_shear_train_emulator.py":
     "train_single_emulator_cosmic_shear.py",
-  "cosmic_shear_tune_emulator.py":
+  "driver/cosmic_shear_tune_emulator.py":
     "tune_single_emulator_cosmic_shear.py",
-  "cosmic_shear_sweep_ntrain_emulator.py":
+  "driver/cosmic_shear_sweep_ntrain_emulator.py":
     "sweep_ntrain_emulator_cosmic_shear.py",
-  "cosmic_shear_sweep_hyperparam_emulator.py":
+  "driver/cosmic_shear_sweep_hyperparam_emulator.py":
     "sweep_hyperparam_emulator_cosmic_shear.py",
-  "cosmic_shear_bakeoff_activation_emulator.py":
+  "driver/cosmic_shear_bakeoff_activation_emulator.py":
     "bakeoff_activation_emulator_cosmic_shear.py",
 }
 
@@ -554,7 +556,7 @@ class RunContext:
       extra      = extra driver flags (e.g. ("--diagnostic",)).
       driver     = the driver filename; defaults to the
                    single-train driver, overridden e.g. by the npce-training
-                   sweep leg with cosmic_shear_sweep_ntrain_emulator.py.
+                   sweep leg with driver/cosmic_shear_sweep_ntrain_emulator.py.
       allow_fail = passed through to sh (a gate that asserts on a
                    nonzero exit sets it True).
 
@@ -568,22 +570,29 @@ class RunContext:
                         "are unset; set the deploy --root and --fileroot")
     where = self.repo if cwd is None else Path(cwd)
     driver_path = where / driver
-    # a pinned golden worktree may predate the family-first driver
-    # rename, so resolve the filename by existence: today's name first,
-    # then the legacy verb-first name; neither existing is a loud error
-    # naming both candidates (the run-10 ema-off-identity catch — the
+    # a pinned golden worktree may predate the driver/ folder or the
+    # family-first driver rename, so resolve by existence: today's
+    # driver/ path first, then the same filename at the tree root, then
+    # the legacy verb-first root name; none existing is a loud error
+    # naming every candidate (the run-10 ema-off-identity catch — the
     # golden leg must fail on the byte identity, never on a filename).
     if not self.dry and not driver_path.exists():
+      candidates = [where / Path(driver).name]
       legacy = _LEGACY_DRIVERS.get(driver)
-      if legacy is not None and (where / legacy).exists():
-        driver_path = where / legacy
-      else:
+      if legacy is not None:
+        candidates.append(where / legacy)
+      found = None
+      for candidate in candidates:
+        if candidate.exists():
+          found = candidate
+          break
+      if found is None:
         raise GateFailure(
           "driver " + driver + " not found in " + str(where)
-          + ("" if legacy is None
-             else " (legacy candidate " + legacy + " also missing)")
-          + "; a pinned golden build must carry one of the known driver "
-          "names")
+          + " (also tried " + ", ".join(str(c) for c in candidates)
+          + "); a pinned golden build must carry one of the known "
+          "driver locations")
+      driver_path = found
     cmd = [self.python, str(driver_path),
            "--root=" + ("<UNSET:driver_root>" if root is None else root),
            "--fileroot=" + ("<UNSET:driver_fileroot>" if fileroot is None
@@ -900,12 +909,12 @@ _DYNAMIC_IMPORT_WAIVERS = {
   # already waived above, so the cli-strict gate additionally declares
   # emulator/designs + emulator/losses (see its manifest in board.py).
   "ai/gates/checks/cli_strict.py": (
-      "cosmic_shear_train_emulator.py",
-      "cosmic_shear_sweep_ntrain_emulator.py",
-      "cosmic_shear_sweep_hyperparam_emulator.py",
-      "cosmic_shear_bakeoff_activation_emulator.py",
-      "cosmic_shear_tune_emulator.py",
-      "scalar_train_emulator.py",
+      "driver/cosmic_shear_train_emulator.py",
+      "driver/cosmic_shear_sweep_ntrain_emulator.py",
+      "driver/cosmic_shear_sweep_hyperparam_emulator.py",
+      "driver/cosmic_shear_bakeoff_activation_emulator.py",
+      "driver/cosmic_shear_tune_emulator.py",
+      "driver/scalar_train_emulator.py",
       "compute_data_vectors/generator_core.py",
       "compute_data_vectors/compute_cmb_covariance.py"),
 }
@@ -1179,11 +1188,11 @@ _DATA_READ_COVERS = {
   "ai/gates/checks/geo_paths.py":        (_WHOLE_REPO,),
   "ai/gates/checks/board_selftest.py":   (_WHOLE_REPO,),
   "ai/gates/checks/artifact_readback.py": ("emulator/results.py",
-                                        "scalar_train_emulator.py"),
-  "ai/gates/checks/family_first.py": ("cosmic_shear_train_emulator.py",
-                                   "cosmic_shear_sweep_hyperparam_emulator.py",
-                                   "cosmic_shear_sweep_ntrain_emulator.py",
-                                   "cosmic_shear_tune_emulator.py"),
+                                        "driver/scalar_train_emulator.py"),
+  "ai/gates/checks/family_first.py": ("driver/cosmic_shear_train_emulator.py",
+                                   "driver/cosmic_shear_sweep_hyperparam_emulator.py",
+                                   "driver/cosmic_shear_sweep_ntrain_emulator.py",
+                                   "driver/cosmic_shear_tune_emulator.py"),
   "ai/gates/checks/generator_seed.py": ("compute_data_vectors/generator_core.py",),
   # diagnostics-domain reads emulator/diagnostics.py as data (ast-parses its
   # text); the scanner flags it, so it is reviewed here. (cli-strict also reads

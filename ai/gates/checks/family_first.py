@@ -5,7 +5,7 @@ A wrong-family YAML must fail at startup naming the right driver, never train
 under the wrong public identity (and, for a scalar YAML, never reach the
 run_tag KeyError deep inside the run). The direct cosmic_shear drivers used to
 pass family=None, which skipped the family check entirely, so a CMB / grid /
-grid2d / scalar YAML launched through cosmic_shear_train_emulator.py passed
+grid2d / scalar YAML launched through driver/cosmic_shear_train_emulator.py passed
 straight into training. This check drives require_family_block directly and
 censuses the four cosmic_shear drivers for the "cosmolike" default plus the
 unconditional call.
@@ -20,6 +20,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
+# the drivers live in driver/; put it on the path so the bare-name
+# import below resolves.
+_DRIVER_DIR = os.path.join(_REPO, "driver")
+if _DRIVER_DIR not in sys.path:
+    sys.path.insert(0, _DRIVER_DIR)
 
 from cosmic_shear_train_emulator import require_family_block
 
@@ -33,10 +38,10 @@ def report(label, ok, detail=""):
 
 
 # the wrong-family block -> the driver it belongs to.
-OTHER_FAMILIES = {"cmb": "cmb_train_emulator.py",
-                  "grid": "baosn_train_emulator.py",
-                  "grid2d": "mps_train_emulator.py",
-                  "outputs": "scalar_train_emulator.py"}
+OTHER_FAMILIES = {"cmb": "driver/cmb_train_emulator.py",
+                  "grid": "driver/baosn_train_emulator.py",
+                  "grid2d": "driver/mps_train_emulator.py",
+                  "outputs": "driver/scalar_train_emulator.py"}
 
 
 def check_cosmolike_identity():
@@ -73,17 +78,17 @@ def check_wrapper_families():
     try:
         require_family_block({"grid": {}}, "cmb", "cmb_train_emulator")
     except SystemExit as exc:
-        raised = "baosn_train_emulator.py" in str(exc)
+        raised = "driver/baosn_train_emulator.py" in str(exc)
     report("cmb wrapper rejects a data.grid YAML naming the grid driver",
            raised, "SystemExit names baosn")
 
 
 def check_driver_census():
     """The four cosmic_shear drivers default to cosmolike and always check."""
-    drivers = ["cosmic_shear_train_emulator.py",
-               "cosmic_shear_sweep_hyperparam_emulator.py",
-               "cosmic_shear_sweep_ntrain_emulator.py",
-               "cosmic_shear_tune_emulator.py"]
+    drivers = ["driver/cosmic_shear_train_emulator.py",
+               "driver/cosmic_shear_sweep_hyperparam_emulator.py",
+               "driver/cosmic_shear_sweep_ntrain_emulator.py",
+               "driver/cosmic_shear_tune_emulator.py"]
     for name in drivers:
         src = open(os.path.join(_REPO, name)).read()
         default_ok = 'family="cosmolike"' in src

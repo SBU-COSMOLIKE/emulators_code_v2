@@ -28,7 +28,7 @@ is never loaded whole.
 # its per-multipole error bars; a background or matter-power grid), reusing
 # the whole train_args surface unchanged.
 #
-# python .../emultrfv2/cosmic_shear_train_emulator.py \
+# python .../emultrfv2/driver/cosmic_shear_train_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml cosmic_shear_train_emulator.yaml \
@@ -44,8 +44,9 @@ is never loaded whole.
 #  $ROOTDIR/external_modules/data. Training runs on a machine with a working
 #  Cocoa installation (cosmolike).
 #
-#- This script sits beside the emulator/ package (same .../emultrfv2/ folder),
-#  so `import emulator` needs no sys.path edit; just run it from $ROOTDIR.
+#- This script lives in driver/, beside the emulator/ package's parent
+#  folder; it adds that parent to sys.path itself, so just run it from
+#  $ROOTDIR.
 #
 #- `--root` (required): project folder under $ROOTDIR (e.g. projects/lsst_y1);
 #  the data files resolve under --root/chains.
@@ -181,10 +182,17 @@ is never loaded whole.
 import argparse
 import os
 import re
-# This script sits beside the emulator/ package (same .../emultrfv2/ folder),
-# so launching it by path makes its own directory sys.path[0] and
-# `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
-# emulator.cocoa reads $ROOTDIR to resolve the data paths.
+import sys
+# Run it from $ROOTDIR; emulator.cocoa reads $ROOTDIR to resolve the
+# data paths.
+
+# This driver lives in driver/, one level below the emulator package's
+# parent, so a "python driver/<name>.py" run puts driver/ (not the
+# repository root) on the import path. Add the root so the emulator
+# package resolves no matter where the command is launched from.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+  sys.path.insert(0, _REPO_ROOT)
 
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
@@ -224,10 +232,10 @@ def run_tag(cfg, exp):
 # which thin driver trains which data-block family; require_family_block
 # reads it to point a wrong-family YAML at its home.
 FAMILY_DRIVERS = {
-  "cmb":     "cmb_train_emulator.py",
-  "grid":    "baosn_train_emulator.py",
-  "grid2d":  "mps_train_emulator.py",
-  "outputs": "scalar_train_emulator.py",
+  "cmb":     "driver/cmb_train_emulator.py",
+  "grid":    "driver/baosn_train_emulator.py",
+  "grid2d":  "driver/mps_train_emulator.py",
+  "outputs": "driver/scalar_train_emulator.py",
 }
 
 
@@ -272,7 +280,7 @@ def require_family_block(data, family, prog):
   raise SystemExit(
     f"{prog}: this YAML has no data.{family} block; a cosmolike "
     f"data-vector YAML trains through "
-    f"cosmic_shear_train_emulator.py")
+    f"driver/cosmic_shear_train_emulator.py")
 
 
 def main(prog="cosmic_shear_train_emulator", family="cosmolike"):

@@ -41,10 +41,10 @@ from emulator.family_drivers import sweep_record_value
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _TRAINING = os.path.join(_REPO, "emulator", "training.py")
-_NTRAIN = os.path.join(_REPO, "cosmic_shear_sweep_ntrain_emulator.py")
+_NTRAIN = os.path.join(_REPO, "driver/cosmic_shear_sweep_ntrain_emulator.py")
 _HYPER = os.path.join(
   _REPO,
-  "cosmic_shear_sweep_hyperparam_emulator.py")
+  "driver/cosmic_shear_sweep_hyperparam_emulator.py")
 
 FAILURES = []
 

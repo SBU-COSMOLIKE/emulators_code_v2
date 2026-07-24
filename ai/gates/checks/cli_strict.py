@@ -24,16 +24,21 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
+# the driver entry points live in driver/; put it on the path so
+# importlib can load them by their bare module names below.
+_DRIVER_DIR = os.path.join(_REPO, "driver")
+if _DRIVER_DIR not in sys.path:
+    sys.path.insert(0, _DRIVER_DIR)
 
 FAILURES = []
 
 ENTRY_POINTS = [
-    "cosmic_shear_train_emulator.py",
-    "cosmic_shear_sweep_ntrain_emulator.py",
-    "cosmic_shear_sweep_hyperparam_emulator.py",
-    "cosmic_shear_bakeoff_activation_emulator.py",
-    "cosmic_shear_tune_emulator.py",
-    "scalar_train_emulator.py",
+    "driver/cosmic_shear_train_emulator.py",
+    "driver/cosmic_shear_sweep_ntrain_emulator.py",
+    "driver/cosmic_shear_sweep_hyperparam_emulator.py",
+    "driver/cosmic_shear_bakeoff_activation_emulator.py",
+    "driver/cosmic_shear_tune_emulator.py",
+    "driver/scalar_train_emulator.py",
     "compute_data_vectors/generator_core.py",
     "compute_data_vectors/compute_cmb_covariance.py",
 ]

@@ -82,14 +82,14 @@ TIER_SAVE_AND_SAMPLE = "save-and-sample"
 # The sweep-over-n_train driver npce-training's 2-point smoke runs; the
 # default single-train driver would execute the wrong program on a sweep
 # YAML. It sits beside the emulator package at the repo root.
-SWEEP_NTRAIN_DRIVER = "cosmic_shear_sweep_ntrain_emulator.py"
+SWEEP_NTRAIN_DRIVER = "driver/cosmic_shear_sweep_ntrain_emulator.py"
 
 
 # The cosmic-shear driver gates all rebuild an artifact through the model-recipe
 # (results.py / warmstart.py dynamic imports), so each declares the training
 # driver plus the design and loss trees; npce-training additionally declares the
 # sweep driver. Shared here so the 1b manifest closure is one reviewed tuple.
-_CS_TRAIN_CODE = ("cosmic_shear_train_emulator.py",
+_CS_TRAIN_CODE = ("driver/cosmic_shear_train_emulator.py",
                   "emulator/designs", "emulator/losses")
 
 # The deploy-data fixture keys every cosmic-shear driver gate consumes, resolved
@@ -2050,7 +2050,7 @@ def gate_family_first(ctx):
   WHAT: a CPU check of require_family_block plus a census of the four
   cosmic_shear drivers. WHY: the direct cosmic_shear drivers passed family=None,
   which skipped the family check, so a CMB / grid / grid2d / scalar YAML
-  launched through cosmic_shear_train_emulator.py trained under the wrong public
+  launched through driver/cosmic_shear_train_emulator.py trained under the wrong public
   identity (a scalar YAML died later at run_tag on a missing train_dv key). HOW:
   a direct cosmic-shear run now owns the "cosmolike" data-vector family and
   rejects any other family's block naming its driver, while a clean cosmic-shear
@@ -2457,12 +2457,12 @@ BOARD = [
                            "conventions-and-workflow.md#cli-strict-strict-parse"),),
        run=gate_cli_strict,
        manifest=Manifest(
-           code=("cosmic_shear_train_emulator.py",
-                 "cosmic_shear_sweep_ntrain_emulator.py",
-                 "cosmic_shear_sweep_hyperparam_emulator.py",
-                 "cosmic_shear_bakeoff_activation_emulator.py",
-                 "cosmic_shear_tune_emulator.py",
-                 "scalar_train_emulator.py",
+           code=("driver/cosmic_shear_train_emulator.py",
+                 "driver/cosmic_shear_sweep_ntrain_emulator.py",
+                 "driver/cosmic_shear_sweep_hyperparam_emulator.py",
+                 "driver/cosmic_shear_bakeoff_activation_emulator.py",
+                 "driver/cosmic_shear_tune_emulator.py",
+                 "driver/scalar_train_emulator.py",
                  "compute_data_vectors/generator_core.py",
                  "compute_data_vectors/compute_cmb_covariance.py",
                  "emulator/designs",
@@ -2483,7 +2483,7 @@ BOARD = [
        evidence=(Assertion("family-first.family-owned",
                            "conventions-and-workflow.md#family-first-family-owned"),),
        run=gate_family_first,
-       manifest=Manifest(code=("cosmic_shear_train_emulator.py",
+       manifest=Manifest(code=("driver/cosmic_shear_train_emulator.py",
                                "emulator/designs", "emulator/losses"),
                          inputs=()),
        needs=("torch",)),
@@ -2942,7 +2942,7 @@ BOARD = [
                            "models-and-designs.md#npce-training-rebuild-vs-base")),
        run=gate_gpc_c,
        manifest=Manifest(code=_CS_TRAIN_CODE
-                              + ("cosmic_shear_sweep_ntrain_emulator.py",),
+                              + ("driver/cosmic_shear_sweep_ntrain_emulator.py",),
                          inputs=("gate_configs.npce-training-residual",
                                  "gate_configs.npce-training-ratio",
                                  "gate_configs.npce-training-excl-ia",

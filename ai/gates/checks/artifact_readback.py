@@ -112,7 +112,7 @@ def check_scalar_records_rescale():
     fine-tune source. The live save/reload epoch-0 parity leg is owned by the
     workstation finetune-identity gate; this census proves the attr is stamped.
     """
-    src = open(os.path.join(_REPO, "scalar_train_emulator.py")).read()
+    src = open(os.path.join(_REPO, "driver/scalar_train_emulator.py")).read()
     report("scalar driver records rescale='none' in its run-identity attrs",
            '"rescale":' in src and '"none"' in src,
            "load_source admits the scalar driver's own artifact")

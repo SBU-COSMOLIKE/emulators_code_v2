@@ -30,8 +30,9 @@ runs do not overwrite each other.
 #  --root/chains; the YAML under --fileroot. The driver resolves every path,
 #  so it runs from $ROOTDIR regardless of cwd. No cosmolike is used.
 #
-#- This script sits beside the emulator/ package, so `import emulator` needs
-#  no sys.path edit; run it from $ROOTDIR.
+#- This script lives in driver/, beside the emulator/ package's parent
+#  folder; it adds that parent to sys.path itself, so just run it from
+#  $ROOTDIR.
 #
 #- `--root` (required): project folder under $ROOTDIR (e.g. projects/lsst_y1);
 #  the parameter files resolve under --root/chains.
@@ -85,10 +86,17 @@ runs do not overwrite each other.
 
 import argparse
 import os
+import sys
 
-# This script sits beside the emulator/ package, so launching it by path makes
-# its own directory sys.path[0] and `import emulator` resolves with no path
-# manipulation. Run it from $ROOTDIR; emulator.cocoa reads $ROOTDIR for paths.
+# Run it from $ROOTDIR; emulator.cocoa reads $ROOTDIR for paths.
+
+# This driver lives in driver/, one level below the emulator package's
+# parent, so a "python driver/<name>.py" run puts driver/ (not the
+# repository root) on the import path. Add the root so the emulator
+# package resolves no matter where the command is launched from.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+  sys.path.insert(0, _REPO_ROOT)
 
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)

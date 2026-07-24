@@ -1389,13 +1389,13 @@ def check_manifest_reconciliation():
     live_probe_cfg = run_board._load_config()
     cli = [g for g in BOARD if g.id == "cli-strict"][0]
     kept = tuple(r for r in cli.manifest.code
-                 if r != "scalar_train_emulator.py")
+                 if r != "driver/scalar_train_emulator.py")
     probe = Gate(id="cli-strict-probe", tier=cli.tier, home=cli.home,
                  maps=cli.maps, run=cli.run,
                  manifest=Manifest(code=kept, inputs=cli.manifest.inputs))
     ok, errs = run_board.validate_manifests([probe], live_probe_cfg)
     report("25M-18 any-one-of-eight reds: dropping one waiver entry-point",
-           (not ok) and any("scalar_train_emulator.py" in e for e in errs),
+           (not ok) and any("driver/scalar_train_emulator.py" in e for e in errs),
            "the cli_strict waiver's eight covers are all-required")
 
     # mutation arm: empty the reviewed waiver table -> the same dynamic site is
@@ -1517,8 +1517,8 @@ def check_data_read_census():
         return set(m["path"] for m in run_board._gate_code_manifest(by_id[gid]))
     checks = [
         ("board-selftest", "ai/gates/run_board.py"),          # whole-repo -> harness in
-        ("artifact-readback", "scalar_train_emulator.py"), # a driver read as data
-        ("family-first", "cosmic_shear_sweep_ntrain_emulator.py"),  # an UNdeclared driver
+        ("artifact-readback", "driver/scalar_train_emulator.py"), # a driver read as data
+        ("family-first", "driver/cosmic_shear_sweep_ntrain_emulator.py"),  # an UNdeclared driver
         ("generator-seed", "compute_data_vectors/generator_core.py"),
     ]
     for gid, cover in checks:
@@ -1528,8 +1528,8 @@ def check_data_read_census():
     # it reads as data were not code roots, so without the data cover they escaped.
     ff = members_of("family-first")
     report("25M-16 family-first data-read closes the undeclared-driver hole",
-           "cosmic_shear_tune_emulator.py" in ff
-           and "cosmic_shear_sweep_hyperparam_emulator.py" in ff,
+           "driver/cosmic_shear_tune_emulator.py" in ff
+           and "driver/cosmic_shear_sweep_hyperparam_emulator.py" in ff,
            "the drivers read as data are now hashed")
 
     # negative catch + restoration mutation: dropping artifact-readback from the

@@ -144,8 +144,8 @@ class FinetunePostStepAndProvenanceTests(unittest.TestCase):
 
   def test_both_training_drivers_call_shared_assembler(self):
     for relative_path in (
-        "cosmic_shear_train_emulator.py",
-        "scalar_train_emulator.py"):
+        "driver/cosmic_shear_train_emulator.py",
+        "driver/scalar_train_emulator.py"):
       with self.subTest(driver=relative_path):
         source, tree = _parsed_file(relative_path)
         self.assertIn(
