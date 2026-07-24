@@ -881,6 +881,138 @@ optimizer controls, schedules and run length to construct.  Keeping these
 questions separate allows the same model recipe to be evaluated on different
 data volumes without moving file-system facts into a neural-network class.
 
+\subsection{Building a training file, block by block}
+
+Never start from an empty page.  The \code{example\_yamls/} folder ships an
+annotated, runnable training file for every family and, for cosmic shear,
+the fine-tune, transfer, sweep and search campaigns as well.  The safe route
+is to copy the file whose family and campaign match, then edit keys.  This
+subsection builds the smallest of them,
+\code{example\_yamls/scalar\_emulator.yaml}, so the reader sees which
+decisions a file encodes and in which order to make them.
+
+The first decision is the data: where the rows live and how many to use.  A
+scalar run reads inputs and outputs from one parameter chain, so its complete
+\code{data} block is
+\begin{verbatim}
+data:
+  train_params: chain_thetastar_lcdm.1.txt
+  train_covmat: chain_thetastar_lcdm.covmat
+  val_params:   chain_thetastar_lcdm_val.1.txt
+  outputs:
+    - H0
+    - omegam
+  n_train:    100000
+  n_val:      20000
+  split_seed: 0
+  ram_frac:   0.7
+\end{verbatim}
+The two \code{.txt} files hold the training and validation rows, and the
+\code{.covmat} header fixes the sampled-parameter names and their whitening
+order.  \code{outputs} lists the derived-parameter columns to emulate, by the
+names their sidecar declares.  \code{n\_train} and \code{n\_val} are absolute
+row counts, \code{split\_seed} fixes the row shuffle, and \code{ram\_frac}
+bounds how much host memory staging may use.
+
+The same position in the file is where the family is chosen, by presence:
+\code{outputs} selects the scalar family, a \code{data.cmb} sub-block the CMB
+family, \code{data.grid} the background family, \code{data.grid2d} the
+matter-power family, and the CosmoLike file keys (\code{train\_dv},
+\code{val\_dv}, \code{cosmolike\_data\_dir}, \code{cosmolike\_dataset}) the
+cosmic-shear family.  Exactly one of these may appear; the validators refuse a
+file that mixes two.  A family sub-block carries that family's scientific
+declarations.  For example, the background file
+\code{example\_yamls/baosn\_hubble\_emulator.yaml} declares
+\begin{verbatim}
+data:
+  grid:
+    quantity: Hubble
+    units:    km/s/Mpc
+    law:      log_offset
+    offset:   0.0
+\end{verbatim}
+naming the emulated function, its units and the target law the artifact will
+persist.
+
+The second decision is the model and its objective, inside
+\code{train\_args}:
+\begin{verbatim}
+train_args:
+  nepochs: 300
+  bs:      256
+  model:
+    name: resmlp
+    mlp:
+      width:    64
+      n_blocks: 3
+    activation:
+      type:    H
+      n_gates: 3
+  loss:
+    mode: sqrt
+\end{verbatim}
+\code{model.name} selects the design class, the \code{mlp} sub-block sizes
+the trunk, \code{activation} selects the learnable activation family and
+\code{loss.mode} the objective transform.  A scalar output has no ordered
+coordinate axis, so this family accepts only the trunk-only \code{resmlp};
+the conv and transformer heads are refused with a message naming the rule.
+
+The third decision is the optimizer schedule, in the same block:
+\begin{verbatim}
+  optimizer:
+    weight_decay: 0.0
+  lr:
+    lr_base:       0.001
+    bs_base:       256.0
+    warmup_epochs: 5
+  scheduler:
+    mode:     min
+    patience: 25
+    factor:   0.8
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15
+\end{verbatim}
+\code{lr\_base} is the learning rate at the reference batch size
+\code{bs\_base}; a different \code{bs} rescales it by the square-root rule.
+The scheduler block configures the plateau scheduler.  The \code{trim} and
+\code{focus} blocks are required even when both are off (every value
+\code{0.0}, as here), because the resolver persists the values it consumed
+and refuses to invent a code default for a missing block.
+
+A sweep file is the same training file plus one top-level block naming the
+single setting to vary and the values to try.  The shipped
+\code{example\_yamls/cosmic\_shear\_sweep\_hyperparam\_emulator.yaml} ends
+with
+\begin{verbatim}
+sweep:
+  parameter: lr.lr_base
+  values:
+    - 0.0010
+    - 0.0025
+    - 0.0063
+    - 0.0160
+\end{verbatim}
+where \code{parameter} is a dotted path into \code{train\_args}.  Exactly one
+\code{sweep} block may be active; YAML silently keeps only the last copy of a
+duplicated key, so a second block does not error, it wins.
+
+Each shipped file annotates every key it uses, and the example-YAML guide
+(\code{example\_yamls/README.md}) is the complete per-key reference,
+including the optional guard blocks (\code{clip}, \code{rewind},
+\code{ema}) and the fine-tune, transfer and search variants this
+subsection does not repeat.
+
 \subsection{Raw configuration and resolved configuration}
 
 The dictionary returned by the YAML parser is the \emph{raw configuration},
