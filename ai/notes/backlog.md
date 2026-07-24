@@ -1781,7 +1781,10 @@ the guide's own listing, the prediction section lacked the
 training-region refusal, and L2-SP was unnamed), recompiled and
 committed with the PDF; `emulator/README.md` gained the ordered
 Appendix D2 reading guide naming each file's one or two main
-functions, every symbol grep-verified.
+functions, every symbol grep-verified; the guide also gained a
+worked build-a-YAML subsection (the shipped scalar file walked
+block by block, the family-selection-by-presence rule, and the
+sweep block, every snippet copied from a shipped runnable file).
 Remaining under this ticket: `ai/tests/` and the repository-wide
 chronology rewrite outside `emulator/`. The
 required depth follows the recorded reader standard: no unstated
