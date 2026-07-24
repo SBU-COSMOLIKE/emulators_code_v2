@@ -555,6 +555,52 @@ def parse_sidecar(text, where):
   return blocks
 
 
+def _require_box_interval(interval, name, key, where):
+  """Refuse a box support interval that is not a finite, ordered [low, high].
+
+  A box support records each sampled coordinate's interval as a two-item
+  [low, high] pair of numeric text. This checks one such interval so that a
+  malformed one (unparseable bounds, the wrong length, or low above high) is
+  refused here, at validation, naming the file and coordinate -- instead of
+  passing validation and then crashing compile_support later on a
+  context-free float()/unpack error, or serving an impossible region as if it
+  were the training support.
+
+  Arguments:
+    interval = the stored [low, high] pair for one coordinate.
+    name     = the coordinate the interval belongs to (named in a refusal).
+    key      = which support this is ("requested" / "resolved"), named too.
+    where    = the artifact's identity, named in the refusal.
+
+  Returns:
+    None. Called for its refusals.
+  """
+  import math
+  if not isinstance(interval, (list, tuple)) or len(interval) != 2:
+    raise ValueError(
+      where + ": the " + key + " support interval for " + repr(name)
+      + " must be a two-item [low, high] pair; it read as " + repr(interval)
+      + ". " + MIGRATION)
+  try:
+    low  = float(interval[0])
+    high = float(interval[1])
+  except (TypeError, ValueError):
+    raise ValueError(
+      where + ": the " + key + " support bounds for " + repr(name)
+      + " must be two numbers; they read as " + repr(interval) + ". A box "
+      "support records a numeric interval, never text like 'n/a' (that is "
+      "how an undeclared support is spelled). " + MIGRATION)
+  if not (math.isfinite(low) and math.isfinite(high)):
+    raise ValueError(
+      where + ": the " + key + " support bounds for " + repr(name)
+      + " must be finite; got " + repr(interval) + ". " + MIGRATION)
+  if low > high:
+    raise ValueError(
+      where + ": the " + key + " support interval for " + repr(name)
+      + " is inverted (low " + repr(low) + " > high " + repr(high) + "); a "
+      "box interval must have low <= high. " + MIGRATION)
+
+
 def validate(blocks, where, schema_version=SCHEMA_VERSION):
   """Enforce every law the two blocks must satisfy, wherever they are read.
 
@@ -655,6 +701,9 @@ def validate(blocks, where, schema_version=SCHEMA_VERSION):
         "other. A sampled coordinate is validated through the input domain "
         "and must not also be pinned in cosmology_fixed. " + MIGRATION)
 
+  # only a box support carries numeric intervals to check; an undeclared
+  # record spells its bounds "n/a" on purpose and must not be parsed.
+  constraint = domain["constraint"]
   for key in ("requested", "resolved"):
     support = domain[key]
     if not isinstance(support, dict):
@@ -667,6 +716,8 @@ def validate(blocks, where, schema_version=SCHEMA_VERSION):
         raise ValueError(
           where + ": the " + key + " support does not cover the sampled "
           "parameter " + repr(name) + ". " + MIGRATION)
+      if constraint == "box":
+        _require_box_interval(support[name], name, key, where)
     for name in support:
       if name not in seen:
         raise ValueError(
@@ -985,6 +1036,18 @@ def _same_fact(left, right):
     return isinstance(left, bool) and isinstance(right, bool) and left == right
   if isinstance(left, (int, float)) and isinstance(right, (int, float)):
     return float(left) == float(right)
+  # recurse into a nested mapping (for example cosmology_fixed) so the
+  # bool-before-number defense reaches its values too: a plain left == right
+  # would call Python's dict equality, under which {"flat": True} equals
+  # {"flat": 1} -- the exact bool-for-number slip this function refuses at the
+  # top level.
+  if isinstance(left, dict) and isinstance(right, dict):
+    if set(left) != set(right):
+      return False
+    for k in left:
+      if not _same_fact(left[k], right[k]):
+        return False
+    return True
   if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
     return list(left) == list(right)
   return left == right

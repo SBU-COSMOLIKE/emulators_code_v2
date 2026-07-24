@@ -384,7 +384,8 @@ class InferenceCompositionRoutingTest(unittest.TestCase):
     for mode, pce_base, transfer_base in rows:
       with self.subTest(mode=mode):
         self.assertEqual(
-          inference._select_composition(mode, pce_base, transfer_base),
+          inference._select_composition(mode, pce_base, transfer_base,
+                                        where="artifact.h5"),
           (pce_base, transfer_base))
 
   def test_presence_cannot_override_runtime_mode(self):
@@ -404,7 +405,8 @@ class InferenceCompositionRoutingTest(unittest.TestCase):
       with self.subTest(mode=mode, pce=pce_base is not None,
                         transfer=transfer_base is not None):
         with self.assertRaisesRegex(ValueError, "composition_mode"):
-          inference._select_composition(mode, pce_base, transfer_base)
+          inference._select_composition(mode, pce_base, transfer_base,
+                                        where="artifact.h5")
 
 
 class _OrderingGeometry:

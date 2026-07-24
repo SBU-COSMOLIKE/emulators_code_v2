@@ -1338,9 +1338,12 @@ def save_emulator(path_root,
                      tensors), "thresholds".
     train_args     = the collapsed train_args the run actually used
                      (search ranges resolved), or None to omit.
-    attrs          = optional mapping of scalar run metadata, each
-                     written as one h5 root attribute. It may not replace the
-                     writer-owned composition declarations.
+    attrs          = REQUIRED mapping of scalar run metadata, each
+                     written as one h5 root attribute. It must record the
+                     explicit native string rescale='none' (schema 3 stores
+                     no inverse for rescaled or residual targets, so a
+                     missing rescale is refused, never defaulted). It may
+                     not replace the writer-owned composition declarations.
     pce            = fitted PCEEmulator base for an NPCE run, else None.
     pce_form       = NPCE recombination form, required with pce, else None.
     resolved_train = the training settings the run actually consumed,
@@ -1385,11 +1388,12 @@ def save_emulator(path_root,
     TypeError when facts_yaml is not text or a resolved recipe is not a plain
     mapping.
     ValueError when the composition facts, payload, and consumed records
-    disagree; when facts_yaml or either resolved recipe is missing; when the
-    sidecar breaks a law in fixed_facts.validate; when the whitening geometry
-    and the sidecar disagree on the sampled parameters; when the destination
-    root already exists; or when a structured model's fixed padding layout
-    disagrees with its output geometry.
+    disagree; when attrs is not a mapping recording the explicit native
+    string rescale='none'; when facts_yaml or either resolved recipe is
+    missing; when the sidecar breaks a law in fixed_facts.validate; when the
+    whitening geometry and the sidecar disagree on the sampled parameters;
+    when the destination root already exists; or when a structured model's
+    fixed padding layout disagrees with its output geometry.
     These required-input checks run before model.state_dict and before any
     temporary or final output is created.
   """
@@ -2522,7 +2526,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
       checkpoint, device=device, where=path_root + ".emul",
       expected_token=stored_token)
 
-  def _rebuild_model(rc, geom_for_needs, state, want_compile):
+  def _rebuild_model(rc, geom_for_needs, state, want_compile, which):
     """Reconstruct one module from its saved recipe and state dict.
 
     Shared by the main model (the correction net on a transfer run, or
@@ -2539,15 +2543,19 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        mapping to load strict.
       want_compile   = whether to wrap the module in torch.compile with
                        the recipe's stored mode.
+      which          = a short label ("live model" / "transfer base") for
+                       which module this is, so a refusal names the right
+                       one on a transfer artifact that carries both.
 
     Returns:
       the module in eval() with the weights loaded (compiled when
       requested and a mode is stored).
     """
-    cls_path = _need(rc, "cls", "model_recipe")
+    rc_where = which + " model_recipe"
+    cls_path = _need(rc, "cls", rc_where)
     mn, _, qn = cls_path.rpartition(".")
     cls = getattr(importlib.import_module(mn), qn)
-    kwargs = dict(_need(rc, "kwargs", "model_recipe"))
+    kwargs = dict(_need(rc, "kwargs", rc_where))
     # re-make the factory objects from their serialized names.
     if "block_opts" in kwargs:
       bo  = kwargs["block_opts"]
@@ -2564,7 +2572,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
       kwargs["head_act"] = make_activation(
         _need(ha, "type", "head_act"),
         n_gates=_need(ha, "n_gates", "head_act"))
-    needs_geom = _need(rc, "needs_geom", "model_recipe")
+    needs_geom = _need(rc, "needs_geom", rc_where)
     if needs_geom:
       # Structured heads need bin counts plus the exact physical slot map and
       # validity mask. A diagonal family (cmb / grid / grid2d) derives its
@@ -2591,13 +2599,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
             f"{path_root}.emul has no {name} buffer. This structured-head "
             "artifact predates physical padding-map persistence; retrain it")
       kwargs["geom"] = geom_for_needs
-    m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
-            output_dim=_need(rc, "output_dim", "model_recipe"),
+    m = cls(input_dim=_need(rc, "input_dim", rc_where),
+            output_dim=_need(rc, "output_dim", rc_where),
             **kwargs).to(device)
-    cm = _need(rc, "compile_mode", "model_recipe")
+    cm = _need(rc, "compile_mode", rc_where)
     set_runtime_compile_mode(m, cm)
     check_model_matches_recipe(
-      m, rc, where=path_root + ": rebuilt live model")
+      m, rc, where=path_root + ": rebuilt " + which)
     if needs_geom:
       for name in ("pad_idx", "pad_valid"):
         expected = getattr(m, name).detach().cpu()
@@ -2617,14 +2625,15 @@ def rebuild_emulator(path_root, device, compile_model=True):
   # the main model: the correction net (transfer run) or the plain emulator.
   # the .emul holds its plain state dict; re-compile per the recipe on CUDA.
   model = _rebuild_model(rc=recipe, geom_for_needs=geom, state=sd,
-                         want_compile=compile_model)
+                         want_compile=compile_model, which="live model")
 
   # the frozen transfer base, rebuilt from the embedded recipe + weights +
   # geometries (never compiled: a batch-1 no_grad component of the predictor).
   transfer_base = None
   if composition_mode == "transfer":
     base_model = _rebuild_model(rc=tb_recipe, geom_for_needs=tb_geom,
-                                state=tb_state, want_compile=False)
+                                state=tb_state, want_compile=False,
+                                which="transfer base")
     transfer_base = {"model": base_model,
                      "pgeom": tb_pgeom,
                      "geom":  tb_geom}

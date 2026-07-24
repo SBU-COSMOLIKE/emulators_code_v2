@@ -119,7 +119,7 @@ def _require_prediction_tensor(value, *, stage, shape, where):
   return value
 
 
-def _select_composition(composition_mode, pce_base, transfer_base):
+def _select_composition(composition_mode, pce_base, transfer_base, where):
   """Corroborate the declared composition mode against its payloads.
 
   ``rebuild_emulator`` has already checked the HDF5 enum against its exact
@@ -133,6 +133,9 @@ def _select_composition(composition_mode, pce_base, transfer_base):
                        "transfer").
     pce_base         = the rebuilt PCEEmulator base, else None.
     transfer_base    = the rebuilt embedded-base mapping, else None.
+    where            = the artifact's identity (its path root), named in
+                       every refusal so a chain serving several emulators
+                       does not leave the reader guessing which file failed.
 
   Returns:
     the (pce_base, transfer_base) pair, unchanged, once corroborated.
@@ -144,15 +147,15 @@ def _select_composition(composition_mode, pce_base, transfer_base):
   if type(composition_mode) is not str or composition_mode not in (
       "plain", "npce", "transfer"):
     raise ValueError(
-      "composition_mode must be 'plain', 'npce', or 'transfer', got "
-      + repr(composition_mode))
+      str(where) + ": composition_mode must be 'plain', 'npce', or "
+      "'transfer', got " + repr(composition_mode))
   expect_pce = composition_mode == "npce"
   expect_transfer = composition_mode == "transfer"
   have_pce = pce_base is not None
   have_transfer = transfer_base is not None
   if have_pce != expect_pce or have_transfer != expect_transfer:
     raise ValueError(
-      "validated composition_mode=" + repr(composition_mode)
+      str(where) + ": validated composition_mode=" + repr(composition_mode)
       + " requires pce_base=" + repr(expect_pce)
       + " and transfer_base=" + repr(expect_transfer)
       + ", but rebuild info carries pce_base=" + repr(have_pce)
@@ -383,18 +386,20 @@ class EmulatorPredictor:
     self.input_domain = self.record[fixed_facts.INPUT_DOMAIN_GROUP]
     self.composition_mode = info["composition_mode"]
     self.transfer_refined = info["transfer_refined"]
-    pce_base, transfer_base = _select_composition(
-      composition_mode=self.composition_mode,
-      pce_base=info["pce_base"],
-      transfer_base=info["transfer_base"])
-    pce_form = info["pce_form"]
-    transfer_form = info["transfer_form"]
-    transfer_space = info["transfer_space"]
     # the artifact's identity, named in every refusal the laws raise. A refusal
     # that does not say WHICH file it refused sends the reader back to a config
     # to guess, and a chain that serves several emulators has several to guess
-    # between.
+    # between. Set before the composition corroboration below so its refusals
+    # carry it too.
     self._where = str(path_root)
+    pce_base, transfer_base = _select_composition(
+      composition_mode=self.composition_mode,
+      pce_base=info["pce_base"],
+      transfer_base=info["transfer_base"],
+      where=self._where)
+    pce_form = info["pce_form"]
+    transfer_form = info["transfer_form"]
+    transfer_space = info["transfer_space"]
     # the sampled region, parsed out of the record's text ONCE. predict()
     # compares every point against it, so a chain pays this parse a single time
     # instead of once per step. fixed_facts compiles it and fixed_facts compares
@@ -715,7 +720,8 @@ class EmulatorPredictor:
     pce_base, transfer_base = _select_composition(
       composition_mode=composition_mode,
       pce_base=pce_base,
-      transfer_base=transfer_base)
+      transfer_base=transfer_base,
+      where=self._where)
     if composition_mode == "transfer":
       from .losses.transfer import TransferDiagChi2
       chi2 = TransferDiagChi2(
@@ -837,7 +843,8 @@ class EmulatorPredictor:
     pce_base, transfer_base = _select_composition(
       composition_mode=composition_mode,
       pce_base=pce_base,
-      transfer_base=transfer_base)
+      transfer_base=transfer_base,
+      where=self._where)
     if composition_mode == "transfer":
       # the transfer decoder composes the frozen base with the correction
       # on the base's own column slice, exactly as training did
@@ -849,6 +856,13 @@ class EmulatorPredictor:
       base_pg = transfer_base["pgeom"]
       if type(base_pg).__name__ == "AmplitudeFactorGeometry":
         from .experiment import IA_DESIGNS
+        if ia not in IA_DESIGNS:
+          raise ValueError(
+            "the transfer base is a factored intrinsic-alignment "
+            "emulator, but the saved recipe's ia design " + repr(ia)
+            + " is not one of " + repr(sorted(IA_DESIGNS)) + ". The "
+            "artifact is inconsistent or corrupt; re-save it from a run "
+            "whose base and correction agree on the ia family.")
         des         = IA_DESIGNS[ia]
         base_in_dim = len(base_pg.pg_keep.names)
         n_amps      = base_pg.n_amps
@@ -987,7 +1001,19 @@ class EmulatorPredictor:
             "geometry holds it. Hand in a mapping from name to value, which "
             "has no order to get wrong, or hand the values in the emulator's "
             "own order.")
-      return list(values)
+      # the names lined up, but the values must still be a sequence. A
+      # one-parameter emulator handed (["H0"], 70.0) reaches here with a
+      # bare float in the value slot, and list(70.0) would raise a
+      # context-free TypeError; refuse it by name instead. A length that
+      # disagrees with the names is caught downstream (the "got N values"
+      # check), which is why only the not-a-sequence case is guarded here.
+      try:
+        return list(values)
+      except TypeError:
+        raise TypeError(
+          "predict() was handed a (names, values) pair whose values are not "
+          "a sequence (got a " + type(values).__name__ + "). Pair the names "
+          "with an equally long sequence of numbers, one value per name.")
 
     raise TypeError(
       "predict() was handed a bare ordered sequence (a "

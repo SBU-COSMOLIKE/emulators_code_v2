@@ -421,8 +421,15 @@ def set_runtime_compile_mode(model, compile_mode):
 
   Raises:
     ValueError when the model carries no constructor recipe (it did not
-    come from a registered constructor).
+    come from a registered constructor), or when compile_mode is not one
+    of COMPILE_MODES.
   """
+  if compile_mode not in COMPILE_MODES:
+    raise ValueError(
+      "set_runtime_compile_mode: compile_mode must be one of "
+      + repr(COMPILE_MODES) + "; got " + repr(compile_mode)
+      + ". Stamping an unknown mode here would only surface later at "
+      "torch.compile or at save; refuse it at the stamping site.")
   eager = _unwrapped_model(model)
   if not hasattr(eager, "model_recipe"):
     raise ValueError(
