@@ -80,15 +80,15 @@ Choose by the result you want:
 
 | Your goal | Copy this file | Run this program |
 | --- | --- | --- |
-| Train one cosmic-shear emulator | [`cosmic_shear_train_emulator.yaml`](cosmic_shear_train_emulator.yaml) | `cosmic_shear_train_emulator.py` |
-| Predict named values such as `H0` and `omegam` | [`scalar_emulator.yaml`](scalar_emulator.yaml) | `scalar_train_emulator.py` |
-| Train one CMB spectrum: TT, TE, EE, or lensing potential | [`cmb_emulator.yaml`](cmb_emulator.yaml) | `cmb_train_emulator.py` |
-| Train the supernova-range $H(z)$ model | [`baosn_hubble_emulator.yaml`](baosn_hubble_emulator.yaml) | `baosn_train_emulator.py` |
-| Train the nonlinear matter-power boost | [`mps_boost_emulator.yaml`](mps_boost_emulator.yaml) | `mps_train_emulator.py` |
-| Try a stated list of values for one cosmic-shear setting | [`cosmic_shear_sweep_hyperparam_emulator.yaml`](cosmic_shear_sweep_hyperparam_emulator.yaml) | `cosmic_shear_sweep_hyperparam_emulator.py` |
-| Search several numeric cosmic-shear settings | [`cosmic_shear_tune_emulator.yaml`](cosmic_shear_tune_emulator.yaml) | `cosmic_shear_tune_emulator.py` |
-| Continue a saved cosmic-shear model on new data | [`cosmic_shear_finetune_emulator.yaml`](cosmic_shear_finetune_emulator.yaml) | `cosmic_shear_train_emulator.py` |
-| Keep a saved cosmic-shear model fixed and learn a correction | [`cosmic_shear_transfer_emulator.yaml`](cosmic_shear_transfer_emulator.yaml) | `cosmic_shear_train_emulator.py` |
+| Train one cosmic-shear emulator | [`cosmic_shear_train_emulator.yaml`](cosmic_shear_train_emulator.yaml) | `driver/cosmic_shear_train_emulator.py` |
+| Predict named values such as `H0` and `omegam` | [`scalar_emulator.yaml`](scalar_emulator.yaml) | `driver/scalar_train_emulator.py` |
+| Train one CMB spectrum: TT, TE, EE, or lensing potential | [`cmb_emulator.yaml`](cmb_emulator.yaml) | `driver/cmb_train_emulator.py` |
+| Train the supernova-range $H(z)$ model | [`baosn_hubble_emulator.yaml`](baosn_hubble_emulator.yaml) | `driver/baosn_train_emulator.py` |
+| Train the nonlinear matter-power boost | [`mps_boost_emulator.yaml`](mps_boost_emulator.yaml) | `driver/mps_train_emulator.py` |
+| Try a stated list of values for one cosmic-shear setting | [`cosmic_shear_sweep_hyperparam_emulator.yaml`](cosmic_shear_sweep_hyperparam_emulator.yaml) | `driver/cosmic_shear_sweep_hyperparam_emulator.py` |
+| Search several numeric cosmic-shear settings | [`cosmic_shear_tune_emulator.yaml`](cosmic_shear_tune_emulator.yaml) | `driver/cosmic_shear_tune_emulator.py` |
+| Continue a saved cosmic-shear model on new data | [`cosmic_shear_finetune_emulator.yaml`](cosmic_shear_finetune_emulator.yaml) | `driver/cosmic_shear_train_emulator.py` |
+| Keep a saved cosmic-shear model fixed and learn a correction | [`cosmic_shear_transfer_emulator.yaml`](cosmic_shear_transfer_emulator.yaml) | `driver/cosmic_shear_train_emulator.py` |
 | Calculate the covariance used by CMB training | [`cmb_covariance_lcdm.yaml`](cmb_covariance_lcdm.yaml) | `compute_data_vectors/compute_cmb_covariance.py` |
 
 The last row is not emulator training. It produces the `.npz` covariance file
@@ -219,7 +219,7 @@ D=external_modules/code/emulators_code_v2
 PROJECT=projects/lsst_y1
 CONFIG_DIR=emulators/training_scripts
 
-python "$D/cosmic_shear_train_emulator.py" \
+python "$D/driver/cosmic_shear_train_emulator.py" \
   --root "$PROJECT" \
   --fileroot "$CONFIG_DIR" \
   --yaml my_cosmic_shear.yaml \
@@ -236,7 +236,7 @@ diagnostic PDF in [Run and validate](../README.md#start-run).
 
 For another family, keep the same three path options and replace the program
 and YAML name with the pair in [the chooser table](#choose-file). For example,
-`python "$D/cmb_train_emulator.py" --help` prints the CMB trainer's options.
+`python "$D/driver/cmb_train_emulator.py" --help` prints the CMB trainer's options.
 `--help` does not open or check your YAML.
 
 ---
@@ -548,8 +548,8 @@ A normal training program uses that first number instead of searching.
 
 Only cosmic shear has separate sweep and tuning templates in this folder.
 For another family, copy its family file, add one `sweep` block or numeric
-ranges, and run the matching `<family>_sweep_hyperparam_emulator.py` or
-`<family>_tune_emulator.py` program. Replace `<family>` with `scalar`, `cmb`,
+ranges, and run the matching `driver/<family>_sweep_hyperparam_emulator.py` or
+`driver/<family>_tune_emulator.py` program. Replace `<family>` with `scalar`, `cmb`,
 `baosn`, or `mps`. The main README explains
 [one-setting sweeps](../README.md#a-one-knob-sweep) and
 [multi-setting searches](../README.md#a-hyperparameter-search).

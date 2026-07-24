@@ -43,8 +43,8 @@ Only cosmic-shear training imports CosmoLike, through
 NumPy, SciPy, YAML, HDF5, and psutil. Some plots require Matplotlib and
 GetDist.
 
-The commands that call this package sit one folder above `emulator/`. Other
-folders have their own guides:
+The commands that call this package live in `driver/`, beside `emulator/`.
+Other folders have their own guides:
 
 | Folder | Guide |
 |---|---|
@@ -76,7 +76,7 @@ folders have their own guides:
 | how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
 | a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (tune/sweep family versions and the CMB/BAOSN/MPS trainers are thin wrappers over the cosmic-shear mains; scalar train is the standalone, data-vector-free exception) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
-| the stable name of a tuning study | `resolve_study_name` in `cosmic_shear_tune_emulator.py` |
+| the stable name of a tuning study | `resolve_study_name` in `driver/cosmic_shear_tune_emulator.py` |
 | multi-GPU balancing | `scheduling.py` |
 | the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |
 | one generator's physics | that generator's `_compute_dvs_from_sample` only |
@@ -347,10 +347,10 @@ Post-training analyses (each returns a dict the plotting reads).
 
 Each `main()` reads `--root` / `--fileroot` / `--yaml`.
 
-- `cosmic_shear_train_emulator.py` — one training run (any dv-shaped family) + the diagnostics PDF.
-- `scalar_train_emulator.py` — one scalar run + the diagnostics PDF.
-- `cmb_train_emulator.py` / `baosn_train_emulator.py` / `mps_train_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
-- `cosmic_shear_tune_emulator.py` — the Optuna driver (serial or the multi-GPU journal study); `{scalar,cmb,baosn,mps}_tune_emulator.py` — thin family wrappers over its `main(prog, family)`.
-- `cosmic_shear_sweep_ntrain_emulator.py` — the learning-curve driver (multi-GPU, LPT, `--gpu-pack`); `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` — thin family wrappers.
-- `cosmic_shear_sweep_hyperparam_emulator.py` — one YAML-chosen knob (multi-GPU); `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` — thin family wrappers.
-- `cosmic_shear_bakeoff_activation_emulator.py` — one curve per activation.
+- `driver/cosmic_shear_train_emulator.py` — one training run (any dv-shaped family) + the diagnostics PDF.
+- `driver/scalar_train_emulator.py` — one scalar run + the diagnostics PDF.
+- `driver/cmb_train_emulator.py` / `driver/baosn_train_emulator.py` / `driver/mps_train_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
+- `driver/cosmic_shear_tune_emulator.py` — the Optuna driver (serial or the multi-GPU journal study); `{scalar,cmb,baosn,mps}_tune_emulator.py` — thin family wrappers over its `main(prog, family)`.
+- `driver/cosmic_shear_sweep_ntrain_emulator.py` — the learning-curve driver (multi-GPU, LPT, `--gpu-pack`); `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` — thin family wrappers.
+- `driver/cosmic_shear_sweep_hyperparam_emulator.py` — one YAML-chosen knob (multi-GPU); `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` — thin family wrappers.
+- `driver/cosmic_shear_bakeoff_activation_emulator.py` — one curve per activation.

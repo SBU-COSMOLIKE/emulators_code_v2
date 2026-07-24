@@ -3,7 +3,7 @@
 ## What this is
 
 Multi-family Cocoa emulator program (PyTorch): the `emulator/` package,
-the family train/tune/sweep drivers at the root, the dataset generators
+the family train/tune/sweep drivers under `driver/`, the dataset generators
 under `compute_data_vectors/`, the Cobaya adapters under `cobaya_theory/`,
 the vendored syren formulas, and the executable acceptance board under
 `ai/gates/`. Five output families: cosmic shear (full-3x2pt chi2 from

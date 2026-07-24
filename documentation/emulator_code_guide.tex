@@ -791,7 +791,7 @@ engine retains the definition of one optimizer step.}
 
 For example, the ordinary cosmic-shear command has the form
 \begin{verbatim}
-python cosmic_shear_train_emulator.py \
+python driver/cosmic_shear_train_emulator.py \
   --root projects/lsst_y1/ \
   --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml \
@@ -1635,7 +1635,7 @@ names explicitly through the \code{.paramnames} sidecar.
 
 \subsection{Control path: resolving a run before touching the rows}
 
-The single-run driver is \code{cosmic\_shear\_train\_emulator.py}.  Its
+The single-run driver is \code{driver/cosmic\_shear\_train\_emulator.py}.  Its
 family siblings call the same package layer.  Table~\ref{tab:startup-control}
 shows the startup chain as changes of program state.  The left object in a row
 already exists.  The owner in the middle validates or constructs the object

@@ -16,7 +16,7 @@ An emulator is a trained approximation that reproduces an expensive
 calculation quickly enough to use inside parameter inference.
 
 Start with one existing training YAML configuration file and one
-`*_train_emulator.py` training program.
+`driver/*_train_emulator.py` training program.
 The five numbered sections below lead to a first saved model. The
 [question-led appendices](#faq-appendices) explain the scientific choices and
 point to the focused guides that own longer configuration and code material.
@@ -88,7 +88,7 @@ Set `D` to this repository and print the options for one training program:
 ```bash
 cd "$ROOTDIR"
 D="$ROOTDIR/external_modules/code/emulators_code_v2"
-python "$D/cosmic_shear_train_emulator.py" --help
+python "$D/driver/cosmic_shear_train_emulator.py" --help
 ```
 
 The cosmic-shear path also needs the compiled CoCoA/CosmoLike installation.
@@ -107,11 +107,11 @@ automatic searches.
 
 | Goal | Required `data` key | One-run driver |
 |---|---|---|
-| Cosmic shear / CosmoLike vector | CosmoLike dataset keys | `cosmic_shear_train_emulator.py` |
-| Named scalar outputs | `outputs` | `scalar_train_emulator.py` |
-| TT, TE, EE, or lensing-potential spectrum | `cmb` | `cmb_train_emulator.py` |
-| $H(z)$ or a distance function | `grid` | `baosn_train_emulator.py` |
-| $P(k,z)$ or nonlinear boost | `grid2d` | `mps_train_emulator.py` |
+| Cosmic shear / CosmoLike vector | CosmoLike dataset keys | `driver/cosmic_shear_train_emulator.py` |
+| Named scalar outputs | `outputs` | `driver/scalar_train_emulator.py` |
+| TT, TE, EE, or lensing-potential spectrum | `cmb` | `driver/cmb_train_emulator.py` |
+| $H(z)$ or a distance function | `grid` | `driver/baosn_train_emulator.py` |
+| $P(k,z)$ or nonlinear boost | `grid2d` | `driver/mps_train_emulator.py` |
 
 The complete command matrix is in
 [FAQ A4](#drivers-table). The family-specific input definitions are in
@@ -248,7 +248,7 @@ folder. `--fileroot` normally names the folder holding the YAML, and `--yaml`
 is normally a bare filename there; `--yaml` may instead be an absolute path:
 
 ```bash
-python "$D/cosmic_shear_train_emulator.py" \
+python "$D/driver/cosmic_shear_train_emulator.py" \
   --root projects/lsst_y1/ \
   --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml \
@@ -361,7 +361,7 @@ complete training to each GPU. It uses all visible GPUs by default. See
 [Multi-GPU execution and packing](#multi-gpu).
 
 ```bash
-python $D/cosmic_shear_sweep_ntrain_emulator.py \
+python $D/driver/cosmic_shear_sweep_ntrain_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml --n-points 8 --out curve
 ```
@@ -374,7 +374,7 @@ a top-level `sweep:` block by following
 then run:
 
 ```bash
-python "$D/cosmic_shear_sweep_hyperparam_emulator.py" \
+python "$D/driver/cosmic_shear_sweep_hyperparam_emulator.py" \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml --out lrsweep
 ```
@@ -388,7 +388,7 @@ still uses each marked value's first entry. Follow
 to write those ranges. `--n-trials` limits how many combinations it tries:
 
 ```bash
-python "$D/cosmic_shear_tune_emulator.py" \
+python "$D/driver/cosmic_shear_tune_emulator.py" \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_tune_emulator.yaml --n-trials 64
 ```
@@ -402,7 +402,7 @@ compared training size. Crossing curves give a ranking that depends on the
 training-set size. Coincident curves indicate a tie.
 
 ```bash
-python $D/cosmic_shear_bakeoff_activation_emulator.py \
+python $D/driver/cosmic_shear_bakeoff_activation_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml --out bakeoff
 ```
@@ -517,7 +517,7 @@ Some jobs add one top-level block beside them:
 | `transfer` | Reuse part of a compatible saved emulator. |
 
 A tuning file may replace a number below `train_args` with
-`[default, minimum, maximum, kind]`. Only a `*_tune_emulator.py` program
+`[default, minimum, maximum, kind]`. Only a `driver/*_tune_emulator.py` program
 searches those ranges. Other programs use the first value. A range is not
 valid in `data`, `pce`, `transfer`, or `sweep`.
 

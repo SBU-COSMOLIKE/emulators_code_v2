@@ -502,7 +502,7 @@ must be a real Boolean. A catch-all residual branch is forbidden.
 
 ## Driver and study identity
 
-Public drivers follow `<family>_<verb>_emulator.py`. Family wrappers are thin:
+Public drivers live in `driver/` and follow `<family>_<verb>_emulator.py`. Family wrappers are thin:
 they pin family and program name while using the shared engine for GPU pools,
 packing, balancing, journal storage, and sweep logic. A wrong-family YAML
 fails at startup and names the correct driver.

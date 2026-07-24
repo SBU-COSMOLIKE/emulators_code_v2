@@ -301,7 +301,7 @@ or numerical prediction agreement.
   Successful training calls write the driver's ordinary `.emul` and `.h5`
   products, but this gate does not read those products back; the board runner
   writes the gate's raw log.
-- subprocess: runs `cosmic_shear_train_emulator.py` for the pinned-head
+- subprocess: runs `driver/cosmic_shear_train_emulator.py` for the pinned-head
   configuration, for that configuration plus `--activation=power`, and for
   the deliberately invalid unfrozen-head configuration. A golden leg supplied
   with a pinned base runs the candidate and pinned drivers once each. There is no separate
@@ -373,7 +373,7 @@ the required workstation is available.
   Successful calls write the driver's ordinary `.emul` and `.h5` products,
   but this gate does not read those products back; the board runner writes the
   gate's raw log.
-- subprocess: runs `cosmic_shear_train_emulator.py` once for the
+- subprocess: runs `driver/cosmic_shear_train_emulator.py` once for the
   `relu`/`per_feature` configuration and once for the `tanh`/`affine`
   configuration. The board also runs
   `ai/gates/checks/d5_training_behaviors.py --gate relu-tanh-norm`. A golden
@@ -563,10 +563,10 @@ base fit inside each sweep worker require separate executable witnesses.
   Successful calls write the drivers' ordinary `.emul`/`.h5` and sweep
   products; this gate does not read a saved NPCE artifact back, and the board
   runner writes the gate's raw log.
-- subprocess: runs `cosmic_shear_train_emulator.py` for residual and ratio
+- subprocess: runs `driver/cosmic_shear_train_emulator.py` for residual and ratio
   NPCE, for the invalid NPCE-plus-IA configuration, and for NPCE plus the
   `--rescale=residual` flag.  It runs
-  `cosmic_shear_sweep_ntrain_emulator.py` with a requested two-point training
+  `driver/cosmic_shear_sweep_ntrain_emulator.py` with a requested two-point training
   set-size grid. A golden leg supplied with a pinned base additionally runs the
   candidate and pinned single-training drivers. There is no separate `ai/gates/checks/`
   child.

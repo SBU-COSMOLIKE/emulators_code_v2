@@ -142,8 +142,9 @@ The supporting files have narrower jobs:
 | `scheduling.py`, `family_drivers.py` | divide multi-run searches among devices |
 | `background.py`, `syren_base.py`, `analytics.py` | apply analytic physics outside the neural network |
 
-The training commands sit beside the `emulator/` folder, not inside it. A
-command can therefore import this package without an extra Python-path step.
+The training commands live in the `driver/` folder beside `emulator/`, not
+inside the package. Each driver adds the repository root to its import path
+at startup, so the commands run from any working folder.
 
 ### Appendix A2. Which physical quantities can one emulator predict? <a id="3-the-five-emulator-families"></a><a id="2-the-five-emulator-families"></a>
 

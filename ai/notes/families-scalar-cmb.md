@@ -135,7 +135,7 @@ plausible.
 
 #### Rule
 
-`scalar_train_emulator.py` is the scalar driver. It reads only scalar-legal
+`driver/scalar_train_emulator.py` is the scalar driver. It reads only scalar-legal
 keys. The run tag and artifact metadata use parameter tables, ordered input and
 output names, and row counts. They do not read or invent `train_dv` or
 `val_dv`. A scalar config containing those keys is a schema error.
