@@ -250,6 +250,17 @@ class Grid2DGeometry:
         "nz*nk = " + str(int(n_out)) + "; got center "
         + str(int(center.shape[0])) + ", scale "
         + str(int(scale.shape[0])))
+    # non-finite moments make `tiny` non-finite and `scale <= tiny`
+    # silently False, so the un-standardizable guard below would never
+    # fire and a nan/inf geometry would be built (a +inf raw row that
+    # slipped a law guard, or a corrupt dump). Refuse here, at the single
+    # home of the pin rules, the same way the 1-D grid geometry does.
+    if not (np.isfinite(center).all() and np.isfinite(scale).all()):
+      raise ValueError(
+        "Grid2DGeometry.from_stats: the law-space moments contain "
+        "non-finite values (center or scale). This is a corrupt or "
+        "overflowed training dump; repair or regenerate it before "
+        "building the geometry.")
     # the un-standardizable points: a law-space column with no spread.
     tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
     zero = np.nonzero(scale <= tiny)[0]

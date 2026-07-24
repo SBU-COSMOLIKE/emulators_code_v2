@@ -33,6 +33,8 @@ the arrows bottom-up, exactly inverting each step.)
 import numpy as np
 import torch
 
+from ..validation import whitening_scale_from_eigenvalues
+
 
 class ParamGeometry:
   """
@@ -133,7 +135,9 @@ class ParamGeometry:
       names = f.readline().lstrip("#").split()
     cov = np.loadtxt(covmat_path)
     lam, V = np.linalg.eigh(cov)
-    return cls(device=device, names=names, center=center, evecs=V, sqrt_ev=np.sqrt(lam))
+    sqrt_ev = whitening_scale_from_eigenvalues(lam, covmat_path)
+    return cls(device=device, names=names, center=center, evecs=V,
+               sqrt_ev=sqrt_ev)
 
   def state(self):
     """Collect the persistable transform, keys matching __init__.
@@ -455,11 +459,12 @@ class AmplitudeFactorGeometry:
                else np.asarray(center))[keep]
 
     lam, V  = np.linalg.eigh(cov_k)
+    sqrt_ev = whitening_scale_from_eigenvalues(lam, covmat_path)
     kept_names = []
     for j in keep:
       kept_names.append(names[j])
     pg_keep = ParamGeometry(device, kept_names,
-                            cen, V, np.sqrt(lam))
+                            cen, V, sqrt_ev)
 
     return cls(device=device, pg_keep=pg_keep, amp_idx=amp_idx,
                n_param=len(names), names=names)

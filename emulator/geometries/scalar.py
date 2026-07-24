@@ -136,6 +136,25 @@ class ScalarGeometry:
       a ScalarGeometry whose encode standardizes each output.
     """
     Y = np.asarray(targets, dtype="float64")
+    if Y.ndim != 2 or Y.shape[1] != len(names):
+      raise ValueError(
+        "ScalarGeometry.from_targets: targets must be (N, n_out) with "
+        "n_out = the number of output names; got " + repr(Y.shape)
+        + " against " + repr(len(names)) + " names")
+    # a non-finite target column makes center and scale non-finite, and
+    # nan <= tiny is silently False, so the un-standardizable guard below
+    # would never fire and a nan geometry would be built. Refuse the raw
+    # targets first, naming the bad column(s), the same way the grid
+    # geometry does.
+    bad_raw = np.argwhere(~np.isfinite(Y))
+    if bad_raw.size > 0:
+      bad = []
+      for j in np.unique(bad_raw[:, 1]).tolist()[:8]:
+        bad.append(names[j])
+      raise ValueError(
+        "ScalarGeometry.from_targets: raw target column(s) " + repr(bad)
+        + " (first 8) contain non-finite values. Repair or regenerate "
+        "the training dump before building the geometry.")
     center = Y.mean(0)
     scale  = Y.std(0)                         # population std (ddof 0)
     # a constant column's std is pure mean-rounding noise

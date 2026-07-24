@@ -161,6 +161,24 @@ class CmbDiagonalGeometry:
     self.sigma = torch.as_tensor(sigma,
                                  dtype=torch.float32,
                                  device=device)
+    # sigma is the whitening unit: whiten divides by it, so a zero sigma
+    # makes every whitened target infinite and a non-finite sigma makes
+    # it not-a-number, silently poisoning the run until the finite
+    # contract aborts with no multipole named. Both real build paths
+    # (from_fiducial's fixture route and the production covariance .npz
+    # handed straight to this constructor) meet here, so this is the one
+    # place that catches a zero-variance or corrupt sigma at build time.
+    if not bool(torch.isfinite(self.sigma).all()):
+      raise ValueError(
+        "CmbDiagonalGeometry: sigma (the per-multipole cosmic-variance "
+        "whitening scale) contains non-finite values. This is a corrupt "
+        "covariance; repair or regenerate it before building the geometry.")
+    if not bool((self.sigma > 0.0).all()):
+      raise ValueError(
+        "CmbDiagonalGeometry: sigma (the per-multipole cosmic-variance "
+        "whitening scale) must be strictly positive everywhere; got a "
+        "zero or negative entry. A zero-variance multipole would make the "
+        "whitening divide by zero. Check the covariance .npz.")
     self.fiducial_cl = torch.as_tensor(fiducial_cl,
                                        dtype=torch.float32,
                                        device=device)

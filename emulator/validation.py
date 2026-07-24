@@ -15,6 +15,8 @@ import math
 from numbers import Integral
 import struct
 
+import numpy as np
+
 
 def _is_finite_real(value):
   """Return whether a value is a finite, non-Boolean Python real number.
@@ -128,6 +130,49 @@ def require_finite_real(value, name):
   if not math.isfinite(value):
     raise ValueError(name + " must be finite; got " + repr(value))
   return value
+
+
+def whitening_scale_from_eigenvalues(eigenvalues, source):
+  """Square-root a covariance's eigenvalues, refusing a non-positive one.
+
+  A whitening transform divides each direction by the square root of the
+  covariance's eigenvalue in that direction (see the geometry modules).
+  A valid covariance is positive definite, so every eigenvalue is finite
+  and strictly greater than zero.  A zero eigenvalue would make the
+  whitening divide by zero (an infinity); a negative one would take the
+  square root of a negative number (a not-a-number).  Either means the
+  covariance is degenerate -- a pinned or duplicated parameter, or a
+  corrupt covariance file -- so refuse it here, at the build boundary,
+  naming its source, instead of letting the bad scale surface much later
+  as a non-finite training loss with no covariance named.
+
+  Arguments:
+    eigenvalues = the covariance eigenvalues, a NumPy array (for example
+                  the ascending eigenvalues numpy.linalg.eigh returns).
+    source      = a short label for where the covariance came from (a
+                  file path or a probe name), quoted in the refusal.
+
+  Returns:
+    a NumPy array of the eigenvalue square roots: the per-direction
+    whitening scale.
+
+  Raises:
+    ValueError when any eigenvalue is not a finite, strictly positive
+    number.
+  """
+  eigenvalues = np.asarray(eigenvalues, dtype="float64")
+  finite_positive = np.isfinite(eigenvalues) & (eigenvalues > 0.0)
+  if not bool(finite_positive.all()):
+    smallest = float(eigenvalues.min())
+    raise ValueError(
+      "the covariance from " + str(source) + " is not positive definite: "
+      "its smallest eigenvalue is " + repr(smallest) + " (a valid "
+      "covariance has every eigenvalue finite and greater than zero). A "
+      "zero or negative eigenvalue is a degenerate direction -- a pinned "
+      "or duplicated parameter, or a corrupt covariance file -- and would "
+      "make the whitening transform divide by zero. Drop the degenerate "
+      "parameter from the covariance and rebuild.")
+  return np.sqrt(eigenvalues)
 
 
 def require_nonzero_float32(value, name):

@@ -47,6 +47,8 @@ covariance.)
 import os
 import numpy as np
 import torch
+
+from ..validation import whitening_scale_from_eigenvalues
 # cosmolike_lsst_y1_interface and getdist are imported at their use sites
 # (from_cosmolike, build_shear_angle_map), NOT at module level: both are heavy
 # optional training-path dependencies, and importing them here made a missing
@@ -433,7 +435,8 @@ class DataVectorGeometry:
     cov = np.asarray(ci.get_cov_masked(), dtype="float64")
     Cb  = cov[np.ix_(dest_idx, dest_idx)]
     lam, U = np.linalg.eigh(Cb)
-    sqrt_lam = np.sqrt(lam)
+    sqrt_lam = whitening_scale_from_eigenvalues(
+      lam, "the masked cosmolike covariance (probe " + str(probe) + ")")
 
     Cinv = np.asarray(ci.get_inv_cov_masked(),
                       dtype="float64")
@@ -896,6 +899,12 @@ def build_shear_angle_map(geom,
       pairs.append((i, j))
   npair = len(pairs)
   th_full, zi_full, zj_full, pm_full = [], [], [], []
+  # the integer source-pair indices per element: these, not the derived
+  # peak redshifts, are what identifies a bin. Two source bins can peak
+  # at the same grid redshift (coarse or overlapping n(z)), so keying the
+  # bin run-length encoding below on the float z peaks would silently
+  # merge two distinct pairs into one; keying on (i, j) cannot.
+  pi_full, pj_full = [], []
   for _pm in range(2):                      # 0 = xi+, 1 = xi-
     for (i, j) in pairs:
       for t in range(ntheta):
@@ -903,11 +912,15 @@ def build_shear_angle_map(geom,
         zi_full.append(z_src[i])
         zj_full.append(z_src[j])
         pm_full.append(_pm)
+        pi_full.append(i)
+        pj_full.append(j)
   # to numpy, so they fancy-index by the kept positions.
   th_full = np.asarray(th_full)
   zi_full = np.asarray(zi_full)
   zj_full = np.asarray(zj_full)
   pm_full = np.asarray(pm_full)
+  pi_full = np.asarray(pi_full)
+  pj_full = np.asarray(pj_full)
 
   # Full cosmic-shear block length, and the kept positions
   # (dest_idx) as plain ints. assert it really is xi-only: every
@@ -932,15 +945,20 @@ def build_shear_angle_map(geom,
 
   # Per-bin sizes for the per-bin model/geometry. A bin =
   # (xi+/-, source pair) = a contiguous run of kept elements
-  # sharing the same (pm, zsrc_i, zsrc_j), contiguous because
-  # the layout above is pm/pair outer, theta inner, so one bin's
-  # thetas sit together. Run-length encode: walk the kept
+  # sharing the same (pm, source-pair i, source-pair j), contiguous
+  # because the layout above is pm/pair outer, theta inner, so one
+  # bin's thetas sit together. Run-length encode: walk the kept
   # elements in order; start a new bin whenever the key changes,
-  # else increment the current bin's count. .tolist() gives plain
-  # Python scalars so the tuple comparison is exact.
+  # else increment the current bin's count. The key is the INTEGER
+  # pair indices (kept in dest_idx order), never the float peak
+  # redshifts, so two pairs that happen to peak at the same grid z
+  # stay two bins. .tolist() gives plain Python scalars so the tuple
+  # comparison is exact.
+  bin_i = pi_full[keep]
+  bin_j = pj_full[keep]
   bkeys = list(zip(geom.pm_kept.tolist(),
-                   geom.zsrc_i.tolist(),
-                   geom.zsrc_j.tolist()))
+                   bin_i.tolist(),
+                   bin_j.tolist()))
   bin_sizes = []
   for k, key in enumerate(bkeys):
     if k == 0 or key != bkeys[k - 1]:
