@@ -478,9 +478,13 @@ class Anchor:
 def build_anchor(model, optimizer, reference_state, lam, masks=None):
   """Assemble an Anchor over a model's parameters against a reference state.
 
-  Only parameters present in reference_state AND owned by an optimizer group
-  (a frozen parameter has none) are anchored, so a stage that freezes part of
-  the model anchors only what it trains.
+  Every parameter present in reference_state that is owned by an optimizer
+  group is anchored. The optimizer factories here put every parameter in a
+  group whether or not it is frozen, so the "no group" skip below is a
+  defensive guard for a future factory that filters frozen parameters, not
+  a live path today: with these factories the anchored set is exactly the
+  reference_state parameters, and the per-parameter mask (below) is what
+  narrows which elements each one pulls.
 
   Arguments:
     model           = the network whose parameters are anchored.
@@ -1553,6 +1557,16 @@ def _validate_anneal_block(anneal, which):
   if shape not in _ANNEAL_SHAPES:
     raise ValueError(
       f"unknown {q}.shape {shape!r}; one of {list(_ANNEAL_SHAPES)}")
+  # an anneal sub-block ramps its knob from 0 to 1; "const" holds it at 0
+  # forever, so the feature the anneal drives (the berhu blend, the EMA
+  # horizon) silently never turns on -- the kind of no-op block this code
+  # refuses elsewhere. To disable annealing, remove the anneal: block; to
+  # anneal, pick linear / cosine / step.
+  if shape == "const":
+    raise ValueError(
+      f"{q}.shape 'const' would hold the ramp at 0 for the whole run, so "
+      f"the annealed feature never turns on. Remove the anneal: block to "
+      f"disable it, or use linear / cosine / step to ramp it.")
   return dict(anneal)
 
 
@@ -2449,15 +2463,19 @@ def training_loop_batched(nepochs,
                  eval_val each epoch.
     trim_opts  = trim schedule (see anneal_value): "start"/"end"
                  trim fractions, "hold_epochs"/"anneal_epochs",
-                 "shape". None -> hold 5% then cosine-anneal to 0.
+                 "shape". A RESOLVED mapping is required here (this
+                 loop reads it every epoch and does not resolve a
+                 None); run_emulator fills the default (hold 5% then
+                 cosine-anneal to 0) before calling.
     focus_opts = focal-weight schedule (see anneal_value): the
                  per-epoch focus exponent gamma (0 = uniform,
                  higher = harder points weighted more), via
                  "start"/"end", "hold_epochs"/"anneal_epochs",
                  "shape", plus "kappa" (the chi2 scale where the
                  focal weight turns on, fixed over the run, read as
-                 focus_scale; default 1.0). None -> no focal
-                 weighting (gamma = 0).
+                 focus_scale; default 1.0). A RESOLVED mapping is
+                 required here; run_emulator fills the default (no
+                 focal weighting, gamma = 0) before calling.
     thresholds = delta-chi2 cutoffs for the val fractions.
     amp_dtype  = resolved autocast dtype selected by run_emulator.
     scaler_policy = resolved gradient-scaling policy selected by
