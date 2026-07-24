@@ -1,12 +1,49 @@
-% The gate-board appendix of the emulator code guide.
-% This file is \input by documentation/emulator_code_guide.tex and is
-% not a standalone document: compile the main guide with
-%   latexmk -pdf documentation/emulator_code_guide.tex
-% from the repository root.
+% The gate-board companion document of the emulator code guide.
+% Standalone: compile with
+%   latexmk -pdf documentation/emulator_gate_board.tex
+% from the repository root (figure paths are repository-root relative).
+\documentclass[10pt,aps,prd,twocolumn,nofootinbib]{revtex4-2}
+
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\shape}[1]{\ensuremath{\mathtt{#1}}}
+
+% This document keeps its many gate walkthroughs as subsections of a few
+% sections. RevTeX letters subsections (A, B, C, ...) and stops at 26, so
+% number them numerically instead.
+\makeatletter
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\makeatother
+
+\begin{document}
+
+\title{CoCoA SONIC: The Gate Board\\
+Executable Evidence, One Claim at a Time}
+\author{V. Miranda}
+\affiliation{Code documentation manuscript}
+\date{Working draft}
+
+\begin{abstract}
+This companion to the CoCoA SONIC code guide explains every gate
+registered in \code{ai/gates/board.py}, in exact board order.  A gate is a
+named validation job whose required result is written before it starts, and
+the board is the ordered registry that runs them and reconciles their
+verdicts.  The document covers the board's execution machinery, the anatomy
+of identity and smoke checks, worked examples, failure triage, the rules for
+adding a gate without creating a false green, and the safe-use warnings for
+running the board and preserving its evidence.
+\end{abstract}
+
+\maketitle
+
 \section{The gate board, one executable claim at a time}
 \label{app:gates}
 
-This appendix explains all forty gates currently registered in
+This document explains all forty gates currently registered in
 \code{ai/gates/board.py}, in exact board order.  A first-time contributor needs
 to know the gate name, the production path it executes,
 what its fixture means, which value determines the verdict and which
@@ -1816,7 +1853,7 @@ check in the repository makes its source part of the watched evidence surface
 and lets later board runs repeat it.
 
 The final handoff reports counts only after excluding skips and unexecuted
-gates.  On the board described by this appendix, a phrase such as \(40/40\)
+gates.  On the board described by this document, a phrase such as \(40/40\)
 means forty registered required gates executed and passed on the recorded
 surface.  If the environment lacks
 a required lane, the honest result is fewer certified claims plus an explicit
@@ -1848,3 +1885,5 @@ cannot establish an independent analytic truth if its reference repeats the
 production helper.  A PDF existing cannot prove its plotted coordinates.
 The board is useful because those claims stay separate and named.
 
+
+\end{document}

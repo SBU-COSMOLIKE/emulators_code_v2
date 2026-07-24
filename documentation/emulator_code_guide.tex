@@ -5928,7 +5928,11 @@ contiguous request on the independently verified stored axis.
 
 A gate is a test whose failure blocks acceptance of a program unit.  The board
 is the ordered list of gates.  Each entry names its dependencies, required
-software or hardware, owning documentation and executable check.
+software or hardware, owning documentation and executable check.  This
+section explains the idea; the complete forty-gate catalog, the board's
+execution machinery, worked examples, failure triage and safe-use warnings
+live in the companion document \code{documentation/emulator\_gate\_board.pdf}
+(source \code{emulator\_gate\_board.tex}).
 
 \subsection{Identity checks and smoke checks}
 
@@ -6137,9 +6141,8 @@ figures after a structural code change is one acceptance step.  Review must
 also compare each caption with the implementation.
 
 \appendix
-% Appendix A lives in its own source file; the compiled document is
-% unchanged by the split.
-\input{documentation/emulator_gate_board_appendix}
+% The forty-gate board catalog is the companion document
+% documentation/emulator_gate_board.tex, compiled to its own PDF.
 
 \section{A file-by-file route for studying the code}
 \label{app:study-route}
@@ -6551,7 +6554,8 @@ coordinates and identify per-call state replacement.
 
 \paragraph{35.  \code{ai/gates/README.md}.}
 Learn runner vocabulary, tiers, logs, resume and workstation commands.  Treat
-its gate table as navigation into the detailed Appendix~\ref{app:gates}.
+its gate table as navigation into the companion gate-board document
+(\code{documentation/emulator\_gate\_board.pdf}).
 
 \paragraph{36.  \code{ai/gates/board.py}.}
 Read the \code{Gate} record and shared helper functions, then one pure identity
@@ -6570,7 +6574,8 @@ nonzero failure exit.  Family identity checks precede family smokes.
 Read this last.  The scientific claims already live in \code{board.py}.  The
 runner owns preflight, selection, subprocess capture, logs and resume.  Compare
 its branches with the structured-evidence coverage paragraph, the resume-state
-table and the safe-use warnings in Appendix~\ref{app:gates}.
+table and the safe-use warnings in the companion gate-board document
+(\code{documentation/emulator\_gate\_board.pdf}).
 
 \subsection{Three shorter routes}
 

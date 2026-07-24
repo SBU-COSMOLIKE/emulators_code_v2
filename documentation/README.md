@@ -10,6 +10,7 @@ LaTeX source is the editable version.
 | Question | Read | Source |
 | --- | --- | --- |
 | How does a cosmological sample move through the complete emulator library? | [CoCoA SONIC emulator guide](emulator_code_guide.pdf) | [LaTeX](emulator_code_guide.tex) |
+| What does each of the forty acceptance gates prove, and how is the board run safely? | [Gate-board companion](emulator_gate_board.pdf) | [LaTeX](emulator_gate_board.tex) |
 | How do I read the AI ticket-system code under `ai/tools/` — the mailbox, roles, guards, and landing machinery? | [CoCoA-Flow guide](cocoa_flow_guide.pdf) | [LaTeX](cocoa_flow_guide.tex) |
 
 The emulator guide is a full-library manual. It follows generated data through
