@@ -97,6 +97,9 @@ _BOOTSTRAP_WORKTREES = {
     "topology": "separate-role-worktrees-v1",
 }
 _MINIMUM_FORBIDDEN_FILES = {
+    # the live project instructions are .claude/CLAUDE.md (covered by the
+    # .claude/ prefix below); the root name stays forbidden so a candidate
+    # cannot create a new root CLAUDE.md that would inject instructions.
     "CLAUDE.md", ".gitattributes", ".gitignore", ".gitmodules",
     "ai/notes/backlog.md", "ai/notes/.backlog-guard.json",
     "ai/notes/.backlog-guard.lock",

@@ -1105,7 +1105,7 @@ STATE_GUARD_SUFFIX = ".state-guard"
 
 PREAMBLE = (
     "You are invoked headlessly by ai/tools/mailbox_daemon.py (no human is\n"
-    "watching this turn). Resolve your role per CLAUDE.md from the block\n"
+    "watching this turn). Resolve your role per .claude/CLAUDE.md from the block\n"
     "below. The substance is in entries under this exact notes directory:\n"
     "    " + os.path.join(AI_ROOT, "notes") + "\n"
     "Read the cited entries there first. Do the work per your role file.\n"

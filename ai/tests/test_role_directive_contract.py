@@ -30,7 +30,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
         cls.architect = read(".claude/FABLE_ROLE.md")
         cls.implementer = read(".claude/OPUS_ROLE.md")
         cls.redteam = read(".codex/REDTEAM_ROLE.md")
-        cls.claude_entry = read("CLAUDE.md")
+        cls.claude_entry = read(".claude/CLAUDE.md")
         cls.architect_command = read(".claude/commands/architect.md")
         cls.implementer_command = read(".claude/commands/implementer.md")
         cls.readme_contract = read("ai/notes/readme-go-no-go.md")
