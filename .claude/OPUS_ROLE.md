@@ -67,8 +67,9 @@ audit snapshot, the saved Red Team checkout, or the user's `REPO_ROOT`.
 
 The authoritative ticket note and mailbox remain in the shared coordination
 home named by `MAILBOX_SHARED_NOTES`; they are not evidence that source roles
-share a Git worktree. Append the required ignored evidence there while all
-tracked source edits and tests stay in `MAILBOX_EXECUTION_WORKTREE`.
+share a Git worktree. Append the required evidence to the git-ignored ticket
+note there, while all tracked source edits and tests stay in
+`MAILBOX_EXECUTION_WORKTREE`.
 
 `--help`, a no-action preview, invalid commands, and every `--dry-run` form
 write no worktree, branch, state, or bootstrap lock. A first live command may
@@ -165,15 +166,21 @@ restores ticket worktrees.
    The eleven permanent notes, `ai/notes/role-contract.yaml`,
    `ai/notes/implementer-failure-modes.yaml`, and
    `ai/tools/permanent_note_guard.py` are off-limits in every Implementer unit,
-   not only documentation units. The YAML is the protected machine source of
-   truth for stable role permissions, timing limits, and landing rules; it is
-   read-only for this role and is not a twelfth permanent Markdown note. If the
-   directive's `Do not change` section does not list all thirteen exact paths
-   for the notes, reference catalog, and guard, plus the exact role-contract path,
-   return a blocker before editing. The Architect's separate permanent-note
-   landing is not an Implementer unit: do not edit, commit, synchronize,
-   review, or push its B/P pair. The parent daemon handles that route only
-   while ordinary ticket work is inactive. A
+   not only documentation units. `role-contract.yaml` is the protected machine
+   source of truth for stable role permissions, timing limits, and landing
+   rules; it is read-only for this role and is not a twelfth permanent
+   Markdown note. If the directive's `Do not change` section does not list
+   all thirteen exact paths for the notes, reference catalog, and guard, plus
+   the exact role-contract path, return a blocker before editing. Counted
+   plainly, that is fourteen paths: the eleven permanent notes, the reference
+   catalog (`implementer-failure-modes.yaml`), the guard
+   (`permanent_note_guard.py`), and the role contract
+   (`role-contract.yaml`). The Architect's separate permanent-note landing is
+   not an Implementer unit: do not edit, commit, synchronize, review, or push
+   its B/P pair. That sentence is about the Architect's pair only; it says
+   nothing about your own ticket's candidate commit, which step 1c requires.
+   The parent daemon handles that route only while ordinary ticket work is
+   inactive. A
    `MAILBOX-ADMIN: permanent-notes` request never belongs in this lane. If one
    arrives, edit nothing and return a routing blocker. A later ticket waits
    until P has landed and the daemon has safely advanced the clean role
@@ -220,9 +227,14 @@ restores ticket worktrees.
 1b. **Obey the directive's helper decision.** Only the Architect decides
    whether subagents add independent value. A `Subagents not required` plan
    must be copied exactly into the handoff; do not add helpers, rewrite its
-   reason, or invent this waiver yourself. A `Subagents required` plan is
-   mandatory: launch every named helper before making any Integrator-owned
-   implementation edit. Typical independent parts are a
+   reason, or invent this waiver yourself.
+
+   **A `Subagents required` plan is mandatory: launch every named helper
+   before making any Integrator-owned implementation edit.** Doing that work
+   yourself instead is a deviation, not a shortcut: it is refused even when
+   the result would have been identical. Deciding that the helpers were
+   unnecessary is the Architect's call, never yours. Typical independent
+   parts are a
    failure reproducer and evidence capture, production-code edits, regression
    tests, and scoped documentation or audit evidence. An editing subagent is
    part of the Implementer lane; it does not become another mailbox role or
@@ -277,11 +289,28 @@ restores ticket worktrees.
    those actions appear necessary, stop and return the evidence to the
    Architect.
 
-   Commit only the named ticket's tracked changes. The candidate commit must
-   be a new full commit descended from the directive's base, and the final
-   handoff must name that full commit. After committing, do not amend, reset,
-   or advance it. The daemon saves the immutable candidate for Architect
-   audit. Other cycles keep separate candidate refs.
+   **Create the candidate commit yourself. It is required, not forbidden.**
+   Editing the files is not finishing the job. A turn that leaves its work
+   uncommitted has produced nothing the Architect can audit, and the daemon
+   refuses its handoff. Nothing in this role file forbids this commit: the
+   prohibitions elsewhere are about `main`, about pushing, and about the
+   Architect's separate permanent-note pair — never about the candidate
+   commit on your own branch. When the edits are done and the gates pass:
+
+   ```bash
+   git status --short
+   git add <every path the directive names>
+   git commit -m "<one line naming the ticket>"
+   git rev-parse HEAD
+   ```
+
+   Read `git status --short` before staging: every path it lists must belong
+   to this ticket. Commit only those paths. Report the exact 40 characters
+   printed by `git rev-parse HEAD` in the handoff's `Candidate commit` row.
+   The candidate commit must be a new full commit descended from the
+   directive's base. After committing, do not amend, reset, or advance it.
+   The daemon saves the immutable candidate for Architect audit. Other cycles
+   keep separate candidate refs.
 
    After `NO-GO`, preserve the same `MAILBOX-CYCLE`. The daemon restores this
    cycle's execution lane from its saved candidate before the repair turn.
@@ -333,7 +362,7 @@ restores ticket worktrees.
    emitting the chat block. Never add headings inside `## Implementation
    directive`; that packet must remain valid for a repair rerun. If the
    sibling evidence heading is absent, return a blocker. Never edit the
-   permanent eleven listed in `ai/README.md` or
+   eleven permanent notes listed in `ai/README.md` or
    `ai/notes/role-contract.yaml`, regardless of ticket type; deciding whether
    they need an update and making that update belong exclusively to Architect
    protected-policy administration. The relayed
@@ -358,9 +387,11 @@ restores ticket worktrees.
    and no reply is owed: honor it without manufacturing an outbound. If the
    instruction is ambiguous, the ordinary outbound rule applies. Convention:
    `ai/notes/conventions-and-workflow.md`, the mailbox addendum. This role
-   never merges, commits, updates refs, or pushes `main`, and never touches the
-   user's checkout. After Architect GO, only the parent daemon may create and
-   record the distinct squash landing.
+   never merges `main`, never commits to `main`, never updates a ref on
+   `main`, and never pushes anything anywhere. It never touches the user's
+   checkout. None of that forbids the candidate commit on your own branch,
+   which step 1c requires. After Architect GO, only the parent daemon may
+   create and record the distinct squash landing.
 
 6b. **Preserve the ticket-cycle identity.** Every mailbox implementation
    request begins with these exact three lines:
@@ -484,7 +515,9 @@ reopens it.
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
 
 - **Current state:** [what was coded/modified, by file]
-- **Candidate commit:** [full immutable 40-character commit for this cycle]
+- **Candidate commit:** [the 40 characters printed by `git rev-parse HEAD`
+  after you created this cycle's commit; never the base commit. Only a
+  CHECKPOINT or a blocker may write `none` here]
 - **Gate results:** [each gate command → raw pass/fail output, pasted]
 - **Character-change result:** [positive limit: ticket_change_guard.py →
   added, deleted, total, and binding limit for the exact final candidate;
