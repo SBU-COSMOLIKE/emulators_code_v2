@@ -9,8 +9,11 @@ Each entry is compressed to roughly 30 percent of the words it carried while
 open: what was wrong, what fixed it, and the commit. Fuller evidence lives in
 the commit itself.
 
-To reopen one, move its whole section back into `backlog.md` above
-`# Parked edge cases` and add its `- OPEN` index line there.
+Reopening still works from here, and the compression never has to preserve the
+argument for it. The Red Team's handoff to the Architect carries the full
+reason a closed ticket should reopen; the Architect moves the section back into
+`backlog.md` above `# Parked edge cases`, adds its `- OPEN` index line, and
+expands the compressed entry using that handoff.
 
 <a id="closed-role-context-separation"></a>
 ## Give each AI role its own context limit
@@ -370,7 +373,7 @@ stops. A wavenumber tail is allowed only through the logarithmic boundary
 continuation, a visible option on by default. Landed as `a0633ad`.
 
 **Remaining:** earlier configuration errors are
-[Validate matter-power requests before a run starts](backlog.md#open-mps-request-contract);
+[Validate matter-power requests before a run starts](#open-mps-request-contract);
 a future Syren source edit keeping the old law name is parked under
 [Certify the vendored Syren formulas independently](backlog.md#parked-syren-formula-certificate).
 
@@ -507,7 +510,7 @@ setting to correct. The same rules repeat inside the public constructors, so a
 caller building a model directly cannot bypass them. Landed as `08172db`.
 
 **Remaining:** the gradient problem at the exact origin is
-[Preserve the power activation gradient at zero](backlog.md#open-power-zero-gradient).
+[Preserve the power activation gradient at zero](#open-power-zero-gradient).
 
 ### Calculate sigma-eight at the conventional physical radius
 
@@ -555,7 +558,7 @@ stops stale resume work replacing a newer result. Landed as `fa8f170`.
 
 **Remaining:** exact append, recovery of an interrupted private draft,
 persisted sampler state, and old-generation cleanup are
-[Continue generated datasets exactly and manage old generations](backlog.md#open-dataset-continuation-features).
+[Continue generated datasets exactly and manage old generations](#open-dataset-continuation-features).
 
 ### Keep failed physics rows out of training datasets
 
@@ -979,3 +982,449 @@ while the ticket is Open, preserves candidate C, and retires a rejected
 same-cycle GO after a corrected GO lands. The closure gate is in
 `ai/tools/mailbox_daemon.py`; the Architect instruction is in
 `.claude/FABLE_ROLE.md` and `ai/notes/conventions-and-workflow.md`.
+
+## Tickets closed while still filed under Open
+
+These closed in place, before the archive existed, so their sections stayed in
+the Open half of `backlog.md`. Moved here at the same 30 percent bar.
+
+<a id="open-mps-test-import-isolation"></a>
+## Isolate the matter-power adapter test without replacing imported modules
+
+HIGH bug fix. The sigma-eight test replaced three `sys.modules` entries while
+loading the Cobaya adapter; restoring the table left `emulator` submodules
+attached to their parent package, so the suite became order dependent and could
+report a false failure. The in-process loader is gone. The sigma-eight and
+dark-energy adapter checks now run in child processes that import through the
+on-disk stand-in `ai/tests/cobaya_minimal_stub/`, placed first on the child's
+PYTHONPATH, so the parent import table is never edited. One negative control
+with a deliberately wrong known answer must fail.
+
+<a id="open-artifact-drift-import-isolation"></a>
+## Test saved activation defaults without replacing a live function
+
+HIGH bug fix. The drift gate changed `make_activation.__defaults__` in a
+running process to prove that rebuilding reads the saved gate count, and a
+shared function changed that way can leak into an unrelated test. The gate now
+copies the emulator package into its temporary folder, changes only the
+`n_gates` default line on disk, and rebuilds in a child process whose PYTHONPATH
+names the copy first. The child refuses with a dedicated exit code unless the
+changed default is live, so a launch that imported the ordinary package cannot
+pass as proof. Helpers live in `ai/gates/checks/gsv_bitwise_drift.py`; the
+durable behavior is `save-rebuild-drift.code-default-drift-ignored` in
+`artifacts-inference-warmstart.md`. The full gate run on the workstation is owed
+under [Complete older cross-family workstation
+checks](backlog.md#open-workstation-debt).
+
+<a id="open-finite-cycle-admission"></a>
+## Make a finite watch start exactly the requested number of tickets
+
+CRITICAL bug fix. With `--cycle 1` the watcher could start a second ticket while
+the first waited for its Red Team review, then count the first cycle complete
+and exit with that unrequested ticket already changed — defeating the human's
+limit on runtime, edits, and model credits. Commit `20119a1` reserves finite
+capacity before a public Architect turn, converts only an exact Implementer
+ticket, and releases a valid non-ticket control outcome without counting a
+cycle. A later request stays byte-for-byte untouched when the limit is full;
+Architect and Red Team turns refuse tracked and untracked source edits; the
+parent daemon owns candidate landing, restart recovery, push debt, and clean
+role-baseline synchronization. Safe continuation after `main` legitimately
+advances is [Recover safely when main advances after a landing is
+prepared](#open-stale-landing-reaudit).
+
+<a id="open-architect-note-landing"></a>
+## Land Architect-owned permanent-note commits before later tickets use them
+
+CRITICAL bug fix. Only the Architect may change the eleven permanent notes, but
+no watcher operation moved a note-only commit onto `main`. Left on the
+coordination branch, the next ticket either refuses to start from the newer
+commit or starts from the old one, and the policy change never reaches the
+candidate or GitHub; the reverse mismatch re-executes old coordination code
+after a normal ticket lands. Commit `20119a1` adds the narrow Architect-only B/P
+landing route with a restart journal, a bounded push-debt record, and a clean
+role-baseline update. The route is cycle-free, unusable by the Implementer or
+Red Team, and refuses to mix a permanent-note transition with an ordinary
+ticket.
+
+<a id="open-dataset-continuation-features"></a>
+## Continue generated datasets exactly and manage old generations
+
+MEDIUM new functionality. Asked for dataset continuation that is bitwise
+identical to one uninterrupted longer run, plus a policy for pinning and
+retiring generations. Retired with the publication framework it extended:
+`compute_data_vectors/` returned to plain files under `chains/`, so there are no
+generations to pin, and append draws from a stream derived from the seed plus
+the existing row count — reproducible, and it never repeats a saved row. Exact
+continuation would have required persisting complete sampler state and is not
+needed for a reproducible dataset.
+
+<a id="open-getdist-column"></a>
+## Write the GetDist posterior column with the correct meaning
+
+MEDIUM bug fix. GetDist expects column two to hold the negative log posterior;
+the generator wrote the ordinary log posterior under the name `lnp`, so
+downstream analysis could reverse which of two samples had the better posterior.
+Column two is now `minuslogpost`, the derived `chi2*` is `2 * minuslogpost`
+(numerically identical to the old `-2 * lnp`), and a uniform draw writes a
+neutral zero instead of a fabricated value.
+`ai/tests/test_generator_posterior_column.py` loads a two-row chain with GetDist
+and asserts the better-posterior row ranks better; a companion test proves that
+storing the sampler's sign unchanged reverses that ranking.
+
+<a id="open-power-zero-gradient"></a>
+## Preserve the power activation gradient at zero
+
+MEDIUM bug fix. `sign(x) * f(abs(x))` gave the right forward value but a zero
+derivative at exactly zero, so zero-initialized layers and padded coordinates
+could not begin learning while ordinary prediction checks looked correct. Both
+production activation classes now compute the signed power as `x` times an even
+magnitude ratio with analytic limit one at zero: the direct quotient away from
+the origin and a quadratic series below `|x| = 1e-3`, with substituted inputs so
+no unselected branch poisons a gradient. Constructors validate finite positive
+`p_min < p_max`. With the origin derivative exactly one, the power families left
+`ZERO_DERIVATIVE_HEAD_ACTIVATIONS` (now `relu` alone), so a power head pin is
+accepted and a frozen trunk moves power CNN and transformer heads. Whole-model
+CPU forward costs 1.15x the sign form. The GPU acceptance leg is owed with the
+other workstation runs.
+
+<a id="open-adapter-contracts"></a>
+## Make every Cobaya bridge check inputs and protect cached results
+
+HIGH bug fix. The five Cobaya adapters differed in their request checks and
+several getters returned arrays backed directly by an internal cache, so a
+request could be routed with the wrong segment, or one caller could mutate the
+scientific result a later caller receives. Commits `d146590` and `5e0792a` give
+all five one strict input and path contract, validate their family-specific
+request and artifact facts, publish scalar results through Cobaya's derived
+mapping, and return owned public arrays and containers; the follow-up binds the
+gate to the exact adapter source surface.
+
+<a id="open-cmb-covariance-transaction"></a>
+## Publish CMB covariance files without overwriting a good result
+
+HIGH bug fix. A rerun or interruption could destroy an earlier valid covariance
+matrix, or expose a half-written archive at the filename later calculations
+read. Commit `4e4e09f` writes a hidden file and closes it before one
+non-overwriting hard link gives the archive its final name; an existing name
+keeps its contents, including one created while the calculation runs, and an
+occupied output name stops the run before YAML parsing or CAMB work. Hidden
+debris left by an uncatchable process kill is parked below Low as [Remove hidden
+covariance files left by forced process
+termination](backlog.md#parked-cmb-covariance-cleanup).
+
+<a id="open-training-selection-record"></a>
+## Record which saved weights the training run chose
+
+MEDIUM bug fix. Training compares the untouched model, epoch snapshots, and
+moving-average snapshots, but the loop returned only histories, so each driver
+reconstructed the winner afterwards and could name a trained epoch when the
+baseline won — one emulator file beside a report describing another candidate.
+`training_loop_batched` now returns a validated selection record (candidate kind,
+pass-local epoch, raw or EMA weights, and the winner's fractions, median, and
+mean), `run_emulator` stores each pass's record in the resolved recipe and
+publishes one run-level `resolved_train["selection"]`, and `validate_thresholds`
+performs the one-time shape, finiteness, and strict-order check. Both train
+drivers, the shared tune objective, and the saved h5 attributes read the record;
+nothing rescans the histories, so a baseline win is reported as exactly that.
+This implements the design `training-stack.md` "Selection record" already
+specifies.
+
+<a id="open-optimizer-scheduler-protocol"></a>
+## Reject unsupported training options before a run starts
+
+MEDIUM bug fix. CUDA forced a fused optimizer without proving the chosen
+optimizer supported it, and Apple half-precision training could start without
+the protection that keeps very small gradients from disappearing, so an ordinary
+device or optimizer choice could fail after an expensive run began, or silently
+use a procedure the run record does not describe. Every named capability is now
+checked before construction: fused is forced only when the optimizer's
+constructor accepts it, and an explicit `fused` on a class without one is
+refused by name; LBFGS is refused because the loop steps with no closure;
+`OneCycleLR` and `CyclicLR` are refused because the loop advances the scheduler
+once per epoch after warmup; reduced precision on MPS is refused because MPS
+autocast runs in float16 and no gradient-scaling policy is implemented.
+Persisting a scheduler-cadence field was declined: the cadence is a code-owned
+constant, and the per-batch refusal removes the one way a run could follow a
+cadence the record does not imply.
+
+<a id="open-memory-planner"></a>
+## Measure memory without changing the model and reserve capacity before allocation
+
+MEDIUM bug fix. **CLOSED — the described repair is not worth building.** An
+audit of the sizing path found no demonstrated failure behind any of the three
+requested changes. The batch-term probe runs one dummy forward on zeros with
+scoped saved-tensor hooks, and no current model family carries
+batch-normalization running statistics or active dropout, so that forward
+changes no model state and draws no random numbers. The parameter budget already
+multiplies weight bytes by five and the probe measures the real autograd-saved
+activations; the omitted index and bound buffers are kilobytes against that
+padding. A capacity-token reservation before worker allocation would only convert
+a visible out-of-memory failure into a queue wait, and sweeps already refuse a
+budget that cannot hold resident state plus one complete batch. The one real
+remainder — a future family with stateful-forward modules — is parked as [Guard
+the sizing probe if a stateful-forward family is
+added](backlog.md#parked-memory-probe-stateful-forward).
+
+<a id="open-mps-request-contract"></a>
+## Validate matter-power requests before a run starts
+
+MEDIUM bug fix. `must_provide` noticed only the optional sigma-eight quantity,
+so a malformed particle pair, nonlinear setting, redshift, or wavenumber
+survived Cobaya setup and failed later inside a getter. It now validates every
+`Pk_grid` and `Pk_interpolator` requirement while setup can still stop: only the
+`delta_tot` pair is accepted, the nonlinear choice must be boolean, requested
+redshifts must lie inside the stored z grid (z is never extrapolated), and
+`k_max` must be servable — inside the stored grid for the raw grid, beyond it
+for the interpolator only when the power-law tails are enabled. Each refusal
+names the observed request, the stored bound, and the corrective action.
+
+<a id="open-implementer-blocked-outcome"></a>
+## Let the Implementer stop honestly when a ticket cannot proceed
+
+MEDIUM new functionality. **CLOSED — the honest stop exists as the checkpoint
+family, and the enum on top of it is declined.** `.claude/OPUS_ROLE.md` requires
+a relayable `IMPLEMENTER_HANDOFF` for every stop; a mid-unit stop is titled
+`CHECKPOINT` and carries the changed files, completed checks, unfinished work,
+and the decision requested from the Architect. The specialized stops have their
+own validated shapes — `BUDGET BLOCKED` with the over-limit measurement, the
+digest-bound capability checkpoint for a rejected subagent launch, and
+`CONTEXT HANDOFF` for a replaced context. The daemon accepts the checkpoint
+headings, routes the return to an Architect checkpoint audit instead of
+retrying, preserves saved checkpoints across a restart, and never treats a
+checkpoint commit as candidate C. What remained was a five-value blocker-reason
+vocabulary with no mechanical consumer: the daemon must treat every reason
+identically, and the Architect reads the required free-text evidence regardless
+of the label above it.
+
+<a id="open-stale-landing-reaudit"></a>
+## Recover safely when main advances after a landing is prepared
+
+MEDIUM bug fix. **CLOSED — the supported recovery is the ordinary path, and a
+shortcut would weaken it.** When `main` moves under a prepared landing the
+watcher refuses, preserves the candidate and the prepared commit, and exits
+nonzero; the ticket that cycle served is still open, so restarting the watch
+runs a fresh cycle against the new `main`. The Implementer redoes the work on
+the actual new parent and the Architect audits a real complete candidate under
+the same uniform rule as every other landing. The cost is one repeated
+Implementer turn for a rare event. The requested alternative — stale marking, a
+provisional re-integration of the old candidate onto the new parent, a bounded
+re-audit protocol, replacement-landing binding, and real-Git witnesses for each
+scenario — is a second acceptance route through the daemon's highest-trust code,
+in which the Architect reviews only the interaction between an old GO and the
+intervening commits instead of a complete candidate.
+
+<a id="open-relay-log-identity"></a>
+## Give every role run its own relay-log filename
+
+Bug fix. Relay log names under `ai/notes/relay/` used the role name and a
+one-second timestamp, so two quick runs of the same role inside one second could
+choose the same path and the later run replaced the earlier evidence.
+`reserve_dispatch_log_path` in `ai/tools/mailbox_dispatch.py` now takes the name
+by exclusive creation and appends a two-digit suffix until a fresh name is
+accepted, keeping the readable timestamp and role name.
+`ai/tests/test_relay_log_reservation.py` hands the reservation one frozen stamp
+— no clock mocking — and requires both same-second logs to survive with their
+own contents.
+
+<a id="open-candidate-circumvention-review"></a>
+## Check an accepted candidate for workarounds around rejected instructions
+
+New functionality. A capable Implementer needs no malicious intent to preserve a
+rejected design under another name, weaken a test so the result passes, or move
+denied behavior into a wrapper. The audit section of `.claude/FABLE_ROLE.md` now
+carries the consolidated **CIRCUMVENTION CHECK**: five questions answered
+against the exact base-to-candidate diff before any GO — prohibitions preserved
+even through generated files and wrappers, no rejected design recreated under
+another name, no optional route restoring denied behavior, no checker change
+that lets this same candidate pass, and no evidence bound to a different commit.
+The daemon boundary facts the ticket asked for already existed in the admission
+path. Hard refusals for executable bits, symlinks, and large additions were
+declined: Git prints every mode and type change in the same raw diff the audit
+reads, and a legitimate candidate can contain an executable script, so those are
+Architect judgment.
+
+<a id="open-control-plane-protection"></a>
+## Protect control files and keep candidates from weakening their own audit
+
+Bug fix. **CLOSED — the enforced boundary exists and is machine-checked.**
+`ai/notes/role-contract.yaml` holds one complete protected list: a candidate may
+not touch `CLAUDE.md`, `.gitattributes`, `.gitignore`, `.gitmodules`, the
+tracked backlog and its guard files, or any path under `.claude/`, `.codex/`,
+`ai/tools/`, `ai/notes/mailbox/`, or `ai/notes/relay/`, and the contract
+reader's safety floor refuses a contract that drops one of those entries. The
+eleven permanent notes carry the SHA guard, with the Architect administration
+turn as the one legitimate update path, revalidated by the daemon at landing.
+For candidate changes to `ai/tests/` or `ai/gates/`, the gate-integrity screen
+treats an unnamed change to the gate surface as tampering and the circumvention
+check asks whether a checker was weakened for its own candidate; protected
+control-plane candidates additionally pass the trusted shadow validation and the
+mandatory pre-landing review. A separate fingerprint store holding trusted copies
+of test drivers and tolerance policies was declined: the audited base commit in
+Git is that trusted copy, and a parallel store is a second source of truth with
+its own drift.
+
+<a id="open-character-budget-planning"></a>
+## Plan a limited ticket across code, documentation, and protected notes
+
+New functionality. **CLOSED — the reminder guards a failure that already
+recovers cleanly.** The proposal was an advisory split of a positive `--max`
+across Python, README or LaTeX material, and reserved permanent-note work. When
+a clean candidate exceeds the limit, the Implementer returns the exact
+over-limit blocked handoff with its measured count and the Architect revises the
+plan, so discovering a bad allocation late costs one returned turn, not lost
+work. Estimating the whole landing before writing the directive is ordinary
+planning the directive template already forces, because the acceptance checklist
+must require the exact candidate's guard result to be within the limit.
+Publishing a starting proportion as tracked guidance, policed by a contract test
+on its wording, converts a planning habit into machinery with no enforcement
+gain over the refusal that already exists.
+
+<a id="open-change-risk-classification"></a>
+## Use change risk as well as character count when choosing checks
+
+New functionality. **CLOSED — the directive machinery already forces this
+decision per ticket.** The proposal was a risk label beside `--max`, since a
+short numerical-normalization change can be more dangerous than a much longer
+documentation update. Choosing proportionate validation is an existing Architect
+duty with concrete enforcement points: every changed Python path carries a hot
+or cold classification, every applicable style-contract row is copied into the
+directive with named evidence, a numerical or scientific change triggers the
+benchmark and regression rows of the Python contract, and the Architect selects
+the acceptance commands per ticket. A parallel label taxonomy would restate that
+duty as vocabulary needing stable meanings, boundary adjudication, and examples,
+all reviewed like any other tracked guidance, and the ticket's own record shows
+no case where the size guard was mistaken for the risk decision.
+
+<a id="open-normalized-implementer-output"></a>
+## Normalize untrusted Implementer output before the Architect reads it
+
+New functionality. **CLOSED — the prompt boundary already exists where it
+decides anything.** Every dispatched turn places the trusted material first: the
+daemon's banner, the role preamble naming the authoritative role file, and the
+byte-unchanged common preamble. The raw mailbox body enters only after the exact
+`--- MESSAGE ---` delimiter, as the prompt's suffix, so a reader always knows
+where evidence begins. Returns that carry authority are structurally validated —
+the handoff contract checks envelope, exact rows, and admission values, and the
+daemon acts only on parsed exact headers, so instruction-shaped prose inside a
+body cannot become an action whoever wrote it. The remaining proposal — a
+versioned report format with Unicode normalization, terminal-escape scrubbing,
+and duplicate-field rejection — is input sanitation proportioned to hostile
+bytes, not to a cooperating Implementer whose worst case is prose imitating an
+instruction, which the Architect role file already directs the reader to treat
+as evidence under review.
+
+<a id="open-authenticated-control-messages"></a>
+## Authenticate trusted ticket and landing messages proportionally
+
+New functionality. **CLOSED — the described defense answers a threat this
+workflow does not face.** The protection target is an Implementer that bends
+rules to make its own ticket pass, not an operator counterfeiting credentials.
+Against that target the structural controls already close every forgery route
+the ticket names: the daemon acts only on parsed exact envelope headers, never
+on free text; an Architect GO is consumed only from the Architect lane's own
+outbound and must bind the exact candidate commit; the daemon alone creates the
+landing commit, after the deciding Architect process has exited; and the sealed
+backlog plus full commit hashes bind every durable record to exact bytes. A
+local secret-key layer would add no boundary — the key would live on the same
+machine where every role runs, so any process able to write a forged message
+could read the key — while key creation, storage, rotation, and recovery would
+become permanent control-plane complexity.
+
+<a id="open-control-plane-regression-runner"></a>
+## Run every required control-plane regression with one command
+
+New functionality. `unittest discover` runs only the `test_*.py` modules, so
+"the AI tests passed" could quietly omit the `*_repro.py` programs that rebuild
+interruptions, stale landings, worktree failures, push debt, and restart
+recovery. `python3 ai/tests/run_control_plane_regressions.py` is now the
+acceptance command for changes to the AI workflow controller: it runs the
+control-plane test modules and every reproduction from one explicit manifest,
+each command in its own child process from the repository root, prints one
+verdict line per command, writes complete output to a named log file, and
+returns zero only for a complete pass. It exits 2 before any check when a
+manifest entry is missing or duplicated, lacks its README inventory row, or when
+a `*_repro.py` on disk is unlisted. There is no skip mechanism: a check that
+cannot run is a failure.
+
+<a id="open-daemon-authority-modules"></a>
+## Reduce daemon risk through small authority-boundary extractions
+
+New functionality. **CLOSED — the requested extraction exists in the tree.**
+`mailbox_daemon.py` had grown to roughly fourteen thousand lines in which
+provider calls, mailbox movement, candidate records, backlog closure, landing,
+worktree synchronization, push recovery, and restart behavior all interacted.
+The daemon is now a coordinator of about two thousand lines beside part files
+split along the boundaries this ticket proposed: `mailbox_providers.py`,
+`mailbox_dispatch.py`, `mailbox_store.py`, `mailbox_envelopes.py`,
+`mailbox_cycles.py`, `mailbox_tickets.py`, `mailbox_landing.py`,
+`mailbox_recovery.py`, `mailbox_worktrees.py`, `mailbox_watch.py`, and
+`mailbox_control_plane.py`. Every cross-file reference routes through the
+coordinator's namespace, so each repeated decision keeps exactly one owner. A
+future extraction needs its own ticket with its own boundary.
+
+<a id="open-github-push-choice"></a>
+## Let the user choose whether accepted work is pushed to GitHub
+
+New functionality. The watcher accepts `--github yes|no` with the documented
+default `yes`, so existing commands keep pushing unchanged. The choice is read
+in exactly one place — inside the push function that every landing kind and
+every debt retry already calls — so the local landing path is byte-identical for
+both values. With `no` the function returns before any Git command: nothing
+contacts the remote, one sentence names the verified local landing and the user
+choice, no push-debt record is written, and debt records from earlier runs stay
+on disk. The three callers that report push outcomes distinguish the intentional
+skip from failed-push debt, the watch banner states the choice at startup, and
+the daemon's self-restart re-executes the original command line so the value
+survives. `ai/tests/test_role_workflow_behavior.py` proves the skip contacts no
+remote against a deliberately missing repository path, preserves an earlier debt
+file byte for byte, keeps the default at `yes`, and rejects an unknown value at
+command-line parsing.
+
+<a id="open-landing-backlog-identity"></a>
+## Bind each landing to its candidate and sealed backlog
+
+New functionality. **CLOSED — Git already stores the answer the ticket wants
+recorded.** "Which candidate and which exact backlog bytes produced this landing
+commit" is answerable from the repository alone: durable landing state names
+candidate C and landing L, and the exact backlog bytes are L's own tree, so
+their digest is recomputable at any time with
+`git show L:ai/notes/backlog.md`. The daemon verifies the sealed overlay before
+it builds L, which is the moment verification can still refuse. Writing the
+digest again into contract fields, commit trailers, and a saved tuple would
+create a second record that can only agree with the tree or falsely disagree
+with it, and every disagreement case would need its own recovery handling.
+
+<a id="open-backlog-sync-crash-cuts"></a>
+## Test every interrupted backlog synchronization step
+
+New functionality. **CLOSED — the test cannot be built without breaking a
+stronger rule.** Stopping the process exactly between the synchronization
+boundaries — after the move to recovery, after the tracked restore, after the
+fast-forward, before the recovery-file delete — requires either replacing
+`os.replace`, the trusted `git restore`, or `os.unlink` while the routine runs,
+a monkey patch the Python contract prohibits in tests, or planting injection
+hooks inside the production synchronization code, which changes the trusted path
+in order to test it. Timing a kill from outside cannot hit those boundaries
+reliably. The end states the cuts would produce are already covered: equal bytes
+converge, conflicting bytes fail closed and stay preserved, and the guard binds
+the exact accepted bytes. No synchronization failure has ever been reproduced.
+
+<a id="open-ai-ticket-latex-guide"></a>
+## Write a LaTeX guide to the AI ticket system
+
+New functionality, held last until the user advanced it. The manuscript exists
+as `documentation/cocoa_flow_guide.tex` with its tracked
+`documentation/cocoa_flow_guide.pdf` (23 two-column pages), named after the
+system's own name, CoCoA-Flow, rather than the provisional
+`ai_ticket_system_guide`. The user directed it at teaching a reader to read the
+`ai/tools/` code with the same discipline the emulator manuscript teaches, and
+the delivered structure follows: a notation section for the commit labels C, L,
+M0/M1, B/P, and D0/D1 with the recurring vocabulary; an end-to-end
+ordinary-ticket walkthrough; one section per module family; verbatim code
+excerpts with exact refusal messages; and a staged file-by-file study route with
+three shorter role-specific routes. The beginner-operator tutorial sketched in
+the ticket stays owned by `ai/README.md` and `ai/tools/README.md`, which the
+manuscript names as its reading stage 0. Build from the repository top with
+`latexmk -pdf -output-directory=documentation
+documentation/cocoa_flow_guide.tex`; the frontispiece path is
+repository-root-relative. `documentation/README.md` carries the catalog row.
