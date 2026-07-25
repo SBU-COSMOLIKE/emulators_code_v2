@@ -5805,6 +5805,66 @@ summary.
 
 </details>
 
+<a id="closed-implementer-shared-notes-grant"></a>
+## Let the Implementer open the shared notes directory it is told to use
+
+### High-level summary
+
+The three AI roles work in separate git worktrees so their code edits cannot
+collide. One directory is deliberately shared instead: the Architect
+worktree's `ai/notes`, which holds the mailbox, the directive note for the
+current ticket, and the guard programs. Every dispatched role turn is told to
+use that exact directory through the `MAILBOX_SHARED_NOTES` setting, and the
+directive checker refuses a directive note stored anywhere else.
+
+The launch command granted file access to that directory to the Red Team
+alone. The Implementer was told to use a directory its file tools were not
+allowed to open. A Claude Implementer never noticed, because Claude Code
+opens an absolute path outside its working directory anyway. An Ollama-served
+Implementer refused instead, and returned a checkpoint reporting that the
+directive note and the mailbox were unreachable.
+
+### Current status
+
+**CLOSED.** This was accepted as **HIGH BUG FIX**. A dispatched Implementer
+could neither read its directive nor write its return message, so the role
+performed no work at all and one live ticket turn was spent producing
+nothing. Medium is not sufficient because the failure was certain rather than
+likely: every Ollama Implementer dispatch failed the same way, and the halt
+covered the whole role rather than one option.
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+### What is already fixed
+
+Both Implementer launch commands, Claude and Ollama, now end with the same
+notes grant the Red Team command already carried. The written description of
+the `shared_notes` value, which called the directory the Red Team's only
+extra writable directory, now names the Implementer as well.
+
+### What is missing
+
+Nothing for this ticket. A live Ollama Implementer dispatch has not been run
+again since the repair; the next ordinary ticket exercises it.
+
+<details><summary>Technical record for development tools</summary>
+
+`build_agent_commands` in `ai/tools/mailbox_daemon.py` builds both Implementer
+routes, and each now carries `--add-dir` with the Architect notes directory. A
+focused test in `ai/tests/test_ollama_implementer_runtime.py` asserts that both
+provider commands carry exactly one such grant naming that directory.
+
+The Red Team command is unchanged and keeps the grant in its final position.
+Codex spells the option with a single directory value, and the dispatcher
+separates the prompt from the options with `--`, so nothing there can absorb
+the message.
+
+Full suite 814 OK.
+
+</details>
+
 ## Repository organization and release hygiene
 
 ### Move study helpers into `emulator/studies/`
@@ -6057,7 +6117,13 @@ everything verified but NOT yet fixed, so the next session resumes here.
   scaler_policy single-value plumbing; the double init_probes at
   output.py:388/396 (workstation-owed A/B, board item).
 
-### Status
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
 
 OPEN (narrowed to report-only + deferred simplifications). Wave 1 landed
 as ef2a85c; wave 2's fix candidates all landed across nine commits

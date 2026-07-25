@@ -833,8 +833,10 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
       sol_worktree       = validated worktree used as Sol's cwd and Codex
                            workspace root (default: deterministic first-run
                            path; live dispatch always passes saved state).
-      shared_notes       = exact Claude-primary notes directory granted as
-                           Sol's only additional writable directory.
+      shared_notes       = exact Claude-primary notes directory granted to
+                           the Implementer and to Sol as an additional
+                           readable and writable directory; for Sol it is
+                           the only one.
       implementer_provider = ``claude`` for Anthropic Claude or ``ollama``
                            for an Ollama-served open-weight model.
 
@@ -853,11 +855,22 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
         shared_notes = os.path.join(WORKTREE, "ai", "notes")
     sol_worktree = os.path.abspath(sol_worktree)
     shared_notes = os.path.abspath(shared_notes)
+    # Both Implementer routes carry the shared-notes grant. An Implementer
+    # turn is told to read its directive note, the mailbox, and the guard
+    # programs out of the Claude primary's notes directory, and to write
+    # its return message back into that same mailbox (see the
+    # MAILBOX_SHARED_NOTES export in dispatch()). Separate role worktrees
+    # keep the three roles' code edits apart; that one notes directory is
+    # the deliberate exception, so every role needs reach into it. Without
+    # an explicit grant, a provider that confines its file tools to the
+    # working directory cannot read the directive or write the return
+    # message, and the turn is wasted.
     if implementer_provider == "claude":
         implementer_command = [
             CLAUDE_EXECUTABLE, "-p", "--no-session-persistence",
             "--model", implementer_model, "--effort", opus_effort,
-            "--permission-mode", "acceptEdits"]
+            "--permission-mode", "acceptEdits",
+            "--add-dir", shared_notes]
     else:
         # Ollama's supported headless coding route. Arguments after the
         # second ``--`` belong to Claude Code, which keeps the existing
@@ -866,7 +879,8 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
             OLLAMA_EXECUTABLE, "launch", "claude",
             "--model", implementer_model, "--yes", "--",
             "-p", "--no-session-persistence",
-            "--permission-mode", "acceptEdits"]
+            "--permission-mode", "acceptEdits",
+            "--add-dir", shared_notes]
     commands = {
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one

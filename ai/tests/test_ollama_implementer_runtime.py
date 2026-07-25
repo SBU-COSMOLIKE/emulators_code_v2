@@ -120,6 +120,24 @@ class OllamaImplementerRuntimeTests(unittest.TestCase):
             checkpoint["hooks"]["PreCompact"][0]["hooks"][0]["args"],
             ["/trusted/checkpoint.py"])
 
+    def test_both_providers_reach_the_shared_notes_transport(self):
+        with scratch_daemon() as (daemon, _root, _mailbox, _relay):
+            expected = daemon.os.path.abspath(
+                daemon.os.path.join(daemon.WORKTREE, "ai", "notes"))
+            claude = daemon.build_agent_commands(
+                "high", "max", "high", 64000,
+                implementer_provider="claude",
+                implementer_model="sonnet")
+            ollama = daemon.build_agent_commands(
+                "high", "max", "high", 64000,
+                implementer_provider="ollama",
+                implementer_model="qwen3.5")
+
+        for command in (claude["opus"], ollama["opus"]):
+            self.assertEqual(command.count("--add-dir"), 1)
+            self.assertEqual(
+                command[command.index("--add-dir") + 1], expected)
+
 
 if __name__ == "__main__":
     unittest.main()
