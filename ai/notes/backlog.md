@@ -18,43 +18,25 @@ for development tools**.
 
 ## How to read this backlog
 
-The Architect maintains this file. The Implementer and Red Team may read it,
-but they never edit it. The daemon saves a sealed ticket update with the
-accepted fix instead of creating a separate policy landing.
+Only the Architect writes this file. The Implementer and Red Team may read it,
+but they never edit it or replace its fingerprint — a saved SHA-256 detects an
+unexpected edit before the Architect writes again. The daemon saves the sealed
+ticket update in the same landing commit as the accepted fix.
 
-The watcher counts lines that begin exactly with `- OPEN`. Each index line also
-records `BUG FIX` or `NEW FUNCTIONALITY`; this lets the watcher distinguish an
-existing defect from a feature with the same priority. The linked list below
-contains one such line for each unfinished ticket. Do not add another
-`- OPEN` line inside a ticket.
+The watcher counts lines beginning exactly with `- OPEN`, one for each
+unfinished ticket in the index below. Each also records `BUG FIX` or `NEW
+FUNCTIONALITY`, so the watcher can tell an existing defect from a feature at
+the same priority. Never add a second `- OPEN` line inside a ticket.
 
-Every ticket also shows a **Red Team reopen count** and whether another Red
-Team reopening is allowed. The count starts at zero and never resets. One
-cycle always belongs to one ticket. In the normal three-role run, the cycle
-includes the Architect and Implementer exchange, the accepted commit, and one
-Red Team review of that exact commit. The Architect may start another ticket
-while the review runs only when the current watch has another unused cycle;
-`--cycle 1` never authorizes a second ticket.
-
-If that review reports `REOPEN`, the Architect restores the ticket to Open,
-adds one to the count, and preserves the Red Team's detailed finding without
-reproducing the bug immediately. Later, when the ticket reaches the front of
-the permitted order, the Architect gives the evidence GO or NO-GO. GO keeps
-the ticket open for repair. NO-GO closes the ticket and permanently changes
-its reopening line to **barred by Architect NO-GO**. The Red Team may not
-reopen that ticket again; a genuinely different defect requires a new ticket.
-After the second reopening, the Architect demands increasingly specific new
-evidence. The sixth reopening automatically makes the ticket Low so a repeated
-disagreement cannot consume the whole work queue.
-
-Red Team review is advisory. The Architect may accept and commit an
-Implementer fix without Red Team approval. A Red Team `REOPEN` creates later
-work but does not undo the commit. A finite watch still refuses to start any
-ticket beyond the number selected with `--cycle`.
-
-Only the Architect writes this file. A saved SHA-256 fingerprint detects an
-unexpected edit before the Architect writes again. The Implementer and Red
-Team may read the backlog but never edit it or replace its fingerprint.
+Every ticket shows a **Red Team reopen count**, which starts at zero and never
+resets, and whether another reopening is allowed. Red Team review is advisory:
+the Architect may accept and commit a fix without it, and a `REOPEN` creates
+later work rather than undoing the commit. On a `REOPEN` the Architect restores
+the ticket to Open and adds one to the count, then later rules GO (repair) or
+NO-GO. NO-GO closes the ticket permanently and sets its reopening line to
+**barred by Architect NO-GO**; a genuinely different defect then needs a new
+ticket. The sixth reopening automatically makes a ticket Low, so a repeated
+disagreement cannot consume the queue.
 
 ## Words used in open tickets
 
@@ -1705,113 +1687,32 @@ such as a scientific release or citation, and record why it must remain.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The function-docstring portion is underway at the user's explicit
-order, one file per commit, with each commit proving the change is
-docstring-only by comparing the two versions' abstract syntax trees with
-docstrings stripped and by a full green test-suite run. Completed so far in
-`ai/tools/`: `role_contract.py`, `backlog_guard.py`, and
-`permanent_note_guard.py`. The user then redirected the sweep to the
-emulator package, where docstrings carried the required structure but
-assumed domain and Python knowledge (a sidecar, the bool-int subclass
-trap, struct round trips, Simpson's rule, sigmoid, broadcasting) without
-defining it. The emulator-package arm is COMPLETE: fourteen files were
-rewritten (`parameter_table.py`, `validation.py`, `cocoa.py`,
-`background.py`, `family_drivers.py`, `analytics.py`, `syren_base.py`,
-`scheduling.py`, `model_recipe.py`, `activations.py`, `batching.py`,
-`diagnostics.py`, `data_staging.py`, `plotting.py`), and the remainder
-was audited function by function and found already at the required
-depth with nothing to change (`inference.py`, `warmstart.py`,
-`fixed_facts.py`, `results.py`, `training.py`, `experiment.py`, and
-the designs/geometries/losses subpackages, whose nn.Module classes
-teach through class docstrings with forward-Arguments blocks).
-The `compute_data_vectors/` arm is COMPLETE: four files rewritten
-(`generator_core.py` and the background / cmb / mps drivers, whose
-store overrides now teach the memmap modes, the shared RAM decision,
-and the atomic save), with `dataset_generator_lensing.py` and
-`compute_cmb_covariance.py` audited clean. The `cobaya_theory/` arm is
-COMPLETE: all five adapters now teach the Cobaya lifecycle (who calls
-initialize and what extra_args is), the closed-option-list reason, and
-(emul_mps) the bicubic spline; their module and class docstrings were
-audited clean. The `ai/tools/` arm is underway: twelve more files are
-complete (`candidate_admission.py`, `review_dispatch.py`,
-`implementer_checkpoint_hook.py`, `reopen_transition.py`,
-`control_plane_handoff.py`, `provider_health.py`,
-`mailbox_providers.py`, `ticket_change_guard.py`, `mailbox_watch.py`,
-`mailbox_tickets.py`, `mailbox_store.py`, `backlog_bundle.py`),
-joining the three swept earlier. The `ai/tools/` arm is COMPLETE
-at the strict mechanical bar: after a user spot check found
-surviving one-line docstrings and missing Arguments blocks (for
-example `consume_daemon_message` and the `recover_failed_*` family
-in `mailbox_recovery.py`), a stricter census — every parametered
-callable must carry an Arguments block, every value-returning
-callable a Returns block, and no non-trivial body may keep a
-one-line docstring — found 153 further weak docstrings across 17
-files, and a 17-commit remediation drove that census to zero
-findings over all twenty-five files, including the ten large part
-files (`mailbox_daemon.py`, `mailbox_dispatch.py`,
-`mailbox_recovery.py`, `handoff_router.py`,
-`mailbox_control_plane.py`, `mailbox_cycles.py`,
-`handoff_contract.py`, `mailbox_envelopes.py`,
-`mailbox_landing.py`, `mailbox_worktrees.py`).
-A later user spot check caught undefined jargon surviving in the
-completed emulator arm: `family_drivers.py` used "sweep",
-"N-train sweep", and "sweep point" without defining them, and its
-docstrings now define that vocabulary in plain words (one commit,
-same stripped-AST and full-suite proofs). The user then judged
-`results.py` "quite dry" and ordered a pass over every emulator
-file; the strict census found 50 more weak docstrings across nine
-files (undocumented `__init__` / `forward` methods of the design
-classes, factory and walker closures), all fixed, and a
-whole-package re-read removed the remaining review-history
-narration ("unit N" ticket citations, "byte-identical to before",
-removed-variant pointers at git history) and defined the surviving
-terms of art in place (artifact, HDF5, schema, provenance,
-composition, materialize, the finite contract, the norm/act call
-shapes). Two refusal strings that told the user about an "inert
-width contract" / "the contract the dataset was generated under"
-were reworded in two string-only commits; the "finite contract"
-and "chi2 domain contract" error texts are asserted verbatim by
-tests and the finite-contract gate and keep their names, now
-defined in prose where they are raised. The emulator package is
-census-zero over all forty files, every commit stripped-AST-proven
-(or diff-limited to the named strings) with the 813-test suite
-green. A further user reading of `training.py` flagged three more
-undefined terms of art -- the Anchor class ("decoupled L2-SP
-anchor"), the phase-boundary "fingerprint"/"digest"/"witness"
-family, and a "sqrt-rule batch anchor" phrase colliding with the
-weight-anchor sense -- all now defined in place (the anchor as a
-spring toward the starting weights, L2-SP expanded, the SHA-256
-digest and witness line explained, the bs_base refusal reworded in
-a proven single-string change). A user-ordered coverage review of
-`documentation/emulator_code_guide.tex` then found and fixed five
-stale or missing claims (the artifact section denied the pair token,
-the artifact tree omitted the scientific-record groups, three
-passages inverted the executed anchor/EMA order against the code and
-the guide's own listing, the prediction section lacked the
-training-region refusal, and L2-SP was unnamed), recompiled and
-committed with the PDF; `emulator/README.md` gained the ordered
-Appendix D2 reading guide naming each file's one or two main
-functions, every symbol grep-verified; the guide also gained a
-worked build-a-YAML subsection (the shipped scalar file walked
-block by block, the family-selection-by-presence rule, and the
-sweep block, every snippet copied from a shipped runnable file);
-the guide's gate-board appendix now lives in its own source file
-(emulator_gate_board.tex), now a standalone document with its own
-19-page PDF, the manual pointing to it and shrinking to 68 pages,
-and the documentation catalog listing it. The twenty-one family drivers then moved from the repository
-root into the new driver/ folder (path shims in the six direct
-emulator importers, three-era golden-worktree resolution in the
-board, every gate manifest, witness, test, and guide updated;
-813 tests, both witnesses, and the board registry all green). The project-instructions file then moved to .claude/CLAUDE.md
-(a supported load location), with the role-contract test, the
-forbidden-file comment, and the daemon launch message following
-the path; suite green again. The main README no longer mentions the AI development
-workflow; ai/README.md is its sole owner.
-Remaining under this ticket: `ai/tests/` and the repository-wide
-chronology rewrite outside `emulator/`. The
-required depth follows the recorded reader standard: no unstated
-Python mechanic or term of art, with Arguments, Returns, and Raises
-blocks in the aligned name = description form.
+**OPEN.** The function-docstring portion runs one file per commit, each proving
+the change is docstring-only by comparing the two versions' abstract syntax
+trees with docstrings stripped, and each landing on a green full suite.
+
+The bar is a strict mechanical census, adopted after a user spot check found
+one-line docstrings surviving a "complete" claim: every callable with
+parameters carries an `Arguments:` block, every value-returning callable a
+`Returns:` block, and no non-trivial body keeps a one-line docstring. Beyond
+structure, the prose must leave no term of art or Python mechanic unstated —
+that rule came from docstrings that were structurally correct but assumed the
+reader knew what a sidecar, a struct round trip, or the bool-int subclass trap
+was.
+
+Complete and census-zero: the `emulator/` package (all forty files), the
+`compute_data_vectors/` generators, the five `cobaya_theory/` adapters, and
+`ai/tools/` (all twenty-five files, including the ten large mailbox part
+files). Also complete: `documentation/emulator_code_guide.tex` (five stale or
+missing claims repaired, the gate-board appendix split into its own document),
+`emulator/README.md` Appendix D2, the move of the twenty-one family drivers
+into `driver/`, the move of project instructions to `.claude/CLAUDE.md`, and
+the removal of AI-workflow material from the main README, which `ai/README.md`
+now solely owns.
+
+Remaining: `ai/tests/`, and the repository-wide chronology rewrite outside
+`emulator/`.
+
 
 **Priority: LOW.** The user explicitly said “after the backlog is closed.”
 This improves maintainability and teaching but does not repair a current
@@ -2570,98 +2471,6 @@ collapse, the stale params stashes, and the deletion of the dead
 ElementWeightedChi2 / NLAAmpFactoredChi2 classes. This ticket holds
 everything verified but NOT yet fixed, so the next session resumes here.
 
-### Wave-2 fix candidates (bounded, verified or strongly corroborated)
-
-- geometries/parameter.py:135 and geometries/output.py:435: eigh output
-  used unvalidated (zero / float-noise-negative eigenvalue -> silent
-  inf/nan whitening); the BlockDiagonalGeometry clip at output.py:762 is
-  the in-repo precedent. geometries/cmb.py: sigma never checked positive
-  or finite on either real construction path. geometries/scalar.py:138: a
-  NaN target column silently bypasses the un-standardizable guard.
-  geometries/grid2d.py: no finiteness check on center/scale (its 1D
-  sibling grid.py:302 has one). geometries/output.py:941:
-  build_shear_angle_map keys bins on grid-quantized float z peaks; two
-  bins peaking on one grid row silently merge — key on (pm, i, j).
-- MPS float64 on the rebuild path: grid.py:152, grid2d.py:160,
-  cmb.py:359, results.py:2349 move saved float64 tensors to the run
-  device; the documented `device: mps` option in cobaya_theory
-  emul_baosn.py therefore crashes at rebuild.
-- experiment.py: the cosmolike fall-through family never validates its
-  required data keys (bare KeyError, sometimes after minutes of staging);
-  data.split_seed is whitelisted but never required (bare KeyError at
-  stage time) and ram_frac is never type/range-checked; a scalar YAML
-  with train/val_failure_mask keys silently trains on failed rows;
-  an empty YAML file dies as TypeError; unused import validate_loss
-  (line 164); stale arch-gating comments at 3241 and 5257.
-- warmstart.py: _zero_final_linear zeroes the last REGISTERED Linear, so
-  restrf and film-enabled rescnn correction nets zero a head/FiLM layer
-  instead of the output stage and every such transfer run fails the
-  parity gate with a misattributed message; the finetune anchor key is
-  simultaneously whitelisted, refused (NotImplementedError), and
-  dead-value-checked in one function; stale comment at 416 claims a
-  digest check (the pairing is the pair token, deliberately not a
-  digest); extras-block eigh at 614 unguarded.
-- results.py: save_emulator docstring calls attrs optional while the
-  code requires it with a "rescale" key (plus the dead attrs-guards at
-  1720/1733/1745); _rebuild_model labels the transfer base's errors as
-  the main model's (thread a where label).
-- inference.py: unguarded IA_DESIGNS[ia] at 852 (the guard exists twenty
-  lines later on the sibling branch); a (names, scalar) pair on a
-  one-parameter emulator dies as bare TypeError at 990; the composition
-  refusals at 144-159 name no artifact though the class contract at
-  393-396 promises it.
-- fixed_facts.py: validate() checks support KEYS only — a box record
-  with unparseable bounds (producible via synthetic_sidecar) passes
-  validate and kills predictor construction with a context-free float()
-  crash; an inverted interval (low > high) is never refused;
-  _same_fact's bool defense does not reach nested dict values.
-- model_recipe.py: set_runtime_compile_mode never checks the mode
-  against COMPILE_MODES despite its docstring; validate_model_recipe's
-  "entire recipe" wording oversells key-structure-only checking.
-- plotting.py: plot_learning_curves' unconditional log y silently drops
-  an exact-zero fraction (the sibling plot_sweep_curve guards this, and
-  the training-stack note claims they share the decision); empty
-  good/bad histogram subsets produce NaN bars plus a RuntimeWarning on
-  the goal state; _cmb_pages' docstring/comment/variable disagree with
-  the bottom-right panel (physical residual, not residual/sigma, no
-  band); _CUT_ROLES omits the "n_s" alias _LCDM_ALIASES accepts;
-  plot_diagnostics' cuts docstring names 3 of the 8 consumed keys;
-  plot_xi carries three post-figure `return 0` leaks and an
-  index-colored/value-labeled colorbar mismatch (the training-stack
-  note and the byte-faithful-port docstring contradict each other —
-  decide which is authoritative before touching).
-- diagnostics.py: coverage_diagnostic publishes NaN medians (with a
-  RuntimeWarning) on a fully-passing or fully-failing run; the k_nn
-  preconditions its docstring states are unenforced; the module-header
-  verdict table contradicts the file (one verdict function, no dashes).
-- batching.py + data_staging.py: stream/param stats compute a std no
-  caller reads and carry a method=2 branch with zero callers; an
-  unsupported method value dies as UnboundLocalError; the dv-width
-  contract at batching.py:440 is an assert (stripped under -O); stale
-  duplicate-rows comment at 436; regimes 2 and 3 are the same closure
-  twice with an undocumented CUDA pin asymmetry.
-- designs/: blocks.py:717 Returns block mislabels row_sizes as
-  bin_sizes (load-bearing distinction: the masked row must be counted);
-  blocks.py:813-821 two provably-unreachable checks; blocks.py:22 module
-  head scopes FiLM to the conv heads (both transformer heads use it
-  too); pce.py:823 dead K assignment; ia.py template heads read
-  geom.evecs unguarded (bare AttributeError on a diagonal-family geom).
-- training.py: build_anchor's frozen-parameter contract is false (no
-  optimizer factory filters requires_grad; anchor + trunk_epochs > 0 is
-  accepted by run_emulator and would anchor the frozen trunk — fenced
-  only by upstream single-phase validators); the "const" shape inside
-  the ema/berhu anneal blocks makes the feature silently inert;
-  training_loop_batched's docstring promises None-defaults for
-  trim/focus_opts the loop does not implement; make_optimizer inlines
-  _decay_weight_ids verbatim.
-- small modules: background.py's grid refusal omits the >= 4-points
-  condition it enforces; syren_base.py converts five of seven inputs
-  with bare float() while the dark-energy pair gets typed refusals
-  (True -> As_1e9 = 1e9 silently); dead constant-w elif at 244;
-  family_drivers `parameter: model` whole-block sweep slips the
-  model-class refusal; parameter_table's overlap check is subsumed;
-  cocoa.py recomputes the chains path inline twice.
-
 ### Report-only (design-sensitive; do not fix without a directive)
 
 - losses/cmb.py _factor: ~5 host syncs / graph breaks inside the
@@ -2680,6 +2489,14 @@ everything verified but NOT yet fixed, so the next session resumes here.
   but rebuild-whitelisted); TARGET_LAWS payload tuples unread;
   scaler_policy single-value plumbing; the double init_probes at
   output.py:388/396 (workstation-owed A/B, board item).
+- Pure LOW simplifications, deferred as churn: the unused min-max stats
+  mode and discarded std in data_staging; blocks.py's two
+  belt-and-suspenders unreachable checks; cocoa.py's twice-computed
+  chains path; parameter_table's subsumed overlap check.
+- plot_xi's port-caveat items (post-figure `return 0` leaks, the
+  index-colored/value-labeled colorbar). Settle the authority question
+  first: the training-stack note and the byte-faithful-port docstring
+  disagree on the intended contract.
 
 ### Current status
 
@@ -2704,26 +2521,9 @@ test_training_pass_recipe exercises that combination deliberately (the
 finding's "latent trap" premise was wrong for freeze_trunk=False); the
 build_anchor docstring was corrected instead.
 
-What remains OPEN under this ticket is only the report-only /
-design-sensitive set (do not fix without a directive), which is
-unchanged from the "Report-only" section above:
-- losses/cmb.py _factor host syncs inside the compiled loss (workstation
-  perf verification owed);
-- experiment.py NPCE fit RAM/device materialization vs memmap staging;
-- the structural duplication set (from_config activation/finetune blocks,
-  plain.py/ia.py stanzas, the twice-implemented n_tokens segmentation,
-  diagnostics' four forward loops, activations' gate machinery,
-  make_optimizer's inlined _decay_weight_ids, batching regimes 2/3);
-- pure LOW simplifications deliberately deferred as churn: the unused
-  min-max stats mode + discarded std in data_staging, blocks.py's two
-  belt-and-suspenders unreachable checks, cocoa.py's twice-computed
-  chains path, parameter_table's subsumed overlap check;
-- plot_xi's port-caveat items (post-figure return-0 leaks, the
-  index-colored/value-labeled colorbar): the training-stack note and the
-  byte-faithful-port docstring disagree on the intended contract, so the
-  authority question must be settled before touching it.
-
-The full reviewer reports live in the session transcript, not in this repo.
+What remains open is exactly the Report-only section above; nothing there
+may be fixed without a directive. The full reviewer reports live in the
+session transcript, not in this repo.
 
 # Parked edge cases
 
