@@ -1190,6 +1190,11 @@ Exactly eleven Markdown notes are permanent repository knowledge:
 The protected `role-contract.yaml` beside them is machine policy, not a
 Markdown knowledge note, so this list remains exactly eleven files.
 
+Two further tracked Markdown files under `ai/notes/` are ledgers rather than
+knowledge notes and are therefore outside this list: `backlog.md`, and
+`backlog-closed.md`, which archives the closed-ticket sections so the
+Architect does not load them on every turn.
+
 `MEMORY.md` begins with the mandatory GO/NO-GO contract for changing any file
 in this list. Permanent notes state current, reusable knowledge. Dates, ticket
 numbers, role conversations, review waves, and temporary status belong in

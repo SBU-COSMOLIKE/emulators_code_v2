@@ -259,6 +259,7 @@ class PermanentNoteGuardTests(unittest.TestCase):
                                  flags=re.MULTILINE):
             whitelisted.add("ai/notes/" + match.group(1))
         whitelisted.discard("ai/notes/backlog.md")
+        whitelisted.discard("ai/notes/backlog-closed.md")
         self.assertEqual(whitelisted, expected)
         self.assertRegex(ignore_text, r"(?m)^!/ai/notes/role-contract\.yaml$")
 
