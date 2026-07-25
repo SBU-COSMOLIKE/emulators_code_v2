@@ -1068,10 +1068,21 @@ python3 ai/tools/backlog_guard.py check
 
 Mailbox Architect turns receive `MAILBOX_ROLE=architect`, so the write
 commands recognize the role even when the manual acknowledgement option is
-omitted. Manual terminal use keeps `--architect-ack`. Implementer and Red Team
-turns receive non-Architect values. They may run `check`, but they never edit
-the backlog, run `initialize` or `seal`, or edit `ai/tools/backlog_guard.py`,
-the fingerprint record, or its `.backlog-guard.lock` write lock.
+omitted. Manual terminal use keeps `--architect-ack`. Red Team turns receive
+`MAILBOX_ROLE=red-team`: that role may read the backlog and may run `check`,
+but it never edits the backlog, runs `initialize` or `seal`, or edits
+`ai/tools/backlog_guard.py`, the fingerprint record, or its
+`.backlog-guard.lock` write lock.
+
+The Implementer never opens the backlog at all, in any mode. Only two roles
+read it: the Architect, who writes it, and the Red Team, who audits the
+Architect. That is deliberate. The backlog is a private planning ledger
+written in Architect shorthand, and it holds ideas that were considered and
+dropped alongside work that was actually scheduled. An Implementer reading it
+would collect instructions nobody sent. The dispatched directive is the
+Implementer's whole assignment, and the notes that directive names are its
+supporting material; if the directive is missing something, the Implementer
+returns a blocker instead of going to look for it.
 
 The backlog stays in Git; its fingerprint record and lock stay outside Git.
 An incoming backlog package is inspected in its separate import folder; it

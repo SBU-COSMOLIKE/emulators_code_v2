@@ -148,13 +148,22 @@ not the Implementer, prepares and restores ticket worktrees.
      deferral. Never run `handoff_router.py --architect-notes-admin`: the
      publisher requires the exact `MAILBOX_ROLE=architect` binding and must
      refuse this role.
-   - **The Architect-owned ticket list.** You may read `ai/notes/backlog.md`
-     and may run `python3 ai/tools/backlog_guard.py check`, but never edit
-     that backlog, run the guard's `initialize` or `seal` command, or edit
+   - **The Architect-owned ticket list.** Never read, edit, or reseal
+     `ai/notes/backlog.md`. That file is the Architect's own planning ledger,
+     shared only with the Red Team, and it is written in a compressed
+     shorthand that is not meant to instruct you: half-finished thoughts,
+     rejected options, and work nobody has scheduled yet all sit in it
+     unmarked. Reading it would give you instructions the Architect never
+     sent. Everything you are asked to do is in your directive, and the notes
+     the directive names are its supporting material. So never run `python3
+     ai/tools/backlog_guard.py` in any mode, and never edit
      `ai/tools/backlog_guard.py`, `ai/notes/.backlog-guard.json`, or
      `ai/notes/.backlog-guard.lock`. The mailbox sets
-     `MAILBOX_ROLE=implementer`, which deliberately makes the two write
+     `MAILBOX_ROLE=implementer`, which deliberately makes the guard's write
      commands refuse. Return any requested backlog change to the Architect.
+     If your directive appears to depend on something only the backlog could
+     tell you, that is a hole in the directive and not an invitation to open
+     the file: return a blocker naming what is missing.
    - **Everything under `ai/tools/`.** If a directive names such a path, edit
      nothing, create no candidate, and return a blocker saying the Open ticket
      requires external Codex maintenance. Never rename, copy, or wrap a tool

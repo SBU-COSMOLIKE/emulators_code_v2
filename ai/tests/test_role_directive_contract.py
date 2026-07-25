@@ -418,12 +418,24 @@ class RoleDirectiveContractTests(unittest.TestCase):
                 self.assertIn(command, architect)
         self.assertIn("A mismatch is `NO-GO`", conventions)
         self.assertIn("records byte identity, not ticket truth", architect)
+
+        # The Red Team audits the Architect, so it reads the ledger without
+        # ever writing to it. The Implementer never opens the ledger at all:
+        # its dispatched directive is its only instruction source, which is
+        # what keeps the backlog free to stay in Architect shorthand.
+        self.assertIn("may read `ai/notes/backlog.md`", redteam)
+        self.assertIn("never edit the backlog", redteam)
+        self.assertIn("`initialize` or `seal`", redteam)
+        self.assertIn("Never read, edit, or reseal `ai/notes/backlog.md`",
+                      implementer)
+        self.assertIn(
+            "never run `python3 ai/tools/backlog_guard.py` in any mode",
+            implementer)
+        self.assertIn("The Implementer never opens the backlog at all",
+                      conventions)
         for name, source in (("Implementer", implementer),
                              ("Red Team", redteam)):
             with self.subTest(role=name):
-                self.assertIn("may read `ai/notes/backlog.md`", source)
-                self.assertIn("never edit", source)
-                self.assertIn("`initialize` or `seal`", source)
                 self.assertIn("ai/tools/backlog_guard.py", source)
 
     def test_discovery_severity_keeps_user_redteam_and_architect_roles(self):

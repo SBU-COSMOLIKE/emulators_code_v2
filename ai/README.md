@@ -1228,9 +1228,13 @@ backlog still has the expected fingerprint. After the Architect deliberately
 adds, closes, reopens, or reclassifies a ticket, the Architect checks the
 human-readable entry and then records the new expected fingerprint. The daemon
 places that sealed version in the same landing commit as the ticket fix. The
-Implementer and Red Team do not edit either the backlog or the saved value
-used to check it. This is protection against accidental edits, not a claim
-that a checksum can defeat a deliberately malicious program.
+Red Team reads the backlog, because auditing the Architect means seeing what
+the Architect decided, but it never edits either the backlog or the saved
+value used to check it. The Implementer never reads the backlog either: its
+dispatched directive carries the whole assignment, so the ledger stays a
+private Architect working file and may be written in whatever shorthand the
+Architect finds fastest. This is protection against accidental edits, not a
+claim that a checksum can defeat a deliberately malicious program.
 
 The [backlog guard guide](tools/README.md#protect-the-tracked-backlog) gives the
 exact `check`, `initialize`, and `seal` commands.
