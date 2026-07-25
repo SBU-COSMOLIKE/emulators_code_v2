@@ -1,13 +1,8 @@
 # Execution backlog
 
-This operational record is tracked in Git so unfinished fixes survive a new
-clone. Only the Architect updates it. The daemon includes the Architect-sealed
-ticket update in the same landing commit as the accepted fix.
-
-Unfinished work appears first and completed work appears second. Each ticket
-begins with an explanation for a human reader. Exact commits, tests, branches,
-and internal identifiers appear later in the ticket under **Technical record
-for development tools**.
+Tracked in Git so unfinished fixes survive a new clone. Only the Architect
+updates it. The daemon includes the Architect-sealed ticket update in the same
+landing commit as the accepted fix.
 
 ## Contents
 
@@ -20,24 +15,21 @@ for development tools**.
 
 Two readers: the Architect, who writes it, and the Red Team, who audits the
 Architect and never edits. The Implementer never opens this file — its
-directive carries the whole assignment — so the prose here may stay
-compressed. Neither other role replaces the fingerprint: a saved SHA-256
-catches an unexpected edit before the Architect writes again.
+directive carries the whole assignment — so the prose here stays compressed.
+The saved SHA-256 catches an unexpected edit before the Architect writes again.
 
 The watcher counts lines beginning exactly `- OPEN`, one per unfinished ticket
-in the index below, each carrying `BUG FIX` or `NEW FUNCTIONALITY` so a defect
-and a feature at one priority stay distinguishable. Never a second `- OPEN`
-line inside a ticket.
+in the index below, each carrying `BUG FIX` or `NEW FUNCTIONALITY`. Never a
+second `- OPEN` line inside a ticket.
 
-Every ticket shows a **Red Team reopen count** — starts at zero, never resets —
+Every ticket shows a **Red Team reopen count** (starts at zero, never resets)
 and whether another reopening is allowed. Red Team review is advisory: the
 Architect may accept and commit without it, and a `REOPEN` creates later work
 rather than undoing the commit. On `REOPEN` the Architect restores the ticket
-to Open and adds one to the count, then rules GO (repair) or NO-GO. NO-GO
-closes it permanently and sets the reopening line to **barred by Architect
-NO-GO**; a genuinely different defect then needs a new ticket. The sixth
-reopening makes a ticket Low, so repeated disagreement cannot consume the
-queue.
+to Open, adds one to the count, then rules GO (repair) or NO-GO. NO-GO closes
+it permanently and sets the reopening line to **barred by Architect NO-GO**; a
+genuinely different defect then needs a new ticket. The sixth reopening makes a
+ticket Low, so repeated disagreement cannot consume the queue.
 
 A ticket already archived in [`backlog-closed.md`](backlog-closed.md) can still
 reopen. The Red Team's handoff carries the full argument; the Architect moves
@@ -53,8 +45,7 @@ pair must contain. An **identity** is a saved fingerprint of the exact inputs,
 settings, formulas, or files that produced an object; **provenance** is the
 saved record of where data or weights came from. To **publish** a file is to
 validate a complete temporary file and then place it at the final name a reader
-uses; an **authenticated** group of files carries digests proving the files
-belong to one completed result.
+uses.
 
 An **adapter** is the Python bridge that hands Cobaya a result from a trained
 emulator. A fine-tune **anchor** limits how far new weights may move from their
@@ -65,14 +56,11 @@ the settings the program actually used after defaults and automatic choices.
 
 A **gate** is a named final check for a larger requirement; a **test** asks one
 narrow question. CMB is the cosmic microwave background, MPS the matter power
-spectrum, and PCE a polynomial chaos expansion, meaning a polynomial emulator.
-CUDA is NVIDIA's accelerator platform, CPU the computer's general processor,
-GPU an accelerator, and MPI the message-passing system that coordinates several
-generator processes. CAMB is the upstream cosmology program that provides
-reference calculations, CosmoLike the upstream program for several survey
-observables, and Syren an analytic matter-power calculation vendored here.
-YAML is the text format used for user settings. ReLU and Tanh are activation
-curves inside a neural network.
+spectrum, and PCE a polynomial chaos expansion. CUDA is NVIDIA's accelerator
+platform, GPU an accelerator, MPI the message-passing system coordinating
+several generator processes. CAMB is the upstream cosmology program, CosmoLike
+the upstream program for several survey observables, and Syren an analytic
+matter-power calculation vendored here.
 
 # Open tickets
 
@@ -80,19 +68,18 @@ The Architect assigns priority at admission and records the reason.
 
 - **Critical** — an Architect-only bug class: evidence that a current defect
   broadly breaks a central library workflow or systematically invalidates the
-  library's scientific results. Never assigned in order to change which roles
-  are active.
+  library's scientific results. Never assigned to change which roles are
+  active.
 - **High** — a bug can make the science wrong, lose data, halt a core
   operation, or severely damage core behavior. State the demonstrated impact
   and why Medium is not sufficient. Urgency, a missing test, unfinished
   cleanup, or an expensive check is not by itself High, and the Red Team shows
-  the same restraint when proposing a priority. "The science can be wrong" is
-  not sufficient alone: the defect must threaten a central scientific
-  calculation, the training data, a served emulator result, or another primary
-  library result. A defect confined to a plot, diagnostic ranking, optional
-  report, or other supporting analysis stays Medium even when its output
-  misleads — promote it only on evidence that it also corrupts a primary result
-  or blocks a core workflow.
+  the same restraint. "The science can be wrong" is not enough alone: the
+  defect must threaten a central scientific calculation, the training data, a
+  served emulator result, or another primary library result. A defect confined
+  to a plot, diagnostic ranking, optional report, or other supporting analysis
+  stays Medium even when its output misleads — promote it only on evidence
+  that it also corrupts a primary result or blocks a core workflow.
 - **Medium** — a concrete problem reasonably likely during normal work, below
   the High boundary.
 - **Low** — concrete but improbable edge cases.
@@ -124,7 +111,6 @@ the Implementer codes a newly admitted ticket while the Architect audits a
 previous commit and the Red Team reviews an earlier accepted one — and only
 when the finite watch has another unused ticket slot. Each ticket still
 consumes exactly one cycle.
-
 ## Open ticket index
 
 ### Critical
@@ -206,13 +192,10 @@ merge the candidate.
 <details>
 <summary>Technical record for development tools</summary>
 
-- Partial on `main`: `2742156`; focused tests 4/4 and AI tests 247/247.
-- Complete local candidate: `25ac6d9` on
-  `codex/unit24-anchor-hardware`; isolated CPU tests 299/299.
-- Candidate evidence also includes the expanded identity gate, board
-  self-test, compilation, whitespace check, and independent implementation
-  review.
-- Release remains `NO-GO` until the real GPU smoke and artifact readback pass.
+- Partial on `main`: `2742156`. Complete local candidate: `25ac6d9` on
+  `codex/unit24-anchor-hardware`, isolated CPU tests 299/299, plus the expanded
+  identity gate, board self-test, and independent implementation review.
+- Release stays `NO-GO` until the real GPU smoke and artifact readback pass.
 
 </details>
 
@@ -260,10 +243,9 @@ joint-versus-frozen trunk digests, and both full ReLU and Tanh driver runs.
 <details>
 <summary>Technical record for development tools</summary>
 
-- Landed and pushed as `03723c8`.
-- Local evidence: 28/28 focused tests, 319/319 full AI tests, all CPU child
-  required results, five-gate dry run, board list/self-test, compilation,
-  whitespace check, exact-commit permanent-note guard, and independent GO.
+- Landed and pushed as `03723c8`; local evidence 319/319 AI tests, all CPU
+  child required results, five-gate dry run, board self-test, and independent
+  GO.
 - A Mac CPU result must not be recorded as the missing workstation evidence.
 
 </details>
@@ -313,14 +295,12 @@ and confirms that the related test fails.
 <details>
 <summary>Technical record for development tools</summary>
 
-- Landed and pushed as `18560d3`.
-- Local evidence: 58/58 AI tests, 12/12 schema and verdict controls, CPU PASS,
-  CUDA UNAVAILABLE with honest return code 2, board self-test, identity-family
-  regressions, compilation, diff check, and two independent reviews.
-- Audit verdict: GO to land the implementation, NO-GO to close this ticket.
-  Closure still requires a CUDA workstation run with both assertion ids PASS
-  and a child return code of 0. The two hard-coded-mode source mutations
-  should fail there as the final proof that the check can catch the defect.
+- Landed and pushed as `18560d3`; CPU PASS, CUDA UNAVAILABLE with honest
+  return code 2, plus schema and verdict controls, board self-test, and two
+  independent reviews.
+- Audit verdict: GO to land, NO-GO to close. Closure needs a CUDA workstation
+  run with both assertion ids PASS and child return code 0; the two
+  hard-coded-mode source mutations must fail there as proof the check bites.
 
 </details>
 
@@ -329,15 +309,12 @@ and confirms that the related test fails.
 
 ### High-level summary
 
-Several completed repairs still need real-workstation checks, including
-rebuilding a saved emulator, reading a real CMB calculation, and running an
-optimization study with its persistent journal.
-
-Their CPU and source checks passed, but the required CoCoA workstation is not
-available on this computer.
-
-An input, device, or saved-file mismatch may therefore remain hidden until a
-user starts a real training or inference job.
+Several completed repairs still need real-workstation checks: rebuilding a
+saved emulator, reading a real CMB calculation, and running an optimization
+study with its persistent journal. Their CPU and source checks passed, but the
+required CoCoA workstation is unavailable here, so an input, device, or
+saved-file mismatch could stay hidden until a user starts a real training or
+inference job.
 
 ### Current status
 
@@ -370,13 +347,12 @@ configured and record any still-current refusal as its own ticket.
 <details>
 <summary>Technical record for development tools</summary>
 
-- Carries the explicit workstation debt formerly embedded in closed Units 13,
-  53, 64/70, 96, and the AI-tree consolidation record.
-- Does not duplicate the separately tracked Unit 24, DIDACTICS-62, or Unit 93
-  hardware runs.
-- The old primary-worktree scratch-fixture drift is not open here; it was
-  repaired by the later hygiene change that force-tracks only the disposable
-  synthetic backlog fixture.
+- Carries the workstation debt formerly embedded in closed Units 13, 53,
+  64/70, 96, and the AI-tree consolidation record. Does not duplicate the
+  separately tracked Unit 24, DIDACTICS-62, or Unit 93 hardware runs.
+- The old primary-worktree scratch-fixture drift is not open here; the later
+  hygiene change that force-tracks only the disposable synthetic backlog
+  fixture repaired it.
 
 </details>
 
@@ -385,16 +361,13 @@ configured and record any still-current refusal as its own ticket.
 
 ### High-level summary
 
-The repository's temporary saved-emulator examples now contain the scientific
-records needed to test loading, reconstruction, and compatibility.
-
-The real cs16 and cs8 CoCoA datasets were generated before those records were
-required. Their smoke checks therefore stop during setup and cannot yet test a
-real training, save, and prediction run.
-
-Regenerating those datasets is necessary evidence that the current file format
-also works with the configured scientific software and data, not only with the
-small local examples.
+The repository's temporary saved-emulator examples now carry the scientific
+records needed to test loading, reconstruction, and compatibility. The real
+cs16 and cs8 CoCoA datasets predate that requirement, so their smoke checks
+stop during setup and cannot yet exercise a real training, save, and prediction
+run. Regenerating them is the evidence that the current file format works with
+the configured scientific software and data, not only with small local
+examples.
 
 ### Current status
 
@@ -432,14 +405,13 @@ those real records with synthetic facts merely to make preflight pass.
 <details>
 <summary>Technical record for development tools</summary>
 
-- The repository fixture boundary is `ai/gates/checks/geo_paths.py`,
-  `scalar_smoke.py`, `cmb_smoke.py`, `bsn_smoke.py`, and `mps_smoke.py`; commit
-  `0fe2067` completes that code change.
-- The deployment manifest now names the two required facts files beside the
-  cs16 and cs8 parameter tables. Both are absent in the current CoCoA checkout,
-  so preflight correctly refuses instead of fabricating them.
-- Required evidence is a CoCoA `geo-paths` run plus the four real workstation
-  smoke gates. Do not close this ticket from local CPU examples or a dry run.
+- Fixture boundary: `ai/gates/checks/geo_paths.py`, `scalar_smoke.py`,
+  `cmb_smoke.py`, `bsn_smoke.py`, `mps_smoke.py`; `0fe2067` completes it.
+- The deployment manifest names the two required facts files beside the cs16
+  and cs8 parameter tables. Both are absent in the current CoCoA checkout, so
+  preflight correctly refuses instead of fabricating them.
+- Required evidence: a CoCoA `geo-paths` run plus the four real workstation
+  smoke gates. Never close from local CPU examples or a dry run.
 
 </details>
 
@@ -485,8 +457,8 @@ that serial and MPI runs follow the documented policy for the same seed.
 
 <details><summary>Technical record for development tools</summary>
 Owner: serial and MPI scheduling in
-`compute_data_vectors/generator_core.py`. The High failed-row safety repair is
-closed and must remain unchanged by automatic retry.
+`compute_data_vectors/generator_core.py`. Automatic retry must leave the closed
+High failed-row safety repair unchanged.
 </details>
 
 <a id="open-physics-implementation-identity"></a>
@@ -532,11 +504,9 @@ base its own identifier in artifact identity, then verify the complete chain
 before serving.
 
 <details><summary>Technical record for development tools</summary>
-Severity: MEDIUM NEW FUNCTIONALITY; it prevents future wrong science under an
-apparently compatible identity. Owners:
-dataset request/manifest, fixed facts, artifact compatibility, and
-`emulator/syren_base.py`. A semantic formula change changes identity or
-refuses; an unrelated documentation commit does not.
+Owners: dataset request/manifest, fixed facts, artifact compatibility, and
+`emulator/syren_base.py`. A semantic formula change must change identity or
+refuse; an unrelated documentation commit must not.
 </details>
 
 <a id="open-pce-domain-enforcement"></a>
@@ -634,16 +604,13 @@ must preserve the physical validation in `open-cmb-serving-contract`.
 
 ### High-level summary
 
-A resolved-run record should contain the settings the program actually used,
-after defaults and command-line choices were combined, so the same training
-point can be reproduced later.
-
-Several effective values are still omitted, and repeated sweep or tuning
-points can reuse an experiment after an earlier point changed its weights,
-random state, or settings.
-
-A reported result may therefore be impossible to reproduce, and two sibling
-study points may not begin from the same fair starting state.
+A resolved-run record should hold the settings the program actually used
+after defaults and command-line choices were combined, so a training point can
+be reproduced later. Several effective values are omitted, and repeated sweep
+or tuning points can reuse an experiment after an earlier point changed its
+weights, random state, or settings — so a reported result may be
+irreproducible, and two sibling points may not start from the same fair
+state.
 
 ### Current status
 
@@ -672,9 +639,9 @@ source state and validate the complete configuration tree with close-match
 errors.
 
 <details><summary>Technical record for development tools</summary>
-Severity: MEDIUM with reproducibility impact. Owners: training resolver,
-experiment configuration, tune/sweep drivers, and artifacts. Reordered points
-must remain identical; unknown/misnested config and a state mutation must fail.
+Owners: training resolver, experiment configuration, tune/sweep drivers, and
+artifacts. Reordered points must stay identical; unknown or misnested config
+and a state mutation must fail.
 </details>
 
 <a id="open-study-diagnostics"></a>
@@ -683,16 +650,12 @@ must remain identical; unknown/misnested config and a state mutation must fail.
 ### High-level summary
 
 A study should distinguish a successful result from a failed or unavailable
-point, and its tables and plots should be created only from complete compatible
-scientific values.
-
-Current workers can turn failures into ordinary rows filled with NaN values,
-while diagnostic and plotting helpers can accept empty, nonfinite, truncated,
-or mutually incompatible inputs.
-
-The finished study can therefore look complete while hiding failed work, or
-show a visually convincing comparison whose rows and curves do not represent
-the same scientific cases.
+point, and build tables and plots only from complete compatible values. Current
+workers can turn failures into ordinary NaN-filled rows, and diagnostic and
+plotting helpers accept empty, nonfinite, truncated, or mutually incompatible
+inputs. The finished study can therefore look complete while hiding failed
+work, or show a convincing comparison whose rows and curves are not the same
+scientific cases.
 
 ### Current status
 
@@ -724,11 +687,9 @@ memory, validate complete table lengths, and choose plot scales/colors from
 validated data rather than forcing them.
 
 <details><summary>Technical record for development tools</summary>
-A normal study can hide failures or present mismatched cases as a scientific
-comparison. Owners: sweep/tune workers,
-`emulator/diagnostics.py`, `results.py`, and
-`plotting.py`. Failure-row, cleanup, empty/nonfinite, truncation, log-scale,
-and color-identity witnesses are required.
+Owners: sweep/tune workers, `emulator/diagnostics.py`, `results.py`,
+`plotting.py`. Required witnesses: failure row, cleanup, empty/nonfinite,
+truncation, log scale, color identity.
 </details>
 
 <a id="open-python-prose-review"></a>
@@ -736,29 +697,23 @@ and color-identity witnesses are required.
 
 ### High-level summary
 
-Tracked explanations should make the repository look like one deliberately
-designed current library. Some READMEs, permanent notes, comments, docstrings,
-help text, and diagnostics instead preserve dated “hard user rule” labels, old
-bug-report names, review waves, or later corrections beside earlier rules.
-That patch-by-patch narration makes a human reconstruct which paragraph is the
-real rule.
+Tracked explanations should read as one deliberately designed current
+library. Some READMEs, permanent notes, comments, docstrings, help text, and
+diagnostics instead keep dated "hard user rule" labels, old bug-report names,
+review waves, or later corrections sitting beside the earlier rule they
+replaced, so a human has to work out which paragraph is the real rule.
 
-Function explanations have a second widespread problem. Most functions in
-`ai/tools/` and `ai/tests/` do not begin with a docstring that tells a new
-reader what the function does, how it does that job, what each input means, and
-what comes back. A short label or an old ticket name is not enough for a
-student or future developer to understand the function without reverse
-engineering its body.
+Function explanations have a second problem: most functions in `ai/tools/` and
+`ai/tests/` do not begin with a docstring saying what the function does, how,
+what each input means, and what comes back. A short label or an old ticket name
+leaves a student reverse-engineering the body.
 
-Review the complete tracked repository after the existing backlog is closed.
-Rewrite policy chronology as the current behavior, its technical reason, and
-the reader's action. Give extra attention to `ai/` and
-`compute_data_vectors/`, where explanatory Python prose has often depended on
-old ticket labels. Keep a date only when it is part of the subject itself,
-such as a scientific release or citation, and record why it must remain.
+Review the complete tracked repository after the existing backlog is closed,
+rewriting policy chronology as current behavior plus its technical reason. Keep
+a date only where it is part of the subject itself, such as a scientific
+release or citation, and record why it must remain.
 
 ### Current status
-
 **Ticket type: BUG FIX.**
 
 **Red Team reopen count: 0.**
@@ -766,35 +721,28 @@ such as a scientific release or citation, and record why it must remain.
 **Red Team reopening: allowed.**
 
 **OPEN.** The function-docstring portion runs one file per commit, each proving
-the change is docstring-only by comparing the two versions' abstract syntax
-trees with docstrings stripped, and each landing on a green full suite.
+the change is docstring-only by comparing the two versions' syntax trees with
+docstrings stripped, and each landing on a green full suite.
 
 The bar is a strict mechanical census, adopted after a user spot check found
 one-line docstrings surviving a "complete" claim: every callable with
 parameters carries an `Arguments:` block, every value-returning callable a
-`Returns:` block, and no non-trivial body keeps a one-line docstring. Beyond
-structure, the prose must leave no term of art or Python mechanic unstated —
-that rule came from docstrings that were structurally correct but assumed the
-reader knew what a sidecar, a struct round trip, or the bool-int subclass trap
-was.
+`Returns:` block, no non-trivial body keeps a one-line docstring, and no term
+of art or Python mechanic is left unstated.
 
-Complete and census-zero: the `emulator/` package (all forty files), the
-`compute_data_vectors/` generators, the five `cobaya_theory/` adapters, and
-`ai/tools/` (all twenty-five files, including the ten large mailbox part
-files). Also complete: `documentation/emulator_code_guide.tex` (five stale or
-missing claims repaired, the gate-board appendix split into its own document),
-`emulator/README.md` Appendix D2, the move of the twenty-one family drivers
-into `driver/`, the move of project instructions to `.claude/CLAUDE.md`, and
-the removal of AI-workflow material from the main README, which `ai/README.md`
-now solely owns.
+Complete and census-zero: `emulator/` (40 files), `compute_data_vectors/`, the
+five `cobaya_theory/` adapters, and `ai/tools/` (25 files). Also complete:
+`documentation/emulator_code_guide.tex`, `emulator/README.md` Appendix D2, the
+move of the 21 family drivers into `driver/`, the move of project instructions
+to `.claude/CLAUDE.md`, and the removal of AI-workflow material from the main
+README into `ai/README.md`.
 
 Remaining: `ai/tests/`, and the repository-wide chronology rewrite outside
 `emulator/`.
 
-**Severity: LOW.** The user explicitly said “after the backlog is closed.”
-This improves maintainability and teaching but does not repair a current
-scientific result, data-loss path, or halted core operation.
-
+**Severity: LOW.** The user explicitly said "after the backlog is closed." This
+improves maintainability and teaching but does not repair a current scientific
+result, data-loss path, or halted core operation.
 ### What is already fixed
 
 The permanent README and Python-style GO/NO-GO notes define the required
@@ -804,98 +752,60 @@ returns, and explanations of non-obvious units, shapes, invariants, side
 effects, and refusal reasons.
 
 ### What is missing
+Build one complete inventory of tracked READMEs, the eleven permanent notes,
+other tracked developer or scientific documentation, and every tracked `*.py`
+file, then review module, class, method, and function docstrings, explanatory
+comments, command help, diagnostics, and explanatory strings against it. A file
+is not complete merely because it has a docstring. The prose must make sense to
+a reader who has never seen the backlog, a Red Team report, an old ticket, or a
+development-session label.
 
-Build a complete inventory of tracked READMEs, the eleven permanent notes,
-other tracked developer or scientific documentation, and every tracked
-`*.py` file. Review Python module, class, method, and function docstrings,
-explanatory comments, command help, diagnostics, and explanatory strings. A
-file is not complete merely because it has a docstring. The prose must make
-sense to a reader who has never seen the backlog, a Red Team report, an old
-ticket, or a development-session label.
+`ai/notes/python-changes-go-no-go.md` owns the required docstring shape and
+`ai/notes/readme-go-no-go.md` the prose bar; this ticket does not restate them.
+`ai/tools/` and `ai/tests/` are audited function by function against that
+shape, and boilerplate copied between unrelated functions does not satisfy it.
 
-Audit every function and method in `ai/tools/` and `ai/tests/` explicitly.
-Immediately after its definition, give it a multiline docstring with this
-human reading order:
+Replace labels such as `DIDACTICS-62`, "Unit 8", `hard user rule`, wave or
+round names, development dates, and ticket anchors with the behavior they stood
+in for. Keep a date or historical identifier only when the subject becomes
+false without it, and explain that necessity at first use.
 
-1. One direct sentence naming the function's job.
-2. A short plain-language explanation of the important mechanism, including
-   why a non-obvious step exists.
-3. An `Arguments:` list that explains the meaning of each input, when the
-   function has inputs beyond `self` or `cls`.
-4. A `Returns:` section that describes the value and its important shape,
-   units, or structure, when the function returns a value.
-5. A `Raises:` section only when a refusal is part of the interface and the
-   caller needs to understand it.
-
-Small test methods and tiny private helpers may be concise, but their
-docstrings must still say the concrete behavior they check or perform. Longer
-functions need enough explanation to let a reader follow the body line by
-line. Do not satisfy this requirement with boilerplate copied between
-unrelated functions.
-
-Apply `ai/notes/readme-go-no-go.md` to every covered explanation and
-`ai/notes/python-changes-go-no-go.md` to Python prose. Replace labels such as
-`DIDACTICS-62`, “Unit 8,” `hard user rule`, wave or round names, development
-dates, and ticket anchors with the actual behavior they were standing in for.
-Keep a date or historical identifier only when the subject would become false
-without it, and explain that necessity at its first use.
-
-Do not rewrite existing Git commits or their messages. Protected history is
-immutable. This ticket cleans current tracked files and future commit-message
-templates only.
-
-Do not change computational or scientific behavior as part of this ticket.
-For a file changed only in comments or docstrings, prove that its
-before-and-after syntax trees are identical after docstrings are removed. For
-command help, diagnostics, or another explanatory string, require the
-executable diff to contain only the intended string literal changes and run
-focused exact-output and return-code tests. Run `py_compile` for every changed
-Python file and render every changed README. Divide the review into bounded,
-non-overlapping batches, but keep one complete inventory so no covered file is
-silently skipped.
+Two hard boundaries. Git history is immutable: this ticket cleans current
+tracked files and future commit-message templates only. And no computational or
+scientific behavior changes — for a comment-or-docstring-only file, prove the
+before-and-after syntax trees are identical after docstrings are removed; for
+help, diagnostic, or other explanatory strings, require the executable diff to
+contain only the intended literal changes plus focused exact-output and
+return-code tests. Work in bounded non-overlapping batches against the one
+inventory so no covered file is silently skipped.
 
 <details><summary>Technical record for development tools</summary>
 
-Mandatory examples: `ai/gates/checks/d5_training_behaviors.py` must explain
-the CPU calculations and training behaviors it protects instead of using
-`DIDACTICS-62`. A tracked rule labeled with a development date or `hard user
-rule` must become one undated current rule with its technical reason.
+Mandatory example: `ai/gates/checks/d5_training_behaviors.py` must explain the
+CPU calculations and training behaviors it protects instead of citing
+`DIDACTICS-62`. The reference form for a non-trivial function is
+`compute_batch_byte_terms`.
 
-The reference form for a non-trivial function is
-`compute_batch_byte_terms`: a direct summary, a short mechanism explanation,
-an `Arguments:` entry for each input, and a `Returns:` description that tells
-the reader what the dictionary contains. The review must report the number of
-function and method definitions inspected in `ai/tools/` and `ai/tests/`, the
-number that needed changes, and the number left without a docstring. The last
-number must be zero before this ticket can close.
+The review reports how many function and method definitions it inspected in
+`ai/tools/` and `ai/tests/`, how many needed changes, and how many were left
+without a docstring; the last number must be zero before this ticket closes.
 
-Permanent-note findings are returned to the Architect. The Implementer and
-Red Team never edit those eleven files. README and Python-prose changes follow
-their normal ownership and review paths.
-
-Priority dependency: every ticket listed as Open at admission precedes this
-work. The separate widespread `ai/tools/` and `ai/tests/` bug audit may collect
-functional defects, while this ticket changes tracked explanations only. If
-the prose review reveals a behavioral defect, record a separate bug ticket at
-its evidence-based severity instead of repairing it inside this documentation
-change.
+Permanent-note findings return to the Architect — the Implementer and Red Team
+never edit those eleven files. Priority dependency: every ticket open at
+admission precedes this work. A behavioral defect found while reviewing prose
+becomes its own bug ticket at its evidence-based severity, never a repair
+inside this change.
 
 </details>
-
 <a id="open-emulator-audit-wave2"></a>
 ## Close the remaining verified emulator audit findings
 
 ### High-level summary
 
-A user-ordered file-by-file audit covered all 40 emulator/ files (ten
-parallel reviewers, 2026-07-23; every finding below was reviewer-reported
-and the fix-wave items were Architect-re-verified against the code). Wave 1
-landed as commit ef2a85c: the MPS float64 loss crash, the transfer-refine
-staging autograd graph, the fine-tune-sweep KeyError, the bs-vs-rows
-ZeroDivisionError, the train-plan-on-val evals, the rising "step" anneal
-collapse, the stale params stashes, and the deletion of the dead
-ElementWeightedChi2 / NLAAmpFactoredChi2 classes. This ticket holds
-everything verified but NOT yet fixed, so the next session resumes here.
+A user-ordered file-by-file audit covered all 40 `emulator/` files with ten
+parallel reviewers; every finding below was reviewer-reported, and each
+fix-wave item was Architect-re-verified against the code. Wave 1 landed as
+ef2a85c. This ticket holds what was verified but NOT fixed.
 
 ### Report-only (design-sensitive; do not fix without a directive)
 
@@ -925,7 +835,6 @@ everything verified but NOT yet fixed, so the next session resumes here.
   disagree on the intended contract.
 
 ### Current status
-
 **Ticket type: BUG FIX.**
 
 **Red Team reopen count: 0.**
@@ -936,23 +845,19 @@ everything verified but NOT yet fixed, so the next session resumes here.
 analysis; no primary result is known to be wrong.
 
 **OPEN.** Narrowed to report-only plus deferred simplifications. Wave 1 landed
-as ef2a85c; wave 2's fix candidates all landed across nine commits
-(ffb9aec geometry guards; 6b126f1 MPS float64 rebuild; 7adf66f warmstart
-structured-head refusal + extras eigh; 5d17e31 inference/fixed_facts/
-results/model_recipe refusals; a0406f0 experiment config-validation gaps;
-e48c20c anneal-const + training contracts; 2bd6624 background/syren/
-family_drivers rigor; 8d24dd7 plotting/diagnostics/designs edges; 2beb0f9
-local-linear guard + doc contradictions). Full suite 813 OK after each.
+as ef2a85c; wave 2's fix candidates all landed across nine commits (ffb9aec,
+6b126f1, 7adf66f, 5d17e31, a0406f0, e48c20c, 2bd6624, 8d24dd7, 2beb0f9), full
+suite 813 OK after each.
 
-One fix-wave item was investigated and NOT applied: a run_emulator guard
-refusing anchor + trunk_epochs > 0 was drafted, then reverted because
-test_training_pass_recipe exercises that combination deliberately (the
-finding's "latent trap" premise was wrong for freeze_trunk=False); the
-build_anchor docstring was corrected instead.
+One wave-2 item was investigated and NOT applied: a `run_emulator` guard
+refusing anchor with `trunk_epochs > 0` was drafted, then reverted because
+`test_training_pass_recipe` exercises that combination deliberately — the
+finding's "latent trap" premise was wrong for `freeze_trunk=False`. The
+`build_anchor` docstring was corrected instead.
 
-What remains open is exactly the Report-only section above; nothing there
-may be fixed without a directive. The full reviewer reports live in the
-session transcript, not in this repo.
+What remains open is exactly the Report-only section above; nothing there may
+be fixed without a directive. The full reviewer reports live in the session
+transcript, not in this repo.
 
 # Parked edge cases
 
@@ -962,15 +867,13 @@ session transcript, not in this repo.
 
 <a id="parked-memory-probe-stateful-forward"></a>
 ## Guard the sizing probe if a stateful-forward family is added
-
 ### High-level summary
 
 The batch-memory estimate runs one dummy forward on zeros through the live
-model to measure its autograd-saved activations. The current model families
-change no state during a forward pass, so the probe is harmless. A future
-family containing batch-normalization running statistics or active dropout
-would make that probe mutate model state or consume random numbers before
-training begins.
+model to measure autograd-saved activations. No current family changes state
+during a forward pass, so the probe is harmless; a family with
+batch-normalization running statistics or active dropout would make it mutate
+model state or consume random numbers before training begins.
 
 ### Current status
 
@@ -1008,10 +911,10 @@ nonzero rate.
 ### High-level summary
 
 The covariance writer keeps partial bytes under a hidden private name and
-removes that name after a normal success or handled failure. A forced
-termination such as `SIGKILL` does not let Python run its cleanup block, so an
-unreferenced hidden file can remain in the output directory. Readers never use
-that private name, and no partial final covariance is exposed.
+removes it after a normal success or handled failure. `SIGKILL` or another
+uncatchable termination skips that cleanup, leaving one unreferenced hidden
+file. Readers never use the private name and no partial final covariance is
+exposed.
 
 ### Current status
 
@@ -1052,13 +955,12 @@ termination`.
 ### High-level summary
 
 Matter-power artifacts record which Syren formula supplies their analytic
-starting surface. If a future edit changed the vendored formula without
-retraining the matching artifacts, the learned correction could be combined
-with a different starting calculation and still produce finite values.
-
-No such drift is demonstrated in the current library. Building a formula
-registry or a broad hash framework merely to guard this hypothetical edit
-would make the scientific path harder to read, so the case remains below Low.
+starting surface. A future edit to the vendored formula without retraining the
+matching artifacts would combine the learned correction with a different
+starting calculation and still produce finite values. No such drift is
+demonstrated, and a formula registry or broad hash framework built only to
+guard this hypothetical would make the scientific path harder to read — so the
+case stays below Low.
 
 ### Current status
 
