@@ -73,7 +73,7 @@ _MINIMUM_PERMANENT_NOTES = {
     "ai/notes/python-changes-go-no-go.md",
     "ai/notes/models-and-designs.md",
     "ai/notes/training-stack.md",
-    "ai/notes/artifacts-inference-warmstart.md",
+    "ai/notes/saved-emulators.md",
     "ai/notes/data-generation-and-cuts.md",
     "ai/notes/families-background-mps.md",
     "ai/notes/families-scalar-cmb.md",

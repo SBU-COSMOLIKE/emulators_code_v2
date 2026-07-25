@@ -180,9 +180,9 @@ Exactly these eleven Markdown files under `ai/notes/` stay in Git:
    correction heads, initialization, conditioning, and design rules.
 6. **[`training-stack.md`](training-stack.md)** — losses, phase schedules,
    snapshots, sizing, diagnostics, and training invariants.
-7. **[`artifacts-inference-warmstart.md`](artifacts-inference-warmstart.md)**
-   — artifact schemas, rebuild, inference adapters, fine-tuning, transfer, and
-   geometry identity.
+7. **[`saved-emulators.md`](saved-emulators.md)** — the saved emulator pair:
+   its schema, rebuild, geometry identity, the inference adapters that serve
+   it, and the fine-tuning and transfer runs that start from one.
 8. **[`data-generation-and-cuts.md`](data-generation-and-cuts.md)** — data
    generation, sampling, cuts, staging, and file-output rules.
 9. **[`families-background-mps.md`](families-background-mps.md)** —

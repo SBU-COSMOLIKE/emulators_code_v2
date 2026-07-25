@@ -33,7 +33,7 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Home note: artifacts-inference-warmstart.md (the fine-tune design rules;
+Home note: saved-emulators.md (the fine-tune design rules;
 this check is the finetune-identity gate the note's validation section names).
 """
 

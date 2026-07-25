@@ -60,7 +60,7 @@ cosmology, it declares no support, and the domain law prevents it from reaching
 a likelihood. A "mutation arm" breaks the code deliberately to prove a check
 would notice.
 
-Spec: ai/notes/artifacts-inference-warmstart.md, "fixed-facts-schema: a saved
+Spec: ai/notes/saved-emulators.md, "fixed-facts-schema: a saved
 emulator records the science it was born under."
 """
 import os

@@ -23,7 +23,7 @@ ROLE_CONTRACT = "ai/notes/role-contract.yaml"
 FAILURE_MODES = "ai/notes/implementer-failure-modes.yaml"
 PERMANENT_NOTES = (
     "ai/notes/MEMORY.md",
-    "ai/notes/artifacts-inference-warmstart.md",
+    "ai/notes/saved-emulators.md",
     "ai/notes/conventions-and-workflow.md",
     "ai/notes/data-generation-and-cuts.md",
     "ai/notes/families-background-mps.md",

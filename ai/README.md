@@ -1176,7 +1176,7 @@ as a separate Architect-only change.
 Exactly eleven Markdown notes are permanent repository knowledge:
 
 1. `MEMORY.md`
-2. `artifacts-inference-warmstart.md`
+2. `saved-emulators.md`
 3. `conventions-and-workflow.md`
 4. `data-generation-and-cuts.md`
 5. `families-background-mps.md`

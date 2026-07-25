@@ -318,7 +318,7 @@ class PermanentNoteStyleContractTests(unittest.TestCase):
 
     def test_notes_record_the_cross_family_identity_and_capability_rules(self):
         artifact = " ".join(read(
-            "ai/notes/artifacts-inference-warmstart.md").split())
+            "ai/notes/saved-emulators.md").split())
         generation = " ".join(read(
             "ai/notes/data-generation-and-cuts.md").split())
         cmb = " ".join(read("ai/notes/families-scalar-cmb.md").split())

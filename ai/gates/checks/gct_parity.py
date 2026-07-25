@@ -29,7 +29,7 @@ exits non-zero.
 The tiny train-and-save helpers are shared with gsv_bitwise_drift; the dumps
 and save locations come from board_config.json.
 
-Home note: artifacts-inference-warmstart.md:117-123 (the plain
+Home note: saved-emulators.md:117-123 (the plain
 parity probe) and :234-238 (the factored round-trip).
 """
 

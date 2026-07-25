@@ -37,7 +37,7 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Home note: artifacts-inference-warmstart.md (the transfer design rules;
+Home note: saved-emulators.md (the transfer design rules;
 this check is the transfer-identity validation gate).
 """
 

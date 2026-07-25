@@ -3134,7 +3134,7 @@ class EmulatorExperiment:
     # emulator, so this path bypasses the model-name resolution below. It
     # validates the finetune YAML surface, loads + validates the source once
     # (on the run's device), and builds the experiment on the source's class.
-    # See emulator/warmstart.py and ai/notes/artifacts-inference-warmstart.md.
+    # See emulator/warmstart.py and ai/notes/saved-emulators.md.
     if ta.get("finetune") is not None:
       warmstart.validate_finetune_config(
         cfg=cfg,

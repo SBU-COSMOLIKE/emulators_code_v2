@@ -1,4 +1,4 @@
-# Artifacts, inference, adapters, and warm starts
+# Saved emulators: writing, reading back, serving, and reusing them
 
 Durable rules for saved emulators, reconstruction, public prediction, Cobaya
 adapters, fine-tuning, and transfer learning.

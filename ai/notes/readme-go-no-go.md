@@ -371,7 +371,7 @@ all eleven note paths and `ai/tools/permanent_note_guard.py` under
 
 ```text
 ai/notes/MEMORY.md
-ai/notes/artifacts-inference-warmstart.md
+ai/notes/saved-emulators.md
 ai/notes/conventions-and-workflow.md
 ai/notes/data-generation-and-cuts.md
 ai/notes/families-background-mps.md

@@ -54,7 +54,7 @@ derived state exists. Candidate `f30f406`.
 Team correctly observed that `emul_mps.calculate` calls the linear learned
 predictor once before `syren_params_from` raises, so an earlier "before any
 learned predictor" wording overstated the boundary (corrected above). The
-durable authority — `artifacts-inference-warmstart.md`, "Syren parameter
+durable authority — `saved-emulators.md`, "Syren parameter
 aliases must agree" — requires refusal before either analytic formula and no
 surviving derived state, and the landing meets both. The finding is Low, below
 this ticket's High severity, and causes no wrong science, data loss, or halt.
@@ -1012,7 +1012,7 @@ names the copy first. The child refuses with a dedicated exit code unless the
 changed default is live, so a launch that imported the ordinary package cannot
 pass as proof. Helpers live in `ai/gates/checks/gsv_bitwise_drift.py`; the
 durable behavior is `save-rebuild-drift.code-default-drift-ignored` in
-`artifacts-inference-warmstart.md`. The full gate run on the workstation is owed
+`saved-emulators.md`. The full gate run on the workstation is owed
 under [Complete older cross-family workstation
 checks](backlog.md#open-workstation-debt).
 

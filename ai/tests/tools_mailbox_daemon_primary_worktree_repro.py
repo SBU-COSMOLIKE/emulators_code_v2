@@ -58,7 +58,7 @@ PERMANENT_NOTES = (
     "python-changes-go-no-go.md",
     "models-and-designs.md",
     "training-stack.md",
-    "artifacts-inference-warmstart.md",
+    "saved-emulators.md",
     "data-generation-and-cuts.md",
     "families-background-mps.md",
     "families-scalar-cmb.md",

@@ -1112,7 +1112,7 @@ def gate_gsv_c(ctx):
   relocation; require CPU tensors plus bitwise-equal outputs on a probe; then
   round-trip the factored, NPCE, and conv-head pairs. Patch an activation
   default and rebuild unchanged; old schema files are refused (specs:
-  artifacts-inference-warmstart.md:86-93; ai/gates/README.md FAQ B5 for why an
+  saved-emulators.md:86-93; ai/gates/README.md FAQ B5 for why an
   identity gate and a smoke gate are both required).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
@@ -1138,7 +1138,7 @@ def gate_compile_recipe(ctx):
   then on CUDA records and delegates the real torch.compile call for both
   compile_model=True rebuilds and runs finite forwards. It proves call and
   mode consumption, not PyTorch's internal optimization strategy (spec:
-  artifacts-inference-warmstart.md, "compile-recipe evidence").
+  saved-emulators.md, "compile-recipe evidence").
   """
   # The child owns the CUDA capability boundary so its mandatory CUDA AID is
   # emitted UNAVAILABLE, rather than silently disappearing on a CPU-only box.
@@ -1165,7 +1165,7 @@ def gate_gct_c(ctx):
   rtol 1e-6 (including the factored save -> rebuild -> predict
   round-trip), the example evaluate run against the lsst_y1 likelihood
   finishes, and a short MCMC smoke follows; depends on
-  save-rebuild-drift (spec: artifacts-inference-warmstart.md:117-123, 234-238).
+  save-rebuild-drift (spec: saved-emulators.md:117-123, 234-238).
   """
   ctx.require_caps("torch", "cosmolike", "cobaya", "gpu")
   # the four parity legs are asserted IN the child (one ##AID each); this rc
@@ -1227,7 +1227,7 @@ def gate_ftw_a(ctx):
   small ResMLP with hand-built geometries, no cosmolike), saves it, then runs
   the warm-start path with two extra parameters and asserts the shared-
   parameter encoding, the weight transfer, the pre-train parity, the no-extras
-  degenerate case, and the loud errors (spec: artifacts-inference-warmstart.md, the
+  degenerate case, and the loud errors (spec: saved-emulators.md, the
   finetune-identity validation gate). torch only, no cosmolike.
   """
   ctx.require_caps("torch")
@@ -1251,7 +1251,7 @@ def gate_ftw_b(ctx):
   prints, the startup banner names the source, and the run completes. The
   saved-artifact provenance (the finetuned_from root attr) and the save ->
   rebuild -> predict round-trip are the save-and-sample follow-up the Architect
-  confirms from the workstation artifact (spec: artifacts-inference-warmstart.md, the
+  confirms from the workstation artifact (spec: saved-emulators.md, the
   finetune-smoke validation gate). Depends on save-rebuild-drift, which
   persists the source emulator this run continues.
   """
@@ -1303,7 +1303,7 @@ def gate_tpe_a(ctx):
   forms, the packed-target discipline, the whitened-only rejections, the
   family validators' acceptance matrix, a grid transfer artifact predicting
   the composition bitwise, and the cross-family-base loud error (spec:
-  artifacts-inference-warmstart.md, the transfer-identity validation gate). torch
+  saved-emulators.md, the transfer-identity validation gate). torch
   only, no cosmolike.
   """
   ctx.require_caps("torch")
@@ -1328,7 +1328,7 @@ def gate_tpe_b(ctx):
   provenance (the transfer_from root attr, the embedded transfer_base group) and
   the save -> rebuild -> predict round-trip are the save-and-sample follow-up the
   Architect confirms from the workstation artifact (spec:
-  artifacts-inference-warmstart.md, the transfer-smoke validation gate). Depends on
+  saved-emulators.md, the transfer-smoke validation gate). Depends on
   save-rebuild-drift, which persists the base this run composes.
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
@@ -1735,7 +1735,7 @@ def gate_geo_a(ctx):
   move). Acceptance beyond this gate = the full board green
   (every gate touches geometries) with ema-off-identity pinning
   byte-identity — the same acceptance pattern the family-folders move
-  used (spec: ai/notes/artifacts-inference-warmstart.md).
+  used (spec: ai/notes/saved-emulators.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("ai/gates/checks/geo_paths.py")
@@ -1901,7 +1901,7 @@ def gate_fixed_facts_schema(ctx):
   red the legs that guard the version law and the verbatim copy. The live proof
   that a REAL emulator with trained weights survives the same round trip needs
   torch and is owned by the save/rebuild gate (spec:
-  artifacts-inference-warmstart.md).
+  saved-emulators.md).
   """
   # the legs are asserted IN the child, which emits one ##AID each; this rc
   # check is the child's single aggregate verdict, so it carries no aid of its
@@ -1937,7 +1937,7 @@ def gate_cs_adapter_identity(ctx):
   that asks only "did it raise?" cannot tell a refusal from a crash, because
   float("n/a") raises the same ValueError class every refusal here does. The real
   cobaya lifecycle and the chi2 parity stay with the cobaya-adapter gate, which
-  owns them (spec: artifacts-inference-warmstart.md).
+  owns them (spec: saved-emulators.md).
   """
   rc, out = ctx.run_check("ai/gates/checks/cs_adapter_identity.py")
   if ctx.dry:
@@ -2515,7 +2515,7 @@ BOARD = [
        spec_code="FFS-A",
        title="A saved emulator records the science it was born under",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="the persisted scientific record: both blocks (the cosmology held "
             "fixed, and the region the sampled parameters were drawn from) "
             "round-trip through a real file; a record rewritten between the "
@@ -2537,31 +2537,31 @@ BOARD = [
             "The live proof on a REAL trained emulator is the save/rebuild "
             "gate's, and is workstation-owed",
        evidence=(Assertion("fixed-facts-schema.record-round-trip",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-record-round-trip"),
+                           "saved-emulators.md#fixed-facts-schema-record-round-trip"),
                  Assertion("fixed-facts-schema.rewritten-record-refused",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-rewritten-record-refused"),
+                           "saved-emulators.md#fixed-facts-schema-rewritten-record-refused"),
                  Assertion("fixed-facts-schema.missing-record-refused",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-missing-record-refused"),
+                           "saved-emulators.md#fixed-facts-schema-missing-record-refused"),
                  Assertion("fixed-facts-schema.legacy-version-refused",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-legacy-version-refused"),
+                           "saved-emulators.md#fixed-facts-schema-legacy-version-refused"),
                  Assertion("fixed-facts-schema.sampled-and-fixed-refused",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-sampled-and-fixed-refused"),
+                           "saved-emulators.md#fixed-facts-schema-sampled-and-fixed-refused"),
                  Assertion("fixed-facts-schema.parameter-order-enforced",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-parameter-order-enforced"),
+                           "saved-emulators.md#fixed-facts-schema-parameter-order-enforced"),
                  Assertion("fixed-facts-schema.mutation-arms-red",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-mutation-arms-red"),
+                           "saved-emulators.md#fixed-facts-schema-mutation-arms-red"),
                  Assertion("fixed-facts-schema.vertical-law-enforced",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-vertical-law-enforced"),
+                           "saved-emulators.md#fixed-facts-schema-vertical-law-enforced"),
                  Assertion("fixed-facts-schema.horizontal-law-enforced",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-horizontal-law-enforced"),
+                           "saved-emulators.md#fixed-facts-schema-horizontal-law-enforced"),
                  Assertion("fixed-facts-schema.domain-law-enforced",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-domain-law-enforced"),
+                           "saved-emulators.md#fixed-facts-schema-domain-law-enforced"),
                  Assertion("fixed-facts-schema.served-support-is-the-intersection",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-served-support-is-the-intersection"),
+                           "saved-emulators.md#fixed-facts-schema-served-support-is-the-intersection"),
                  Assertion("fixed-facts-schema.comparison-laws-are-load-bearing",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-comparison-laws-are-load-bearing"),
+                           "saved-emulators.md#fixed-facts-schema-comparison-laws-are-load-bearing"),
                  Assertion("fixed-facts-schema.resolved-model-read-once",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-resolved-model-read-once")),
+                           "saved-emulators.md#fixed-facts-schema-resolved-model-read-once")),
        run=gate_fixed_facts_schema,
        manifest=Manifest(code=("emulator/fixed_facts.py",),
                          inputs=()),
@@ -2570,7 +2570,7 @@ BOARD = [
        spec_code="GCT-D",
        title="Cosmic-shear adapter contract + the record's three laws",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="the cosmic-shear adapter's own refusals, torch-only: it reads its "
             "required parameters and its served section from the artifact "
             "rather than from the YAML, refuses a wrong-kind artifact by name, "
@@ -2588,9 +2588,9 @@ BOARD = [
             "law, because float('n/a') raises the same ValueError class a "
             "refusal does",
        evidence=(Assertion("cs-adapter-identity.adapter-contract",
-                           "artifacts-inference-warmstart.md#cs-adapter-identity-adapter-contract"),
+                           "saved-emulators.md#cs-adapter-identity-adapter-contract"),
                  Assertion("cs-adapter-identity.record-laws-refuse",
-                           "artifacts-inference-warmstart.md#cs-adapter-identity-record-laws-refuse")),
+                           "saved-emulators.md#cs-adapter-identity-record-laws-refuse")),
        run=gate_cs_adapter_identity,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_cosmic_shear.py"),
@@ -2600,7 +2600,7 @@ BOARD = [
        spec_code="ADC-A",
        title="Shared Cobaya adapter inputs and public results",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="focused CPU checks cover the rules shared by all five "
             "Cobaya adapters. Unknown YAML keys and malformed emulator "
             "lists are refused loudly. "
@@ -2611,11 +2611,11 @@ BOARD = [
             "each covered public array result is an owned copy",
        evidence=(Assertion(
                    "adapter-contracts.strict-inputs-and-composition",
-                   "artifacts-inference-warmstart.md#adapter-contracts-"
+                   "saved-emulators.md#adapter-contracts-"
                    "strict-inputs-and-composition"),
                  Assertion(
                    "adapter-contracts.publication-and-owned-results",
-                   "artifacts-inference-warmstart.md#adapter-contracts-"
+                   "saved-emulators.md#adapter-contracts-"
                    "publication-and-owned-results")),
        run=gate_adapter_contracts,
        manifest=Manifest(
@@ -2635,7 +2635,7 @@ BOARD = [
        spec_code="ARB-A",
        title="Saved attributes parsed by type, not truthiness",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="the artifact-readback type contract: the shared typed reader "
             "accepts a native boolean, returns the default for an absent key, "
             "and refuses every string / integer (the truthy 'False' that "
@@ -2643,7 +2643,7 @@ BOARD = [
             "source census confirms no artifact boolean is truthiness-coerced. "
             "The live save/forge/rebuild proof is workstation-owed",
        evidence=(Assertion("artifact-readback.typed-bool",
-                           "artifacts-inference-warmstart.md#artifact-readback-typed-bool"),),
+                           "saved-emulators.md#artifact-readback-typed-bool"),),
        run=gate_artifact_readback,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -2652,7 +2652,7 @@ BOARD = [
        spec_code="ACM-A",
        title="Artifact composition mode is required before construction",
        tier=TIER_BACKLOG,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="the authoritative composition contract: native required plain / "
             "npce / transfer mode plus native transfer-refined fact; exact "
             "required and forbidden HDF5 groups in both directions; resolved "
@@ -2660,7 +2660,7 @@ BOARD = [
             "validation precedes recipe, geometry, model, and weight loading",
        evidence=(Assertion(
          "artifact-composition.contract",
-         "artifacts-inference-warmstart.md#artifact-composition-contract"),),
+         "saved-emulators.md#artifact-composition-contract"),),
        run=gate_artifact_composition,
        manifest=Manifest(code=("emulator/results.py",
                                "emulator/inference.py",
@@ -2955,25 +2955,25 @@ BOARD = [
        spec_code="FTW-A",
        title="Fine-tune warm-start identity",
        tier=TIER_NEW_FEATURES,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="a synthetic source emulator, warm-started with two extra "
             "parameters, keeps the source's own encoding and weights, "
             "reproduces its predictions before the first training step, and "
             "refuses the configurations that would break that promise",
        evidence=(Assertion("finetune-identity.extended-parameter-encoding",
-                           "artifacts-inference-warmstart.md#finetune-identity-extended-parameter-encoding"),
+                           "saved-emulators.md#finetune-identity-extended-parameter-encoding"),
                  Assertion("finetune-identity.weight-transfer-and-padding",
-                           "artifacts-inference-warmstart.md#finetune-identity-weight-transfer-and-padding"),
+                           "saved-emulators.md#finetune-identity-weight-transfer-and-padding"),
                  Assertion("finetune-identity.pre-train-parity",
-                           "artifacts-inference-warmstart.md#finetune-identity-pre-train-parity"),
+                           "saved-emulators.md#finetune-identity-pre-train-parity"),
                  Assertion("finetune-identity.output-geometry-pin",
-                           "artifacts-inference-warmstart.md#finetune-identity-output-geometry-pin"),
+                           "saved-emulators.md#finetune-identity-output-geometry-pin"),
                  Assertion("finetune-identity.degenerate-no-extras-identity",
-                           "artifacts-inference-warmstart.md#finetune-identity-degenerate-no-extras-identity"),
+                           "saved-emulators.md#finetune-identity-degenerate-no-extras-identity"),
                  Assertion("finetune-identity.loud-config-errors",
-                           "artifacts-inference-warmstart.md#finetune-identity-loud-config-errors"),
+                           "saved-emulators.md#finetune-identity-loud-config-errors"),
                  Assertion("finetune-identity.anchor-mask-and-freedom",
-                           "artifacts-inference-warmstart.md#finetune-identity-anchor-mask-and-freedom")),
+                           "saved-emulators.md#finetune-identity-anchor-mask-and-freedom")),
        run=gate_ftw_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -2982,27 +2982,27 @@ BOARD = [
        spec_code="TPE-A",
        title="Transfer frozen-base identity",
        tier=TIER_NEW_FEATURES,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="a frozen base under a zero-output correction predicts the base "
             "itself before the first training step — for a plain and a "
             "factored base, in every form and space, on the diagonal "
             "families, and through a save/rebuild round trip",
        evidence=(Assertion("transfer-identity.plain-base-slice-and-identity",
-                           "artifacts-inference-warmstart.md#transfer-identity-plain-base-slice-and-identity"),
+                           "saved-emulators.md#transfer-identity-plain-base-slice-and-identity"),
                  Assertion("transfer-identity.factored-base-slice-and-identity",
-                           "artifacts-inference-warmstart.md#transfer-identity-factored-base-slice-and-identity"),
+                           "saved-emulators.md#transfer-identity-factored-base-slice-and-identity"),
                  Assertion("transfer-identity.zero-init-surgery",
-                           "artifacts-inference-warmstart.md#transfer-identity-zero-init-surgery"),
+                           "saved-emulators.md#transfer-identity-zero-init-surgery"),
                  Assertion("transfer-identity.loud-config-errors",
-                           "artifacts-inference-warmstart.md#transfer-identity-loud-config-errors"),
+                           "saved-emulators.md#transfer-identity-loud-config-errors"),
                  Assertion("transfer-identity.artifact-lifecycle-round-trip",
-                           "artifacts-inference-warmstart.md#transfer-identity-artifact-lifecycle-round-trip"),
+                           "saved-emulators.md#transfer-identity-artifact-lifecycle-round-trip"),
                  Assertion("transfer-identity.refined-base-lifecycle",
-                           "artifacts-inference-warmstart.md#transfer-identity-refined-base-lifecycle"),
+                           "saved-emulators.md#transfer-identity-refined-base-lifecycle"),
                  Assertion("transfer-identity.diagonal-family-composition",
-                           "artifacts-inference-warmstart.md#transfer-identity-diagonal-family-composition"),
+                           "saved-emulators.md#transfer-identity-diagonal-family-composition"),
                  Assertion("transfer-identity.cross-family-base-refusal",
-                           "artifacts-inference-warmstart.md#transfer-identity-cross-family-base-refusal")),
+                           "saved-emulators.md#transfer-identity-cross-family-base-refusal")),
        run=gate_tpe_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -3121,16 +3121,16 @@ BOARD = [
        spec_code="GEO-A",
        title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="fresh artifacts name geometry classes from the geometry package "
             "(emulator.geometries.*), and the retired flat module paths stay "
             "absent from disk, the import system, and the repository source",
        evidence=(Assertion("geo-paths.fresh-save-uses-folder-paths",
-                           "artifacts-inference-warmstart.md#geo-paths-fresh-save-uses-folder-paths"),
+                           "saved-emulators.md#geo-paths-fresh-save-uses-folder-paths"),
                  Assertion("geo-paths.legacy-flat-paths-absent",
-                           "artifacts-inference-warmstart.md#geo-paths-legacy-flat-paths-absent"),
+                           "saved-emulators.md#geo-paths-legacy-flat-paths-absent"),
                  Assertion("geo-paths.legacy-reference-census",
-                           "artifacts-inference-warmstart.md#geo-paths-legacy-reference-census")),
+                           "saved-emulators.md#geo-paths-legacy-reference-census")),
        run=gate_geo_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -3140,7 +3140,7 @@ BOARD = [
        spec_code="GSV-C",
        title="Save/rebuild bitwise + drift",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="an emulator rebuilt from its saved artifact pair reproduces the "
             "live model's output exactly — for the plain, factored, "
             "neural-PCE and conv-head variants — while its nonempty, "
@@ -3149,23 +3149,23 @@ BOARD = [
             "file the current schema cannot honour is refused instead of "
             "guessed",
        evidence=(Assertion("save-rebuild-drift.plain-rebuild-matches-live",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-plain-rebuild-matches-live"),
+                           "saved-emulators.md#save-rebuild-drift-plain-rebuild-matches-live"),
                  Assertion("save-rebuild-drift.cpu-normalized-state",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-cpu-normalized-state"),
+                           "saved-emulators.md#save-rebuild-drift-cpu-normalized-state"),
                  Assertion("save-rebuild-drift.factored-rebuild-matches-live",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-factored-rebuild-matches-live"),
+                           "saved-emulators.md#save-rebuild-drift-factored-rebuild-matches-live"),
                  Assertion("save-rebuild-drift.npce-rebuild-matches-live",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-npce-rebuild-matches-live"),
+                           "saved-emulators.md#save-rebuild-drift-npce-rebuild-matches-live"),
                  Assertion("save-rebuild-drift.head-rebuild-matches-live",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-head-rebuild-matches-live"),
+                           "saved-emulators.md#save-rebuild-drift-head-rebuild-matches-live"),
                  Assertion("save-rebuild-drift.code-default-drift-ignored",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-code-default-drift-ignored"),
+                           "saved-emulators.md#save-rebuild-drift-code-default-drift-ignored"),
                  Assertion("save-rebuild-drift.v1-schema-refusal",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-v1-schema-refusal"),
+                           "saved-emulators.md#save-rebuild-drift-v1-schema-refusal"),
                  Assertion("save-rebuild-drift.v2-schema-refusal",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-v2-schema-refusal"),
+                           "saved-emulators.md#save-rebuild-drift-v2-schema-refusal"),
                  Assertion("save-rebuild-drift.old-head-artifact-refusal",
-                           "artifacts-inference-warmstart.md#save-rebuild-drift-old-head-artifact-refusal")),
+                           "saved-emulators.md#save-rebuild-drift-old-head-artifact-refusal")),
        run=gate_gsv_c,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -3174,7 +3174,7 @@ BOARD = [
        spec_code="GSV-D",
        title="Persisted CUDA compile-mode consumption",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="two current schema-v3 scalar artifacts with distinct compile "
             "modes each drive exactly one delegated torch.compile call on "
             "a CUDA rebuild with their independently read saved value, and "
@@ -3184,9 +3184,9 @@ BOARD = [
             "mode, an identity compiler, or a discarded result, and "
             "production refuses a missing persisted field",
        evidence=(Assertion("compile-recipe.observation-controls",
-                           "artifacts-inference-warmstart.md#compile-recipe-observation-controls"),
+                           "saved-emulators.md#compile-recipe-observation-controls"),
                  Assertion("compile-recipe.cuda-persisted-modes",
-                           "artifacts-inference-warmstart.md#compile-recipe-cuda-persisted-modes")),
+                           "saved-emulators.md#compile-recipe-cuda-persisted-modes")),
        run=gate_compile_recipe,
        manifest=Manifest(code=("emulator/results.py", "emulator/designs",
                                "emulator/geometries", "emulator/losses"),
@@ -3196,25 +3196,25 @@ BOARD = [
        spec_code="GCT-C",
        title="Cobaya adapter parity",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="the predictor a cobaya theory block calls at sampling time "
             "reproduces the training-side data vector to a relative 1e-6 and "
             "scatters it into the 3x2pt layout the likelihood expects, and "
             "the shipped evaluate run completes against lsst_y1",
        evidence=(Assertion("cobaya-adapter.plain-predictor-parity",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-plain-predictor-parity"),
+                           "saved-emulators.md#cobaya-adapter-plain-predictor-parity"),
                  Assertion("cobaya-adapter.plain-scattered-vector-shape-and-mask",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-plain-scattered-vector-shape-and-mask"),
+                           "saved-emulators.md#cobaya-adapter-plain-scattered-vector-shape-and-mask"),
                  Assertion("cobaya-adapter.factored-predictor-parity",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-factored-predictor-parity"),
+                           "saved-emulators.md#cobaya-adapter-factored-predictor-parity"),
                  Assertion("cobaya-adapter.factored-scattered-vector-shape-and-mask",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-factored-scattered-vector-shape-and-mask"),
+                           "saved-emulators.md#cobaya-adapter-factored-scattered-vector-shape-and-mask"),
                  Assertion("cobaya-adapter.evaluate-emulator-present",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-evaluate-emulator-present"),
+                           "saved-emulators.md#cobaya-adapter-evaluate-emulator-present"),
                  Assertion("cobaya-adapter.example-evaluate-run-completes",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-example-evaluate-run-completes"),
+                           "saved-emulators.md#cobaya-adapter-example-evaluate-run-completes"),
                  Assertion("cobaya-adapter.mcmc-smoke",
-                           "artifacts-inference-warmstart.md#cobaya-adapter-mcmc-smoke")),
+                           "saved-emulators.md#cobaya-adapter-mcmc-smoke")),
        run=gate_gct_c,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=("evaluate_yaml",)),
@@ -3224,18 +3224,18 @@ BOARD = [
        spec_code="FTW-B",
        title="Fine-tune warm-start smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="a real fine-tune run continues the board's own saved emulator: "
             "the driver completes, announces the source it warm-started "
             "from, and prints the pre-train parity verdict",
        evidence=(Assertion("finetune-smoke.run-completes",
-                           "artifacts-inference-warmstart.md#finetune-smoke-run-completes"),
+                           "saved-emulators.md#finetune-smoke-run-completes"),
                  Assertion("finetune-smoke.parity-verdict-printed",
-                           "artifacts-inference-warmstart.md#finetune-smoke-parity-verdict-printed"),
+                           "saved-emulators.md#finetune-smoke-parity-verdict-printed"),
                  Assertion("finetune-smoke.warm-start-banner",
-                           "artifacts-inference-warmstart.md#finetune-smoke-warm-start-banner"),
+                           "saved-emulators.md#finetune-smoke-warm-start-banner"),
                  Assertion("finetune-smoke.artifact-provenance-and-round-trip",
-                           "artifacts-inference-warmstart.md#finetune-smoke-artifact-provenance-and-round-trip")),
+                           "saved-emulators.md#finetune-smoke-artifact-provenance-and-round-trip")),
        run=gate_ftw_b,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.finetune-smoke-config",) + _CS_DEPLOY_DATA),
@@ -3245,21 +3245,21 @@ BOARD = [
        spec_code="TPE-B",
        title="Transfer frozen-base smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="artifacts-inference-warmstart",
+       home="saved-emulators",
        maps="a real transfer run composes a correction over the board's own "
             "saved base: the driver completes, announces the base and form, "
             "prints the epoch-0 parity verdict, and saves the composed "
             "artifact",
        evidence=(Assertion("transfer-smoke.run-completes",
-                           "artifacts-inference-warmstart.md#transfer-smoke-run-completes"),
+                           "saved-emulators.md#transfer-smoke-run-completes"),
                  Assertion("transfer-smoke.parity-verdict-printed",
-                           "artifacts-inference-warmstart.md#transfer-smoke-parity-verdict-printed"),
+                           "saved-emulators.md#transfer-smoke-parity-verdict-printed"),
                  Assertion("transfer-smoke.transfer-banner",
-                           "artifacts-inference-warmstart.md#transfer-smoke-transfer-banner"),
+                           "saved-emulators.md#transfer-smoke-transfer-banner"),
                  Assertion("transfer-smoke.saved-artifact-paths-printed",
-                           "artifacts-inference-warmstart.md#transfer-smoke-saved-artifact-paths-printed"),
+                           "saved-emulators.md#transfer-smoke-saved-artifact-paths-printed"),
                  Assertion("transfer-smoke.artifact-provenance-and-round-trip",
-                           "artifacts-inference-warmstart.md#transfer-smoke-artifact-provenance-and-round-trip")),
+                           "saved-emulators.md#transfer-smoke-artifact-provenance-and-round-trip")),
        run=gate_tpe_b,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.transfer-smoke-config",) + _CS_DEPLOY_DATA),
