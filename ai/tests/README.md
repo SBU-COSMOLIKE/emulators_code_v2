@@ -230,6 +230,7 @@ redshift-by-wavenumber surface.
 | `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
 | `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
 | `test_generator_dark_energy_facts.py` | Does the generator recognize that sampled `w0pwa` and `w` make the calculated `wa` vary, then save the physical `w, wa` law? |
+| `test_generator_posterior_column.py` | Does the saved chain table store minus the log posterior in the column GetDist ranks by, and stay neutral when no posterior was evaluated? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
 | `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
 | `test_mps_generator_dark_energy_binding.py` | Does every generated Syren base row reuse the explicit dark-energy law obtained once during setup? |
@@ -345,6 +346,27 @@ quantity calculated from the sampled parameters.
   mapping. A missing names file lists the paths tried instead of guessing.
 - **Why it matters:** selecting by a remembered column number can silently
   assign a parameter's values to the wrong physical name.
+
+#### The posterior column GetDist ranks by
+
+`test_generator_posterior_column.py` checks that the generator's parameter table
+reserves its second column for the value GetDist interprets as ``minuslogpost``.
+GetDist prefers the smaller number, so the generator must store minus the log
+posterior rather than the sampler's own log probability.
+
+- **Example used:** a two-row chain with one sampled parameter `H0` and emcee
+  log probabilities `log p = -4` and `log p = -9`.
+- **What the test does:** it parses the generator source, executes the
+  production statements that build the posterior column, and runs the
+  production ``np.savetxt`` writer into a temporary folder so GetDist can rank it.
+- **Pass means:** column two holds `4` and `9`, the trailing `chi2*` column is
+  twice that, a uniform run writes `0` in both columns for every row, and GetDist
+  ranks the first row as the better sample.
+- **A refusal it proves:** storing the sampler's sign unchanged must make the
+  same GetDist check fail by preferring the worse of the two samples.
+- **Why it matters:** a reversed column makes a reader prefer the worse of two
+  samples, so every downstream ranking, plot, or covariance built from the table
+  would be misleading.
 
 #### Resolving dark-energy coordinate names
 

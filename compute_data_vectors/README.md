@@ -783,7 +783,7 @@ arrays:
 
 | File ending | Contents |
 | --- | --- |
-| `.1.txt` | chain weight, saved log probability (`lnp`), sampled parameters in `ord` order, and `chi2*`, which is `-2 * lnp` |
+| `.1.txt` | chain weight, minus the log posterior (`minuslogpost`), sampled parameters in `ord` order, and `chi2*`, which is `2 * minuslogpost` |
 | `.paramnames` | the declared name and display label for each numeric parameter column |
 | `.ranges` | the sampled lower and upper bounds |
 | `.covmat` | covariance of the saved parameter rows |
@@ -794,9 +794,13 @@ On a fresh run, the first comment line in `.1.txt` records the sampling seed
 and random-number generator. An append run draws from a stream derived from
 that seed together with the number of rows already saved, so it never repeats
 the original rows and remains reproducible from the recorded inputs. A
-uniform run stores `1` as a placeholder
-`lnp`; a tempered run stores emcee's log probability. The asterisk marks
-`chi2*` as a derived GetDist column rather than a sampled parameter.
+tempered run stores minus the natural logarithm of the posterior probability
+density that emcee evaluated, so the row with the larger posterior carries the
+smaller number and GetDist ranks it as the better sample. A uniform run
+evaluates no posterior at all, so it writes `0` in both `minuslogpost` and
+`chi2*` for every row: the table claims no measurement and ranks no row above
+another. The asterisk marks `chi2*` as a derived GetDist column rather than a
+sampled parameter.
 
 Physical arrays use 32-bit floating-point numbers. The parameter table is
 decimal text written from the sampled values. Keep the parameter files,

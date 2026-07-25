@@ -1237,7 +1237,7 @@ class GeneratorCore:
           "missing: " + repr(missing) + ". Fix the output names, or run "
           "fresh with --loadchk 0 at a new path.")
       # load sample file begins ----------------------------------------------
-      # row 0/1 rows are weights, lnp. Last row is chi2
+      # columns 0/1 are weights, minuslogpost. Last column is chi2
       self.samples = np.atleast_2d(np.loadtxt(f"{self.paramsf}.1.txt",
                                               dtype=self.dtype))[:,2:-1]
       if self.samples.ndim != 2:
@@ -1360,15 +1360,16 @@ class GeneratorCore:
            │                             unique rows, seeded thinning
            ▼                                │
         xf (nparams, ndim)  ◄───────────────┘
-           │  w = 1, chi2* = -2 lnp
+           │  w = 1, chi2* = 2 minuslogpost
            ▼
         .1.txt  .paramnames  .ranges  .covmat  .facts.yaml
         (chain)  (labels)    (bounds) (getdist  (scientific
                                        cov)      record)
 
     (legend: xf = the sampled parameter rows in train_args.ord order;
-    lnp = the log-probability column (1 as a placeholder in uniform
-    mode); chi2* = the derived getdist column -2 lnp; T = --temp.)
+    minuslogpost = the getdist column holding minus the log posterior
+    (0 in uniform mode, which evaluates no posterior); chi2* = the
+    derived getdist column 2 minuslogpost; T = --temp.)
 
     A resume run (--loadchk 1, --append 0) only reads the files back.
     An append run draws nparams NEW rows — from a stream derived from
@@ -1422,13 +1423,17 @@ class GeneratorCore:
                          progress=False)
         xf  = sampler.get_chain(flat=True, discard=burnin, thin=1)
         xf, keep = np.unique(xf, axis=0, return_index=True)
-        lnp = sampler.get_log_prob(flat=True, discard=burnin, thin=1)[keep, None]
+        # GetDist reads column two as minus the log posterior, so the sampler's
+        # own log probability is stored with the sign flipped: the row with the
+        # larger posterior must carry the smaller number in the saved table.
+        sampler_log_prob = sampler.get_log_prob(flat=True, discard=burnin, thin=1)
+        minus_logpost = -sampler_log_prob[keep, None]
         if len(xf) < self.nparams:
           print(f"Warning: only {len(xf)} unique rows, requested {self.nparams}")
         else:
           indices = self.rng.choice(np.arange(len(xf)), size=self.nparams, replace=False)
           xf  = xf[indices,:]
-          lnp = lnp[indices,:]
+          minus_logpost = minus_logpost[indices,:]
         nparams = len(xf)
         # Double check that prior is not -infty --------------------------------
         idx = self.reorder_idx_from_ord_to_yaml()
@@ -1455,7 +1460,10 @@ class GeneratorCore:
         xf  = self.rng.uniform(low  = self.bounds[:,0],
                                high = self.bounds[:,1],
                                size = (nparams,ndim))
-        lnp = np.ones((nparams,1), dtype=self.dtype)
+        # a uniform draw evaluates no posterior, so the table must not claim
+        # one. Every row carries the same neutral zero: no row is ranked above
+        # another, and the derived chi2* column below stays zero as well.
+        minus_logpost = np.zeros((nparams,1), dtype=self.dtype)
         # Double check that prior is not -infty --------------------------------
         idx = self.reorder_idx_from_ord_to_yaml()
         for i, x in enumerate(xf):
@@ -1464,7 +1472,8 @@ class GeneratorCore:
               raise ValueError(f"Sample {i} has -inf prior. (this should not happen)"
                                f"Values: {dict(zip(self.sampled_params, x))}")
       w = np.ones((nparams,1), dtype=self.dtype)
-      chi2 = -2*lnp
+      # GetDist's derived chi2* column is twice the negative log posterior.
+      chi2 = 2.0*minus_logpost
       if not loadedfromchk:
         # Output some debug messaging ------------------------------------------
         if not self.unif == 1:
@@ -1507,9 +1516,9 @@ class GeneratorCore:
         else:
           hd=f"Uniform Sampling {rng_tag}\n"
         np.savetxt(fname,
-                   np.concatenate([w, lnp, xf, chi2], axis=1),
+                   np.concatenate([w, minus_logpost, xf, chi2], axis=1),
                    fmt="%.9e",
-                   header=hd + ' '.join(["weights", "lnp"] + names + ["chi2*"]),
+                   header=hd + ' '.join(["weights", "minuslogpost"] + names + ["chi2*"]),
                    comments="# ")
 
         # copy samples to self.samples  ----------------------------------------
@@ -1551,7 +1560,7 @@ class GeneratorCore:
         # delete arrays (save RAM) ---------------------------------------------
         del w         # save RAM memory
         del xf        # save RAM memory
-        del lnp       # save RAM memory
+        del minus_logpost # save RAM memory
         del chi2      # save RAM memory
         gc.collect()  # save RAM memory
       else:
@@ -1563,14 +1572,14 @@ class GeneratorCore:
         # append chain file begins ---------------------------------------------
         fname = f"{self.paramsf}.1.txt";
         with open(fname, "a") as f: # append mode
-          hd = ' '.join(["weights","lnp"] + names + ["chi2*"])
+          hd = ' '.join(["weights","minuslogpost"] + names + ["chi2*"])
           np.savetxt(f,
-                     np.concatenate([w, lnp, xf, chi2], axis=1),
+                     np.concatenate([w, minus_logpost, xf, chi2], axis=1),
                      header = hd if (os.path.getsize(fname) == 0) else "",
                      fmt = "%.9e")
         del w         # save RAM memory
         del xf        # save RAM memory
-        del lnp       # save RAM memory
+        del minus_logpost # save RAM memory
         del chi2      # save RAM memory
         gc.collect()  # save RAM memory
 

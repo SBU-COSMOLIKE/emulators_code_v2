@@ -33,7 +33,7 @@ The staging pipeline, per source (load_source top to bottom):
        ▼
     source dict {C, dv, idx, C_mean, dv_mean}
 
-    (legend: N = rows in the dump; the .txt begins with weight / lnp and
+    (legend: N = rows in the dump; the .txt begins with weight / minuslogpost and
      then every column declared by .paramnames; derived count and placement
      come from that sidecar rather than a positional "last chi2" guess;
      total_size = full dv length;

@@ -175,7 +175,6 @@ No open HIGH tickets.
 
 Medium work begins only after the permitted High work above.
 
-- OPEN **MEDIUM** **BUG FIX** — [Write the GetDist posterior column with the correct meaning](#open-getdist-column)
 - OPEN **MEDIUM** **BUG FIX** — [Publish structured study and diagnostic results](#open-study-diagnostics)
 - OPEN **MEDIUM** **BUG FIX** — [Run real hardware checks for training behavior](#open-training-hardware)
 - OPEN **MEDIUM** **BUG FIX** — [Run saved PyTorch compilation settings on CUDA](#open-compile-modes)
@@ -790,8 +789,13 @@ posterior value and draw the wrong conclusion from a valid chain.
 
 **Red Team reopening: allowed.**
 
-**OPEN.** The permanent data rule requires `minus_logpost`; the source and
-component README still describe and write the opposite sign.
+**CLOSED.** Column two is now `minuslogpost` and carries minus the sampler's
+log probability, so the row with the larger posterior carries the smaller
+number. A uniform draw evaluates no posterior and writes a neutral zero in
+every row instead of a fabricated one. The derived `chi2*` column is
+`2 * minuslogpost`, numerically identical to the previous `-2 * lnp` in the
+tempered branch. The component README, the generator prose, and five layout
+comments elsewhere now name the same column.
 
 **Severity: MEDIUM.** A normal GetDist plot or ranking can be misleading, but
 the sign does not change generated physics vectors, training, or values served
@@ -804,9 +808,11 @@ table with parameter sidecars.
 
 ### What is missing
 
-Write and name negative log posterior, or choose and document a different
-table format. Give uniform samples an honest neutral value that does not claim
-a posterior evaluation.
+Nothing for this ticket. The known-answer test required below now exists as
+`ai/tests/test_generator_posterior_column.py`: it writes a two-row chain with
+the production writer, loads it with GetDist, and asserts the better-posterior
+row ranks better; a companion test asserts that storing the sampler's sign
+unchanged reverses that ranking.
 
 <details><summary>Technical record for development tools</summary>
 The wrong sign does not alter the generated physics vectors, the training

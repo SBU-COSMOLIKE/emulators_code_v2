@@ -160,7 +160,7 @@ is never loaded whole.
 #- Inputs (filenames set in the YAML `data` block, resolved under --root/chains):
 #
 #      <train_dv>.npy      training data vectors   (memmapped)
-#      <train_params>.txt  training parameters     (weight, lnp, <params>, chi2)
+#      <train_params>.txt  training parameters     (weight, minuslogpost, <params>, chi2)
 #      <train_covmat>      parameter covmat        (header line = param names)
 #      <val_dv>.npy        validation data vectors
 #      <val_params>.txt    validation parameters

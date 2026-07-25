@@ -417,7 +417,7 @@ def check_staging(tmp):
     np.save(os.path.join(tmp, "st_base.npy"), base)
     np.save(os.path.join(tmp, "st_z.npy"), Z4)
     np.save(os.path.join(tmp, "st_k.npy"), K6)
-    # a params .txt in the load_source layout (weight, lnp, 3 params,
+    # a params .txt in the load_source layout (weight, minuslogpost, 3 params,
     # trailing chi2 column).
     cols = np.column_stack([np.ones(n), np.zeros(n),
                             g.normal(2.1, 0.1, n),

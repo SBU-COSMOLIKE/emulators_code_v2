@@ -2105,7 +2105,7 @@ class EmulatorExperiment:
                    cosmolike-dataset settings. Keys:
                      train_dv = training data-vector .npy (memmapped);
                      train_params = training parameter .txt (columns:
-                       weight, lnp, modeled params, chi2);
+                       weight, minuslogpost, modeled params, chi2);
                      train_covmat = parameter covmat (header line =
                        parameter names);
                      val_dv = validation data-vector .npy;

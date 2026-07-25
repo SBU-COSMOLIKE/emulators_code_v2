@@ -138,7 +138,7 @@ def _schema_and_layout_contract(resolver):
   """Exercise accepted layouts and every strict producer-schema boundary."""
   try:
     with tempfile.TemporaryDirectory() as tmp:
-      # Current generator layout: [weight, lnp, sampled..., chi2*].  The
+      # Current generator layout: [weight, minuslogpost, sampled..., chi2*].  The
       # expected arrays are literal and intentionally do not slice ``rows``.
       current = os.path.join(tmp, "current.txt")
       _write_table(current, [
