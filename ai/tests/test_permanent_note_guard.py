@@ -258,6 +258,10 @@ class PermanentNoteGuardTests(unittest.TestCase):
         for match in re.finditer(r"^!/ai/notes/([^/]+\.md)$", ignore_text,
                                  flags=re.MULTILINE):
             whitelisted.add("ai/notes/" + match.group(1))
+        # The two backlog ledgers are tracked but are not permanent notes, so
+        # every list built from a tracked-file scan drops them before the
+        # comparison.  The open ledger and its closed-ticket archive are one
+        # record split across two files.
         whitelisted.discard("ai/notes/backlog.md")
         whitelisted.discard("ai/notes/backlog-closed.md")
         self.assertEqual(whitelisted, expected)
@@ -305,6 +309,7 @@ class PermanentNoteGuardTests(unittest.TestCase):
             if path.parent == Path("ai/notes") and path.suffix == ".md":
                 tracked_notes.add(path_text)
         tracked_notes.discard("ai/notes/backlog.md")
+        tracked_notes.discard("ai/notes/backlog-closed.md")
         self.assertEqual(tracked_notes, expected)
         self.assertTrue(
             (REPO_ROOT / ROLE_CONTRACT).is_file(),
