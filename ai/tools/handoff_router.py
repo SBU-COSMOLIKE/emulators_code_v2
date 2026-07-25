@@ -1559,18 +1559,6 @@ def status_report():
         print("  base commit: " + active[3])
         print("  abandon only if obsolete: --abandon-route " + active[1])
 
-    # Show the latest saved Architect decisions.
-    print("\nlatest Architect records in ai/notes/gates-and-board.md:")
-    gb = os.path.join(NOTES_DIR, "gates-and-board.md")
-    if os.path.isfile(gb):
-        heads = []
-        with open(gb, encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("## "):
-                    heads.append(line.rstrip())
-        for head in heads[-6:]:
-            print("  " + head)
-
     # Show recent copies of handoff blocks saved by this tool.
     if os.path.isdir(RELAY_DIR):
         names = []

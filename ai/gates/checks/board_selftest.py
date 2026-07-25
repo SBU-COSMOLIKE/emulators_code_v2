@@ -1272,7 +1272,7 @@ def _mf_body_sentence_final_py(ctx):
 
 
 def _mf_gate(gid, body, code, inputs=()):
-    return Gate(id=gid, tier=TIER_BACKLOG, home="gates-and-board", maps="",
+    return Gate(id=gid, tier=TIER_BACKLOG, home="conventions-and-workflow", maps="",
                 run=body, manifest=Manifest(code=tuple(code), inputs=tuple(inputs)))
 
 

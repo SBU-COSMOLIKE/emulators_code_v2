@@ -644,8 +644,10 @@ and confirms that the related test fails.
 - Local evidence: 58/58 AI tests, 12/12 schema and verdict controls, CPU PASS,
   CUDA UNAVAILABLE with honest return code 2, board self-test, identity-family
   regressions, compilation, diff check, and two independent reviews.
-- Durable audit owner: `ai/notes/gates-and-board.md`, Unit-93 current-schema
-  implementation audit.
+- Audit verdict: GO to land the implementation, NO-GO to close this ticket.
+  Closure still requires a CUDA workstation run with both assertion ids PASS
+  and a child return code of 0. The two hard-coded-mode source mutations
+  should fail there as the final proof that the check can catch the defect.
 
 </details>
 

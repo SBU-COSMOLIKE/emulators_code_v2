@@ -35,6 +35,8 @@ GPU and the project data. Developers can still run the smaller checks in
 - [FAQ B2. What happens after one gate fails?](#faq-b2-what-happens-after-one-gate-fails)
 - [FAQ B3. Which files define and record the board?](#faq-b3-which-files-define-and-record-the-board)
 - [FAQ B4. What is a golden comparison?](#faq-b4-what-is-a-golden-comparison)
+- [FAQ B5. Why is a gate built the way it is?](#faq-b5-why-is-a-gate-built-the-way-it-is)
+- [FAQ B6. How should a check program read when it fails?](#faq-b6-how-should-a-check-program-read-when-it-fails)
 
 ## Tests, gates, and the board are different
 
@@ -367,3 +369,55 @@ Only the EMA identity gate has an older comparison commit configured by
 default. Other gates use this extra comparison only when
 `ai/gates/board_config.json` supplies one; otherwise they use their normal
 small run.
+
+#### FAQ B5. Why is a gate built the way it is?
+
+Most features are covered by two gates rather than one.
+
+An **identity gate** turns the new feature off, or runs a named older commit,
+and requires the output to be unchanged to the last bit. It is the strongest
+claim available, because it also proves that a rewrite changed nothing a user
+can observe.
+
+A **smoke gate** turns the feature on and requires the named behavior to
+actually happen. This is the half that is easy to get wrong: a setting that is
+off by default, left unset, tests nothing at all, so the gate passes while
+proving nothing.
+
+A smoke gate for anything that learns carries one extra obligation: it must
+fail if the network learned nothing. Two rules make that true. Evaluate away
+from the average of the training targets, so a network that only ever predicts
+that average is visibly wrong; and set the error bar the gate accepts *below*
+the error that average-predicting network would score. Without both, a network
+that learned nothing still passes, and no amount of green tells you otherwise.
+
+Evidence comes in two tiers. A development Mac proves structure: files compile,
+imports work, shapes and refusals behave. The GPU workstation is the real
+acceptance. The first workstation run of anything new is expected to fail; that
+run is diagnostic by design, and its failures are fixed in the repository and
+rerun, never patched by hand on the workstation.
+
+When a gate goes red, identify which layer broke before changing anything: the
+runner, the check program, the small YAML configuration, the library being
+tested, or the written rule the gate encodes. Fixing one layer regularly
+reveals a failure in the next, so expect to peel more than once.
+
+Two habits that repeatedly caught real defects: every small YAML carries the
+full set of required training settings rather than relying on a code default,
+so a changed default cannot silently alter what was tested; and when reviewing
+a gate, look for code that works only because the first block of the combined
+data vector happens to be the one being tested — indices derived from a total
+size survive a reordering, hard-coded block offsets do not.
+
+#### FAQ B6. How should a check program read when it fails?
+
+A person opens `ai/gates/checks/*.py` at the worst possible moment: a gate has
+just failed and they need to know what the numbers mean. Those programs are
+written for that moment. Every term of art is defined where it first appears or
+is not used at all, and `main()` and every helper carry a docstring that says
+what the function does rather than restating its name.
+
+Internal review codes stay out of these programs entirely, including header
+comments. A check that needs to cite a written rule names the note and its
+section instead, so a reader can follow the pointer without knowing any private
+shorthand.

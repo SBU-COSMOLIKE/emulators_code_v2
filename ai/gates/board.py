@@ -1112,7 +1112,8 @@ def gate_gsv_c(ctx):
   relocation; require CPU tensors plus bitwise-equal outputs on a probe; then
   round-trip the factored, NPCE, and conv-head pairs. Patch an activation
   default and rebuild unchanged; old schema files are refused (specs:
-  artifacts-inference-warmstart.md:86-93; gates-and-board.md:66-71).
+  artifacts-inference-warmstart.md:86-93; ai/gates/README.md FAQ B5 for why an
+  identity gate and a smoke gate are both required).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # the nine legs are asserted IN the child, which emits one ##AID each; this
@@ -1373,7 +1374,7 @@ def gate_tpe_b(ctx):
 
 
 # --------------------------------------------------------------------------
-# The board, in execution order (gates-and-board.md).
+# The board, in execution order. Each Gate names its own spec note in home=.
 # --------------------------------------------------------------------------
 
 def gate_spe_a(ctx):
@@ -1899,7 +1900,8 @@ def gate_fixed_facts_schema(ctx):
   parameter order are each refused with the way out named. Two mutation arms
   red the legs that guard the version law and the verbatim copy. The live proof
   that a REAL emulator with trained weights survives the same round trip needs
-  torch and is owned by the save/rebuild gate (spec: gates-and-board.md).
+  torch and is owned by the save/rebuild gate (spec:
+  artifacts-inference-warmstart.md).
   """
   # the legs are asserted IN the child, which emits one ##AID each; this rc
   # check is the child's single aggregate verdict, so it carries no aid of its
@@ -1934,8 +1936,8 @@ def gate_cs_adapter_identity(ctx):
   WORDS of its own law: a leg
   that asks only "did it raise?" cannot tell a refusal from a crash, because
   float("n/a") raises the same ValueError class every refusal here does. The real
-  cobaya lifecycle and the chi2 parity stay with cobaya-adapter (spec:
-  gates-and-board.md, RULING 5 + the cs rider).
+  cobaya lifecycle and the chi2 parity stay with the cobaya-adapter gate, which
+  owns them (spec: artifacts-inference-warmstart.md).
   """
   rc, out = ctx.run_check("ai/gates/checks/cs_adapter_identity.py")
   if ctx.dry:
