@@ -15,72 +15,57 @@ Primary code owners are `emulator/results.py`, `emulator/inference.py`,
 ## Vocabulary used throughout this note
 
 An **artifact** is one complete saved emulator result with a shared path root.
-**Provenance** records the inputs, source, and resolved
-settings that produced a result; provenance records origin but is not by
-itself proof that the result is correct.
-The `<root>.emul` file is a PyTorch checkpoint holding the **pair token** —
-one fresh random string minted at save time and written into both files —
-beside its `state_dict`, the mapping from stable
-names to model-parameter and registered-buffer tensors stored on the central
-processing unit (CPU). The matching `<root>.h5` file uses Hierarchical Data
-Format version 5 (HDF5) to store reconstruction metadata and scientific
-arrays, and carries the same pair token as a root attribute. A **schema** is
-the versioned list and meaning of those saved fields.
+**Provenance** records the inputs, source, and resolved settings that produced
+a result; it records origin, never correctness. The `<root>.emul` file is a
+PyTorch checkpoint holding the **pair token** — one fresh random string minted
+at save time and written into both files — beside its `state_dict`, the mapping
+from stable names to model-parameter and registered-buffer tensors stored on
+the CPU. The matching `<root>.h5` file (HDF5) stores reconstruction metadata
+and scientific arrays and carries the same pair token as a root attribute. A
+**schema** is the versioned list and meaning of those saved fields.
 
 A **random-engine policy** names every random-number algorithm and the saved
-state needed to continue its sequence exactly. It is different from a seed,
-which chooses only the initial state.
-
-YAML is the human-readable settings-file format used by training and Cobaya
-configurations. NumPy is the array library used for saved scientific tables;
-PyTorch provides tensors, trainable models, and accelerator execution.
-CUDA is NVIDIA's accelerator-computing platform. A graphics processing unit
-(GPU) is the accelerator device used by CUDA training checks.
+state needed to continue its sequence exactly; a seed chooses only the initial
+state.
 
 CoCoA is the surrounding cosmological-analysis installation. CosmoLike is the
-likelihood calculation within that installation that produces and consumes
-several emulator data-vector families.
+likelihood calculation inside it that produces and consumes several emulator
+data-vector families.
 
-The science-family abbreviations are:
+Science families: **CMB** = cosmic microwave background spectra
+(temperature-temperature `TT`, temperature-polarization `TE`,
+polarization-polarization `EE`); **BAOSN** = background expansion outputs used
+with baryon-acoustic-oscillation and supernova data, including the Hubble rate
+and transverse comoving distance `D_M`; **MPS** = matter power spectrum, where
+`pklin` is linear power and `boost` the nonlinear-to-linear ratio; **IA** =
+intrinsic alignment of galaxy shapes, including nonlinear alignment (`NLA`) and
+tidal-alignment/tidal-torquing (`TATT`); **PCE** = polynomial chaos expansion,
+and **NPCE** a neural model correcting a frozen PCE base; `xi` = the
+cosmic-shear correlation function and `gammat` = the tangential shear used for
+galaxy-galaxy lensing.
 
-- **CMB**, cosmic microwave background spectra such as temperature-temperature
-  (`TT`), temperature-polarization (`TE`), and polarization-polarization
-  (`EE`);
-- **BAOSN**, background expansion outputs used with baryon acoustic
-  oscillation and supernova data, including the Hubble rate and transverse
-  comoving distance `D_M`;
-- **MPS**, the matter-power spectrum, where `pklin` denotes linear power and
-  `boost` denotes the nonlinear-to-linear power ratio;
-- **IA**, intrinsic alignment of galaxy shapes, including the nonlinear
-  alignment (`NLA`) and tidal-alignment/tidal-torquing (`TATT`) models;
-- **PCE**, polynomial chaos expansion, and **NPCE**, a neural model that
-  corrects a frozen PCE base;
-- `xi`, the cosmic-shear correlation function, and `gammat`, the tangential
-  shear used for galaxy-galaxy lensing.
+`grid` means a quantity sampled along one physical coordinate; `grid2d` a
+surface sampled over redshift and wavenumber. **Syren** names the analytic
+linear-power or nonlinear-boost baseline that some MPS artifacts correct. `dv`
+means data vector and `chi2` the covariance-weighted squared error. Whitened
+values are rotated and scaled so the covariance is the identity; physical
+values keep the original scientific coordinates and units.
 
-`grid` means a quantity sampled along one physical coordinate. `grid2d` means
-a surface sampled over redshift and wavenumber. **Syren** names the analytic
-linear-power or nonlinear-boost baseline that some MPS artifacts correct.
-`dv` means data vector, and `chi2` means the covariance-weighted squared error.
-Whitened values have been rotated and scaled so the covariance is the identity;
-physical values use the original scientific coordinates and units.
+A **gate** is a named validation job whose required result is written before it
+starts; a **leg** is one named assertion in it, identified by an evidence
+identifier. A **child** is the subprocess that runs gate checks and a
+**wrapper** the harness that starts it and any external commands; the child
+prints `##AID` records binding results to evidence identifiers, and the return
+code (`rc`) is its process result. A **control** is the valid case that must
+pass; a **mutation arm** deliberately weakens one rule and must make its owning
+leg fail. A **capability boundary** lists required software or hardware: a gate
+is **capability-skipped** only when that requirement is absent, while
+**unavailable** means a declared acceptance action did not run and therefore
+cannot count as passing evidence.
 
-A **gate** is a named validation job whose required result is written before
-it starts. A **leg** is one named
-assertion in that gate, identified by an evidence identifier. A **child** is a
-subprocess that runs gate checks; a **wrapper** is the harness code that starts
-the child and any external commands. A child prints `##AID` records to bind
-results to evidence identifiers. The **return code** (`rc`) is the child's
-process result. A **control** is the valid case that must pass. A **mutation
-arm** deliberately weakens one rule and must make its owning leg fail. A
-**capability boundary** lists required software or hardware. A gate is
-**capability-skipped** only when that requirement is absent; **unavailable**
-means that a declared acceptance action did not run and therefore cannot count
-as passing evidence.
-
-The **driver root** is the project directory passed to the training program by
-the gate configuration. The **driver file root** is the configured filename
-stem for that training run. Together they determine generated paths such as
+The **driver root** is the project directory the gate configuration passes to
+the training program, and the **driver file root** is the configured filename
+stem for that run. Together they determine generated paths such as
 `<driver_root>/chains/gates_emul_evaluate.h5`.
 
 ## Two identities connect generation to inference
@@ -123,112 +108,99 @@ saved model remains in use.
 
 ## Schema 3 artifact contract
 
-- One emulator uses one path root and two files. Here `<root>` is the shared
-  filename stem. `<root>.emul` is a PyTorch checkpoint containing the pair
-  token beside a
-  `state_dict`, the mapping from parameter or registered-buffer names to
-  tensors. Every checkpoint tensor is moved to CPU host memory, and the
-  compiled-model `_orig_mod.` prefix is removed.
-  `<root>.h5` is a Hierarchical Data Format (HDF5) file containing the
-  scientific and reconstruction record.
-- The HDF5 record contains the raw `config_yaml` and `train_args_yaml` as
-  provenance; `config_resolved_yaml`, which includes the resolved training and
-  data blocks; the staged-selection identity for both training and validation;
-  and the `model_recipe` dataset. The model recipe names one supported class
-  and records every constructor value used by that class. The file separately
-  stores the parameter and data-vector geometry state, analytic-law name, and
-  composition mode; polynomial-chaos-expansion (`pce`) or
-  transfer-base state when applicable; training histories; and root attributes
-  for `schema_version=3`, the Git commit, the Torch version, `rescale`, and
-  family-specific facts.
+- One emulator, one path root, two files. `<root>.emul` is a PyTorch
+  checkpoint holding the pair token beside a `state_dict` mapping parameter and
+  registered-buffer names to tensors; every tensor is moved to CPU host memory
+  and the compiled-model `_orig_mod.` prefix is removed. `<root>.h5` (HDF5)
+  holds the scientific and reconstruction record.
+- The HDF5 record holds raw `config_yaml` and `train_args_yaml` as provenance;
+  `config_resolved_yaml` with the resolved training and data blocks; the
+  staged-selection identity for training and validation; and `model_recipe`,
+  which names one supported class and records every constructor value that
+  class used. Stored separately: parameter and data-vector geometry state,
+  analytic-law name, composition mode, `pce` or transfer-base state when
+  applicable, training histories, and root attributes for `schema_version=3`,
+  Git commit, Torch version, `rescale`, and family-specific facts.
 - **Production checks before expensive work.** `from_yaml` and `from_config`
-  first report errors that can be found in the configuration itself. They then
-  read the training and validation scientific-record sidecars and compare each
-  record's ordered sampled names with the covariance header. Both records must
-  pass before the run chooses an accelerator, opens a warm-start or transfer
-  artifact, or constructs the experiment. The approved text is retained and
-  passed into staging; staging does not reopen the path and silently adopt
-  different text. A low-level direct loader still performs the same record and
-  name checks before it opens a large data-vector file.
+  report configuration-only errors first, then read the training and validation
+  scientific-record sidecars and compare each record's ordered sampled names
+  with the covariance header. Both must pass before the run picks an
+  accelerator, opens a warm-start or transfer artifact, or builds the
+  experiment. The approved text is retained and passed into staging; staging
+  never reopens the path and adopts different text. A low-level direct loader
+  runs the same record and name checks before opening a large data-vector file.
 - **One current writer format.** `save_emulator` requires the producer's exact
   scientific-record text plus plain mappings for the resolved training and
-  model instructions. It checks that the recipe has every required field and
-  uses known class, activation, normalization, and compile names. The trusted
-  constructors and factories check their own numerical values later. The
-  structural checks run before
-  `model.state_dict`, temporary-file creation, or replacement of
-  an existing artifact. Every successful new save writes schema 3. There is no
-  flag that writes schema 1, schema 2, or a file without a schema.
-- **Legacy data are regenerated explicitly.** A missing `.facts.yaml` record
-  is not permission for training to invent scientific metadata. The run stops
-  with the generator's regeneration instruction.
-- **A complete recipe is checked before imports.**
-  `emulator/model_recipe.py` contains a closed description of all six
-  supported model classes and their exact constructor fields. Its validator
-  uses plain, non-executing Python values and imports no model, geometry,
-  activation, normalization, or Torch implementation. A missing field, an
-  unknown field, or an incomplete activation description therefore refuses
-  before saved text can select a Python class. Numerical limits remain with
-  the real constructor or factory that uses the value. The same structural
-  validator covers an embedded transfer base. Explicit `head_act: null` means
-  “inherit the trunk activation”; a missing `head_act` has no such meaning and
-  refuses.
-- **The saved recipe must describe the live object.** Each supported model
-  constructor attaches the canonical recipe for the object it actually made.
-  Before writing any file, `save_emulator` compares that live recipe with the
-  claimed root recipe and, for transfer, with the claimed embedded-base
-  recipe. A caller cannot save ordinary `ReLU` behavior under a registered
-  gated-activation name, change the number of residual layers, or substitute a
-  different class while retaining a plausible dictionary.
+  model instructions, and checks that the recipe has every required field and
+  uses known class, activation, normalization, and compile names; the trusted
+  constructors and factories check numerical values later. Those structural
+  checks run before `model.state_dict`, temporary-file creation, or replacement
+  of an existing artifact. Every successful save writes schema 3; no flag
+  writes schema 1, schema 2, or a file without a schema.
+- **Legacy data are regenerated explicitly.** A missing `.facts.yaml` record is
+  not permission to invent scientific metadata. The run stops with the
+  generator's regeneration instruction.
+- **A complete recipe is checked before imports.** `emulator/model_recipe.py`
+  closes over all six supported model classes and their exact constructor
+  fields. Its validator uses plain non-executing Python values and imports no
+  model, geometry, activation, normalization, or Torch implementation, so a
+  missing field, unknown field, or incomplete activation description refuses
+  before saved text can select a Python class. Numerical limits stay with the
+  constructor or factory that uses the value. The same validator covers an
+  embedded transfer base. Explicit `head_act: null` means “inherit the trunk
+  activation”; a missing `head_act` has no such meaning and refuses.
+- **The saved recipe must describe the live object.** Each supported
+  constructor attaches the canonical recipe for the object it actually made,
+  and before writing anything `save_emulator` compares it with the claimed root
+  recipe and, for transfer, the claimed embedded-base recipe. A caller cannot
+  save ordinary `ReLU` behavior under a registered gated-activation name,
+  change the residual-layer count, or substitute a class while keeping a
+  plausible dictionary.
 - **Saved geometry facts must fit both the recipe and one another.** The
-  import-free check validates the class-specific fields and dimensions for
+  import-free check validates class-specific fields and dimensions for
   parameter, log-parameter, amplitude-factor, data-vector, scalar, CMB, grid,
-  and grid2d geometries. It checks such facts as ordered names, square bases,
-  masks, kept indices, amplitude indices, and physical coordinate lengths.
-  A self-consistent model recipe cannot make an inconsistent geometry safe.
+  and grid2d geometries — ordered names, square bases, masks, kept indices,
+  amplitude indices, physical coordinate lengths. A self-consistent recipe
+  cannot make an inconsistent geometry safe.
 - Every geometry group carries a `"cls"` attribute with the full module path.
-  Rebuild resolves the stored string through `importlib` and calls that
-  class's `from_state` method. A missing marker raises a `KeyError` that names
-  the re-save action; rebuild never falls back to a base class. The file must
-  identify the geometry type as well as store its numbers.
+  Rebuild resolves it through `importlib` and calls that class's `from_state`.
+  A missing marker raises a `KeyError` naming the re-save action; rebuild never
+  falls back to a base class. The file must identify the geometry type, not
+  only store its numbers.
 - `rebuild_emulator(path_root, device)` in `results.py` uses the HDF5 recipe
-  plus the paired `.emul` weights. Schema 1 and schema 2 files are refused
-  with a migration instruction. The function returns
-  `(model, pgeom, geom, info)`. Here `pgeom` is the parameter-geometry object
-  that encodes model inputs, and `geom` is the output-geometry object that
-  decodes model outputs. The `info` mapping carries intrinsic-alignment,
-  polynomial-chaos-expansion, transfer, and family-specific facts. "HDF5-only
-  reconstruction" means that no code defaults or external training files are
-  consulted; the paired weights file remains required.
-- Head artifacts rebuild from saved files alone. The family
-  geometries rederive their split by calling `attach_head_coords` inside
-  `_rebuild_model`. CosmoLike `DataVectorGeometry` instead persists the split:
-  `state()` writes `bin_sizes` and, when present, `pm_kept` after
-  `build_shear_angle_map` attaches them. This follows the additive
-  `section_sizes`/`probe` pattern. Constructor attributes remain unset when
-  their arguments are `None`, preserving the `hasattr` guards. A head artifact
-  without this persisted split is refused with a bin-split migration message.
-  Rebuild never rederives the CosmoLike split because doing so would require
-  data files below `ROOTDIR`, the environment variable naming the active
-  CoCoA project root, during inference.
-- Acceptance evidence: save -> rebuild -> bitwise-equal prediction,
-  plus a drift test that rebuilds in a child process importing a copied
-  emulator source tree whose only change is a sharp code default
-  (`make_activation` `n_gates` 3 -> 7, written to disk before the child
-  starts) and requires the rebuilt prediction to remain unchanged. `ai/tests/test_model_recipe.py` removes each
-  required recipe field in turn, distinguishes explicit null from absence,
+  plus the paired `.emul` weights and refuses schema 1 and 2 with a migration
+  instruction. It returns `(model, pgeom, geom, info)`: `pgeom` encodes model
+  inputs, `geom` decodes model outputs, and `info` carries intrinsic-alignment,
+  PCE, transfer, and family-specific facts. "HDF5-only reconstruction" means no
+  code defaults and no external training files are consulted; the paired
+  weights file is still required.
+- Head artifacts rebuild from saved files alone. The family geometries rederive
+  their split by calling `attach_head_coords` inside `_rebuild_model`.
+  CosmoLike `DataVectorGeometry` instead persists it: `state()` writes
+  `bin_sizes` and, when present, `pm_kept` after `build_shear_angle_map`
+  attaches them, following the additive `section_sizes`/`probe` pattern.
+  Constructor attributes stay unset when their arguments are `None`, preserving
+  the `hasattr` guards. A head artifact without the persisted split is refused
+  with a bin-split migration message. Rebuild never rederives the CosmoLike
+  split, because that would need data files below `ROOTDIR` — the environment
+  variable naming the active CoCoA project root — during inference.
+- Acceptance evidence: save -> rebuild -> bitwise-equal prediction, plus a
+  drift test that rebuilds in a child process importing a copied emulator
+  source tree whose only change is a sharp code default (`make_activation`
+  `n_gates` 3 -> 7, written to disk before the child starts) and requires the
+  rebuilt prediction to be unchanged. `ai/tests/test_model_recipe.py` removes
+  each required recipe field in turn, distinguishes explicit null from absence,
   compares the registry with all six live constructor signatures, and proves
-  that the production validator imports no executable model code. Adding a
-  model constructor field without adding its saved
-  representation must fail that census. Hard-coded duplicates such as
-  `compile_mode`, and read-side keys such as `eval_bs` that no writer persists,
-  are forbidden drift channels.
+  the production validator imports no executable model code. Adding a
+  constructor field without its saved representation must fail that census.
+  Hard-coded duplicates such as `compile_mode`, and read-side keys such as
+  `eval_bs` that no writer persists, are forbidden drift channels.
 - Geometry classes live in
-  `emulator/geometries/{parameter,output,scalar,cmb,grid,grid2d}.py`.
-  Retired flat module paths remain absent. Loading a retired flat path raises
-  `ModuleNotFoundError` naming that path. The `geo-paths` gate requires package
-  markers in every new save, refusal of retired paths, and a repository-tree
-  census. Every save writes folder paths through `type().__module__`.
+  `emulator/geometries/{parameter,output,scalar,cmb,grid,grid2d}.py`. Retired
+  flat module paths stay absent, and loading one raises `ModuleNotFoundError`
+  naming that path. The `geo-paths` gate requires package markers in every new
+  save, refusal of retired paths, and a repository-tree census. Every save
+  writes folder paths through `type().__module__`.
 
 ## Saving one artifact pair
 
@@ -612,61 +584,57 @@ saved starting parameters. Its mathematical form is
 R(W) = (lambda / 2) sum_j || M_j * (W_j - W_{j,0}) ||_F^2 .
 ```
 
-Define every symbol in prose: `lambda` is the YAML `anchor` strength; `*` in
-this equation means element-by-element multiplication; and the squared
+The README defines every symbol in prose: `lambda` is the YAML `anchor`
+strength, `*` here means element-by-element multiplication, and the squared
 Frobenius norm means “square every selected displacement and add the squares.”
-Explain that ordinary weight decay pulls `W_j` toward zero, whereas this
+It says that ordinary weight decay pulls `W_j` toward zero, whereas this
 quantity measures movement away from an already-trained source emulator.
 
-Then state the executable truth. The library deliberately does **not** add
-`R(W)` to the scalar scientific loss seen by AdamW, the adaptive optimizer
-that performs the ordinary parameter update and applies decoupled weight
-decay. After the ordinary
-optimizer step proposes `W_j^opt`, `Anchor.apply` performs the decoupled,
-in-place update
+Then the executable truth. The library deliberately does **not** add `R(W)` to
+the scalar scientific loss seen by AdamW, the adaptive optimizer that performs
+the ordinary parameter update and applies decoupled weight decay. After that
+step proposes `W_j^opt`, `Anchor.apply` performs the decoupled, in-place update
 
 ```
 W_j^+ = W_j^opt
         - eta_j lambda M_j * (W_j^opt - W_{j,0}),
 ```
 
-where `eta_j` is the current learning rate of that parameter's optimizer
-group. This keeps Adam's adaptive second-moment rescaling out of the anchor.
-There is no hidden division by batch size, layer width, or number of
-parameters. `anchor: 0.0` is an exact no-op. For a one-number example, if
-`W_0 = 2.0`, the optimizer proposes `W^opt = 2.4`, `eta = 0.01`, `lambda =
-0.5`, and the mask is one, the anchor removes `0.01 * 0.5 * 0.4 = 0.002` and
-stores `W^+ = 2.398`. This example must say that the optimizer's scientific
-step happened first; the anchor modifies the resulting displacement.
+where `eta_j` is the current learning rate of that parameter's optimizer group.
+This keeps Adam's adaptive second-moment rescaling out of the anchor. There is
+no hidden division by batch size, layer width, or number of parameters, and
+`anchor: 0.0` is an exact no-op. The required one-number example: `W_0 = 2.0`,
+the optimizer proposes `W^opt = 2.4`, `eta = 0.01`, `lambda = 0.5`, mask one —
+the anchor removes `0.01 * 0.5 * 0.4 = 0.002` and stores `W^+ = 2.398`. The
+example says the optimizer's scientific step happened first; the anchor
+modifies the resulting displacement.
 
-The parameter-selection paragraph must say that matched, trainable source
-parameters are anchored: matrices, biases, affine-normalization parameters,
-and trainable activation parameters all qualify when they are model
-parameters owned by an optimizer group. Geometry tensors and other
-non-parameter state do not. When fine-tuning adds cosmological inputs, the
-newly appended input-weight columns start at zero to preserve epoch-0 parity
-and receive mask value zero, so they remain free to learn the new physics;
-the pre-existing columns and other matched trainable parameters receive mask
-value one. Recommend optimizer `weight_decay: 0.0` beside a nonzero anchor,
-because simultaneous weight decay pulls toward zero rather than toward
-`W_{j,0}`.
+Parameter selection: matched, trainable source parameters are anchored —
+matrices, biases, affine-normalization parameters, and trainable activation
+parameters, whenever they are model parameters owned by an optimizer group.
+Geometry tensors and other non-parameter state are not. Input-weight columns
+appended by newly added cosmological inputs start at zero to preserve epoch-0
+parity and receive mask zero, so they stay free to learn the new physics;
+pre-existing columns and other matched trainable parameters receive mask one.
+Recommend optimizer `weight_decay: 0.0` beside a nonzero anchor, because
+simultaneous decay pulls toward zero rather than toward `W_{j,0}`.
 
-The availability boundary stays adjacent and unambiguous. Ordinary
-fine-tuning is unanchored while `validate_finetune_config` refuses
-`train_args.finetune.anchor`. Documentation must not print a usable
+The availability boundary stays adjacent and unambiguous: ordinary fine-tuning
+is unanchored while `validate_finetune_config` refuses
+`train_args.finetune.anchor`, and documentation must not print a usable
 fine-tune-anchor YAML unless the registered gate passes. The separate
 cosmic-shear `transfer.refine.anchor` path anchors only the frozen base during
-joint refinement, not the correction network. Diagonal-family transfer
+joint refinement, never the correction network; diagonal-family transfer
 refinement is refused.
 
-**Acceptance evidence.** Root `README.md` contains the definition, executed update,
-symbol definitions, one-number example, mask ownership, weight-decay
-distinction, and availability boundary in the fine-tuning section; `emulator/README.md`
-contains a shorter equation-and-owner pointer rather than duplicating the full
-tutorial. The prose must never say the implementation adds an L2
-term “to the loss.” A claim-consistency scan covers “anchor,” “L2-SP,” “penalty,”
-and “refine” across both READMEs. This documentation check does not change
-Python abstract syntax trees or runtime behavior.
+**Acceptance evidence.** Root `README.md` contains the definition, executed
+update, symbol definitions, one-number example, mask ownership, weight-decay
+distinction, and availability boundary in its fine-tuning section;
+`emulator/README.md` contains a shorter equation-and-owner pointer rather than
+the full tutorial. The prose must never say the implementation adds an L2 term
+“to the loss.” A claim-consistency scan covers “anchor,” “L2-SP,” “penalty,”
+and “refine” across both READMEs. This documentation check changes no Python
+abstract syntax tree or runtime behavior.
 
 ## Transfer learning (family-wide, scalar excepted)
 
@@ -1670,127 +1638,120 @@ contains the search terms, and requires zero retired flat-module references.
 
 ## Acceptance evidence: wrapper-family gates
 
-The following blocks are the naming and evidence specification for six
-artifact-lifecycle gates: two identity children that run in any CPU
-environment with PyTorch; two smoke wrappers that read a real training
-driver's output; and the paired save/rebuild and Cobaya integration checks,
-which require CosmoLike and a GPU.
+The naming and evidence specification for six artifact-lifecycle gates: two
+identity children that run in any CPU environment with PyTorch, two smoke
+wrappers that read a real training driver's output, and the paired
+save/rebuild and Cobaya integration checks, which need CosmoLike and a GPU.
 
 Three declared anchors require executable actions beyond the output checks
-described by their wrappers. A log message or an instruction to inspect a file
-is not acceptance evidence. Unless the named action executes, a wrapper must
-record the anchor as unavailable or non-passing and must never infer a pass
-from adjacent output.
+their wrappers describe. A log message, or an instruction to inspect a file, is
+not acceptance evidence. Unless the named action executes, the wrapper records
+the anchor as unavailable or non-passing and never infers a pass from adjacent
+output.
 
 <a id="finetune-identity-evidence"></a>
 **finetune-identity — a warm-started emulator computes the source emulator's own
 function before the first training step, whatever new parameters were added.**
 
-- files: creates a temporary source artifact (`.h5` + `.emul`) and a temporary
-  covariance file under a `ftw-` temporary directory; no CosmoLike installation
-  or scientific dataset is required.
+- files: a temporary source artifact (`.h5` + `.emul`) and covariance file
+  under a `ftw-` temporary directory; no CosmoLike and no scientific dataset.
 - subprocess: `ai/gates/checks/finetune_identity.py`.
-- metric: exact tensor equality for the encoding, the transferred weights and
+- metric: exact tensor equality for the encoding, the transferred weights, and
   the degenerate state dict; the parity leg reads the warm-start result line
   (`max|dv| = 0.000e+00` on 256 rows); every refusal case requires the declared
   exception and message.
-- legs: 7, named `finetune-identity.extended-parameter-encoding`,
+- legs: 7 — `finetune-identity.extended-parameter-encoding`,
   `.weight-transfer-and-padding`, `.pre-train-parity`, `.output-geometry-pin`,
-  `.degenerate-no-extras-identity`, `.loud-config-errors`, and
-  `.anchor-mask-and-freedom`.
-- evidence: all seven are asserted in the child, which emits one `##AID` per
-  leg; the child's exit status stays the single aggregate result and is not an
-  eighth leg.
-- capability boundary: none. The child command passes in a CPU-only PyTorch
-  environment.
+  `.degenerate-no-extras-identity`, `.loud-config-errors`,
+  `.anchor-mask-and-freedom` — each asserted in the child with one `##AID`. The
+  child's exit status is the aggregate result, not an eighth leg.
+- capability boundary: none; the child passes in CPU-only PyTorch.
 
 <a id="finetune-identity-extended-parameter-encoding"></a>
-`finetune-identity.extended-parameter-encoding` requires the extra names to be
-`[w0, wa]` in covariance order, the shared coordinates to encode bit-identically
-to the source, and the extra coordinates to be unmoved by a shared-only shift.
+`finetune-identity.extended-parameter-encoding` requires extras `[w0, wa]` in
+covariance order, shared coordinates encoding bit-identically to the source,
+and extra coordinates unmoved by a shared-only shift.
 
 <a id="finetune-identity-weight-transfer-and-padding"></a>
 `finetune-identity.weight-transfer-and-padding` requires the padded keys to be
-exactly the input-consuming tensors, every unchanged tensor to be copied exactly,
-and each padded tensor to be the source columns followed by exact zeros.
+exactly the input-consuming tensors, every unchanged tensor copied exactly, and
+each padded tensor to be the source columns followed by exact zeros.
 
 <a id="finetune-identity-pre-train-parity"></a>
 `finetune-identity.pre-train-parity` requires `build_warm_start` to pass and
-return its result line. `load_state_dict(init_state, strict=True)` must accept
-the returned state dictionary without a missing or unexpected key.
+return its result line, and `load_state_dict(init_state, strict=True)` to
+accept the returned state dictionary with no missing or unexpected key.
 
 <a id="finetune-identity-output-geometry-pin"></a>
-`finetune-identity.output-geometry-pin` requires a matching dataset/probe/width
-to reuse the source geometry object, and a data-vector width mismatch to raise.
+`finetune-identity.output-geometry-pin` requires a matching
+dataset/probe/width to reuse the source geometry object, and a data-vector
+width mismatch to raise.
 
 <a id="finetune-identity-degenerate-no-extras-identity"></a>
-`finetune-identity.degenerate-no-extras-identity` requires the no-extras case to
-leave the geometry tensors and the transferred state dict exactly equal to the
-source — the degenerate warm start is a copy.
+`finetune-identity.degenerate-no-extras-identity` requires the no-extras case
+to leave geometry tensors and transferred state dict exactly equal to the
+source: the degenerate warm start is a copy.
 
 <a id="finetune-identity-loud-config-errors"></a>
 `finetune-identity.loud-config-errors` requires three raises: a non-superset
-parameter set (naming the missing source parameter), a `model:` block beside
+parameter set naming the missing source parameter, a `model:` block beside
 `finetune:`, and a `--rescale` other than `none`.
 
 <a id="finetune-identity-anchor-mask-and-freedom"></a>
 `finetune-identity.anchor-mask-and-freedom` requires the anchor mask to zero
-exactly the padded extra columns, the source columns to be pinned to the
-`init_state`, the padded extra columns to stay free, and the configured
-`anchor: 0.0` case to be an exact no-op.
+exactly the padded extra columns, the source columns pinned to `init_state`,
+the padded extra columns still free, and configured `anchor: 0.0` an exact
+no-op.
 
 <a id="transfer-identity-evidence"></a>
 **transfer-identity — a frozen base under a zero-output correction predicts the
 frozen base itself, in every form and space, and a saved composition reloads to
 the same prediction.**
 
-- files: creates a temporary plain base, factored base, grid base and composed
-  transfer artifact under a `tpe-` temporary directory; no CosmoLike
-  installation or scientific dataset is required.
+- files: temporary plain, factored, and grid bases plus a composed transfer
+  artifact under a `tpe-` temporary directory; no CosmoLike, no dataset.
 - subprocess: `ai/gates/checks/transfer_identity.py`.
 - metric: exact tensor equality for the epoch-0 identity, the base-encoding
-  slice and the save/rebuild composition; `1e-6` for the `EmulatorPredictor`
-  comparison; call counting for the base cache; a raise for each refusal.
-- legs: 8, named `transfer-identity.plain-base-slice-and-identity`,
+  slice, and the save/rebuild composition; `1e-6` for the `EmulatorPredictor`
+  comparison; call counting for the base cache; a raise per refusal.
+- legs: 8 — `transfer-identity.plain-base-slice-and-identity`,
   `.factored-base-slice-and-identity`, `.zero-init-surgery`,
   `.loud-config-errors`, `.artifact-lifecycle-round-trip`,
-  `.refined-base-lifecycle`, `.diagonal-family-composition`, and
-  `.cross-family-base-refusal`.
-- evidence: all eight are asserted in the child, one `##AID` each. The two
-  legs inside `check_diagonal` are emitted by that function rather than around
-  it, so the cross-family refusal reports under its own name.
-- capability boundary: none. The cross-family fixture uses a plain grid base
-  so the family refusal, rather than the no-chaining refusal, is the only
-  invalid condition.
+  `.refined-base-lifecycle`, `.diagonal-family-composition`,
+  `.cross-family-base-refusal` — one `##AID` each. The two legs inside
+  `check_diagonal` are emitted by that function rather than around it, so the
+  cross-family refusal reports under its own name.
+- capability boundary: none. The cross-family fixture uses a plain grid base so
+  the family refusal, not the no-chaining refusal, is the only invalid
+  condition.
 
 <a id="transfer-identity-plain-base-slice-and-identity"></a>
 `transfer-identity.plain-base-slice-and-identity` requires, for a plain base:
-the extras to be `[w0, wa]`, the base encoding to be an exact column slice of
-the run's encoding, and every combination in the two-by-two Cartesian product
-of correction form and representation space to preserve the target width, the
-base cache (one base encode and no chi-square recomputation), and the epoch-zero
-identity with independence from the added coordinates.
+extras `[w0, wa]`, the base encoding an exact column slice of the run's
+encoding, and every combination in the two-by-two product of correction form
+and representation space preserving the target width, the base cache (one base
+encode, no chi-square recomputation), and the epoch-zero identity with
+independence from the added coordinates.
 
 <a id="transfer-identity-factored-base-slice-and-identity"></a>
-`transfer-identity.factored-base-slice-and-identity` requires the same set for a
-factored (three-template) base.
+`transfer-identity.factored-base-slice-and-identity` requires the same set for
+a factored (three-template) base.
 
 <a id="transfer-identity-zero-init-surgery"></a>
 `transfer-identity.zero-init-surgery` requires the correction's final `Linear`
-to be exactly zero (weight and bias) and every other tensor to be untouched.
+to be exactly zero in weight and bias, every other tensor untouched.
 
 <a id="transfer-identity-loud-config-errors"></a>
-`transfer-identity.loud-config-errors` requires seven raises: an unknown
-`transfer.form`; transfer with `--rescale`; transfer with pce; transfer with
-finetune; transfer with `model.ia`; an incomplete `refine` block; and a
-non-superset parameter set.
+`transfer-identity.loud-config-errors` requires seven raises: unknown
+`transfer.form`; transfer with `--rescale`; with pce; with finetune; with
+`model.ia`; an incomplete `refine` block; and a non-superset parameter set.
 
 <a id="transfer-identity-artifact-lifecycle-round-trip"></a>
 `transfer-identity.artifact-lifecycle-round-trip` requires a rebuilt transfer
-artifact to return the embedded base with its form/space, its composed
+artifact to return the embedded base with its form and space, its composed
 prediction to equal the in-memory composition exactly,
-`EmulatorPredictor.predict` to agree to `1e-6`, and chaining (a transfer used
-as a base) to be refused.
+`EmulatorPredictor.predict` to agree to `1e-6`, and chaining — a transfer used
+as a base — to be refused.
 
 <a id="transfer-identity-refined-base-lifecycle"></a>
 `transfer-identity.refined-base-lifecycle` requires a refined artifact's
@@ -1799,16 +1760,16 @@ without its companion attribute to raise.
 
 <a id="transfer-identity-diagonal-family-composition"></a>
 `transfer-identity.diagonal-family-composition` requires, on the diagonal
-families: the epoch-0 identity through the log law for both forms, the packed
-target with an exact zero-correction chi2, the refusal of physical space, the
-transfer-validator resolutions and rejections, the family validators'
-acceptance matrix, and a saved grid transfer artifact predicting the composition
-exactly.
+families: the epoch-0 identity through the log law for both forms; the packed
+target with an exact zero-correction chi2; refusal of physical space; the
+transfer-validator resolutions and rejections; the family validators'
+acceptance matrix; and a saved grid transfer artifact predicting the
+composition exactly.
 
 <a id="transfer-identity-cross-family-base-refusal"></a>
 `transfer-identity.cross-family-base-refusal` requires `from_config` to raise a
-`ValueError` naming the never-across-families rule when a grid2d run points at a
-plain grid base. The fixture must violate only this rule. The leg retains its
+`ValueError` naming the never-across-families rule when a grid2d run points at
+a plain grid base. The fixture violates only this rule, and the leg keeps its
 own evidence identifier so a failure names the family refusal rather than the
 larger composition group.
 
@@ -1817,43 +1778,39 @@ larger composition group.
 the live model exactly, its checkpoint is CPU-normalized, and a file the
 schema cannot honour is refused.**
 
-- files: trains and saves four tiny emulators under a `gsv-` temp directory, and
-  persists one of them (the plain variant) to
-  `<driver_root>/chains/gates_emul_evaluate` for the cobaya-adapter gate's
-  evaluate leg to load. Here `<driver_root>` is the configured training-project
-  directory. The child also reads the configured deployment data files.
+- files: trains and saves four tiny emulators under a `gsv-` temporary
+  directory and persists the plain variant to
+  `<driver_root>/chains/gates_emul_evaluate` for the cobaya-adapter evaluate
+  leg, where `<driver_root>` is the configured training-project directory. The
+  child also reads the configured deployment data files.
 - subprocess: `ai/gates/checks/gsv_bitwise_drift.py`.
-- metric: exact tensor equality between the live and rebuilt outputs; exact CPU
-  device type for every value in the checkpoint container's nonempty
-  tensor-only state dict; a raise
-  (with the message named) for each refusal.
-- legs: 9, named `save-rebuild-drift.plain-rebuild-matches-live`,
+- metric: exact tensor equality between live and rebuilt outputs; exact CPU
+  device type for every value in the checkpoint's nonempty tensor-only state
+  dict; a named-message raise per refusal.
+- legs: 9 — `save-rebuild-drift.plain-rebuild-matches-live`,
   `.cpu-normalized-state`, `.factored-rebuild-matches-live`,
   `.npce-rebuild-matches-live`, `.head-rebuild-matches-live`,
-  `.code-default-drift-ignored`, `.v1-schema-refusal`,
-  `.v2-schema-refusal`, and `.old-head-artifact-refusal`.
-- evidence: all nine are asserted in the child, one `##AID` each; the wrapper's
-  return-code check is the child's aggregate result and carries no separate
-  `##AID` record.
-- capability boundary: the whole gate needs CosmoLike, a CUDA GPU, and the
-  configured deployment data files, so the gate is capability-skipped in a
-  CPU-only environment. Only a CUDA-trained save can prove that CPU
-  normalization moved a tensor rather than observing one that was already on
-  the CPU. Execution therefore requires the GPU-capable environment.
+  `.code-default-drift-ignored`, `.v1-schema-refusal`, `.v2-schema-refusal`,
+  `.old-head-artifact-refusal` — one `##AID` each; the wrapper's return-code
+  check is the aggregate and carries no `##AID`.
+- capability boundary: CosmoLike, a CUDA GPU, and the configured deployment
+  data, so the gate is capability-skipped on a CPU-only machine. Only a
+  CUDA-trained save can prove CPU normalization moved a tensor rather than
+  observing one already there.
 
 <a id="save-rebuild-drift-plain-rebuild-matches-live"></a>
 `save-rebuild-drift.plain-rebuild-matches-live` requires the plain variant's
 rebuilt output to equal the live model's output exactly for the first eight
 validation-input rows. In `gsv_bitwise_drift.py`, `exp` is the experiment
-object, `val_set` is its validation-data mapping, and `"C"` selects the matrix
-of cosmological parameter inputs.
+object, `val_set` its validation-data mapping, and `"C"` selects the matrix of
+cosmological parameter inputs.
 
 <a id="save-rebuild-drift-cpu-normalized-state"></a>
 `save-rebuild-drift.cpu-normalized-state` loads the just-written plain
 checkpoint without `map_location` and requires a nonempty dictionary whose
-values are all tensors and whose tensors all report `device.type == "cpu"`.
-Without load-time relocation, the observed device is the one serialized by
-`save_emulator`, not a destination selected by the check.
+values are all tensors reporting `device.type == "cpu"`. Without load-time
+relocation the observed device is the one `save_emulator` serialized, not one
+the check selected.
 
 <a id="save-rebuild-drift-factored-rebuild-matches-live"></a>
 `save-rebuild-drift.factored-rebuild-matches-live` requires the same for an
@@ -1865,34 +1822,34 @@ neural-PCE save.
 
 <a id="save-rebuild-drift-head-rebuild-matches-live"></a>
 `save-rebuild-drift.head-rebuild-matches-live` requires the same for a
-convolutional-head save. Rebuild must reconstruct the residual convolutional
-network (`ResCNN`) from the persisted bin split alone, without reading a
-dataset configuration file.
+convolutional-head save, and requires rebuild to reconstruct the residual
+convolutional network (`ResCNN`) from the persisted bin split alone, without
+reading a dataset configuration file.
 
 <a id="save-rebuild-drift-code-default-drift-ignored"></a>
 `save-rebuild-drift.code-default-drift-ignored` rebuilds the plain save in a
-child process that imports the emulator package from a copied source tree
-whose only change is `make_activation`'s `n_gates` default (3 -> 7), written
-to disk before the child starts, and requires the output to be unchanged: the
-rebuild reads the file, not the activation code's source default. The child
-first proves the changed default is live and refuses with its own exit code
-otherwise, so a launch that imported the ordinary package cannot pass as a
-proof. `ai/tests/test_drift_gate_child_isolation.py` runs the same helpers on
-a small synthetic gated-power artifact, so the copy substitution, the bitwise
-child comparison, and the unmodified-copy refusal are verified without the
-workstation data. Compile-mode persistence is not claimed by
-this arm because rebuild is deliberately called with `compile_model=False`.
+child process importing the emulator package from a copied source tree whose
+only change is `make_activation`'s `n_gates` default (3 -> 7), written to disk
+before the child starts, and requires the output to be unchanged: rebuild reads
+the file, not the activation code's source default. The child first proves the
+changed default is live and refuses with its own exit code otherwise, so a
+launch that imported the ordinary package cannot pass as proof.
+`ai/tests/test_drift_gate_child_isolation.py` runs the same helpers on a small
+synthetic gated-power artifact, verifying the copy substitution, the bitwise
+child comparison, and the unmodified-copy refusal without the workstation data.
+This arm claims nothing about compile-mode persistence, because rebuild is
+deliberately called with `compile_model=False`.
 
 <a id="save-rebuild-drift-v1-schema-refusal"></a>
-`save-rebuild-drift.v1-schema-refusal` forges `schema_version` to 1 and requires
-the rebuild to raise with the migration instruction named.
+`save-rebuild-drift.v1-schema-refusal` forges `schema_version` to 1 and
+requires the rebuild to raise with the migration instruction named.
 
 <a id="save-rebuild-drift-v2-schema-refusal"></a>
-`save-rebuild-drift.v2-schema-refusal` forges `schema_version` to 2 and requires
-the rebuild to raise with the migration instruction named. A v2 file carried no
-record of the cosmology it was trained under, so it cannot prove it belongs to
-the cosmology it is about to be asked about; the reader refuses it rather than
-guessing. `emulator/fixed_facts.py` is the schema-version authority.
+`save-rebuild-drift.v2-schema-refusal` forges `schema_version` to 2 and
+requires the same. A v2 file carried no record of the cosmology it was trained
+under, so it cannot prove it belongs to the cosmology it is about to be asked
+about; the reader refuses rather than guessing. `emulator/fixed_facts.py` is
+the schema-version authority.
 
 <a id="save-rebuild-drift-old-head-artifact-refusal"></a>
 `save-rebuild-drift.old-head-artifact-refusal` deletes the persisted bin split
@@ -1903,82 +1860,80 @@ a `KeyError` naming the bin-split persistence — never to re-derive the split.
 **compile-recipe — a CUDA rebuild consumes the compile mode persisted in its
 artifact.**
 
-- files: writes opaque `case-a` and `case-b` schema-3 scalar artifact
-  pairs under temporary directories, one with `compile_mode: default` and one
-  with `compile_mode: reduce-overhead`. Paths and nearby descriptive labels do
-  not encode either mode, and the check reads no configured deployment data.
+- files: opaque `case-a` and `case-b` schema-3 scalar artifact pairs under
+  temporary directories, one `compile_mode: default` and one
+  `reduce-overhead`. Neither the paths nor nearby labels encode a mode, and the
+  check reads no configured deployment data.
 - subprocess: `ai/gates/checks/compile_recipe.py`.
 - metric: the independently read saved modes; each ordered `torch.compile`
   call's mode, uncompiled input callable, and returned compiled callable;
   explicit records of an identity compiler result or a rebuild that discards
-  the compiler result; compiler or rebuilt-forward exceptions; and finite
-  callable outputs.
-- legs: 2, ordered as `compile-recipe.observation-controls` and
-  `compile-recipe.cuda-persisted-modes`.
-- evidence: the CPU leg writes and reads both real artifacts, exercises each
-  rejected observation listed below, and forges a missing field through
-  production rebuild. The CUDA leg records and delegates the real compiler
-  call for both artifacts, then binds each compiled result to production's
-  exact returned callable.
-- capability boundary: the CPU leg does not require CUDA. The CUDA leg requires
-  a CUDA-capable environment that supports both modes and executes both
-  `compile_model=True` rebuilds. The
-  standalone fixture needs neither CosmoLike nor configured deployment data.
+  the compiler result; compiler or rebuilt-forward exceptions; finite callable
+  outputs.
+- legs: 2, ordered `compile-recipe.observation-controls` then
+  `.cuda-persisted-modes`. The CPU leg writes and reads both real artifacts,
+  exercises every rejected observation below, and forges a missing field
+  through production rebuild; the CUDA leg records and delegates the real
+  compiler call for both artifacts, then binds each compiled result to
+  production's exact returned callable.
+- capability boundary: the CPU leg needs no CUDA. The CUDA leg needs a
+  CUDA-capable environment supporting both modes and executing both
+  `compile_model=True` rebuilds. The standalone fixture needs neither CosmoLike
+  nor deployment data.
 
 <a id="compile-recipe-observation-controls"></a>
-`compile-recipe.observation-controls` requires two real supported-schema saves to
-persist the two distinct modes. Its ordered result accepts one matching call
-per artifact and rejects a lost call, duplicate call, an exception from the
+`compile-recipe.observation-controls` requires two real supported-schema saves
+to persist the two distinct modes. Its ordered result accepts one matching call
+per artifact and rejects a lost call, a duplicate call, an exception from the
 compiler or compiled forward pass, a swapped substitution, either hard-coded
 mode, an identity compiler result, and a rebuild that discards the compiled
-result. Deleting `compile_mode` from one
-otherwise-valid recipe must make production `rebuild_emulator` raise a
-`KeyError` naming the field and the no-code-default rule.
+result. Deleting `compile_mode` from an otherwise-valid recipe must make
+production `rebuild_emulator` raise a `KeyError` naming the field and the
+no-code-default rule.
 
 <a id="compile-recipe-cuda-persisted-modes"></a>
-`compile-recipe.cuda-persisted-modes` first runs a tiny CUDA compiled forward in
-both modes as the capability boundary. It then independently reads each saved
+`compile-recipe.cuda-persisted-modes` first runs a tiny CUDA compiled forward
+in both modes as the capability boundary, then independently reads each saved
 mode, rebuilds each artifact with `compile_model=True`, and records exactly one
-matching call through a wrapper that delegates to the captured real
+matching call through a wrapper delegating to the captured real
 `torch.compile`. The delegated result must not be the eager input, production's
 rebuild return must be that exact result, and it must produce a finite forward.
 After both capability probes succeed, any save, read, rebuild, compile, or
-forward exception is a test failure rather than a capability limitation. This
-leg proves that the saved
-value reaches the real call and production uses its returned callable; it does
-not claim a particular internal PyTorch optimization strategy.
+forward exception is a failure rather than a capability limitation. The leg
+proves the saved value reaches the real call and production uses its returned
+callable; it claims no particular internal PyTorch optimization strategy.
 
 <a id="cobaya-adapter-evidence"></a>
 **cobaya-adapter — the predictor a Cobaya theory block calls at sampling time
 reproduces the training-side data vector and scatters it into the layout the
 likelihood expects.**
 
-- files: trains and saves two tiny emulators under a `gct-` temp directory;
-  loads the emulator save-rebuild-drift persisted at
+- files: trains and saves two tiny emulators under a `gct-` temporary
+  directory; loads the emulator `save-rebuild-drift` persisted at
   `<driver_root>/chains/gates_emul_evaluate.h5`; runs the gate registry's
-  evaluate YAML. The registry owns this generated dependency through
-  `deps=("save-rebuild-drift",)` and runs that prerequisite first.
-- subprocess: `ai/gates/checks/gct_parity.py` (the parity legs), then `cobaya-run`
-  (the evaluate leg).
-- metric: worst relative error <= `1e-6` for parity (denominator `|want| +
-  1e-8`); set/length equality for the scattered-vector legs; process exit code
-  for the evaluate run.
-- legs: 7, named `cobaya-adapter.plain-predictor-parity`,
+  evaluate YAML. The registry owns that generated dependency through
+  `deps=("save-rebuild-drift",)` and runs the prerequisite first.
+- subprocess: `ai/gates/checks/gct_parity.py` for the parity legs, then
+  `cobaya-run` for the evaluate leg.
+- metric: worst relative error <= `1e-6` for parity (denominator
+  `|want| + 1e-8`); set and length equality for the scattered-vector legs;
+  process exit code for the evaluate run.
+- legs: 7 — `cobaya-adapter.plain-predictor-parity`,
   `.plain-scattered-vector-shape-and-mask`, `.factored-predictor-parity`,
   `.factored-scattered-vector-shape-and-mask`, `.evaluate-emulator-present`,
-  `.example-evaluate-run-completes`, and `.mcmc-smoke`.
-- evidence: the four child parity legs emit one `##AID` each, and the wrapper
-  executes the two evaluate legs. `mcmc-smoke` requires the separate short-chain
-  action described below; evaluate output cannot satisfy it.
-- capability boundary: CosmoLike, Cobaya, and a GPU are required. The wrapper
-  must report `mcmc-smoke` as unavailable or non-passing unless it executes the
-  short chain.
+  `.example-evaluate-run-completes`, `.mcmc-smoke`. The four child parity legs
+  emit one `##AID` each and the wrapper executes the two evaluate legs;
+  `mcmc-smoke` requires the separate short chain below, which evaluate output
+  cannot satisfy.
+- capability boundary: CosmoLike, Cobaya, and a GPU. The wrapper reports
+  `mcmc-smoke` as unavailable or non-passing unless it executes the short
+  chain.
 
 <a id="cobaya-adapter-plain-predictor-parity"></a>
 `cobaya-adapter.plain-predictor-parity` requires the `EmulatorPredictor` built
-from the saved plain file to match the training-side kept-entry data vector to a
-worst relative error of `1e-6` across the first eight validation-input rows.
-In `gct_parity.py`, `exp` is the experiment object, `val_set` is its
+from the saved plain file to match the training-side kept-entry data vector to
+a worst relative error of `1e-6` across the first eight validation-input rows.
+In `gct_parity.py`, `exp` is the experiment object, `val_set` its
 validation-data mapping, and `"C"` selects the matrix of cosmological parameter
 inputs. Each row is paired with the parameter names saved in the artifact
 geometry before predictor input is constructed.
@@ -1998,86 +1953,83 @@ factored (`nla`) save, whose decode path runs through the chi2 function.
 shape and masking set for the factored save.
 
 <a id="cobaya-adapter-evaluate-emulator-present"></a>
-`cobaya-adapter.evaluate-emulator-present` requires the emulator
-produced by `save-rebuild-drift` to exist on disk before the evaluate run
-starts. The gate registry automatically runs `save-rebuild-drift` first through
-the declared `deps=("save-rebuild-drift",)` dependency, including when the
-user requests only `--gate cobaya-adapter`. If the file is still absent after
-that prerequisite, the gate fails before drawing any conclusion about Cobaya.
+`cobaya-adapter.evaluate-emulator-present` requires the emulator produced by
+`save-rebuild-drift` to exist on disk before the evaluate run starts. The
+registry runs that prerequisite automatically through
+`deps=("save-rebuild-drift",)`, including when the user requests only
+`--gate cobaya-adapter`. If the file is still absent afterwards, the gate fails
+before drawing any conclusion about Cobaya.
 
 <a id="cobaya-adapter-example-evaluate-run-completes"></a>
 `cobaya-adapter.example-evaluate-run-completes` requires `cobaya-run` on the
-gate registry's evaluate YAML (the `lsst_y1` likelihood, `use_emulator 1`) to
-exit zero.
-It proves that the run completes. Numerical parity is established separately
+registry's evaluate YAML (the `lsst_y1` likelihood, `use_emulator 1`) to exit
+zero. It proves the run completes; numerical parity is established separately
 by the named predictor assertion.
 
 <a id="cobaya-adapter-mcmc-smoke"></a>
 `cobaya-adapter.mcmc-smoke` requires a real short-chain run that drives the
 theory block through a sampler, not merely through `evaluate`. A wrapper that
-does not start the sampler must record this anchor as unavailable or
-non-passing; it cannot use a successful evaluate run as substitute evidence.
+does not start the sampler records this anchor as unavailable or non-passing;
+a successful evaluate run is not substitute evidence.
 
 <a id="finetune-smoke-evidence"></a>
 **finetune-smoke — a real fine-tune run continues the gate registry's own saved
 emulator.**
 
 - files: reads the emulator produced by `save-rebuild-drift` under the
-  configured driver file root; the run writes its own outputs under the driver
-  root. The registry automatically supplies this file through
-  `deps=("save-rebuild-drift",)`.
+  configured driver file root, supplied automatically through
+  `deps=("save-rebuild-drift",)`; the run writes its own outputs under the
+  driver root.
 - subprocess: the cosmic-shear training driver, on the `finetune-smoke-config`
   YAML.
-- metric: process exit code, plus exact presence of two required driver-output
-  lines: the parity result and the warm-start banner.
-- legs: 4, named `finetune-smoke.run-completes`, `.parity-verdict-printed`,
-  `.warm-start-banner`, and `.artifact-provenance-and-round-trip`.
-- evidence: the wrapper obtains the first three legs from the driver's exit
-  code and output. The provenance/round-trip leg additionally requires the
-  file action described below; output text cannot satisfy it.
-- capability boundary: CosmoLike and a GPU are required.
+- metric: process exit code, plus exact presence of the parity result line and
+  the warm-start banner.
+- legs: 4 — `finetune-smoke.run-completes`, `.parity-verdict-printed`,
+  `.warm-start-banner`, `.artifact-provenance-and-round-trip`. The wrapper
+  obtains the first three from the driver's exit code and output; the
+  provenance leg additionally requires the file action below, which output text
+  cannot satisfy.
+- capability boundary: CosmoLike and a GPU.
 
 <a id="finetune-smoke-run-completes"></a>
 `finetune-smoke.run-completes` requires the fine-tune driver to exit zero.
 
 <a id="finetune-smoke-parity-verdict-printed"></a>
 `finetune-smoke.parity-verdict-printed` requires the driver's output to carry
-the pre-train parity line (`finetune parity: max|dv|`). This is a text-presence
-leg: it proves the driver ran the parity check and printed its result. The
-identity itself is asserted numerically by finetune-identity.
+the pre-train parity line (`finetune parity: max|dv|`). This text-presence leg
+proves the driver ran the parity check and printed its result; the identity
+itself is asserted numerically by finetune-identity.
 
 <a id="finetune-smoke-warm-start-banner"></a>
 `finetune-smoke.warm-start-banner` requires the startup banner to announce the
 source artifact (`finetune: from `).
 
 <a id="finetune-smoke-artifact-provenance-and-round-trip"></a>
-`finetune-smoke.artifact-provenance-and-round-trip` requires the wrapper to open
-the saved `.h5`, verify the `finetuned_from` root attribute, rebuild the
-artifact with `rebuild_emulator`, and compare its prediction with the saved
-run's reference prediction. A wrapper that inspects only standard output must
-record this anchor as unavailable or non-passing. `finetune-identity` tests the
-general mechanism but does not replace this file-specific evidence.
+`finetune-smoke.artifact-provenance-and-round-trip` requires the wrapper to
+open the saved `.h5`, verify the `finetuned_from` root attribute, rebuild with
+`rebuild_emulator`, and compare its prediction with the saved run's reference
+prediction. A wrapper that inspects only standard output records this anchor as
+unavailable or non-passing. `finetune-identity` tests the general mechanism but
+does not replace this file-specific evidence.
 
 <a id="transfer-smoke-evidence"></a>
 **transfer-smoke — a real transfer run composes a correction over the gate registry's own
 saved base.**
 
 - files: reads the plain base produced by `save-rebuild-drift` under the
-  configured driver file root; the run saves its own composed artifact under
-  the driver root. The registry automatically supplies this base through
-  `deps=("save-rebuild-drift",)`.
+  configured driver file root, supplied automatically through
+  `deps=("save-rebuild-drift",)`; the run saves its own composed artifact under
+  the driver root.
 - subprocess: the cosmic-shear training driver, on the `transfer-smoke-config`
   YAML.
-- metric: process exit code, plus exact presence of four required driver-output
-  lines: the epoch-zero parity result, the transfer banner, and the two save
-  lines.
-- legs: 5, named `transfer-smoke.run-completes`, `.parity-verdict-printed`,
-  `.transfer-banner`, `.saved-artifact-paths-printed`, and
-  `.artifact-provenance-and-round-trip`.
-- evidence: the wrapper obtains the first four legs from the driver's exit code
-  and output. The provenance/round-trip leg additionally requires the file
-  action described below; output text cannot satisfy it.
-- capability boundary: CosmoLike and a GPU are required.
+- metric: process exit code, plus exact presence of four driver-output lines:
+  the epoch-zero parity result, the transfer banner, and the two save lines.
+- legs: 5 — `transfer-smoke.run-completes`, `.parity-verdict-printed`,
+  `.transfer-banner`, `.saved-artifact-paths-printed`,
+  `.artifact-provenance-and-round-trip`. The wrapper obtains the first four
+  from the driver's exit code and output; the provenance leg additionally
+  requires the file action below, which output text cannot satisfy.
+- capability boundary: CosmoLike and a GPU.
 
 <a id="transfer-smoke-run-completes"></a>
 `transfer-smoke.run-completes` requires the transfer driver to exit zero.
@@ -2085,23 +2037,23 @@ saved base.**
 <a id="transfer-smoke-parity-verdict-printed"></a>
 `transfer-smoke.parity-verdict-printed` requires the driver's output to carry
 the epoch-zero parity line (`transfer parity: epoch 0 == frozen base`). This
-text-presence check proves that the driver ran and reported the parity check.
+text-presence check proves the driver ran and reported the parity check;
 `transfer-identity` separately establishes the numerical identity.
 
 <a id="transfer-smoke-transfer-banner"></a>
 `transfer-smoke.transfer-banner` requires the startup banner to announce the
-base and its form/space (`transfer: from `).
+base and its form and space (`transfer: from `).
 
 <a id="transfer-smoke-saved-artifact-paths-printed"></a>
 `transfer-smoke.saved-artifact-paths-printed` requires both save lines (`saved
 emulator ->` and `saved run record ->`) in the output. It proves the save ran
-and printed its two paths. Reload behavior belongs to the next leg.
+and printed its two paths; reload behavior belongs to the next leg.
 
 <a id="transfer-smoke-artifact-provenance-and-round-trip"></a>
 `transfer-smoke.artifact-provenance-and-round-trip` requires the wrapper to
 open the saved `.h5`, verify the `transfer_from` root attribute and embedded
 `transfer_base` group, rebuild the artifact, and require the composed
-prediction to reproduce the in-memory composition. A wrapper that inspects
-only standard output must record this anchor as unavailable or non-passing.
+prediction to reproduce the in-memory composition. A wrapper that inspects only
+standard output records this anchor as unavailable or non-passing.
 `transfer-identity` tests the general lifecycle mechanism but does not replace
 this file-specific evidence.
