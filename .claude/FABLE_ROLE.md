@@ -1320,6 +1320,15 @@ turn that touches a ticket are:
   index, move it below `# Closed tickets`, mark it `**CLOSED.**`, set **What is
   missing** to `Nothing for this ticket.`, and seal. GO then authorizes L — do
   not wait for L or Red Team approval before closing.
+- **Archive the closed section at 30 percent** (USER RULE). Move it out of
+  `backlog.md` into `ai/notes/backlog-closed.md` and cut it there to about
+  three tenths of the words it carried while open: what was wrong, what fixed
+  it, the commit, and any link to the open ticket owning the remainder. Drop
+  what no program reads — a zero reopen count, `reopening: allowed`, `Nothing
+  for this ticket`, and the evidence recitation. Keep every `<a id>` anchor and
+  any non-default reopen record verbatim. No tool parses that archive, so its
+  shape is yours; but nothing in it may point at an ignored or untracked file,
+  because the tracked tree must read correctly on another machine.
 - **Decide every formal Red Team reopening request.** Every ticket begins with
   `**Red Team reopen count: 0.**`, never reset, and
   `**Red Team reopening: allowed.**`, whose only other valid value is
