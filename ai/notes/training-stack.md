@@ -5,62 +5,32 @@ scientific invariants, and acceptance checks. It is not a diary. A training
 change receives **GO** only when every affected contract has executable
 evidence and a deliberate mutation proves that the evidence can fail.
 
-## Vocabulary used throughout this note
+## Words with a local meaning
 
-An **exponential moving average (EMA)** is a smoothed copy of model weights
-that gives more weight to recent updates. The **reverse Huber (BerHu) loss** is
-the piecewise loss defined below. A **polynomial chaos expansion (PCE)** is an
-analytic polynomial base model; a **neural polynomial chaos expansion (NPCE)**
-is a neural correction to that base. The **cosmic microwave background (CMB)**
-is relic radiation whose spectra form one output family. **Intrinsic alignment
-(IA)** is the systematic alignment of galaxy shapes and forms a nuisance-model
-family in the loss functions.
-
-A **command-line interface (CLI)** is the set of terminal options accepted by
-a driver. YAML is the human-readable settings-file format used by those
-drivers. A **graphics processing unit (GPU)** is an accelerator used for
-training. **Random-access memory (RAM)** is the computer's working memory.
-CUDA is NVIDIA's GPU computing platform. The Apple Metal Performance Shaders
-accelerator backend is named in full here because MPS elsewhere in this
-library means matter-power spectrum.
-
-CoCoA is the surrounding cosmological-analysis installation. CosmoLike is the
-likelihood calculation inside that installation that produces and evaluates
-several emulator data-vector families.
-
-**Automatic mixed precision (AMP)** lets PyTorch use lower-precision numbers
-for selected operations. **Autocast** chooses those operation-specific number
-formats, and a **gradient scaler** rescales a float16 loss to protect small
-gradients. **Eager execution** runs each PyTorch operation immediately;
-**compiled execution** prepares an operation graph for reuse. `float16` and
-`bfloat16` are two 16-bit floating-point formats. **Fused execution** combines
-several optimizer operations into one accelerator kernel.
+**MPS** here means matter-power spectrum, so the Apple Metal Performance
+Shaders backend is always named in full. **NPCE** = a neural correction over an
+analytic PCE base. **IA** = intrinsic alignment, a nuisance-model family in the
+loss functions. The **reverse Huber (BerHu) loss** is the piecewise loss
+defined below. **CoCoA** is the surrounding cosmological-analysis installation;
+**CosmoLike** is the likelihood calculation inside it that produces and
+evaluates several emulator data-vector families.
 
 A **study** tests a collection of related configurations. A **point**, also
-called a **trial**, is one configuration and its run. A **sweep** is a
-systematic set of those points. A **worker** is one process that executes one
-study point. A **lane** is one concurrent worker slot with its own resident
-model and buffers. **Permanent
-per-lane state** means memory that stays allocated for the lifetime of that
-slot, rather than memory used by one batch. A **capacity token** reserves one
-lane's share of a limited computing resource. A **manifest** is the complete
-structured record of facts that identify a study. A **digest** is a fixed-size
-fingerprint calculated from exact bytes. A **journal** is the on-disk study
-record used for restart. A **progress watchdog** is a timer that treats a live
-but non-advancing worker as stuck. A **pristine source state** is an unchanged
-copy captured immediately after loading a source artifact.
+called a **trial**, is one configuration and its run; a **sweep** is a
+systematic set of those points. A **worker** is one process executing one
+point. A **lane** is one concurrent worker slot with its own resident model and
+buffers, and **permanent per-lane state** is memory held for the lifetime of
+that slot rather than for one batch. A **capacity token** reserves one lane's
+share of a limited computing resource. A **manifest** is the complete
+structured record of facts identifying a study; a **journal** is the on-disk
+study record used for restart. A **progress watchdog** treats a live but
+non-advancing worker as stuck. A **pristine source state** is an unchanged copy
+captured immediately after loading a source artifact.
 
-A **probability density function (PDF)** describes how probability is
-distributed over values. An **abstract syntax tree (AST)** is Python's parsed
-structural representation of source code. A **gate** is a named validation job
-whose required result is written before it starts. A **fixture** is the fixed
-input setup used by a gate. A **control** is a valid case that must pass. A
-**mutation** deliberately restores one forbidden behavior and must fail. A
-**smoke command** is a short public run that proves startup and routing, not
-numerical correctness. `UNAVAILABLE` means that a named evidence action did
-not run or could not prove its claim. A **schema** is the required fields,
-types, and meanings of a structured record. An **identity** is the set of facts
-used to decide whether two runs, studies, or products are the same.
+A **smoke command** is a short public run proving startup and routing, not
+numerical correctness. `UNAVAILABLE` means a named evidence action did not run
+or could not prove its claim. An **identity** is the set of facts deciding
+whether two runs, studies, or products are the same.
 
 In gate evidence, a **reference comparison** compares a new run with a declared
 reference run. An **exact-output-line comparison** compares the specific,

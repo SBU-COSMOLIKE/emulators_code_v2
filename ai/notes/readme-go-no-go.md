@@ -1,24 +1,16 @@
 # README and Python prose GO / NO-GO contract for the Architect
 
-## Terms used by this contract
+## Words with a local meaning
 
-A **unit** is one bounded change assigned to one development role. A **Python
-symbol** is one named module, function, class, or method. A **protocol token**
-is an exact machine-read word whose spelling is part of an interface.
-**Serialized data** is text or bytes written so a program can reconstruct
-structured state. A **test fixture** is the fixed input setup used by a check.
-
-A **directive** is the Architect's complete instruction for one unit. Its
-**Acceptance checklist** lists the checks and observations required for GO.
-An **exemption** records why one check does not apply. **Dispatch** is the act
-of sending that directive to another role. A **gate** is a named validation
-job whose required result is written before it starts.
+A **unit** is one bounded change assigned to one development role. A **protocol
+token** is an exact machine-read word whose spelling is part of an interface. A
+directive's **Acceptance checklist** lists the checks and observations required
+for GO, and an **exemption** records why one check does not apply.
 
 **Output parity** means actual program output matches the declared reference
 under the stated comparison. **Stale** text no longer matches the current
-library. A **full-source search** examines every file in its named scope
-rather than a shortened sample. **Mermaid** is the text format GitHub renders
-as a diagram; an **anchor** is a named location a link can target.
+library. A **full-source search** examines every file in its named scope rather
+than a shortened sample.
 
 This contract applies whenever a unit creates or changes either:
 

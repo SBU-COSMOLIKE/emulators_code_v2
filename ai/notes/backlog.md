@@ -38,29 +38,22 @@ line, and expands the compressed entry from the handoff.
 
 ## Words used in open tickets
 
-A **saved emulator** is the pair holding learned weights and the scientific
-record needed to interpret them; the technical records call that pair an
-**artifact**. A **saved-file format** or **schema** states which fields the
-pair must contain. An **identity** is a saved fingerprint of the exact inputs,
-settings, formulas, or files that produced an object; **provenance** is the
-saved record of where data or weights came from. To **publish** a file is to
-validate a complete temporary file and then place it at the final name a reader
-uses.
+A **saved emulator**, called an **artifact** in the technical records, is the
+pair holding learned weights and the scientific record needed to interpret
+them. An **identity** is a saved fingerprint of the exact inputs, settings,
+formulas, or files that produced an object; **provenance** is the saved record
+of where data or weights came from. To **publish** a file is to validate a
+complete temporary file and then place it at the final name a reader uses.
 
-An **adapter** is the Python bridge that hands Cobaya a result from a trained
+An **adapter** is the Python bridge handing Cobaya a result from a trained
 emulator. A fine-tune **anchor** limits how far new weights may move from their
-starting weights. A model's **domain** is the range of physical inputs on which
-it may be used; **composition** is the formula that combines an emulator
-correction with an analytic base calculation. A **resolved run record** stores
-the settings the program actually used after defaults and automatic choices.
+starting weights. A model's **domain** is the range of physical inputs it may
+be used on; **composition** is the formula combining an emulator correction
+with an analytic base calculation. A **resolved run record** stores the
+settings the program actually used after defaults and automatic choices.
 
-A **gate** is a named final check for a larger requirement; a **test** asks one
-narrow question. CMB is the cosmic microwave background, MPS the matter power
-spectrum, and PCE a polynomial chaos expansion. CUDA is NVIDIA's accelerator
-platform, GPU an accelerator, MPI the message-passing system coordinating
-several generator processes. CAMB is the upstream cosmology program, CosmoLike
-the upstream program for several survey observables, and Syren an analytic
-matter-power calculation vendored here.
+CosmoLike is the upstream program for several survey observables, Syren an
+analytic matter-power calculation vendored here.
 
 # Open tickets
 

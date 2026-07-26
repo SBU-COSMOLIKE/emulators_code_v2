@@ -11,51 +11,20 @@ instruction and again before the final verdict. Missing evidence for an
 applicable check requires NO-GO. The Implementer and Red Team never edit this
 contract.
 
-## Terms used by this contract
+## Words with a local meaning
 
-A **diff** is the line-by-line comparison between two saved versions. A
-`path::symbol` label combines a file path with the function, class, or method
-that owns the change. A **forward pass** is one model evaluation from input to
-output. A **batch** is one group of rows evaluated together.
-
-A **vectorized operation** computes many array entries in one NumPy or PyTorch
-operation. NumPy is the array package used by the library, and PyTorch is its
-tensor and machine-learning package. A numerical **kernel** is the repeated
-calculation at the center of an operation. An **accelerator** is hardware such
-as a graphics processing unit (GPU) that runs those calculations.
-**De-vectorizing** replaces the array operation with slower
-element-by-element Python work.
-
-A numerical **data type (dtype)** states how values are represented, such as
-float32 or float64. A **schema** is the required fields, types, and meanings of
-a structured record. A **gate** is a named validation job whose required
-result is written before it starts. A **gate registry** is the list that
-connects each named gate to the command that runs it. **Dispatch** is the
-Architect's act of sending a complete instruction to the Implementer or Red
-Team. An
-**artifact** is a saved model result containing weights and the facts
-needed to rebuild them.
-
-`einsum` is the NumPy or PyTorch operation that expresses a tensor contraction
-with index letters. A Git **branch** is a named line of saved repository
-versions. A **worktree** is a separate Git working folder attached to one
-branch, so an agent can edit without changing the user's folder.
-
-The style rules name several Python shortcuts. A **comprehension** builds a
-collection inside brackets, for example `[convert(item) for item in items]`.
-A **conditional expression**, sometimes called a ternary, chooses a value
-inside one expression: `left if condition else right`. An **assignment
-expression** uses `:=` to assign a value inside a larger expression. A
-**lambda** is an unnamed, single-expression function. **Starred unpacking**
-uses `*values` or `**options` to insert items from another sequence or mapping.
-**Metaprogramming** creates or changes functions or classes while the program
-runs. **Module-global state** is a value defined at the top level of a Python
-file and shared by calls that do not receive the value explicitly.
+A `path::symbol` label combines a file path with the function, class, or method
+that owns the change. **De-vectorizing** replaces an array operation with
+slower element-by-element Python work. A **gate registry** is the list
+connecting each named gate to the command that runs it. An **artifact** is a
+saved model result containing weights and the facts needed to rebuild them.
+**Module-global state** is a value defined at the top level of a Python file
+and shared by calls that do not receive it explicitly.
 
 A **monkey patch** replaces existing executable behavior while Python is
-running. Examples include replacing an imported function or method, changing
-`sys.modules`, `__defaults__`, `__code__`, or `__class__`, and using `patch`,
-`patch.object`, `patch.dict`, or pytest's `monkeypatch` fixture.
+running: replacing an imported function or method, changing `sys.modules`,
+`__defaults__`, `__code__`, or `__class__`, and using `patch`, `patch.object`,
+`patch.dict`, or pytest's `monkeypatch` fixture.
 
 ## Scope and decision authority
 

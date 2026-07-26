@@ -6,52 +6,30 @@ the reason for each rule, the module that owns it, and the evidence required
 for acceptance. It does not record development sessions, ticket identifiers,
 dates, role verdicts, or merge history.
 
-## Vocabulary used throughout this note
+## Words with a local meaning
 
-A polynomial chaos expansion (PCE) is a polynomial surrogate. Neural PCE
-(NPCE) combines a frozen PCE base with a neural model that learns its residual.
-`H0` is the present-day Hubble expansion rate. A PDF is a Portable Document
-Format diagnostic file.
+**NPCE** = a frozen PCE base plus a neural model learning its residual.
+**Artifact** = one saved emulator result: trained weights plus the facts needed
+to rebuild them. **Sidecar** = a small companion file recording names, order,
+or axes for a larger table. **Provenance** = the saved record of the exact
+inputs and source artifact that produced a result. **Identity** = the saved
+facts or byte fingerprints deciding whether two datasets, runs, or artifacts
+are the same; never the identity matrix.
 
-An **artifact** is a saved emulator result containing trained weights and
-the facts needed to rebuild them. A **sidecar** is a small companion file that
-records names, order, or axes for a larger table. A **schema** is the required
-fields, types, and meanings of a saved record. **Provenance** is the saved
-record of the exact inputs and source artifact that produced a result. An
-**identity** is the saved set of facts or byte fingerprints used to decide
-whether two datasets, runs, or artifacts are the same; it is not the
-mathematical identity matrix.
+**Population scale** = the standard deviation of one output column taken over
+the number of rows, not one fewer. **Standardization** subtracts that column's
+mean and divides by its population scale. A **diagonal chi-squared** score sums
+squared standardized residuals with no cross-coordinate terms. **Whitening**
+is the more general transformation making a residual's covariance the identity,
+so an ordinary sum of squares carries the intended covariance-weighted meaning.
 
-A **population scale** is the population standard deviation of one output
-column, calculated with the number of rows rather than one fewer in the
-denominator. **Standardization** subtracts that column's mean and divides by
-its population scale. **Float32 epsilon** is the gap between `1.0` and the
-next representable float32 number and measures the format's local resolution.
-A **diagonal chi-squared** score sums squared standardized residuals without
-cross-coordinate terms. **Whitening** is a more general transformation that
-makes a residual's covariance the identity, so an ordinary sum of squares has
-the intended covariance-weighted meaning.
+A **convolution head** predicts a correction with local filters along an
+ordered coordinate axis; an **attention head** predicts with learned
+comparisons among coordinate tokens. Scalar outputs have names but no ordered
+physical axis, so neither axis-dependent head is valid for scalar geometry.
 
-A **convolution head** predicts a correction by applying local filters along
-an ordered coordinate axis. An **attention head** predicts with learned
-comparisons among coordinate tokens. A **fine-tuning** run continues training
-from saved weights. Scalar outputs have names but no ordered physical axis, so
-the axis-dependent heads are not valid for scalar geometry.
-
-A **gate** is a named validation job whose required result is written before
-it starts. A **fixture** is its fixed input setup. A **smoke check** is a
-short end-to-end run through real
-generation, training, saving, and serving. A **control** is a valid case that
-must pass. A **mutation** deliberately restores forbidden behavior and must
-fail. **Catch power** is the demonstrated ability of a check to fail for that
-mutation. The **central processing unit (CPU)** is the ordinary host
-processor.
-
-Cobaya is the Bayesian inference program that requests predictions from these
-families. Hierarchical Data Format version 5 (HDF5) is the saved-array file
-format. `rtol` and `atol` are the relative and absolute tolerances used by
-numerical comparisons. Lambda cold dark matter (LCDM) is the cosmological
-model with a cosmological constant and cold dark matter.
+A **smoke check** is a short end-to-end run through real generation, training,
+saving, and serving.
 
 The four CMB spectrum names used here are:
 

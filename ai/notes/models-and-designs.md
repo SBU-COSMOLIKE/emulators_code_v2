@@ -4,64 +4,34 @@ This note records the durable model rules that future changes must preserve.
 It is a design specification, not a development diary. Every statement is
 written as a durable rule, reason, code owner, or acceptance requirement.
 
-## Vocabulary used throughout this note
+## Words with a local meaning
 
-HyperText Markup Language (HTML) anchors give sections stable link targets. A
-convolutional neural network (CNN) uses shared filters to learn local
-structure. YAML is the human-readable settings-file format used by training
-configurations. CUDA is NVIDIA's accelerator-computing platform. A graphics
-processing unit (GPU) is the accelerator device used by CUDA training checks.
+**Artifact** = one saved emulator result: trained weights plus the facts needed
+to rebuild them. **Identity** = the saved facts or byte fingerprints deciding
+whether two datasets, runs, models, or coordinates are the same; never the
+identity matrix. **Drift check** = a comparison of candidate behavior against a
+declared reference, required to detect a deliberate change.
 
-An **artifact** is a saved emulator result containing trained weights and
-the facts needed to rebuild them. PyTorch is the tensor and machine-learning
-package used by the models; a **tensor** is a numerical array with a fixed
-shape and data type. A PyTorch **state dictionary** maps stable names to
-parameter tensors and registered buffers. A fixed model **buffer** is
-a saved tensor used by the model but not changed by gradient updates. A
-**drift check** compares candidate behavior with a declared reference and must
-detect a deliberate change.
-
-An **identity** is the saved set of facts or byte fingerprints used to decide
-whether two datasets, runs, models, or coordinates are the same; it is not the
-mathematical identity matrix.
-
-A model **geometry** owns the mapping between physical outputs and the
-coordinates used by a network and loss, including axes, masks, scaling, and
-fixed basis changes. To **whiten** a residual is to transform it so its
-covariance is the identity; a **basis transform** is the fixed matrix that
-moves values between two coordinate representations. A **trunk** is the main
-network that produces the initial prediction. A **correction head** is a
-smaller branch that adds a structured residual to that prediction.
-
-A multilayer perceptron (MLP) is a sequence of learned linear maps and
-nonlinear activations. A **Jacobian** is the matrix of output derivatives with
-respect to inputs. In a convolution, a **channel** is one feature sequence, a
-**group** restricts which input and output channels mix, a **stride** is the
-number of positions advanced between outputs, and the **receptive field** is
-the set of input positions that can affect one output. A **bin** is one
+**Geometry** = the mapping between physical outputs and the coordinates a
+network and loss use: axes, masks, scaling, fixed basis changes. To **whiten**
+a residual is to transform it so its covariance is the identity; a **basis
+transform** is the fixed matrix between two coordinate representations. A
+**trunk** is the main network producing the initial prediction, a **correction
+head** the smaller branch adding a structured residual to it. A **bin** is one
 physically meaningful group of adjacent output coordinates.
 
-A transformer repeatedly combines attention and a per-token MLP. A **token**
-is the feature vector representing one bin or contiguous coordinate segment.
-An **attention window** is the segment assigned to one token, and an
-**attention head** is one independent set of learned projections that compares
-tokens. **Permutation equivariance** means that reordering tokens causes the
-same reordering of outputs instead of changing their values. Feature-wise
-linear modulation (FiLM) lets parameters produce a scale `gamma` and offset
-`beta` for hidden features; identity initialization starts with `gamma = 1`
-and `beta = 0`.
+A **token** is the feature vector for one bin or contiguous coordinate segment;
+an **attention window** is the segment assigned to one token. **Permutation
+equivariance** means reordering tokens reorders the outputs instead of changing
+their values. FiLM identity initialization starts at `gamma = 1`, `beta = 0`.
 
-A **registry** is a fixed mapping from accepted configuration names to the
-classes or functions that own them. A **capability flag** is an explicit class
-property that tells shared code which geometry, data, or head behavior the
-class supports.
-
-CosmoLike is the cosmological-likelihood calculation that produces the data
-vectors used by the cosmic-shear family. A driver **fileroot** is the configured
-path stem shared by one run's output files. `n(z)` is a galaxy redshift
-distribution. A **gate** is a named validation job whose required result is
-written before it starts. The **board runner** is the script that executes
-registered gates and records their raw results.
+A **registry** maps accepted configuration names to the classes or functions
+that own them. A **capability flag** is an explicit class property telling
+shared code which geometry, data, or head behavior the class supports. A driver
+**fileroot** is the configured path stem shared by one run's output files.
+`n(z)` is a galaxy redshift distribution. CosmoLike produces the cosmic-shear
+data vectors. The **board runner** executes registered gates and records their
+raw results.
 
 ## How to use this note
 

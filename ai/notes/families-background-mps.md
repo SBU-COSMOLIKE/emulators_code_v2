@@ -6,67 +6,46 @@ exist, which module owns each rule, and the evidence required before a change
 is accepted. It does not record development sessions, ticket identifiers,
 dates, or role verdicts.
 
-## Vocabulary used throughout this note
+## Words with a local meaning
 
-A polynomial chaos expansion (PCE) is a polynomial surrogate. Neural PCE
-(NPCE) combines a frozen PCE base with a neural model that learns its residual.
-TRF is the repository abbreviation for a transformer correction head.
+**MPS** = matter-power spectrum here, never Apple Metal Performance Shaders,
+which this note always spells out. **NPCE** = a neural correction over a frozen
+PCE base. **TRF** = a transformer correction head. **BAOSN** = the background
+expansion outputs used with baryon acoustic oscillation and supernova data.
 
-The **matter-power spectrum (MPS)** describes how matter fluctuations depend
-on physical scale. An **artifact** is a saved emulator result containing
-trained weights and the scientific facts needed to rebuild them. A **schema**
-is the required fields, types, and meanings of a saved record. An **identity**
-is the saved set of facts or byte fingerprints used to decide whether two
-datasets, runs, or artifacts are the same; it is not the mathematical identity
-matrix.
+**Artifact** = one saved emulator result: trained weights plus the scientific
+facts needed to rebuild them. **Identity** = the saved facts or byte
+fingerprints deciding whether two datasets, runs, or artifacts are the same;
+never the identity matrix.
 
-A **loss ladder** is the supported set of chi-squared, square-root, and reverse
-Huber (BerHu) training transforms. For a per-sample chi-squared value, this
-BerHu transform follows its square root below a configured knot and becomes
-linear in chi-squared above the knot. Its capped form returns to a square-root-
-shaped tail above a second knot. **Annealing** changes a configured value
-gradually over training epochs. **Trimming** removes a configured fraction of the
-largest-error rows before averaging; **focus** gives harder retained rows more
-weight. **Clipping** limits a gradient norm before an update, while **rewind**
-restores one saved model-and-optimizer snapshot. An **exponential moving
-average** is a smoothed copy of model weights that emphasizes recent updates.
+**Loss ladder** = the supported chi-squared, square-root, and reverse Huber
+(BerHu) training transforms. On a per-sample chi-squared value this BerHu
+transform follows its square root below a configured knot and becomes linear in
+chi-squared above it; the capped form returns to a square-root-shaped tail
+above a second knot. **Annealing** changes a configured value gradually over
+epochs. **Trimming** removes a configured fraction of the largest-error rows
+before averaging; **focus** weights harder retained rows more. **Clipping**
+limits a gradient norm before an update; **rewind** restores one saved
+model-and-optimizer snapshot.
 
-A **correction head** is the trainable network part that predicts a residual
-or ratio. **Fine-tuning** continues training from saved weights.
+**Correction head** = the trainable part predicting a residual or ratio.
 **Frozen-base transfer** evaluates a saved base model without changing its
-weights and trains only its correction. **Law space** is the output after
-applying the family's declared transform, such as a logarithm; the decoder
-returns from law space to physical values.
+weights and trains only its correction. **Law space** = the output after the
+family's declared transform, such as a logarithm; the decoder returns from law
+space to physical values.
 
 A **bin** is one physically meaningful group of adjacent output coordinates
-processed together. A transformer **token** is the vector that represents one
-bin or redshift slice inside the model. For a two-dimensional grid,
-`data.grid2d.k_stride` retains every `k_stride`-th wavenumber coordinate plus
-the upper edge before geometry and head layout. The **post-stride token width**
-is the number of retained wavenumber coordinates in each redshift-slice token.
-An **attention head** is one independent set of learned query, key, and value
-projections; the token width must split evenly among the requested heads.
+processed together, and a **token** the vector representing one bin or redshift
+slice. For a two-dimensional grid, `data.grid2d.k_stride` retains every
+`k_stride`-th wavenumber coordinate plus the upper edge before geometry and
+head layout; the **post-stride token width** is how many wavenumber coordinates
+that leaves in each redshift-slice token, and it must split evenly among the
+requested attention heads.
 
-A **gate** is a named validation job whose required result is written before
-it starts. A **fixture** is its fixed input setup. A **smoke check** is a
-short end-to-end run through real
-generation, training, saving, and serving. A **tripwire** is a numerical or
-structural condition chosen to fail when a named broken behavior returns. The
-**central processing unit (CPU)** is the ordinary host processor.
-
-BAOSN names background expansion outputs used with baryon acoustic oscillation
-and supernova data. CAMB (Code for Anisotropies in the Microwave Background)
-is the external cosmology solver used in real-provider comparisons. Cobaya is
-the Bayesian inference program that requests predictions; its `Theory` class
-is the interface implemented by a prediction component. A PDF is a Portable
-Document Format diagnostic file.
-
-FITPACK is the numerical spline library used through SciPy. Hierarchical Data
-Format version 5 (HDF5) is the saved-array file format. Lambda cold dark matter
-(LCDM) is the cosmological model with a cosmological constant and cold dark
-matter. Random-access memory (RAM) holds arrays while a process is running.
-`rtol` and `atol` are the relative and absolute tolerances used by numerical
-comparisons.
+A **smoke check** is a short end-to-end run through real generation, training,
+saving, and serving. A **tripwire** is a numerical or structural condition
+chosen to fail when a named broken behavior returns. Syren is the analytic
+matter-power calculation vendored here.
 
 ## Shared family structure
 

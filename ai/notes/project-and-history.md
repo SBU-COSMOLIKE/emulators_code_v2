@@ -8,55 +8,34 @@ work.
 Read [`MEMORY.md`](MEMORY.md) first. Use the topic notes for detailed model,
 training, artifact, data, and family requirements.
 
-## Terms used in this note
+## Words with a local meaning
 
-An **emulator** is a trained, fast approximation to an expensive scientific
-calculation. An **artifact** is one saved emulator result: trained weights plus
-the scientific and structural facts needed to rebuild them. **Publication**
-places a complete, checked result at the final path used by readers. An
-**identity** is the saved set of facts or byte fingerprints used to decide
-whether two datasets, runs, or artifacts are the same. A neural-network
-**trunk** produces a shared internal representation; a **head** turns that
-representation into one requested output.
+`training-stack.md` defines the loss and schedule vocabulary; this note only
+adds the following.
 
-The **reverse Huber (BerHu) loss** is a piecewise training loss defined in
-`training-stack.md`. **Trimming** removes a configured fraction of the
-largest-error rows before a training average. **Focus** gives harder retained
-rows more weight. A **snapshot** is one saved copy of model and training state
-that can be selected or restored together.
+**Artifact** = one saved emulator result: trained weights plus the scientific
+and structural facts needed to rebuild them. The **correction target** is the
+difference or ratio a correction must learn, and the **correction head** the
+trainable part predicting it.
 
-A **warm start** begins from a saved model instead of random weights.
-**Fine-tuning** continues training that model. **Transfer learning** keeps a
-saved base calculation and trains a correction for a related task. The
-**correction target** is the numerical difference or ratio that correction
-must learn; the **correction head** is the trainable network part that predicts
-it.
+A **parameter-name sidecar** records the name and order of each table column.
+A **chain root** is the common path stem for a set of sampling files, and the
+**path owner** the one component responsible for resolving it. A **class
+guard** checks the saved family before reading family-specific fields. A
+**predictor** rebuilds a saved artifact and returns its scientific output; an
+**adapter** translates that output into the names, shapes, and units another
+program expects. A **family-shaped return** uses the output structure
+documented for that family.
 
-A **parameter-name sidecar** is a small companion file that records the name
-and order of each table column. A **chain root** is the common path stem for a
-set of sampling files. The **path owner** is the one component responsible for
-resolving that path. A **class guard** checks the saved family before reading
-family-specific fields. A **predictor** rebuilds a saved artifact and returns
-its scientific output. An **adapter** translates that output into the names,
-shapes, and units expected by another program. A **family-shaped return** uses
-the output structure documented for that family.
+**Sampling temperature** is a factor that widens the parameter distribution
+used to create training examples; it does not describe physical heat.
 
-A **chi-square error** is a covariance-weighted squared difference between a
-prediction and its reference value; larger values mean that the error matters
-more for the intended scientific analysis. **Sampling temperature** is a
-numerical factor that widens the parameter distribution used to create
-training examples. It does not describe physical heat. **Evolving dark
-energy** allows the dark-energy equation-of-state parameters to vary with
-cosmic time. **Intrinsic alignment** is the non-lensing alignment of galaxy
-shapes caused by the galaxies' shared environment; an emulator must preserve
-its effect rather than mistake it for gravitational lensing.
-
-A geometry **round-trips its state** when saving and then loading the state
+A geometry **round-trips its state** when saving and then loading it
 reproduces the same stored values and meanings. A loss's **physical
-contraction** is the documented mathematical operation that combines a
-prediction residual with covariance or precision information to produce one
-score per sample. Keeping that calculation in one owner prevents training and
-diagnostics from assigning different scientific meanings to the same error.
+contraction** is the documented operation combining a prediction residual with
+covariance or precision information to produce one score per sample; keeping it
+in one owner stops training and diagnostics from giving the same error two
+scientific meanings.
 
 **Multi-device execution** assigns work to more than one accelerator. **GPU
 packing** lets several workers share one graphics processor under explicit

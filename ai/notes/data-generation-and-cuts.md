@@ -8,24 +8,20 @@ rule, the code that owns it, and the evidence that proves it.
 The user-facing introduction belongs in the repository README. This note keeps
 the deeper rules needed by maintainers and automated development tools.
 
-## Terms used throughout this note
+## Words with a local meaning
 
-A **checkpoint** is saved progress from an incomplete generator run.
-**Staging** selects, validates, and places saved rows into arrays used by
-training. A **sidecar** is a small companion file that records names, order,
-axes, or other facts about a larger data file. A **gate** is a named
-validation job whose required result is written before it starts.
+**Checkpoint** = saved progress from an incomplete generator run. **Staging**
+selects, validates, and places saved rows into the arrays training uses. A
+**sidecar** is a small companion file recording names, order, axes, or other
+facts about a larger data file. A **probe** names the requested physical
+output, such as background or CMB. A family **variant** selects one documented
+representation, such as native or Syren-base matter power.
 
-A **digest** is a fixed-size fingerprint calculated from exact bytes. A
-**probe** names the requested physical output, such as background or CMB. A
-family **variant** selects one documented representation, such as native or
-Syren-base matter power.
-
-**Grid2d** is the two-dimensional grid family: each stored row is one
-surface over redshift `z` and wavenumber `k`. The **boost** is the ratio of
-nonlinear to linear matter power. **Law space** is the transformed target
-representation a family stores and trains in, and the **law transform** is
-the staging step that produces it from raw and base columns;
+**Grid2d** is the two-dimensional grid family: each stored row is one surface
+over redshift `z` and wavenumber `k`. The **boost** is the ratio of nonlinear
+to linear matter power. **Law space** is the transformed target representation
+a family stores and trains in, and the **law transform** is the staging step
+producing it from raw and base columns;
 `ai/notes/families-background-mps.md` owns the law definitions.
 
 Two identities carry a dataset into a saved emulator. **Staged-selection
@@ -43,10 +39,6 @@ and must record `null`. This mode-dependent rule is the policy's
 **applicability**.
 
 ## Ownership map
-
-Message Passing Interface (MPI) lets separate generator processes coordinate
-work. The cosmic microwave background (CMB) is the relic radiation from the
-early universe measured by the CMB family.
 
 | Subject | Primary owner |
 |---|---|
