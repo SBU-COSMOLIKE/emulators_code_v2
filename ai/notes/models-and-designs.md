@@ -381,8 +381,8 @@ shape modes are not low-degree polynomials. NPCE is supported infrastructure,
 not an established way to lower the sample-efficiency floor. The fit keeps
 degree low to limit Runge oscillation, retains only modes whose leave-one-out
 (LOO) error clears `loo_max` (default `0.05`), stops early, and runs a greedy
-residual-correlation search on the CPU using the closed-form
-predicted-residual-sum-of-squares (PRESS) form of the LOO error. The function
+residual-correlation search on the CPU using the closed-form PRESS form of the
+LOO error. The function
 keeps its public `select_lars_loo` name but does not execute the
 least-angle-regression path algorithm.
 
@@ -787,7 +787,7 @@ does not replace the targeted check.
 - Diagnostics branch on the `needs_params` capability because parameter-aware
   losses cannot be decoded through a parameter-free path.
 - Benchmark conclusions remain tied to the measured device and do not transfer
-  automatically between CPU, CUDA, and Apple Metal Performance Shaders (MPS)
+  automatically between CPU, CUDA, and Apple Metal Performance Shaders
   hardware.
 
 ## Power activations require the analytic derivative at zero

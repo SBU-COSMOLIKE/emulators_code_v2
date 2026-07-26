@@ -28,7 +28,7 @@ ordered coordinate axis; an **attention head** predicts with learned
 comparisons among coordinate tokens. Scalar outputs have names but no ordered
 physical axis, so neither axis-dependent head is valid for scalar geometry.
 
-A **smoke check** is a short end-to-end run through real generation, training,
+A **smoke gate** runs short and end to end through real generation, training,
 saving, and serving.
 
 The four CMB spectrum names used here are:

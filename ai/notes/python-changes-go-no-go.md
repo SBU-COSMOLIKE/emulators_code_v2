@@ -431,7 +431,7 @@ The Implementer returns:
 - Changed symbols: <path::symbol list>
 - Style rows: <evidence for every applicable contract row>
 - Tests: <exact commands, return codes, and important output>
-- Static checks: <format, syntax, abstract syntax tree (AST), or targeted scans>
+- Static checks: <format, syntax, abstract syntax tree, or targeted scans>
 - Performance: <before/after measurement or justified N/A>
 - Prose contract: <README/Python prose GO/NO-GO evidence>
 - Character count: <added plus deleted characters>

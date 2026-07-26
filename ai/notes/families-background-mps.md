@@ -42,7 +42,7 @@ head layout; the **post-stride token width** is how many wavenumber coordinates
 that leaves in each redshift-slice token, and it must split evenly among the
 requested attention heads.
 
-A **smoke check** is a short end-to-end run through real generation, training,
+A **smoke gate** runs short and end to end through real generation, training,
 saving, and serving. A **tripwire** is a numerical or structural condition
 chosen to fail when a named broken behavior returns. Syren is the analytic
 matter-power calculation vendored here.

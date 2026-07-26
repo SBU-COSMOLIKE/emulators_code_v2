@@ -786,9 +786,8 @@ or copy without reconstructing old gate history.
   the existing row count; a fresh `N` run followed by an append of `M` rows
   is replayable, but it is not row-identical to one fresh `N+M` run.
 - Bounded grid2d staging does not certify production-sized PCE fitting.
-- Temporary-file recovery does not promise survival of `SIGKILL`, the
-  operating-system signal that stops a process without cleanup; an
-  out-of-memory (OOM) termination; or storage-controller failure beyond the
+- Temporary-file recovery does not promise survival of `SIGKILL`, an
+  out-of-memory termination, or storage-controller failure beyond the
   documented sync boundary.
 - A valid scientific gate compares values with an independent known answer;
   a process exit, banner, shape, or previous log alone is not that evidence.
