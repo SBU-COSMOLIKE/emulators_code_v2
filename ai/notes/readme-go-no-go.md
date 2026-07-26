@@ -802,8 +802,11 @@ what follows restates the clause before it, a comma for an appositive,
 parentheses for a true aside, a full stop when two statements were welded
 together. The em dash keeps one job, separating a label from its body in a list
 entry, a table cell, a heading, or a defined term, and it stays inside a term
-that is spelled with one, such as `LOW — EDGE CASE`. A changed section with more
-than one sentence-interrupting dash is `NO-GO`.
+that is spelled with one, such as `LOW — EDGE CASE`, or inside a quoted status
+string the program prints. A changed section with more than one
+sentence-interrupting dash is `NO-GO`. The search covers the unspaced form
+`word—word` as well as the spaced one, because a scan written for `word — word`
+alone will report a clean file that is not.
 
 The Architect explicitly checks these sentence shapes:
 

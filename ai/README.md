@@ -317,7 +317,7 @@ python3 ai/tools/mailbox_daemon.py --dry-run
 
 Expected result on an empty installation: the command prints the three AI work
 folders that a command which writes files would create, reports that no
-request is waiting—the literal output says `mailbox empty`—and changes
+request is waiting (the literal output says `mailbox empty`) and changes
 nothing. If requests are waiting, it also prints the role
 command and working folder that a command which writes files would use. No
 AI work folder or request file is created.
@@ -479,7 +479,7 @@ means “Implementer”; it does not mean that Opus or any Claude model is requi
 When a ticket begins, its provider, model, verified model context, and
 compaction point are saved with that ticket. A restart must select those same
 values. This prevents an unfinished Ollama ticket from silently becoming a
-Claude ticket—or changing Ollama models—after the watcher restarts.
+Claude ticket, or changing Ollama models, after the watcher restarts.
 
 The default watch makes the optional Sol Red Team available. For an
 Architect-and-Implementer run only:
@@ -946,7 +946,7 @@ deliberate. Only the three AI roles read them, and each role reloads them at
 the start of every turn, so a sentence that changes no decision is paid for
 again on every turn and buys nothing. They therefore carry rules, refusals,
 exact formats, and the words this repository gives a meaning you could not
-guess — `law space`, `catch power`, `staged-selection identity` — and nothing
+guess: `law space`, `catch power`, `staged-selection identity`. Nothing
 else. Ordinary programming, Git, and machine-learning vocabulary is left
 undefined there because the readers already know it. Teaching material for
 people belongs here, in this guide, where it is read once by someone who
@@ -1230,7 +1230,7 @@ The ticket format is defined in
 #### What a good ticket looks like
 
 The permanent note gives the Architect the empty template. This is a filled-in
-example showing the level of explanation a ticket needs — it is an example, not
+example showing the level of explanation a ticket needs. It is an example, not
 an admitted ticket. Notice that a reader who has never opened the code can
 still say what breaks and why it matters:
 
@@ -1336,8 +1336,8 @@ The capitalized values are placeholders. The Architect replaces
 directive. This is a read-only Architect check; the Architect does not edit
 source in that folder.
 
-The command calculates a SHA-256 fingerprint—a short identifier for exact
-file bytes—from Git. It checks the notes in four places:
+The command calculates a SHA-256 fingerprint (a short identifier for exact
+file bytes) from Git. It checks the notes in four places:
 
 | Place checked | Plain meaning |
 | --- | --- |
@@ -1955,8 +1955,8 @@ MAILBOX-DECISION: GO
 If no permanent note needs to change, the Architect leaves the saved version
 at B and sends neither a daemon request nor an Implementer request.
 
-After the Architect exits, the watcher that started that job—the **parent
-watcher**—checks the exact B/P pair. It confirms that the role folders are
+After the Architect exits, the watcher that started that job (the **parent
+watcher**) checks the exact B/P pair. It confirms that the role folders are
 idle and safe to update before it makes P the newest saved version on local
 `main`. A later Implementer request then starts from saved version P.
 

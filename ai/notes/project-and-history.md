@@ -146,10 +146,10 @@ configuration examples, and acceptance checks through shared interfaces.
 ### Warm starts and capability symmetry
 
 Fine-tuning applies to every family when source and target artifacts satisfy
-the required identity checks. Transfer learning applies to families with a
-meaningful correction target; scalar output remains excluded because named
-scalars do not share the coordinate structure required by the correction
-design.
+the required identity checks. Transfer learning applies to families whose
+correction target has an ordered coordinate axis; scalar output stays out
+because named scalars do not share the coordinate structure the correction
+design requires.
 
 Neural polynomial chaos expansion (NPCE) and coordinate-aware correction heads
 are enabled by structural
