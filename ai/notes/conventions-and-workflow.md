@@ -1,166 +1,152 @@
 # Conventions, workflow, and environment
 
-This note defines mandatory repository-wide conventions. It records current
-rules, not the history of how those rules were discovered. A future change
-receives **GO** only when the relevant rule and its acceptance evidence are
-satisfied. A contradiction, missing proof, or undocumented exception receives
+Mandatory repository-wide conventions: current rules, not their history. A
+change is **GO** only when the relevant rule and its acceptance evidence are
+satisfied. A contradiction, missing proof, or undocumented exception is
 **NO-GO**.
 
 `ai/notes/python-changes-go-no-go.md` is the binding GO/NO-GO contract for
-every Python change. The Architect reads that contract before preparing an
-implementation directive and again before accepting the result. The rules in
-this note provide repository context; they do not weaken or replace that
-mandatory review.
+every Python change, read before the directive and again before accepting the
+result. This note is context; it never weakens that review.
 
 ## Workflow words used throughout this note
 
-A **watch** is one running mailbox command that repeatedly checks saved
-messages and starts the enabled roles. The long-running watcher process is
-called the **daemon**. To **re-execute** means to start the same command again
-from the saved agent folder with the original options.
+**Watch**: one running mailbox command that repeatedly checks saved messages
+and starts the enabled roles. **Daemon**: the long-running watcher process.
+**Re-execute**: start the same command again from the saved agent folder with
+the original options.
 
-**Transport** means the mailbox files, locks, and logs that carry one role's
-saved message to another role. **Bootstrap** is the first creation and
-validation of the saved agent worktrees. A Git **worktree** is a separate
-working folder attached to one branch. A **branch** is one named line of saved
-Git versions. A **state record** is a small saved file containing the worktree
-path and branch. A **ticket** is one bounded work request controlled by one
-Architect source note. **Dispatch** sends a saved instruction to the next
-role. **Landing** places an accepted ticket commit on Git's `main` branch.
+**Transport**: the mailbox files, locks, and logs carrying one role's saved
+message to another. **Bootstrap**: first creation and validation of the saved
+agent worktrees. A Git **worktree** is a separate working folder attached to
+one branch, so an agent edits without touching the user's checkout. A
+**branch** is one named line of saved Git versions. A **state record** is a
+small saved file holding the worktree path and branch. A **ticket** is one
+bounded work request controlled by one Architect source note. **Dispatch**
+sends a saved instruction to the next role. **Landing** places an accepted
+ticket commit on `main`.
 
-A **detached** worktree has no branch selected. A **prunable** worktree is one
-whose registered folder Git reports as missing and eligible for removal. A
-**dirty** worktree has uncommitted changes. **Ahead** means its branch has
-local commits not present on `main`; **diverged** means both branches have
+**Detached**: no branch selected. **Prunable**: Git reports the registered
+folder missing and eligible for removal. **Dirty**: uncommitted changes.
+**Ahead**: local commits not on `main`. **Diverged**: both branches have
 different commits after their last shared version.
 
 A **gate** is a named validation job whose required result is written before
-the job starts. The validation board records each gate and the command that
-runs it. A **fixture** is the fixed input setup used by a gate. A **control**
-is a valid case that must pass. A
-**mutation** deliberately restores forbidden behavior and must fail. **Catch
-power** is the demonstrated ability of a gate to fail for that mutation. A
-**compile lane** is the part of a gate that must run the same check through
-`torch.compile`, the compilation interface in PyTorch, the tensor and
-machine-learning package used by the library.
+the job starts; the validation board records each gate and its command. A
+**fixture** is its fixed input setup. A **control** is a valid case that must
+pass. A **mutation** deliberately restores forbidden behavior and must fail.
+**Catch power** is a gate's demonstrated ability to fail for that mutation. A
+**compile lane** runs the same check through `torch.compile`.
 
 ## Python house style
 
-These rules apply to `emulator/`, public drivers, checks, and support scripts.
+Applies to `emulator/`, public drivers, checks, and support scripts.
 
-- Keep every Python line at or below 90 columns. Align continuation lines with
-  the opening parenthesis when practical. Otherwise use one consistent
-  two-space hanging indent and place one item on each line.
-- Pass arguments by name whenever the callee permits it. Keep only genuinely
-  positional interfaces positional, such as mathematical operands, plotting
-  coordinates, `model(x)`, and `*args` forwarding. Add a short naming comment
-  when a positional tensor is not obvious.
-- Prefer explicit loops in non-performance-critical code. Keep vectorized
-  NumPy or Torch operations and loops inside compiled, forward, or batch hot
-  paths. Use an abstract syntax tree (AST), Python's parsed representation of
-  code structure, to find comprehensions; text search is not enough.
-- Prefer direct, C-readable control flow. Avoid nested comprehensions, a
-  lambda where a named function reads better, walrus expressions, starred
-  argument tricks, and stacked conditional expressions. A single conditional
-  expression is acceptable when it remains easy to read.
-- Do not read mutable module-global data silently from a function. Pass the
-  value explicitly. A necessary exception carries
+- Lines at or below 90 columns. Align continuations with the opening
+  parenthesis when practical; otherwise one consistent two-space hanging
+  indent, one item per line.
+- Pass arguments by name whenever the callee permits. Keep genuinely
+  positional interfaces positional — mathematical operands, plotting
+  coordinates, `model(x)`, `*args` forwarding — and add a naming comment when
+  a positional tensor is not obvious.
+- Explicit loops outside performance-critical code; keep vectorized NumPy or
+  Torch operations and loops inside compiled, forward, or batch hot paths. Find
+  comprehensions with an abstract syntax tree (AST), Python's parsed
+  representation of code structure; text search is not enough.
+- Direct, C-readable control flow. No nested comprehensions, no lambda where a
+  named function reads better, no walrus expressions, starred-argument tricks,
+  or stacked conditional expressions. One readable conditional expression is
+  acceptable.
+- Never read mutable module-global data silently inside a function; pass it
+  explicitly. A necessary exception carries
   `# WARNING: reads module global NAME` at the read site.
-- Represent constructible components as `{"cls": class_object, ...kwargs}`
-  dictionaries. A `make_*` helper injects computed values, device values, and
-  runtime state. Those values do not belong in the reusable specification.
-- Use ordinary sentence case. Do not use all capitals for emphasis. Acronyms,
-  interface literals, and the `WARNING` marker keep their required case.
-- Do not use a spaced double dash as prose punctuation. This rule also applies
-  to command help, errors, logs, comments, and docstrings.
+- Constructible components are `{"cls": class_object, ...kwargs}` dictionaries.
+  A `make_*` helper injects computed, device, and runtime values; those never
+  belong in the reusable specification.
+- Ordinary sentence case; no all-capital emphasis. Acronyms, interface
+  literals, and the `WARNING` marker keep their required case.
+- No spaced double dash as prose punctuation, including in command help,
+  errors, logs, comments, and docstrings.
 
 The teaching notebook is a read-only style reference with a narrower line
-width. Notebook-specific formatting does not relax the production rules.
+width; its formatting does not relax production rules.
 
 ## Explanatory Python prose
 
-Code must teach the current program rather than narrate a review history.
+Code teaches the current program; it never narrates a review history.
 
-- A module docstring uses complete sentences with a subject and verb.
-- Every public function and every nontrivial private function has an
-  `Arguments:` block naming each argument and a `Returns:` block. Add a
-  `Raises:` block for meaningful refusal conditions. For a dictionary
-  argument, enumerate the accepted keys, shapes, units, and meanings.
+- Module docstrings use complete sentences with a subject and verb.
+- Every public function and every nontrivial private function carries an
+  `Arguments:` block naming each argument and a `Returns:` block, plus a
+  `Raises:` block for meaningful refusals. For a dictionary argument,
+  enumerate accepted keys, shapes, units, and meanings.
 - A short private callback or test double may use one sentence when a formal
   block would only repeat the signature.
 - Define a technical term at first use or replace it with plain language. A
-  short local glossary is appropriate when several necessary terms occur in
-  one file.
-- Explain a cross-module call with a short provenance comment when ownership
-  is otherwise unclear: `# function_name (module.py): current purpose`.
+  short local glossary suits a file with several necessary terms.
+- Explain a cross-module call with a provenance comment when ownership is
+  unclear: `# function_name (module.py): current purpose`.
 - Write mathematical relationships as formulas with every symbol defined.
   Tensor pipelines need a shape-flow diagram and a legend defining every
   dimension.
 - Derive constants from named symbols. A concrete Legacy Survey of Space and
-  Time first-year (LSST-Y1) example may follow the general derivation, but the
-  example cannot replace it.
+  Time first-year (LSST-Y1) example may follow the general derivation but
+  never replaces it.
 - Never state a list length, key count, or family count without checking the
-  source of truth. Schema changes require a complete census for stale counts
+  source of truth. A schema change requires a complete census for stale counts
   and enumerations.
-- A documentation-only Python change is proven by comparing ASTs after
-  docstrings are removed. A prose claim is not evidence of no executable
-  change.
+- Prove a documentation-only Python change by comparing ASTs with docstrings
+  removed. Prose is not evidence of no executable change.
 
-Domain symbols must not collide with established cosmology notation. Reserve
-`h` for the dimensionless Hubble parameter `H0 / 100`, where `H0` is the
-Hubble constant in kilometers per second per megaparsec. Use `step_frac` in
-Python and `s_step` in prose for covariance finite-difference control. This
-rule applies to code, formulas, logs, comments, notes, and handoffs.
+Domain symbols must not collide with established cosmology notation: `h` is
+reserved for the dimensionless Hubble parameter `H0 / 100`, where `H0` is the
+Hubble constant in kilometers per second per megaparsec. Covariance
+finite-difference control is `step_frac` in Python and `s_step` in prose. This
+applies to code, formulas, logs, comments, notes, and handoffs.
 
-For covariance checks, a reasonable cosmology means the explicit
-Planck-Lambda cold dark matter (Planck-LCDM) fiducial in
-`example_yamls/cmb_covariance_lcdm.yaml`. This model uses parameters fitted to
-Planck observations and includes a cosmological constant and cold dark
-matter. A scientifically justified nearby cosmology is also reasonable. An
-extreme synthetic case can prove that a validator catches bad input, but
-cannot alone prove that a scientific result is wrong.
+For covariance checks, a reasonable cosmology is the explicit Planck-Lambda
+cold dark matter (Planck-LCDM) fiducial in
+`example_yamls/cmb_covariance_lcdm.yaml`, or a scientifically justified nearby
+cosmology. An extreme synthetic case can prove a validator catches bad input
+but cannot alone prove a scientific result wrong.
 
-Runtime validation must not depend on `assert`. Public configuration, data,
+Runtime validation never depends on `assert`. Public configuration, data,
 shape, geometry, and numerical guards use explicit typed exceptions before
 mutation or accelerator setup. An optimized-mode subprocess must reject the
 same negative fixtures with the same messages as ordinary Python. An internal
 invariant also uses an explicit exception when continuing could publish a
 scientific result.
 
-YAML is the human-readable configuration-file format used by the repository.
-Internal tracking abbreviations and review codes belong only in temporary
-working notes. Public README files, Python prose, errors, logs, YAML comments,
-and check labels state the underlying fact. A permanent note may be cited by
-path when the design record is useful. A repository-wide leak scan must check
-both coded forms and bare abbreviations and must read the complete output.
+YAML is the repository's configuration-file format. Internal tracking
+abbreviations and review codes belong only in temporary working notes; public
+README files, Python prose, errors, logs, YAML comments, and check labels state
+the underlying fact. A permanent note may be cited by path. A repository-wide
+leak scan checks both coded forms and bare abbreviations and reads the complete
+output.
 
 ## Scope of scientific review
 
-This repository is scientific software used for emulator production and
-Markov-chain Monte Carlo (MCMC) inference. Ordinary review focuses on
-scientific correctness,
-reproducibility, model and data identity, stale-test truth, numerical
-stability, and publication integrity. Cybersecurity, hostile-user threat
-models, secrets, network attacks, and exploit hardening are outside ordinary
-scope unless explicitly requested or directly required to protect scientific
-results.
+Ordinary review covers scientific correctness, reproducibility, model and data
+identity, stale-test truth, numerical stability, and publication integrity.
+Cybersecurity, hostile-user threat models, secrets, network attacks, and
+exploit hardening are out of scope unless explicitly requested or directly
+required to protect scientific results.
 
 ## README and teaching contract
 
 `ai/notes/readme-go-no-go.md` is the binding review contract for README text,
-comments, docstrings, command help, errors, logs, and explanatory strings. The
-Architect reads that contract before writing a directive and again before the
-final GO/NO-GO decision.
+comments, docstrings, command help, errors, logs, and explanatory strings, read
+before the directive and again before the final decision.
 
-The root README first teaches how to run and configure the library. Detailed
-design explanations belong in clearly separated appendices or specialist
-README files. A concept is defined before it is used. Every explained YAML
-concept includes a short fenced example copied from the real schema. Point to
-one authoritative explanation instead of restating it in several places.
+The root README teaches how to run and configure the library first; detailed
+design belongs in separated appendices or specialist README files. Define a
+concept before using it. Every explained YAML concept carries a short fenced
+example copied from the real schema. Point to one authoritative explanation
+instead of restating it.
 
-README files describe the current library. They do not contain development
-dates, review rounds, queue state, landing state, abandoned formulas, or
-biographical commentary. A current limitation may remain only as:
+README files describe the current library — no development dates, review
+rounds, queue state, landing state, abandoned formulas, or biographical
+commentary. A current limitation may remain only as:
 
 1. the present scope;
 2. the consequence for the user; and
@@ -168,15 +154,15 @@ biographical commentary. A current limitation may remain only as:
 
 README and explanatory Python prose present one coherent current system. They
 do not label a passage `hard user rule`, attribute policy to a user, or stack a
-new correction beside the older rule. The shared contract in
-`readme-go-no-go.md` owns the complete wording and subject-matter exceptions.
+new correction beside the older rule. `readme-go-no-go.md` owns the complete
+wording and subject-matter exceptions.
 
-Parentheses contain only a short local definition, symbol, unit, or acronym.
-If removing a parenthetical changes an essential instruction, promote that
-content to a sentence, table row, or diagram label. Review parentheticals over
-twelve words or with more than one clause.
+Parentheses hold only a short local definition, symbol, unit, or acronym. If
+removing a parenthetical changes an essential instruction, promote it to a
+sentence, table row, or diagram label. Review parentheticals over twelve words
+or with more than one clause.
 
-GitHub mathematics follows these rules:
+GitHub mathematics:
 
 - no backslash command immediately followed by ASCII punctuation inside math;
 - no LaTeX environments in Markdown math;
@@ -185,73 +171,66 @@ GitHub mathematics follows these rules:
 - no code-name underscore inside math unless it is valid mathematical syntax.
 
 README acceptance includes a complete anchor census and a complete census of
-backticked repository paths. Every link target must resolve and every named
-path must exist.
+backticked repository paths: every link target resolves, every named path
+exists.
 
 ## Plots, terminal output, and YAML
 
-- Do not combine red and green as the distinguishing plot colors. Use the
+- Never combine red and green as the distinguishing plot colors. Use the
   colorblind-safe palette `#0072B2`, `#E69F00`, `#CC79A7`, `#000000`, and
-  `#56B4E9`; use `viridis` for continuous maps; vary line style for grayscale.
-- Terminal output is a dashboard: a short header, current result, one-line
-  detail, and product paths. Complete streams go to immutable per-run logs. A
-  debug option may mirror the full stream.
-- YAML uses block style, one key per line, and no inline mapping. Preserve
+  `#56B4E9`; `viridis` for continuous maps; vary line style for grayscale.
+- Terminal output is a dashboard: short header, current result, one-line
+  detail, product paths. Complete streams go to immutable per-run logs; a debug
+  option may mirror the full stream.
+- YAML uses block style, one key per line, no inline mapping. Preserve
   established value-column alignment. Range leaves use
   `[default, minimum, maximum, kind]`.
-- Every YAML change is reported as a paste-ready block with enough surrounding
-  context to identify its location.
+- Report every YAML change as a paste-ready block with enough surrounding
+  context to locate it.
 
 ## User-facing role boundary
 
-The user communicates only with the Architect. Public mailbox commands accept
-only the `architect` destination. Requests for implementation, review,
-severity, model choice, a widespread search, corrections, or changed scope
-all go to the Architect.
+The user communicates only with the Architect; public mailbox commands accept
+only the `architect` destination. Implementation, review, severity, model
+choice, a widespread search, corrections, and changed scope all go there.
 
 The Architect decides which enabled role acts next and writes the complete
-downstream instruction. The Implementer and Red Team do not accept direct
-user substance. A direct request reaching either role is returned to the
-Architect as a blocker. A human may copy a generated handoff unchanged; that
-copy is transport, not a new user instruction to the receiving role.
+downstream instruction. The Implementer and Red Team do not accept direct user
+substance; a direct request reaching either is returned to the Architect as a
+blocker. A human may copy a generated handoff unchanged — transport, not a new
+user instruction.
 
-The default topology contains Architect, Implementer, and Red Team. A watch
-may intentionally omit Red Team with `--skip-redteam` or `--no-red-team`.
-Omitting Red Team does not weaken Architect planning, evidence review, or
-exclusive GO/NO-GO authority.
+The default topology is Architect, Implementer, and Red Team. A watch may omit
+Red Team with `--skip-redteam` or `--no-red-team`, which never weakens
+Architect planning, evidence review, or exclusive GO/NO-GO authority.
 
-A Git worktree is a separate checked-out working folder tied to a branch, so
-an agent can edit without changing the user's checkout. Model choice and role
-choice are separate. Current command-line model options may assign different
-models to the Architect and Implementer. The Architect uses Claude. The
-Implementer may use Claude or an Ollama-served open-weight model selected with
-`--implementer-provider`. Sol has a separate effort setting; there is no
-independent Red Team model option. Provider and model choices never change role
-authority, Git worktree ownership, mailbox route, or evidence requirements.
+Model choice and role choice are separate. Sol has a separate effort setting;
+there is no independent Red Team model option. Provider and model options never
+change role authority, Git worktree ownership, mailbox route, or evidence
+requirements.
 
 Only the Implementer edits source code, tests, or ordinary tracked
 documentation for a ticket. The Architect writes plans, maintains the tracked
-backlog and permanent notes, audits named commits, and records GO or NO-GO.
-The parent daemon performs the controlled landing after an Architect GO. The
-Red Team writes findings and audit returns. Architect and Red Team audits read
-an immutable commit by its full hash instead of treating the Implementer's
-changing working folder as evidence.
+backlog and permanent notes, audits named commits, and records GO or NO-GO. The
+parent daemon performs the controlled landing after an Architect GO. The Red
+Team writes findings and audit returns. Architect and Red Team audits read an
+immutable commit by its full hash, never the Implementer's changing working
+folder.
 
-The roles have independent runtime lanes. The Implementer uses a saved
-implementation worktree. The Architect uses the coordination worktree, and
-Sol uses the Red Team worktree. When the finite cycle limit has another unused
-ticket slot, the Implementer may code ticket B while the Architect audits
-ticket A's immutable candidate C and the Red Team reviews an earlier
-daemon-recorded landing L. This overlap
-does not combine tickets: each ticket keeps its own base, commit, messages,
-and one-cycle count. The parent daemon uses the landing lock and never borrows
-the Implementer's working folder. Fable never edits the user's checkout or runs
-the merge, commit, reference-update, or push command for a ticket landing.
+The roles have independent runtime lanes: Implementer in the implementation
+worktree, Architect in the coordination worktree, Sol in the Red Team worktree.
+With another unused ticket slot in the cycle limit, the Implementer may code
+ticket B while the Architect audits ticket A's immutable candidate C and the
+Red Team reviews an earlier daemon-recorded landing L. The overlap never
+combines tickets: each keeps its own base, commit, messages, and one-cycle
+count. The parent daemon uses the landing lock and never borrows the
+Implementer's working folder. Fable never edits the user's checkout or runs the
+merge, commit, reference-update, or push command for a ticket landing.
 
 The Architect's source note is the authority for role topology and discovery
-severity. Manual router options only confirm that saved plan. A disagreement
-between the note and a manual option refuses before any lock, clipboard,
-archive, or mailbox write. A detailed Architect directive includes:
+severity; manual router options only confirm it. A disagreement refuses before
+any lock, clipboard, archive, or mailbox write. A detailed Architect directive
+includes:
 
 - exact worktree, branch, and base;
 - one `path::symbol` edit target for every owned file or test;
@@ -266,22 +245,21 @@ archive, or mailbox write. A detailed Architect directive includes:
   separate helper would add no independent value.
 
 The instruction must be complete enough for a simple Implementer to execute
-without inventing design decisions. A design-sensitive gap is a blocker. The
-Implementer reports the exact missing fact and waits for a revised Architect
-directive.
+without inventing design decisions. A design-sensitive gap is a blocker: the
+Implementer reports the exact missing fact and waits for a revised directive.
 
 Only the Architect decides whether subagents add independent value. When a
-ticket can be divided into an independent reproduction, implementation, test,
-documentation, or audit job, the Architect requires those bounded helpers.
-The Implementer then integrates their work, reviews every changed file, and
-runs the final validation. When a separate helper would only repeat the same
-indivisible work or evidence, the Architect records that reason instead. The
-Implementer repeats the exact reason and cannot create or rewrite the waiver.
-Cost, convenience, or “small ticket” alone is not a sufficient reason.
+ticket divides into an independent reproduction, implementation, test,
+documentation, or audit job, the Architect requires those bounded helpers; the
+Implementer integrates their work, reviews every changed file, and runs the
+final validation. When a separate helper would only repeat the same
+indivisible work or evidence, the Architect records that reason and the
+Implementer repeats it verbatim without creating or rewriting the waiver. Cost,
+convenience, or "small ticket" alone is not a sufficient reason.
 
-`handoff_contract.py` rejects an informal sentence such as “use helpers where
-useful.” The Architect chooses one of two visible forms. For example, a
-mailbox-parser ticket with independent work can contain:
+`handoff_contract.py` rejects an informal sentence such as "use helpers where
+useful." The Architect chooses one of two visible forms. For a mailbox-parser
+ticket with independent work:
 
 ```markdown
 #### Subagents required
@@ -299,7 +277,7 @@ mailbox-parser ticket with independent work can contain:
 ```
 
 For one parser branch whose edit and assertion cannot be divided without
-duplicating the same inspection, the Architect can instead write:
+duplicating the same inspection:
 
 ```markdown
 #### Subagents not required
@@ -308,20 +286,19 @@ duplicating the same inspection, the Architect can instead write:
 
 An editing helper uses `Mode: edit` and owns exact, backticked
 `repo/path::symbol` entries. One editing helper owns the whole file; two
-helpers may not claim different symbols in the same file because their edits
+helpers may not claim different symbols in the same file, because their edits
 could still collide.
 
-For a required plan, a capability exception is never guessed in advance. If
-the Implementer attempts the named launch and
-the runtime rejects it before editing, the Implementer marks that helper
-`blocked` in the same-cycle `IMPLEMENTER_HANDOFF`. As the final rows inside
-that handoff's `Subagent work` evidence, the Implementer records the exact
-`Capability checked`, `Attempted operation`, and `Raw failure` values from
-the first rejected pre-edit launch. The relay records the full current cycle
-and SHA-256 digest of that complete blocked handoff. The Architect then
-copies those three digest-bound rows character-for-character into the
-replacement plan and copies both binding rows plus the same failure evidence
-under this required sibling block:
+A capability exception is never guessed in advance. If the Implementer attempts
+the named launch and the runtime rejects it before editing, it marks that
+helper `blocked` in the same-cycle `IMPLEMENTER_HANDOFF` and records the exact
+`Capability checked`, `Attempted operation`, and `Raw failure` values from the
+first rejected pre-edit launch as the final rows inside that handoff's
+`Subagent work` evidence. The relay records the full current cycle and SHA-256
+digest of that complete blocked handoff. The Architect copies those three
+digest-bound rows character-for-character into the replacement plan and copies
+both binding rows plus the same failure evidence under this required sibling
+block:
 
 ```markdown
 ### Prior Implementer subagent launch failure
@@ -335,111 +312,101 @@ under this required sibling block:
 ```
 
 The relay verifies both binding rows and all three copied failure values
-against the saved handoff before the Architect's revised plan can run. A
-missing, paraphrased, normalized, or invented value refuses the exception.
-The Architect revalidates and sends that revised same-cycle directive. A
-speculative or stale-cycle exception fails validation. A truthful `blocked` helper
+against the saved handoff before the revised plan can run. A missing,
+paraphrased, normalized, or invented value refuses the exception. The Architect
+revalidates and sends that revised same-cycle directive. A speculative or
+stale-cycle exception fails validation. A truthful `blocked` helper
 return may be used for this checkpoint, but unresolved blocked work cannot
 support final `GO`; every helper in the final ordinary plan must return
 `pass`.
 
-When enabled, Red Team reviews the named change and directly affected
-behavior. A repository-wide attack happens only when the Architect records an
-explicit user request such as “instruct the Red Team to do a widespread
-search for …”. A confirmed finding returns to the Architect with root cause,
-exact symbols, ordered candidate edits, invariants, a regression witness,
-commands, acceptance checks, exclusions, and stop conditions. Red Team never
-sends repair instructions directly to the Implementer.
+When enabled, Red Team reviews the named change and directly affected behavior.
+A repository-wide attack happens only when the Architect records an explicit
+user request such as "instruct the Red Team to do a widespread search for ...".
+A confirmed finding returns to the Architect with root cause, exact symbols,
+ordered candidate edits, invariants, a regression witness, commands, acceptance
+checks, exclusions, and stop conditions. Red Team never sends repair
+instructions directly to the Implementer.
 
-The Architect audits raw evidence rather than summaries. A harness is first
-checked against a known-good case and then against a deliberate mutation.
-Only the Architect writes the final GO/NO-GO record.
+The Architect audits raw evidence, not summaries. A harness is checked first
+against a known-good case, then against a deliberate mutation. Only the
+Architect writes the final GO/NO-GO record.
 
 ### Discovery severity
 
 Discovery severity controls which newly found defects may become tickets. It
 does not change the scope of a named-change review.
 
-- **Critical** is not a user discovery setting and is not a Red Team rating.
-  Only the Architect may give this final backlog classification, and only
-  when evidence shows that a current defect broadly breaks a central library
-  workflow or systematically makes the library's scientific results invalid.
-- **High** covers a defect that severely damages core behavior, loses data,
-  halts normal operation, or makes a primary scientific result wrong. A
-  primary result is the generated training data, the trained emulator, the
-  value served to a scientific caller, or another central library output. A
-  misleading plot, diagnostic ranking, optional report, or supporting export
-  is normally Medium because it does not change those primary results.
-- **Medium** includes High defects and concrete defects that are reasonably
-  likely during normal use. A merely theoretical or very improbable edge case
-  does not qualify. Medium is the default.
-- **Low** permits every concrete defect, including an improbable edge case.
+- **Critical**: not a user discovery setting, not a Red Team rating. Only the
+  Architect assigns it, and only on evidence that a current defect broadly
+  breaks a central library workflow or systematically invalidates the library's
+  scientific results.
+- **High**: severely damages core behavior, loses data, halts normal operation,
+  or makes a primary scientific result wrong. A primary result is the generated
+  training data, the trained emulator, the value served to a scientific caller,
+  or another central library output. A misleading plot, diagnostic ranking,
+  optional report, or supporting export is normally Medium.
+- **Medium**: High defects plus concrete defects reasonably likely in normal
+  use. A merely theoretical or very improbable edge case does not qualify.
+  Medium is the default.
+- **Low**: every concrete defect, including an improbable edge case.
 
-**Low — Edge Case** is not a discovery severity. It is a parked remainder
-from a bounded repair that removed the actionable failure and left only a
-harmless exceptional case. The Architect uses it when complete coverage would
-add disproportionate complexity and the remainder is below the Low work
-boundary. No command-line severity selects it. Only an explicit user request
-naming that exact parked ticket authorizes the Architect to activate it as
+**Low — Edge Case** is not a discovery severity. It is the parked remainder of
+a bounded repair whose actionable failure is gone, used when complete coverage
+would add disproportionate complexity. No command-line severity selects it.
+Only an explicit user request naming that exact parked ticket activates it as
 ordinary Low work.
 
-Harm and likelihood are separate judgments. The Red Team reports High,
-Medium, or Low severity, likelihood, impact, scope, and evidence. The
-Architect accepts, upgrades, or downgrades that assessment with a reason and
-alone decides whether the finding becomes a ticket.
+Harm and likelihood are separate judgments. Red Team reports severity,
+likelihood, impact, scope, and evidence; the Architect accepts, upgrades, or
+downgrades with a reason and alone decides whether the finding becomes a
+ticket.
 
-High is deliberately difficult to assign, although its bar is lower than
-Critical. For every proposed or accepted High ticket, the Red Team and
-Architect state the demonstrated severe impact and why Medium is not enough.
-Writing only “wrong science” does not satisfy this comparison. The explanation
-must name the primary calculation, training data, served result, data-loss
-boundary, or core operation that the defect damages. If the demonstrated harm
-ends in a plot, diagnostic, ranking, or optional analysis product, classify it
-Medium unless separate evidence shows that the same defect also changes a
-primary result or stops a core workflow.
-Urgency, a missing test, unfinished cleanup, an expensive validation run, or a
-desire to work sooner is not by itself High evidence. If that comparison is
-missing, the rating is NO-GO and defaults to Medium until evidence supports an
-upgrade. This restraint preserves a meaningful work order. Severity never
-selects a role or changes the number of Implementers.
+High is deliberately difficult to assign, bar below Critical. Red Team and
+Architect must name
+the damaged primary calculation, training data, served result, data-loss
+boundary, or core operation, plus why Medium is not enough. "Wrong science"
+alone does not satisfy that comparison. Harm ending in a plot, diagnostic,
+ranking, or optional analysis product is Medium unless separate evidence shows
+the same defect changes a primary result or stops a core workflow. Urgency, a missing test, unfinished cleanup, an expensive validation run, or a
+desire to work sooner is not by itself High evidence. A missing comparison is NO-GO and defaults to
+Medium until evidence supports an upgrade. Severity never selects a role or
+changes the number of Implementers.
 
-The Critical bar is deliberately much higher than the High bar. A ticket is
-not Critical merely because it is High, urgent, scientific, hard to fix,
-limited to one important family or platform, or lacks a convenient workaround.
-Before assigning Critical, the Architect records why High is insufficient and
-the exact evidence for broad library breakage. The Architect never promotes a
-ticket to Critical to change the number or kind of active roles. Severity
-controls work order; it never changes a role.
+The Critical bar is far above High. High, urgent, scientific, hard to fix,
+limited to one important family or platform, or lacking a convenient workaround
+is not Critical. Before assigning Critical the Architect records why High is
+insufficient and the exact evidence for broad library breakage. Never promote a
+ticket to Critical to change the number or kind of active roles.
 
-A High discovery setting does not authorize a repository-wide search.
-Critical is not accepted by `--severity` or `MAILBOX-SEVERITY`. Fix-only mode,
-an omitted Red Team, and the discovery-admission limit still take precedence.
+A High discovery setting does not authorize a repository-wide search. Critical
+is not accepted by `--severity` or `MAILBOX-SEVERITY`. Fix-only mode, an
+omitted Red Team, and the discovery-admission limit take precedence.
 
-The user's explicit phrase “do a widespread search” creates a special Low
-discovery request. The saved mailbox severity is automatically Low. The
-Architect does not send the search while any accepted Critical, High, or
-Medium ticket remains open. Low tickets do not block the search. This stricter
-rule exists because a broad search for optional new findings must not delay
-known non-Low work.
+The user's explicit phrase "do a widespread search" creates a special Low
+discovery request with saved mailbox severity Low. The Architect does not send
+it while any accepted Critical, High, or Medium ticket is open; Low tickets do
+not block it. A broad search for optional findings must not delay known non-Low
+work.
 
 ### Ticket character limit
 
-The `--max` option limits the complete committed change for one ticket. A
-positive limit counts added characters plus deleted characters as Unicode code
-points from the ticket's bound full base commit to a clean `HEAD`. Replacing
-text counts both the removed text and the added text. The count covers every
-tracked code, test, and documentation file in that ticket.
+`--max` limits the complete committed change for one ticket. A positive limit
+counts added plus deleted characters as Unicode code points from the ticket's
+bound full base commit to a clean `HEAD`; replacing text counts both removed
+and added text, across every tracked code, test, and documentation file in that
+ticket.
 
 An exact-boundary result is accepted. `--max 0` removes the numeric ceiling
-only; it does not weaken scientific correctness, completeness, tests,
+only; it never weakens scientific correctness, completeness, tests,
 documentation, or readability. If a complete readable fix cannot fit, the
 Architect returns NO-GO and asks for a smaller ticket or a changed limit.
 
 ## Persisted agent worktrees
 
-Ordinary agent work never occurs in the user's repository checkout. The
-mailbox system owns three persisted worktrees. `<REPO_ROOT>` means the top folder
-of the checked-out emulator repository:
+Ordinary agent work never occurs in the user's repository checkout. The mailbox
+system owns three persisted worktrees. `<REPO_ROOT>` is the top folder of the
+checked-out emulator repository:
 
 | Resource | Required value |
 | --- | --- |
@@ -457,267 +424,247 @@ of the checked-out emulator repository:
 | Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 | Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
 
-Claude-owned branches always begin with `claude/`; Sol-owned branches always
-begin with `codex/`. The older `worktree-agent-*` form is reserved only so the
-explicit user command `--clean-all` can recognize and remove it. Ordinary
-recovery never invokes that destructive command or discards a worktree.
+Claude-owned branches begin with `claude/`, Sol-owned with `codex/`. The older
+`worktree-agent-*` form is reserved only so the explicit user command
+`--clean-all` can recognize and remove it; ordinary recovery never invokes that
+destructive command or discards a worktree.
 
-The Architect, Implementer, and Sol use three different Git worktrees and
-branches. Changing a model option never selects a different worktree. Only
-the Implementer lane edits tracked source. The Architect audits a detached
-snapshot of the exact candidate commit, and Sol reviews a detached snapshot
-of the exact daemon-recorded landing L. Neither review follows the Implementer's moving
+Changing a model option never selects a different worktree. Only the
+Implementer lane edits tracked source. The Architect audits a detached snapshot
+of the exact candidate commit, Sol a detached snapshot of the exact
+daemon-recorded landing L. Neither review follows the Implementer's moving
 branch.
 
-The primary Architect worktree's `ai/notes/` directory is the shared
-coordination location for mailbox files, relay copies, the tracked backlog, and
-temporary records. The other roles receive explicit access to that directory
-and must not create another active mailbox or backlog in their own worktrees.
+The primary Architect worktree's `ai/notes/` is the shared coordination
+location for mailbox files, relay copies, the tracked backlog, and temporary
+records. Other roles receive explicit access there and must not create another
+active mailbox or backlog in their own worktrees.
 
 Each state record stores the canonical Git common directory, stable name,
-absolute path, and full branch reference. Every reuse is checked against
-`git worktree list --porcelain`. Before touching the mailbox, the launcher
-re-executes the saved primary worktree's current daemon with the original
-arguments, interpreter, and working directory. The saved topology marker must
-also prove that Sol has a dedicated worktree.
+absolute path, and full branch reference, checked against
+`git worktree list --porcelain` on every reuse. Before touching the mailbox the
+launcher re-executes the saved primary worktree's current daemon with the
+original arguments, interpreter, and working directory. The saved topology
+marker must also prove Sol has a dedicated worktree.
 
 Command-line interface (CLI) validation happens before worktree provisioning.
-The CLI is the set of options accepted by the terminal command. Help, preview
-with no action, invalid combinations, and dry-run create no branch, worktree,
-state, or lock. Mailbox actions are `--watch`, `--once`, and
-`--send architect`. The separate `--ping` check makes one small direct request
-to Claude and Sol without writing a mailbox file; `--ping --skip-redteam`
-checks Claude alone.
+Help, preview with no action, invalid combinations, and dry-run create no
+branch, worktree, state, or lock. Mailbox actions are `--watch`, `--once`, and
+`--send architect`. The separate `--ping` makes one small direct request to
+Claude and Sol without writing a mailbox file; `--ping --skip-redteam` checks
+Claude alone.
 
 On a clean clone, establish the primary worktree with one valid live action
-before writing an uncommitted source note. A new worktree starts from
-committed local `main` and cannot see an uncommitted note in another checkout.
+before writing an uncommitted source note: a new worktree starts from committed
+local `main` and cannot see an uncommitted note in another checkout.
 
-Legacy adoption is deliberately narrow. A current, attached, non-main
-worktree under `.claude/worktrees/` may be adopted only when the first live
-command starts from that same worktree and no conflicting active transport
-exists elsewhere. Active, ambiguous, duplicated, or pre-migration transport
-is never copied, merged, renumbered, or deleted. A unique main-checkout store
-containing only completed messages and regular logs may be copied byte for
-byte under both transport locks. Copies are bounded to 16 MiB per file and
-64 MiB total. Partial identical copies are resumable; conflicting bytes
-refuse.
+Legacy adoption is deliberately narrow. A current, attached, non-main worktree
+under `.claude/worktrees/` may be adopted only when the first live command
+starts from that same worktree and no conflicting active transport exists
+elsewhere. Active, ambiguous, duplicated, or pre-migration transport is never
+copied, merged, renumbered, or deleted. A unique main-checkout store holding
+only completed messages and regular logs may be copied byte for byte under both
+transport locks, bounded to 16 MiB per file and 64 MiB total; partial identical
+copies resume, conflicting bytes refuse.
 
-An interrupted clean bootstrap may resume only when the exact default path,
+An interrupted clean bootstrap resumes only when the exact default path,
 branch, and Git registration validate. A uniquely registered `git worktree
-move` may update the saved path after full validation. Detached branches,
-wrong branches, deleted refs, manual directory moves, corrupt state, prunable
-worktrees, or unregistered branches refuse without fallback.
+move` may update the saved path after full validation. Detached branches, wrong
+branches, deleted refs, manual directory moves, corrupt state, prunable
+worktrees, and unregistered branches refuse without fallback.
 
 Ordinary recovery never resets or prunes the user's checkout or a dirty,
 unverified persistent role folder. It may reset only the verified clean
-Implementer lane to the exact commit saved for that cycle. It may prune Git's
-stale registration only after it has verified and removed an unchanged
-disposable audit snapshot. It does not stash, clean, fetch, pull, or invent a
-replacement worktree. The one bounded exception is the parent daemon's
-post-GO landing operation described below: it may fast-forward a verified
-clean user `main` checkout to an already prepared exact landing and attempt a
-non-force push. Recovery starts by preserving the state and transport paths
-and comparing them with Git's registered worktrees.
+Implementer lane to the exact commit saved for that cycle, and may prune Git's
+stale registration only after verifying and removing an unchanged disposable
+audit snapshot. It does not stash, clean, fetch, pull, or invent a replacement
+worktree. The one bounded exception is the parent daemon's post-GO landing
+below: fast-forward a verified clean user `main` checkout to an already
+prepared exact landing and attempt a non-force push. Recovery starts by
+preserving the state and transport paths and comparing them with Git's
+registered worktrees.
 
 ## Notes-first communication and mailbox transport
 
 The substantive record for a ticket is a local temporary note under
-`ai/notes/`. The note is written before a handoff. It contains scope,
-scientific evidence, counterexample, design contract, exact file and symbol
-targets, changed files, branch or commit identity, raw-test locations,
-remaining obligations, and acceptance conditions.
+`ai/notes/`, written before the handoff. It contains scope, scientific
+evidence, counterexample, design contract, exact file and symbol targets,
+changed files, branch or commit identity, raw-test locations, remaining
+obligations, and acceptance conditions.
 
 ### Red Team finding note GO / NO-GO
 
 Red Team is always advisory, including when its model is more capable than the
-Architect or Implementer model. It can find defects and propose evidence, but
-it cannot decide a ticket, change the backlog, direct an Implementer, require a
-GO, delay an accepted local landing, or veto that landing. Its influence must
-come from reading the authorized code adversarially and explaining a real bug
-persuasively to the Architect and a human reader.
+Architect's or Implementer's. It finds defects and proposes evidence; it cannot
+decide a ticket, change the backlog, direct an Implementer, require a GO, delay
+an accepted local landing, or veto that landing. Its influence comes from
+reading the authorized code adversarially and explaining a real bug
+persuasively.
 
 Every `Backlog action: NEW TICKET` or `Backlog action: REOPEN` return has one
 ignored temporary Markdown note at the stable repository-relative path
-`ai/notes/<plain-ticket-slug>-red-team-finding.md`. The slug uses lowercase
-words and hyphens. It contains no date, cycle number, model name, worktree
-name, or severity. A later reopening of the same ticket updates the same note
-instead of creating diary-like dated files. The relay cites this relative
-path, never an absolute worktree path.
+`ai/notes/<plain-ticket-slug>-red-team-finding.md`. The slug is lowercase words
+and hyphens, with no date, cycle number, model name, worktree name, or
+severity. A later reopening updates the same note instead of creating dated
+files. The relay cites this relative path, never an absolute worktree path.
 
-The note has these headings in this order:
+Headings, in this order:
 
-1. **High-level summary** uses at least three short, complete sentences to
-   explain expected behavior, observed failure, and the user or scientific
-   consequence. It defines specialized terms before relying on them.
-2. **Affected behavior and code path** gives a concrete input or action, the
-   observable result, and the relevant repository paths and symbols. It walks
-   through the execution path in reading order.
-3. **Reproduction and evidence** gives numbered steps, exact commands or
-   fixtures, expected and observed output, and raw-evidence locations. It
-   labels reproduced facts separately from inferences.
-4. **Impact and proposed severity** explains realistic harm, likelihood, the
-   proposed High, Medium, or Low rating, and why the evidence meets that bar.
-5. **Review scope and exclusions** names the bounded commit, change, behavior,
-   paths, and symbols reviewed and states what was not checked. An authorized
+1. **High-level summary** — at least three short complete sentences: expected
+   behavior, observed failure, user or scientific consequence. Defines
+   specialized terms before relying on them.
+2. **Affected behavior and code path** — a concrete input or action, the
+   observable result, and the relevant repository paths and symbols, walked in
+   reading order.
+3. **Reproduction and evidence** — numbered steps, exact commands or fixtures,
+   expected and observed output, raw-evidence locations. Reproduced facts are
+   labeled separately from inferences.
+4. **Impact and proposed severity** — realistic harm, likelihood, the proposed
+   High, Medium, or Low rating, and why the evidence meets that bar.
+5. **Review scope and exclusions** — the bounded commit, change, behavior,
+   paths, and symbols reviewed, and what was not checked. An authorized
    widespread search states its exact Architect-approved boundary.
-6. **Proposed acceptance evidence** gives a regression witness, exact commands,
-   and observable passing result. These are proposed checks for the Architect,
-   not Red Team approval or a veto.
-7. **Uncertainty and counterevidence** records missing facts, alternative
-   explanations, successful cases, evidence against the finding, and what
-   would disprove it. `None found` is acceptable only after the note explains
-   how counterevidence was sought.
-8. **Repair directive** contains the complete candidate repair packet required
-   by `.codex/REDTEAM_ROLE.md`.
+6. **Proposed acceptance evidence** — a regression witness, exact commands, and
+   observable passing result. Proposed checks for the Architect, not Red Team
+   approval or a veto.
+7. **Uncertainty and counterevidence** — missing facts, alternative
+   explanations, successful cases, evidence against the finding, and what would
+   disprove it. `None found` is acceptable only after the note explains how
+   counterevidence was sought.
+8. **Repair directive** — the complete candidate repair packet required by
+   `.codex/REDTEAM_ROLE.md`.
 
-The note persuades through facts and explanation. A thin assertion such as
-"broken" or "the test failed" is `NO-GO`. Rhetorical pressure, inflated
-severity, diary/date/wave narration, model-centered history, hidden
-uncertainty, and fabricated commands, files, outputs, or observations are
-`NO-GO`. A finding does not omit counterevidence merely because it weakens the
-argument.
+`NO-GO`: a thin assertion such as "broken" or "the test failed"; rhetorical
+pressure; inflated severity; diary/date/wave narration; model-centered history;
+hidden uncertainty; fabricated commands, files, outputs, or observations. A
+finding never omits counterevidence because it weakens the argument.
 
 This detail transfers the completed investigation and conserves Architect
-tokens. The Architect already owns prioritization, design, decision-complete
-Implementer directives, audits, and backlog maintenance. A strong finding note
-lets the Architect later judge the issue and plan targeted independent checks
-without reconstructing Red Team work. That economy does not lower evidence
-standards and does not make the note authoritative.
+tokens, which stay with prioritization, design, directives, audits, and backlog
+maintenance. It does not lower evidence standards or make the note
+authoritative.
 
-Receipt and assessment happen at different times. On receipt, the Architect
-does not reproduce or substantively analyze a `NEW TICKET` or `REOPEN`
-finding. It performs bookkeeping only: create or restore the ticket, apply the
-reopen-count and automatic-severity mechanics, preserve the note path,
-acknowledge, and return to current work. The backlog technical record includes
-this exact line:
+Receipt and assessment happen at different times. On receipt the Architect does
+not reproduce or substantively analyze a `NEW TICKET` or `REOPEN` finding —
+bookkeeping only: create or restore the ticket, apply the reopen-count and
+automatic-severity mechanics, preserve the note path, acknowledge, return to
+current work. The backlog technical record includes this exact line:
 
 ```text
 See further instructions at ai/notes/<plain-ticket-slug>-red-team-finding.md
 ```
 
 Only when priority later brings that ticket forward does the Architect assess
-the note, perform targeted independent verification, set the final severity,
-and decide whether to plan a repair. A missing or weak section is recorded as
+the note, perform targeted independent verification, set the final severity, and
+decide whether to plan a repair. A missing or weak section is recorded as
 evidence the Red Team must improve then; it never holds admission bookkeeping
 or an unrelated daemon-recorded landing open.
 
-A finding's proposed repair receives the same skepticism as its claim. Red
-Team reads for catch power, so its Repair directive can sketch more machinery
-than the demonstrated failure needs: a signing scheme where an exact-commit
-check already exists, a validation layer where one refusal suffices, a
-framework built around one bug. At assessment the Architect weighs the
-sketched repair against the proportional-repair rule in
-`python-changes-go-no-go.md` before writing any directive. When the
-demonstrated harm supports only a narrow direct fix, the Architect plans that
-fix and discards the surplus design. When no demonstrated failure supports
-the requested construction at all, the Architect closes the ticket as not
-worth building and records the evidence for that judgment in the backlog.
-Catch power never obligates construction, and severity never justifies
-machinery the failure does not need.
+A finding's proposed repair receives the same skepticism as its claim. Red Team
+reads for catch power, so its Repair directive can sketch more machinery than
+the demonstrated failure needs: a signing scheme where an exact-commit check
+already exists, a validation layer where one refusal suffices, a framework
+built around one bug. At assessment the Architect weighs the sketched repair
+against the proportional-repair rule in `python-changes-go-no-go.md`. When the
+demonstrated harm supports only a narrow direct fix, plan that fix and discard
+the surplus. When no demonstrated failure supports the construction at all,
+close the ticket as not worth building and record the evidence. Catch power
+never obligates construction; severity never justifies machinery the failure
+does not need.
 
 ### Backlog ticket GO / NO-GO
 
-`ai/notes/backlog.md` is the tracked list of unfinished and completed tickets.
-It is written for a human reader first and retains a separate technical record
-for development tools. The Architect owns its structure and is the only role
-that admits a ticket, changes its status, or moves it between the open and
-closed sections.
+`ai/notes/backlog.md` is the tracked list of unfinished and completed tickets,
+written for a human reader first with a separate technical record for tools.
+The Architect owns its structure and alone admits a ticket, changes its status,
+or moves it between sections.
 
-The file begins with **Open tickets**, **Parked edge cases**, and **Closed
-tickets** entries in its contents list, in that order. The open index contains
-exactly one linked `- OPEN` line for each actionable unfinished ticket because
-the watcher counts that marker. Parked edge cases use `- PARKED`, never enter
-that count, and are never selected automatically.
+Contents list order: **Open tickets**, **Parked edge cases**, **Closed
+tickets**. The open index contains
+exactly one linked `- OPEN` line for each actionable unfinished ticket, because
+the watcher counts that marker. Parked edge cases
+use `- PARKED`, never enter that count, and are never selected automatically.
 
-The Architect classifies every admitted ticket as Critical, High, Medium, or
-Low using the harm and likelihood rules above. The linked index shows that
-classification and is grouped in priority order: Critical first, High second,
-Medium third, and Low last. Work starts with the first dispatchable ticket in
-the highest nonempty group. A blocked ticket remains in its severity group
-with its blocker; work may move to the next ticket while required hardware,
-data, or an external decision is unavailable. Every severity change records
-the new evidence and the Architect's reason.
+The Architect classifies every admitted ticket Critical, High, Medium, or Low
+by the harm and likelihood rules above. The linked index shows that classification and is
+grouped in priority order: Critical first, High second, Medium third, and Low
+last. Work starts with the first
+dispatchable ticket in the highest nonempty group. A blocked ticket stays in
+its severity group with its blocker while work moves on. Every severity change
+records the new evidence and the reason.
 
-Every admitted ticket also records one type: **Bug fix** or **New
-functionality**. Type says whether the ticket repairs behavior or adds a
-capability. Priority says when the ticket should be worked.
+Every admitted ticket records one type, **Bug fix** or **New functionality**.
+Type says whether it repairs behavior or adds a capability; priority says when
+it is worked.
 
 - A Bug fix may be Critical, High, Medium, or Low.
-- New functionality may be High, Medium, or Low, but never Critical.
-- The user controls feature priority. An unstated feature priority defaults to
-  Medium; the Architect does not invent urgency.
+- New functionality may be High, Medium, or Low, never Critical.
+- The user controls feature priority; an unstated feature priority defaults to
+  Medium and the Architect does not invent urgency.
 - Critical bugs preempt every feature.
 - A user-designated High feature comes before High bugs.
 - High bugs come before a Medium feature.
 - A Low feature waits for Critical, High, and Medium bug fixes.
-- “After the backlog is closed” means a Low feature whose prerequisites are
-  every ticket that was already open when the feature was admitted. The
-  feature's own open line is not one of those prerequisites.
+- "After the backlog is closed" means a Low feature whose prerequisites are
+  every ticket already open when the feature was admitted. Its own open line is
+  not one of those prerequisites.
 
-A **Low — Edge Case** is always a Bug fix and is below this work order. The
-Architect may create it only to preserve the exact harmless exceptional
-remainder of a bounded repair. It stays parked until the user explicitly asks
-the Architect to solve that ticket by its human title. The Architect then
-moves it to the Low group and replaces its parked line with an ordinary
-`- OPEN **LOW**` line.
+A **Low — Edge Case** is always a Bug fix and sits below this work order,
+created only to preserve the exact harmless exceptional remainder of a bounded
+repair. It stays parked until the user explicitly asks for that ticket by its
+human title; the Architect then moves it to the Low group and replaces the
+parked line with an ordinary `- OPEN **LOW**` line.
 
 Within one permitted group, preserve index order unless a recorded blocker or
-prerequisite requires moving to the next ticket.
+prerequisite requires moving on.
 
 Every ticket also keeps an integer named **Red Team reopen count**. It starts
-at `0` and never resets. This number records how many Red Team reviews in the
-final step of a normal cycle said `REOPEN`. That return keeps the same cycle
-active until the Architect assesses the evidence. Before that reasoning, the
-trusted reopening checker prints the exact ticket, landing, severity, count,
-and legal outcomes. After the backlog is sealed, it proves that the counter
-changed once and that the selected state is exact. It never judges the finding
-or edits the backlog. The Architect records one decision: GO restores the
-ticket to Open at the same severity, except for the existing sixth-reopening
-Low rule; NO-GO keeps it Closed and bars that same objection. This prevents an
-advisory finding from disappearing between work cycles.
+at `0` and never resets. It records how many Red Team reviews in the final step of a normal cycle said
+`REOPEN`. That return keeps the same cycle active until the Architect assesses
+the evidence. Before that reasoning the trusted reopening checker prints the
+exact ticket, landing, severity, count, and legal outcomes; after the backlog
+is sealed it proves the counter changed once and the selected state is exact.
+It never judges the finding or edits the backlog. The Architect records one
+decision: GO restores the ticket to Open at the same severity, except for the
+sixth-reopening Low rule; NO-GO keeps it Closed and bars that same objection.
 
-The Architect has the final word before the cycle ends. When the count is
-greater than `1`, the Architect compares the new evidence
-with the ticket's earlier reopening reports and becomes stricter after each
-additional attempt. The review asks whether the Red Team found a materially
-new failure or is repeating an old objection without new evidence. The
-Architect may close the ticket again or lower its priority with a recorded
-reason. When the count becomes `6`, or is already greater than `5`, the
-ticket's priority is automatically Low. No role may waive that automatic
-change, even for a ticket that was previously Critical or High.
+The Architect has the final word before the cycle ends. Above a count of `1`,
+compare the new evidence with the ticket's earlier reopening reports and grow
+stricter with each attempt: did Red Team find a materially new failure, or
+repeat an old objection without new evidence? The Architect may close the
+ticket again or lower its priority with a recorded reason. When the count becomes `6`, or is already greater than `5`, priority is
+automatically Low. No role may waive that, even
+for a ticket that was Critical or High.
 
-Every ticket also has one exact reopening state. It begins as `allowed`. When
-the Architect later assesses a Red Team reopening, Architect GO accepts the
-evidence and leaves the ticket open for repair. Architect NO-GO closes the
-ticket with a reason and changes the state permanently to `barred by Architect
-NO-GO`. The Red Team may not reopen a barred ticket again. A different defect
-must use `Backlog action: NEW TICKET`. A prohibited later `REOPEN` does not
-change the ticket, its count, or its reopening state.
+Every ticket has one exact reopening state, beginning `allowed`. Architect GO
+on a reopening accepts the evidence and leaves the ticket open for repair;
+Architect NO-GO closes it with a reason and changes the state permanently to
+`barred by Architect NO-GO`. Red Team may not reopen a barred ticket; a
+different defect must use `Backlog action: NEW TICKET`. A prohibited later
+`REOPEN` changes nothing — not the ticket, its count, or its state.
 
-Red Team is always advisory. The ordinary acceptance path is: the Architect
-assigns a ticket, the Implementer repairs it, the Architect audits the repair,
-and an Architect `GO` authorizes the parent daemon to create and verify one
-local landing immediately. Red Team does not supply a required `GO`, and the
-Architect never waits for Red Team before authorizing an accepted fix.
+Ordinary acceptance: the Architect assigns a ticket, the Implementer repairs
+it, the Architect audits, and Architect `GO` authorizes the parent daemon to
+create and verify one local landing immediately. Red Team does not supply a required
+`GO`, and the Architect never waits for Red Team before authorizing an accepted
+fix.
 
-A cycle follows one ticket through Architect/Implementer exchanges,
-Architect GO, one daemon-created landing, and one Red Team review of that exact
-landing. If the bug remains, the handoff says `Backlog action: REOPEN`. The
-Architect may start the next ticket while that advisory review is pending only
-when the selected cycle limit has another unused ticket slot. A finite watcher
-does not count or exit that cycle until the correlated Red Team return exists.
-On receipt, the Architect immediately restores an allowed ticket and
-increments its reopen count. The Architect evaluates the evidence, final
-priority, and GO/NO-GO later.
+A cycle follows one ticket through Architect/Implementer exchanges, Architect
+GO, one daemon-created landing, and one Red Team review of that exact landing.
+If the bug remains the handoff says `Backlog action: REOPEN`. The Architect may
+start the next ticket while that advisory review is pending only when the cycle
+limit has another unused ticket slot; a finite watcher does not count or exit
+that cycle until the correlated return exists. On receipt the Architect
+immediately restores an allowed ticket and increments its reopen count, and
+evaluates evidence, final priority, and GO/NO-GO later.
 
 #### Maintain the tracked backlog consistently
 
-`backlog.md` is tracked at `ai/notes/backlog.md`, so a clean Git clone already
-contains the current Open and Closed tickets. If it is missing, restore the
-version from `main`; do not invent a shorter private format. A backlog received
-through the bundle tool is still input to review, not an automatic replacement.
-The tracked backlog uses this exact opening and these headings in this order:
+`backlog.md` is tracked at `ai/notes/backlog.md`, so a clean clone already
+holds the current Open and Closed tickets. If missing, restore the version from
+`main`; never invent a shorter private format. A backlog received through the
+bundle tool is still input to review, not an automatic replacement. Recreate it with
+this exact opening and heading order:
 
 ```markdown
 # Execution backlog
@@ -784,16 +731,11 @@ No parked edge cases.
 No closed tickets.
 ```
 
-The introductory `How to read this backlog` section says, in ordinary
-language, that priority controls work order, type distinguishes a repair from
-a new capability, and each exact `- OPEN` index line represents one unfinished
-ticket. It also states the discovery count and the explicit role-selection
-rule below. An empty
-priority group remains visible. When its first ticket is added, the Architect
-replaces the `No open PRIORITY tickets.` sentence with the index line; the
-empty sentence and a ticket line never appear together. A clean clone with no
-accepted work still receives the complete skeleton, including all four empty
-priority groups and the `No closed tickets.` sentence.
+An empty priority group stays visible. When its first ticket is added the
+Architect replaces the `No open PRIORITY tickets.` sentence with the index
+line; the empty sentence and a ticket line never appear together. A clean clone
+with no accepted work still receives the complete skeleton, including all four
+empty priority groups and the `No closed tickets.` sentence.
 
 Every parked edge case uses this exact form under `# Parked edge cases`:
 
@@ -801,9 +743,9 @@ Every parked edge case uses this exact form under `# Parked edge cases`:
 - PARKED **LOW — EDGE CASE** **BUG FIX** — [Plain human title](#unique-anchor)
 ```
 
-It has the same human summary and technical record as an open ticket, but its
-current status is `PARKED` and it has no other `- OPEN` marker. The command-line
-severity choices cannot create or activate it.
+It carries the same human summary and technical record as an open ticket, but
+its status is `PARKED` and it has no `- OPEN` marker. Command-line severity
+choices cannot create or activate it.
 
 Every open index line uses this exact form:
 
@@ -813,19 +755,18 @@ Every open index line uses this exact form:
 
 `PRIORITY` is exactly `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`. `TYPE` is
 exactly `BUG FIX` or `NEW FUNCTIONALITY`. `CRITICAL` with `NEW FUNCTIONALITY`
-is invalid. The line appears under the matching priority subheading and is the
-ticket's only text beginning `- OPEN`. The four groups remain in
-Critical-High-Medium-Low order. Within High, user-designated High new
-functionality appears before High bug fixes. Within any remaining group,
-preserve admission order unless a recorded prerequisite or blocker explains
-why the next ticket is being worked first.
+is invalid. The line sits under the matching priority subheading and is the
+ticket's only text beginning `- OPEN`. Groups stay in Critical-High-Medium-Low
+order; within High, user-designated High new functionality precedes High bug
+fixes; within any remaining group preserve admission order unless a recorded
+prerequisite or blocker explains why the next ticket is worked first.
 
-`unique-anchor` contains only lowercase ASCII letters, digits, and hyphens;
-for example, `cmb-progress-loses-multipole-labels`. It describes the problem,
-is unique within the file, and is not merely an internal ticket number. The
-link target and the `<a id="...">` value must match byte for byte. Each index
-link resolves once, every detailed open ticket has one index link, and a
-closed ticket has no `- OPEN` line.
+`unique-anchor` uses only lowercase ASCII letters, digits, and hyphens — for
+example `cmb-progress-loses-multipole-labels`. It describes the problem, is
+unique in the file, and is not merely an internal ticket number. The link
+target and the `<a id="...">` value must match byte for byte. Each index link
+resolves once, every detailed open ticket has one index link, and a closed
+ticket has no `- OPEN` line.
 
 Each detailed open ticket uses this exact heading order:
 
@@ -883,121 +824,58 @@ See further instructions at ai/notes/<plain-ticket-slug>-red-team-finding.md
 </details>
 ```
 
-The Architect writes a feature's user-supplied priority and any
-“after the backlog is closed” prerequisite into `Current status`. For a
-High bug, the priority reason must explain why Medium is insufficient. For a
-Critical bug, it must also explain why High is insufficient.
-These rules apply to every tracked backlog; imported older records are brought
+The Architect writes a feature's user-supplied priority and any "after the
+backlog is closed" prerequisite into `Current status`. A High bug's reason
+explains why Medium is insufficient; a Critical bug's also explains why High is
+insufficient. These rules apply to every tracked backlog; imported older records are brought
 into this shape when first touched rather than copied as an incompatible
 private format.
 
-This example illustrates the required level of explanation. It is an example,
-not an admitted ticket:
+`ai/README.md` carries a fully worked ticket showing the required level of
+explanation: `Saved CMB progress can lose its multipole labels`. It is an
+example,
+not an admitted ticket.
 
-```markdown
-- OPEN **HIGH** **BUG FIX** — [Saved CMB progress can lose its multipole labels](#cmb-progress-loses-multipole-labels)
-
-<a id="cmb-progress-loses-multipole-labels"></a>
-## Saved CMB progress can lose its multipole labels
-
-### High-level summary
-
-A long CMB run should save both its spectra and the multipole values that label
-those spectra; for example, the first saved row may represent multipole 2.
-The current progress file can preserve the spectra while omitting those labels.
-A resumed run can then attach a value to the wrong multipole and produce a
-scientifically incorrect result without an obvious file-reading error.
-
-### Current status
-
-**Ticket type: BUG FIX.**
-
-**Red Team reopen count: 0.**
-
-**Red Team reopening: allowed.**
-
-**OPEN.** The format check is designed, but the resume-path test is missing.
-
-**Severity: HIGH.** Normal checkpoint recovery can silently change the
-scientific meaning of saved values. Medium is insufficient because the file
-can load successfully while assigning a result to the wrong physical
-multipole.
-
-### What is already fixed
-
-The writer now stores the multipole array beside each new progress file.
-
-### What is missing
-
-Add a test that resumes from an old file without the array and confirms that
-the program stops with a useful explanation instead of guessing the labels.
-
-<details>
-<summary>Technical record for development tools</summary>
-
-Record the exact writer and reader symbols, the failing fixture, the expected
-error text, and the validation commands here.
-
-</details>
-```
-
-To close a ticket, the Architect removes its one index line, moves its complete
+To close a ticket, the Architect removes its one index line, moves the complete
 detailed section below `# Closed tickets`, changes `**OPEN.**` to
-`**CLOSED.**`, and changes `What is missing` to the exact sentence `Nothing
-for this ticket.` The title, anchor, type, final priority, reopen count,
-reopening state, human summary, completed work, and technical evidence remain.
-The Architect then emits the exact decision-only `architect-go` request for
-the audited Implementer candidate C without waiting for Red Team. After that
-Architect process exits, the daemon creates and verifies distinct landing L,
-fast-forwards a clean unchanged user `main`, and records any remote push debt.
-The Architect does not merge, commit, update a Git reference, target the
-user's checkout, or push for the ordinary ticket. If any required action
-remains, the ticket stays open or that action receives its own linked open
-ticket.
+`**CLOSED.**`, and sets `What is missing` to the exact sentence `Nothing
+for this ticket.` Title, anchor, type, final priority, reopen count, reopening
+state, human summary, completed work, and technical evidence remain. The
+Architect then emits the exact decision-only `architect-go` request for the
+audited candidate C without waiting for Red Team. After that Architect process exits, the daemon creates and verifies distinct
+landing L, fast-forwards a clean unchanged user `main`, and records any remote
+push debt. The Architect does not merge,
+commit, update a Git reference, target the user's checkout, or push. If any
+required action remains, the ticket stays open or that action receives its own
+linked open ticket.
 
 As the final step of each normal cycle, Red Team reviews the one ticket and
-daemon-recorded landing L from that cycle. A no-finding result is advisory and
-changes nothing. If the bug remains and reopening is still allowed, the
-handoff says `Backlog action: REOPEN`. The same cycle stays active while the
-Architect assesses that evidence. The Architect increments the reopen count
-and cites the stable finding note with the exact `See further instructions at
-...` line. GO restores the complete ticket to Open at the same severity.
-NO-GO keeps it Closed, records why, and permanently bars that same objection.
-A count greater than five still applies the automatic Low rule. Only after
-this decision may the cycle complete.
-
-A new Red Team discovery uses the exact handoff label `Backlog action: NEW
-TICKET`. On receipt, the Architect performs the same short bookkeeping step:
-create the complete human-readable ticket, use the Red Team's High, Medium, or
-Low assessment as a provisional priority, acknowledge the return, and record
-that Architect analysis remains. It also cites the stable finding note with
-the exact `See further instructions at ...` line. The Architect does not
-reproduce the bug merely to add it. When priority later brings the ticket
-forward, the Architect uses the detailed note and targeted independent
-verification to accept, upgrade, downgrade, close, or reject it with evidence.
-Only the Architect can assign Critical.
+daemon-recorded landing L from that cycle. A no-finding result is advisory. If
+the bug remains and reopening is still allowed, the handoff says
+`Backlog action: REOPEN`, the same cycle stays active while the Architect assesses that
+evidence, and the Architect increments the reopen count and cites the stable
+finding note with its exact `See further instructions at ...` line. GO restores
+the complete ticket to Open at the same severity; NO-GO keeps it Closed,
+records why, and permanently bars that objection. Only after this decision may
+the cycle complete.
 
 Every ticket section has these parts in this order:
 
-1. **High-level summary** gives at least three complete sentences in ordinary
-   language: normal purpose and one concrete example, current failure, and the
-   user or scientific consequence. More sentences are allowed when a reader
-   needs them. An internal unit number may follow a plain title, but it never
-   replaces that title.
-2. **Current status** says `OPEN`, `CLOSED`, or `PARKED`, records `Bug fix` or
-   `New functionality`, gives its priority reason, records the nonnegative
-   Red Team reopen count and exact reopening state, and names any blocker or
-   prerequisite.
-3. **What is already fixed** names completed work without implying that it
-   closes the ticket.
-4. **What is missing** names every action, machine run, review, or decision
-   still required. A closed ticket says `Nothing for this ticket`; separate
-   unfinished work must have its own linked open ticket.
-5. **Technical record for development tools** retains exact files, symbols,
-   commits, branches, evidence counts, failure cases, and source-note anchors.
+1. **High-level summary** — at least three complete sentences in ordinary
+   language: normal purpose and one concrete example, current failure, user or
+   scientific consequence. An internal unit number may follow a plain title but
+   never replaces it.
+2. **Current status** — `OPEN`, `CLOSED`, or `PARKED`; `Bug fix` or `New
+   functionality`; priority reason; the nonnegative reopen count and exact
+   reopening state; any blocker or prerequisite.
+3. **What is already fixed** — completed work, without implying closure.
+4. **What is missing** — every action, machine run, review, or decision still
+   required. A closed ticket says `Nothing for this ticket`; separate
+   unfinished work gets its own linked open ticket.
+5. **Technical record for development tools** — exact files, symbols, commits,
+   branches, evidence counts, failure cases, and source-note anchors.
 
-The Architect applies this decision table whenever a ticket is added or
-updated:
+Decision table, applied whenever a ticket is added or updated:
 
 | Check | `GO` | `NO-GO` |
 | --- | --- | --- |
@@ -1012,52 +890,47 @@ updated:
 | Reopening state | Uses exactly `allowed` until an Architect NO-GO permanently changes it to `barred by Architect NO-GO`; a barred ticket cannot be reopened | Omits the state, removes a permanent bar, changes a barred ticket after another REOPEN, or treats a different defect as the same ticket |
 | Repeated reopening | Immediately restores every Red Team `REOPEN` return, then later compares new evidence with earlier attempts; a count above five forces Low | Delays the bookkeeping for a full audit, calls every repeated objection obnoxious without evidence, or keeps a priority above Low after the sixth attempt |
 | Red Team authority | Red Team advice never blocks Architect acceptance or the daemon's verified local landing | Requires a Red Team GO, delays an accepted local landing for Red Team, or lets Red Team edit the backlog |
-| New Red Team ticket | The handoff says `Backlog action: NEW TICKET`; the Architect records it promptly with provisional Red Team priority and analyzes it later | The finding waits outside the backlog while the Architect performs a full audit, or another role writes the backlog directly |
+| New Red Team ticket | The handoff says `Backlog action: NEW TICKET`; the Architect records it promptly with the Red Team assessment as a provisional priority and analyzes it later | The finding waits outside the backlog while the Architect performs a full audit, or another role writes the backlog directly |
 | Red Team source note | A `NEW TICKET` or `REOPEN` cites one stable repository-relative finding note with every persuasive-note heading and the backlog preserves the exact `See further instructions at ...` line | Uses an absolute or dated path, omits the note citation, gives a thin assertion, hides uncertainty or exclusions, inflates severity, or invents evidence |
 | Technical detail | Preserves exact evidence in the technical record after the human explanation | Removes evidence or makes a human decode it before learning the problem |
 | Closure | The Architect accepted the Implementer fix, the daemon verified its exact local landing, every required ticket action passed, and `What is missing` says nothing remains for this ticket; separately recorded remote push debt does not reopen the ticket | A required hardware run, scientific check, Architect decision, daemon landing, or note update remains |
 | Open-count check | The number of linked `- OPEN` index lines equals the number of detailed open ticket sections | The watcher count can omit, duplicate, or point to a missing ticket |
 
-Malformed backlog state always fails closed. This includes an `- OPEN` line
-that does not match the exact grammar, an unknown priority or type, a Critical
-feature, a line under the wrong priority heading, a duplicate or missing
-anchor, a link without one detailed section, an unlinked detailed open
-section, contradictory `OPEN`/`CLOSED` text, a missing or malformed reopen
-count, or priority groups in the wrong order. The Architect repairs the
-structure before dispatching that ticket,
-admitting discovery, or claiming that the backlog is complete. A malformed
-line is never ignored, guessed, or rewritten as Low merely to make a count
-smaller.
+Malformed backlog state always fails closed: an `- OPEN` line not matching the
+exact grammar, an unknown priority or type, a Critical feature, a line under
+the wrong priority heading, a duplicate or missing anchor, a link without one
+detailed section, an unlinked detailed open section, contradictory
+`OPEN`/`CLOSED` text, a missing or malformed reopen count, or priority groups
+out of order. Repair the structure before dispatching that ticket, admitting
+discovery, or claiming the backlog is complete. A malformed
+line is never ignored, guessed, or rewritten as Low to make a count smaller.
 
 #### Protect the Architect-owned backlog
 
 Only the Architect edits `ai/notes/backlog.md`. The ignored file
 `ai/notes/.backlog-guard.json` stores the SHA-256 fingerprint of the exact
-backlog bytes that the Architect last accepted. The fingerprint detects an
-unexpected character change; it does not prove that the ticket description is
-correct.
+backlog bytes the Architect last accepted. It detects an unexpected character
+change; it does not prove the ticket description correct.
 
-On a clean clone, the daemon initializes the local fingerprint for the tracked
-backlog. After an intentional replacement that has been reviewed, the
-Architect may initialize the record explicitly:
+On a clean clone the daemon initializes the local fingerprint. After a reviewed
+intentional replacement the Architect may initialize explicitly:
 
 ```bash
 python3 ai/tools/backlog_guard.py initialize --architect-ack
 ```
 
-Before accepting another role's return or changing any backlog ticket, the
-Architect runs:
+Before accepting another role's return or changing any ticket:
 
 ```bash
 python3 ai/tools/backlog_guard.py check
 ```
 
-The Architect copies the printed 64-character `accepted SHA-256` before the
-edit. A mismatch is `NO-GO`: stop, inspect the unexpected change, and do not
-replace the fingerprint merely to silence the warning.
+Copy the printed 64-character `accepted SHA-256` before the edit. A mismatch is
+`NO-GO`: stop, inspect the unexpected change, never replace the fingerprint to
+silence the warning.
 
-After one deliberate backlog edit, the Architect reads the changed ticket and
-then records those exact bytes:
+After one deliberate edit, read the changed ticket, then record those exact
+bytes:
 
 ```bash
 python3 ai/tools/backlog_guard.py seal \
@@ -1066,76 +939,70 @@ python3 ai/tools/backlog_guard.py seal \
 python3 ai/tools/backlog_guard.py check
 ```
 
-Mailbox Architect turns receive `MAILBOX_ROLE=architect`, so the write
-commands recognize the role even when the manual acknowledgement option is
-omitted. Manual terminal use keeps `--architect-ack`. Red Team turns receive
-`MAILBOX_ROLE=red-team`: that role may read the backlog and may run `check`,
-but it never edits the backlog, runs `initialize` or `seal`, or edits
-`ai/tools/backlog_guard.py`, the fingerprint record, or its
-`.backlog-guard.lock` write lock.
+Mailbox Architect turns receive `MAILBOX_ROLE=architect`, so the write commands
+recognize the role without the manual acknowledgement option; manual terminal
+use keeps `--architect-ack`. Red Team turns receive `MAILBOX_ROLE=red-team`:
+that role may read the backlog and run `check`, but never edits the backlog,
+runs `initialize` or `seal`, or edits `ai/tools/backlog_guard.py`, the
+fingerprint record, or its `.backlog-guard.lock` write lock.
 
-The Implementer never opens the backlog at all, in any mode. Only two roles
-read it: the Architect, who writes it, and the Red Team, who audits the
-Architect. That is deliberate. The backlog is a private planning ledger
-written in Architect shorthand, and it holds ideas that were considered and
-dropped alongside work that was actually scheduled. An Implementer reading it
-would collect instructions nobody sent. The dispatched directive is the
-Implementer's whole assignment, and the notes that directive names are its
+The Implementer never opens the backlog at all, in any mode. Only the
+Architect, who writes it, and the Red Team, who audits the Architect, read it.
+That is deliberate: the backlog is a private planning ledger in Architect
+shorthand holding ideas considered and dropped alongside scheduled work, so an
+Implementer reading it would collect instructions nobody sent. The dispatched
+directive is the Implementer's whole assignment and the notes it names are the
 supporting material; if the directive is missing something, the Implementer
 returns a blocker instead of going to look for it.
 
-The backlog stays in Git; its fingerprint record and lock stay outside Git.
-An incoming backlog package is inspected in its separate import folder; it
-never replaces the live backlog or its fingerprint automatically. This guard
-is intended to catch accidental role edits and hallucinated replacements. A
-malicious program able to rewrite both the backlog and guard is outside this
-limited protection.
+The backlog stays in Git; its fingerprint record and lock stay outside Git. An
+incoming backlog package is inspected in its separate import folder and never
+replaces the live backlog or fingerprint automatically. This guard catches
+accidental role edits and hallucinated replacements; a malicious program able
+to rewrite both backlog and guard is outside its scope.
 
-A workstation-only check stays open when it is required for acceptance. If a
-large ticket is split, each follow-up either remains under the parent ticket's
-missing-work list or becomes its own linked open ticket. A closed section may
-mention a limitation outside its scope only by linking to the open ticket that
-owns that work.
+A workstation-only check stays open when required for acceptance. If a large
+ticket is split, each follow-up either remains under the parent's missing-work
+list or becomes its own linked open ticket. A closed section may mention a
+limitation outside its scope only by linking to the open ticket that owns it.
 
-The Architect updates the ticket in the same turn as every state change,
-including dispatch, returned evidence, GO or NO-GO, landing, a Red Team
-`REOPEN`, a `NEW TICKET` return, and a new or cleared blocker. The ticket stays
-OPEN until implementation, required evidence, Architect review, and any
-required permanent-note update are complete. Architect acceptance closes and
+The Architect updates the ticket in the same turn as every state change:
+dispatch, returned evidence, GO or NO-GO, landing, a Red Team `REOPEN`, a `NEW
+TICKET` return, a new or cleared blocker. The ticket stays OPEN until
+implementation, required evidence, Architect review, and any required
+permanent-note update are complete. Architect acceptance closes and
 seals the backlog ticket, then emits the exact GO request without waiting for
-Red Team or landing L. The daemon then creates and records L; a later advisory
-review may reopen the ticket.
+Red Team or landing L. The daemon then creates and records L; a later advisory review may reopen
+the ticket.
 
-The Architect note has one current `## Implementation directive`. A confirmed
-Red Team return has one current `## Repair directive`. The appropriate
-contract checker validates the packet structure before transport. Structural
-validation does not replace scientific review.
+The Architect note has one current `## Implementation directive`; a confirmed
+Red Team return has one current `## Repair directive`. The appropriate contract
+checker validates packet structure before transport. Structural validation does
+not replace scientific review.
 
-A handoff is a compact routing summary that cites the source note. The source
-note remains authoritative when a summary lags or differs. Files under
-`ai/notes/relay/` are immutable transport copies for traceability. They are
-not evidence and are not edited.
+A handoff is a compact routing summary citing the source note, which stays
+authoritative when a summary lags or differs. Files under `ai/notes/relay/` are
+immutable transport copies for traceability: not evidence, never edited.
 
 Mailbox files live under `ai/notes/mailbox/`. A numbered file is dispatched to
-an internal role and then archived under `done/`. Public commands do not expose
+an internal role and archived under `done/`. Public commands do not expose
 those internal destinations. A `to-user` status file is not dispatched. A
 terminal inbound that explicitly says no reply is owed does not require an
 artificial receipt. This is the only
 outbound exception; ambiguity requires an outbound response.
 
 In two-role mode, Architect and Implementer communicate directly through the
-mailbox and no Sol message is created. Existing Sol messages remain untouched
+mailbox and no Sol message is created; existing Sol messages stay untouched
 until a normal three-role watch handles them.
 
 Sol is never reassigned as an Implementer. A normal watch uses Sol only for
-advisory Red Team review and discovery. `--skip-redteam` turns that role off;
-it does not convert the role into another source-code editor.
+advisory Red Team review and discovery; `--skip-redteam` turns that role off
+rather than converting it into another source-code editor.
 
-Five finished role turns or 15 elapsed minutes creates an occasional manual
-safe-stop opportunity. At that boundary, the watcher temporarily stops
-starting new work, lets every job already starting or running finish, and
-opens the 20-second Ctrl-C countdown. This timing boundary is not a cycle and
-never changes the `--cycle` count.
+Five finished role turns or 15 elapsed minutes creates a manual safe-stop
+opportunity: the watcher stops starting new work, lets every job already
+starting or running finish, and opens the 20-second Ctrl-C countdown. This
+boundary is not a cycle and never changes the `--cycle` count.
 
 A **ticket cycle** always concerns exactly one indexed Open ticket. Its first
 Implementer handoff starts with these saved lines:
@@ -1146,11 +1013,11 @@ MAILBOX-CYCLE: ticket-anchor@full-starting-commit
 MAILBOX-MODE: normal
 ```
 
-The cycle and mode remain unchanged through every Architect/Implementer return.
-The first handoff must go to the actual Implementer; an Architect message
-cannot invent an unbound cycle. The anchor must name exactly one Open backlog
-ticket, and the starting commit must exist. After the audit, Fable records this
-exact decision-only request and performs no Git write:
+Cycle and mode stay unchanged through every Architect/Implementer return. The
+first handoff must go to the actual Implementer; an Architect message cannot
+invent an unbound cycle. The anchor names exactly one Open backlog ticket and
+the starting commit must exist. After the audit, Fable records this exact
+decision-only request and performs no Git write:
 
 ```text
 MAILBOX-RETURN: architect-go
@@ -1160,18 +1027,17 @@ MAILBOX-MODE: normal
 MAILBOX-DECISION: GO
 ```
 
-The parent daemon proves that the request names the saved candidate. It then
-creates a distinct one-parent landing commit, verifies that the landing is the
-candidate's exact clean squash onto the current `main`, and fast-forwards only
-a clean, still-matching user `main` checkout. In normal mode, Sol receives one
-review of that exact landing and returns `NO CHANGE` or `REOPEN`. That return
-completes the cycle count. The Architect may already be working on the next
-ticket only when the finite limit has another unused ticket slot. The watcher
-waits for the correlated Red Team return before counting or exiting that
-normal cycle.
+The parent daemon proves the request names the saved candidate, creates a
+distinct one-parent landing commit, verifies the landing is the candidate's
+exact clean squash onto current `main`, and fast-forwards only a clean,
+still-matching user `main` checkout. In normal mode Sol receives one review of
+that exact landing and returns `NO CHANGE` or `REOPEN`, which completes the
+cycle count. The Architect may work the next ticket only when the finite limit
+has another unused slot; the watcher waits for the correlated Red Team return
+before counting or exiting that normal cycle.
 
-In `two-role` mode, the verified local landing completes the ticket and its
-cycle because that watcher has no Red Team pass.
+In `two-role` mode the verified local landing completes the ticket and its
+cycle, because that watcher has no Red Team pass.
 
 Cycle settings control planned stopping:
 
@@ -1182,8 +1048,8 @@ Cycle settings control planned stopping:
   backlog index line begins with the exact marker `- OPEN`.
 
 Cycle zero also requires a safe, stable backlog read. A missing, non-regular,
-changing, unreadable, oversized, or non-UTF-8 backlog prevents exit and
-reports that completion could not be verified.
+changing, unreadable, oversized, or non-UTF-8 backlog prevents exit and reports
+that completion could not be verified.
 
 Backlog prose never creates a mailbox request. Fix-only mode permits work that
 closes an existing ticket but refuses discovery and every request to create a
@@ -1199,46 +1065,44 @@ The open-ticket count controls one decision:
    Open Low tickets and waiting mailbox files do not count. An unclassified
    open line fails closed until the Architect repairs its classification.
 
-Queue depth remains useful status information, and every open ticket,
-including Low, still prevents a `--cycle 0` run from claiming that all work is
-finished. Severity never changes Sol's role. Sol remains the advisory Red Team
-in a normal watch and is absent from a `--skip-redteam` watch.
+Queue depth remains useful status, and every open ticket, including Low, still
+prevents a `--cycle 0` run from claiming all work is finished. Severity never
+changes Sol's role: advisory Red Team in a normal watch, absent from a
+`--skip-redteam` watch.
 
-Before any Implementer request is moved from the mailbox root, the daemon
-reserves one slot from the shared positive cycle limit. Active tickets,
-accepted tickets waiting for a Red Team return, and completed returns saved
-for delivery all consume that same limit. If no slot remains, the next request
-stays byte-for-byte at the mailbox root. A restart restores the durable count
-before it admits more work. This prevents `--cycle 1` from starting ticket B
-while ticket A waits for its Red Team return. It also prevents concurrent
-watch attempts from each spending the full limit.
+Before any Implementer request leaves the mailbox root, the daemon reserves one
+slot from the shared positive cycle limit. Active tickets, accepted tickets
+waiting for a Red Team return, and completed returns saved for delivery all
+consume that limit. With no slot left, the next request stays byte-for-byte at
+the mailbox root; a restart restores the durable count before admitting more
+work. This stops `--cycle 1` from starting ticket B while ticket A waits for
+its Red Team return, and stops concurrent watch attempts from each spending the
+full limit.
 
 Only the Architect decides whether an accepted change alters a permanent
-general property. Permanent notes are not edited by an Implementer or Red
+general property. Permanent notes are never edited by an Implementer or Red
 Team. Routine milestones do not create permanent-note churn.
 
 ### One review before protected policy changes
 
-The protected policy files are the eleven permanent notes,
+Protected policy files: the eleven permanent notes,
 `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, and
 `.codex/REDTEAM_ROLE.md`. The YAML is the machine-readable source of truth for
-stable role permissions, timing limits, and landing rules; it is not a twelfth
+stable role permissions, timing limits, and landing rules — not a twelfth
 permanent Markdown note. Only the Architect may change these files, through
-protected-policy administration. Implementer and Red Team access is read-only.
+protected-policy administration; Implementer and Red Team access is read-only.
 
-When Red Team is enabled, the Architect first prepares the exact draft and
-sends one cycle-free `MAILBOX-TICKET: policy` request. Its body contains the
-complete proposed change and explains why it may be needed. Red Team checks
-necessity, contradictions, and whether a smaller change would work. A change
-above 4,000 characters or touching several protected files receives a
-line-by-line review.
+With Red Team enabled, the Architect prepares the exact draft and sends one
+cycle-free `MAILBOX-TICKET: policy` request whose body holds the complete
+proposed change and why it may be needed. Red Team checks necessity,
+contradictions, and whether a smaller change would work. A change above 4,000
+characters or touching several protected files receives a line-by-line review.
 
-That is the only review round. Red Team returns one advisory GO or NO-GO
-recommendation. The Architect may use that advice, then gives the final GO or
-NO-GO. Red Team does not review a corrected draft, edit a protected file, veto
-the decision, or reopen this administration work. When Red Team is disabled,
-the Architect records that the independent review was unavailable and
-continues with the same narrow guards.
+That is the only review round: Red Team returns one advisory GO or NO-GO, the
+Architect weighs it and gives the final decision. Red Team does not review a
+corrected draft, edit a protected file, veto the decision, or reopen this
+administration work. With Red Team disabled the Architect records that the
+independent review was unavailable and continues under the same narrow guards.
 
 The request has one header followed by the draft:
 
@@ -1262,8 +1126,8 @@ python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
 This publisher is Architect-only. It writes the exact
 `MAILBOX-ADMIN: permanent-notes` self-route and refuses a second unresolved
 note update. The admin turn begins only when ordinary ticket reservations,
-candidate and landing recovery, role processes, and closure review are idle.
-It is the sole role launch in that mailbox pass. It may make no change and
+candidate and landing recovery, role processes, and closure review are idle,
+and is the sole role launch in that mailbox pass. It may make no change and
 return silently. If a permanent note must change, it creates one clean commit
 P whose single parent is the exact unchanged local-main commit B. P modifies
 one or more protected policy files and no other tracked path.
@@ -1277,12 +1141,12 @@ MAILBOX-DECISION: GO
 ```
 
 The parent daemon, not the Architect subprocess, rechecks B, P, the protected
-note set, every ordinary landing record, and the clean user checkout. It
-fast-forwards B to P only after those checks, records remote push debt, and
-fast-forwards clean safe Architect, Implementer, and Red Team baselines.
-Dirty, active, or diverged role work is preserved and refused rather than
-reset. The route consumes no ticket cycle and creates no second Sol review.
-A queued, inflight, or failed administration/P record is still visible work.
+note set, every ordinary landing record, and the clean user checkout, then
+fast-forwards B to P, records remote push debt, and fast-forwards clean safe
+Architect, Implementer, and Red Team baselines. Dirty, active, or diverged role
+work is preserved and refused rather than reset. The route consumes no ticket
+cycle and creates no second Sol review. A queued, inflight, or failed
+administration/P record is still visible work.
 It cannot be abandoned merely because a positive cycle limit was reached or because
 the ordinary backlog is empty.
 
@@ -1293,11 +1157,11 @@ watch with the saved standing grant, Fable still records only GO or NO-GO. The
 parent daemon alone uses the main-landing lock and carries out the bounded Git
 operation authorized by GO. No Implementer, Red Team, Fable subprocess, or
 subagent inherits that Git authority. Only `main` is pushed; working branches
-remain local.
+stay local.
 
 The Implementer's candidate commit `C` and the daemon-created landing commit
 `L` have different identities. The Architect audits an immutable snapshot of
-`C`. After GO, the parent daemon calculates the exact squash tree against the
+`C`. After GO the parent daemon calculates the exact squash tree against the
 then-current `main` parent, creates `L` with that one parent, and saves `L` on
 a private crash-recovery reference before touching `main`. It refuses an empty
 or conflicting squash.
@@ -1330,35 +1194,33 @@ does not make history replacement acceptable.
 Choosing a target branch or granting landing or push authority never grants
 authority to force-push or replace that branch's history.
 
-The protected branch may move only by fast-forward: its new commit must contain
-its exact previous commit in its history. A normal push must meet the same
+The protected branch moves only by fast-forward: its new commit must contain
+its exact previous commit in its history, and a normal push must meet the same
 condition on the remote branch. If the local branch, remote branch, expected
-parent, or verification state differs, the operation refuses and preserves
-the commits for inspection. A remote refusal becomes visible push debt; it is
-never repaired by rewriting history.
+parent, or verification state differs, the operation refuses and preserves the
+commits for inspection. A remote refusal becomes visible push debt, never
+repaired by rewriting history.
 
 This rule outranks ticket closure, cycle completion, automation recovery,
-conflict convenience, and an attempt to clear push debt. The Architect issues
-`NO-GO` to any plan, candidate, recovery instruction, or manual command that
-could rewrite the protected branch. The safe response is to stop, show the
-divergence, and prepare a new descendant commit only after the user chooses how
-the histories should be reconciled without force.
+conflict convenience, and clearing push debt. The Architect issues `NO-GO` to
+any plan, candidate, recovery instruction, or manual command that could rewrite
+the protected branch. The safe response: stop, show the divergence, and prepare
+a new descendant commit only after the user chooses how the histories should be
+reconciled without force.
 
 ### Commit messages explain the saved change
 
-GitHub displays a commit subject and body as Markdown. Every commit message
-authored by an AI role for this repository follows this rule, whether the
-commit is created during a mailbox watch or a manual AI session. Candidate,
-landing, and permanent-note commits are examples, not the complete scope. A
-message receives `GO` only when a reader can understand the saved change
-without opening the diff.
+GitHub renders a commit subject and body as Markdown. Every commit message an
+AI role authors for this repository follows this rule, in a mailbox watch or a
+manual session; candidate, landing, and permanent-note commits are examples,
+not the complete scope. A message is `GO` only when a reader understands the
+saved change without opening the diff.
 
-The subject names the concrete saved behavior in plain language. For example,
-`Keep each calculation result with its assigned dataset row` tells the reader
-what the commit does without requiring an internal name. A subject does not
-contain an internal ticket number, date, wave name, role label, branch name,
-undefined acronym, schema number, or project jargon. Generic subjects such as
-`Update files`, `Land unit 8`, and `Fix issue` receive `NO-GO`.
+The subject names the concrete saved behavior in plain language — for example
+`Keep each calculation result with its assigned dataset row`. A subject carries
+no internal ticket number, date, wave name, role label, branch name, undefined
+acronym, schema number, or project jargon. `Update files`, `Land unit 8`, and
+`Fix issue` are `NO-GO`.
 
 Every AI-authored commit message follows the subject with the exact four-part
 Markdown body defined in `ai/notes/readme-go-no-go.md`:
@@ -1372,16 +1234,16 @@ Markdown body defined in `ai/notes/readme-go-no-go.md`:
 4. **Checks run** gives each exact command or check and its visible result. An
    important check that was not run is named together with the reason.
 
-Each section uses short paragraphs or bullets. Define an unfamiliar term at
-first use. Do not paste a backlog ticket, an audit transcript, or one long
-wall of text. Recovery lines added by the mailbox program may follow the four
-human sections, but they never replace or interrupt them.
+Short paragraphs or bullets per section; define an unfamiliar term at first
+use; never paste a backlog ticket, an audit transcript, or one wall of text.
+Recovery lines added by the mailbox program may follow the four human sections
+but never replace or interrupt them.
 
-The subject and all four body sections describe the saved current behavior.
-They do not narrate who requested it, when a policy was added, or which ticket,
-audit wave, review round, rollout phase, model, or earlier commit produced it.
-Scientific, runtime, algorithmic, and compatibility subject matter follows the
-narrow exception in `ai/notes/readme-go-no-go.md`.
+Subject and all four sections describe the saved current behavior, not who
+requested it, when a policy was added, or which ticket, audit wave, review
+round, rollout phase, model, or earlier commit produced it. Scientific,
+runtime, algorithmic, and compatibility subject matter follows the narrow
+exception in `ai/notes/readme-go-no-go.md`.
 
 Before accepting, landing, or pushing the commit, the Architect reviews the
 exact full hash and records:
@@ -1393,22 +1255,21 @@ exact full hash and records:
 - the four Markdown headings and their order; and
 - the exact checks and visible results.
 
-The verdict is `NO-GO` when a physics undergraduate must open the diff,
-backlog, or an internal note to understand the message; when evidence says
-only `tests pass`; when a heading is empty; or when any applicable prose or
-anti-AI row in `ai/notes/readme-go-no-go.md` fails.
+`NO-GO` when a physics undergraduate must open the diff, backlog, or an
+internal note to understand the message; when evidence says only `tests pass`;
+when a heading is empty; or when any applicable prose or anti-AI row in
+`ai/notes/readme-go-no-go.md` fails.
 
-The Architect reviews the exact candidate commit `C`, including its subject
-and body. Architect GO names the full hash of `C`, so it also binds that
-reviewed message before the landing commit exists. The daemon copies the human
-subject and body from `C` into landing commit `L` without rewriting them, then
-appends only the required mailbox recovery trailers. Creating or recovering
-`L` refuses if its message differs from the approved candidate message plus
-those exact trailers. Lines beginning `Mailbox-Cycle:` or
-`Mailbox-Candidate:` are reserved for those trailers; a candidate message that
-already uses either label is refused rather than copied into an ambiguous
-landing message. Letter-case changes and spaces before the colon are still the
-same reserved labels.
+The Architect reviews the exact candidate commit `C`, subject and body
+included. Architect GO names the full hash of `C`, binding that reviewed
+message before the landing commit exists. The daemon copies the human subject
+and body from `C` into landing commit `L` without rewriting them, then appends
+only the required mailbox recovery trailers. Creating or recovering `L` refuses
+if its message differs from the approved candidate message plus those exact
+trailers. Lines beginning `Mailbox-Cycle:` or `Mailbox-Candidate:` are reserved
+for those trailers; a candidate message already using either label is refused
+rather than copied into an ambiguous landing message. Letter-case changes and
+spaces before the colon are still the same reserved labels.
 
 Review evidence includes the visible result of:
 
@@ -1416,54 +1277,52 @@ Review evidence includes the visible result of:
 git show -s --format=%B FULL_COMMIT
 ```
 
-The deterministic landing test must also prove that the message survives
-creation and crash recovery unchanged. An internal ticket anchor or machine
-trailer never replaces the human explanation.
+The deterministic landing test must also prove the message survives creation
+and crash recovery unchanged. An internal ticket anchor or machine trailer
+never replaces the human explanation.
 
 If the user's checkout is not clean, is no longer attached to `main`, or no
-longer names the prepared parent, the daemon stops. It preserves `C`, `L`, the
-GO request, and the user's files without resetting or overwriting anything.
-When the checkout is clean and unchanged, the daemon performs only a
-fast-forward to the already verified `L`, rechecks the result, and records the
-local landing durably. The Red Team reviews an immutable snapshot of `L`.
+longer names the prepared parent, the daemon stops, preserving `C`, `L`, the GO
+request, and the user's files without resetting or overwriting anything. When
+the checkout is clean and unchanged it performs only a fast-forward to the
+already verified `L`, rechecks the result, and records the local landing
+durably. The Red Team reviews an immutable snapshot of `L`.
 
 The daemon then attempts a normal, non-force push of that exact `L`. Missing
 credentials or a rejected push create a local push-debt record with the exact
-manual command. Push debt is visible work for the user, but it does not erase
-the local landing, reopen the ticket, or make the same cycle run forever.
+manual command. Push debt is visible work for the user; it does not erase the
+local landing, reopen the ticket, or make the same cycle run forever.
 
-Do not merge `main` back into the Implementer worktree. The daemon restores
-the exact saved candidate when a repair is required and prepares later tickets
-from their own recorded commits. Mixing the landing history into that lane
-would break those identity checks.
+Never merge `main` back into the Implementer worktree. The daemon restores the
+exact saved candidate when a repair is required and prepares later tickets from
+their own recorded commits; mixing landing history into that lane would break
+those identity checks.
 
 ## Environment assumptions
 
 The lightweight development machine may provide only Python, NumPy, and the
-standard library. Evidence there consists of compilation, AST censuses,
+standard library. Evidence there is compilation, AST censuses,
 docstring-stripped AST comparison, and known-answer arithmetic probes against
 the real function body where possible. Torch, CosmoLike, Hierarchical Data
 Format version 5 (HDF5), YAML, SciPy, Matplotlib, and accelerator evidence run
 in the configured Cocoa environment.
 
 Apple Metal Performance Shaders (MPS) does not support device float64 and uses
-float16 autocast. CUDA, NVIDIA's accelerator-computing platform, provides the
-required compiled and
-accelerator checks. Set `CUDA_DEVICE_ORDER` and `CUDA_VISIBLE_DEVICES` before
-process startup. The production system uses task-parallel processes, not
-distributed data parallel (DDP), which replicates a model across workers, or
-threads: spawn, not fork; one device selection per worker; no private copies
-of the full random-access memory (RAM) payload in parallel paths;
+float16 autocast. CUDA provides the required compiled and accelerator checks;
+set `CUDA_DEVICE_ORDER` and `CUDA_VISIBLE_DEVICES` before process startup. The
+production system uses task-parallel processes, not distributed data parallel
+(DDP) or threads: spawn, not fork; one device selection per worker; no private
+copies of the full random-access memory (RAM) payload in parallel paths;
 longest-processing-time assignment; and retained Queue/Lock references until
 every child joins.
 
 The configured CoCoA environment uses NumPy 1.x. An isolated code,
-documentation, or dependency change must not adopt NumPy 2 behavior. A NumPy
-2 migration requires an explicit project-wide decision and validation across
-the emulator families, data generators, inference adapters, tests, and gates.
+documentation, or dependency change must not adopt NumPy 2 behavior. A NumPy 2
+migration requires an explicit project-wide decision and validation across the
+emulator families, data generators, inference adapters, tests, and gates.
 
 `ROOTDIR` is defined by the Cocoa startup process. Repository paths anchor to
-that value, and `cobaya-run` starts from `ROOTDIR`. Public installation
+that value and `cobaya-run` starts from `ROOTDIR`. Public installation
 instructions point to Cocoa's official README instead of duplicating its
 environment procedure.
 
@@ -1481,27 +1340,26 @@ environment procedure.
 - Carve out a physical exception on the physical axis, not on an unrelated
   configuration label.
 - When a hypothesis about a third-party mechanism fails on the real machine,
-  switch to its documented application programming interface (API), the
-  supported set of calls exposed to this repository, and add a tripwire
-  capable of falsifying the replacement assumption.
-- A search supporting “no match exists” must be untruncated. Count or inspect
+  switch to its documented application programming interface (API) and add a
+  tripwire capable of falsifying the replacement assumption.
+- A search supporting "no match exists" must be untruncated. Count or inspect
   all matches, search the synonym set, and record the pattern and scope.
 
 ### Tests, gates, and the validation board
 
-A **test** asks one narrow question. For example, a CMB progress-file test
+A **test** asks one narrow question — for example, a CMB progress-file test
 shifts one saved multipole coordinate and checks that loading refuses the
 mismatch before reading spectra.
 
-A **gate** is a named final check for a larger requirement. It may run one
-test, several tests, a scientific comparison, or a hardware-dependent job.
-A passing narrow test does not replace a gate required by the Architect.
+A **gate** is a named final check for a larger requirement, running one test,
+several tests, a scientific comparison, or a hardware-dependent job. A passing
+narrow test does not replace a gate the Architect required.
 
 The **validation board** is the ordered registry of gates and the raw machine
 evidence saved for each run. The Architect reads the board and the actual
 output before deciding GO or NO-GO. Evidence that cannot run because required
-hardware or data is absent is recorded as unavailable; it is never converted
-into PASS. Command inventories and current gate membership belong in
+hardware or data is absent is recorded as unavailable, never converted into
+PASS. Command inventories and current gate membership belong in
 `ai/tests/README.md` and `ai/gates/README.md`, not in this permanent note.
 
 ## Self-teaching generator entry files
@@ -1520,26 +1378,25 @@ Each production generator entry file contains:
 7. a runnable command or direct link to the exact family guide.
 
 Acceptance requires module docstrings in all generator siblings, formal
-contracts on every nontrivial override, a generated callback inventory with
-no undocumented callback, and successful syntax compilation.
+contracts on every nontrivial override, a generated callback inventory with no
+undocumented callback, and successful syntax compilation.
 
 ## Current-state API explanations
 
-Loss decoding returns the kept-coordinate vector. It inverts the numerical
-transform and does not restore masked positions. Full-vector reconstruction
-is a separate `geometry.unsqueeze(kept)` step. Every loss subclass and caller
-must preserve that distinction; equality of kept and full widths in a
-diagonal family does not redefine the general contract.
+Loss decoding returns the kept-coordinate vector: it inverts the numerical
+transform and does not restore masked positions. Full-vector reconstruction is
+a separate `geometry.unsqueeze(kept)` step. Every loss subclass and caller
+preserves that distinction; equality of kept and full widths in a diagonal
+family does not redefine the general contract.
 
 Weight decay is selected by module role, not tensor rank. Only `.weight` from
-`Linear`, `Conv1d`, and `BinLinear` is decay-eligible. All other parameters
+`Linear`, `Conv1d`, and `BinLinear` is decay-eligible; all other parameters
 remain undecayed unless the allowlist is deliberately expanded.
 
-Geometry encode or whiten operations divide by scale or sigma. Decode or
-unwhiten operations multiply. Errors and comments must name the correct
-direction.
+Geometry encode or whiten operations divide by scale or sigma; decode or
+unwhiten multiply. Errors and comments must name the correct direction.
 
-Automatic mixed precision (AMP) runs selected operations at a lower numeric
+Automatic mixed precision (AMP) runs selected operations at lower numeric
 precision to reduce accelerator cost. AMP documentation distinguishes float16
 on MPS from bfloat16 on CUDA or CPU.
 
@@ -1566,18 +1423,18 @@ using those terms. A long method that still owns several independent state
 transitions is split into named cold-path helpers, with compile, binding,
 leftover-pattern, and behavior checks.
 
-Warm-start and transfer documentation includes a concrete named-column
-example, exact encoded column order, input-weight shapes, copied and zeroed
-columns, view/copy ownership, and the meaning of `torch.no_grad`. Packed
-targets are shown with shapes. Parity is an executed epoch-zero equality check
-with coordinate system, dtype, device, and tolerance stated. An unavailable
-feature is described as unavailable and refused rather than promised through
+Warm-start and transfer documentation includes a concrete named-column example,
+exact encoded column order, input-weight shapes, copied and zeroed columns,
+view/copy ownership, and the meaning of `torch.no_grad`. Packed targets are
+shown with shapes. Parity is an executed epoch-zero equality check with
+coordinate system, dtype, device, and tolerance stated. An unavailable feature
+is described as unavailable and refused rather than promised through
 unreachable code.
 
 Gate files begin with the exact behavior they require, one real input and
 visible result, their dependencies, and why a failure blocks acceptance. A
-nontrivial check documents the system under test, fixture, independent
-expected answer, and deliberate mutation. Terms such as
+nontrivial check documents the system under test, fixture, independent expected
+answer, and deliberate mutation. Terms such as
 fixture, test double, fake, stub, monkeypatch, known answer, control, mutation,
 and catch power are defined before use. A numerical reference cannot be
 computed by the same helper as the value under test.
@@ -1587,9 +1444,9 @@ computed by the same helper as the value under test.
 <a id="board-selftest-exit-truth"></a>
 **The board runner reports what actually ran.** Unknown or conflicting
 selectors, dependency skips, compile-lane skips, stale or edited logs,
-unresolved anchors, duplicate assertion identifiers, and malformed evidence
-all produce a non-green result. A stored pass is reusable only while its raw
-log and digest remain intact.
+unresolved anchors, duplicate assertion identifiers, and malformed evidence all
+produce a non-green result. A stored pass is reusable only while its raw log
+and digest remain intact.
 
 <a id="cli-strict-strict-parse"></a>
 **Every public executable rejects a misspelled flag.** Public entry points use
@@ -1604,13 +1461,12 @@ the pinned family and strict check in every wrapper.
 
 ## Documentation ownership
 
-The Architect decides what tracked documentation must change, writes a
-detailed directive for that change, and reviews the rendered result. The
-Implementer may edit a README, a long-form document under `documentation/`, or
-explanatory Python prose only when the Architect's bounded directive names the
-exact section, document, or symbol. The Red Team may report a documentation
-defect and review the rendered result, but it never edits tracked
-documentation. Permanent notes remain Architect-only.
+The Architect decides what tracked documentation must change, writes a detailed
+directive, and reviews the rendered result. The Implementer may edit a README,
+a long-form document under `documentation/`, or explanatory Python prose only
+when that bounded directive names the exact section, document, or symbol. The
+Red Team may report a documentation defect and review the rendered result, but
+it never edits tracked documentation. Permanent notes remain Architect-only.
 
 ### Feature-specific long-form documentation
 
@@ -1620,52 +1476,48 @@ overload a README. It does not authorize another manual for the whole library.
 The repository-wide example is `documentation/emulator_code_guide.tex`; the
 focused-feature example is `documentation/candidate_to_landing.tex`.
 
-Before planning a new file, the Architect searches
-`documentation/README.md`, tracked files under `documentation/`, relevant
-README headings, and likely source names, symbols, commands, and synonyms. The
-temporary source note records what was searched and which possible owner
-sections were opened. If one document already answers the same reader
-question, the plan updates that owner or improves the link to it. A second
-guide for the same question is `NO-GO`.
+Before planning a new file, the Architect searches `documentation/README.md`,
+tracked files under `documentation/`, relevant README headings, and likely
+source names, symbols, commands, and synonyms. The temporary source note
+records what was searched and which possible owner sections were opened. If one
+document already answers the same reader question, the plan updates that owner
+or improves the link to it. A second guide for the same question is `NO-GO`.
 
 A new guide is allowed only when both conditions hold:
 
 1. the topic is important for understanding or maintaining the library; and
 2. the full explanation is too long for the relevant README.
 
-The README keeps a short introduction and links to the one long-form owner.
-The Architect's directive names the reader's exact question, intended
-audience, included and excluded scope, current source files and symbols,
-existing-document census, README link, source and compiled deliverables,
-build command, page-render command, and page-by-page visual checks. It also
-requires comparison with current code so a polished explanation cannot
-preserve an obsolete command or behavior.
+The README keeps a short introduction and links to the one long-form owner. The
+Architect's directive names the reader's exact question, intended audience,
+included and excluded scope, current source files and symbols,
+existing-document census, README link, source and compiled deliverables, build
+command, page-render command, and page-by-page visual checks. It also requires
+comparison with current code so a polished explanation cannot preserve an
+obsolete command or behavior.
 
-Useful focused guides often include an executive summary, a small mental
-model, separate definitions for easily confused objects, commands explained
-one at a time, a complete worked example, important refusal behavior,
-alternatives and why they are not used, safety properties, an implementation
-map, and a compact translation table. This list is a teaching pattern, not a
-fixed page template. Select only the parts that help answer the named reader
-question.
+Useful focused guides often include an executive summary, a small mental model,
+separate definitions for easily confused objects, commands explained one at a
+time, a complete worked example, important refusal behavior, alternatives and
+why they are not used, safety properties, an implementation map, and a compact
+translation table. This is a teaching pattern, not a fixed page template:
+select only the parts that answer the named reader question.
 
 Feature-specific documentation is a **Low new-functionality ticket** by
 default. It becomes **High** only when the user explicitly requests High
 priority because understanding that feature is urgent. Importance alone does
-not promote it. Incorrect existing documentation that can damage normal use
-is a bug and receives the ordinary evidence-based bug severity instead of
-this feature default.
+not promote it. Incorrect existing documentation that can damage normal use is
+a bug and receives the ordinary evidence-based bug severity instead.
 
-The Architect owns scope, duplicate prevention, the complete directive,
-factual review, and final `GO` or `NO-GO`. The Implementer writes the tracked
-source and compiled artifact. The Red Team remains an optional advisory
-reviewer. Every changed PDF is compiled from its tracked source, rendered page
-by page, and inspected for clipping, overlap, unreadable figures, broken
-references, and stale terms before `GO`.
+The Architect owns scope, duplicate prevention, the complete directive, factual
+review, and final `GO` or `NO-GO`. The Implementer writes the tracked source
+and compiled artifact. The Red Team remains an optional advisory reviewer.
+Every changed PDF is compiled from its tracked source, rendered page by page,
+and inspected for clipping, overlap, unreadable figures, broken references, and
+stale terms before `GO`.
 
-A behavior change that affects a “Current gap” paragraph names that paragraph
-in the Architect source note. The directive requires the Implementer to
-rewrite the paragraph to current behavior or narrow it to the remaining
-limitation. A stale gap is a documentation defect. Permanent notes remain
-Architect-only under [`MEMORY.md`](MEMORY.md), even when a documentation unit
-is active.
+A behavior change affecting a "Current gap" paragraph names that paragraph in
+the Architect source note, and the directive requires rewriting it to current
+behavior or narrowing it to the remaining limitation. A stale gap is a
+documentation defect. Permanent notes remain Architect-only under
+[`MEMORY.md`](MEMORY.md), even when a documentation unit is active.

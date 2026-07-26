@@ -1215,6 +1215,66 @@ restore it from the current `main` branch instead of inventing a replacement.
 The ticket format is defined in
 [`conventions-and-workflow.md`](notes/conventions-and-workflow.md#maintain-the-tracked-backlog-consistently).
 
+#### What a good ticket looks like
+
+The permanent note gives the Architect the empty template. This is a filled-in
+example showing the level of explanation a ticket needs — it is an example, not
+an admitted ticket. Notice that a reader who has never opened the code can
+still say what breaks and why it matters:
+
+```markdown
+- OPEN **HIGH** **BUG FIX** — [Saved CMB progress can lose its multipole labels](#cmb-progress-loses-multipole-labels)
+
+<a id="cmb-progress-loses-multipole-labels"></a>
+## Saved CMB progress can lose its multipole labels
+
+### High-level summary
+
+A long CMB run should save both its spectra and the multipole values that label
+those spectra; for example, the first saved row may represent multipole 2.
+The current progress file can preserve the spectra while omitting those labels.
+A resumed run can then attach a value to the wrong multipole and produce a
+scientifically incorrect result without an obvious file-reading error.
+
+### Current status
+
+**Ticket type: BUG FIX.**
+
+**Red Team reopen count: 0.**
+
+**Red Team reopening: allowed.**
+
+**OPEN.** The format check is designed, but the resume-path test is missing.
+
+**Severity: HIGH.** Normal checkpoint recovery can silently change the
+scientific meaning of saved values. Medium is insufficient because the file
+can load successfully while assigning a result to the wrong physical
+multipole.
+
+### What is already fixed
+
+The writer now stores the multipole array beside each new progress file.
+
+### What is missing
+
+Add a test that resumes from an old file without the array and confirms that
+the program stops with a useful explanation instead of guessing the labels.
+
+<details>
+<summary>Technical record for development tools</summary>
+
+Record the exact writer and reader symbols, the failing fixture, the expected
+error text, and the validation commands here.
+
+</details>
+```
+
+Three things make this ticket `GO` rather than `NO-GO`. The title names the
+problem in ordinary words instead of an internal label such as "unit 8". The
+summary gives the normal purpose, the failure, and the scientific consequence
+in three sentences. The severity line explains why Medium is not enough, rather
+than asserting "wrong science" and stopping there.
+
 ### Protect the tracked backlog
 
 Only the Architect may edit `ai/notes/backlog.md`. The Architect protects its
