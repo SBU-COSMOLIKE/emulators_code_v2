@@ -2457,7 +2457,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
         path_root + ".h5 transfer_base")
     # The trusted local factories and registered geometry implementations are
     # imported only after all saved strings above have passed their closed
-    # schemas.  Dynamic geometry/model paths cannot execute during preflight.
+    # schemas.  A geometry or model path resolved at run time cannot execute
+    # during preflight.
     from .activations import make_activation
     from .designs.blocks import make_norm
     from .geometries.scalar import ScalarGeometry

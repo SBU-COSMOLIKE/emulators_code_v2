@@ -890,7 +890,7 @@ def _masked_layer_norm(values, valid_mask, layer):
   variance = ((centered.square() * mask).sum(dim=-1, keepdim=True)
               / safe_count)
   normalized_many = centered * torch.rsqrt(variance + layer.eps)
-  # One physical coordinate has no meaningful variance. Keeping that
+  # A single physical coordinate has no variance to normalize by. Keeping that
   # coordinate unnormalized retains its input dependence; subtracting its
   # own mean would silently turn the Transformer branch into a constant.
   normalized = torch.where(count == 1, values, normalized_many)

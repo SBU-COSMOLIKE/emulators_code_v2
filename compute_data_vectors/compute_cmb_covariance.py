@@ -250,7 +250,8 @@ def stencil_derivative(f_m2, f_m1, f_p1, f_p2, h):
 
   (the center point drops out of the first-derivative stencil; the
   five points are -2h, -h, 0, +h, +2h). Error is O(h^4), which is why
-  the convergence study across several h is meaningful.
+  the convergence study across several h can separate a converged
+  derivative from one still dominated by its step size.
 
   Arguments:
     f_m2, f_m1, f_p1, f_p2 = f evaluated at -2h, -h, +h, +2h; arrays
