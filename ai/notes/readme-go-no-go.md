@@ -2,10 +2,12 @@
 
 ## Words with a local meaning
 
-A **unit** is one bounded change assigned to one development role. A **protocol
-token** is an exact machine-read word whose spelling is part of an interface. A
-directive's **Acceptance checklist** lists the checks and observations required
-for GO, and an **exemption** records why one check does not apply.
+A **unit** is one bounded change assigned to one development role, and a
+**directive** is the Architect's complete instruction for one unit. A
+**protocol token** is an exact machine-read word whose spelling is part of an
+interface. A directive's **Acceptance checklist** lists the checks and
+observations required for GO, and an **exemption** records why one check does
+not apply.
 
 **Output parity** means actual program output matches the declared reference
 under the stated comparison. **Stale** text no longer matches the current
